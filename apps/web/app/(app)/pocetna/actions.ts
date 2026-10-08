@@ -7,12 +7,13 @@
 import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { ACCOUNT_CODE_RE, digitsOnly, lineTotals, matchPartner, NEW_ACCOUNT_CODE_RE, normalizeName } from '@wise/core';
 import {
-  ACCOUNT_CODE_RE, closeYearLines, digitsOnly, lineTotals, matchPartner, NEW_ACCOUNT_CODE_RE, normalizeName, openYearLines,
-} from '@wise/core';
-import { accounts, audit, isIsoDate, journals, loadLedgerLines, partners, PostingError, postJournal, unpostSource, type Tx } from '@wise/db';
+  accounts, afterImportedTbDeleted, audit, isIsoDate, openNextYear, partners, PostingError, postJournal, unpostSource, type Tx,
+} from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { todayMk } from '@/lib/yearend';
 
 const amount = z.union([z.string(), z.number()]).transform((v) => Number(String(v).trim().replace(/\s/g, '').replace(',', '.')) || 0);
 const Row = z.object({
@@ -109,51 +110,28 @@ export async function saveOpening(_prev: ActionState, form: FormData): Promise<A
 export async function deleteOpening(full: boolean): Promise<ActionState> {
   try {
     const { u, firm, year } = await firmAction('del');
-    await db().transaction((tx) => unpostSource(tx, { firmId: firm.id, ...openingSource(year, full), userId: u.id }));
+    await db().transaction(async (tx) => {
+      await unpostSource(tx, { firmId: firm.id, ...openingSource(year, full), userId: u.id });
+      // legacy `ACT.bbImpDel` wrapper 17176: a close rebuilt from this imported trial balance goes with it
+      if (full) await afterImportedTbDeleted(tx, { firmId: firm.id, year, userId: u.id });
+    });
   } catch (e) { return actionError(e); }
   revalidatePath('/pocetna');
   return { ok: 'Избришано.' };
 }
 
-/**
- * Year-end close of the previous year (legacy `closeYear` 6732) — the minimal version needed for the carry-forward:
- * classes 4/7 → 8000, profit tax 10 % (8100/2330), result → 951/961. The full screen with the ДБ tax balance is Phase 8.
+/*
+ * Phase 8: the stopgap `closePrevYear` (flat 10 % profit tax, Phase 2) is removed — the previous year is closed on
+ * the year-end close screen (`/mbyllja`, ДБ tax, entity-aware, behind the phase gate). The carry-forward below is the
+ * same year-end service call as the "Нова година" screen.
  */
-export async function closePrevYear(): Promise<ActionState> {
-  try {
-    const { u, firm, year } = await firmAction('closeYear');
-    const Y = year - 1;
-    const L = await loadLedgerLines(db(), firm.id, `${Y}-01-01`, `${Y}-12-31`);
-    const r = closeYearLines(L);
-    if (!r.lines.length) return { error: `Нема приходи и расходи за затворање во ${Y}.` };
-    await db().transaction((tx) => postJournal(tx, {
-      firmId: firm.id, date: `${Y}-12-31`, kind: 'close', sourceType: 'yearClose', sourceId: `close-${Y}`,
-      description: `Затворање на сметки и утврдување на резултат ${Y}`, lines: r.lines, userId: u.id, requirePartner: false,
-      meta: { profit: r.profit, tax: r.tax, net: r.net }, auditAction: 'closeYear',
-    }));
-    revalidatePath('/pocetna');
-    return { ok: `Годината ${Y} е затворена: добивка пред данок ${r.profit.toFixed(2)}, данок ${r.tax.toFixed(2)}, нето ${r.net.toFixed(2)} ден.` };
-  } catch (e) { return actionError(e); }
-}
 
 /** Legacy `transfer` 7323 → `openYear` 6744: carry the closed previous year into this year's opening balance (needs `close`). */
 export async function transferFromPrevYear(): Promise<ActionState> {
   try {
     const { u, firm, year } = await firmAction('transfer');
-    const Y = year - 1;
-    const [cl] = await db().select({ id: journals.id }).from(journals)
-      .where(and(eq(journals.firmId, firm.id), eq(journals.kind, 'close'), sql`${journals.date} between ${Y + '-01-01'} and ${Y + '-12-31'}`)).limit(1);
-    if (!cl) return { error: `Прво затворете ја ${Y} (налог за затворање на сметките).` };
-    let n = 0;
-    await db().transaction(async (tx) => {
-      const lines = openYearLines(await loadLedgerLines(tx, firm.id, `${Y}-01-01`, `${Y}-12-31`));
-      n = lines.length;
-      await postJournal(tx, {
-        firmId: firm.id, date: `${year}-01-01`, kind: 'open', ...openingSource(year, false), description: `Почетна состојба ${year}`,
-        lines, userId: u.id, requirePartner: false, auditAction: 'doTransfer',
-      });
-    });
+    const r = await db().transaction((tx) => openNextYear(tx, { firmId: firm.id, year: year - 1, userId: u.id, today: todayMk() }));
     revalidatePath('/pocetna');
-    return { ok: `Преносот е направен: почетна состојба за ${year} на 01.01.${year} (${n} ставки).` };
+    return { ok: `Преносот е направен: почетна состојба за ${year} на 01.01.${year} (${r.lines} ставки).` };
   } catch (e) { return actionError(e); }
 }
