@@ -10,6 +10,11 @@ import {
 import type { Tx } from '../audit';
 import { appSettings, bankAccounts, bankRules, codes, firms, fxRates, partners, type BankAccountRow, type Firm } from '../schema/index';
 
+/** Domain error of the bank / cash services (message is shown to the user). */
+export class BankError extends Error {
+  constructor(m: string) { super(m); this.name = 'BankError'; }
+}
+
 /* ---------------- money helpers (cents ↔ numeric strings) ---------------- */
 
 /** numeric / number → integer cents. */
@@ -88,7 +93,7 @@ export interface BankEnv {
 
 export async function loadFirm(tx: Tx, firmId: string): Promise<Firm> {
   const [f] = await tx.select().from(firms).where(eq(firms.id, firmId)).limit(1);
-  if (!f) throw new Error('Фирмата не постои.');
+  if (!f) throw new BankError('Фирмата не постои.');
   return f;
 }
 

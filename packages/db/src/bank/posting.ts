@@ -8,7 +8,7 @@ import { BKPK_RE, bankEffKonto, bankEntries, fxDifference, type BankTxn } from '
 import type { Tx } from '../audit';
 import { assertOpenPeriod, postJournal, PostingError, unpostSource, type PostLineInput } from '../posting';
 import { bankAccounts, bankLines, bankStatements, journals, type BankLine, type BankStatement } from '../schema/index';
-import { cents, den, loadBankEnv, loadFirm, type BankEnv } from './context';
+import { BankError, den, loadBankEnv, loadFirm, type BankEnv } from './context';
 import { BANK_SOURCE_TYPE } from './open-items';
 import { toBankRow } from './rows';
 
@@ -57,7 +57,7 @@ export interface PostStatementResult { status: 'draft' | 'posted'; number?: stri
  */
 export async function postStatement(tx: Tx, statementId: string, userId: string | null, env?: BankEnv): Promise<PostStatementResult> {
   const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, statementId)).limit(1);
-  if (!st) throw new Error('Изводот не постои.');
+  if (!st) throw new BankError('Изводот не постои.');
   const E = env ?? (await loadBankEnv(tx, st.firmId));
   const [acct] = await tx.select().from(bankAccounts).where(eq(bankAccounts.id, st.bankAccountId)).limit(1);
   const L = await tx.select().from(bankLines).where(eq(bankLines.statementId, st.id)).orderBy(asc(bankLines.lineNo));

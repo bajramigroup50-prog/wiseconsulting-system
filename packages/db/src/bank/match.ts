@@ -14,7 +14,7 @@ import {
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
 import { bankLines, bankStatements, partners } from '../schema/index';
-import { den, loadBankEnv, POS_PARTNER_NAME, type BankEnv } from './context';
+import { BankError, den, loadBankEnv, POS_PARTNER_NAME, type BankEnv } from './context';
 import { openItemsSource } from './open-items';
 import { assertStatementOpen, postStatements } from './posting';
 import { bookingPatch, toBankRow } from './rows';
@@ -126,7 +126,7 @@ export async function lineOpenDocs(tx: Tx, firmId: string, year: number, lineId:
   const env = await loadBankEnv(tx, firmId);
   const ctx = await matchContext(tx, env, year);
   const self = ctx.rows.find((r) => r.id === lineId);
-  if (!self) throw new Error('Ставката не постои.');
+  if (!self) throw new BankError('Ставката не постои.');
   // The line's own current link does not count as paid while re-linking it.
   const rows = ctx.rows.map((r) => (r.id === lineId ? { ...r, ref: undefined, refs: undefined, settle: undefined } : r));
   const b = { ...self, ref: undefined, refs: undefined };
@@ -140,16 +140,16 @@ export async function lineOpenDocs(tx: Tx, firmId: string, year: number, lineId:
  */
 export async function linkLine(tx: Tx, a: { firmId: string; userId: string | null; year: number; lineId: string; docIds: string[] }): Promise<{ refs: DocRefAmt[]; excess: number }> {
   const [line] = await tx.select().from(bankLines).where(and(eq(bankLines.id, a.lineId), eq(bankLines.firmId, a.firmId))).limit(1);
-  if (!line) throw new Error('Ставката не постои.');
+  if (!line) throw new BankError('Ставката не постои.');
   const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, line.statementId)).limit(1);
   await assertStatementOpen(tx, st!);
   const env = await loadBankEnv(tx, a.firmId);
   const D = await lineOpenDocs(tx, a.firmId, a.year, a.lineId);
   const pick = a.docIds.map((id) => D.docs.find((z) => z.doc.id === id)).filter((z): z is { doc: OpenDoc; open: number } => !!z).map((z) => ({ x: z.doc, o: z.open }));
-  if (!pick.length) throw new Error('Изберете барем една фактура.');
+  if (!pick.length) throw new BankError('Изберете барем една фактура.');
   const fx = isFxAccount(env.accounts, line.bankAccountId);
   const r = (fx ? linkPaymentFx : linkPayment)({ ...toBankRow(line), ref: undefined, refs: undefined, settle: undefined }, pick, D.type, env.konta);
-  if (!r) throw new Error('Фактурите се веќе платени.');
+  if (!r) throw new BankError('Фактурите се веќе платени.');
   await tx.update(bankLines).set({ ...bookingPatch(r.row), auto: null, newPartner: null }).where(eq(bankLines.id, line.id));
   await postStatements(tx, [line.statementId], a.userId, env);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bkPickSave', entityType: 'bank_line', entityId: line.id,

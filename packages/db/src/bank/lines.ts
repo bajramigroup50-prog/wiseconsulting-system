@@ -13,14 +13,11 @@ import { audit, type Tx } from '../audit';
 import { assertOpenPeriod, postJournal, unpostSource } from '../posting';
 import { loadLedgerLines } from '../ledger-queries';
 import { bankAccounts, bankLines, bankRules, bankStatements, partners, type BankLine, type BankStatement } from '../schema/index';
-import { cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, syncFirmBanks } from './context';
+import { BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, syncFirmBanks } from './context';
+
 import { BANK_SOURCE_TYPE } from './open-items';
 import { assertStatementOpen, postStatement, postStatements } from './posting';
 import { toBankRow, UNBOOKED } from './rows';
-
-export class BankError extends Error {
-  constructor(m: string) { super(m); this.name = 'BankError'; }
-}
 
 const KONTO_RE = /^\d{2,10}$/;
 
