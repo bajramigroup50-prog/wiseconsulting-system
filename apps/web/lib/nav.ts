@@ -33,4 +33,6 @@ export function navFor(role: Role): readonly NavGroup[] {
 
 /** View ids each role may open (used to guard the catch-all route). */
 export const viewAllowed = (role: Role, id: string): boolean =>
-  navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka';
+  navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka'
+  // Office staff may preview the client portal pages (legacy `S.asClient`).
+  || (['klHome', 'klSend'].includes(id) && !['klient', 'teren', 'view'].includes(role));
