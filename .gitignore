@@ -11,3 +11,5 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+packages/db/.pglite/
+.claude/scheduled_tasks.lock

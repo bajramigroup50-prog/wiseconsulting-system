@@ -1,0 +1,27 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+	}
+	request_body {
+		max_size 110MB
+	}
+	reverse_proxy app:3000
+}
+
+# Presigned uploads/downloads go straight to MinIO (S3 API only; the console is not exposed).
+files.{$DOMAIN} {
+	request_body {
+		max_size 110MB
+	}
+	reverse_proxy minio:9000 {
+		header_up Host {host}
+	}
+}

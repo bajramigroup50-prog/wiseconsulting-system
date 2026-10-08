@@ -1,0 +1,23 @@
+{
+  "name": "@wise/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@wise/db": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "pg-boss": "^12.37.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  }
+}
