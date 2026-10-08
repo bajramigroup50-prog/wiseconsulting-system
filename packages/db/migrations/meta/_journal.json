@@ -29,6 +29,13 @@
       "when": 1791481499701,
       "tag": "0003_vat",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791483190321,
+      "tag": "0004_yearend",
+      "breakpoints": true
     }
   ]
 }

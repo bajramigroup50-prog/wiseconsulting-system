@@ -7,7 +7,7 @@ import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { closePrevYear, deleteOpening, transferFromPrevYear } from './actions';
+import { deleteOpening, transferFromPrevYear } from './actions';
 import { OpeningEditor, type ORow } from './opening-editor';
 
 export default async function PocetnaPage({ searchParams }: { searchParams: Promise<{ full?: string }> }) {
@@ -37,8 +37,7 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
       <Hd t={full ? `Бруто биланс ${year}` : 'Почетна состојба'} sub={full ? 'за завршна сметка' : 'налог за отворање'}>
         {!full && close && (closed.length
           ? <RowAction className="btn" action={transferFromPrevYear} label={`Пренос од ${year - 1}`} confirm={`Да се пренесат салдата од ${year - 1}? Постојната почетна состојба за ${year} ќе се замени.`} />
-          : <RowAction className="btn" action={closePrevYear} label={`Затвори ја ${year - 1} (за пренос)`} title="Класите 4 и 7 → 8000, данок 10 % (8100/2330), резултат → 951/961"
-              confirm={`${year - 1} не е затворена. Да се креира налог за затворање на 31.12.${year - 1} (данок на добивка 10 %)? Потоа следи „Пренос од ${year - 1}“.`} />)}
+          : <Link className="btn" href="/mbyllja" title={`Изберете ја ${year - 1} горе и затворете ја на екранот „Затворање“ (данок од ДБ), па направете пренос`}>Затвори ја {year - 1} →</Link>)}
         {ex && <Link className="btn" href={`/nalozi?n=${encodeURIComponent(ex.number)}`}>Налог {ex.number}</Link>}
         {ex && del && <RowAction className="btn danger" action={deleteOpening.bind(null, full)} label="🗑 Избриши" confirm={`Да се избрише ${full ? 'увезениот бруто биланс' : 'почетната состојба'} за ${year}?`} />}
       </Hd>
