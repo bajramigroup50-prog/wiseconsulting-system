@@ -20,3 +20,6 @@ export { decodeCp1251, type PayMatch } from './payroll';
 export * as Bank from './bank-match';
 export * as BankParsers from './bank-parsers';
 export * from './ledger';
+export { closeYearLines, openYearLines, matchPartner } from './ledger';
+export type { CloseYearResult, LedgerLine } from './ledger';
+export * as Ledger from './ledger';
