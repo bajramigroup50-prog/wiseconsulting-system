@@ -1,2 +1,5 @@
 * text=auto eol=lf
 legacy/** -text
+packages/core/src/index.ts merge=union
+packages/db/src/schema/index.ts merge=union
+apps/worker/src/jobs/index.ts merge=union
