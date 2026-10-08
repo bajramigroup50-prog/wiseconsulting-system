@@ -1,10 +1,11 @@
 /**
  * Schema — Phase 3 "sales & purchases": outgoing documents (invoice, credit note, proforma, dispatch note, advance
- * invoice), purchases with VAT groups / stock lines / landed costs, supplier returns & credits, and the generic
- * `stock_moves` table (receipts and issues; Phase 7 builds the stock screens on it).
+ * invoice), purchases with VAT groups / stock lines / landed costs, supplier returns & credits. Stock movements go to
+ * Phase 7's `stock_moves` through `replaceSourceMoves` (source types `purchase`, `invoice`, `dispatch`, `supplier_credit`).
  *
  * Documents are saved and posted in one transaction by `src/sales/*.ts` through the posting service; their journals
- * are found by (`source_type`, `source_id`): `invoice`, `invoice_stock`, `purchase`, `supplier_credit`.
+ * are found by (`source_type`, `source_id`): `invoice`, `purchase`, `supplier_credit`; cost of goods sold / returned is the
+ * stock journal `stock:invoice` / `stock:dispatch` posted by `replaceSourceMoves`.
  *
  * Status: `posted` (booked), `pending` (entered by a klient-role user, not booked until the office approves it),
  * `draft` (never booked — proformas).
@@ -289,39 +290,6 @@ export const supplierCreditLines = pgTable('supplier_credit_lines', {
   account: text('account').notNull(),
 }, (t) => [index('supplier_credit_lines_credit_idx').on(t.creditId)]);
 
-/* ---------------- Stock moves (shared with Phase 7) ---------------- */
-
-/**
- * One stock receipt or issue. `qty` and `value` are signed (negative = out), `direction` says the same explicitly.
- * Weighted average = Σ value / Σ qty per item (and location). The journal of a move lives with its source document
- * (purchase journal for receipts, `invoice_stock` journal for issues), never on the move itself.
- */
-export const stockMoves = pgTable('stock_moves', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'restrict' }),
-  itemId: uuid('item_id').notNull().references(() => items.id, { onDelete: 'restrict' }),
-  /** Warehouse / store (codes `cb` warehouse|store); null = the main warehouse. */
-  warehouseId: uuid('warehouse_id').references(() => codes.id, { onDelete: 'restrict' }),
-  date: date('date').notNull(),
-  qty: qty('qty').notNull(),
-  value: money('value').notNull(),
-  direction: text('direction').$type<'in' | 'out'>().notNull(),
-  /** Legacy move type: in, sale, return, dispatch, supret, transfer, popis, … */
-  moveType: text('move_type').notNull(),
-  /** Source document, e.g. (`purchase`, id), (`invoice`, id), (`supplier_credit`, id). */
-  sourceType: text('source_type').notNull(),
-  sourceId: text('source_id').notNull(),
-  lineNo: integer('line_no').notNull().default(0),
-  label: text('label'),
-  /** Client-submitted, not approved: ignored by stock computations. */
-  pending: boolean('pending').notNull().default(false),
-  createdAt: createdAt(),
-}, (t) => [
-  index('stock_moves_firm_item_date_idx').on(t.firmId, t.itemId, t.date),
-  index('stock_moves_source_idx').on(t.firmId, t.sourceType, t.sourceId),
-  check('stock_moves_direction_chk', sql`${t.direction} in ('in','out')`),
-]);
-
 export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceLine = typeof invoiceLines.$inferSelect;
 export type Purchase = typeof purchases.$inferSelect;
@@ -330,4 +298,3 @@ export type PurchaseStockLineRow = typeof purchaseStockLines.$inferSelect;
 export type PurchaseCost = typeof purchaseCosts.$inferSelect;
 export type SupplierCredit = typeof supplierCredits.$inferSelect;
 export type SupplierCreditLine = typeof supplierCreditLines.$inferSelect;
-export type StockMoveRow = typeof stockMoves.$inferSelect;

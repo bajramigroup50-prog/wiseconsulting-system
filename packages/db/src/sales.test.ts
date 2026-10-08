@@ -9,14 +9,14 @@ import { seedReference } from './seed/reference';
 import { approveInvoice, deleteInvoice, saveInvoice, type InvoiceInput } from './sales/invoices';
 import { approvePurchase, deletePurchase, savePurchase, type PurchaseInput } from './sales/purchases';
 import { deleteSupplierCredit, saveSupplierCredit } from './sales/supplier-credits';
-import { DocumentError, type Actor } from './sales/context';
+import { DocumentError, type DocActor } from './sales/context';
 import { PostingError } from './posting';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
 let firmId = '', cust = '', sup = '', goods = '', svc = '';
-const office: Actor = { userId: null, role: 'acc' };
-const klient: Actor = { userId: null, role: 'klient' };
+const office: DocActor = { userId: null, role: 'acc' };
+const klient: DocActor = { userId: null, role: 'klient' };
 
 const tx = <T>(f: (t: DB) => Promise<T>) => db.transaction((t) => f(t as unknown as DB));
 const err = async (p: Promise<unknown>) => { try { await p; } catch (e) { return e as Error; } throw new Error('expected an error'); };
@@ -108,7 +108,7 @@ describe('invoices', () => {
     expect(J.by['1200']).toBe(944);
     expect(J.by['741018']).toBe(-800); // goods → revGoods 7410 per rate (scheme, not the literal 7400)
     expect(J.L.find((l) => l.account === '1200')!.partnerId).toBe(cust);
-    const S = (await journal('invoice_stock', id))!;
+    const S = (await journal('stock:invoice', id))!;
     expect(S.j.kind).toBe('zaliha');
     expect(S.by).toEqual({ '7010': 440, '6600': -440 });
     expect((await moves('invoice', id)).map((m) => [m.direction, Number(m.qty), Number(m.value)])).toEqual([['out', -4, -440]]);
@@ -122,7 +122,7 @@ describe('invoices', () => {
     expect((await moves('invoice', id)).map((m) => Number(m.qty))).toEqual([-5]);
     const r2 = await tx((t) => saveInvoice(t, firmId, inv({ number: '001/2026', lines: [{ itemId: svc, name: 'Консалтинг', qty: 1, price: 1000, rate: 18 }] }), office));
     expect(r2).toMatchObject({ number: '002/2026', renumbered: true });
-    expect(await journal('invoice_stock', r2.id)).toBeNull();
+    expect(await journal('stock:invoice', r2.id)).toBeNull();
     await tx((t) => deleteInvoice(t, firmId, r2.id, office));
   });
   it('credit note (return) reverses revenue and returns goods to stock', async () => {
@@ -133,7 +133,7 @@ describe('invoices', () => {
     const J = (await journal('invoice', c.id))!;
     expect(J.j.kind).toBe('odobr');
     expect(J.by['1200']).toBe(-472);
-    expect((await journal('invoice_stock', c.id))!.by).toEqual({ '6600': 220, '7010': -220 });
+    expect((await journal('stock:invoice', c.id))!.by).toEqual({ '6600': 220, '7010': -220 });
     expect((await moves('invoice', c.id)).map((m) => [m.direction, Number(m.qty), Number(m.value)])).toEqual([['in', 2, 220]]);
     expect((await err(tx((t) => deleteInvoice(t, firmId, id, office)))).message).toMatch(/одобрение/);
     await tx((t) => deleteInvoice(t, firmId, c.id, office));
@@ -162,7 +162,7 @@ describe('invoices', () => {
   it('dispatch note issues stock; the invoice made from it does not issue again', async () => {
     const d = await tx((t) => saveInvoice(t, firmId, inv({ kind: 'dispatch', lines: [{ itemId: goods, name: 'Шраф', qty: 1, price: 200, rate: 18 }] }), office));
     expect(await journal('invoice', d.id)).toBeNull();
-    expect((await journal('invoice_stock', d.id))!.by['7010']).toBe(110);
+    expect((await journal('stock:dispatch', d.id))!.by['7010']).toBe(110);
     const i = await tx((t) => saveInvoice(t, firmId, inv({ fromDocId: d.id, lines: [{ itemId: goods, name: 'Шраф', qty: 1, price: 200, rate: 18 }] }), office));
     expect(await moves('invoice', i.id)).toHaveLength(0);
     expect((await journal('invoice', i.id))!.by['1200']).toBe(236);

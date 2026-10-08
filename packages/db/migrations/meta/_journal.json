@@ -26,8 +26,36 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1791481902103,
-      "tag": "0003_sales",
+      "when": 1791481499701,
+      "tag": "0003_vat",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791483190321,
+      "tag": "0004_yearend",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791483615599,
+      "tag": "0005_office",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791483838692,
+      "tag": "0006_stock",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791484328953,
+      "tag": "0007_sales",
       "breakpoints": true
     }
   ]

@@ -6,7 +6,7 @@ import { firms, partners, purchases, supplierCreditLines, supplierCredits } from
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { dmy, fmt, fq } from '@/lib/fmt';
-import { PrintBar } from '@/components/sales/print-button';
+
 
 export default async function PrintScr({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -24,7 +24,7 @@ export default async function PrintScr({ params }: { params: Promise<{ id: strin
   const rows = L.map((r) => { const b = Math.round(Number(r.qty) * Number(r.price)); const v = f.vatRegistered && r.rate ? Math.round((b * r.rate) / 100) : 0; return { r, b, v }; });
   return (
     <>
-      <PrintBar />
+
       <div className="pdfdoc printarea">
         <div className="ph"><div><div className="pt">{d.kind === 'ret' ? 'ПОВРАТНИЦА ДО ДОБАВУВАЧ' : 'КНИЖНО ОДОБРЕНИЕ ОД ДОБАВУВАЧ'}</div><div className="ps">бр. {d.number} од {dmy(d.date)}</div></div><div className="pm">{f.name}</div></div>
         <p>Од: <b>{f.name}</b> · ЕДБ {f.edb}<br />До: <b>{p?.name}</b>{p?.edb && ' · ЕДБ ' + p.edb}

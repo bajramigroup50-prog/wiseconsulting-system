@@ -15,11 +15,12 @@ import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource } from '../posting';
 import {
   fileLinks, files, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
-  stockMoves, supplierCredits, type Purchase, type PurchaseData,
+  supplierCredits, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
-  assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, stockLocations, toStockItem, type Actor,
+  assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, stockLocations, type DocActor,
 } from './context';
+import { removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
 
 export const COST_SLOTS = ['car', 't1', 't2', 'sped', 'trans', 'dr', 'dev'] as const;
 export interface PurchaseGroupInput { account?: string | null; rate: number | string; base: number | string; vat?: number | string | null }
@@ -117,7 +118,7 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   let retail: PurchaseDoc['retail'];
   const sch = { ...(ctx.global?.sch ?? {}), ...(ctx.firm.sch ?? {}) } as Record<string, unknown>;
   if (stock.length && loc && (loc.kind === 'store' ? sch.retailMethod : sch.whSaleMethod)) {
-    const rows = calculationRows({ items: [...IT.values()].map(toStockItem) as StockItem[] }, {
+    const rows = calculationRows({ items: [...IT.values()].map((i) => toStockItem(i)) as StockItem[] }, {
       imp: pur.imp, fx: n(pur.fx), wh: pur.warehouseId ?? undefined, costs: costs as PurchaseLike['costs'], cnames: pur.cnames, distMode: pur.distMode,
       stock: ST.map((s) => ({ item: s.itemId, qty: n(s.qty), price: n(s.price), rab: n(s.rab), cn: s.cn ?? '', dep: s.dep ?? '', sp: s.sp ?? '' })),
     });
@@ -141,16 +142,16 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
     lines: lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId || null, note: l.note ?? null, doc: pur.number || null, currency: l.cur ?? null, amountCur: l.amtCur ?? null })),
     auditAction: 'postPurchase',
   });
-  await tx.delete(stockMoves).where(and(eq(stockMoves.firmId, f.id), eq(stockMoves.sourceType, 'purchase'), eq(stockMoves.sourceId, pur.id)));
-  if (ST.length) await tx.insert(stockMoves).values(ST.map((s) => ({
-    firmId: f.id, itemId: s.itemId, warehouseId: pur.warehouseId, date: pur.date, qty: s.qty, value: s.value, direction: 'in' as const,
-    moveType: 'in', sourceType: 'purchase', sourceId: pur.id, lineNo: s.lineNo, label: 'Влезна ф-ра ' + (pur.number || ''),
-  })));
+  // Receipt moves carry no journal lines: their booking is the purchase journal above (legacy `pur-` moves had no lines).
+  await replaceSourceMoves(tx, {
+    firmId: f.id, sourceType: 'purchase', sourceId: pur.id, date: pur.date, userId, partnerId: pur.partnerId,
+    moves: ST.map((s) => ({ id: '', item: s.itemId, wh: pur.warehouseId ?? 'main', date: pur.date, qty: n(s.qty), value: n(s.value), type: 'in', label: 'Влезна ф-ра ' + (pur.number || ''), lines: [] })),
+  });
 }
 
 async function unpostPurchase(tx: Tx, firmId: string, id: string, userId: string | null) {
   await unpostSource(tx, { firmId, sourceType: 'purchase', sourceId: id, userId });
-  await tx.delete(stockMoves).where(and(eq(stockMoves.firmId, firmId), eq(stockMoves.sourceType, 'purchase'), eq(stockMoves.sourceId, id)));
+  await removeSourceMoves(tx, { firmId, sourceType: 'purchase', sourceId: id, userId });
 }
 
 /** Purchases of the firm as duplicate candidates (`findDuplicate`). */
@@ -178,7 +179,7 @@ export async function fileAlreadyUsed(tx: Tx, firmId: string, fileIds: readonly 
 }
 
 /** Save a purchase and book it (pending for klient users). */
-export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput, actor: Actor): Promise<PurchaseSaveResult> {
+export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput, actor: DocActor): Promise<PurchaseSaveResult> {
   const f = await loadFirmForUpdate(tx, firmId);
   const existing = input.id ? (await tx.select().from(purchases).where(and(eq(purchases.id, input.id), eq(purchases.firmId, firmId))).for('update').limit(1))[0] : undefined;
   if (input.id && !existing) throw new DocumentError('Влезната фактура не постои.');
@@ -311,7 +312,7 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   return { id: pur.id, status, warnings, createdItems };
 }
 
-export async function approvePurchase(tx: Tx, firmId: string, id: string, actor: Actor): Promise<void> {
+export async function approvePurchase(tx: Tx, firmId: string, id: string, actor: DocActor): Promise<void> {
   if (pendingFor(actor)) throw new DocumentError('Немате право да одобрувате.');
   const f = await loadFirmForUpdate(tx, firmId);
   const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firmId))).for('update').limit(1);
@@ -322,7 +323,7 @@ export async function approvePurchase(tx: Tx, firmId: string, id: string, actor:
   await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'purchase', entityId: id, data: { number: pur.number } });
 }
 
-export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: Actor): Promise<void> {
+export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: DocActor): Promise<void> {
   await loadFirmForUpdate(tx, firmId);
   const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firmId))).for('update').limit(1);
   if (!pur) throw new DocumentError('Влезната фактура не постои.');

@@ -10,8 +10,9 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 import { locationAccounts, PostingError as CorePostingError, schemeValue, scrCalc, scrEntries } from '@wise/core';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource } from '../posting';
-import { partners, purchases, purchaseStockLines, stockMoves, supplierCreditLines, supplierCredits } from '../schema/index';
-import { assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, stockLocations, type Actor } from './context';
+import { partners, purchases, purchaseStockLines, supplierCreditLines, supplierCredits } from '../schema/index';
+import { removeSourceMoves, replaceSourceMoves } from '../stock-service';
+import { assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, stockLocations, type DocActor } from './context';
 
 export interface SupplierCreditInput {
   id?: string | null; kind: 'ret' | 'disc'; number?: string | null; date: string; supNo?: string | null;
@@ -30,7 +31,7 @@ export async function nextSupplierCreditNo(tx: Tx, firmId: string, date: string,
   return String(mx + 1).padStart(3, '0') + '/' + y;
 }
 
-export async function saveSupplierCredit(tx: Tx, firmId: string, input: SupplierCreditInput, actor: Actor): Promise<{ id: string; number: string; warnings: string[] }> {
+export async function saveSupplierCredit(tx: Tx, firmId: string, input: SupplierCreditInput, actor: DocActor): Promise<{ id: string; number: string; warnings: string[] }> {
   if (actor.role === 'klient') throw new DocumentError('Немате право за оваа операција.');
   const f = await loadFirmForUpdate(tx, firmId);
   const existing = input.id ? (await tx.select().from(supplierCredits).where(and(eq(supplierCredits.id, input.id), eq(supplierCredits.firmId, firmId))).for('update').limit(1))[0] : undefined;
@@ -115,20 +116,20 @@ export async function saveSupplierCredit(tx: Tx, firmId: string, input: Supplier
     lines: lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId || null, note: l.note ?? null, doc: input.supNo || number })),
     auditAction: 'postSupplierCredit',
   });
-  await tx.delete(stockMoves).where(and(eq(stockMoves.firmId, firmId), eq(stockMoves.sourceType, 'supplier_credit'), eq(stockMoves.sourceId, id)));
-  if (input.kind === 'ret') await tx.insert(stockMoves).values(rows.map((r) => ({
-    firmId, itemId: r.itemId!, warehouseId: input.warehouseId || null, date: input.date, qty: String(-r.qty), value: String(-Math.round(r.qty * r.price)),
-    direction: 'out' as const, moveType: 'supret', sourceType: 'supplier_credit', sourceId: id, lineNo: r.lineNo, label: 'Повратница до добавувач ' + number,
-  })));
+  // Returned goods leave stock at the stated purchase price; the booking is the supplier-credit journal above.
+  await replaceSourceMoves(tx, {
+    firmId, sourceType: 'supplier_credit', sourceId: id, date: input.date, userId: actor.userId, partnerId: input.partnerId,
+    moves: input.kind === 'ret' ? rows.map((r) => ({ id: '', item: r.itemId!, wh: input.warehouseId || 'main', date: input.date, qty: -r.qty, value: -Math.round(r.qty * r.price), type: 'supret', label: 'Повратница до добавувач ' + number, lines: [] })) : [],
+  });
   await audit(tx, { userId: actor.userId, firmId, action: 'scrSave', entityType: 'supplier_credit', entityId: id, data: { kind: input.kind, number, total: c.total } });
   return { id, number, warnings };
 }
 
-export async function deleteSupplierCredit(tx: Tx, firmId: string, id: string, actor: Actor): Promise<void> {
+export async function deleteSupplierCredit(tx: Tx, firmId: string, id: string, actor: DocActor): Promise<void> {
   const [d] = await tx.select().from(supplierCredits).where(and(eq(supplierCredits.id, id), eq(supplierCredits.firmId, firmId))).limit(1);
   if (!d) throw new DocumentError('Документот не постои.');
   await unpostSource(tx, { firmId, sourceType: 'supplier_credit', sourceId: id, userId: actor.userId });
-  await tx.delete(stockMoves).where(and(eq(stockMoves.firmId, firmId), eq(stockMoves.sourceType, 'supplier_credit'), eq(stockMoves.sourceId, id)));
+  await removeSourceMoves(tx, { firmId, sourceType: 'supplier_credit', sourceId: id, userId: actor.userId });
   await tx.delete(supplierCredits).where(eq(supplierCredits.id, id));
   await audit(tx, { userId: actor.userId, firmId, action: 'scrDel', entityType: 'supplier_credit', entityId: id, data: { number: d.number } });
 }

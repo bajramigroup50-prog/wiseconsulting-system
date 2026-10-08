@@ -142,25 +142,6 @@ CREATE TABLE "purchases" (
 	CONSTRAINT "purchases_status_chk" CHECK ("purchases"."status" in ('draft','posted','pending'))
 );
 --> statement-breakpoint
-CREATE TABLE "stock_moves" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"firm_id" uuid NOT NULL,
-	"item_id" uuid NOT NULL,
-	"warehouse_id" uuid,
-	"date" date NOT NULL,
-	"qty" numeric(18, 4) NOT NULL,
-	"value" numeric(18, 2) NOT NULL,
-	"direction" text NOT NULL,
-	"move_type" text NOT NULL,
-	"source_type" text NOT NULL,
-	"source_id" text NOT NULL,
-	"line_no" integer DEFAULT 0 NOT NULL,
-	"label" text,
-	"pending" boolean DEFAULT false NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "stock_moves_direction_chk" CHECK ("stock_moves"."direction" in ('in','out'))
-);
---> statement-breakpoint
 CREATE TABLE "supplier_credit_lines" (
 	"id" bigserial PRIMARY KEY NOT NULL,
 	"credit_id" uuid NOT NULL,
@@ -253,9 +234,6 @@ ALTER TABLE "purchases" ADD CONSTRAINT "purchases_warehouse_id_codes_id_fk" FORE
 ALTER TABLE "purchases" ADD CONSTRAINT "purchases_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchases" ADD CONSTRAINT "purchases_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchases" ADD CONSTRAINT "purchases_approved_by_users_id_fk" FOREIGN KEY ("approved_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "stock_moves" ADD CONSTRAINT "stock_moves_firm_id_firms_id_fk" FOREIGN KEY ("firm_id") REFERENCES "public"."firms"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "stock_moves" ADD CONSTRAINT "stock_moves_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."items"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "stock_moves" ADD CONSTRAINT "stock_moves_warehouse_id_codes_id_fk" FOREIGN KEY ("warehouse_id") REFERENCES "public"."codes"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "supplier_credit_lines" ADD CONSTRAINT "supplier_credit_lines_credit_id_supplier_credits_id_fk" FOREIGN KEY ("credit_id") REFERENCES "public"."supplier_credits"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "supplier_credit_lines" ADD CONSTRAINT "supplier_credit_lines_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."items"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "supplier_credits" ADD CONSTRAINT "supplier_credits_firm_id_firms_id_fk" FOREIGN KEY ("firm_id") REFERENCES "public"."firms"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -284,8 +262,6 @@ CREATE INDEX "purchase_stock_lines_item_idx" ON "purchase_stock_lines" USING btr
 CREATE INDEX "purchase_vat_groups_pur_idx" ON "purchase_vat_groups" USING btree ("purchase_id");--> statement-breakpoint
 CREATE INDEX "purchases_firm_date_idx" ON "purchases" USING btree ("firm_id","date");--> statement-breakpoint
 CREATE INDEX "purchases_partner_idx" ON "purchases" USING btree ("firm_id","partner_id");--> statement-breakpoint
-CREATE INDEX "stock_moves_firm_item_date_idx" ON "stock_moves" USING btree ("firm_id","item_id","date");--> statement-breakpoint
-CREATE INDEX "stock_moves_source_idx" ON "stock_moves" USING btree ("firm_id","source_type","source_id");--> statement-breakpoint
 CREATE INDEX "supplier_credit_lines_credit_idx" ON "supplier_credit_lines" USING btree ("credit_id");--> statement-breakpoint
 CREATE INDEX "supplier_credits_firm_date_idx" ON "supplier_credits" USING btree ("firm_id","date");--> statement-breakpoint
 CREATE UNIQUE INDEX "supplier_credits_number_uq" ON "supplier_credits" USING btree ("firm_id",(extract(year from "date")),"number");--> statement-breakpoint

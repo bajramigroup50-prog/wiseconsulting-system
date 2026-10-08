@@ -88,6 +88,21 @@ const SOURCES = (variant: 'shipped' | 'intended'): string[] => [
     'return p.stock}',
   // the levelling block inside ledger() (index.html 3461), wrapped so it can be called with an `add` collector
   'function __nivLedger(add){\n' + grab(/^\s*S\.data\.docs\.filter\(x=>x\.type==='nivel'&&\(retailOn/) + '\n}',
+  // stock books (Phase 7 screens): lager, item card, ЕТ/ЕТМ, ЕТ form, МЕТГ, production
+  grab(/^const inYear=/),
+  grab(/^const partner=id=>/),
+  grab(/^const LAGER=\{/),
+  grab(/^function lagerData\(v\)/),
+  grab(/^function kartData\(retail\)/),
+  grab(/^function trgData\(retail\)/),
+  grab(/^const inFirst=/),
+  grab(/^const MOUT=/),
+  grab(/^function prPseudo\(/),
+  grab(/^function moveDoc\(m\)/),
+  grab(/^function etData\(\)/),
+  grab(/^function metgData\(/),
+  grab(/^function unitCost\(it\)/),
+  grab(/^async function runProd\(\)/),
 ];
 
 export interface LegacyFixture {
@@ -97,6 +112,9 @@ export interface LegacyFixture {
   codes?: any[];
   production?: any[];
   sales?: any[];
+  invoices?: any[];
+  purchases?: any[];
+  partners?: any[];
   firm?: any;
   gsch?: any;
   today?: string;
@@ -121,6 +139,9 @@ export function loadLegacy(fx: LegacyFixture, variant: 'shipped' | 'intended' = 
       codes: clone(fx.codes) ?? [],
       production: clone(fx.production) ?? [],
       sales: clone(fx.sales) ?? [],
+      invoices: clone(fx.invoices) ?? [],
+      purchases: clone(fx.purchases) ?? [],
+      partners: clone(fx.partners) ?? [],
     },
     gsch: clone(fx.gsch) ?? { sch: {} },
     bulk: true,
@@ -149,13 +170,16 @@ export function loadLegacy(fx: LegacyFixture, variant: 'shipped' | 'intended' = 
     posKDef: () => String((fx.firm ?? {}).posK || '1200001'),
     locName: (id: string) => String(id || 'main'),
     rangeOf: (p: string) => [S[p + 'From'], S[p + 'To']],
+    uid: () => 'u' + ++uidN,
   };
+  let uidN = 0;
   vm.createContext(ctx);
   const names = [
     'r2', 'r4', 'fmt', 'fq', 'dmy', 'sch', 'posL', 'retailOn', 'rk', 'stockK', 'locs', 'kindOf', 'stock', 'postOut', 'retailP',
     'priceAt', 'stockAt', 'costVat', 'costsOf', 'stVal', 'allocAuto', 'allocCosts', 'purRound', 'calcRows', 'fkN', 'fkAlloc',
     'fkIssuePlan', 'fkSpread', 'kdfiRows', 'kdfiDay', 'dfiDays', 'dfiControl', 'reaverage', 'prnKonta', 'prnLines', 'akNewPrice',
     '__nivLedger', '__purStock',
+    'lagerData', 'LAGER', 'kartData', 'trgData', 'moveDoc', 'etData', 'metgData', 'unitCost', 'runProd', 'calcRows', 'prPseudo',
   ];
   const code = SOURCES(variant).join('\n') + `\n;globalThis.__L={${names.join(',')}};`;
   vm.runInContext(code, ctx, { filename: 'legacy-stock.js' });

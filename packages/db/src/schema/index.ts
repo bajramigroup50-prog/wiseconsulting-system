@@ -5,3 +5,7 @@ export * from './foundation';
 export * from './books';
 export * from './sales';
 export * from './ai';
+export * from './vat';
+export * from './yearend';
+export * from './office';
+export * from './stock';

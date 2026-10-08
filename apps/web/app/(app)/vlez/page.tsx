@@ -90,7 +90,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id), accountOptions(firm.id, (k) => /^[0346]/.test(k)),
       fileIds.length ? db().select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fileIds)) : Promise.resolve([]),
       db().select({ item: stockMoves.itemId, v: stockMoves.value, q: stockMoves.qty, d: stockMoves.date }).from(stockMoves)
-        .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.direction, 'in'), eq(stockMoves.moveType, 'in'))).orderBy(desc(stockMoves.date)),
+        .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.direction, 'in'), eq(stockMoves.kind, 'in'))).orderBy(desc(stockMoves.date)),
     ]);
     const lastCost = new Map<string, number>();
     for (const m of last) if (!lastCost.has(m.item) && Number(m.q) > 0) lastCost.set(m.item, Math.round((Number(m.v) / Number(m.q)) * 1e4) / 1e4);

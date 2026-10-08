@@ -9,7 +9,7 @@ import { codes, firms, items, partners, purchaseCosts, purchases, purchaseStockL
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { dmy, fmt, fq } from '@/lib/fmt';
-import { PrintBar } from '@/components/sales/print-button';
+
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -34,7 +34,7 @@ export default async function PrintKalk({ params, searchParams }: { params: Prom
     imp: p.imp, fx: Number(p.fx), wh: p.warehouseId ?? 'main', costs, cnames: p.cnames, distMode: p.distMode, art32: p.art32,
     stock: ST.map((s) => ({ item: s.itemId, name: s.name ?? '', qty: Number(s.qty), price: Number(s.price), rab: Number(s.rab), cn: s.cn ?? '', dep: s.dep ?? '', sp: s.sp ?? '' })),
   };
-  const R = calculationRows({ items: I.map(toStockItem) }, P);
+  const R = calculationRows({ items: I.map((i) => toStockItem(i)) }, P);
   const T = (k: keyof (typeof R)[number]) => r2(R.reduce((a, r) => a + Number(r[k]), 0));
   const locName = loc[0]?.name ?? 'Главен магацин';
   const head = (t: string) => <>
@@ -44,7 +44,7 @@ export default async function PrintKalk({ params, searchParams }: { params: Prom
   const sig = (w: string[]) => <div className="sig">{w.map((x) => <span key={x}>{x}</span>)}</div>;
   if (plt) {
     const R2 = R.map((r) => ({ ...r, inVat: p.imp ? r.cvat : p.art32 || !f.vatRegistered ? 0 : r2((r.v * r.rate) / 100) }));
-    return <><PrintBar /><div className="pdfdoc printarea land">{head('ПРИЕМЕН ЛИСТ (ПЛТ)')}
+    return <><div className="pdfdoc printarea land">{head('ПРИЕМЕН ЛИСТ (ПЛТ)')}
       <table className="plt"><thead>
         <tr><th rowSpan={2} /><th rowSpan={2}>Назив на производ</th><th rowSpan={2}>Е.м.</th><th rowSpan={2} className="n">Количина</th><th colSpan={2} style={{ textAlign: 'center' }}>Набавна вредност на стоките</th><th rowSpan={2} className="n">ДДВ при набавка</th><th style={{ textAlign: 'center' }}>Стапка на ДДВ</th><th colSpan={2} style={{ textAlign: 'center' }}>Продажна вредност на стоките</th><th style={{ textAlign: 'center' }}>Вкупен ДДВ</th></tr>
         <tr><th className="n">Цена</th><th className="n">Износ (4x5)</th><th style={{ textAlign: 'center' }}>Пропишана</th><th className="n">Цена</th><th className="n">Износ (4x9)</th><th style={{ textAlign: 'center' }}>во продажна вредност</th></tr>
@@ -55,7 +55,7 @@ export default async function PrintKalk({ params, searchParams }: { params: Prom
       {sig(['Предал', 'Примил', 'Одговорно лице'])}</div></>;
   }
   const cs = costsOf(P);
-  return <><PrintBar><a className="btn" href={`/print/kalk/${id}?t=plt`}>Приемен лист (ПЛТ)</a></PrintBar><div className="pdfdoc printarea land">{head('ПРЕГЛЕД НА ВЛЕЗНА КАЛКУЛАЦИЈА')}
+  return <><div className="noprint row" style={{ justifyContent: "center", paddingTop: 6 }}><a className="btn" href={`/print/kalk/${id}?t=plt`}>Приемен лист (ПЛТ)</a></div><div className="pdfdoc printarea land">{head('ПРЕГЛЕД НА ВЛЕЗНА КАЛКУЛАЦИЈА')}
     <table><thead><tr><th rowSpan={2}>Шифра</th><th rowSpan={2}>Назив</th><th rowSpan={2}>Ем</th><th rowSpan={2} className="n">Кол</th><th colSpan={2} className="n">Набавна цена</th><th colSpan={2} className="n">Рабат</th><th rowSpan={2} className="n">Завис. трошоци</th><th rowSpan={2} className="n">Пренесен ДДВ</th><th rowSpan={2} className="n">Тар</th><th colSpan={2} className="n">Цена со ДДВ</th></tr>
       <tr><th className="n">По ед.</th><th className="n">Износ</th><th className="n">%</th><th className="n">Износ</th><th className="n">По ед.</th><th className="n">Износ</th></tr></thead>
       <tbody>{R.map((r, i) => <tr key={i}><td>{r.code}</td><td>{r.name}</td><td>{r.unit}</td><td className="n">{fq(r.qty)}</td><td className="n">{r.nabU.toFixed(4)}</td><td className="n">{fmt(r.nabV)}</td><td className="n">{fmt(r.rab)}</td><td className="n">{fmt(r.rabA)}</td><td className="n">{fmt(r.dep)}</td><td className="n">{fmt(r.cvat)}</td><td className="n">{r.rate}</td><td className="n">{fmt(r.sp)}</td><td className="n">{fmt(r.spV)}</td></tr>)}

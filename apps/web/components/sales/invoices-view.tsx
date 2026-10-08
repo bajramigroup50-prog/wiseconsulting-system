@@ -111,8 +111,8 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     const [P, I, Lc, accts, stockRows, refs, advs] = await Promise.all([
       partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id),
       accountOptions(firm.id, (k) => k.startsWith('7') && !k.startsWith('70')),
-      db().select({ item: stockMoves.itemId, wh: stockMoves.warehouseId, q: sql<string>`sum(${stockMoves.qty})` }).from(stockMoves)
-        .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.pending, false))).groupBy(stockMoves.itemId, stockMoves.warehouseId),
+      db().select({ item: stockMoves.itemId, wh: stockMoves.locationId, q: sql<string>`sum(${stockMoves.qty})` }).from(stockMoves)
+        .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.pending, false))).groupBy(stockMoves.itemId, stockMoves.locationId),
       kind === 'credit' ? db().select().from(invoices).where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), eq(invoices.status, 'posted'))).orderBy(desc(invoices.date)).limit(500) : Promise.resolve([]),
       kind === 'invoice' ? db().select().from(invoices).where(and(eq(invoices.firmId, firm.id), eq(invoices.advance, true), eq(invoices.kind, 'invoice'))) : Promise.resolve([]),
     ]);

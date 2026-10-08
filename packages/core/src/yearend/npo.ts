@@ -47,6 +47,8 @@ export interface NpoInput {
   /** year closed (a close journal exists) */
   closed: boolean;
   chart: NpoChart;
+  /** tax booked by the close (when closed) */
+  closeTax?: number;
 }
 export interface NpoResult {
   V: Record<string, number>;
@@ -62,7 +64,7 @@ export interface NpoResult {
 }
 
 /** Legacy `npoCompute(year)`. */
-export function npoCompute({ pre: B, all: BA, closed: cl, chart: MO }: NpoInput): NpoResult {
+export function npoCompute({ pre: B, all: BA, closed: cl, chart: MO, closeTax }: NpoInput): NpoResult {
   const inc = -yeSumPref(B, ['7'], 1);
   const exp = yeSumPref(B, ['4'], 1);
   const sur = r2(inc - exp);
@@ -71,7 +73,8 @@ export function npoCompute({ pre: B, all: BA, closed: cl, chart: MO }: NpoInput)
       ? yeSumPref(B, ['73', '740', '741', '742', '743', '744', '748', '749', '710', '715', '747'], -1)
       : yeSumPref(B, ['710', '715', '740', '750'], -1);
   const dbnp = npoDb(econ);
-  const tax = cl ? r2(yeSumPref(BA, ['810', '811'], 1)) : dbnp.tax;
+  // the close nets 810 to zero, so a closed year takes the tax the close booked when the caller knows it
+  const tax = cl ? (closeTax ?? r2(yeSumPref(BA, ['810', '811'], 1))) : dbnp.tax;
   const V: Record<string, number> = {};
   const run = (R: readonly NpoRow[], BB: YeBalances) => {
     for (let p = 0; p < 3; p++)
@@ -121,7 +124,11 @@ export function npoCompute({ pre: B, all: BA, closed: cl, chart: MO }: NpoInput)
 export function npoCloseLines(pre: YeBalances, C: Pick<NpoResult, 'sur' | 'tax'>, chart: NpoChart): { lines: YeLine[]; profit: number; tax: number; net: number } {
   const lines: YeLine[] = [];
   const L = (account: string, debit: number, credit: number) => lines.push({ account, debit, credit });
-  const A = NPO_RESULT_ACCOUNTS;
+  // FIX(P8 #3): on the company chart the close uses the company closing accounts 8000/8100 (legacy always used the
+  // NPO-chart 800/810); NPOs on the NPO chart keep 800/810.
+  const A: Record<keyof typeof NPO_RESULT_ACCOUNTS, string> = chart === 'co'
+    ? { ...NPO_RESULT_ACCOUNTS, preTax: YEAR_RESULT_ACCOUNTS.preTax, taxExpense: YEAR_RESULT_ACCOUNTS.taxExpense }
+    : NPO_RESULT_ACCOUNTS;
   for (const [k, v] of Object.entries(pre)) {
     if (!/^[47]/.test(k) || Math.abs(v.s) < 0.005) continue;
     if (v.s > 0) {

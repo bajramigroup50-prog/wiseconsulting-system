@@ -5,12 +5,12 @@ import 'server-only';
  */
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { effectiveChart, codes, itemBarcodes, items, type Firm } from '@wise/db';
-import type { Actor } from '@wise/db';
+import type { DocActor } from '@wise/db';
 import type { SessionUser } from './auth';
 import { db } from './db';
 import { partnerOptions } from './books';
 
-export const actorOf = (u: SessionUser): Actor => ({ userId: u.id, role: u.role });
+export const actorOf = (u: SessionUser): DocActor => ({ userId: u.id, role: u.role });
 
 export interface ItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
 export interface LocOpt { id: string; code: string | null; name: string; kind: 'warehouse' | 'store' }

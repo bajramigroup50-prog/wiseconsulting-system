@@ -52,13 +52,27 @@ Exported as `YEAR_RESULT_ACCOUNTS` / `NPO_RESULT_ACCOUNTS`; `closeYearLines`, `o
 | C1 | XML import replaced `zsMan[Y]` wholesale and "remove imported" deleted the year, losing hand-typed amounts | `crmImportPatch` records what it replaced in `crmImp[Y]`; `clearCrmImport` restores it |
 | V1 | ДБ-ВП legal form `/\bАД\b/` never matched (JS `\b` ignores Cyrillic) | Unicode-aware match |
 
+## Phase 8 application layer (added with the screens)
+
+| Module | What |
+|---|---|
+| `entity.ts` | `yeEntityOf` — the one entity discriminator (FIX P8 #12); `YE_ENTITY_VIEWS` (legacy `ENT_V`) |
+| `inputs.ts` | `yeInputsFromLedger` (trial balance / close lines / partner balances from posted lines), `yePayrollFromLedger`, `YePayrollSource` |
+| `year.ts` | `yeComputeYear`, `yeClosePlan` (close tax by entity: ДБ, ДБ-ВП, ДЛД-ДБ, NPO), `yeOpenPlan` |
+| `rebuild.ts` | `obRebuild` (post-close trial balance; balancing row on 8000, FIX P8 #3), `parseTurnoverTb` |
+| `notes.ts` | `BEL`, `belAuto`, `belResolve` (explanatory notes) |
+
+`ledger.ts` `closeYearLines` / `openYearLines` are thin adapters over `close.ts` (the tax is required — the Phase 2
+flat-10 % stopgap is gone); the root `@wise/core` names are the engine versions. NPO close on the company chart now uses
+8000/8100 (FIX P8 #3). DB service: `packages/db/src/yearend.ts`.
+
 ## Gaps (not ported here)
 
 - Transport vehicles (0136/0137) have no accumulated-depreciation account of their own in KONTO_SRC/ZS_DEF; their
   depreciation (0193) still reduces bs015 instead of bs014.
 - `zcFindings` returns plain-text messages; the legacy HTML links (`go`/`goSt` view ids) are passed through as data.
-- Form-38 automatic suggestions need account names from the chart (`accountNames`), and EMP/months need payroll and
-  activity inputs from other modules (payroll `payTotals`, ledger first posting date).
-- Printing/PDF layouts (`zsOffHTML`, `zsCrmHTML`, `dbFormHTML`, `vpFormHTML`, `tpBookHTML`), explanatory notes
-  (`BEL`), the dossier and `obRebuild` (imported trial balance after close) are UI/application work for Phase 8.
-- Gating of `undoClose` / `openYear` / `lockYear` (§8.4 item 15) belongs in the server actions: call `zcOpen`.
+- EMP (bu257) needs the head count from the payroll module (`YePayrollSource`, TODO(merge) Phase 6); the ledger only
+  gives the tax/contribution amounts.
+- Done in Phase 8: print layouts (`zsOffHTML`, `zsCrmHTML`, `dbFormHTML`, `vpFormHTML` as HTML print views),
+  explanatory notes, `obRebuild`, gating of close / open / lock and a permission-gated undo. Still open: `tpBookHTML`
+  (sole-trader books), the dossier (`zsDos`), the AOP rule editor (`zs_aop`/`zs_pr`), `zs_skr`, `zsRok`.

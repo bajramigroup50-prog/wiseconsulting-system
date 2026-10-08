@@ -5,6 +5,7 @@ import {
   parseAmount, parseKontoSrc, parseOpeningSheet, remapResultAccounts, resultBalancingRow, sumPref, trialBalance,
   type LedgerLine,
 } from './ledger';
+import * as Yearend from './yearend';
 
 const L = (date: string, account: string, debit: number, credit: number, extra: Partial<LedgerLine> = {}): LedgerLine =>
   ({ date, account, debit, credit, ...extra });
@@ -124,7 +125,7 @@ describe('numbering', () => {
 
 describe('close / open year', () => {
   it('closes classes 4 and 7, books tax and the net result on 951', () => {
-    const r = closeYearLines(year);
+    const r = closeYearLines(year, { tax: 700 });
     expect(r.profit).toBe(7000);
     expect(r.tax).toBe(700);
     expect(r.net).toBe(6300);
@@ -137,15 +138,23 @@ describe('close / open year', () => {
     expect(B['8000']!.s).toBe(0);
     expect(B['8200']!.s).toBe(0);
   });
-  it('a loss goes to 961 without tax; explicit tax overrides the rate', () => {
-    const loss = closeYearLines([L('2026-01-01', '4400', 500, 0), L('2026-01-01', '1000', 0, 500)]);
+  it('a loss goes to 961 without tax; the tax is the one given (no flat 10 % stopgap)', () => {
+    const loss = closeYearLines([L('2026-01-01', '4400', 500, 0), L('2026-01-01', '1000', 0, 500)], { tax: 0 });
     expect([loss.profit, loss.tax, loss.net]).toEqual([-500, 0, -500]);
     expect(loss.lines.some((l) => l.account === '961' && l.debit === 500)).toBe(true);
-    expect(closeYearLines(year, { tax: 650 }).tax).toBe(650);
-    expect(closeYearLines(year, { nondeductible: 1000 }).tax).toBe(800);
+    const r = closeYearLines(year, { tax: 650 });
+    expect([r.tax, r.net]).toEqual([650, 6350]);
+    expect(lineTotals(r.lines).balanced).toBe(true);
+  });
+  it('the ledger adapter and the year-end engine produce the same close', () => {
+    const a = closeYearLines(year, { tax: 650 });
+    const b = Yearend.closeYearLines(Yearend.yeBalanceSet(Yearend.yeInputsFromLedger(year).tb).pre, 650);
+    expect([a.profit, a.tax, a.net]).toEqual([b.profit, b.tax, b.net]);
+    const key = (L: { account: string; debit: number; credit: number }[]) => L.map((l) => `${l.account}:${l.debit}:${l.credit}`).sort();
+    expect(key(a.lines)).toEqual(key(b.lines));
   });
   it('opens the next year per partner with 951 → 950', () => {
-    const closed = [...year, ...closeYearLines(year).lines.map((l) => ({ ...l, date: '2026-12-31', kind: 'close' }))];
+    const closed = [...year, ...closeYearLines(year, { tax: 700 }).lines.map((l) => ({ ...l, date: '2026-12-31', kind: 'close' }))];
     const o = openYearLines(closed);
     expect(lineTotals(o).balanced).toBe(true);
     expect(o.find((l) => l.account === '1200')).toEqual({ account: '1200', debit: 5900, credit: 0, partnerId: 'p1' });

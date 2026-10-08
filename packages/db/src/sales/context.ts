@@ -1,11 +1,11 @@
 /**
- * Shared loaders for the Phase 3 document services: posting context (scheme + VAT accounts of a firm), stock
- * context (moves, items, locations), the domain error type and the actor.
+ * Shared loaders for the Phase 3 document services: posting context (scheme + VAT accounts of a firm), locations,
+ * the domain error type and the actor. Stock context and moves come from Phase 7 (`stock-service.ts`).
  */
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
-import type { FirmPostingSettings, PostingContext, SchemeSettings, StockContext, StockItem, StockLocation, StockMove } from '@wise/core';
+import type { FirmPostingSettings, PostingContext, SchemeSettings, StockLocation } from '@wise/core';
 import type { Tx } from '../audit';
-import { appSettings, codes, firms, items, stockMoves, type Firm } from '../schema/index';
+import { appSettings, codes, firms, items, type Firm } from '../schema/index';
 import { PostingError } from '../posting';
 
 /**
@@ -20,8 +20,8 @@ export class DocumentError extends PostingError {
 }
 
 /** Who saves the document. A `klient` user's documents are stored as `pending` and not booked. */
-export interface Actor { userId: string | null; role: string }
-export const pendingFor = (a: Actor) => a.role === 'klient';
+export interface DocActor { userId: string | null; role: string }
+export const pendingFor = (a: DocActor) => a.role === 'klient';
 
 const S = (f: Pick<Firm, 'settings'>) => (f.settings ?? {}) as Record<string, unknown>;
 
@@ -56,45 +56,6 @@ export async function stockLocations(tx: Tx, firmId: string): Promise<StockLocat
       konto: (d.konto as string) || undefined, kMarg: (d.kMarg as string) || undefined, kVat: (d.kVat as string) || undefined };
   });
 }
-
-export const toStockItem = (r: typeof items.$inferSelect): StockItem => {
-  const d = r.data as Record<string, unknown>;
-  return {
-    id: r.id, name: r.name, code: r.code ?? undefined, unit: r.unit ?? undefined, type: r.type, price: r.price ?? 0, rate: r.vatRate,
-    sp: (d.sp as StockItem['sp']) ?? undefined, cost: (d.cost as number | undefined) ?? undefined,
-    rawK: r.rawAccount ?? undefined, costPrice: r.costPrice ?? undefined, costPct: r.costPct ?? undefined,
-  };
-};
-
-/**
- * Stock context for computing issues of `itemIds`: all their non-pending moves (except those of `exclude`, the
- * document being re-saved), the items, the firm's locations and scheme overrides.
- */
-export async function stockContextFor(tx: Tx, f: Firm, itemIds: readonly string[], ctx: PostingContext, exclude?: { sourceType: string; sourceId: string }[]): Promise<StockContext> {
-  const ids = [...new Set(itemIds)];
-  const [M, I, L] = await Promise.all([
-    ids.length ? tx.select().from(stockMoves).where(and(eq(stockMoves.firmId, f.id), inArray(stockMoves.itemId, ids), eq(stockMoves.pending, false))) : [],
-    ids.length ? tx.select().from(items).where(and(eq(items.firmId, f.id), inArray(items.id, ids))) : [],
-    stockLocations(tx, f.id),
-  ]);
-  const ex = new Set((exclude ?? []).map((e) => e.sourceType + '|' + e.sourceId));
-  const moves: StockMove[] = M.filter((m) => !ex.has(m.sourceType + '|' + m.sourceId)).map((m) => ({
-    id: m.id, date: m.date, item: m.itemId, qty: Number(m.qty), value: Number(m.value), type: m.moveType,
-    src: m.sourceType + ':' + m.sourceId, wh: m.warehouseId ?? 'main',
-  }));
-  const sch = (ctx.firm.sch ?? {}) as Record<string, unknown>;
-  const g = (ctx.global?.sch ?? {}) as Record<string, unknown>;
-  const pick = (k: string) => (sch[k] !== undefined && sch[k] !== '' ? sch[k] : g[k] !== undefined && g[k] !== '' ? g[k] : undefined);
-  const scheme: Record<string, unknown> = {};
-  for (const k of ['stock', 'material', 'product', 'cogs', 'cogsP', 'retailMethod', 'whSaleMethod', 'retailStock', 'retailMarg', 'retailVat', 'whStock', 'whMarg', 'whVat']) {
-    const v = pick(k);
-    if (v !== undefined) scheme[k] = v;
-  }
-  return { moves, items: I.map(toStockItem), locations: L, scheme, vatRegistered: f.vatRegistered };
-}
-
-/** `null`/'main' → null warehouse id. */
-export const whId = (w: string | null | undefined) => (w && w !== 'main' ? w : null);
 
 /** Items of a firm by id (validates ownership). */
 export async function firmItems(tx: Tx, firmId: string, ids: readonly string[]) {

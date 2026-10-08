@@ -1,7 +1,9 @@
 import type { Role } from '@wise/core';
-import { NAV, type NavGroup, type NavItem } from './nav-data';
+import { NAV as NAV_DATA, type NavGroup, type NavItem } from './nav-data';
+import { addOfficeNav } from './nav-office';
 
-export { NAV };
+/** Legacy `NAV` plus the items legacy added at runtime (per-phase files). */
+export const NAV = addOfficeNav(NAV_DATA);
 export type { NavGroup, NavItem };
 
 /** Legacy `NAV_SHORT` / `NAV_MINI` (group label abbreviations). */
@@ -24,10 +26,13 @@ for (const [, items] of NAV) for (const [id, t] of navFlat(items)) NAV_LBL[id] ?
 /** Nav per role (legacy `renderNav`): teren sees only its tasks; klient gets the portal menu (phase 9). */
 export function navFor(role: Role): readonly NavGroup[] {
   if (role === 'teren') return [['Канцеларија', [['mojzad', 'Мои задачи'], ['mojpn', '🚚 Мои патни налози']]]];
-  if (role === 'klient') return [['Фирма', [['home', 'Контролна табла'], ['arhiva', '📂 Архива на документи']]], ['Излез', [['izlezF', 'Излез']]]];
+  // Client portal menu (legacy `klNav` 9054); the office's per-firm section toggles are enforced by `officePage`.
+  if (role === 'klient') return [['Мојата фирма', [['klHome', '🏠 Почетна'], ['klSend', '📤 Испрати документ'], ['dosie', '📁 Документи на фирмата'], ['arhiva', '📂 Архива на документи']]], ['Излез', [['izlezF', 'Излез']]]];
   return NAV;
 }
 
 /** View ids each role may open (used to guard the catch-all route). */
 export const viewAllowed = (role: Role, id: string): boolean =>
-  navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka';
+  navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka'
+  // Office staff may preview the client portal pages (legacy `S.asClient`).
+  || (['klHome', 'klSend'].includes(id) && !['klient', 'teren', 'view'].includes(role));

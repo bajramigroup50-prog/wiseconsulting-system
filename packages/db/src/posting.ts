@@ -26,11 +26,14 @@ import {
   type JournalKind, type NalogSettings,
 } from '@wise/core';
 import { audit, type Tx } from './audit';
+import { assertVatPeriodOpen } from './vat-lock';
 import { accounts, firms, journalLines, journals, partners, type Firm, type Journal } from './schema/index';
 
 export type PostingErrorCode =
   | 'firm_not_found' | 'bad_date' | 'empty' | 'unbalanced' | 'locked' | 'bad_account' | 'unknown_account'
-  | 'partner_required' | 'unknown_partner' | 'not_found' | 'bbimp_conflict';
+  | 'partner_required' | 'unknown_partner' | 'not_found' | 'bbimp_conflict'
+  /** Phase 5: the date is in a closed VAT period (`vat-lock.ts`); `vat_period`: VAT period service errors. */
+  | 'vat_closed' | 'vat_period';
 
 /** Domain error with a Macedonian message suitable for the UI. */
 export class PostingError extends Error {
@@ -205,6 +208,9 @@ async function writeJournal(tx: Tx, existing: Journal | null, input: PostJournal
     if (existing.locked) throw new PostingError('locked', `Налогот ${existing.number} е заклучен.`);
     assertOpenPeriod(f, existing.date);
   }
+  // Phase 5: closed VAT periods (new date and lines; the replaced journal's date and lines).
+  await assertVatPeriodOpen(tx, f, { date: input.date, sourceType: input.sourceType, accounts: input.lines.map((l) => String(l.account ?? '')) });
+  if (existing) await assertVatPeriodOpen(tx, f, { date: existing.date, sourceType: existing.sourceType, journalId: existing.id });
   await assertNoBbimpConflict(tx, f.id, input, existing?.id ?? null);
   const { lines, total } = await prepareLines(tx, f.id, input.lines, input.requirePartner ?? true);
   const number = await assignNumber(tx, f, input, existing);
@@ -264,6 +270,7 @@ async function removeJournals(tx: Tx, firmId: string, rows: Journal[], userId: s
   for (const j of rows) {
     if (j.locked) throw new PostingError('locked', `Налогот ${j.number} е заклучен.`);
     assertOpenPeriod(f, j.date);
+    await assertVatPeriodOpen(tx, f, { date: j.date, sourceType: j.sourceType, journalId: j.id }); // Phase 5
   }
   await tx.delete(journals).where(inArray(journals.id, rows.map((j) => j.id)));
   for (const j of rows) {

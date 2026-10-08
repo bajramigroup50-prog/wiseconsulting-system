@@ -11,7 +11,7 @@ const db = drizzle(new PGlite(), { schema });
 
 beforeAll(async () => {
   await migrate(db, { migrationsFolder: fileURLToPath(new URL('../migrations', import.meta.url)) });
-});
+}, 60_000); // migrations on PGlite can exceed the 10 s default while other suites run in parallel
 
 describe('schema v1 (migrations on PGlite)', () => {
   it('creates a firm and a user with firm access', async () => {

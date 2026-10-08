@@ -16,7 +16,7 @@ import { codes, firms, invoiceAdvances, invoiceLines, invoices, items, loadAdvan
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { dmy, fmt, fq } from '@/lib/fmt';
-import { PrintBar } from '@/components/sales/print-button';
+
 
 type K = 'invoice' | 'credit' | 'proforma' | 'dispatch' | 'waybill';
 const img = (v: unknown) => {
@@ -194,7 +194,7 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
   }
   return (
     <>
-      <PrintBar />
+
       <div className="pdfdoc printarea">
         {body}
         {legal && <div style={{ marginTop: '18mm', fontSize: 8.5, color: '#555', borderTop: '1px solid #ddd', paddingTop: 4 }}>{legal}</div>}

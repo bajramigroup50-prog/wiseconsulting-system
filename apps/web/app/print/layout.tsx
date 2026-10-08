@@ -1,15 +1,22 @@
-import { requireUser } from '@/lib/auth';
-
 /**
- * Print views (HTML + the browser's print-to-PDF; server-side PDF comes in Phase 9). Legacy `docView` modal markup:
- * `.pdfwrap > .pdfdoc.printarea` with `PDF_CSS` (legacy-injected.css).
+ * Print views (HTML + legacy print CSS `.pdfdoc`; the browser's "Save as PDF" replaces legacy `pdf()`).
+ * Server-side PDF rendering comes in Phase 9.
  */
-export default async function PrintLayout({ children }: { children: React.ReactNode }) {
-  await requireUser();
+import { PrintBar } from './print-bar';
+
+const CSS = `
+body{background:#e9e9e9}
+.prt{display:flex;justify-content:center;padding:16px 0 32px}
+.prt .pdfdoc{padding:10mm;box-shadow:0 1px 6px rgba(0,0,0,.15)}
+@media print{body{background:#fff}.prt{padding:0;display:block}.prt .pdfdoc{padding:0;box-shadow:none;margin:0 auto}.noprint{display:none!important}}
+`;
+
+export default function PrintLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ background: '#fff', minHeight: '100vh' }}>
-      <style>{'@page{size:A4;margin:10mm}@media print{body{background:#fff}.pdfwrap{padding:0!important}}'}</style>
-      <div className="pdfwrap" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 16 }}>{children}</div>
-    </div>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <PrintBar />
+      <div className="prt">{children}</div>
+    </>
   );
 }
