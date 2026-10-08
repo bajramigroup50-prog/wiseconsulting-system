@@ -14,7 +14,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { DownloadCsv } from '@/components/download-csv';
 import { deleteJournalAction, saveNalogSettings, setLockDate } from './actions';
-import { JournalEditor, newJournal, type EditorJournal } from './journal-editor';
+import { JournalEditor } from './journal-editor';
+import { newJournal, type EditorJournal } from './editor-model';
 
 type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string };
 

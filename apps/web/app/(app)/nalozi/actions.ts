@@ -14,7 +14,7 @@ const Row = z.object({
   debit: amount, credit: amount, note: z.string().trim().max(500).optional().default(''), doc: z.string().trim().max(100).optional().default(''),
 });
 const JournalInput = z.object({
-  id: z.string().optional().default(''),
+  id: z.string().nullish().transform((s) => s ?? ''),
   number: z.string().trim().max(30).optional().default(''),
   date: z.string().refine(isIsoDate, 'Неважечки датум.'),
   description: z.string().trim().max(500).optional().default(''),

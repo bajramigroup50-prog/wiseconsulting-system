@@ -35,7 +35,7 @@ export default async function KkartPage({ searchParams }: { searchParams: Promis
   const pinfo = new Map(rows.map((r) => [r.partnerId, r.pname ? (r.pcode ? r.pcode + ' ' : '') + r.pname : '']));
   const L: LedgerLine[] = rows.map((r) => ({ ...r, debit: Number(r.debit), credit: Number(r.credit) }));
   const X = accountCard(L, { account: k, sub, partnerId: pf, noPartner, from, to });
-  const sd = (s: number) => (s >= 0 ? [fmt(s), '0.00'] : ['0.00', fmt(-s)]);
+  const sd = (s: number) => (s >= 0 ? [fmt(s), fmt(0)] : [fmt(0), fmt(-s)]);
   const name = chart.find((a) => a.code === k)?.name ?? '';
   const subT = pf ? ' · ' + (P.find((p) => p.id === pf)?.name ?? '') : noPartner ? ' · без комитент' : '';
 

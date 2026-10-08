@@ -1,9 +1,21 @@
-/** Legacy number formats: `fmt` (2 decimals, mk-MK grouping) and `fq` (up to 3 decimals). */
-export const fmt = (n: number | string | null | undefined): string =>
-  (Number(n) || 0).toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/**
+ * Legacy number formats: `fmt` (2 decimals) and `fq` (up to 3 decimals) in the mk-MK style `1.234.567,89`.
+ * Implemented by hand rather than with `toLocaleString('mk-MK')`, whose output depends on the ICU data of the
+ * runtime (Node vs. browser) — that would differ between server and client render.
+ */
+const group = (int: string) => int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
-export const fq = (n: number | string | null | undefined): string =>
-  (Number(n) || 0).toLocaleString('mk-MK', { maximumFractionDigits: 3 });
+export const fmt = (n: number | string | null | undefined): string => {
+  const v = Number(n) || 0;
+  const [i, d] = Math.abs(v).toFixed(2).split('.') as [string, string];
+  return (v < 0 && (i !== '0' || d !== '00') ? '-' : '') + group(i) + ',' + d;
+};
+
+export const fq = (n: number | string | null | undefined): string => {
+  const v = Number(n) || 0;
+  const [i, d = ''] = String(Math.round(Math.abs(v) * 1000) / 1000).split('.') as [string, string?];
+  return (v < 0 ? '-' : '') + group(i) + (d ? ',' + d : '');
+};
 
 export const dmy = (d: string | null | undefined): string => (d ? String(d).slice(0, 10).split('-').reverse().join('.') : '');
 

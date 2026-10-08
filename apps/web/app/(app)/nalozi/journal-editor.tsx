@@ -10,17 +10,7 @@ import { lineTotals, needsPartner } from '@wise/core';
 import type { ActionState } from '@/lib/books';
 import { fmt } from '@/lib/fmt';
 import { saveJournal } from './actions';
-
-export interface EditorRow { account: string; partnerId: string; debit: string; credit: string; note: string; doc: string }
-export interface EditorJournal {
-  id: string | null; number: string; date: string; description: string; periodFrom: string; periodTo: string; rows: EditorRow[];
-}
-
-const blank = (account = ''): EditorRow => ({ account, partnerId: '', debit: '', credit: '', note: '', doc: '' });
-
-/** Legacy `newJ` 7255: two rows 4400 / 1000. */
-export const newJournal = (date: string): EditorJournal =>
-  ({ id: null, number: '', date, description: '', periodFrom: '', periodTo: '', rows: [blank('4400'), blank('1000')] });
+import { blankRow as blank, type EditorJournal, type EditorRow } from './editor-model';
 
 /** End of month for "period from" (legacy 13461). */
 const monthEnd = (d: string) => { const [y, m] = d.split('-').map(Number); return new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10); };
