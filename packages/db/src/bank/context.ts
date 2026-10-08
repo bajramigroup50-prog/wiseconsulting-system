@@ -31,7 +31,7 @@ const settingsOf = (f: Pick<Firm, 'settings'>) => (f.settings ?? {}) as Record<s
 /**
  * Posting context of a firm: `firms.settings` scheme overrides (`sch`, `vatIn`, `vatOut`, `vatImp`, `vatInKonto`,
  * `posK`) and the office scheme (`app_settings` key `schemes`).
- * TODO(merge): Phase 3 builds the same context for invoices/purchases — keep one helper after merging.
+ * Shared by the sales, purchase and bank services (`sales/context.ts` re-exports it).
  */
 export async function firmPostingContext(tx: Tx, f: Firm, posPartnerId?: string | null): Promise<PostingContext> {
   const s = settingsOf(f);

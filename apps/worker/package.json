@@ -10,7 +10,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@aws-sdk/client-s3": "^3.1147.0",
+    "@wise/core": "workspace:*",
     "@wise/db": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "nodemailer": "^10.0.16",

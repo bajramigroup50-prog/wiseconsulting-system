@@ -6,6 +6,8 @@ export * from './books';
 export * from './bank';
 export * from './payroll';
 export * from './mail';
+export * from './sales';
+export * from './ai';
 export * from './vat';
 export * from './yearend';
 export * from './office';

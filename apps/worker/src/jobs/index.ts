@@ -1,6 +1,7 @@
 import type { JobDef } from '../job';
 import { maintenance } from './maintenance';
 import { mailFlush, mailSend } from './mail';
+import { aiReadDocument } from './ai-read-document';
 import { autopilot } from './autopilot';
 import { recurring } from './recurring';
 import { remindersJob } from './reminders';
@@ -11,6 +12,7 @@ export const JOBS: JobDef<any>[] = [
   maintenance,
   mailSend,
   mailFlush,
+  aiReadDocument,
   autopilot,
   recurring,
   remindersJob,

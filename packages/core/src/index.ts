@@ -32,6 +32,7 @@ export * from './bank/statements';
 export * from './bank/pp';
 export * from './bank/cash';
 export * from './bank/komp';
+export * as Sales from './sales';
 export * as Office from './office';
 export * from './stock-books';
 export * as StockBooks from './stock-books';

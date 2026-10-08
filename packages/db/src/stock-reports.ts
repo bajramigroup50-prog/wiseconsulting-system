@@ -3,9 +3,12 @@
  * resolver for the ЕТ form and МЕТГ (legacy `moveDoc`, here by `stock_moves.source_type` / `source_id`).
  */
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
-import { plainMoveDoc, transferBookTotals, type BookSales, type FiscalSales, type MoveDocResolver } from '@wise/core';
+import { plainMoveDoc, purchaseBookTotals, transferBookTotals, type BookPurchase, type BookSales, type FiscalSales, type MoveDocResolver } from '@wise/core';
 import type { Tx } from './audit';
-import { productionOrders, salesDaily, stockCounts, transfers } from './schema/index';
+import { inArray } from 'drizzle-orm';
+import {
+  invoices, partners, productionOrders, purchaseCosts, purchases, purchaseStockLines, salesDaily, stockCounts, transfers,
+} from './schema/index';
 import { parseMoveSrc, whId, type LoadedStock } from './stock-service';
 
 export type StockSales = BookSales & FiscalSales;
@@ -31,8 +34,8 @@ export async function loadStockSales(tx: Tx, firmId: string, range?: { from?: st
 
 /**
  * Move → document for the ЕТ form and МЕТГ. Transfers are booked as a whole document (purchase / sale value), stock
- * counts and write-offs as retail output, POS / fiscal issues as "Каса". Purchases, invoices and dispatches belong to
- * Phase 3: until their tables exist those moves fall back to the move label.
+ * counts and write-offs as retail output, POS / fiscal issues as "Каса", purchases as their ПЛТ (col. 5/6 totals),
+ * invoices, credit notes and dispatch notes by their number and partner; anything else falls back to the move label.
  */
 export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocResolver> {
   const firmId = L.firm.id;
@@ -42,6 +45,34 @@ export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocR
     tx.select().from(productionOrders).where(eq(productionOrders.firmId, firmId)),
     tx.select({ id: salesDaily.id, kind: salesDaily.kind, number: salesDaily.number, date: salesDaily.date }).from(salesDaily).where(eq(salesDaily.firmId, firmId)),
   ]);
+  // Phase 3 documents: purchases (ПЛТ totals for ЕТ col. 5/6), invoices / credit notes and dispatch notes.
+  const [pu, iv, pn] = await Promise.all([
+    tx.select().from(purchases).where(eq(purchases.firmId, firmId)),
+    tx.select({ id: invoices.id, kind: invoices.kind, number: invoices.number, date: invoices.date, partnerId: invoices.partnerId }).from(invoices).where(eq(invoices.firmId, firmId)),
+    tx.select({ id: partners.id, name: partners.name }).from(partners).where(eq(partners.firmId, firmId)),
+  ]);
+  const PU = new Map(pu.map((x) => [x.id, x]));
+  const IV = new Map(iv.map((x) => [x.id, x]));
+  const PN = new Map(pn.map((x) => [x.id, x.name]));
+  const purTotals = new Map<string, { nab: number; sp: number }>();
+  const loadPurTotals = async () => {
+    const ids = pu.map((p) => p.id);
+    if (!ids.length) return;
+    const [st, cs] = await Promise.all([
+      tx.select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, ids)),
+      tx.select().from(purchaseCosts).where(inArray(purchaseCosts.purchaseId, ids)),
+    ]);
+    for (const p of pu) {
+      const bp: BookPurchase = {
+        id: p.id, calcNo: p.calcNo ?? undefined, number: p.number, date: p.date, docDate: p.docDate ?? undefined, art32: p.art32, imp: p.imp, fx: Number(p.fx),
+        wh: whId(p.warehouseId), cnames: p.cnames, distMode: p.distMode,
+        costs: Object.fromEntries(cs.filter((c) => c.purchaseId === p.id).map((c) => [c.slot, { amt: Number(c.amount), fx: c.fx ?? undefined, byQty: c.byQty, lines: c.lines }])),
+        stock: st.filter((x) => x.purchaseId === p.id).map((x) => ({ item: x.itemId, qty: Number(x.qty), price: Number(x.price), rab: Number(x.rab), cn: x.cn ?? '', dep: x.dep ?? '', sp: x.sp ?? '' })),
+      };
+      purTotals.set(p.id, purchaseBookTotals(L.ctx, bp));
+    }
+  };
+  await loadPurTotals();
   const T = new Map(tr.map((x) => [x.id, x]));
   const C = new Map(sc.map((x) => [x.id, x]));
   const P = new Map(po.map((x) => [x.id, x]));
@@ -70,7 +101,18 @@ export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocR
       const d = Z.get(id)!;
       return { key: 'pos-' + id, no: d.kind === 'pos' ? 'Каса' : 'Дн. фин. изв.' + (d.number ? ' Z бр. ' + d.number : ''), name: L.locName(m.wh), ddate: d.date };
     }
-    // TODO(phase3): purchases (`pur-`, ПЛТ with `purchaseBookTotals`), invoices (`inv-`) and dispatches (`isp-`).
+    if (s.sourceType === 'purchase' && PU.has(id)) {
+      const p = PU.get(id)!;
+      return {
+        key: 'pur-' + id, no: 'Од ПЛТ бр. ' + (p.calcNo || p.number || '') + (p.calcNo && p.number && p.calcNo !== p.number ? ' (ф-ра ' + p.number + ')' : ''),
+        name: (p.partnerId && PN.get(p.partnerId)) || p.supplierName || 'Добавувач', ddate: p.docDate || p.date, inTotals: purTotals.get(id),
+      };
+    }
+    if ((s.sourceType === 'invoice' || s.sourceType === 'dispatch') && IV.has(id)) {
+      const d = IV.get(id)!;
+      const title = d.kind === 'dispatch' ? 'Испратница ' : d.kind === 'credit' ? 'Повратница ' : 'Фактура ';
+      return { key: (d.kind === 'dispatch' ? 'isp-' : 'inv-') + id, no: title + d.number, name: (d.partnerId && PN.get(d.partnerId)) || 'Купувач', ddate: d.date, ...(d.kind === 'credit' ? { mo: true } : {}) };
+    }
     return plainMoveDoc(m);
   };
 }
