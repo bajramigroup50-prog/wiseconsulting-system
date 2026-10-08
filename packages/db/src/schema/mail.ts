@@ -14,7 +14,8 @@ export type MailStatus = (typeof MAIL_STATUS)[number];
 export const mailLog = pgTable('mail_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   firmId: uuid('firm_id').references(() => firms.id, { onDelete: 'set null' }),
-  to: jsonb('to').$type<string[]>().notNull(),
+  /** Recipients (column `recipients`: `to` is a reserved word in SQL). */
+  to: jsonb('recipients').$type<string[]>().notNull(),
   subject: text('subject').notNull(),
   html: text('html').notNull(),
   /** `files.id` values attached to the message (loaded from MinIO by the worker). */

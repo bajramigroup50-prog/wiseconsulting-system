@@ -1,5 +1,5 @@
 {
-  "id": "1e1ffe61-7fd6-4ce3-89c3-a691582c63e8",
+  "id": "2efc96c2-fb31-4bbf-8d79-13f9333dd0b6",
   "prevId": "78efd816-7d55-46f0-90e0-6e2d83b1bad2",
   "version": "7",
   "dialect": "postgresql",
@@ -4418,8 +4418,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "to": {
-          "name": "to",
+        "recipients": {
+          "name": "recipients",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true

@@ -60,8 +60,11 @@ function getBoss(): Promise<PgBoss> {
 export async function dispatchMail(ids: readonly string[]): Promise<{ queued: number; deferred: number }> {
   if (!ids.length) return { queued: 0, deferred: 0 };
   try {
-    const b = await getBoss();
-    for (const logId of ids) await b.send(MAIL_JOB, { logId });
+    // Never let an unreachable queue hold up the user's action: give up after 5 s (rows stay `queued`).
+    await Promise.race([
+      (async () => { const b = await getBoss(); for (const logId of ids) await b.send(MAIL_JOB, { logId }); })(),
+      new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 5000)),
+    ]);
     return { queued: ids.length, deferred: 0 };
   } catch (e) {
     console.warn('[mail] queue unavailable, rows stay queued for mail.flush:', (e as Error).message);

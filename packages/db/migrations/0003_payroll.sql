@@ -220,7 +220,7 @@ CREATE TABLE "payroll_settings" (
 CREATE TABLE "mail_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"firm_id" uuid,
-	"to" jsonb NOT NULL,
+	"recipients" jsonb NOT NULL,
 	"subject" text NOT NULL,
 	"html" text NOT NULL,
 	"attachments" jsonb DEFAULT '[]'::jsonb NOT NULL,
