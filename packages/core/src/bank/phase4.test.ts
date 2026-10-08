@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ledgerOpenItems, ledgerDocRef, parseLedgerItemId } from './open-items';
-import { splitStatementByDate, statementAccount, statementOwnerMismatch } from './statements';
+import { analyzeStatements, splitStatementByDate, statementAccount, statementOwnerMismatch, statementScore } from './statements';
 import { ppAccountOk, ppErrors, ppNew, ppTaxNew, ppWarnings, ppBankName, ppFieldText } from './pp';
 import { cashDefaultRate, cashVoucherDuplicate, cashVoucherNextNo, defaultCashRegisters } from './cash';
 import { autoMatch, linkPayment, openDocsFor, fxRate, type MatchContext } from '../bank-match';
@@ -78,6 +78,12 @@ describe('statements', () => {
     expect(statementOwnerMismatch('АЛФА ДООЕЛ Скопје', 'Алфа ДООЕЛ')).toBe(false);
     expect(statementOwnerMismatch('Бета ДОО', 'Алфа ДООЕЛ')).toBe(true);
     expect(statementOwnerMismatch('', 'Алфа')).toBe(false);
+  });
+  it('analyses a file for the formats screen (legacy bkAnalyze / bkScore)', () => {
+    const A = analyzeStatements([st], 'mt940', '', ':61:...');
+    expect(A).toMatchObject({ fmt: 'MT940 (без :86:)', bank: '300', no: '15', n: 2, names: 0, purp: 2, bal: true });
+    expect(statementScore(A)).toBe(2.5);
+    expect(analyzeStatements(null, 'ai', '').fmt).toBe('PDF / слика');
   });
 });
 
