@@ -1,0 +1,382 @@
+/**
+ * Outgoing documents service — save / post / unpost / approve / delete invoices, credit notes, proformas and
+ * dispatch notes in one transaction with their stock moves and journals.
+ *
+ * FIX (LEGACY-MAP 3.4 item 18): legacy `saveInv` was a chain of wrappers that each re-read the form (and one called
+ * `render()` mid-chain). This is one explicit pipeline: validate → number → totals → persist → stock → post → audit.
+ *
+ * Journals: (`invoice`, id) kind `izlez` (credit notes `odobr`) for the sale itself; (`invoice_stock`, id) kind
+ * `zaliha` for the cost of goods sold / returned and dispatch notes.
+ */
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import {
+  cogsAccount, invoiceEntries, needsPartner, postOut, PostingError as CorePostingError, r2, stockAccount,
+  type AdvanceDeduction, type InvoiceItem, type JournalLine, type PostingContext, type StockContext, type StockItem,
+} from '@wise/core';
+import { checkCredit, invoiceTotals, nextDocNumber, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
+import { audit, type Tx } from '../audit';
+import { postJournal, unpostSource, type PostLineInput } from '../posting';
+import {
+  invoiceAdvances, invoiceLines, invoices, partners, stockMoves, type Invoice, type InvoiceData, type InvoiceLine,
+} from '../schema/index';
+import {
+  assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, stockContextFor, type Actor,
+} from './context';
+
+export interface InvoiceLineInput {
+  itemId?: string | null; code?: string | null; name: string; unit?: string | null;
+  qty: number | string; price: number | string; disc?: number | string | null; rate: number | string; account?: string | null;
+}
+export interface InvoiceInput {
+  id?: string | null;
+  kind: DocKind;
+  number?: string | null;
+  date: string;
+  pdate?: string | null;
+  due?: string | null;
+  partnerId?: string | null;
+  warehouseId?: string | null;
+  art32?: boolean; advance?: boolean; export?: boolean; svc?: boolean;
+  currency?: string | null; fx?: number | string | null;
+  refInvoiceId?: string | null;
+  creditKind?: 'price' | 'gross' | 'ret' | null;
+  creditGross?: number | string | null;
+  fromDocId?: string | null;
+  note?: string | null;
+  scanned?: boolean;
+  data?: InvoiceData;
+  lines: InvoiceLineInput[];
+  advances?: { advanceId: string; amount: number | string }[];
+}
+export interface SaveResult { id: string; number: string; status: string; renumbered: boolean; warnings: string[] }
+
+const yearOf = (d: string) => d.slice(0, 4);
+const n = (v: unknown) => Number(v) || 0;
+const n4 = (v: number) => String(Math.round(v * 1e4) / 1e4);
+const kindOfJournal = (k: DocKind) => (k === 'credit' ? 'odobr' : 'izlez');
+
+/** Numbers already used by a kind in the year of `date` (excluding one document). */
+async function usedNumbers(tx: Tx, firmId: string, kind: DocKind, date: string, exceptId?: string | null) {
+  const rows = await tx.select({ n: invoices.number }).from(invoices).where(and(
+    eq(invoices.firmId, firmId), eq(invoices.kind, kind), sql`extract(year from ${invoices.date}) = ${Number(yearOf(date))}`,
+    exceptId ? ne(invoices.id, exceptId) : undefined,
+  ));
+  return rows.map((r) => r.n);
+}
+
+/** Next number for a new document of `kind` in the year of `date` (legacy `nextNumber`). */
+export async function nextInvoiceNumber(tx: Tx, firmId: string, kind: DocKind, date: string): Promise<string> {
+  return nextDocNumber(await usedNumbers(tx, firmId, kind, date), yearOf(date));
+}
+
+const toItems = (L: readonly Pick<InvoiceLine, 'name' | 'itemId' | 'unit' | 'qty' | 'price' | 'disc' | 'rate' | 'account'>[], fx = 1): InvoiceItem[] =>
+  L.map((l) => ({ name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: Number(l.qty), price: Number(l.price) * fx, disc: Number(l.disc), rate: l.rate, konto: l.account }));
+
+/** Advance deductions of an invoice, resolved to the advance invoices (for `invoiceEntries` / totals / print). */
+export async function loadAdvances(tx: Tx, rows: readonly { advanceId: string; amount: number | string }[], fx = 1): Promise<AdvanceDeduction[]> {
+  if (!rows.length) return [];
+  const ids = rows.map((r) => r.advanceId);
+  const [A, L] = await Promise.all([
+    tx.select().from(invoices).where(inArray(invoices.id, ids)),
+    tx.select().from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)).orderBy(asc(invoiceLines.lineNo)),
+  ]);
+  return rows.map((r) => {
+    const a = A.find((x) => x.id === r.advanceId);
+    if (!a) throw new DocumentError('Авансната фактура не постои.');
+    return { amount: n(r.amount) * fx, invoice: { id: a.id, number: a.number, date: a.date, art32: a.art32, items: toItems(L.filter((l) => l.invoiceId === a.id), fx) } };
+  });
+}
+
+/** Amount (base) of an advance invoice already deducted on other invoices (legacy `advUsed`). */
+async function advanceUsed(tx: Tx, advanceId: string, exceptInvoiceId: string | null): Promise<number> {
+  const [r] = await tx.select({ s: sql<string>`coalesce(sum(${invoiceAdvances.amount}), 0)` }).from(invoiceAdvances)
+    .where(and(eq(invoiceAdvances.advanceId, advanceId), exceptInvoiceId ? ne(invoiceAdvances.invoiceId, exceptInvoiceId) : undefined));
+  return n(r?.s);
+}
+
+/** Total of a saved invoice in its currency incl. advance deduction (legacy `invTotal`). */
+async function savedTotal(tx: Tx, inv: Invoice): Promise<number> {
+  const L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id));
+  const A = inv.kind === 'invoice' && !inv.advance ? await loadAdvances(tx, await tx.select().from(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, inv.id))) : [];
+  const T = invoiceTotals({ items: toItems(L), art32: inv.art32, advance: inv.advance, credit: inv.kind === 'credit', advances: A });
+  return r2(T.total - T.advTotal);
+}
+
+function wrapCore<T>(f: () => T): T {
+  try { return f(); } catch (e) {
+    if (e instanceof CorePostingError) throw new DocumentError(e.message);
+    throw e;
+  }
+}
+
+const journalLinesOf = (L: readonly JournalLine[]): PostLineInput[] =>
+  L.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId || null, note: l.note ?? null, doc: l.doc ?? null, currency: l.cur ?? null, amountCur: l.amtCur ?? null }));
+
+/** Aggregate stock journal lines (D/C per konto) into one balanced set. */
+function mergeStockLines(L: readonly { account: string; debit: number; credit: number }[]): PostLineInput[] {
+  const M = new Map<string, number>();
+  for (const l of L) M.set(l.account, (M.get(l.account) ?? 0) + Math.round((l.debit - l.credit) * 100));
+  return [...M].filter(([, c]) => c).map(([account, c]) => (c > 0 ? { account, debit: c / 100 } : { account, credit: -c / 100 }));
+}
+
+interface MoveRow { itemId: string; warehouseId: string | null; date: string; qty: number; value: number; moveType: string; lineNo: number; label: string }
+
+async function replaceMoves(tx: Tx, firmId: string, sourceType: string, sourceId: string, rows: readonly MoveRow[]) {
+  await tx.delete(stockMoves).where(and(eq(stockMoves.firmId, firmId), eq(stockMoves.sourceType, sourceType), eq(stockMoves.sourceId, sourceId)));
+  if (rows.length) await tx.insert(stockMoves).values(rows.map((m) => ({
+    firmId, itemId: m.itemId, warehouseId: m.warehouseId, date: m.date, qty: n4(m.qty), value: r2(m.value).toFixed(2),
+    direction: m.qty > 0 || (m.qty === 0 && m.value > 0) ? 'in' as const : 'out' as const, moveType: m.moveType, sourceType, sourceId, lineNo: m.lineNo, label: m.label,
+  })));
+}
+
+/**
+ * Stock part of an invoice / dispatch / return credit note: issue moves at average cost (legacy `postOut` per line)
+ * or return moves (legacy `crMoves`). Returns the merged stock journal lines and shortage warnings.
+ */
+async function stockFor(tx: Tx, f: Parameters<typeof stockContextFor>[1], inv: Invoice, L: readonly InvoiceLine[], ctx: PostingContext, ref: Invoice | null): Promise<{ moves: MoveRow[]; lines: PostLineInput[]; warnings: string[] }> {
+  const ids = L.map((l) => l.itemId).filter((x): x is string => !!x);
+  if (!ids.length) return { moves: [], lines: [], warnings: [] };
+  const SC: StockContext = await stockContextFor(tx, f, ids, ctx, [{ sourceType: 'invoice', sourceId: inv.id }]);
+  const item = (id: string) => SC.items!.find((i) => i.id === id);
+  const wh = inv.warehouseId ?? 'main';
+  const moves: MoveRow[] = [], J: { account: string; debit: number; credit: number }[] = [], warnings: string[] = [];
+  const label = (inv.kind === 'dispatch' ? 'Испратница ' : inv.kind === 'credit' ? 'Повратница (одобрение ' : 'Фактура ') + inv.number + (inv.kind === 'credit' ? ')' : '');
+  if (inv.kind === 'credit') {
+    if (inv.creditKind !== 'ret' || !ref) return { moves, lines: [], warnings };
+    const refLines = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, ref.id));
+    const srcIds = [ref.id, ...(ref.fromDocId ? [ref.fromDocId] : [])];
+    const OM = await tx.select().from(stockMoves).where(and(eq(stockMoves.firmId, f.id), eq(stockMoves.sourceType, 'invoice'), inArray(stockMoves.sourceId, srcIds), eq(stockMoves.direction, 'out')));
+    const rwh = ref.warehouseId ?? 'main';
+    for (const l of L) {
+      const it = l.itemId ? item(l.itemId) : undefined;
+      const q = Number(l.qty);
+      if (!it || !it.type || it.type === 'service' || !q) continue;
+      const om = OM.filter((m) => m.itemId === it.id);
+      const sold = refLines.filter((x) => x.itemId === it.id).reduce((a, x) => a + Number(x.qty), 0);
+      let value: number, qty: number;
+      if (om.length && sold) {
+        const ratio = q / sold;
+        qty = -om.reduce((a, m) => a + Number(m.qty), 0) * ratio;
+        value = Math.round(-om.reduce((a, m) => a + Number(m.value), 0) * ratio);
+      } else {
+        const s = SC.moves.filter((m) => m.item === it.id && (m.wh ?? 'main') === rwh);
+        const sq = s.reduce((a, m) => a + m.qty, 0), sv = s.reduce((a, m) => a + m.value, 0);
+        qty = q;
+        value = Math.round(q * (sq > 0 ? sv / sq : Number(it.cost) || 0));
+      }
+      moves.push({ itemId: it.id, warehouseId: ref.warehouseId, date: inv.date, qty, value, moveType: 'return', lineNo: l.lineNo, label });
+      if (value) J.push({ account: stockAccount(SC, rwh, it), debit: value, credit: 0 }, { account: cogsAccount(SC, it), debit: 0, credit: value });
+    }
+    return { moves, lines: mergeStockLines(J), warnings };
+  }
+  const need = new Map<string, number>();
+  for (const l of L) {
+    const it = l.itemId ? item(l.itemId) : undefined;
+    const q = Number(l.qty);
+    if (!it || !it.type || it.type === 'service' || !q) continue;
+    const r = postOut(SC, { item: it as StockItem, qty: q, date: inv.date, type: inv.kind === 'dispatch' ? 'dispatch' : 'sale', src: inv.id + '-' + l.lineNo, label, debitAccount: cogsAccount(SC, it), wh });
+    if (!String(it.rawK ?? '').trim()) need.set(it.id, (need.get(it.id) ?? 0) + q);
+    // later lines of the same item see this issue
+    (SC.moves as unknown as unknown[]).push(r.move);
+    moves.push({ itemId: it.id, warehouseId: inv.warehouseId, date: inv.date, qty: r.move.qty, value: r.move.value, moveType: String(r.move.type), lineNo: l.lineNo, label: r.move.label ?? label });
+    J.push(...(r.move.lines ?? []));
+    if (r.warning?.code === 'noCost') warnings.push(`${it.name}: нема набавна цена – раздолжено без вредност.`);
+  }
+  for (const [id, q] of need) {
+    const have = SC.moves.filter((m) => m.item === id && (m.wh ?? 'main') === wh && !String(m.src ?? '').startsWith(inv.id + '-')).reduce((a, m) => a + m.qty, 0);
+    if (have < q - 1e-9) warnings.push(`${item(id)?.name}: се бара ${q}, на залиха ${Math.round(have * 1e4) / 1e4}.`);
+  }
+  return { moves, lines: mergeStockLines(J), warnings };
+}
+
+/** Book (or re-book) a saved document: sale journal, stock moves and stock journal. */
+async function postInvoice(tx: Tx, f: Parameters<typeof stockContextFor>[1], inv: Invoice, userId: string | null): Promise<string[]> {
+  const ctx = await firmPostingContext(tx, f);
+  const L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
+  const fx = n(inv.fx) || 1;
+  const ref = inv.refInvoiceId ? (await tx.select().from(invoices).where(eq(invoices.id, inv.refInvoiceId)).limit(1))[0] ?? null : null;
+  if (inv.kind === 'invoice' || inv.kind === 'credit') {
+    const adv = inv.kind === 'invoice' && !inv.advance ? await loadAdvances(tx, await tx.select().from(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, inv.id)), fx) : [];
+    const lines = wrapCore(() => invoiceEntries({
+      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32,
+      credit: inv.kind === 'credit', advance: inv.advance, export: inv.export, advances: adv,
+    }, ctx));
+    // Advance lines (2220) are partner accounts too: book them on the buyer (legacy posted them without a partner).
+    for (const l of lines) if (!l.partnerId && needsPartner(l.account) && inv.partnerId) l.partnerId = inv.partnerId;
+    if (inv.currency !== 'MKD') {
+      const cur = invoiceTotals({ items: toItems(L), art32: inv.art32, credit: inv.kind === 'credit', advance: inv.advance });
+      for (const l of lines) if (l.partnerId && l.partnerId === inv.partnerId && (l.debit || l.credit) && !l.note) { l.cur = inv.currency; l.amtCur = inv.art32 ? cur.base : cur.total; }
+    }
+    await postJournal(tx, {
+      firmId: f.id, date: inv.date, kind: kindOfJournal(inv.kind), sourceType: 'invoice', sourceId: inv.id, userId,
+      description: (inv.kind === 'credit' ? 'Одобрение ' : inv.advance ? 'Авансна фактура ' : 'Фактура ') + inv.number,
+      lines: journalLinesOf(lines).map((l) => ({ ...l, doc: l.doc ?? inv.number })), auditAction: 'postInvoice',
+    });
+  } else await unpostSource(tx, { firmId: f.id, sourceType: 'invoice', sourceId: inv.id, userId });
+  const fromDispatch = inv.fromDocId ? (await tx.select({ k: invoices.kind }).from(invoices).where(eq(invoices.id, inv.fromDocId)).limit(1))[0]?.k === 'dispatch' : false;
+  const S = inv.kind === 'proforma' || fromDispatch ? { moves: [], lines: [], warnings: [] } : await stockFor(tx, f, inv, L, ctx, ref);
+  await replaceMoves(tx, f.id, 'invoice', inv.id, S.moves);
+  if (S.lines.length) {
+    await postJournal(tx, {
+      firmId: f.id, date: inv.date, kind: 'zaliha', sourceType: 'invoice_stock', sourceId: inv.id, userId,
+      description: (inv.kind === 'dispatch' ? 'Испратница ' : inv.kind === 'credit' ? 'Повратница ' : 'Излез на залиха – фактура ') + inv.number,
+      lines: S.lines.map((l) => ({ ...l, doc: inv.number })), auditAction: 'postInvoiceStock',
+    });
+  } else await unpostSource(tx, { firmId: f.id, sourceType: 'invoice_stock', sourceId: inv.id, userId });
+  return S.warnings;
+}
+
+async function unpostInvoice(tx: Tx, firmId: string, id: string, userId: string | null) {
+  await unpostSource(tx, { firmId, sourceType: 'invoice', sourceId: id, userId });
+  await unpostSource(tx, { firmId, sourceType: 'invoice_stock', sourceId: id, userId });
+  await tx.delete(stockMoves).where(and(eq(stockMoves.firmId, firmId), eq(stockMoves.sourceType, 'invoice'), eq(stockMoves.sourceId, id)));
+}
+
+/**
+ * Save a document and book it (legacy `saveInv` 7017 + wrappers). A klient user's document is stored `pending` and
+ * not booked; a proforma is a `draft` and never booked. Re-saving re-books in place (same journal ids/numbers).
+ */
+export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, actor: Actor): Promise<SaveResult> {
+  const f = await loadFirmForUpdate(tx, firmId);
+  const existing = input.id ? (await tx.select().from(invoices).where(and(eq(invoices.id, input.id), eq(invoices.firmId, firmId))).for('update').limit(1))[0] : undefined;
+  if (input.id && !existing) throw new DocumentError('Документот не постои.');
+  if (existing && existing.kind !== input.kind) throw new DocumentError('Видот на документот не може да се менува.');
+  if (existing && existing.status === 'posted' && pendingFor(actor)) throw new DocumentError('Прокнижен документ не може да се менува од порталот.');
+  const kind = input.kind;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new DocumentError('Неважечки датум.');
+  if (!input.partnerId) throw new DocumentError('Изберете купувач.');
+  const [p] = await tx.select().from(partners).where(and(eq(partners.id, input.partnerId), eq(partners.firmId, firmId))).limit(1);
+  if (!p) throw new DocumentError('Купувачот не постои во оваа фирма.');
+  await assertLocation(tx, firmId, input.warehouseId ?? null);
+  const warnings: string[] = [];
+
+  const art32 = !!input.art32 && kind !== 'dispatch';
+  const isExport = !!input.export;
+  // FIX (LEGACY-MAP 3.4 item 16): art. 32-a lines always carry rate 18 (the buyer's VAT), export lines rate 0.
+  const lines = input.lines
+    .filter((l) => l.itemId || String(l.name ?? '').trim() || n(l.price))
+    .map((l, i) => ({
+      lineNo: i + 1, itemId: l.itemId || null, code: l.code?.trim() || null, name: String(l.name ?? '').trim(), unit: l.unit?.trim() || null,
+      qty: n(l.qty), price: n(l.price), disc: n(l.disc), rate: isExport ? 0 : art32 ? 18 : n(l.rate), account: String(l.account ?? '').trim(),
+    }));
+  if (!lines.length) throw new DocumentError('Додадете барем еден артикл.');
+  const bad = lines.filter((l) => !(VALID_LINE_RATES as readonly number[]).includes(l.rate));
+  if (bad.length) throw new DocumentError(`Неважечка ДДВ стапка (${bad.map((l) => l.rate).join(', ')}%). Дозволени: 18, 10, 5, 0.`);
+  if (!lines.some((l) => l.qty && (kind === 'dispatch' || l.price))) throw new DocumentError('Додадете барем еден ред со количина' + (kind === 'dispatch' ? '.' : ' и цена.'));
+  const IT = await firmItems(tx, firmId, lines.map((l) => l.itemId ?? ''));
+  const ctx = await firmPostingContext(tx, f);
+  const revDefault = (ctx.firm.sch?.revDefault as string) || '7400';
+  for (const l of lines) {
+    if (!l.name && l.itemId) l.name = IT.get(l.itemId)!.name;
+    if (!l.name) throw new DocumentError('Секој ред мора да има назив.');
+    if (!l.account) l.account = (l.itemId && IT.get(l.itemId)?.revenueAccount) || revDefault;
+    if (!/^\d{2,10}$/.test(l.account)) throw new DocumentError(`Неважечко конто „${l.account}“.`);
+  }
+  const currency = (input.currency || 'MKD').toUpperCase();
+  const fx = currency === 'MKD' ? 1 : n(input.fx);
+  if (!(fx > 0)) throw new DocumentError('Внесете курс за валутата.');
+
+  // Number: free → keep; taken → next (legacy toast "доделен е следниот").
+  const used = await usedNumbers(tx, firmId, kind, input.date, existing?.id);
+  let number = String(input.number ?? '').trim();
+  let renumbered = false;
+  if (!number || used.includes(number)) {
+    renumbered = !!number;
+    number = nextDocNumber(used, yearOf(input.date));
+    if (renumbered) warnings.push(`Бројот ${input.number} веќе постои – доделен е следниот: ${number}.`);
+  }
+
+  // Credit note against its invoice (legacy crCheck).
+  let ref: Invoice | null = null;
+  if (kind === 'credit') {
+    if (!input.refInvoiceId) throw new DocumentError('Изберете ја фактурата на која се однесува одобрението.');
+    [ref = null] = await tx.select().from(invoices).where(and(eq(invoices.id, input.refInvoiceId), eq(invoices.firmId, firmId), eq(invoices.kind, 'invoice'))).limit(1);
+    if (!ref) throw new DocumentError('Фактурата не е најдена.');
+    const others = await tx.select().from(invoices).where(and(eq(invoices.refInvoiceId, ref.id), eq(invoices.kind, 'credit'), existing ? ne(invoices.id, existing.id) : undefined));
+    const otherRows = await Promise.all(others.map(async (o) => ({
+      total: await savedTotal(tx, o), kind: o.creditKind ?? 'price',
+      items: (await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, o.id))).map((x) => ({ itemId: x.itemId, qty: x.qty })),
+    })));
+    const refLines = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, ref.id));
+    const err = checkCredit(
+      { partnerId: input.partnerId, date: input.date, total: invoiceTotals({ items: toItems(lines.map((l) => ({ ...l, qty: String(l.qty), price: String(l.price), disc: String(l.disc) }))), art32, credit: true }).total, kind: input.creditKind ?? 'price', items: lines },
+      { id: ref.id, partnerId: ref.partnerId, date: ref.date, number: ref.number, total: await savedTotal(tx, ref), items: refLines.map((x) => ({ itemId: x.itemId, qty: x.qty })) },
+      otherRows, (id) => IT.get(id)?.type,
+    );
+    if (err) throw new DocumentError(err);
+  }
+
+  // Advances (legacy saveInv: deduction not above the rest of the advance).
+  const adv = kind === 'invoice' && !input.advance ? (input.advances ?? []).filter((a) => n(a.amount) > 0) : [];
+  for (const a of adv) {
+    const [ai] = await tx.select().from(invoices).where(and(eq(invoices.id, a.advanceId), eq(invoices.firmId, firmId), eq(invoices.advance, true))).limit(1);
+    if (!ai) throw new DocumentError('Авансната фактура не постои.');
+    const base = invoiceTotals({ items: toItems(await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, ai.id))), art32: ai.art32 }).base;
+    const rest = r2(base - (await advanceUsed(tx, ai.id, existing?.id ?? null)));
+    if (n(a.amount) > rest + 0.009) throw new DocumentError(`Одбиениот аванс е поголем од остатокот (${rest.toFixed(2)}).`);
+  }
+
+  const T = invoiceTotals({ items: toItems(lines.map((l) => ({ ...l, qty: String(l.qty), price: String(l.price), disc: String(l.disc) }))), art32, credit: kind === 'credit', advance: input.advance });
+  const status = kind === 'proforma' ? 'draft' : pendingFor(actor) ? 'pending' : 'posted';
+  const header = {
+    firmId, kind, status, number, date: input.date, pdate: kind === 'invoice' ? input.pdate || input.date : input.pdate || null, due: input.due || null,
+    partnerId: input.partnerId, warehouseId: input.warehouseId || null, art32, advance: kind === 'invoice' && !!input.advance, export: isExport,
+    svc: !!input.svc, currency, fx: String(fx), refInvoiceId: kind === 'credit' ? input.refInvoiceId! : null,
+    creditKind: kind === 'credit' ? input.creditKind ?? 'price' : null, creditGross: kind === 'credit' && input.creditGross ? r2(n(input.creditGross)).toFixed(2) : null,
+    fromDocId: input.fromDocId || existing?.fromDocId || null, note: input.note?.trim() || null, scanned: !!input.scanned || !!existing?.scanned,
+    base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), data: input.data ?? {}, updatedBy: actor.userId,
+  } satisfies Partial<typeof invoices.$inferInsert>;
+
+  let inv: Invoice;
+  if (existing) {
+    [inv] = await tx.update(invoices).set(header).where(eq(invoices.id, existing.id)).returning() as [Invoice];
+    await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, existing.id));
+    await tx.delete(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, existing.id));
+  } else {
+    [inv] = await tx.insert(invoices).values({ ...header, createdBy: actor.userId }).returning() as [Invoice];
+  }
+  await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc) })));
+  if (adv.length) await tx.insert(invoiceAdvances).values(adv.map((a) => ({ invoiceId: inv.id, advanceId: a.advanceId, amount: r2(n(a.amount)).toFixed(2) })));
+
+  if (status === 'posted') warnings.push(...(await postInvoice(tx, f, inv, actor.userId)));
+  else await unpostInvoice(tx, firmId, inv.id, actor.userId);
+
+  if (inv.fromDocId && kind === 'invoice') {
+    await tx.update(invoices).set({ invoicedId: inv.id }).where(and(eq(invoices.id, inv.fromDocId), eq(invoices.firmId, firmId)));
+  }
+  await audit(tx, {
+    userId: actor.userId, firmId, action: existing ? 'editInv' : 'saveInv', entityType: 'invoice', entityId: inv.id,
+    data: { kind, number, date: inv.date, status, total: T.total, currency },
+  });
+  return { id: inv.id, number, status, renumbered, warnings };
+}
+
+/** Approve a client-submitted (pending) document and book it. */
+export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: Actor): Promise<string[]> {
+  if (pendingFor(actor)) throw new DocumentError('Немате право да одобрувате.');
+  const f = await loadFirmForUpdate(tx, firmId);
+  const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
+  if (!inv) throw new DocumentError('Документот не постои.');
+  if (inv.status !== 'pending') throw new DocumentError('Документот не чека одобрување.');
+  const [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
+  const w = await postInvoice(tx, f, u!, actor.userId);
+  await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'invoice', entityId: id, data: { number: inv.number } });
+  return w;
+}
+
+/** Delete a document with its journals and stock moves (legacy `delDoc`, guards of `delOk`). */
+export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: Actor): Promise<void> {
+  await loadFirmForUpdate(tx, firmId);
+  const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
+  if (!inv) throw new DocumentError('Документот не постои.');
+  if (pendingFor(actor) && inv.status !== 'pending') throw new DocumentError('Прокнижен документ не може да се брише од порталот.');
+  const [cr] = await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.refInvoiceId, id)).limit(1);
+  if (cr) throw new DocumentError(`Фактурата има одобрение (${cr.n}) – прво избришете го одобрението.`);
+  const [ad] = await tx.select({ id: invoiceAdvances.invoiceId }).from(invoiceAdvances).where(eq(invoiceAdvances.advanceId, id)).limit(1);
+  if (ad) throw new DocumentError('Авансот е одбиен во друга фактура – прво отстранете го од неа.');
+  await unpostInvoice(tx, firmId, id, actor.userId);
+  await tx.update(invoices).set({ invoicedId: null }).where(eq(invoices.invoicedId, id));
+  await tx.update(invoices).set({ fromDocId: null }).where(eq(invoices.fromDocId, id));
+  await tx.delete(invoices).where(eq(invoices.id, id));
+  await audit(tx, { userId: actor.userId, firmId, action: 'delDoc', entityType: 'invoice', entityId: id, data: { kind: inv.kind, number: inv.number, date: inv.date } });
+}
