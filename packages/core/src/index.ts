@@ -36,3 +36,4 @@ export * as Sales from './sales';
 export * as Office from './office';
 export * from './stock-books';
 export * as StockBooks from './stock-books';
+export * as Industry from './industry';
