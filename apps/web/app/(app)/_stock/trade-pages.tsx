@@ -8,7 +8,7 @@
  */
 import Link from 'next/link';
 import { etBook, metgCard, tradeBook, trackedItems } from '@wise/core';
-import { loadStockSales, stockDocResolver } from '@wise/db';
+import { loadStockSales, stockDocResolver, stockSaleValues } from '@wise/db';
 import { db } from '@/lib/db';
 import { stockPage, locOptions, rangeOf } from '@/lib/stock';
 import { dmy, fmt, fq } from '@/lib/fmt';
@@ -30,8 +30,9 @@ export async function TrgPage({ retail, sp }: { retail: boolean; sp: TrgSP }) {
   const wh = opts.some((l) => l.id === sp.wh) ? sp.wh! : '';
   const [from, to] = rangeOf(sp, year);
   const sales = retail ? await loadStockSales(db(), firm.id) : [];
-  // TODO(phase3): sale value of invoice issues (legacy `saleVal` from the invoice line) once invoices write stock_moves.
-  const T = tradeBook(L.ctx, { retail, wh, from, to, sales, locationName: L.locName });
+  // legacy `saleVal`: sale value of invoice issues from the invoice line (wholesale ЕТ only)
+  const saleValue = retail ? undefined : await stockSaleValues(db(), firm.id);
+  const T = tradeBook(L.ctx, { retail, wh, from, to, sales, locationName: L.locName, saleValue });
   return (
     <>
       <Hd t={t} sub={retail ? 'по продажна вредност со ДДВ' : 'по набавна вредност'}><PrintButton /></Hd>

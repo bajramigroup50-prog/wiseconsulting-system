@@ -2,7 +2,8 @@ import 'server-only';
 /**
  * Enqueue background jobs (pg-boss, same Postgres as the app) from server actions.
  * The web process only *sends*: no supervision, scheduling or migrations (the worker owns those).
- * Phase 6 `lib/mail.ts` (`mail.send`) enqueues through `enqueue` below. TODO(merge): Phase 3 (AI jobs) should too — keep one.
+ * This is the ONE job-sending helper of the web app: `lib/mail.ts` (`mail.send`), the AI reading jobs (`ai.read-document`),
+ * `pdf.render` (below) and every other job go through `enqueue`. Do not create another pg-boss client.
  */
 import { randomUUID } from 'node:crypto';
 import { PgBoss } from 'pg-boss';

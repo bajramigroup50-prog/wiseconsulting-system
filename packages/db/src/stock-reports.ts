@@ -3,11 +3,13 @@
  * resolver for the ЕТ form and МЕТГ (legacy `moveDoc`, here by `stock_moves.source_type` / `source_id`).
  */
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
-import { plainMoveDoc, purchaseBookTotals, transferBookTotals, type BookPurchase, type BookSales, type FiscalSales, type MoveDocResolver } from '@wise/core';
+import {
+  plainMoveDoc, purchaseBookTotals, transferBookTotals, type BookPurchase, type BookSales, type FiscalSales, type MoveDocResolver, type StockMove,
+} from '@wise/core';
 import type { Tx } from './audit';
 import { inArray } from 'drizzle-orm';
 import {
-  invoices, partners, productionOrders, purchaseCosts, purchases, purchaseStockLines, salesDaily, stockCounts, transfers,
+  invoiceLines, invoices, partners, productionOrders, purchaseCosts, purchases, purchaseStockLines, salesDaily, stockCounts, transfers,
 } from './schema/index';
 import { parseMoveSrc, whId, type LoadedStock } from './stock-service';
 
@@ -30,6 +32,36 @@ export async function loadStockSales(tx: Tx, firmId: string, range?: { from?: st
     days: s.days ?? undefined,
     fisk: s.kind === 'fisk' ? { ...(s.fisk ?? {}), z: s.fisk?.z ?? s.number ?? undefined } : undefined,
   }));
+}
+
+/**
+ * Sale value without VAT of an invoice issue move, for the ЕТ book (legacy `saleVal` 4992: qty × price × (1 − disc%)
+ * of the invoice line). Moves are stored per item, so the value is the item's invoice-line value pro rata to the
+ * move's quantity (exact for one line per item). Foreign-currency invoices are converted with the invoice `fx`
+ * (legacy left them in the document currency). Anything that is not an invoice issue gives `''`.
+ */
+export async function stockSaleValues(tx: Tx, firmId: string): Promise<(m: StockMove) => number | ''> {
+  const iv = await tx.select({ id: invoices.id, kind: invoices.kind, fx: invoices.fx }).from(invoices).where(eq(invoices.firmId, firmId));
+  const IV = new Map(iv.filter((x) => x.kind !== 'credit' && x.kind !== 'dispatch').map((x) => [x.id, Number(x.fx) || 1]));
+  const ids = [...IV.keys()];
+  const L = ids.length ? await tx.select({ invoiceId: invoiceLines.invoiceId, itemId: invoiceLines.itemId, qty: invoiceLines.qty, price: invoiceLines.price, disc: invoiceLines.disc })
+    .from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)) : [];
+  const by = new Map<string, { qty: number; val: number }>();
+  for (const l of L) {
+    if (!l.itemId) continue;
+    const k = l.invoiceId + '|' + l.itemId;
+    const o = by.get(k) ?? { qty: 0, val: 0 };
+    o.qty += Number(l.qty);
+    o.val += Number(l.qty) * Number(l.price) * (1 - Number(l.disc) / 100) * IV.get(l.invoiceId)!;
+    by.set(k, o);
+  }
+  return (m) => {
+    const s = parseMoveSrc(m.src);
+    if (!s || s.sourceType !== 'invoice') return '';
+    const o = by.get(s.sourceId.slice(0, 36) + '|' + m.item);
+    if (!o || !o.qty) return '';
+    return Math.round((o.val * Math.abs(Number(m.qty))) / o.qty * 100) / 100;
+  };
 }
 
 /**

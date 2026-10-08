@@ -11,6 +11,8 @@ import { approvePurchase, deletePurchase, savePurchase, type PurchaseInput } fro
 import { deleteSupplierCredit, saveSupplierCredit } from './sales/supplier-credits';
 import { DocumentError, type DocActor } from './sales/context';
 import { PostingError } from './posting';
+import { stockSaleValues } from './stock-reports';
+import { toStockMove } from './stock-service';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -213,5 +215,38 @@ describe('supplier credits', () => {
     expect((await err(tx((t) => deletePurchase(t, firmId, p!.id, office)))).message).toMatch(/повратница/);
     await tx((t) => deleteSupplierCredit(t, firmId, r.id, office));
     expect(await journal('supplier_credit', r.id)).toBeNull();
+  });
+});
+
+describe('store purchase → levelling (legacy applySalePrices)', () => {
+  it('a changed retail price on a store purchase levels the earlier stock; unchanged price or no earlier stock does not', async () => {
+    const [st] = await db.insert(schema.codes).values({ firmId, cb: 'store', code: '09', name: 'Продавница Центар' }).returning();
+    const [it] = await db.insert(schema.items).values({ firmId, name: 'Чоколадо', code: '77', type: 'goods', vatRate: 18, price: '50' }).returning();
+    const p = (no: string, date: string, sp: number) => pur({
+      number: no, date, warehouseId: st!.id, costs: {}, groups: [{ account: '6600', rate: 18, base: 400, vat: 72 }], stock: [{ itemId: it!.id, qty: 10, price: 40, sp }],
+    });
+    const nivs = () => db.select().from(schema.levellingDocs).where(eq(schema.levellingDocs.locationId, st!.id));
+    await tx((t) => savePurchase(t, firmId, p('LV-1', '2026-04-01', 100), office));
+    expect(await nivs()).toHaveLength(0); // no stock before the first receipt
+    await tx((t) => savePurchase(t, firmId, p('LV-2', '2026-04-05', 100), office));
+    expect(await nivs()).toHaveLength(0); // same price
+    await tx((t) => savePurchase(t, firmId, p('LV-3', '2026-04-10', 120), office));
+    const L = await nivs();
+    expect(L).toHaveLength(1);
+    expect(L[0]!.date).toBe('2026-04-10');
+    expect(L[0]!.note).toMatch(/од калкулација/);
+    expect(L[0]!.lines).toMatchObject([{ itemId: it!.id, qty: 20, old: 100, new: 120 }]);
+    expect((await db.select().from(schema.items).where(eq(schema.items.id, it!.id)))[0]!.data).toMatchObject({ sp: { [st!.id]: 120 } });
+  });
+});
+
+describe('ЕТ sale value of invoice issues (legacy saleVal)', () => {
+  it('values an invoice issue move at the invoice line value without VAT', async () => {
+    const r = await tx((t) => saveInvoice(t, firmId, inv({ date: '2026-04-20', lines: [{ itemId: goods, name: 'Шраф', qty: 2, price: 250, disc: 10, rate: 18 }] }), office));
+    const M = (await moves('invoice', r.id)).map(toStockMove);
+    expect(M).toHaveLength(1);
+    const sv = await stockSaleValues(db, firmId);
+    expect(sv(M[0]!)).toBe(450);
+    expect(sv({ ...M[0]!, src: 'pur-' + r.id })).toBe('');
   });
 });
