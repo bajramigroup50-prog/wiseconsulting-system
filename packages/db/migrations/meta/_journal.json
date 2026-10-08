@@ -43,6 +43,13 @@
       "when": 1791483615599,
       "tag": "0005_office",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791483838692,
+      "tag": "0006_stock",
+      "breakpoints": true
     }
   ]
 }

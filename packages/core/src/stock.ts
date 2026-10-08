@@ -109,3 +109,6 @@ export type {
   DfiSeverity,
   DfiFinding,
 } from './stock/fiscal';
+
+export { unitCost, bomCycle, productionNeeds, runProduction } from './stock/production';
+export type { ProductionNeed, RunProductionArgs, RunProductionResult } from './stock/production';

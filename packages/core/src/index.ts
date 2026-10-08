@@ -28,3 +28,5 @@ export { matchPartner } from './ledger';
 export type { LedgerLine } from './ledger';
 export * as Ledger from './ledger';
 export * as Office from './office';
+export * from './stock-books';
+export * as StockBooks from './stock-books';

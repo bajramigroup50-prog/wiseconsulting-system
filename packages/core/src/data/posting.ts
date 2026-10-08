@@ -45,9 +45,13 @@ export const SCH_EXTRA = {
   fiskCash: '1009',
   /** Card receivables from the POS terminal (legacy `posKDef` default `'1200001'`; firm `posK` still wins). */
   posCard: '1200001',
-  /** Fiscal "trgNoVat" scheme: margin and retail stock (legacy literals `'6690'`/`'6630'` in `fiskEntries` 13097). */
-  fiskMarg: '6690',
-  fiskStock: '6630',
+  /**
+   * Fiscal "trgNoVat" scheme: margin and retail stock overrides. Empty = follow `retailMarg` / `retailStock` (6694 / 6630).
+   * FIX (LEGACY-MAP §7.4 item 4): legacy hard-coded `'6690'`/`'6630'` in `fiskEntries` 13097, so fiscal sales hit 6690
+   * while every other retail posting used `sch('retailMarg')` = 6694. The retail margin account is 6694 everywhere.
+   */
+  fiskMarg: '',
+  fiskStock: '',
 } as const;
 
 /**
@@ -71,7 +75,7 @@ export const PURCHASE_COST_SLOTS = [
 
 /** Fiscal-report posting schemes (legacy `FK_SC`, 13090): [label, default revenue konto]. */
 export const FISCAL_SCHEMES = {
-  trgNoVat: ['Трговија – фирма без ДДВ (Д 1009 / П 7410; Д 6690 / П 6630)', '7410'],
+  trgNoVat: ['Трговија – фирма без ДДВ (Д 1009 / П 7410; Д 6694 / П 6630)', '7410'],
   usl: ['Само услуги, без стока (Д 1009 / П 230018 / П 7414)', '7414'],
   trg: ['Трговија – ДДВ обврзник (П 7411 + ДДВ, излез на стока)', ''],
 } as const;

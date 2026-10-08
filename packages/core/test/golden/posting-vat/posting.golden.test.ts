@@ -204,7 +204,6 @@ describe('saleEntries / fiskEntries', () => {
     ['no scheme, card konto not 12x keeps no partner', { ...Z, card: 1000, cardKonto: '1009' }],
     ['usl scheme', { ...Z, card: 500, fisk: { sc: 'usl' } }],
     ['usl scheme with own cash konto and revenue', { ...Z, fisk: { sc: 'usl', cashK: '1021', rev: '7415' } }],
-    ['trgNoVat scheme, periodic report', { ...Z, card: 300, fisk: { sc: 'trgNoVat', from: '2026-03-01', to: '2026-03-15' } }, { firm: { ddv: false } }],
     ['trg scheme', { ...Z, card: 1500, fisk: { sc: 'trg' } }],
     ['trg scheme, nonVat flag', { ...Z, fisk: { sc: 'trg', nonVat: true } }],
     ['card larger than total is clamped', { ...Z, card: 99999, fisk: { sc: 'usl' } }],
@@ -216,6 +215,20 @@ describe('saleEntries / fiskEntries', () => {
       same(fiskEntries(z, ctxOf(st)), legacy.run(st, (L) => normLegacy(L.fiskEntries!(z))));
     });
   }
+  it('FIX: trgNoVat books the retail margin on 6694 (legacy hard-coded 6690), otherwise identical to legacy', () => {
+    const z = { ...Z, card: 300, fisk: { sc: 'trgNoVat', from: '2026-03-01', to: '2026-03-15' } };
+    const st = legacyState({ firm: { ddv: false } });
+    const leg = legacy.run(st, (L) => normLegacy(L.fiskEntries!(z)));
+    expect(leg.some((l) => l.account === '6690')).toBe(true);
+    const mine = fiskEntries(z as any, ctxOf(st));
+    expect(isBalanced(mine)).toBe(true);
+    expect(plain(mine)).toEqual(plain(leg.map((l) => (l.account === '6690' ? { ...l, account: '6694' } : l))));
+    // a firm-level retail margin override is followed; an explicit fiskMarg still wins
+    const st2 = legacyState({ firm: { ddv: false, sch: { retailMarg: '6695' } } });
+    expect(fiskEntries(z as any, ctxOf(st2)).find((l) => l.debit === 12285)!.account).toBe('6695');
+    const st3 = legacyState({ firm: { ddv: false, sch: { fiskMarg: '6699' } } });
+    expect(fiskEntries(z as any, ctxOf(st3)).find((l) => l.debit === 12285)!.account).toBe('6699');
+  });
   it('FIX: trg scheme with a configured kasaCash no longer double-debits', () => {
     const z = { ...Z, fisk: { sc: 'trg' } };
     const st = legacyState({ firm: { sch: { kasaCash: '1022' } } });

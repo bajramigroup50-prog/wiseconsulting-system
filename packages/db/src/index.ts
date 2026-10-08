@@ -27,3 +27,6 @@ export * from './vat-lock';
 export * from './vat-service';
 export * from './yearend';
 export * from './office';
+export * from './stock-service';
+export * from './stock-docs';
+export * from './stock-reports';
