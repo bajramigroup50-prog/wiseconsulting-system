@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>MSG-2026-03-19-001</MsgId><CreDtTm>2026-03-19T18:00:00</CreDtTm></GrpHdr>
+    <Stmt>
+      <Id>STMT-2026-0047</Id>
+      <ElctrncSeqNb>47</ElctrncSeqNb>
+      <CreDtTm>2026-03-19T18:00:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>MK07300000000123456</IBAN></Id>
+        <Ccy>MKD</Ccy>
+        <Ownr><Nm>ВАЈС КОНСАЛТИНГ ДООЕЛ</Nm></Ownr>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="MKD">199290.50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-03-19</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="MKD">216748.50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-03-19</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="MKD">22000.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-03-19</Dt></BookgDt>
+        <ValDt><Dt>2026-03-19</Dt></ValDt>
+        <AcctSvcrRef>KB-REF-0001</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>E2E-GAMA-0319</EndToEndId></Refs>
+            <RltdPties>
+              <Dbtr><Nm>ГАМА КОМЕРЦ &amp; КО</Nm></Dbtr>
+              <DbtrAcct><Id><IBAN>MK07210000000222333</IBAN></Id></DbtrAcct>
+            </RltdPties>
+            <Purp><Cd>SUPP</Cd></Purp>
+            <RmtInf><Ustrd>Уплата по</Ustrd><Ustrd>ф-ри за февруари</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="MKD">4500.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><DtTm>2026-03-19T10:15:00</DtTm></BookgDt>
+        <ValDt><Dt>2026-03-19</Dt></ValDt>
+        <AcctSvcrRef>KB-REF-0002</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+            <RltdPties>
+              <Cdtr><Pty><Nm>Телеком АД</Nm></Pty></Cdtr>
+              <CdtrAcct><Id><IBAN>MK07300000000999888</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd><![CDATA[Телеком месечна сметка 03/2026 <интернет>]]></Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="MKD">42.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-03-19</Dt></BookgDt>
+        <AddtlNtryInf>Провизија за платен промет</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="MKD">0.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <BookgDt><Dt>2026-03-19</Dt></BookgDt>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

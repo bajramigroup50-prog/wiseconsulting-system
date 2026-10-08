@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Халк Банка е-банкарство: извод за трансакциска сметка -->
+<RacunPrivredaIzvod>
+  <Zaglavlje Partija="270000012345678" SkracenaPartija="12345678" IBANBroj="MK07270000012345678" KomitentNaziv="  ВАЈС КОНСАЛТИНГ ДООЕЛ Скопје " BrojIzvoda="0046" DatumIzvoda="16.03.2026" OznakaValute="MKD" PrethodnoStanje="172.750,50" NovoStanje="199.290,50" DugovniPromet="9.460,00" PotrazniPromet="36.000,00"/>
+  <Stavke NalogKorisnik="АБЦ ТРЕЈД ДООЕЛ" RacunNalogodavacKorisnik="300000000211111" Duguje="0,00" Potrazuje="35.400,00" Opis="Уплата по фактура 46/2026" Napomena="" TekstOsnova="Продажба на стоки" OsnovPlacanja="200" Referenca="MK11-46-2026" VasBrojNaloga="" DatumObrade="16.03.2026" DatumValute="16.03.2026" DinarskaProtivvrednost="0,00" NominalniIznosPriliva="0,00" Provizija="0,00"/>
+  <Stavke NalogKorisnik="Управа за јавни приходи" RacunNalogodavacKorisnik="100000000063095" Duguje="9.000,00" Potrazuje="0,00" Opis="ДДВ за 02/2026" Napomena="ДДВ за 02/2026" TekstOsnova="" OsnovPlacanja="930" Referenca="" VasBrojNaloga="77" DatumObrade="16.03.2026" DatumValute="16.03.2026"/>
+  <Stavke NalogKorisnik="" Duguje="460,00" Potrazuje="0,00" Opis="" Napomena="" TekstOsnova="" OsnovPlacanja="" Referenca="" VasBrojNaloga="78" DatumObrade="" DatumValute="15.03.2026" Provizija="0,00"/>
+  <Stavke NalogKorisnik="Нула" Duguje="0,00" Potrazuje="0,00" Opis="само информација"/>
+  <Stavke NalogKorisnik="Гама Комерц &amp; Ко" Duguje="0,00" Potrazuje="600,00" Opis="Уплата&#10;аванс" Napomena="Уплата
+аванс" TekstOsnova="" OsnovPlacanja="250" Referenca="R-9" DatumObrade="16.03.2026"/>
+</RacunPrivredaIzvod>

@@ -14,3 +14,5 @@ export * as Posting from './posting';
 export * as Vat from './vat';
 export * as Payroll from './payroll';
 export * as Yearend from './yearend';
+export * from './bank-parsers';
+export * from './bank-match';
