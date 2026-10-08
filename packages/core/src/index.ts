@@ -23,3 +23,5 @@ export * from './ledger';
 export { closeYearLines, openYearLines, matchPartner } from './ledger';
 export type { CloseYearResult, LedgerLine } from './ledger';
 export * as Ledger from './ledger';
+export * from './stock-books';
+export * as StockBooks from './stock-books';
