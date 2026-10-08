@@ -13,3 +13,4 @@ coverage/
 Thumbs.db
 packages/db/.pglite/
 .claude/scheduled_tasks.lock
+*.tsbuildinfo
