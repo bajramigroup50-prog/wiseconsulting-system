@@ -17,10 +17,15 @@ import { loadLedgerLines } from '../ledger-queries';
 
 export interface OpenItems { invoices: OpenDoc[]; purchases: OpenDoc[] }
 
+export interface OpenItemsOptions {
+  /** Ignore what these journals booked (e.g. the compensation being edited). */
+  excludeJournalIds?: readonly string[];
+}
+
 export interface OpenItemsSource {
   readonly name: string;
   /** Open (and recently closed) documents of the firm for the business year. Amounts in cents. */
-  load(tx: Tx, firmId: string, year: number): Promise<OpenItems>;
+  load(tx: Tx, firmId: string, year: number, opts?: OpenItemsOptions): Promise<OpenItems>;
 }
 
 export const BANK_SOURCE_TYPE = 'bank_statement';
@@ -28,9 +33,10 @@ export const BANK_SOURCE_TYPE = 'bank_statement';
 /** Open items from the persisted ledger (stopgap until the document tables exist). */
 export const ledgerOpenItemsSource: OpenItemsSource = {
   name: 'ledger',
-  async load(tx, firmId, year) {
+  async load(tx, firmId, year, opts) {
     const L = await loadLedgerLines(tx, firmId, `${year}-01-01`, `${year}-12-31`);
-    return ledgerOpenItems(L, { exclude: (l) => l.sourceType === BANK_SOURCE_TYPE });
+    const ex = new Set(opts?.excludeJournalIds ?? []);
+    return ledgerOpenItems(L, { exclude: (l) => l.sourceType === BANK_SOURCE_TYPE || (!!l.journalId && ex.has(l.journalId)) });
   },
 };
 

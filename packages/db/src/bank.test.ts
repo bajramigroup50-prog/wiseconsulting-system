@@ -13,6 +13,7 @@ import {
   addManualLine, applyMatches, cashBook, closeTransit, deleteStatement, deleteVoucher, lineOpenDocs, linkLine, loadRegisters,
   createDefaultRegisters, proposeMatches, saveBankAccount, saveFxList, saveImport, savePaymentOrder, saveVoucher, setLineKonto,
   statementGapsFor, undoImport, updateStatement, planImport, removeBankAccount, transitResidues, numberStatements, deleteLine,
+  kompOpenItems, saveCompensation, deleteCompensation,
 } from './bank/index';
 import { postJournal, PostingError } from './posting';
 import * as schema from './schema/index';
@@ -259,5 +260,27 @@ describe('payment orders', () => {
     for (const a of ['addBankAcct', 'importBank', 'autoMatch', 'bkPickSave', 'bankKonto', 'mbSave', 'delStatement', 'undoImp', 'postStatement', 'blgNew', 'blgDel', 'ppSave', 'izvSave', 'numIzv', 'trClose'])
       expect(S.has(a), a).toBe(true);
     void deleteLine;
+  });
+});
+
+describe('compensations', () => {
+  it('sets off receivables against payables from the ledger, posts kind komp, closes the items, unposts on delete', async () => {
+    const g = (await db.insert(schema.partners).values({ firmId, name: 'Гама ДОО', code: '9' }).returning())[0]!.id;
+    await T((tx) => postJournal(tx, { firmId, date: '2026-04-01', kind: 'izlez', userId: null, sourceType: 'test', sourceId: 'g-inv',
+      lines: [{ account: '1200', debit: 1000, partnerId: g, doc: 'G-1' }, { account: '7400', credit: 1000 }] }));
+    await T((tx) => postJournal(tx, { firmId, date: '2026-04-02', kind: 'vlez', userId: null, sourceType: 'test', sourceId: 'g-pur',
+      lines: [{ account: '4000', debit: 600 }, { account: '2200', credit: 600, partnerId: g, doc: 'S-5' }] }));
+    const O = await T((tx) => kompOpenItems(tx, firmId, 2026, [g]));
+    expect(O.map((o) => [o.side, o.docNo, o.open])).toEqual([['rec', 'G-1', 100000], ['pay', 'S-5', 60000]]);
+    const amounts = { [O[0]!.refId]: 600, [O[1]!.refId]: 600 };
+    expect((await err(T((tx) => saveCompensation(tx, { firmId, userId: null, input: { kind: 'bi', date: '2026-04-10', year: 2026, partnerIds: [g], amounts: { ...amounts, [O[0]!.refId]: 500 } } })))).message).toMatch(/еднакви/);
+    const r = await T((tx) => saveCompensation(tx, { firmId, userId: null, input: { kind: 'bi', date: '2026-04-10', year: 2026, partnerIds: [g], amounts } }));
+    expect(r).toMatchObject({ number: 'К-001/2026', nalog: '16/4-6' });
+    const O2 = await T((tx) => kompOpenItems(tx, firmId, 2026, [g]));
+    expect(O2.map((o) => [o.docNo, o.open])).toEqual([['G-1', 40000]]);
+    // editing sees its own amounts as open again
+    expect((await T((tx) => kompOpenItems(tx, firmId, 2026, [g], r.id))).length).toBe(2);
+    await T((tx) => deleteCompensation(tx, { firmId, userId: null, id: r.id }));
+    expect(await journalOf('compensation', r.id)).toBeNull();
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ledgerOpenItems, ledgerDocRef, parseLedgerItemId } from './open-items';
 import { analyzeStatements, splitStatementByDate, statementAccount, statementOwnerMismatch, statementScore } from './statements';
 import { ppAccountOk, ppErrors, ppNew, ppTaxNew, ppWarnings, ppBankName, ppFieldText } from './pp';
+import { kompAutoFill, kompNextNumber } from './komp';
 import { cashDefaultRate, cashVoucherDuplicate, cashVoucherNextNo, defaultCashRegisters } from './cash';
 import { autoMatch, linkPayment, openDocsFor, fxRate, type MatchContext } from '../bank-match';
 import type { Statement } from '../bank-parsers';
@@ -121,5 +122,14 @@ describe('cash register helpers', () => {
     expect(fxRate('EUR', '2026-10-01', { office: [{ cur: 'EUR', rate: 61.6950, date: '2026-09-15' }, { cur: 'EUR', rate: 61.7, date: '2026-10-05' }] })).toBe(61.695);
     expect(fxRate('EUR', '2026-10-01', { firm: [{ cur: 'EUR', rate: 61.4 }], office: [{ cur: 'EUR', rate: 61.7 }] })).toBe(61.4);
     expect(fxRate('MKD', '2026-10-01')).toBe(1);
+  });
+});
+
+describe('compensations', () => {
+  it('numbers and auto-fills up to the smaller side, oldest first', () => {
+    expect(kompNextNumber('2026-05-01', ['К-001/2026', 'К-007/2026'])).toBe('К-008/2026');
+    expect(kompNextNumber('2026-05-01', [])).toBe('К-001/2026');
+    expect(kompAutoFill([{ side: 'rec', open: 500 }, { side: 'rec', open: 300 }, { side: 'pay', open: 600 }])).toEqual([500, 100, 600]);
+    expect(kompAutoFill([{ side: 'rec', open: 500 }])).toEqual([0]);
   });
 });

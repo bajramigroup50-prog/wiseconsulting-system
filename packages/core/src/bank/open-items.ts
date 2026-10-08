@@ -26,6 +26,7 @@ export interface OpenItemLedgerLine {
   doc?: string | null;
   note?: string | null;
   sourceType?: string | null;
+  journalId?: string;
 }
 
 export interface LedgerOpenItems {

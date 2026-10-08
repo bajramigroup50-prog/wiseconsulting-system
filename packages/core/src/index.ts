@@ -27,3 +27,4 @@ export * from './bank/open-items';
 export * from './bank/statements';
 export * from './bank/pp';
 export * from './bank/cash';
+export * from './bank/komp';

@@ -269,6 +269,40 @@ export const paymentOrders = pgTable('payment_orders', {
   check('payment_orders_kind_chk', sql`${t.kind} in ('pp30','pp50','pp10')`),
 ]);
 
+/* ---------------- Compensations ---------------- */
+
+export interface CompensationRowData {
+  side: 'rec' | 'pay';
+  /** Open-item id (invoice / purchase id, or ledger item 'L|konto|partner|doc' until Phase 3). */
+  refId?: string | null;
+  docNo?: string;
+  date?: string;
+  partnerId: string;
+  konto: string;
+  /** denars */
+  amt: number;
+}
+
+/** Compensations (legacy docs type 'komp'): bilateral / multilateral; receivables must equal payables. Posted as kind 'komp'. */
+export const compensations = pgTable('compensations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'bi' | 'multi'>().notNull().default('bi'),
+  date: date('date').notNull(),
+  /** К-nnn/yyyy */
+  number: text('number').notNull(),
+  note: text('note'),
+  rows: jsonb('rows').$type<CompensationRowData[]>().notNull().default([]),
+  total: money('total').notNull(),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  index('compensations_firm_date_idx').on(t.firmId, t.date),
+  uniqueIndex('compensations_firm_number_uq').on(t.firmId, t.number),
+]);
+
+export type CompensationRecord = typeof compensations.$inferSelect;
 export type BankAccountRow = typeof bankAccounts.$inferSelect;
 export type BankStatement = typeof bankStatements.$inferSelect;
 export type BankLine = typeof bankLines.$inferSelect;

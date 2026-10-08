@@ -8,3 +8,4 @@ export * from './match';
 export * from './lines';
 export * from './cash';
 export * from './orders';
+export * from './komp';
