@@ -2,7 +2,8 @@ import 'server-only';
 /** AML facts from the books (legacy `amlAuto` 15873), shared by the AML page and its save action. */
 import { r2 } from '@wise/core';
 import { apCashLimit, nkdRisky, type AmlAuto } from '@wise/core/office';
-import { getOfficeProfile, loadLedgerLines, type Firm } from '@wise/db';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { employees, getOfficeProfile, loadLedgerLines, type Firm } from '@wise/db';
 import { db } from './db';
 import type { FirmOfficeSettings } from './office';
 
@@ -18,8 +19,8 @@ export async function amlAutoFor(firm: Firm, year: number): Promise<AmlAuto & { 
   const reg = s.regDate ? new Date(s.regDate) : null;
   return {
     cash: cash.length, cashMax: cash.reduce((a, l) => Math.max(a, l.debit, l.credit), 0), rev,
-    // TODO(merge): Phase 6 employees — until then the "no employees" factor is not evaluated (-1 = unknown).
-    emps: -1,
+    // Phase 6: active employees of the firm (legacy `amlAuto`: active and without an end date).
+    emps: ((await db().select({ n: sql<number>`count(*)::int` }).from(employees).where(and(eq(employees.firmId, firm.id), eq(employees.active, true), isNull(employees.end))))[0]?.n ?? 0),
     nkdRisk: nkdRisky(nkd), age: reg && !Number.isNaN(+reg) ? (Date.now() - +reg) / 31557600000 : null,
     eurRate, nkd,
   };

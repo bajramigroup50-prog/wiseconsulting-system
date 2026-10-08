@@ -13,12 +13,15 @@
     "@aws-sdk/client-s3": "^3.1147.0",
     "@wise/db": "workspace:*",
     "drizzle-orm": "^0.45.4",
+    "nodemailer": "^10.0.16",
     "pg-boss": "^12.37.1",
     "playwright-core": "^1.63.0",
     "tsx": "^4.23.15"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^24",
+    "@types/nodemailer": "^8.0.2",
     "typescript": "~5.9.3",
     "vitest": "^5.0.3"
   }

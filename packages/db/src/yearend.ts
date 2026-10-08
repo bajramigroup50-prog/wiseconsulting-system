@@ -34,8 +34,8 @@ import {
  * Data the year-end needs from modules built in parallel phases. Each is optional; without it the engine reads what
  * it can from the ledger (payroll totals from `plati` journals) and the gate skips the check.
  *
- * TODO(merge): Phase 6 registers `payroll` (runs with employee counts, active employees — bu214–216 / bu257);
- * Phases 3/4/7/9 register `findings` (bank statement lines and accounts, stock moves and items, invoices, purchases,
+ * Phase 6 registers `payroll` (`payrollYearEndSource` in ./payroll, at module load — employee counts, bu214–216 / bu257).
+ * TODO(merge): Phases 3/4/7/9 register `findings` (bank statement lines and accounts, stock moves and items, invoices, purchases,
  * documents pending approval) for `zcFindings`. Call {@link registerYearEndInputs} once at app start-up.
  */
 export interface YearEndExternalInputs {

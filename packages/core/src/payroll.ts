@@ -18,3 +18,6 @@ export * from './payroll/entries';
 export * from './payroll/cp1251';
 export * from './payroll/mpin';
 export * from './payroll/draft';
+export * from './payroll/lines';
+export * from './payroll/hr';
+export * from './payroll/orders';
