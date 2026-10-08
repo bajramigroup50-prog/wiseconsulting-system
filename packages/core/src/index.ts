@@ -27,3 +27,4 @@ export type { CloseYearResult } from './yearend';
 export { matchPartner } from './ledger';
 export type { LedgerLine } from './ledger';
 export * as Ledger from './ledger';
+export * as Office from './office';

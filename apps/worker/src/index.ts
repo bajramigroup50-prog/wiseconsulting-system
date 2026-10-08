@@ -5,6 +5,7 @@
 import { PgBoss } from 'pg-boss';
 import { getDb } from '@wise/db';
 import { JOBS } from './jobs/index';
+import { closeBrowser } from './pdf/render';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL is not set');
@@ -24,6 +25,6 @@ for (const j of JOBS) {
 }
 console.log(`worker started: ${JOBS.map((j) => j.name).join(', ')}`);
 
-const stop = async () => { await boss.stop({ graceful: true }); process.exit(0); };
+const stop = async () => { await boss.stop({ graceful: true }); await closeBrowser(); process.exit(0); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);

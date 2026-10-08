@@ -25,7 +25,8 @@ export async function POST(req: Request) {
   const v = p.data;
   let u;
   try {
-    u = await requireCan(v.firmId ? 'write' : 'office', v.firmId);
+    // Office-wide files need `office`; field workers (teren) may upload scans for their tasks (Phase 9).
+    u = v.firmId ? await requireCan('write', v.firmId) : await requireCan('office').catch(() => requireCan('teren'));
   } catch (e) {
     if (e instanceof Forbidden) return Response.json({ error: e.message }, { status: 403 });
     throw e;

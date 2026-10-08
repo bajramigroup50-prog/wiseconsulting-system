@@ -26,3 +26,4 @@ export * from './vat-source';
 export * from './vat-lock';
 export * from './vat-service';
 export * from './yearend';
+export * from './office';
