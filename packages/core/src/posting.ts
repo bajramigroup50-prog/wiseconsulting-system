@@ -378,6 +378,8 @@ export interface CostSlot {
   partner?: string;
   /** Transport allocated by quantity (stock allocation; not used by posting). */
   byQty?: boolean;
+  /** The cost supplier is foreign: its payable goes to the foreign-supplier konto (`supplierFx`). */
+  foreign?: boolean;
   /** Up to three VAT lines of the cost document. */
   lines?: (CostLine | null | undefined)[];
 }
@@ -495,7 +497,8 @@ function purchaseEntries0(p: PurchaseDoc, ddvFirm: boolean, ctx: PostingContext,
       L.push(k ? { k, d: lv, p: 0, note: 'ДДВ ' + c.n, vb: toC(l?.base) } : { k: gk, d: lv, p: 0, note: 'ДДВ ' + c.n });
       v += lv;
     }
-    if (amt + v) L.push({ k: S('supplier'), d: 0, p: amt + v, partner: c.o.partner || '', note: c.n + (c.o.doc ? ' ' + c.o.doc : '') });
+    // FIX (LEGACY-MAP 3.4 item 4): legacy always credited `supplier` (2200), even for a foreign carrier/forwarder.
+    if (amt + v) L.push({ k: c.o.foreign ? S('supplierFx') : S('supplier'), d: 0, p: amt + v, partner: c.o.partner || '', note: c.n + (c.o.doc ? ' ' + c.o.doc : '') });
   }
   const LA = locationAccounts(ctx, loc);
   if (stock.length) {
