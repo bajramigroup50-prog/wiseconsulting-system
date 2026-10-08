@@ -21,3 +21,7 @@ export function getDb(url = process.env.DATABASE_URL): DB {
 export * from './posting';
 export * from './ledger-queries';
 export { seedReference } from './seed/reference';
+export * from './vat-context';
+export * from './vat-source';
+export * from './vat-lock';
+export * from './vat-service';
