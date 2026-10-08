@@ -16,3 +16,6 @@ export * as Payroll from './payroll';
 export * as Yearend from './yearend';
 export * from './bank-parsers';
 export * from './bank-match';
+export { decodeCp1251, type PayMatch } from './payroll';
+export * as Bank from './bank-match';
+export * as BankParsers from './bank-parsers';
