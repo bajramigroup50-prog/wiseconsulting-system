@@ -52,6 +52,7 @@ Checks: `pnpm typecheck`, `pnpm test`, `pnpm build`.
 - **Guard** every server action / route handler with `requireCan(action, firmId)` (legacy `ACT_NEED` names work) and write `audit(tx, …)` in the same transaction as the change.
 - **Schema**: add `packages/db/src/schema/<module>.ts` + one export line in `schema/index.ts`; money is `numeric(18,2)`.
 - **Jobs**: add `apps/worker/src/jobs/<job>.ts` + one line in `jobs/index.ts`.
+- **Ledger**: never write `journals` / `journal_lines` directly — compute the lines and call `postJournal(tx, {firmId, date, kind, sourceType, sourceId, lines, userId})` from `@wise/db` inside the document's transaction (`unpostSource` when the document is deleted). It checks balance, lock date, chart and partners, numbers the nalog and writes the audit row.
 
 ### Deploy
 
