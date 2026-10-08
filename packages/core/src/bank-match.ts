@@ -671,6 +671,24 @@ export function linkPayment(b: BankRow, pick: { x: OpenDoc; o: number }[], type:
   return r && { row: r.nb, refs: r.refs, excess: r.excess };
 }
 
+/**
+ * Manual link on a foreign-currency account (legacy `bmRunFx` near-amount rule applied to a manual pick): when
+ * the denar amount is within 4 % of the picked documents' open total, the documents are closed completely and
+ * the difference is an FX difference (`settle` → 7810 / 4810 in `bankEntries`). Otherwise a plain
+ * {@link linkPayment}.
+ */
+export function linkPaymentFx(b: BankRow, pick: { x: OpenDoc; o: number }[], type: DocType, konta?: Partial<BankKonta>): { row: BankRow; refs: DocRefAmt[]; excess: number } | null {
+  const amt = Math.abs(+b.amount);
+  const open = pick.reduce((s, z) => s + z.o, 0);
+  if (!open || Math.abs(open - amt) / open >= 0.04) return linkPayment(b, pick, type, konta);
+  const r = linkPayment({ ...b, amount: Math.sign(+b.amount || 1) * open }, pick, type, konta);
+  if (!r) return null;
+  const row: BankRow = { ...r.row, amount: b.amount, settle: open };
+  if (r.refs.length > 1) row.refs = r.refs;
+  else delete row.refs;
+  return { row, refs: r.refs, excess: 0 };
+}
+
 /** Legacy `bkUnl` (12507): payments booked on a partner (12x/22x) but not linked to a document. */
 export const unlinkedPayments = (ctx: Pick<MatchContext, 'rows' | 'accounts' | 'year'>): BankRow[] =>
   ctx.rows.filter((b) => (ctx.year == null || String(b.date).startsWith(String(ctx.year))) && !b.ref && !b.pos && +b.amount && !(b.split && b.split.length) && !isFxAccount(ctx.accounts, b.acct) && BKPK_RE.test(bankEffKonto(b)));
