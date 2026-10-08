@@ -3,3 +3,5 @@
  */
 export * from './foundation';
 export * from './books';
+export * from './payroll';
+export * from './mail';

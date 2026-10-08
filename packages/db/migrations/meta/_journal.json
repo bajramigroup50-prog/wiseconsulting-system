@@ -22,6 +22,13 @@
       "when": 1791479755254,
       "tag": "0002_books_balance_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791481762564,
+      "tag": "0003_brown_pestilence",
+      "breakpoints": true
     }
   ]
 }
