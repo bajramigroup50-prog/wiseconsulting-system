@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RacunPrivredaIzvod>
+  <Zaglavlje Partija="270000012345999" IBANBroj="MK07270000012345999" KomitentNaziv="ВАЈС КОНСАЛТИНГ ДООЕЛ" BrojIzvoda="12" DatumIzvoda="2026-03-18" OznakaValute="EUR" PrethodnoStanje="2450,00" NovoStanje="3430,00" DugovniPromet="0,00" PotrazniPromet="980,00"/>
+  <Stavke NalogKorisnik="ACME GmbH" RacunNalogodavacKorisnik="DE89370400440532013000" Duguje="0,00" Potrazuje="980,00" Opis="INV EX-5/2026" Napomena="" TekstOsnova="" OsnovPlacanja="" Referenca="SWIFT123" VasBrojNaloga="" DatumObrade="18.03.2026" DatumValute="17.03.2026" DinarskaProtivvrednost="60.270,00" NominalniIznosPriliva="1.000,00" Provizija="0,00" ProvizijaInoBanke="15,00" InoTrosak="5,00"/>
+</RacunPrivredaIzvod>
