@@ -3,6 +3,7 @@
  */
 export * from './foundation';
 export * from './books';
+export * from './bank';
 export * from './vat';
 export * from './yearend';
 export * from './office';

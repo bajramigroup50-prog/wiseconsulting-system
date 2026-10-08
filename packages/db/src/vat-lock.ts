@@ -25,6 +25,7 @@ import { VAT_CLOSE_SOURCE } from './vat-source';
  */
 export const VAT_SOURCE_TYPES: ReadonlySet<string> = new Set([
   'invoice', 'purchase', 'sale', 'sales', 'fisk', 'zreport', 'blg', 'cashVoucher', 'supcr', 'supplierCredit',
+  'cash_voucher', // Phase 4 cash vouchers (blgEntries, input VAT)
 ]);
 
 const dmy = (d: string) => d.split('-').reverse().join('.');

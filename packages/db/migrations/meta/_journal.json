@@ -50,6 +50,13 @@
       "when": 1791483838692,
       "tag": "0006_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791484184241,
+      "tag": "0007_bank",
+      "breakpoints": true
     }
   ]
 }

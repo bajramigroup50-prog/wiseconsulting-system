@@ -91,6 +91,11 @@ export interface OpenDoc {
   /** FX document: currency and rate used when it was booked. */
   cur?: string;
   fx?: number;
+  /**
+   * Counter konto the document is booked on (e.g. 1201, 2210). When set, a payment linked to it is
+   * booked on this konto instead of the customer / supplier default (open items read from the ledger).
+   */
+  konto?: string;
 }
 
 export interface Partner { id: string; name: string; edb?: string; embs?: string; code?: string; pos?: boolean }
@@ -172,8 +177,13 @@ export const bankEffKonto = (b: BankRow): string =>
 /** Supplier konto for a purchase. FIX #3: legacy base `autoMatch` always used 2200, even for imports. */
 export const supplierKonto = (p: OpenDoc, konta?: Partial<BankKonta>): string => {
   const K = { ...BANK_KONTA, ...(konta || {}) };
+  if (p.konto) return p.konto;
   return p.imp ? p.supKonto || K.importSupplier : K.supplier;
 };
+
+/** Counter konto of a payment that settles `d`: the document's own konto when known, else customer / supplier. */
+export const docKonto = (type: DocType, d: OpenDoc, konta?: Partial<BankKonta>): string =>
+  d.konto || (type === 'invoice' ? { ...BANK_KONTA, ...(konta || {}) }.customer : supplierKonto(d, konta));
 
 /** Legacy `BANK_FEE` (12404). */
 export const BANK_FEE = /надомест|провизи|одржување на (девизна |трансакциска |жиро )?сметка|пакет (на )?услуги|трошоци (за|на) платен промет|банкарск[аи] (услуг|трошо)|наплата на трошоци|maintenance fee|bank fee|commission/i;
@@ -361,7 +371,7 @@ function linkRow(b: BankRow, pick: { x: OpenDoc; o: number }[], type: DocType, p
   const nb: BankRow = {
     ...b,
     partner: f.partner || pid || b.partner,
-    konto: inc ? K.customer : supplierKonto(f, K),
+    konto: docKonto(type, f, K),
     ref: { type, id: refs[0]!.id, label: refs.map((r) => r.label).join(', ') },
   };
   // multi-document payment, or a capped single one (so `bankPaid` counts only the allocated part)
@@ -493,7 +503,7 @@ function layerFx(w: Work): void {
     const oc = ocur(z);
     const full = near(z);
     const settle = full ? z.o : Math.min(z.o, oc != null && acur ? toCents(fromCents(acur) * +z.x.fx!) : amt);
-    const nb: BankRow = { ...b, partner: z.x.partner || pid || b.partner, konto: inc ? K.customer : supplierKonto(z.x, K), ref: { type, id: z.x.id, label: String(z.x.number || '') }, settle };
+    const nb: BankRow = { ...b, partner: z.x.partner || pid || b.partner, konto: docKonto(type, z.x, K), ref: { type, id: z.x.id, label: String(z.x.number || '') }, settle };
     if (!nb.partner) delete nb.partner;
     delete nb.ai;
     delete nb.refs;
@@ -559,7 +569,7 @@ function layerBase(w: Work): void {
       const c = src.find((c) => !used.has(c.x.id) && near(c.o) && (desc.includes(low(c.x.number || '~~').split('/')[0]!) || desc.includes(nm8(c.x))));
       if (c) {
         used.add(c.x.id);
-        const nb: BankRow = { ...b, ref: { type: c.t, id: c.x.id, label: String(c.x.number ?? '') }, partner: c.x.partner, konto: c.t === 'invoice' ? K.customer : supplierKonto(c.x, K), settle: c.o };
+        const nb: BankRow = { ...b, ref: { type: c.t, id: c.x.id, label: String(c.x.number ?? '') }, partner: c.x.partner, konto: docKonto(c.t, c.x, K), settle: c.o };
         if (!nb.partner) delete nb.partner;
         commit(w, nb, 'fxnear');
         continue;
@@ -589,7 +599,7 @@ function layerBase(w: Work): void {
     }
     if (hit) {
       used.add(hit.doc.id);
-      const nb: BankRow = { ...b, ref: { type: hit.type, id: hit.doc.id, label: String(hit.doc.number ?? '') }, partner: hit.doc.partner, konto: hit.type === 'invoice' ? K.customer : supplierKonto(hit.doc, K) };
+      const nb: BankRow = { ...b, ref: { type: hit.type, id: hit.doc.id, label: String(hit.doc.number ?? '') }, partner: hit.doc.partner, konto: docKonto(hit.type, hit.doc, K) };
       if (!nb.partner) delete nb.partner;
       commit(w, nb, hit.type);
       continue;
@@ -659,6 +669,24 @@ export function fifoPick(b: BankRow, O: { x: OpenDoc; o: number }[]): { x: OpenD
 export function linkPayment(b: BankRow, pick: { x: OpenDoc; o: number }[], type: DocType, konta?: Partial<BankKonta>): { row: BankRow; refs: DocRefAmt[]; excess: number } | null {
   const r = linkRow(b, pick, type, '', { ...BANK_KONTA, ...(konta || {}) });
   return r && { row: r.nb, refs: r.refs, excess: r.excess };
+}
+
+/**
+ * Manual link on a foreign-currency account (legacy `bmRunFx` near-amount rule applied to a manual pick): when
+ * the denar amount is within 4 % of the picked documents' open total, the documents are closed completely and
+ * the difference is an FX difference (`settle` → 7810 / 4810 in `bankEntries`). Otherwise a plain
+ * {@link linkPayment}.
+ */
+export function linkPaymentFx(b: BankRow, pick: { x: OpenDoc; o: number }[], type: DocType, konta?: Partial<BankKonta>): { row: BankRow; refs: DocRefAmt[]; excess: number } | null {
+  const amt = Math.abs(+b.amount);
+  const open = pick.reduce((s, z) => s + z.o, 0);
+  if (!open || Math.abs(open - amt) / open >= 0.04) return linkPayment(b, pick, type, konta);
+  const r = linkPayment({ ...b, amount: Math.sign(+b.amount || 1) * open }, pick, type, konta);
+  if (!r) return null;
+  const row: BankRow = { ...r.row, amount: b.amount, settle: open };
+  if (r.refs.length > 1) row.refs = r.refs;
+  else delete row.refs;
+  return { row, refs: r.refs, excess: 0 };
 }
 
 /** Legacy `bkUnl` (12507): payments booked on a partner (12x/22x) but not linked to a document. */
