@@ -25,3 +25,4 @@ export * from './sales/context';
 export * from './sales/invoices';
 export * from './sales/purchases';
 export * from './sales/supplier-credits';
+export * from './sales/ai-docs';

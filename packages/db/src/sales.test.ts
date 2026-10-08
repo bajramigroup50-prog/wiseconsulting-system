@@ -106,7 +106,7 @@ describe('invoices', () => {
     const J = (await journal('invoice', id))!;
     expect(J.j.kind).toBe('izlez');
     expect(J.by['1200']).toBe(944);
-    expect(J.by['740018']).toBe(-800);
+    expect(J.by['741018']).toBe(-800); // goods → revGoods 7410 per rate (scheme, not the literal 7400)
     expect(J.L.find((l) => l.account === '1200')!.partnerId).toBe(cust);
     const S = (await journal('invoice_stock', id))!;
     expect(S.j.kind).toBe('zaliha');

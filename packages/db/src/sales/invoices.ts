@@ -10,7 +10,7 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  cogsAccount, invoiceEntries, needsPartner, postOut, PostingError as CorePostingError, r2, stockAccount,
+  cogsAccount, invoiceEntries, needsPartner, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type PostingContext, type StockContext, type StockItem,
 } from '@wise/core';
 import { checkCredit, invoiceTotals, nextDocNumber, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
@@ -265,11 +265,13 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   if (!lines.some((l) => l.qty && (kind === 'dispatch' || l.price))) throw new DocumentError('Додадете барем еден ред со количина' + (kind === 'dispatch' ? '.' : ' и цена.'));
   const IT = await firmItems(tx, firmId, lines.map((l) => l.itemId ?? ''));
   const ctx = await firmPostingContext(tx, f);
-  const revDefault = (ctx.firm.sch?.revDefault as string) || '7400';
+  // FIX (LEGACY-MAP 3.4 item 3): legacy fell back to the literal '7400' (~40 places); the scheme decides by item type (legacy REV_K).
+  const revDefault = schemeValue(ctx, 'revDefault');
+  const revOf = (t: string | undefined) => (t === 'service' ? schemeValue(ctx, 'revService') : t === 'product' ? schemeValue(ctx, 'revProduct') : t ? schemeValue(ctx, 'revGoods') : revDefault);
   for (const l of lines) {
     if (!l.name && l.itemId) l.name = IT.get(l.itemId)!.name;
     if (!l.name) throw new DocumentError('Секој ред мора да има назив.');
-    if (!l.account) l.account = (l.itemId && IT.get(l.itemId)?.revenueAccount) || revDefault;
+    if (!l.account) l.account = (l.itemId && (IT.get(l.itemId)?.revenueAccount || revOf(IT.get(l.itemId)?.type))) || revDefault;
     if (!/^\d{2,10}$/.test(l.account)) throw new DocumentError(`Неважечко конто „${l.account}“.`);
   }
   const currency = (input.currency || 'MKD').toUpperCase();
