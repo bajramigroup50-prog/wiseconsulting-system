@@ -9,8 +9,8 @@ import 'server-only';
 import { notFound } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
-import { klAllowedViews, todaySkopje, type KlConfig } from '@wise/core/office';
-import { fileLinks, files, firms, OfficeError, type Firm, type Tx } from '@wise/db';
+import { klAllowedViews, todaySkopje, tplVars, type KlConfig } from '@wise/core/office';
+import { fileLinks, files, firms, getOfficeProfile, OfficeError, type Firm, type Tx } from '@wise/db';
 import { Forbidden, requireCan, requireUser, type SessionUser } from './auth';
 import { currentFirm } from './context';
 import { db } from './db';
@@ -84,4 +84,18 @@ export async function filesOf(entityType: string, ids: string[]) {
 export async function allowedFirms(u: SessionUser) {
   const L = await db().select().from(firms).where(eq(firms.active, true));
   return L.filter((f) => firmAllowed(u.principal, f.id, f.ownerId)).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
+}
+
+/** Firm settings fields the office documents use (kept in `firms.settings` until a module owns them). */
+export interface FirmOfficeSettings { short?: string; nkd?: string; manager?: string; signer?: string; bankAccount?: string; bankName?: string; regDate?: string }
+
+/** Template variables for a firm (legacy `tplVars` common part) + extra document values. */
+export async function firmTemplateVars(firm: Firm, extra: Record<string, string | number | null | undefined> = {}) {
+  const O = await getOfficeProfile(db());
+  const s = firm.settings as FirmOfficeSettings;
+  return tplVars(
+    { name: firm.name, edb: firm.edb, embs: firm.embs, address: firm.address, city: firm.city, email: firm.email, activity: firm.activity, nkd: s.nkd, manager: s.manager ?? s.signer, bankAccount: s.bankAccount, bankName: s.bankName },
+    { name: O.name, edb: O.edb, address: O.address, city: O.city, rep: O.rep },
+    today(), extra,
+  );
 }

@@ -52,3 +52,14 @@ export async function objectSize(key: string): Promise<number | null> {
     return null;
   }
 }
+
+/** Read a stored object (server side, internal endpoint) — Word templates, ZIP packages (Phase 9). */
+export async function getObjectBytes(key: string): Promise<Uint8Array> {
+  const r = await s3().internal.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  return r.Body!.transformToByteArray();
+}
+
+/** Write an object (server side) — generated documents (Phase 9). */
+export async function putObjectBytes(key: string, body: Uint8Array, mime: string): Promise<void> {
+  await s3().internal.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: mime, ContentLength: body.byteLength }));
+}
