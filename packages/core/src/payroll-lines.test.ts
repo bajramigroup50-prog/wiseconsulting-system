@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   empCalc, hrAddMonthsEnd, hrCtDefaults, hrCtWarnings, hrDiLastDay, hrDiWarnings, hrDocCode, hrDocLabel, hrExtWarnings, hrNextNo,
-  makePayLine, payDraft, payEmpFor, payIOHours, payLeaveStats, payNotesOpen, payrollPaymentOrders, psifCodes, removePayLine,
+  makePayLine, payCopyPrev, payDraft, payEmpFor, payIOHours, payLeaveStats, payNotesOpen, payrollPaymentOrders, psifCodes, removePayLine,
   resolvePayParams, upsertPayLine, PAY_HOLIDAY, PAY_REGULAR, type PayEmp,
 } from './index';
 
@@ -117,5 +117,19 @@ describe('payroll payment orders (FIX #19)', () => {
     expect(r.missing).toContain('Уплатна сметка: Придонес за задолжително здравствено осигурување');
     expect(r.missing.some((m) => m.includes('пензиско'))).toBe(false);
     expect(r.orders.find((o) => o.ref === 'pio')).toMatchObject({ recipAcc: '100000000063095', refDebit: '01042026-30042026' });
+  });
+});
+
+describe('payCopyPrev (FIX #14)', () => {
+  it('keeps additional lines and the part-time fund', () => {
+    const prev: PayEmp[] = [
+      { empId: 'a', name: 'A', netBase: 30000, lines: [{ type: PAY_REGULAR, hours: 100, cat: 'reg' }, { type: 'Годишен одмор', hours: 68 }, { type: 'Прекувремена работа', hours: 5, pct: 135 }] },
+      { empId: 'b', name: 'B', netBase: 20000, hNorm: 84, inout: 'in', ioDate: '2026-04-10', lines: [{ type: 'Синдикална членарина', amt: 200, cat: 'sin' }] },
+    ];
+    const P2 = resolvePayParams({ hours: 168 }, '2026-05');
+    const [a, b] = payCopyPrev('2026-05', prev, P2);
+    expect(a!.lines!.map((l) => [l.type, l.hours])).toEqual([[PAY_REGULAR, 152], [PAY_HOLIDAY, 16], ['Прекувремена работа', 5]]);
+    expect(b!.lines!.find((l) => l.type === PAY_REGULAR)!.hours).toBe(76);
+    expect(b!.inout).toBeUndefined();
   });
 });
