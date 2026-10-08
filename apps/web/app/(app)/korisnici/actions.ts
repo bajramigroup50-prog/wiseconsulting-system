@@ -15,7 +15,7 @@ const MIN_PW = 10;
 
 const UserInput = z.object({
   name: z.string().trim().min(2, 'Внесете име и презиме.').max(200),
-  username: z.string().trim().toLowerCase().regex(/^[a-z0-9._@-]{2,60}$/, 'Корисничкото име: латиница, бројки и . _ - @'),
+  username: z.string().trim().toLowerCase().regex(/^[a-z0-9._@-]{1,60}$/, 'Корисничкото име: латиница, бројки и . _ - @'),
   email: z.string().trim().max(200).transform((s) => s || null),
   role: z.enum(ROLE_IDS),
   password: z.string(),

@@ -56,4 +56,4 @@ Checks: `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
 ### Deploy
 
-See `docker/compose.yml` (header comment) and `docker/.env.example`. The first admin is created by the seed from `ADMIN_PASSWORD` and must change it at first login.
+See `docker/compose.yml` (header comment) and `docker/.env.example`. The system starts empty (no firms, no sample data). The seed creates only the administrator from `ADMIN_USERNAME` (default `1`) and `ADMIN_PASSWORD` in `.env`; set `ADMIN_MUST_CHANGE_PASSWORD=1` to force a change at first login.

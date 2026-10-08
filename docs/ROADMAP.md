@@ -22,7 +22,7 @@ Source of truth for the phase-by-phase rebuild. Full design: [PLAN.md](PLAN.md).
 - [x] **8. Year-end** — depreciation, close/open year, AOP statements, ДБ, ЦРСМ XML export/import, phase gate (`zcFindings`).
 - [x] **9. Office** — dossier, inbox & client portal (klient role), tasks, Word templates, packages/ZIP, reminders, recurring invoices, autopilot, inspection readiness, AML, GDPR, formation.
 - [ ] **10. Industry modules** — hotel, rent-a-car, travel, transport, construction, restaurant, appointments (per-firm `mods` toggle).
-- [ ] **11. Legacy import** — `packages/legacy-import` CLI: backup JSON → Postgres + MinIO, journal recompute, trial-balance verification.
+- [x] ~~**11. Legacy import**~~ — dropped 2026-10-08 by the user: start fresh, no legacy data, no sample data, only the seeded admin. — `packages/legacy-import` CLI: backup JSON → Postgres + MinIO, journal recompute, trial-balance verification.
 - [ ] **12. Deploy** — VPS (Docker, deploy user, firewall), `/opt/wise/.env`, `docker compose up -d`, Caddy TLS for `wiseconsulting.com.mk` + `www`, nightly pg_dump + MinIO mirror (30 days), GitHub Actions deploy.
 
 ## Parallel execution plan

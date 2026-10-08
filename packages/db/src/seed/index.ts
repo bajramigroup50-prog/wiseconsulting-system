@@ -1,7 +1,9 @@
 /**
  * Idempotent seed: reference data (chart of accounts, cities, currencies — see ./reference.ts),
  * then the first administrator if no users exist.
- * The password comes from ADMIN_PASSWORD (set it in .env yourself); the admin must change it at first login.
+ * Credentials come from ADMIN_USERNAME (default `1`) and ADMIN_PASSWORD, set in .env on the server — never committed.
+ * The system starts empty: no firms, no sample data, only this administrator.
+ * Set ADMIN_MUST_CHANGE_PASSWORD=1 to force a password change at first login.
  */
 import { sql } from 'drizzle-orm';
 import { getDb, users } from '../index';
@@ -16,7 +18,7 @@ const [{ n }] = (await db.select({ n: sql<number>`count(*)::int` }).from(users))
 if (n > 0) {
   console.log(`seed: ${n} user(s) exist, nothing to do`);
 } else {
-  const username = process.env.ADMIN_USERNAME ?? 'admin';
+  const username = process.env.ADMIN_USERNAME || '1';
   const password = process.env.ADMIN_PASSWORD;
   if (!password || password.length < 10) throw new Error('Set ADMIN_PASSWORD (min 10 chars) to create the first admin');
   await db.insert(users).values({
@@ -25,7 +27,7 @@ if (n > 0) {
     role: 'admin',
     allFirms: true,
     passwordHash: await hashPassword(password),
-    mustChangePassword: true,
+    mustChangePassword: process.env.ADMIN_MUST_CHANGE_PASSWORD === '1',
   });
   console.log(`seed: created admin "${username}"`);
 }
