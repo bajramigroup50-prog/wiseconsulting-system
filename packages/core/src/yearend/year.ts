@@ -86,7 +86,7 @@ export function yeComputeYear(inp: YeYearInput): YeYear {
   const vp = computeVp(co.zs, S.vpAdj, dbAkontFromTurnover(I.tb), { name: inp.firm?.name ?? '', activity: inp.firm?.activity ?? '' });
   const tp = inp.ent === 'tp' || inp.ent === 'sd' ? tpCompute(B.pre, S.dldAdj) : null;
   const chart = npoChart(inp.accounts);
-  const npo = inp.ent === 'npo' ? npoCompute({ pre: B.pre, all: B.all, closed, chart }) : null;
+  const npo = inp.ent === 'npo' ? npoCompute({ pre: B.pre, all: B.all, closed, chart, ...(closed ? { closeTax } : {}) }) : null;
   return { ent: inp.ent, closed, co, vp, tp, npo, npoChart: chart };
 }
 

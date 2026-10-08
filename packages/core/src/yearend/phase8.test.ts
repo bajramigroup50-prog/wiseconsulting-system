@@ -90,6 +90,11 @@ describe('year by entity and the close plan', () => {
     expect(npo.net).toBe(40_000);
     expect(lineTotals(npo.lines).balanced).toBe(true);
     expect(npo.lines.some((l) => l.account === '951')).toBe(true); // company chart → company result accounts
+    expect(npo.lines.some((l) => l.account === '8000')).toBe(true); // FIX P8 #3: not 800 on the company chart
+    expect(npo.lines.some((l) => l.account === '800')).toBe(false);
+    const closed = yeInputsFromLedger([...year, ...npo.lines.map((l) => L('2026-12-31', l.account, l.debit, l.credit, { kind: 'close' }))]);
+    const after = yeComputeYear({ year: 2026, ent: 'npo', inputs: closed, settings: {} });
+    expect([after.closed, after.npo!.tax]).toEqual([true, npo.tax]);
   });
   it('open plan carries 951 → 950 and the customer per partner', () => {
     const plan = yeClosePlan({ year: 2026, ent: 'co', inputs: yeInputsFromLedger(year), settings: {} });
