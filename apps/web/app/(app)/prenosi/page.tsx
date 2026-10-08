@@ -31,7 +31,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
     .orderBy(desc(transfers.date), desc(transfers.number));
   const tot = (d: (typeof list)[number]) => {
     const t = transferBookTotals(L.ctx, { id: d.id, number: d.number, date: d.date, from: d.fromLocationId ?? 'main', to: d.toLocationId ?? 'main', lines: d.lines.map((l) => ({ item: l.itemId, qty: l.qty, nabU: l.nabU ?? 0, sp: l.sp ?? null })) });
-    return { ...t, mg: t.sp - t.nab };
+    return { ...t, mg: t.marg };
   };
 
   const view = sp.view ? list.find((d) => d.id === sp.view) : undefined;
@@ -52,7 +52,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
             })}</tbody>
             <tfoot><tr><td colSpan={6}>Вкупно</td><td className="n">{fmt(t.nab)}</td><td /><td className="n">{fmt(t.sp)}</td></tr></tfoot>
           </table>
-          <p className="mini">Разлика во цена (со ДДВ): {fmt(t.mg)}</p>
+          <p className="mini">Разлика во цена (без ДДВ): {fmt(t.mg)}</p>
           <div className="row" style={{ justifyContent: 'space-between', marginTop: 30 }}><span>Издал: ____________</span><span>Примил: ____________</span></div>
         </div>
       </>

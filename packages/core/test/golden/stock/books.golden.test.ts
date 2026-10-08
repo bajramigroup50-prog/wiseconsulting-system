@@ -14,6 +14,7 @@ import {
   legacyMoveDoc,
   metgCard,
   tradeBook,
+  transferBookTotals,
   type LagerView,
 } from '../../../src/stock-books';
 import { bomCycle, productionNeeds, runProduction, unitCost, type StockMove } from '../../../src/stock';
@@ -175,6 +176,14 @@ describe('ЕТ образец за мало (etBook) and moveDoc', () => {
       expect(got).toEqual({ ...want, ...(want.mo ? { mo: true } : {}) });
       expect(!!inTotals).toBe(!!(p || pr));
     }
+  });
+
+  it('transferBookTotals matches legacy prTotals (calcRows of prPseudo)', () => {
+    const L = loadLegacy(FX);
+    const d: any = DOCS.find((x) => x.type === 'prenos');
+    const R = L.fn.calcRows(L.fn.prPseudo(d));
+    const sum = (k: string) => Math.round(R.reduce((a: number, r: any) => a + r[k], 0) * 100) / 100;
+    expect(transferBookTotals(portCtx(FX), d)).toEqual({ nab: sum('nabV'), sp: sum('spV'), marg: sum('marg') });
   });
 
   it('matches legacy etData per store and for all stores', () => {

@@ -51,9 +51,13 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
     .orderBy(desc(salesDaily.date));
 
   let dfi: ReturnType<typeof dfiControl> | null = null;
-  const [from, to] = rangeOf(sp, year);
+  let [from, to] = rangeOf(sp, year);
   if (tab === 'dfi') {
     const [sales, ledger] = await Promise.all([loadStockSales(db(), firm.id), loadLedgerLines(db(), firm.id, `${year}-01-01`, to)]);
+    // legacy `dfiStart` (13130): without an explicit "from", the control starts at the first report of the location
+    const W = pickLoc(L, sp.wh);
+    const first = sales.filter((s) => !W || s.wh === W).map((s) => s.days?.[0]?.date ?? s.date).sort()[0];
+    if (!sp.from && first && first > from) from = first;
     dfi = dfiControl({
       sales, wh: pickLoc(L, sp.wh) || undefined, from, to, today: todayIso(), opts: { offDays: O.offDays, cashMax: O.cashMax, depDays: O.depDays, cardK: O.cardK },
       ledger: ledger.map((l) => ({ account: l.account, date: l.date, debit: l.debit, credit: l.credit })),

@@ -451,13 +451,13 @@ export interface BookTransfer {
 }
 
 /** Legacy `prPseudo` + `calcRows`: the transfer as a calculation (ПЛТ) of the receiving store. */
-export function transferBookTotals(ctx: StockContext, d: BookTransfer): { nab: number; sp: number } {
+export function transferBookTotals(ctx: StockContext, d: BookTransfer): { nab: number; sp: number; marg: number } {
   const R = calculationRows(ctx, {
     wh: d.to,
     art32: true,
     stock: d.lines.map((l) => ({ item: l.item, qty: l.qty, price: l.nabU, sp: l.sp ?? '' })),
   } as PurchaseLike);
-  return { nab: r2(R.reduce((s, r) => s + r.nabV, 0)), sp: r2(R.reduce((s, r) => s + r.spV, 0)) };
+  return { nab: r2(R.reduce((s, r) => s + r.nabV, 0)), sp: r2(R.reduce((s, r) => s + r.spV, 0)), marg: r2(R.reduce((s, r) => s + r.marg, 0)) };
 }
 
 /** Collections used by {@link legacyMoveDoc} (legacy document shapes). */
