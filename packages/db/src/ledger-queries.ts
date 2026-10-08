@@ -31,6 +31,7 @@ export async function loadLedgerLines(db: Tx, firmId: string, from: string, to: 
     account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, partnerId: journalLines.partnerId,
     note: journalLines.note, doc: journalLines.doc, lineNo: journalLines.lineNo,
     date: journals.date, kind: journals.kind, journalId: journals.id, number: journals.number, description: journals.description,
+    sourceType: journals.sourceType,
   }).from(journalLines)
     .innerJoin(journals, eq(journals.id, journalLines.journalId))
     .where(and(eq(journalLines.firmId, firmId), sql`${journals.date} between ${from} and ${to}`))

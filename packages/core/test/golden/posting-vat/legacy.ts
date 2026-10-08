@@ -163,7 +163,14 @@ let cached: Legacy | undefined;
 export function loadLegacy(): Legacy {
   if (cached) return cached;
   const html = readFileSync(LEGACY, 'utf8').replace(/\r\n/g, '\n');
-  const source = PRELUDE + extract(html) + EPILOGUE;
+  // FIX (LEGACY-MAP 4.4 #14) applied to the reference too: legacy `blgCalc` rounded to whole denars
+  // (`Math.round`); the port rounds to the cent. Everything else in the cash posting is compared as-is.
+  const fixed = extract(html).replace(/^function blgCalc\(x\)\{.*$/m, (l) => {
+    const r = l.replace(/Math\.round\(/g, 'r2(').replace('base:mkd-vat', 'base:r2(mkd-vat)');
+    if (r === l) throw new Error('blgCalc FIX #14 patch did not apply');
+    return r;
+  });
+  const source = PRELUDE + fixed + EPILOGUE;
   const context = vm.createContext({ console });
   vm.runInContext(source, context, { filename: 'legacy-posting-vat.js' });
   const S = vm.runInContext('S', context) as { firms: unknown[]; data: Record<string, unknown[]>; gsch: unknown };

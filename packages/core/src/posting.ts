@@ -798,7 +798,7 @@ export function cashExpenseAccount(cat: string | undefined, abroad: boolean, acc
 }
 
 /**
- * Cash voucher posting (legacy `blgEntries`, 6518), whole denars.
+ * Cash voucher posting (legacy `blgEntries`, 6518), to the cent (FIX #14, see `blgCalc`).
  * in: D register / P konto (default `blgInOther` 1000). out: D expense / D input VAT / P register.
  * Foreign-currency vouchers carry the currency amount on the expense and register lines.
  */
@@ -808,7 +808,8 @@ export function blgEntries(x: CashVoucher, ctx: PostingContext, register: CashRe
   const fxOn = !!c.fx && x.cur !== 'MKD' && !!c.mkd;
   const dv = (v: number) => (fxOn ? { cur: x.cur, amtCur: r2((n0(x.amt) * v) / c.mkd) } : {});
   const nt = (x.merchant || '') + (x.country && x.country !== 'MK' ? ` (${x.country})` : '');
-  const C = (v: number) => v * 100;
+  // FIX (LEGACY-MAP 4.4 #14): `blgCalc` returns cents-precise denars now (was whole denars).
+  const C = (v: number) => toC(v);
   if (x.kind === 'in') {
     return out([
       { k: pk, d: C(c.mkd), p: 0, ...dv(c.mkd), note: x.note || nt },

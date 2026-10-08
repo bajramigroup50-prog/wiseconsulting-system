@@ -27,6 +27,8 @@ export interface LedgerLine {
   credit: number;
   date: string;
   partnerId?: string | null;
+  /** Journal source document type (`bank_statement`, `cash_voucher`, `invoice`, …), null for manual journals. */
+  sourceType?: string | null;
   /** Journal kind (`open`, `close`, `bbimp`, `manual`, `izlez`, …). */
   kind?: string | null;
   journalId?: string;

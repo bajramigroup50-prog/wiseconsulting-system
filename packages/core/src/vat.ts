@@ -256,20 +256,25 @@ export function costsOf(p: Pick<PurchaseDoc, 'costs'>): CostOf[] {
 export interface CashVoucherCalc { fx: number; mkd: number; vat: number; base: number; ded: boolean }
 
 /**
- * Cash voucher (благајна) amounts in whole denars (legacy `blgCalc`, 6517). Input VAT is deductible
- * only for expenses (`out`), in Macedonia, for a VAT firm, at a rate with an input-VAT konto.
+ * Cash voucher (благајна) amounts (legacy `blgCalc`, 6517). Input VAT is deductible only for
+ * expenses (`out`), in Macedonia, for a VAT firm, at a rate with an input-VAT konto.
+ *
+ * FIX (LEGACY-MAP 4.4 #14): legacy rounded the denar amount and the VAT to whole denars
+ * (`Math.round`) while bank lines use `r2`, so a foreign receipt (EUR 15 × 61.53 = 922.95) was booked
+ * as 923 and the register drifted from the receipts. Amounts are now rounded to the cent (`r2`);
+ * vouchers whose amount is already whole denars give exactly the legacy result.
  */
 export function blgCalc(x: CashVoucher, ctx: VatContext): CashVoucherCalc {
   const fx = x.cur === 'MKD' ? 1 : n0(x.fx);
-  const mkd = rh(n0(x.amt) * fx);
+  const mkd = r2(n0(x.amt) * fx);
   const rate = n0(x.rate);
   const ded = x.kind !== 'in' && (x.country || 'MK') === 'MK' && !!ctx.firm.ddv && !!rate && !!vatAccount(ctx, 'in', rate);
   const vat = ded
     ? x.vat !== '' && x.vat != null
-      ? rh(n0(x.vat) * (x.cur === 'MKD' ? 1 : fx))
-      : rh((mkd * rate) / (100 + rate))
+      ? r2(n0(x.vat) * (x.cur === 'MKD' ? 1 : fx))
+      : r2((mkd * rate) / (100 + rate))
     : 0;
-  return { fx, mkd, vat, base: mkd - vat, ded };
+  return { fx, mkd, vat, base: r2(mkd - vat), ded };
 }
 
 export interface SupplierCreditCalc { base: number; vat: number; total: number; by: { konto?: string; rate: number; b: number; v: number }[] }
@@ -516,7 +521,7 @@ export function ddvFor(docs: VatDocuments, period: string, per: VatPeriodKind | 
   for (const x of docs.cashVouchers ?? []) {
     if (!inP(x)) continue;
     const c = blgCalc(x, ctx);
-    if (c.ded && c.vat) add(inn, n0(x.rate), c.base * 100, c.vat * 100);
+    if (c.ded && c.vat) add(inn, n0(x.rate), toC(c.base), toC(c.vat));
   }
   for (const x of docs.supplierCredits ?? []) {
     if (!inP(x)) continue;
@@ -753,7 +758,7 @@ export function vatBookIn(docs: VatDocuments, from: string, to: string, ctx: Vat
     if (!(k.ded && k.vat)) continue;
     const rt = n0(x.rate);
     const c = mk();
-    if (isR(rt)) { c[BK[rt]] += k.base * 100; c[VK[rt]] += k.vat * 100; }
+    if (isR(rt)) { c[BK[rt]] += toC(k.base); c[VK[rt]] += toC(k.vat); }
     fin({ date: x.date, no: x.docNo || x.number || '', name: x.merchant || x.note || 'Фискална сметка', edb: '', note: 'Благајна' }, c);
   }
   for (const x of docs.supplierCredits ?? []) {
