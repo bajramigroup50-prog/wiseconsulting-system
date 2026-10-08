@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { payDraft, payrollEntries2, resolvePayParams, type HrContract } from '@wise/core';
 import { postJournal } from './posting';
 import {
-  deleteRun, extendContract, loadPayOverrides, loadRun, mpinAckPostAllowed, postRun, registerHrDoc, saveContract, saveRun,
+  deleteRun, extendContract, loadPayOverrides, payrollYearEndSource, loadRun, mpinAckPostAllowed, postRun, registerHrDoc, saveContract, saveRun,
   setRunLocked, unpostRun, PayrollError,
 } from './payroll';
 import * as schema from './schema/index';
@@ -161,5 +161,19 @@ describe('HR registry and contracts', () => {
     expect(t2).toMatchObject({ kind: 'odluka', transform: true, no: '1/2027' });
     const [e2] = await db.select().from(schema.employees).where(eq(schema.employees.id, empIds[0]!));
     expect(e2).toMatchObject({ end: null, contract: 'неопределено' });
+  });
+});
+
+describe('year-end payroll source (Phase 8 bu214–216 / bu257)', () => {
+  it('reports posted runs with head count, tax and contributions, and active employees', async () => {
+    const d = await draftFor('2026-06');
+    const r = await tx((t) => saveRun(t, { firmId, month: d.month, params: d.params, emps: d.emps, userId: null }));
+    await tx((t) => postRun(t, { firmId, runId: r.id, userId: null }));
+    const src = payrollYearEndSource(() => db as never);
+    const runs = await src.runs(firmId, 2026);
+    expect(runs.map((x) => [x.month, x.employees])).toEqual([['2026-06', 2]]);
+    expect(runs[0]!.tax).toBeGreaterThan(0);
+    expect(runs[0]!.contrib).toBeGreaterThan(runs[0]!.tax);
+    expect(await src.activeEmployees(firmId, 2026)).toBe(2);
   });
 });

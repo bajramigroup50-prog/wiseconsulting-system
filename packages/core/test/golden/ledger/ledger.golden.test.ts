@@ -169,7 +169,8 @@ describe('golden: close / open year', () => {
     const lg = env();
     await lg.fn.closeYear!();
     const s = lg.saved.at(-1)!.obj;
-    const r = closeYearLines(ours);
+    // legacy without ДБ data booked 10 % × max(0, profit); the tax is now always passed in (Phase 8)
+    const r = closeYearLines(ours, { tax: s.tax });
     expect([r.profit, r.tax, r.net]).toEqual([s.profit, s.tax, s.net]);
     expect(sortL(r.lines)).toEqual(fromLegacy(s.lines));
   });

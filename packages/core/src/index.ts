@@ -20,6 +20,13 @@ export { decodeCp1251, type PayMatch } from './payroll';
 export * as Bank from './bank-match';
 export * as BankParsers from './bank-parsers';
 export * from './ledger';
-export { closeYearLines, openYearLines, matchPartner } from './ledger';
-export type { CloseYearResult, LedgerLine } from './ledger';
+// Year close / carry-forward: the root names are the year-end engine (one implementation, Phase 8); the ledger-line
+// adapters stay reachable as `Ledger.closeYearLines` / `Ledger.openYearLines`.
+export { closeYearLines, openYearLines } from './yearend';
+export type { CloseYearResult } from './yearend';
+export { matchPartner } from './ledger';
+export type { LedgerLine } from './ledger';
 export * as Ledger from './ledger';
+export * as Office from './office';
+export * from './stock-books';
+export * as StockBooks from './stock-books';

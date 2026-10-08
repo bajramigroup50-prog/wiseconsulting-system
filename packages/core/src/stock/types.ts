@@ -19,6 +19,16 @@ export interface StockItem {
   rawK?: string;
   costPrice?: number | string;
   costPct?: number | string;
+  /** Bill of materials of a product: component item id and quantity per unit of product. */
+  bom?: readonly { item: string; qty: number | string }[];
+  /** Labour and overhead per unit of product. */
+  labor?: number | string;
+  /** Minimum stock (lager "За набавка"). */
+  min?: number | string | null;
+  /** Revenue account override (legacy `konto`). */
+  konto?: string | null;
+  /** Macedonian product (КДФИ). */
+  mk?: boolean;
 }
 
 /** One balanced-journal line. `debit`/`credit` are non-negative and rounded to cents. */

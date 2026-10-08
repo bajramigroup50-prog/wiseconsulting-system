@@ -22,6 +22,7 @@ import {
 } from '@wise/core';
 import { audit, type Tx } from './audit';
 import { assertOpenPeriod, postJournal, PostingError, unpostSource } from './posting';
+import { registerYearEndInputs } from './yearend';
 import {
   appSettings, employees, firms, hrContracts, hrDocs, journals, payrollEmp, payrollLines, payrollNotes, payrollParams,
   payrollRuns, payrollSettings, type Employee, type Firm, type HrDoc, type PayrollRunRow,
@@ -461,3 +462,36 @@ export async function hrNumbersTaken(tx: Tx, firmId: string, exceptEmployeeId?: 
   ));
   return rows.map((r) => r.no);
 }
+
+/* ---------------- Year-end input (Phase 8: AOP bu214–216 / bu257) ---------------- */
+
+/**
+ * Payroll data for the annual statement (`YePayrollSource`): per month the number of employees in the posted run,
+ * PIT and contributions (incl. the employer top-up); and the employees active at year end (bu257).
+ */
+export function payrollYearEndSource(getTx: () => Tx | Promise<Tx>) {
+  return {
+    async runs(firmId: string, year: number) {
+      const tx = await getTx();
+      const rows = await tx.select({
+        month: payrollRuns.month, employees: sql<number>`count(${payrollEmp.id})::int`,
+        tax: sql<string>`coalesce(sum(${payrollEmp.tax}),0)`, contrib: sql<string>`coalesce(sum(${payrollEmp.contr}),0)`,
+      }).from(payrollRuns).innerJoin(payrollEmp, eq(payrollEmp.runId, payrollRuns.id))
+        .where(and(eq(payrollRuns.firmId, firmId), eq(payrollRuns.status, 'posted'), sql`${payrollRuns.month} like ${year + '-%'}`))
+        .groupBy(payrollRuns.month).orderBy(asc(payrollRuns.month));
+      return rows.map((r) => ({ month: r.month, employees: r.employees, tax: Number(r.tax), contrib: Number(r.contrib) }));
+    },
+    async activeEmployees(firmId: string, year: number) {
+      const tx = await getTx();
+      const end = `${year}-12-31`;
+      const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(employees).where(and(
+        eq(employees.firmId, firmId), eq(employees.active, true),
+        sql`(${employees.start} is null or ${employees.start} <= ${end})`, sql`(${employees.end} is null or ${employees.end} >= ${end})`,
+      ));
+      return r?.n ?? 0;
+    },
+  };
+}
+
+// Registered with the year-end service at load (resolves its TODO(merge)); reads through the app's pool.
+registerYearEndInputs({ payroll: payrollYearEndSource(async () => (await import('./index')).getDb()) });

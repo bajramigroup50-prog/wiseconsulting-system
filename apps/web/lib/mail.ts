@@ -9,9 +9,9 @@ import 'server-only';
  * rolled-back action sends nothing. `dispatchMail` hands the ids to pg-boss; if the queue cannot be reached the
  * rows stay `queued` and the worker's `mail.flush` sweep sends them a few minutes later.
  */
-import { PgBoss } from 'pg-boss';
 import { mailLog, type Tx } from '@wise/db';
 import { db } from './db';
+import { enqueue } from './jobs';
 
 export interface MailMessage {
   firmId: string | null;
@@ -44,25 +44,13 @@ export async function queueMail(tx: Tx, m: MailMessage): Promise<string> {
   return r!.id;
 }
 
-let boss: Promise<PgBoss> | undefined;
-function getBoss(): Promise<PgBoss> {
-  boss ??= (async () => {
-    // Producer only: the worker owns the schema, maintenance and cron.
-    const b = new PgBoss({ connectionString: process.env.DATABASE_URL, max: 2, supervise: false, schedule: false, migrate: false });
-    b.on('error', (e) => console.error('[pg-boss]', e));
-    await b.start();
-    return b;
-  })().catch((e) => { boss = undefined; throw e; });
-  return boss;
-}
-
 /** Send queued rows to the `mail.send` queue. Never throws — undelivered ids are picked up by `mail.flush`. */
 export async function dispatchMail(ids: readonly string[]): Promise<{ queued: number; deferred: number }> {
   if (!ids.length) return { queued: 0, deferred: 0 };
   try {
     // Never let an unreachable queue hold up the user's action: give up after 5 s (rows stay `queued`).
     await Promise.race([
-      (async () => { const b = await getBoss(); for (const logId of ids) await b.send(MAIL_JOB, { logId }); })(),
+      (async () => { for (const logId of ids) await enqueue(MAIL_JOB, { logId }); })(),
       new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 5000)),
     ]);
     return { queued: ids.length, deferred: 0 };
