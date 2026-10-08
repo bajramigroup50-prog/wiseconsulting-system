@@ -30,6 +30,9 @@ export const ymAdd = (ym: string, n: number): string => addMonths(`${ym}-01`, n)
 
 export const dmy = (d: string | null | undefined): string => (d ? d.slice(0, 10).split('-').reverse().join('.') : '');
 
-/** Legacy `fmt`: Macedonian thousands separator, 2 decimals. */
-export const fmtMk = (n: number): string =>
-  (Math.round(n * 100) / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Legacy `fmt` (`1.234.567,89`), by hand so it doesn't depend on the runtime's ICU data. */
+export const fmtMk = (n: number): string => {
+  const v = Number(n) || 0;
+  const [i, d] = Math.abs(v).toFixed(2).split('.') as [string, string];
+  return (v < 0 && (i !== '0' || d !== '00') ? '-' : '') + i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + d;
+};

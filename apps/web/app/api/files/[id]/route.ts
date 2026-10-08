@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: Ctx) {
   if (!u) return new Response('unauthorized', { status: 401 });
   const f = await load((await params).id);
   // Reading needs firm access only (view role included); office files need the office permission.
-  const allowed = f && (f.firmId ? firmAllowed(u.principal, f.firmId) : can(u.principal, 'office'));
+  const allowed = f && (f.firmId ? firmAllowed(u.principal, f.firmId) : can(u.principal, 'office') || f.uploadedBy === u.id);
   if (!f || f.status !== 'ready' || !allowed) return new Response('not found', { status: 404 });
   const dl = new URL(req.url).searchParams.get('dl') === '1';
   return Response.redirect(await presignGet(f.bucketKey, f.name, !dl), 302);
