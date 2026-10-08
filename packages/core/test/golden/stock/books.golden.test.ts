@@ -253,7 +253,7 @@ describe('production (unitCost / runProduction)', () => {
 
   it('DELIBERATE FIX: a cyclic BOM overflows legacy unitCost; the port stops at the cycle', () => {
     const L = loadLegacy(PFX);
-    expect(() => L.fn.unitCost(PROD_ITEMS.find((i) => i.id === 'PX'))).toThrow(RangeError);
+    expect(() => L.fn.unitCost(PROD_ITEMS.find((i) => i.id === 'PX'))).toThrow(/call stack/i); // legacy runs in a vm sandbox with its own RangeError class, so match the message
     const ctx = portCtx(PFX);
     // PX → PY (2 × PX at its stock cost 7 + labour 2 = 16) → PX = 1 × 16
     expect(unitCost(ctx, PROD_ITEMS.find((i) => i.id === 'PX') as any)).toBe(16);
