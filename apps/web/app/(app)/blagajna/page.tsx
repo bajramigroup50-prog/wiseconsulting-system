@@ -11,7 +11,7 @@ import {
 import { booksPage, canDo, inYearOr, partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { ActionForm } from '@/components/action-form';
+import { BankForm } from '@/components/bank-form';
 import { DownloadCsv } from '@/components/download-csv';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -117,7 +117,7 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
           <div className="tw"><table className="dense"><thead><tr><th>Назив · Конто · Валута</th></tr></thead>
             <tbody>{R.map((r) => (
               <tr key={r.id}><td>
-                <ActionForm action={saveRegisterAction} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                <BankForm action={saveRegisterAction} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                   <input type="hidden" name="id" value={r.id} />
                   <input name="name" defaultValue={r.name} style={{ width: 280 }} disabled={!write} />
                   <input name="konto" list="blgK" defaultValue={r.konto} style={{ width: 100 }} disabled={!write} />
@@ -125,16 +125,16 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
                   <select name="cur" defaultValue={r.cur} disabled={!write}>{CURS.map((c) => <option key={c}>{c}</option>)}</select>
                   {write && <button className="btn sm">Зачувај</button>}
                   {write && R.length > 1 && <RowAction action={removeRegisterAction.bind(null, r.id)} label="✕" className="btn sm ghost danger" confirm={`Да се отстрани благајната „${r.name}“?`} />}
-                </ActionForm>
+                </BankForm>
               </td></tr>
             ))}</tbody></table></div>
           {write && (
-            <ActionForm action={saveRegisterAction} className="row" style={{ gap: 6 }}>
+            <BankForm action={saveRegisterAction} className="row" style={{ gap: 6 }}>
               <input name="name" placeholder="Назив, на пр. Девизна благајна" style={{ width: 280 }} required />
               <input name="konto" list="blgK" placeholder="Конто" style={{ width: 100 }} required />
               <select name="cur" defaultValue="MKD">{CURS.map((c) => <option key={c}>{c}</option>)}</select>
               <button className="btn">+ Благајна</button>
-            </ActionForm>
+            </BankForm>
           )}
           <p className="note">На пр. 1020 Главна благајна (МКД), 1051 Девизна благајна за службени патувања (EUR), 1052 Девизна благајна за транспорт (EUR). Налогот за секоја благајна го носи бројот на контото (1020/7-9, 1051/7-9…).</p>
         </div>

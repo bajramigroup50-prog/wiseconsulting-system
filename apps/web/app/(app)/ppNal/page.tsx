@@ -12,7 +12,7 @@ import { orderSuggestions, payerOf, paymentOrders } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { ActionForm } from '@/components/action-form';
+import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { PpSlip } from '@/components/pp-slip';
@@ -76,7 +76,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
 
       {draft && write && (
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
-          <ActionForm action={savePpAction}>
+          <BankForm action={savePpAction}>
             <div className="hd"><h2>💳 {PP_T[draft.kind]}</h2>
               <div className="row">
                 <button className="btn pri">Зачувај</button>
@@ -123,7 +123,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                 <p className="mini" style={{ margin: 6 }}>{draft.kind !== 'pp10' ? 'Налогодавач: ' + ppAccTxt(draft.payerAcc, draft.date, draft.iban ?? undefined) + ' · ' : ''}Примач: {ppAccTxt(draft.recipAcc, draft.date, draft.iban ?? undefined)}</p>
               </div>
             </div>
-          </ActionForm>
+          </BankForm>
         </div>
       )}
 

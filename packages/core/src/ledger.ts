@@ -15,6 +15,7 @@
  * (or `FIX(P8 #n)` for §8.4).
  */
 import { r2 } from './money';
+import { closeYearLines as yeCloseYearLines, openYearLines as yeOpenYearLines, YEAR_RESULT_ACCOUNTS } from './yearend/close';
 
 /* ------------------------------------------------------------------ */
 /* Lines & accounts                                                    */
@@ -437,46 +438,34 @@ export interface PostingLine {
  * retained result on 950/960 in the next year's opening balance.
  */
 export const RESULT_ACCOUNTS = {
-  preTax: '8000', tax: '8100', net: '8200', taxPayable: '2330',
-  profitYear: '951', lossYear: '961', retainedProfit: '950', carriedLoss: '960',
+  preTax: YEAR_RESULT_ACCOUNTS.preTax, tax: YEAR_RESULT_ACCOUNTS.taxExpense, net: YEAR_RESULT_ACCOUNTS.net, taxPayable: YEAR_RESULT_ACCOUNTS.taxPayable,
+  profitYear: YEAR_RESULT_ACCOUNTS.currentProfit, lossYear: YEAR_RESULT_ACCOUNTS.currentLoss,
+  retainedProfit: YEAR_RESULT_ACCOUNTS.retainedProfit, carriedLoss: YEAR_RESULT_ACCOUNTS.retainedLoss,
 } as const;
 
 export interface CloseYearOpts {
-  /** Profit tax amount (e.g. from the ДБ tax balance, AOP 56). When omitted: `taxRate` × max(0, profit + nondeductible). */
-  tax?: number;
-  nondeductible?: number;
-  taxRate?: number;
+  /**
+   * Profit tax to book — the ДБ tax (AOP 56) or the entity's tax from the year-end engine (`yeClosePlan`).
+   * FIX(Phase 8): the Phase 2 stopgap defaulted to a flat 10 % × max(0, profit + nondeductible); the tax is now
+   * required, so the close can never disagree with the ДБ return.
+   */
+  tax: number;
 }
 
 export interface CloseYearResult { lines: PostingLine[]; profit: number; tax: number; net: number }
 
 /**
- * Legacy `closeYear` 6732: close classes 4 and 7 to 8000, book profit tax (8100 / 2330),
- * carry the result through 8200 to 951 (profit) or 961 (loss). Pass the year's lines; any
- * existing `close` journal lines are ignored.
+ * Legacy `closeYear` 6732 over ledger lines: delegates to the year-end engine (`yearend/close.ts`
+ * `closeYearLines`, the one implementation). Any existing `close` journal lines are ignored.
+ * The application closes a year through `yeClosePlan` (entity-aware); this adapter is for callers that hold
+ * plain ledger lines.
  */
-export function closeYearLines(lines: readonly LedgerLine[], o: CloseYearOpts = {}): CloseYearResult {
-  const A = RESULT_ACCOUNTS;
+export function closeYearLines(lines: readonly LedgerLine[], o: CloseYearOpts): CloseYearResult {
   const B = balances(lines.filter((l) => l.kind !== 'close'));
-  const out: PostingLine[] = [];
-  let res = 0;
-  for (const k of Object.keys(B).sort()) {
-    const v = B[k]!;
-    if (!(k.startsWith('4') || k.startsWith('7')) || Math.abs(v.s) < 0.005) continue;
-    if (v.s > 0) out.push({ account: A.preTax, debit: v.s, credit: 0 }, { account: k, debit: 0, credit: v.s });
-    else out.push({ account: k, debit: -v.s, credit: 0 }, { account: A.preTax, debit: 0, credit: -v.s });
-    res -= v.s;
-  }
-  res = r2(res);
-  const tax = o.tax != null ? r2(o.tax) : r2(Math.max(0, res + (o.nondeductible ?? 0)) * (o.taxRate ?? 0.1));
-  if (res > 0) out.push({ account: A.preTax, debit: res, credit: 0 }, { account: A.net, debit: 0, credit: res });
-  else if (res < 0) out.push({ account: A.net, debit: -res, credit: 0 }, { account: A.preTax, debit: 0, credit: -res });
-  if (tax) out.push({ account: A.tax, debit: tax, credit: 0 }, { account: A.taxPayable, debit: 0, credit: tax },
-    { account: A.net, debit: tax, credit: 0 }, { account: A.tax, debit: 0, credit: tax });
-  const net = r2(res - tax);
-  if (net > 0) out.push({ account: A.net, debit: net, credit: 0 }, { account: A.profitYear, debit: 0, credit: net });
-  else if (net < 0) out.push({ account: A.lossYear, debit: -net, credit: 0 }, { account: A.net, debit: 0, credit: -net });
-  return { lines: out, profit: res, tax, net };
+  const pre: Record<string, Balance> = {};
+  for (const k of Object.keys(B).sort()) pre[k] = B[k]!;
+  const r = yeCloseYearLines(pre, r2(o.tax));
+  return { ...r, lines: r.lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit })) };
 }
 
 /**
@@ -520,29 +509,23 @@ export function remapResultAccounts(L: readonly PostingLine[]): PostingLine[] {
  */
 export function openYearLines(lines: readonly LedgerLine[]): PostingLine[] {
   const B = balances(lines);
-  const carried = Object.keys(B).sort()
-    .filter((k) => /^[012369]/.test(k) && Math.abs(B[k]!.s) >= 0.005)
-    .map((k) => { const s = B[k]!.s; return s > 0 ? { account: k, debit: s, credit: 0 } : { account: k, debit: 0, credit: -s }; });
+  const all: Record<string, Balance> = {};
+  for (const k of Object.keys(B).sort()) all[k] = B[k]!;
   const pb = new Map<string, number>();
   for (const l of lines) {
     if (!l.partnerId || !needsPartner(l.account)) continue; // FIX(#6): same predicate as the partner requirement
     const key = l.account + '|' + l.partnerId;
     pb.set(key, (pb.get(key) ?? 0) + (+l.debit || 0) - (+l.credit || 0));
   }
-  const out: PostingLine[] = carried.filter((l) => !needsPartner(l.account));
-  for (const [key, s] of [...pb.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const [k, p] = key.split('|') as [string, string];
-    if (!/^[012369]/.test(k)) continue;
-    const v = r2(s);
-    if (Math.abs(v) < 0.005) continue;
-    out.push(v > 0 ? { account: k, debit: v, credit: 0, partnerId: p } : { account: k, debit: 0, credit: -v, partnerId: p });
-  }
-  for (const l of carried.filter((x) => needsPartner(x.account))) {
-    const withP = [...pb.entries()].filter(([key]) => key.startsWith(l.account + '|')).reduce((s, [, v]) => s + v, 0);
-    const rest = r2(l.debit - l.credit - withP);
-    if (Math.abs(rest) > 0.005) out.push(rest > 0 ? { account: l.account, debit: rest, credit: 0 } : { account: l.account, debit: 0, credit: -rest });
-  }
-  return remapResultAccounts(out);
+  const partnerBalances = [...pb.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, balance]) => {
+    const [account, partner] = key.split('|') as [string, string];
+    return { account, partner, balance };
+  });
+  // Delegates to the year-end engine (`yearend/close.ts` `openYearLines`, the one implementation). Only accounts
+  // that require a partner are split per partner, so 129x/229x are carried without one (FIX #6).
+  return yeOpenYearLines(all, partnerBalances).map((l) => ({
+    account: l.account, debit: l.debit, credit: l.credit, ...(l.partner ? { partnerId: l.partner } : {}),
+  }));
 }
 
 /* ------------------------------------------------------------------ */

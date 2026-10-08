@@ -7,7 +7,7 @@ import type { Firm, Tx } from '@wise/db';
 import { actionError, firmAction } from './books';
 import type { SessionUser } from './auth';
 import { db } from './db';
-import type { FormState } from '@/components/action-form';
+import type { FormState } from '@/components/bank-form';
 
 const DOMAIN_ERRORS = new Set(['BankError', 'CashError', 'OrderError', 'ImportError']);
 

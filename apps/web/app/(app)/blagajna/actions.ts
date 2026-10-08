@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { createDefaultRegisters, deleteVoucher, removeRegister, saveRegister, saveVoucher } from '@wise/db';
 import { bankRun, isDate, num, str } from '@/lib/bank';
-import type { FormState } from '@/components/action-form';
+import type { FormState } from '@/components/bank-form';
 
 const P = ['/blagajna', '/nalozi', '/kkart'];
 

@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import type { PaymentOrder, PpKind } from '@wise/core';
 import { deletePaymentOrder, markOrdersPrinted, savePaymentOrder } from '@wise/db';
 import { bankRun, num, str } from '@/lib/bank';
-import type { FormState } from '@/components/action-form';
+import type { FormState } from '@/components/bank-form';
 
 const FIELDS = ['date', 'valDate', 'nacin', 'code', 'payer', 'payerAcc', 'payerBank', 'payerTax', 'recip', 'recipAcc', 'recipBank', 'purpose',
   'refDebit', 'refCredit', 'uplSm', 'prihod', 'place', 'taxKey'] as const;

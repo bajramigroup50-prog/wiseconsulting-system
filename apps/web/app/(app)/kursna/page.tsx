@@ -12,7 +12,7 @@ import { viewAllowed } from '@/lib/nav';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { notFound } from 'next/navigation';
-import { ActionForm } from '@/components/action-form';
+import { BankForm } from '@/components/bank-form';
 import { DownloadCsv } from '@/components/download-csv';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
@@ -50,7 +50,7 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
         {!R.length && ` Сè уште нема внесена листа – се користи стандардната од ${dmy(FX_DATE0)}.`}</div>
 
       {draft && (
-        <ActionForm action={saveFxAction} className="card" style={{ borderColor: 'var(--accent)' }}>
+        <BankForm action={saveFxAction} className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>Курсна листа на ден</h2>
             <div className="row"><input type="date" name="date" defaultValue={draft.date} required aria-label="Датум" /><Link className="btn" href="/kursna">Откажи</Link><button className="btn pri">Зачувај</button></div></div>
           <div className="tw"><table className="dense">
@@ -63,7 +63,7 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
               </tr>
             ))}</tbody>
           </table></div>
-        </ActionForm>
+        </BankForm>
       )}
 
       <div className="card"><h2>Тековни курсеви</h2>

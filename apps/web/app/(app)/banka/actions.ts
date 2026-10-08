@@ -17,7 +17,7 @@ import {
 import { firmAction } from '@/lib/books';
 import { bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
-import type { FormState } from '@/components/action-form';
+import type { FormState } from '@/components/bank-form';
 
 const P = ['/banka', '/devizni', '/bkAdv', '/nalozi'];
 const MAX = 20 * 1024 * 1024;

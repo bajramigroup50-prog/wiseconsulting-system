@@ -14,7 +14,7 @@ import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { AUTO_LBL } from '@/lib/bank';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { ActionForm } from '@/components/action-form';
+import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -119,7 +119,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
             <thead><tr><th>Банка</th><th>Жиро / девизна сметка</th><th>IBAN</th><th>Валута</th><th>Конто</th><th>Налог</th><th></th></tr></thead>
             <tbody>{BK.map((x) => (
               <tr key={x.id}><td colSpan={7}>
-                <ActionForm action={saveBankAccountAction} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                <BankForm action={saveBankAccountAction} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                   <input type="hidden" name="id" value={x.id} />
                   <input name="name" defaultValue={x.name} style={{ width: 180 }} disabled={!write} />
                   <input name="account" defaultValue={x.account ?? ''} style={{ width: 170 }} disabled={!write} title={BANKS_MK[bankCodeOf(x.account)]?.n} />
@@ -129,19 +129,19 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                   <input name="nal" defaultValue={x.nal ?? ''} placeholder={fx ? '7' : '6'} style={{ width: 60 }} disabled={!write} title="Шифра на налогот (празно = 6/66… или 7/77…)" />
                   {write && <button className="btn sm">Зачувај</button>}
                   {write && <RowAction action={removeBankAccountAction.bind(null, x.id)} label="✕" confirm={`Да се отстрани сметката „${x.name}“?`} className="btn sm ghost danger" />}
-                </ActionForm>
+                </BankForm>
               </td></tr>
             ))}</tbody>
           </table></div>
           {write && (
-            <ActionForm action={saveBankAccountAction} className="row" style={{ gap: 6 }}>
+            <BankForm action={saveBankAccountAction} className="row" style={{ gap: 6 }}>
               <input name="name" placeholder="Банка, на пр. Халкбанк" style={{ maxWidth: 200 }} required />
               <input name="account" placeholder="Жиро сметка" style={{ maxWidth: 190 }} />
               <input name="iban" placeholder="IBAN (девизна)" style={{ maxWidth: 200 }} />
               <select name="cur" defaultValue={fx ? 'EUR' : 'MKD'}>{CURS.filter((c) => (c !== 'MKD') === fx).map((c) => <option key={c}>{c}</option>)}</select>
               <input name="konto" list="bkK" placeholder={fx ? 'Конто, на пр. 1030' : 'Конто, на пр. 100005'} style={{ maxWidth: 160 }} required />
               <button className="btn">Додај сметка</button>
-            </ActionForm>
+            </BankForm>
           )}
           <p className="note">За девизна сметка изберете валута (EUR, USD…) и посебно конто. Износите се внесуваат во валута, а во денари се пресметуваат по курсот на изводот; разликата при плаќање на фактура оди на курсни разлики (4810 / 7810). Секоја банка има свое аналитичко конто. Сметка со изводи не може да се отстрани.</p>
         </div>
@@ -166,7 +166,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>Автоматско книжење – преглед ({review.length})</h2><Link className="btn" href={q({})}>Затвори</Link></div>
           {review.length ? (
-            <ActionForm action={applyMatchesAction}>
+            <BankForm action={applyMatchesAction}>
               <div className="tw"><table className="dense">
                 <thead><tr><th></th><th>Датум</th><th>Опис</th><th className="n">Износ</th><th>Предлог</th><th>Комитент</th></tr></thead>
                 <tbody>{review.map((p) => (
@@ -181,7 +181,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                 ))}</tbody>
               </table></div>
               <div className="row"><span className="note">Редослед: POS картички, ДДВ, шифра на плаќање, девизни фактури, фактури по број / износ / збир, провизии, правила. Отштиклирајте ги погрешните.</span><span style={{ flex: 1 }} /><button className="btn pri">Прокнижи избраните</button></div>
-            </ActionForm>
+            </BankForm>
           ) : <p className="note">Нема ставки за автоматско книжење – останатите прокнижете ги рачно (копче „Прокнижи…“).</p>}
         </div>
       )}
@@ -196,7 +196,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
               <div>
                 <h3>{Number(edLine.amount) > 0 ? 'Затвори наши фактури' : 'Затвори влезни фактури'}{edDocs.partnerId ? ' – ' + (pName.get(edDocs.partnerId) ?? '') : ''}</h3>
                 {edDocs.docs.length ? (
-                  <ActionForm action={linkLineAction}>
+                  <BankForm action={linkLineAction}>
                     <input type="hidden" name="line" value={edLine.id} />
                     <div className="tw" style={{ maxHeight: 300 }}><table className="dense">
                       <thead><tr><th></th><th>Број</th><th>Датум</th><th>Комитент</th><th>Конто</th><th className="n">Отворено</th></tr></thead>
@@ -209,25 +209,25 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                       ))}</tbody>
                     </table></div>
                     <div className="row"><span className="note">Предложени се најстарите до износот на плаќањето. Вишокот останува аванс кај комитентот.</span><button className="btn pri">Поврзи</button></div>
-                  </ActionForm>
+                  </BankForm>
                 ) : <p className="note">Нема отворени фактури{edDocs.partnerId ? ' за овој комитент' : ''}. Отворените ставки се читаат од книжењата на 120–128 / 220–228 по број на документ.</p>}
               </div>
               <div>
                 <h3>Директно на конто</h3>
-                <ActionForm action={setKontoAction} className="form">
+                <BankForm action={setKontoAction} className="form">
                   <input type="hidden" name="line" value={edLine.id} />
                   <label className="f">Конто<input name="konto" list="bkK" defaultValue={edLine.konto ?? ''} required /></label>
                   <label className="f">Комитент{partnerSelect('partner', edLine.partnerId)}</label>
                   <label className="chk"><input type="checkbox" name="learn" defaultChecked /> запомни правило за овој опис / шифра</label>
                   <div className="row"><button className="btn pri">Прокнижи</button></div>
-                </ActionForm>
+                </BankForm>
                 {(edLine.newPartner || (edLine.konto && BKPK_RE.test(edLine.konto) && !edLine.partnerId)) && (
-                  <ActionForm action={setPartnerAction} className="row" style={{ gap: 6, marginTop: 8 }}>
+                  <BankForm action={setPartnerAction} className="row" style={{ gap: 6, marginTop: 8 }}>
                     <input type="hidden" name="line" value={edLine.id} />
                     {partnerSelect('partner', edLine.partnerId)}
                     {edLine.newPartner && <label className="chk"><input type="checkbox" name="create" value={edLine.newPartner} /> креирај „{edLine.newPartner}“</label>}
                     <button className="btn">Постави комитент</button>
-                  </ActionForm>
+                  </BankForm>
                 )}
                 {(edLine.konto || edLine.refId) && <div className="row" style={{ marginTop: 8 }}><RowAction className="btn" action={unlinkLineAction.bind(null, edLine.id)} label="Врати во непрокнижено" /></div>}
               </div>
@@ -254,11 +254,11 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
             ))}</tbody></table></div>
         )}
         {write && (
-          <ActionForm action={addRuleAction} className="row" style={{ gap: 6 }}>
+          <BankForm action={addRuleAction} className="row" style={{ gap: 6 }}>
             <input name="match" placeholder="текст, на пр. провизија" style={{ maxWidth: 220 }} required />
             <input name="konto" list="bkK" placeholder="конто, на пр. 4460" style={{ maxWidth: 160 }} defaultValue="4460" required />
             <button className="btn">Додај правило</button>
-          </ActionForm>
+          </BankForm>
         )}
       </div>
 
@@ -275,7 +275,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       </form>
 
       {sp.manual && write && acct && (
-        <ActionForm action={addManualLineAction} className="card form">
+        <BankForm action={addManualLineAction} className="card form">
           <h3 style={{ width: '100%' }}>Рачна ставка во извод</h3>
           <label className="f">Сметка<select name="acct" defaultValue={acct.id}>{BK.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
           <label className="f">Датум<input type="date" name="date" required defaultValue={`${year}-${month || '01'}-01`} /></label>
@@ -285,7 +285,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
           <label className="f">Конто (празно = за книжење)<input name="konto" list="bkK" /></label>
           <label className="f">Комитент{partnerSelect('partner')}</label>
           <div className="row"><button className="btn pri">Додај</button></div>
-        </ActionForm>
+        </BankForm>
       )}
 
       {S.length ? (
@@ -308,7 +308,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
               const no = nalog.get(s.id);
               return [
                 <tr key={s.id} className="sub"><td colSpan={6}>
-                  <ActionForm action={updateStatementAction} className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+                  <BankForm action={updateStatementAction} className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
                     <input type="hidden" name="st" value={s.id} />
                     <span className="row" style={{ gap: 6 }}>
                       <b>{a.name}</b> · <label htmlFor={`izv-${s.id}`}>Извод бр.</label>
@@ -335,7 +335,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                       {del && s.importBatch && <RowAction action={undoImportAction.bind(null, s.importBatch)} label="Поништи увоз" confirm={`Да се поништи увозот${s.fileName ? ' „' + s.fileName + '“' : ''} (сите изводи од таа датотека)?`} />}
                       {del && <RowAction action={deleteStatementAction.bind(null, s.id)} label="Избриши извод" className="btn sm ghost danger" confirm={`Да се избрише изводот од ${dmy(s.date)} со ${its.length} ставки и налогот?`} />}
                     </span>
-                  </ActionForm>
+                  </BankForm>
                 </td></tr>,
                 ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id })} active={l.id === sp.line} />),
               ];

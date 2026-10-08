@@ -134,6 +134,20 @@ CREATE TABLE "cash_vouchers" (
 	CONSTRAINT "cash_vouchers_kind_chk" CHECK ("cash_vouchers"."kind" in ('in','out'))
 );
 --> statement-breakpoint
+CREATE TABLE "compensations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"firm_id" uuid NOT NULL,
+	"kind" text DEFAULT 'bi' NOT NULL,
+	"date" date NOT NULL,
+	"number" text NOT NULL,
+	"note" text,
+	"rows" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"total" numeric(18, 2) NOT NULL,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "fx_rates" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"date" date NOT NULL,
@@ -176,6 +190,8 @@ ALTER TABLE "cash_vouchers" ADD CONSTRAINT "cash_vouchers_register_id_cash_regis
 ALTER TABLE "cash_vouchers" ADD CONSTRAINT "cash_vouchers_partner_id_partners_id_fk" FOREIGN KEY ("partner_id") REFERENCES "public"."partners"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cash_vouchers" ADD CONSTRAINT "cash_vouchers_file_id_files_id_fk" FOREIGN KEY ("file_id") REFERENCES "public"."files"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cash_vouchers" ADD CONSTRAINT "cash_vouchers_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "compensations" ADD CONSTRAINT "compensations_firm_id_firms_id_fk" FOREIGN KEY ("firm_id") REFERENCES "public"."firms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "compensations" ADD CONSTRAINT "compensations_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fx_rates" ADD CONSTRAINT "fx_rates_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payment_orders" ADD CONSTRAINT "payment_orders_firm_id_firms_id_fk" FOREIGN KEY ("firm_id") REFERENCES "public"."firms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payment_orders" ADD CONSTRAINT "payment_orders_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -192,6 +208,8 @@ CREATE INDEX "cash_registers_firm_idx" ON "cash_registers" USING btree ("firm_id
 CREATE INDEX "cash_vouchers_firm_date_idx" ON "cash_vouchers" USING btree ("firm_id","date");--> statement-breakpoint
 CREATE INDEX "cash_vouchers_register_idx" ON "cash_vouchers" USING btree ("register_id","date");--> statement-breakpoint
 CREATE UNIQUE INDEX "cash_vouchers_number_uq" ON "cash_vouchers" USING btree ("register_id","kind",extract(year from "date"),"number");--> statement-breakpoint
+CREATE INDEX "compensations_firm_date_idx" ON "compensations" USING btree ("firm_id","date");--> statement-breakpoint
+CREATE UNIQUE INDEX "compensations_firm_number_uq" ON "compensations" USING btree ("firm_id","number");--> statement-breakpoint
 CREATE UNIQUE INDEX "fx_rates_date_cur_uq" ON "fx_rates" USING btree ("date","cur");--> statement-breakpoint
 CREATE INDEX "fx_rates_cur_date_idx" ON "fx_rates" USING btree ("cur","date");--> statement-breakpoint
 CREATE INDEX "payment_orders_firm_date_idx" ON "payment_orders" USING btree ("firm_id","date");

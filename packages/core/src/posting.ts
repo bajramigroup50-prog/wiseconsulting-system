@@ -706,7 +706,7 @@ function fiskBase(z: SalesDoc, ctx: PostingContext, posK: string): IL[] {
  * Fiscal (Z / periodic) report posting (legacy `fiskEntries`, final 13093 with `FK_SC`):
  * - no scheme → cash-sale posting with card payments on the card konto (`posK`, POS partner);
  * - `usl` → D cash 1009 / D card / P output VAT / P 7414;
- * - `trgNoVat` → D cash / D card / P 7410 for the total, plus D 6690 / P 6630;
+ * - `trgNoVat` → D cash / D card / P 7410 for the total, plus D retail margin 6694 / P retail stock 6630 (legacy: 6690);
  * - `trg` → D cash / D card / P revenue + VAT from the cash-sale posting (stock issue is a separate move).
  *
  * FIX: in `trg` legacy dropped the cash-sale debit by the literal konto '1020'; with a configured
@@ -743,7 +743,11 @@ export function fiskEntries(z: SalesDoc, ctx: PostingContext): JournalLine[] {
     L.push({ k: rev, d: 0, p: rb + diff, note: ds });
   }
   if (fk.sc === 'trgNoVat') {
-    L.push({ k: schemeValue(ctx, 'fiskMarg'), d: tot, p: 0, note: ds }, { k: schemeValue(ctx, 'fiskStock'), d: 0, p: tot, note: ds });
+    // FIX (LEGACY-MAP §7.4 item 4): legacy hard-coded D 6690 / P 6630 here. The margin account is the retail margin
+    // (`retailMarg`, 6694) like sales, transfers and levelling; `fiskMarg` / `fiskStock` stay as explicit overrides.
+    const mk = schemeValue(ctx, 'fiskMarg') || schemeValue(ctx, 'retailMarg') || '6694';
+    const sk = schemeValue(ctx, 'fiskStock') || schemeValue(ctx, 'retailStock') || '6630';
+    L.push({ k: mk, d: tot, p: 0, note: ds }, { k: sk, d: 0, p: tot, note: ds });
   }
   if (fk.sc === 'trg') {
     const cashK = schemeValue(ctx, 'kasaCash');

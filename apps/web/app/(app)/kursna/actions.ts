@@ -5,7 +5,7 @@ import { deleteFxList, saveFxList } from '@wise/db';
 import { requireCan } from '@/lib/auth';
 import { bankError, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
-import type { FormState } from '@/components/action-form';
+import type { FormState } from '@/components/bank-form';
 
 export async function saveFxAction(_p: FormState, form: FormData): Promise<FormState> {
   try {

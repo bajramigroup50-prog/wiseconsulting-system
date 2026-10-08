@@ -9,7 +9,7 @@ import { compensations, kompOpenItems } from '@wise/db';
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { ActionForm } from '@/components/action-form';
+import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -62,7 +62,7 @@ export default async function KompenzaciiPage({ searchParams }: { searchParams: 
             </form>
           )}
           {pids.length > 0 && (
-            <ActionForm action={saveKompAction}>
+            <BankForm action={saveKompAction}>
               {edit && <input type="hidden" name="id" value={edit.id} />}
               <input type="hidden" name="kind" value={kind} />
               {pids.map((p) => <input key={p} type="hidden" name="p" value={p} />)}
@@ -82,7 +82,7 @@ export default async function KompenzaciiPage({ searchParams }: { searchParams: 
                 </table></div>
               ) : <p className="note">Комитентот нема отворени ставки (книжења на 120–128 / 220–228 по број на документ).</p>}
               <div className="row"><span className="note">Побарувањата и обврските мора да бидат еднакви. Износите се пополнети автоматски до помалиот износ.</span><span style={{ flex: 1 }} /><button className="btn pri">Зачувај и книжи</button></div>
-            </ActionForm>
+            </BankForm>
           )}
         </div>
       )}

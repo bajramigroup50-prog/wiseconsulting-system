@@ -13,7 +13,7 @@ import { fxRate, type FxRateRow } from '@wise/core/bank-match';
 import { r2 } from '@wise/core/money';
 import { uploadFile } from '@/lib/upload';
 import { fmt } from '@/lib/fmt';
-import type { FormState } from '@/components/action-form';
+import type { FormState } from '@/components/bank-form';
 import { saveVoucherAction } from './actions';
 
 export interface VoucherInit {

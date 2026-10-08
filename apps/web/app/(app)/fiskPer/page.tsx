@@ -1,0 +1,116 @@
+/**
+ * 📠 Фискални извештаи (рачна каса) — legacy `VIEWS.fiskPer` (final 13151): manual entry of daily / periodic fiscal
+ * reports (`fkManual` 13048), posting with the fiscal scheme (`fkPost` 13101 → `fiskEntries`), goods issue for the
+ * turnover with FIFO / LIFO / proportional selection (`fkIssuePlan` 11407, `fkIssue` 11454) and the daily fiscal
+ * report control (`dfiHTML` 13131 → `dfiControl` 11479).
+ * TODO(ai): reading a fiscal report from a photo / PDF (legacy `fkRead`, `FISK_PROMPT`) is Phase 3's AI job — hook it
+ * to prefill `FiskEditor`.
+ */
+import Link from 'next/link';
+import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { FISCAL_SCHEMES, dfiControl, fkIssuePlan, type FkMethod } from '@wise/core';
+import { loadLedgerLines, loadStockSales, salesDaily } from '@wise/db';
+import { canDo } from '@/lib/books';
+import { db } from '@/lib/db';
+import { dateInYear, locOptions, pickLoc, rangeOf, stockPage, todayIso } from '@/lib/stock';
+import { dmy, fmt } from '@/lib/fmt';
+import { Hd } from '@/components/hd';
+import { NoFirm } from '@/components/no-firm';
+import { RowAction } from '@/components/row-action';
+import { deleteSalesDayAction } from '../_stock/actions';
+import { FiskEditor } from '../_stock/editors';
+
+type SP = { tab?: string; d?: string; wh?: string; meth?: string; g18?: string; g10?: string; g5?: string; g0?: string; from?: string; to?: string };
+
+export default async function FiskPerPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const { u, firm, year, L } = await stockPage('fiskPer');
+  if (!firm || !L) return <NoFirm t="Фискални извештаи" />;
+  const write = canDo(u, 'fkPost', firm.id);
+  const tab = sp.tab === 'dfi' ? 'dfi' : 'list';
+  const locs = locOptions(L);
+  const O = L.settings.fiskOpt;
+  const wh = pickLoc(L, sp.wh) || O.wh || locs.find((l) => l.kind === 'store')?.id || 'main';
+  const date = dateInYear(sp.d, year);
+  const nonVat = !L.settings.vatRegistered;
+  const meth = (['fifo', 'lifo', 'prop'].includes(sp.meth ?? '') ? sp.meth : O.meth || 'fifo') as 'fifo' | 'lifo' | 'prop';
+  const gross: Record<string, string> = {};
+  for (const r of ['18', '10', '5', '0']) { const v = sp[('g' + r) as 'g18']; if (v) gross[r] = v; }
+  let plan: { itemId: string; label: string; qty: number; price: number; rate: number }[] | null = null;
+  if (Object.keys(gross).length) {
+    const G: Record<string, number> = { 18: 18, 10: 10, 5: 5, 0: 0 };
+    const g = Object.fromEntries(Object.entries(gross).map(([r, v]) => [r, Number(v) || 0]));
+    const total = Object.values(g).reduce((s, x) => s + x, 0);
+    const P = fkIssuePlan(L.ctx, [{ date, total, gross: g }], G, wh, meth as FkMethod, nonVat);
+    const names = new Map((L.ctx.items ?? []).map((i) => [i.id, (i.code ? i.code + ' · ' : '') + i.name]));
+    plan = P[0]!.lines.map((l) => ({ itemId: l.item, label: names.get(l.item) ?? l.item, qty: l.qty, price: l.price, rate: l.rate }));
+  }
+  const schemes: [string, string][] = [['', 'Без шема: Д благајна / Д картичка / П приход + ДДВ'], ...Object.entries(FISCAL_SCHEMES).map(([k, v]) => [k, v[0]] as [string, string])];
+  const list = await db().select().from(salesDaily)
+    .where(and(eq(salesDaily.firmId, firm.id), eq(salesDaily.kind, 'fisk'), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
+    .orderBy(desc(salesDaily.date));
+
+  let dfi: ReturnType<typeof dfiControl> | null = null;
+  let [from, to] = rangeOf(sp, year);
+  if (tab === 'dfi') {
+    const [sales, ledger] = await Promise.all([loadStockSales(db(), firm.id), loadLedgerLines(db(), firm.id, `${year}-01-01`, to)]);
+    // legacy `dfiStart` (13130): without an explicit "from", the control starts at the first report of the location
+    const W = pickLoc(L, sp.wh);
+    const first = sales.filter((s) => !W || s.wh === W).map((s) => s.days?.[0]?.date ?? s.date).sort()[0];
+    if (!sp.from && first && first > from) from = first;
+    dfi = dfiControl({
+      sales, wh: pickLoc(L, sp.wh) || undefined, from, to, today: todayIso(), opts: { offDays: O.offDays, cashMax: O.cashMax, depDays: O.depDays, cardK: O.cardK },
+      ledger: ledger.map((l) => ({ account: l.account, date: l.date, debit: l.debit, credit: l.credit })),
+      posAccount: (firm.settings as Record<string, unknown>)?.posK as string | undefined,
+    });
+  }
+  return (
+    <>
+      <Hd t="📠 Фискални извештаи" sub="рачна каса · дневни и периодични извештаи" />
+      <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+        <Link className={`btn sm ${tab === 'list' ? 'pri' : ''}`} href="/fiskPer">Внес и листа</Link>
+        <Link className={`btn sm ${tab === 'dfi' ? 'pri' : ''}`} href="/fiskPer?tab=dfi">Контрола на ДФИ</Link>
+        <Link className="btn sm" href="/kdfi">КДФИ-01</Link>
+      </div>
+      {tab === 'list' && write && (
+        <FiskEditor locs={locs} schemes={schemes} nonVat={nonVat} plan={plan}
+          initial={{ date, wh, number: '', gross, total: '', card: '', sc: O.sc ?? (nonVat ? 'trgNoVat' : ''), from: '', to: '', meth, issue: !!plan?.length, note: '' }} />
+      )}
+      {tab === 'list' && (list.length ? (
+        <div className="tw"><table>
+          <thead><tr><th>Датум</th><th>Z бр.</th><th>Објект</th><th>Шема</th><th className="n">Вкупно</th><th className="n">Картичка</th><th>ДДВ групи</th><th className="n">Ставки (стока)</th><th /></tr></thead>
+          <tbody>
+            {list.map((d) => (
+              <tr key={d.id}>
+                <td>{dmy(d.date)}{d.fisk?.from && d.fisk?.to ? <span className="mini"> ({dmy(d.fisk.from)}–{dmy(d.fisk.to)})</span> : null}</td>
+                <td>{d.number}</td><td>{L.locName(d.locationId)}</td><td>{d.fisk?.sc ?? '—'}</td><td className="n">{fmt(d.total)}</td><td className="n">{fmt(d.card)}</td>
+                <td className="mini">{d.groups.map((g) => `${g.rate}%: ${fmt(g.base + g.vat)}`).join(' · ')}</td><td className="n">{d.lines.length}</td>
+                <td>{write && <RowAction action={deleteSalesDayAction.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише извештајот ${d.number ?? ''} од ${dmy(d.date)}?`} />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      ) : <div className="card empty">Нема внесени фискални извештаи во {year}.</div>)}
+      {tab === 'dfi' && dfi && (
+        <>
+          <form className="card">
+            <input type="hidden" name="tab" value="dfi" />
+            <div className="row" style={{ gap: 12, alignItems: 'end' }}>
+              <label className="f">Објект<select name="wh" defaultValue={pickLoc(L, sp.wh)}><option value="">сите објекти</option>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+              <label className="f">Од<input type="date" name="from" defaultValue={from} /></label>
+              <label className="f">До<input type="date" name="to" defaultValue={to} /></label>
+              <button className="btn">Провери</button>
+            </div>
+          </form>
+          {dfi.F.length ? dfi.F.map((f, i) => (
+            <div key={i} className={`callout ${f.sev === 'bad' ? 'bad' : f.sev === 'warn' ? 'warn' : ''}`} dangerouslySetInnerHTML={{ __html: f.t.replace(/<(?!\/?b>)/g, '&lt;') }} />
+          )) : <div className="callout good">Нема забелешки за дневните фискални извештаи во периодот.</div>}
+          <div className="tw"><table>
+            <thead><tr><th>Датум</th><th>Z бр.</th><th>Објект</th><th className="n">Промет</th><th /></tr></thead>
+            <tbody>{dfi.D.map((d, i) => <tr key={i}><td>{dmy(d.date)}</td><td>{d.z}</td><td>{L.locName(d.wh)}</td><td className="n">{fmt(d.total)}</td><td>{d.est ? <span className="pill warn">распределено</span> : d.pos ? <span className="pill">каса</span> : ''}</td></tr>)}</tbody>
+          </table></div>
+        </>
+      )}
+    </>
+  );
+}
