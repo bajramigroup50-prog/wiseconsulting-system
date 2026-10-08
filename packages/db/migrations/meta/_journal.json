@@ -8,6 +8,20 @@
       "when": 1791477227380,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791479742595,
+      "tag": "0001_books",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791479755254,
+      "tag": "0002_books_balance_trigger",
+      "breakpoints": true
     }
   ]
 }
