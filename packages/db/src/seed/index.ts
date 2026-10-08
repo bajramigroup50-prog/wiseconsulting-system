@@ -1,12 +1,16 @@
 /**
- * Idempotent seed: creates the first administrator if no users exist.
+ * Idempotent seed: reference data (chart of accounts, cities, currencies — see ./reference.ts),
+ * then the first administrator if no users exist.
  * The password comes from ADMIN_PASSWORD (set it in .env yourself); the admin must change it at first login.
  */
 import { sql } from 'drizzle-orm';
 import { getDb, users } from '../index';
 import { hashPassword } from '../password';
+import { seedReference } from './reference';
 
 const db = getDb();
+const ref = await seedReference(db);
+console.log(`seed: ${ref.accounts} accounts, ${ref.cities} cities, ${ref.currencies} currencies`);
 const [{ n }] = (await db.select({ n: sql<number>`count(*)::int` }).from(users)) as [{ n: number }];
 
 if (n > 0) {
