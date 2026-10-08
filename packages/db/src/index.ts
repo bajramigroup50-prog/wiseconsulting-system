@@ -21,3 +21,6 @@ export function getDb(url = process.env.DATABASE_URL): DB {
 export * from './posting';
 export * from './ledger-queries';
 export { seedReference } from './seed/reference';
+export * from './stock-service';
+export * from './stock-docs';
+export * from './stock-reports';
