@@ -9,7 +9,7 @@ import 'server-only';
  * rolled-back action sends nothing. `dispatchMail` hands the ids to pg-boss; if the queue cannot be reached the
  * rows stay `queued` and the worker's `mail.flush` sweep sends them a few minutes later.
  */
-import { mailLog, type Tx } from '@wise/db';
+import { queueMailRow, type Tx } from '@wise/db';
 import { db } from './db';
 import { enqueue } from './jobs';
 
@@ -35,14 +35,8 @@ export const validAddresses = (to: string | string[]): boolean => {
   return L.length > 0 && L.every((x) => EMAIL_RE.test(x));
 };
 
-/** Insert the `mail_log` row (status `queued`) in the caller's transaction; returns its id. */
-export async function queueMail(tx: Tx, m: MailMessage): Promise<string> {
-  const [r] = await tx.insert(mailLog).values({
-    firmId: m.firmId, to: splitAddresses(m.to), subject: m.subject, html: m.html, attachments: m.attachments ?? [],
-    entityType: m.entityType ?? null, entityId: m.entityId ?? null, createdBy: m.userId,
-  }).returning({ id: mailLog.id });
-  return r!.id;
-}
+/** Insert the `mail_log` row (status `queued`) in the caller's transaction; returns its id (`@wise/db` `queueMailRow`). */
+export const queueMail = (tx: Tx, m: MailMessage): Promise<string> => queueMailRow(tx, m);
 
 /** Send queued rows to the `mail.send` queue. Never throws — undelivered ids are picked up by `mail.flush`. */
 export async function dispatchMail(ids: readonly string[]): Promise<{ queued: number; deferred: number }> {

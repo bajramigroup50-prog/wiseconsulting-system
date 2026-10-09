@@ -141,6 +141,16 @@ describe('autopilot checks (alCompute / apExtra)', () => {
     const I = ['1', '2', '4', 'A-1', 'A-2', 'A-3'].map((number) => ({ number, date: '2026-01-10', total: 1, paid: 0 }));
     expect(invoiceGaps(I, '2026')).toEqual([['', [3]]]);
   });
+  it('VAT estimate message (legacy step 4): amount due of the ended period, nothing for a non-VAT firm', () => {
+    const vatEstimate = { period: '2026-Т3', from: '2026-07-01', to: '2026-09-30', due: '2026-10-25', amount: 12345.6, closed: false };
+    const X = apExtra(snap({ vatEstimate }));
+    const m = X.msgs.find((x) => x.type === 'vat')!;
+    expect(m.body).toContain('12.345');
+    expect(m.body).toContain('25.10.2026');
+    expect(X.m.vatEst).toBe(12345.6);
+    expect(apExtra(snap({ vatEstimate, firm: { id: 'f', name: 'x', vatRegistered: false } })).msgs.some((x) => x.type === 'vat')).toBe(false);
+    expect(apExtra(snap({ vatEstimate: { ...vatEstimate, amount: -100 } })).msgs.some((x) => x.type === 'vat')).toBe(false); // refund: no payment
+  });
   it('apHash is stable', () => expect(apHash('cash|f1|2026-10')).toBe(apHash('cash|f1|2026-10')));
 });
 

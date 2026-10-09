@@ -62,3 +62,21 @@ export const INBOX_ROUTES = {
   employee: 'Вработен', cash: 'Благајна', stock: 'Залиха', travel: 'Патен налог', dossier: 'Досие',
 } as const;
 export type InboxRoute = keyof typeof INBOX_ROUTES;
+
+/**
+ * Where a routed client file goes (legacy `irRoute` 14024 + wrapper 14041): purchases / issued invoices are read
+ * by AI into the scan review (`ai` kind, then the user saves them as documents); everything else is archived in
+ * the dossier (`dossier` category, legacy `irArch`) and the office continues in the module screen (`go`).
+ */
+export const INBOX_ROUTE_TARGET: Readonly<Record<InboxRoute, { ai?: 'purchase' | 'sale'; dossier?: string; go: string | null }>> = {
+  purchase: { ai: 'purchase', go: '/skan' },
+  sale: { ai: 'sale', go: '/skan?k=sale' },
+  bank: { dossier: 'Банкарски документи', go: '/banka' },
+  fisk: { dossier: 'Благајна', go: '/fiskPer' },
+  payroll: { dossier: 'Плати и персонал', go: '/plati' },
+  employee: { dossier: 'Плати и персонал', go: '/vraboteni?nov' },
+  cash: { dossier: 'Благајна', go: '/blagajna' },
+  stock: { dossier: 'Магацински документи', go: '/g_lager' },
+  travel: { dossier: 'Патни налози и гориво', go: null },
+  dossier: { dossier: 'Друго', go: '/dosie' },
+};

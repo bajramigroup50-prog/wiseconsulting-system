@@ -57,15 +57,33 @@ describe('client entries (klient → pending → office decision)', () => {
     const [a] = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.action, 'klAppr'), eq(schema.auditLog.entityId, e!.id)));
     expect(a).toBeTruthy();
   });
-  it('purchases wait as drafts until Phase 3 handles them; rejection books nothing', async () => {
-    const [e] = await db.insert(schema.clientEntries).values({ firmId, kind: 'purchase', data: { number: 'Ф-1', total: 1180 } }).returning();
-    const [r] = await db.insert(schema.clientEntries).values({ firmId, kind: 'purchase', data: { number: 'Ф-2' } }).returning();
-    await db.transaction((tx) => decideClientEntry(tx, e!.id, firmId, 'approve', userId));
-    await db.transaction((tx) => decideClientEntry(tx, r!.id, firmId, 'reject', userId, 'дупликат'));
-    const drafts = await db.select().from(schema.firmDocs).where(eq(schema.firmDocs.type, 'client_purchase'));
-    expect(drafts).toHaveLength(1);
-    const [j] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.journals).where(eq(schema.journals.firmId, firmId));
-    expect(j!.n).toBe(0);
+  it('approval creates and posts the real document (purchase / invoice / daily sales); rejection books nothing', async () => {
+    // entries of the office firm (skipped by the autopilot tests below)
+    const F = officeFirm;
+    const [cl] = await db.insert(schema.users).values({ username: 'klient1', name: 'Клиент', role: 'klient', passwordHash: 'x', email: 'klient@example.mk' }).returning();
+    const [e] = await db.insert(schema.clientEntries).values({ firmId: F, kind: 'purchase', submittedBy: cl!.id, data: { number: 'Ф-1', date: '2026-09-10', partnerName: 'Нов добавувач ДООЕЛ', partnerEdb: '4030111222333', total: 1180, vat: 180 } }).returning();
+    const [iv] = await db.insert(schema.clientEntries).values({ firmId: F, kind: 'invoice', data: { date: '2026-09-11', partnerName: 'Нов купувач ДОО', total: 590, vat: 90, note: 'Услуга' } }).returning();
+    const [sa] = await db.insert(schema.clientEntries).values({ firmId: F, kind: 'sale', data: { date: '2026-09-12', number: '15', total: 1100, vat: 100 } }).returning();
+    const [r] = await db.insert(schema.clientEntries).values({ firmId: F, kind: 'purchase', data: { number: 'Ф-2' } }).returning();
+    const res = await db.transaction((tx) => decideClientEntry(tx, e!.id, F, 'approve', userId));
+    expect(res.target?.targetType).toBe('purchase');
+    expect(res.mailIds).toHaveLength(1);
+    const [m] = await db.select().from(schema.mailLog).where(eq(schema.mailLog.id, res.mailIds[0]!));
+    expect(m!.to).toEqual(['klient@example.mk']);
+    const [p] = await db.select().from(schema.purchases).where(eq(schema.purchases.id, res.target!.targetId));
+    expect(p).toMatchObject({ status: 'posted', number: 'Ф-1', base: '1000.00', vat: '180.00' });
+    const ri = await db.transaction((tx) => decideClientEntry(tx, iv!.id, F, 'approve', userId));
+    const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, ri.target!.targetId));
+    expect(inv!.status).toBe('posted');
+    const rs = await db.transaction((tx) => decideClientEntry(tx, sa!.id, F, 'approve', userId));
+    expect(rs.target?.targetType).toBe('sales_daily');
+    const J = await db.select({ t: schema.journals.sourceType }).from(schema.journals).where(eq(schema.journals.firmId, F));
+    expect(J.map((x) => x.t).sort()).toEqual(['invoice', 'purchase', 'sales_daily']);
+    await db.transaction((tx) => decideClientEntry(tx, r!.id, F, 'reject', userId, 'дупликат'));
+    const [rr] = await db.select().from(schema.clientEntries).where(eq(schema.clientEntries.id, r!.id));
+    expect(rr!.status).toBe('rejected');
+    const [j] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.journals).where(eq(schema.journals.firmId, F));
+    expect(j!.n).toBe(3);
     // An entry of another firm can't be decided through this firm.
     const [x] = await db.insert(schema.clientEntries).values({ firmId: officeFirm, kind: 'dossier', data: {} }).returning();
     await expect(db.transaction((tx) => decideClientEntry(tx, x!.id, firmId, 'approve', userId))).rejects.toThrow('не постои');
@@ -108,13 +126,13 @@ describe('autopilot run', () => {
     const inbox = await db.select().from(schema.inboxItems).where(and(eq(schema.inboxItems.firmId, firmId), eq(schema.inboxItems.fromOffice, true)));
     expect(inbox).toHaveLength(1);
     const [inv] = await db.select().from(schema.autopilotMessages).where(and(eq(schema.autopilotMessages.firmId, firmId), eq(schema.autopilotMessages.type, 'inv')));
-    expect(await sendAutopilotMessage(db, inv!.key, { portal: true, mail: false }, userId, 'Ана')).toEqual(['портал']);
-    expect(await sendAutopilotMessage(db, inv!.key, { portal: true, mail: false }, userId, 'Ана')).toEqual([]);
+    expect((await sendAutopilotMessage(db, inv!.key, { portal: true, mail: false }, userId, 'Ана')).channels).toEqual(['портал']);
+    expect((await sendAutopilotMessage(db, inv!.key, { portal: true, mail: false }, userId, 'Ана')).channels).toEqual([]);
   });
   it('data sources from other phases feed the snapshot', async () => {
     const src: OfficeDataSources = {
       invoices: async () => [{ number: '1', date: '2026-01-02', total: 100, paid: 0 }], employees: async () => [{ name: 'Б', active: true }],
-      payrollMonths: async () => ['2026-08'], vatClosedPeriods: async () => [], fiscalDays: async () => null,
+      payrollMonths: async () => ['2026-08'], vatClosedPeriods: async () => [], fiscalDays: async () => null, vatEstimate: async () => null,
     };
     const S = await buildFirmSnapshot(db, firmId, { today, sources: src });
     expect(S!.invoices).toHaveLength(1);
@@ -133,8 +151,9 @@ describe('recurring invoices job', () => {
     expect(res.issued).toBe(2);
     const [after] = await db.select().from(schema.recurringInvoices).where(eq(schema.recurringInvoices.id, r!.id));
     expect(after).toMatchObject({ next: '2026-10-05', active: false, last: '2026-10-08' });
-    const D = await db.select().from(schema.firmDocs).where(eq(schema.firmDocs.type, 'invoice_draft'));
-    expect(D.map((d) => (d.data as { note: string }).note)).toEqual(['Фактура за август 2026', 'Фактура за септември 2026']);
+    const D = await db.select().from(schema.invoices).where(and(eq(schema.invoices.firmId, firmId), eq(schema.invoices.partnerId, cus))).orderBy(schema.invoices.date);
+    expect(D.map((d) => [d.kind, d.status, d.note])).toEqual([['invoice', 'draft', 'Фактура за август 2026'], ['invoice', 'draft', 'Фактура за септември 2026']]);
+    expect(res.mail).toEqual([]);
     expect((await issueDueRecurring(db, { today: '2026-10-08' })).issued).toBe(0);
   });
 });
@@ -143,7 +162,14 @@ describe('reminders job', () => {
   it('raises a reminder when a deadline enters its window, once', async () => {
     await db.insert(schema.firmDeadlines).values({ firmId, title: 'Лиценца', due: '2026-10-12', remindDays: 7 });
     const now = new Date('2026-10-08T08:00:00Z');
-    expect(await dispatchReminders(db, now)).toEqual({ created: 1, sent: 1 });
-    expect(await dispatchReminders(db, now)).toEqual({ created: 0, sent: 0 });
+    expect(await dispatchReminders(db, now)).toEqual({ created: 1, sent: 1, mailIds: [] });
+    expect(await dispatchReminders(db, now)).toEqual({ created: 0, sent: 0, mailIds: [] });
+    // `mail` channel → a queued mail_log row to the reminder's user
+    await db.update(schema.users).set({ email: 'ana@example.mk' }).where(eq(schema.users.id, userId));
+    await db.insert(schema.reminders).values({ firmId, userId, title: 'Рок ДДВ', dueAt: now, channel: 'mail', key: 'test:mail' });
+    const r = await dispatchReminders(db, now);
+    expect(r.mailIds).toHaveLength(1);
+    const [m] = await db.select().from(schema.mailLog).where(eq(schema.mailLog.id, r.mailIds[0]!));
+    expect(m).toMatchObject({ to: ['ana@example.mk'], subject: 'Рок ДДВ', status: 'queued' });
   });
 });

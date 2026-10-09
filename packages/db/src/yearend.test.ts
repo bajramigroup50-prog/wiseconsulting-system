@@ -11,7 +11,7 @@ import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import {
   afterImportedTbDeleted, clearCrmXml, closeYear, depreciationFor, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear,
-  openNextYear, registerYearEndInputs, runDepreciation, undoClose, undoOpen, unlockYear, upsertStatement, yearFindings, YE_SOURCE,
+  openNextYear, registerYearEndInputs, runDepreciation, undoClose, undoOpen, unlockYear, upsertStatement, yearEndFindingInputs, yearFindings, YE_SOURCE,
 } from './yearend';
 
 const db = drizzle(new PGlite(), { schema });
@@ -121,11 +121,29 @@ describe('phase gate, close, open, lock', () => {
     expect((await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.firmId, firmId), eq(schema.auditLog.action, 'undoClose'))))).toHaveLength(1);
   });
 
-  it('payroll totals come from the registered payroll module (TODO(merge) hook)', async () => {
+  it('payroll totals come from the registered payroll module', async () => {
     registerYearEndInputs({ payroll: { runs: async () => [{ month: '2026-01', employees: 2, tax: 1_000, contrib: 3_000 }], activeEmployees: async () => 2 } });
     const L = await db.transaction((tx) => loadYear(tx, firmId, 2026));
     expect(L.Y.co.zs.V.bu257).toBe(2);
     registerYearEndInputs({ payroll: undefined });
+  });
+});
+
+describe('findings gate inputs from the module tables', () => {
+  it('reads pending client documents, invoices without partner and negative stock', async () => {
+    const [g] = await db.insert(schema.firms).values({ name: 'Гејт ДОО' }).returning();
+    const id = g!.id;
+    const [it] = await db.insert(schema.items).values({ firmId: id, name: 'Стока', code: '1', type: 'goods', vatRate: 18 }).returning();
+    await db.insert(schema.stockMoves).values({ firmId: id, itemId: it!.id, date: '2026-06-01', qty: '-3', value: '0', kind: 'sale', direction: 'out', sourceType: 'test', sourceId: 'x' });
+    await db.insert(schema.clientEntries).values({ firmId: id, kind: 'purchase', data: { date: '2026-11-03', total: 100 } });
+    const X = await db.transaction((tx) => yearEndFindingInputs(tx, id, 2026));
+    expect(X.pendingDocs).toEqual([{ date: '2026-11-03', pend: true }]);
+    expect(X.moves).toMatchObject([{ item: it!.id, qty: -3, wh: 'main' }]);
+    expect(X.items![it!.id]).toMatchObject({ name: 'Стока', type: 'goods' });
+    const L = await db.transaction((tx) => loadYear(tx, id, 2026));
+    const F = await db.transaction((tx) => yearFindings(tx, L, TODAY));
+    expect(F.all.length).toBeGreaterThan(0);
+    expect(JSON.stringify(F.all)).toMatch(/Стока|одобрување|чека/);
   });
 });
 

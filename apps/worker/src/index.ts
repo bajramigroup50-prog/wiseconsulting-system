@@ -15,12 +15,13 @@ boss.on('error', (e) => console.error('[pg-boss]', e));
 await boss.start();
 
 const db = getDb(url);
+const send = (name: string, data: object) => boss.send(name, data);
 for (const j of JOBS) {
   const log = (m: string) => console.log(`[${j.name}] ${m}`);
   await boss.createQueue(j.name);
   if (j.cron) await boss.schedule(j.name, j.cron, null, { tz: 'Europe/Skopje' });
   await boss.work(j.name, async (jobs) => {
-    for (const job of jobs) await j.run(job.data, { db, log });
+    for (const job of jobs) await j.run(job.data, { db, log, send });
   });
 }
 console.log(`worker started: ${JOBS.map((j) => j.name).join(', ')}`);

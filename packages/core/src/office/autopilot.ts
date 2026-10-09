@@ -8,6 +8,7 @@
  */
 import { r2 } from '../money';
 import type { LedgerLine } from '../ledger';
+import { PP_TAX } from '../bank/pp';
 import { addMonths, daysBetween, dmy, fmtMk, ymAdd } from './dates';
 
 /** Legacy `AL_DDV_LIMIT`: VAT registration threshold (denars). */
@@ -35,11 +36,19 @@ export interface ClientMessage { type: 'inv' | 'out' | 'cash' | 'izv' | 'vat'; k
 
 export interface SnapshotInvoice { number: string; date: string; due?: string | null; credit?: boolean; advance?: boolean; total: number; paid: number }
 export interface SnapshotEmployee { name: string; active: boolean }
+/**
+ * VAT due for one period (same shape as `@wise/db` `VatDueEstimate`, computed by the VAT module): `period` is
+ * `YYYY-MM` / `YYYY-Тq`, `amount` the VAT payable (negative = refund) — for a period still running, the estimate
+ * to its end — `due` the payment deadline and `closed` whether its ДДВ-04 is posted.
+ */
+export interface SnapshotVatEstimate { period: string; from: string; to: string; due: string; amount: number; closed: boolean }
 
 export interface FirmSnapshot {
   firm: {
     id: string; name: string; short?: string | null; vatRegistered: boolean; vatPeriod?: 'month' | 'quarter';
     nkd?: string | null; alOff?: Record<string, boolean>; alAck?: Record<string, string>;
+    /** Monthly profit-tax advance (legacy `f.akontDD`) and municipality code for the ПП50 account (`settings.muni`). */
+    akontDD?: number | null; muni?: string | null;
   };
   today: string;
   /** Ledger lines of the current year (journal_lines ⋈ journals). */
@@ -59,6 +68,8 @@ export interface FirmSnapshot {
   vatClosedPeriods?: readonly string[] | null;
   /** Phase 7 — dates with a fiscal Z report (null = not available). */
   fiscalDays?: readonly string[] | null;
+  /** Phase 5 — VAT due estimate (null = not available / not a VAT payer). */
+  vatEstimate?: SnapshotVatEstimate | null;
   /** Office EUR rate (default 61.5). */
   eurRate?: number;
   /** Signature used in client messages. */
@@ -259,7 +270,28 @@ export function apExtra(S: FirmSnapshot): ApExtra {
     type: 'out', key: `out|${S.firm.id}|${mo}|${cus.length}`, subj: `Уплати без излезна фактура – ${fname}`,
     body: `${hello}Во изводите на ${fname} има примени уплати од купувачи за кои немаме излезна фактура:\n\n${cus.slice(0, 25).map((x, i) => `${i + 1}. ${x.n} – ${fmtMk(x.s)} ден.`).join('\n')}${cus.length > 25 ? `\n… и уште ${cus.length - 25}` : ''}\n\nВе молиме испратете ги издадените фактури (или потврдете дали станува збор за аванс – тогаш ќе издадеме авансна фактура). Без фактура приходот и ДДВ не можат правилно да се пријават.${sign}`,
   });
-  // TODO(merge): legacy 4. VAT estimate message (`ddvFor`, `periodDue`, PP50 data) needs Phase 5's VAT service.
+  /* 4. VAT: amount due / estimate for the period, deadline, ПП50 data; monthly profit-tax advance */
+  const E = S.firm.vatRegistered ? S.vatEstimate : null;
+  if (E) {
+    X.m.vatEst = r2(E.amount);
+    const lbl = E.period.replace('-Т', ' – квартал ');
+    const left = daysBetween(td, E.due);
+    const lines: string[] = [];
+    if (E.to < td) {
+      // ended period: the amount to pay (legacy "ДДВ за <prev>")
+      if (E.amount > 0 && left >= 0) {
+        const T = PP_TAX.find((x) => x[4] === 'period');
+        lines.push(`ДДВ за ${lbl}: ${fmtMk(E.amount)} ден., рок за плаќање ${dmy(E.due)} (уште ${left} дена).${T ? `\nУплатна сметка: ${T[2].replace('XXX', S.firm.muni || 'XXX')} · приходна шифра ${T[3]} · повикување ${E.period.replace('-Т', '-')}` : ''}`);
+      }
+    } else {
+      lines.push(`ДДВ за тековниот период (${lbl}): проценка до крајот на периодот околу ${fmtMk(Math.max(0, E.amount))} ден., рок ${dmy(E.due)}.`);
+    }
+    if (lines.length && Number(S.firm.akontDD) > 0) lines.push(`Аконтација данок на добивка: ${fmtMk(Number(S.firm.akontDD))} ден. месечно, рок до 15-ти.`);
+    if (lines.length) X.msgs.push({
+      type: 'vat', key: `vat|${S.firm.id}|${E.period}|${mo}`, subj: `Даноци што доаѓаат – ${fname}`,
+      body: `${hello}Ве известуваме однапред за обврските на ${fname}:\n\n${lines.map((x) => `• ${x}`).join('\n\n')}\n\nПроценката се менува со новите фактури. Платниот налог (ПП50) можеме да го подготвиме ние.${sign}`,
+    });
+  }
 
   /* 5. metrics for the peer comparison */
   const Y = S.ledger.filter((l) => l.date.startsWith(y));
