@@ -21,9 +21,9 @@ Source of truth for the phase-by-phase rebuild. Full design: [PLAN.md](PLAN.md).
 - [x] **7. Stock & retail** — moves, stock lists, ЕТ/ЕТМ/МЕТГ, levelling, transfers, POS & fiscal reports (КДФИ, DFI control), production & BOM.
 - [x] **8. Year-end** — depreciation, close/open year, AOP statements, ДБ, ЦРСМ XML export/import, phase gate (`zcFindings`).
 - [x] **9. Office** — dossier, inbox & client portal (klient role), tasks, Word templates, packages/ZIP, reminders, recurring invoices, autopilot, inspection readiness, AML, GDPR, formation.
-- [ ] **10. Industry modules** — hotel, rent-a-car, travel, transport, construction, restaurant, appointments (per-firm `mods` toggle).
+- [x] **10. Industry modules** — hotel, rent-a-car, travel, transport, construction, restaurant, appointments (per-firm `mods` toggle).
 - [x] ~~**11. Legacy import**~~ — dropped 2026-10-08 by the user: start fresh, no legacy data, no sample data, only the seeded admin. — `packages/legacy-import` CLI: backup JSON → Postgres + MinIO, journal recompute, trial-balance verification.
-- [ ] **12. Deploy** — VPS (Docker, deploy user, firewall), `/opt/wise/.env`, `docker compose up -d`, Caddy TLS for `wiseconsulting.com.mk` + `www`, nightly pg_dump + MinIO mirror (30 days), GitHub Actions deploy.
+- [ ] **12. Deploy** — VPS (Docker, deploy user, firewall), `/opt/wise/.env`, `docker compose up -d`, Caddy TLS for `wiseconsulting.com.mk` + `www`, nightly pg_dump + S3 bucket sync (30 days), GitHub Actions deploy.
 
 ## Parallel execution plan
 
@@ -51,7 +51,7 @@ Phases run as separate agents, each in its own git worktree/branch (`phase/<n>-<
 ## Needed from the user (blocking only Phase 12)
 - VPS: IP address, SSH user, and SSH key access set up (no passwords typed by Claude).
 - MKhost DNS: `A` records `wiseconsulting.com.mk` and `www` → VPS IP (user sets these in the MKhost panel).
-- Secrets entered by the user in `/opt/wise/.env`: Anthropic API key, SMTP, DB/MinIO passwords.
+- Secrets entered by the user in `/opt/wise/.env`: Anthropic API key, SMTP, DB/S3 passwords.
 
 ## Progress log
 
@@ -68,3 +68,5 @@ Phases run as separate agents, each in its own git worktree/branch (`phase/<n>-<
 | 2026-10-08 | 6 Payroll & HR | merged | employees, payroll runs/emp/lines, params, settings, notes, MPIN exports, hr_contracts/hr_docs, mail_log; Nodemailer `mail.send`/`mail.flush` + web `queueMail`; screens for employees, payroll months/editor, payslips, recap, MPIN TXT/XLSX, ПП30/ПП50, payslip e-mail, params, contracts, HR registry; year-end head counts wired. Migration 0008_payroll. Gaps: УЈП acceptance inbox, cross-firm payroll, ПДД, Excel import, code editors. |
 | 2026-10-08 | 3 Sales & purchases | merged | invoices (+credit notes, proformas, dispatch, advances), purchases with VAT groups/stock/landed costs, supplier credits, UBL export/import, print views, AI reading (`apps/worker/src/ai`, `ai.read-document`, `ai_usage`, legacy prompts verbatim), scan review + batch; stock via Phase 7 `replaceSourceMoves`. Migration 0009_sales. One shared `firmPostingContext`. Gaps: paid/remaining columns, payment QR, multi-invoice PDF split, Excel purchase import, fuel VAT rule, red-storno credit mode. |
 | 2026-10-09 | Integration pass | branch worktree-agent-af14bf7a1574d8038 | All cross-phase hooks resolved (no TODO(merge/ai/mail/phase3/phase7/payroll/vat) left): VAT from document tables (+ ledger fallback for manual VAT journals), vatDueEstimate → ПП50 + autopilot; bank open items from invoices/purchases with paid/remaining columns, net-salary matching; office readers, client-entry approval → posted documents, recurring → Phase 3 drafts, year-end gate inputs; e-mail everywhere via mail_log, invoice.mail (PDF attached), server PDF buttons, packages with generated reports; AI reads for receipts, statements, employee docs, fiscal reports, BOM, inbox classification; store purchase → levelling; ET sale value. Migration 0010_ai_kinds (ai_documents.file_id nullable). Gaps: бруто биланс is not yet a print view, so packages cannot hold it; the fiscal second read (FK_SIMPLE) runs in the worker, multi-day fiscal reads prefill one day at a time. |
+| 2026-10-09 | 10 Industry modules | merged | Module toggles (`moduli`, `firms.mods`, menu + routes + services gated), hotel, restaurant, rent-a-car + shared fleet, construction, travel agency (margin VAT via the real VAT source), appointments, travel orders, freight; invoices via Phase 3, cash via Phase 4, POS via Phase 7. Migration 0011_industry. Gaps: auto service, orders/replenishment, loyalty, MRP, lots, GPS/signature driver flow, fuel-card import, CMR print. |
+| 2026-10-09 | Deploy prep | 5e33c63 | MinIO images are no longer published (quay.io 401, Docker Hub gone) → SeaweedFS 4.48 as the S3 store (`s3` service, bucket via `s3-init`); www → apex redirect; optional `IP_HOST` self-signed access before DNS; backup syncs the bucket with aws-cli 2.31.0. Images build on the VPS (web 423 MB, worker 4.26 GB — worker image copies the full build stage; slim it later). |
