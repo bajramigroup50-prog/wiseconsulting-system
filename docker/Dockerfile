@@ -32,6 +32,7 @@ ENV NODE_ENV=production CHROMIUM_PATH=/usr/bin/chromium
 RUN apt-get update \
  && apt-get install -y --no-install-recommends chromium fonts-dejavu-core fonts-liberation \
  && rm -rf /var/lib/apt/lists/*
-RUN useradd -r -u 1001 wise && chown -R wise /repo /corepack
+# /repo stays root-owned and world-readable: re-owning it would duplicate the whole build in a new layer.
+RUN useradd -r -u 1001 wise && chown -R wise /corepack
 USER wise
 CMD ["pnpm", "--filter", "@wise/worker", "start"]
