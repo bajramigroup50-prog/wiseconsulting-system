@@ -23,7 +23,7 @@ Source of truth for the phase-by-phase rebuild. Full design: [PLAN.md](PLAN.md).
 - [x] **9. Office** — dossier, inbox & client portal (klient role), tasks, Word templates, packages/ZIP, reminders, recurring invoices, autopilot, inspection readiness, AML, GDPR, formation.
 - [x] **10. Industry modules** — hotel, rent-a-car, travel, transport, construction, restaurant, appointments (per-firm `mods` toggle).
 - [x] ~~**11. Legacy import**~~ — dropped 2026-10-08 by the user: start fresh, no legacy data, no sample data, only the seeded admin. — `packages/legacy-import` CLI: backup JSON → Postgres + MinIO, journal recompute, trial-balance verification.
-- [x] **12. Deploy** (live on https://207.180.254.154 until DNS works) — VPS (Docker, deploy user, firewall), `/opt/wise/.env`, `docker compose up -d`, Caddy TLS for `wiseconsulting.com.mk` + `www`, nightly pg_dump + S3 bucket sync (30 days), GitHub Actions deploy.
+- [x] **12. Deploy** (live on https://207.180.254.154 until DNS works) — VPS (Docker, deploy user, firewall), `/opt/wise/.env`, `docker compose up -d`, Caddy TLS for `app.wiseconsulting.com.mk` + `www.app` + `files.app`, nightly pg_dump + S3 bucket sync (30 days), GitHub Actions deploy on push to main (`.github/workflows/deploy.yml` → forced-command key → `docker/deploy.sh`).
 
 ## Parallel execution plan
 
@@ -50,7 +50,7 @@ Phases run as separate agents, each in its own git worktree/branch (`phase/<n>-<
 
 ## Needed from the user (blocking only Phase 12)
 - VPS: IP address, SSH user, and SSH key access set up (no passwords typed by Claude).
-- MKhost DNS: `A` records `wiseconsulting.com.mk` and `www` → VPS IP (user sets these in the MKhost panel).
+- MKhost DNS: `A` records `app`, `www.app` and `files.app` (zone wiseconsulting.com.mk) → VPS IP (user sets these in the MKhost panel).
 - Secrets entered by the user in `/opt/wise/.env`: Anthropic API key, SMTP, DB/S3 passwords.
 
 ## Progress log

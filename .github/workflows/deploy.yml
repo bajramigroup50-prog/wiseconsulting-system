@@ -1,0 +1,26 @@
+# Deploy main to the VPS. The key in DEPLOY_SSH_KEY is restricted on the server to run docker/deploy.sh only.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          echo '207.180.254.154 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPqeGMNdNYj383VETrNpx4I6cD+e95pzaD/fAc7nu6sN' > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 wise@207.180.254.154
