@@ -1,12 +1,11 @@
 /**
- * Firm → `@wise/core` `PostingContext` for the VAT module.
+ * Firm → `@wise/core` `PostingContext`: the ONE resolver used by every module (VAT, sales & purchases, bank & cash,
+ * stock). `firmPostingContext` (`bank/context.ts`, re-exported by `sales/context.ts`) delegates to
+ * {@link loadVatPostingContext}.
  *
  * Legacy keeps the VAT/scheme overrides on the firm record (`firm.sch`, `vatOut`, `vatIn`, `vatImp`,
  * `vatInKonto`, `posK`) and office-wide in `appsettings/schemes` (`S.gsch`). In the rebuild they live in
  * `firms.settings` under the same names and in `app_settings` under the key `schemes`.
- *
- * TODO(merge): Phase 3 (sales & purchases) needs the same resolver for document posting. If it ships
- * its own `firm → PostingContext` helper, keep one of the two and point the other at it.
  */
 import { eq } from 'drizzle-orm';
 import type { PostingContext, SchemeSettings } from '@wise/core';
@@ -31,7 +30,7 @@ export function schemeSettingsOf(s: unknown): SchemeSettings {
 }
 
 /** Pure: build the posting context from a firm row and the global scheme settings. */
-export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>, global?: unknown): PostingContext {
+export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>, global?: unknown, posPartnerId?: string | null): PostingContext {
   const s = (firm.settings ?? {}) as Obj;
   return {
     firm: {
@@ -39,13 +38,17 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
       ddv: firm.vatRegistered,
       vatInKonto: str(s.vatInKonto),
       posK: str(s.posK),
+      posPartnerId: posPartnerId ?? null,
     },
     global: global == null ? null : schemeSettingsOf(global),
   };
 }
 
-/** Load the global scheme settings and build the firm's posting context. */
-export async function loadVatPostingContext(tx: Tx, firm: Pick<Firm, 'vatRegistered' | 'settings'>): Promise<PostingContext> {
+/**
+ * Load the global scheme settings and build the firm's posting context. `posPartnerId` is the "POS терминал"
+ * partner set on 12x card lines (bank / fiscal postings).
+ */
+export async function loadVatPostingContext(tx: Tx, firm: Pick<Firm, 'vatRegistered' | 'settings'>, posPartnerId?: string | null): Promise<PostingContext> {
   const [g] = await tx.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);
-  return vatPostingContext(firm, g?.v ?? null);
+  return vatPostingContext(firm, g?.v ?? null, posPartnerId);
 }

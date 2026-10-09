@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { booksPage } from '@/lib/books';
 import { dmy, fmt } from '@/lib/fmt';
-import { VAT_SOURCE_NOTE } from '@/lib/vat-source';
+import { vatLedgerNote } from '@/lib/vat-source';
 import { bookColumns, bookPeriodOptions, bookTitle, defaultBookSel, loadVatBook, validBookSel, type BookKind } from '@/lib/vat-view';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -50,7 +50,7 @@ export default async function DdvKnigiPage({ searchParams }: { searchParams: Pro
             : <span className="pill good">✓ се совпаѓа со ДДВ-04</span>)}
         </form>
       </div>
-      {B.origin === 'ledger' && <div className="callout">{VAT_SOURCE_NOTE} Во книгата секој налог со ДДВ е еден ред; бројот е бројот на налогот.</div>}
+      {!!B.ledgerJournals && <div className="callout">{vatLedgerNote(B.ledgerJournals)} Во книгата секој таков налог е еден ред; бројот е бројот на налогот.</div>}
       <div className="tw"><BookTable B={B} /></div>
       <p className="note">{t === 'out'
         ? 'Сите излезни фактури, одобренија (со минус), авансни фактури и дневните извештаи од каса, по датум на документот. Збировите по стапки се исти како полињата за промет и ДДВ во ДДВ-04.'

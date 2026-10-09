@@ -25,7 +25,7 @@ import { audit, type Tx } from './audit';
 import { postJournal, PostingError, unpostSource, type PostedJournal } from './posting';
 import { firms, journalLines, journals, vatPeriods, type Firm, type VatPeriodCorrections, type VatPeriodRow } from './schema/index';
 import { loadVatPostingContext } from './vat-context';
-import { VAT_CLOSE_SOURCE, type VatDocumentSource, type VatSourceData, type VatSourceOrigin } from './vat-source';
+import { defaultVatSource, VAT_CLOSE_SOURCE, type VatDocumentSource, type VatSourceData, type VatSourceOrigin } from './vat-source';
 
 export type VatPeriodKind = 'month' | 'quarter';
 
@@ -66,7 +66,7 @@ export interface VatPeriodComputation {
 
 /** Compute ДДВ-04 and the closing journal of one period (nothing is written). */
 export async function computeVatPeriod(
-  tx: Tx, firm: Firm, period: string, source: VatDocumentSource, corrections: VatPeriodCorrections = {}, ctx?: PostingContext,
+  tx: Tx, firm: Firm, period: string, source: VatDocumentSource = defaultVatSource, corrections: VatPeriodCorrections = {}, ctx?: PostingContext,
 ): Promise<VatPeriodComputation> {
   const kind = vatPeriodKindOf(period) ?? fail(`Неважечки ДДВ период „${period}“.`);
   const [from, to] = perRange(period);
@@ -91,7 +91,8 @@ export interface CloseVatPeriodInput {
   firmId: string;
   period: string;
   userId: string | null;
-  source: VatDocumentSource;
+  /** Default: `defaultVatSource` (documents + manual VAT journals). */
+  source?: VatDocumentSource;
   /** Corrections to file with (default: the ones saved on the period). */
   corrections?: VatPeriodCorrections;
 }
@@ -118,7 +119,7 @@ export async function closeVatPeriod(tx: Tx, a: CloseVatPeriodInput): Promise<Cl
   if (overlap) fail(`Периодот се преклопува со веќе затворениот ДДВ период ${overlap.period}.`);
 
   const corrections = a.corrections ?? existing?.corrections ?? {};
-  const C = await computeVatPeriod(tx, firm, a.period, a.source, corrections);
+  const C = await computeVatPeriod(tx, firm, a.period, a.source ?? defaultVatSource, corrections);
   const values = { firmId: firm.id, period: a.period, periodKind: kind, dateFrom: from, dateTo: to, corrections };
   const row = existing
     ? (await tx.update(vatPeriods).set(values).where(eq(vatPeriods.id, existing.id)).returning())[0]!
@@ -192,7 +193,7 @@ export interface VatPeriodOverview {
  * All VAT periods of a year for the firm's filing frequency, plus closed periods filed under the other
  * frequency (after a month ↔ quarter switch). Documents are loaded once for the whole year.
  */
-export async function vatYearOverview(tx: Tx, firm: Firm, year: number, source: VatDocumentSource): Promise<{ periods: VatPeriodOverview[]; ctx: PostingContext; data: VatSourceData }> {
+export async function vatYearOverview(tx: Tx, firm: Firm, year: number, source: VatDocumentSource = defaultVatSource): Promise<{ periods: VatPeriodOverview[]; ctx: PostingContext; data: VatSourceData }> {
   const kind = firmVatPeriodKind(firm);
   const from = `${year}-01-01`, to = `${year}-12-31`;
   const ctx = await loadVatPostingContext(tx, firm);

@@ -8,7 +8,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import {
   PP_NACIN, PP_SIF, PP_T, PP_TAX, ppIbanOn, ppNew, ppTaxNew, ppWarnings, ppAccTxt, type PaymentOrder, type PpKind,
 } from '@wise/core';
-import { orderSuggestions, payerOf, paymentOrders } from '@wise/db';
+import { orderSuggestions, payerOf, paymentOrders, vatDueEstimate } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -43,8 +43,11 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
     const [o] = await db().select().from(paymentOrders).where(and(eq(paymentOrders.id, sp.edit), eq(paymentOrders.firmId, firm.id))).limit(1);
     if (o) { draft = o.data as unknown as PaymentOrder; editId = o.id; refId = o.refId; }
   } else if (sp.tax && PP_TAX.some((t) => t[0] === sp.tax)) {
-    // TODO(vat): the ДДВ amount and period come from the VAT module (Phase 5, legacy `ddvFor(prevPeriod)`).
-    draft = ppTaxNew(sp.tax, today, payer, { muni: payer.muni, akont: Number((firm.settings as Record<string, unknown>).akontDD) || null });
+    // ДДВ template: amount and period of the last finished VAT period (legacy 15772 `ddvFor(prevPeriod)`; filed figure when closed).
+    const isVat = PP_TAX.find((t) => t[0] === sp.tax)?.[4] === 'period';
+    const est = isVat ? await vatDueEstimate(db(), firm.id, today) : null;
+    const vat = est ? { label: est.period.replace('-Т', ' – квартал '), ref: est.period.replace('-Т', '-'), amount: est.amount > 0 ? est.amount : null } : undefined;
+    draft = ppTaxNew(sp.tax, today, payer, { muni: payer.muni, akont: Number((firm.settings as Record<string, unknown>).akontDD) || null, ...(vat ? { vat } : {}) });
   } else if (sp.ref) {
     const s = sug.find((x) => x.refId === sp.ref);
     if (s) {
