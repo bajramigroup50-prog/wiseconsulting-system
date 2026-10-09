@@ -34,7 +34,8 @@ export default async function RentPage({ searchParams }: { searchParams: Promise
     const from = (sp.d ?? T) + 'T09:00';
     const E = E0 ?? { id: '', number: '', vehicleId: v0?.id ?? '', plate: v0?.plate ?? '', from, to: addDays(from.slice(0, 10), 3) + 'T09:00', driver: { name: '' } as RentRental['driver'], driver2: '', partnerId: null,
       deposit: v0?.rDep ?? null, extras: [], status: 'resv' as const, note: '', out: { fuel: 8 }, ret: {}, pDay: null, priceTot: null, countries: ['MK'], green: false, invoiceId: null, depositVoucherId: null, depositKept: null, depositClosed: false };
-    const v = F.find((x) => x.id === E.vehicleId) ?? (await db().select().from(fleetVehicles).where(eq(fleetVehicles.id, E.vehicleId)).limit(1))[0];
+    const v = F.find((x) => x.id === E.vehicleId) ?? (E.vehicleId ? (await db().select().from(fleetVehicles).where(eq(fleetVehicles.id, E.vehicleId)).limit(1))[0] : undefined);
+    if (!F.length && !E0) return <div className="callout warn">Нема возила за изнајмување: во <Link href="/flota">🚙 Флота и цени</Link> внесете ги возилата и цените.</div>;
     const k = v ? rcCalc(E, vehicleRates(v), C) : null;
     const P = await partnerOptions(firm.id);
     const inv = E.invoiceId ? (await db().select({ n: invoices.number, t: invoices.total }).from(invoices).where(eq(invoices.id, E.invoiceId)))[0] : null;
