@@ -17,10 +17,12 @@ const [{ n }] = (await db.select({ n: sql<number>`count(*)::int` }).from(users))
 
 if (n > 0) {
   console.log(`seed: ${n} user(s) exist, nothing to do`);
+} else if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 10) {
+  // Don't block the stack from starting: set ADMIN_PASSWORD and re-run the seed (`docker compose run --rm migrate`).
+  console.warn('seed: ADMIN_PASSWORD is not set (min 10 chars) — no administrator created yet');
 } else {
   const username = process.env.ADMIN_USERNAME || '1';
   const password = process.env.ADMIN_PASSWORD;
-  if (!password || password.length < 10) throw new Error('Set ADMIN_PASSWORD (min 10 chars) to create the first admin');
   await db.insert(users).values({
     username,
     name: process.env.ADMIN_NAME ?? 'Администратор',
