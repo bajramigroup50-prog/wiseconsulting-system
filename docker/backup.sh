@@ -2,6 +2,7 @@
 # Nightly backup (host cron, e.g. `30 2 * * * /opt/wise/app/docker/backup.sh >> /var/log/wise-backup.log 2>&1`):
 # pg_dump + a sync of the document bucket into $BACKUP_DIR, keeping 30 days of database dumps.
 set -eu
+umask 077  # dumps contain all accounting data: owner-only
 cd "$(dirname "$0")"
 ENV_FILE=${ENV_FILE:-/opt/wise/.env}
 . "$ENV_FILE"
