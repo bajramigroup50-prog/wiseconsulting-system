@@ -3,7 +3,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { INST, isTaskStatus, taskTransition, TEREN_STATUSES, TTYPE, type TaskStatus } from '@wise/core/office';
-import { audit, OFFICE_FILE_ENTITY, officeTasks } from '@wise/db';
+import { audit, firms, firstMailAddress, OFFICE_FILE_ENTITY, officeTasks, textMailHtml, users } from '@wise/db';
+import { dispatchMail, queueMail } from '@/lib/mail';
 import { firmAllowed } from '@wise/core';
 import { requireCan, type SessionUser } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
@@ -27,10 +28,12 @@ export async function saveTask(_p: ActionState, f: FormData): Promise<ActionStat
       firmId: firmId || null, assigneeId: isUuid(assigneeId) ? assigneeId : null, due: fdate(f, 'due'),
       prio: fv(f, 'prio') === 'high' ? 'high' : 'normal', description: fv(f, 'description'),
     };
-    await db().transaction(async (tx) => {
+    let newAssignee: string | null = null;
+    const mailIds = await db().transaction(async (tx) => {
       if (id) {
         const [t] = await tx.select().from(officeTasks).where(eq(officeTasks.id, id)).limit(1);
         if (!t) throw new Error('Задачата не постои.');
+        if (v.assigneeId && v.assigneeId !== t.assigneeId) newAssignee = v.assigneeId;
         const st: TaskStatus = v.assigneeId && t.status === 'new' ? 'assigned' : (t.status as TaskStatus);
         const tr = st !== t.status ? taskTransition(t, st, u.name) : null;
         await tx.update(officeTasks).set({ ...v, ...(tr ?? {}) }).where(eq(officeTasks.id, id));
@@ -40,11 +43,21 @@ export async function saveTask(_p: ActionState, f: FormData): Promise<ActionStat
         const [t] = await tx.insert(officeTasks).values({ ...v, status: st, createdBy: u.id, hist: taskTransition({ status: 'new', hist: [] }, st, u.name).hist })
           .returning({ id: officeTasks.id });
         id = t!.id;
+        newAssignee = v.assigneeId;
         await audit(tx, { userId: u.id, firmId: v.firmId, action: 'tNew', entityType: 'office_task', entityId: id, data: { title } });
       }
       await linkFiles(tx, f.getAll('fileIds'), null, OFFICE_FILE_ENTITY.task, id!);
+      // notify a newly assigned colleague by e-mail (not when assigning to oneself)
+      if (!newAssignee || newAssignee === u.id) return [];
+      const [a] = await tx.select({ email: users.email }).from(users).where(eq(users.id, newAssignee)).limit(1);
+      const to = firstMailAddress(a?.email);
+      const [fm] = v.firmId ? await tx.select({ name: firms.name }).from(firms).where(eq(firms.id, v.firmId)).limit(1) : [];
+      return to ? [await queueMail(tx, {
+        firmId: v.firmId, to, subject: `Нова задача: ${title}`, entityType: 'office_task', entityId: id!, userId: u.id,
+        html: textMailHtml(`${u.name} ви додели задача „${title}“${fm ? ` (${fm.name})` : ''}${v.due ? `, рок ${v.due.split('-').reverse().join('.')}` : ''}.${v.description ? `\n\n${v.description}` : ''}`),
+      })] : [];
     });
-    // TODO(mail): notify the assignee by e-mail (Phase 6 `mail.send`).
+    await dispatchMail(mailIds);
   } catch (e) { return officeError(e); }
   revalidatePath('/kanc');
   redirect(`/kanc?t=${id}`);

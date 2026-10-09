@@ -9,7 +9,12 @@ import { Pill } from '@/components/file-chips';
 import { Hd, dmy, dmyHm } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deletePackage, savePackage } from './actions';
+import { deletePackage, mailPackage, savePackage } from './actions';
+
+/** Generated reports a package can hold (print views with the server „⬇ PDF“ button). */
+const REPORTS: [string, string][] = [
+  ['/print/ddv04', 'ДДВ-04'], ['/pecati/bs-crm', 'Биланс на состојба'], ['/pecati/bu-crm', 'Биланс на успех'], ['/pecati/db', 'Даночен биланс'],
+];
 
 export default async function PaketPage() {
   const { firm } = await officePage('paket', { perm: 'office' });
@@ -45,7 +50,7 @@ export default async function PaketPage() {
             })}
           </tbody></table></div>
         ) : <p className="note">Досието е празно – прво додадете документи во <a href="/dosie">Досие</a>.</p>}
-        {/* TODO(merge): legacy PKG_REP also adds generated reports (бруто биланс, ДДВ-04, завршна сметка, …) from Phases 2/5/8 via `pdf.render`. */}
+        <p className="note">Генерираните извештаи (ДДВ-04, биланс на состојба / успех, даночен биланс) се додаваат во зачуван пакет подолу: „+ извештај“ го отвора печатењето, а „⬇ PDF“ таму го додава PDF-от во пакетот.</p>
         <div className="row"><button className="btn pri">Зачувај пакет</button></div>
       </ActionForm>
 
@@ -58,7 +63,17 @@ export default async function PaketPage() {
             </div></div>
           <ol style={{ margin: 0 }}>{p.items.map((i, k) => <li key={k}>{i.label}</li>)}</ol>
           <span className="mini">{dmyHm(p.createdAt)}</span>
-          {/* TODO(mail): legacy `pkgMail` / `pkgMailGo` — send the package by e-mail (Phase 6 `mail.send`). */}
+          {/* legacy PKG_REP: generated reports, rendered by `pdf.render` and added to this package (`?pkg=`) */}
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            {REPORTS.map(([href, label]) => <a key={href} className="btn sm" href={`${href}${href.includes('?') ? '&' : '?'}pkg=${p.id}`} target="_blank" rel="noopener">+ {label}</a>)}
+          </div>
+          {/* legacy `pkgMail` / `pkgMailGo` */}
+          <ActionForm action={mailPackage} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            <input type="hidden" name="id" value={p.id} />
+            <input name="to" type="email" placeholder="е-пошта на примачот" required style={{ width: 240 }} />
+            <input name="subject" placeholder={`${p.name} – ${firm.name}`} style={{ width: 240 }} />
+            <button className="btn sm">✉ Испрати по е-пошта</button>
+          </ActionForm>
         </div>
       ))}
     </>

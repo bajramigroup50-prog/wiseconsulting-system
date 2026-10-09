@@ -1,9 +1,10 @@
 'use server';
 import { revalidatePath } from 'next/cache';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { entryStatusFor } from '@wise/core';
 import { DOS_CAT } from '@wise/core/office';
-import { audit, clientEntries, dossierDocs, fileLinks, firmContacts, firmDeadlines, OFFICE_FILE_ENTITY } from '@wise/db';
+import { audit, clientEntries, dossierDocs, fileLinks, files, firmContacts, firmDeadlines, OFFICE_FILE_ENTITY, OfficeError, textMailHtml } from '@wise/db';
+import { dispatchMail, queueMail, validAddresses } from '@/lib/mail';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fdate, fv, linkFiles, officeAction, officeError } from '@/lib/office';
@@ -102,5 +103,35 @@ export async function setDeadlineDone(id: string, done: boolean): Promise<Action
     });
     revalidatePath('/dosie');
     return { ok: 'Зачувано.' };
+  } catch (e) { return officeError(e); }
+}
+
+/**
+ * Legacy `dosMail` / `dosShare`: send the selected dossier documents (their files as attachments) by e-mail, e.g. a
+ * current-status extract to a bank. Phase 6 mailer: `mail_log` row in the transaction + `mail.send` after COMMIT.
+ */
+export async function mailDossierDocs(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await officeAction('write');
+    const to = fv(f, 'to') ?? '';
+    if (!validAddresses(to)) return { error: 'Внесете важечка е-пошта на примачот.' };
+    const ids = f.getAll('docId').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    if (!ids.length) return { error: 'Изберете барем еден документ.' };
+    const mailIds = await db().transaction(async (tx) => {
+      const D = await tx.select().from(dossierDocs).where(and(eq(dossierDocs.firmId, firm.id), inArray(dossierDocs.id, ids)));
+      const L = D.length ? await tx.select({ id: files.id }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+        .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.dossier), inArray(fileLinks.entityId, D.map((d) => d.id)), eq(files.firmId, firm.id), eq(files.status, 'ready'))) : [];
+      if (!L.length) throw new OfficeError('Избраните документи немаат датотеки.');
+      const list = D.map((d, k) => `${k + 1}. ${d.title || d.category}${d.number ? ` бр. ${d.number}` : ''}`).join('\n');
+      const note = fv(f, 'note');
+      const id = await queueMail(tx, {
+        firmId: firm.id, to, subject: fv(f, 'subject') || `Документи – ${firm.name}`, html: textMailHtml(`${note ? note + '\n\n' : ''}Во прилог (${firm.name}):\n${list}`),
+        attachments: [...new Set(L.map((x) => x.id))], entityType: 'dossier', entityId: firm.id, userId: u.id,
+      });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosMail', entityType: 'dossier_doc', data: { to, docs: D.length, files: L.length } });
+      return [id];
+    });
+    await dispatchMail(mailIds);
+    return { ok: `Испратено на ${to}.` };
   } catch (e) { return officeError(e); }
 }

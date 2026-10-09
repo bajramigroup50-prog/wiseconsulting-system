@@ -1,8 +1,10 @@
 /**
  * HTML helpers for the payroll/HR print views and e-mails. Print views are standalone HTML documents
- * (route handlers), printed with the browser's "Print → Save as PDF" (server-side PDF comes in Phase 9).
- * The `.pdfdoc` rules are the legacy print CSS (`legacy-injected.css` lines 5–29, 65).
+ * (route handlers), printed with the browser's "Print → Save as PDF" or saved with the „⬇ PDF“ button (server
+ * PDF, `lib/print-pdf.ts`). The `.pdfdoc` rules are the legacy print CSS (`legacy-injected.css` lines 5–29, 65).
  */
+import { serverPdfScript } from '../print-pdf';
+
 export { fmt, fq, dmy } from '../fmt';
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -54,8 +56,8 @@ export function printDoc(title: string, body: string, opts: { land?: boolean; ex
   return `<!doctype html><html lang="mk"><head><meta charset="utf-8"><title>${h(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono&display=swap">
 <style>${PDF_CSS}${SCREEN_CSS}${opts.land ? '@media print{@page{size:A4 landscape}}' : ''}${opts.extraCss ?? ''}</style></head>
-<body><div class="pbar"><span class="t">${h(title)}</span><button onclick="window.print()">🖨 Печати / PDF</button><button onclick="window.close()">Затвори</button></div>
-<div class="page"><div class="pdfdoc${opts.land ? ' land' : ''}">${body}</div></div>${opts.autoPrint ? '<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),300))</script>' : ''}</body></html>`;
+<body><div class="pbar"><span class="t">${h(title)}</span><button onclick="window.print()">🖨 Печати / PDF</button><button onclick="var b=this;b.disabled=true;wisePdf('.page',document.title).finally(function(){b.disabled=false})" title="PDF изработен на серверот (A4)">⬇ PDF</button><button onclick="window.close()">Затвори</button></div>
+<div class="page"><div class="pdfdoc${opts.land ? ' land' : ''}">${body}</div></div><script>${serverPdfScript()}</script>${opts.autoPrint ? '<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),300))</script>' : ''}</body></html>`;
 }
 
 /** Response for a print view. */

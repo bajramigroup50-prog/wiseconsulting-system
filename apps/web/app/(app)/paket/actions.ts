@@ -1,7 +1,8 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { and, eq, inArray } from 'drizzle-orm';
-import { audit, docPackages, dossierDocs } from '@wise/db';
+import { audit, docPackages, dossierDocs, fileLinks, files, OFFICE_FILE_ENTITY, OfficeError, textMailHtml } from '@wise/db';
+import { dispatchMail, queueMail, validAddresses } from '@/lib/mail';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fv, isUuid, officeAction, officeError } from '@/lib/office';
@@ -24,6 +25,36 @@ export async function savePackage(_p: ActionState, f: FormData): Promise<ActionS
     });
     revalidatePath('/paket');
     return { ok: 'Пакетот е зачуван.' };
+  } catch (e) { return officeError(e); }
+}
+
+/**
+ * Legacy `pkgMail` / `pkgMailGo`: send the package by e-mail — the cover note as the message, every file of its
+ * dossier documents and generated reports attached (Phase 6 mailer: `mail_log` row + `mail.send`).
+ */
+export async function mailPackage(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await officeAction('office');
+    const id = fv(f, 'id');
+    const to = fv(f, 'to') ?? '';
+    if (!isUuid(id)) return { error: 'Пакетот не постои.' };
+    if (!validAddresses(to)) return { error: 'Внесете важечка е-пошта на примачот.' };
+    const ids = await db().transaction(async (tx) => {
+      const [p] = await tx.select().from(docPackages).where(and(eq(docPackages.id, id), eq(docPackages.firmId, firm.id))).limit(1);
+      if (!p) throw new OfficeError('Пакетот не постои.');
+      const dIds = p.items.map((i) => i.dossierId).filter((x): x is string => !!x);
+      const L = dIds.length ? await tx.select({ id: files.id }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+        .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.dossier), inArray(fileLinks.entityId, dIds), eq(files.firmId, firm.id), eq(files.status, 'ready'))) : [];
+      const att = [...new Set([...L.map((x) => x.id), ...p.items.map((i) => i.fileId).filter((x): x is string => !!x)])];
+      if (!att.length) throw new OfficeError('Пакетот нема датотеки.');
+      const body = `${p.recipient ? `До: ${p.recipient}\n\n` : ''}${p.coverNote ? p.coverNote + '\n\n' : ''}Во прилог ги доставуваме следните документи (${firm.name}):\n${p.items.map((i, k) => `${k + 1}. ${i.label}`).join('\n')}`;
+      const mid = await queueMail(tx, { firmId: firm.id, to, subject: fv(f, 'subject') || `${p.name} – ${firm.name}`, html: textMailHtml(body), attachments: att, entityType: 'doc_package', entityId: p.id, userId: u.id });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'pkgMail', entityType: 'doc_package', entityId: p.id, data: { to, files: att.length } });
+      return [mid];
+    });
+    await dispatchMail(ids);
+    revalidatePath('/paket');
+    return { ok: `Пакетот е испратен на ${to}.` };
   } catch (e) { return officeError(e); }
 }
 

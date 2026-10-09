@@ -2,9 +2,10 @@
 import { revalidatePath } from 'next/cache';
 import { CLIENT_ENTRY_KINDS, isClientEntryKind } from '@wise/core/office';
 import { r2 } from '@wise/core';
-import { audit, clientEntries, inboxItems, OFFICE_FILE_ENTITY } from '@wise/db';
+import { audit, clientEntries, firstMailAddress, getOfficeProfile, inboxItems, OFFICE_FILE_ENTITY, textMailHtml } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { dispatchMail, queueMail } from '@/lib/mail';
 import { fdate, fnum, fv, linkFiles, officeAction, officeError } from '@/lib/office';
 
 /**
@@ -17,12 +18,20 @@ export async function sendToOffice(_p: ActionState, f: FormData): Promise<Action
     const note = fv(f, 'note');
     const ids = f.getAll('fileIds');
     if (!note && !ids.length) return { error: 'Прикачете документ или напишете порака.' };
-    await db().transaction(async (tx) => {
-      const [i] = await tx.insert(inboxItems).values({ firmId: firm.id, note, subject: fv(f, 'subject'), fromUserId: u.id, fromName: u.name }).returning({ id: inboxItems.id });
+    const mailIds = await db().transaction(async (tx) => {
+      const subject = fv(f, 'subject');
+      const [i] = await tx.insert(inboxItems).values({ firmId: firm.id, note, subject, fromUserId: u.id, fromName: u.name }).returning({ id: inboxItems.id });
       const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.inbox, i!.id);
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'klSend', entityType: 'inbox_item', entityId: i!.id, data: { files: n } });
+      // legacy `alBell`: the office sees the badge in /klInbox; it is also notified at the office e-mail (office profile)
+      const to = firstMailAddress((await getOfficeProfile(tx)).email);
+      return to ? [await queueMail(tx, {
+        firmId: firm.id, to, subject: `Нов документ од клиент: ${firm.name}${subject ? ' – ' + subject : ''}`,
+        html: textMailHtml(`${u.name} (${firm.name}) испрати ${n ? `${n} документ(и)` : 'порака'} преку порталот.${note ? `\n\n${note}` : ''}\n\nОтворете ги во „Пристигнато од клиенти“.`),
+        entityType: 'inbox_item', entityId: i!.id, userId: u.id,
+      })] : [];
     });
-    // TODO(mail): notify the office (legacy `alBell` / inbox badge is shown in /klInbox; e-mail via Phase 6 `mail.send`).
+    await dispatchMail(mailIds);
     revalidatePath('/klSend');
     return { ok: 'Испратено до канцеларијата. ✓' };
   } catch (e) { return officeError(e); }
