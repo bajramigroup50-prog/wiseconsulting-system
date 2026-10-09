@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/auth';
 import { NAV_LBL, viewAllowed } from '@/lib/nav';
 import { Hd } from '@/components/hd';
+import { ModuleOff, moduleBlocked } from '@/lib/industry';
 
 /** Every legacy menu item that hasn't been ported yet lands here. */
 export default async function NotPortedYet({ params }: { params: Promise<{ view: string }> }) {
@@ -9,6 +10,7 @@ export default async function NotPortedYet({ params }: { params: Promise<{ view:
   const u = await requireUser();
   const label = NAV_LBL[view];
   if (!label || !viewAllowed(u.role, view)) notFound();
+  if (await moduleBlocked(u, view)) return <ModuleOff t={label} />;
   return (
     <>
       <Hd t={label} />
