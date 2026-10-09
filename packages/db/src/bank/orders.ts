@@ -60,7 +60,7 @@ export interface PpSuggestion { label: string; amount: number; date: string; rec
 
 /**
  * Legacy `ppSuggest`: unpaid supplier invoices, oldest first (max 40), as ПП30 drafts. Open amounts come from
- * the open-items source (ledger until Phase 3 — see open-items.ts) minus bank payments.
+ * the open-items source (Phase 3 documents — see open-items.ts) minus bank payments.
  */
 export async function orderSuggestions(tx: Tx, firmId: string, year: number): Promise<PpSuggestion[]> {
   const items = await openItemsSource().load(tx, firmId, year);

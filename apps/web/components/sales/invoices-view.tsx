@@ -6,13 +6,13 @@ import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { addDays, DT, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
 import {
-  aiDocuments, firmPostingContext, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type Invoice,
+  aiDocuments, firmPostingContext, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
 import { schemeValue } from '@wise/core';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { accountOptions, itemOptions, locationOptions, partnerOptions } from '@/lib/sales';
+import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -20,6 +20,12 @@ import { DownloadCsv } from '@/components/download-csv';
 import { approveInvoiceAction, deleteInvoiceAction, saveInvoiceStyle } from '@/app/(app)/izlez/actions';
 import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-editor';
 import { blankLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
+
+/** Legacy `payPill` (3723). */
+export function PayPill({ paid, total }: { paid: number; total: number }) {
+  const st = payState(paid, total);
+  return st === 'paid' ? <span className="pill good">платена</span> : st === 'part' ? <span className="pill warn">делумно</span> : <span className="pill">отворена</span>;
+}
 
 export type SP = { nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string };
 
@@ -157,11 +163,19 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'invoice')))).map((x) => [x.s, x.n]));
   const refNo = new Map((kind === 'credit' || kind === 'invoice' ? await db().select({ id: invoices.id, n: invoices.number, k: invoices.kind }).from(invoices).where(eq(invoices.firmId, firm.id)) : []).map((x) => [x.id, x]));
   const inv = kind === 'invoice' || kind === 'credit';
-  const T = list.reduce((t, { i }) => ({ b: t.b + Number(i.base), v: t.v + Number(i.vat), t: t.t + Number(i.total) }), { b: 0, v: 0, t: 0 });
+  // Наплатено / Останува (legacy docList: invoices and services). FX invoices: converted back to the invoice currency.
+  const payCols = kind === 'invoice';
+  const PM = payCols ? await listPayments(firm.id, { invoiceIds: list.map((r) => r.i.id) }) : new Map<string, DocPayment>();
+  const payOf = (i: Invoice) => {
+    const m = PM.get(i.id), fx = i.currency === 'MKD' ? 1 : Number(i.fx) || 1;
+    if (!m) return { paid: 0, rest: Number(i.total), due: Number(i.total) };
+    return { paid: Math.round((m.paid / fx) * 100) / 100, rest: Math.round((m.remaining / fx) * 100) / 100, due: Math.round((m.total / fx) * 100) / 100 };
+  };
+  const T = list.reduce((t, { i }) => ({ b: t.b + Number(i.base), v: t.v + Number(i.vat), t: t.t + Number(i.total), pd: t.pd + (payCols ? payOf(i).paid : 0), r: t.r + (payCols ? payOf(i).rest : 0) }), { b: 0, v: 0, t: 0, pd: 0, r: 0 });
   const st = (i: Invoice) => {
     if (i.status === 'pending') return <span className="pill warn" title="Внесено од клиентот – не е прокнижено">⏳ чека одобрување</span>;
     if (kind === 'credit') return <><span className="pill info">кон ф-ра {refNo.get(i.refInvoiceId ?? '')?.n ?? '—'}</span> {i.creditKind === 'ret' ? <span className="pill warn">↩ Повратница (стока на залиха)</span> : i.creditKind === 'gross' ? <span className="pill">Бруто износ</span> : <span className="pill">По ставки</span>}</>;
-    if (kind === 'invoice') return i.fromDocId ? <span className="pill info">од {refNo.get(i.fromDocId)?.k === 'dispatch' ? 'испратница' : 'профактура'} {refNo.get(i.fromDocId)?.n}</span> : null;
+    if (kind === 'invoice') { const pm = payOf(i); return <><PayPill paid={pm.paid} total={pm.due} />{i.fromDocId ? <> <span className="pill info">од {refNo.get(i.fromDocId)?.k === 'dispatch' ? 'испратница' : 'профактура'} {refNo.get(i.fromDocId)?.n}</span></> : null}</>; }
     return i.invoicedId ? <span className="pill good">фактурирана {refNo.get(i.invoicedId)?.n ?? ''}</span> : kind === 'dispatch' ? <span className="pill warn">нефактурирана</span> : <span className="pill">отворена</span>;
   };
   const style = (k: string) => String(((firm.settings ?? {}) as Record<string, unknown>)[k] ?? '');
@@ -206,16 +220,18 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       </form>
       {list.length ? (
         <div className="tw"><table className="dense">
-          <thead><tr><th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th><th>Статус</th><th></th></tr></thead>
+          <thead><tr><th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
           <tbody>{list.map(({ i, p }) => (
             <tr key={i.id}>
               <td className="num"><b>{i.number}</b></td>{inv && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
               <td>{dmy(i.date)}</td><td style={i.due && i.due < addDays(new Date().toISOString().slice(0, 10), 0) ? { color: 'var(--bad)' } : undefined}>{dmy(i.due)}</td>
               <td style={{ maxWidth: 280 }}>{p?.name}</td><td className="num">{p?.code}</td>
               <td className="n">{fmt(i.base)}</td><td className="n">{fmt(i.vat)}</td><td className="n"><b>{fmt(i.total)}</b>{i.currency !== 'MKD' && <small className="mini"> {i.currency}</small>}</td>
+              {payCols && (() => { const pm = payOf(i); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && i.due && i.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td></>; })()}
               <td>{st(i)}{i.art32 && <span className="pill info"> 32-а</span>}{i.advance && <span className="pill warn"> авансна</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Преглед и печатење">👁</Link>
+                {inv && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉</Link>}
                 {write && <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Измени">✎</Link>}
                 {write && kind === 'invoice' && !i.advance && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница кон оваа фактура">↩ Одобр.</Link>}
                 {write && (kind === 'proforma' || kind === 'dispatch') && !i.invoicedId && <Link className="btn sm" href={`/izlez?from=${i.id}`}>Во фактура</Link>}
@@ -226,7 +242,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
                 {del && <RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} />}
               </td>
             </tr>))}</tbody>
-          <tfoot><tr><td colSpan={inv ? 6 : 5}>Вкупно ({list.length})</td><td className="n">{fmt(T.b)}</td><td className="n">{fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td colSpan={2} /></tr></tfoot>
+          <tfoot><tr><td colSpan={inv ? 6 : 5}>Вкупно ({list.length})</td><td className="n">{fmt(T.b)}</td><td className="n">{fmt(T.v)}</td><td className="n">{fmt(T.t)}</td>{payCols && <><td className="n">{fmt(T.pd)}</td><td className="n">{fmt(T.r)}</td></>}<td colSpan={2} /></tr></tfoot>
         </table></div>
       ) : <div className="card empty">{all.length ? 'Нема документи за овој филтер.' : `Сè уште нема ${DT[dt].list.toLowerCase()} за ${year}.`}</div>}
     </>

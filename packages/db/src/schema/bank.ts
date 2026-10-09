@@ -116,7 +116,7 @@ export const bankLines = pgTable('bank_lines', {
   /** Counter konto; null = unbooked. */
   konto: text('konto'),
   partnerId: uuid('partner_id').references(() => partners.id, { onDelete: 'restrict' }),
-  /** Linked document (invoice / purchase id, or a ledger open-item id `L|konto|partner|doc` until Phase 3). */
+  /** Linked document (invoice / purchase id, or a ledger open-item id `L|konto|partner|doc` from the ledger source — counted on the document with that number). */
   refType: text('ref_type').$type<'invoice' | 'purchase'>(),
   refId: text('ref_id'),
   refLabel: text('ref_label'),
@@ -273,7 +273,7 @@ export const paymentOrders = pgTable('payment_orders', {
 
 export interface CompensationRowData {
   side: 'rec' | 'pay';
-  /** Open-item id (invoice / purchase id, or ledger item 'L|konto|partner|doc' until Phase 3). */
+  /** Open-item id (invoice / purchase id, or ledger item 'L|konto|partner|doc' from the ledger source). */
   refId?: string | null;
   docNo?: string;
   date?: string;

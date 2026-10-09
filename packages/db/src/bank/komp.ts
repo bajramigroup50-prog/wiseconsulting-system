@@ -2,16 +2,16 @@
  * Compensations (компензации) — legacy `kompList`, `kompOpen`, `kompSave`, `kompDel` (8917–8972): bilateral or
  * multilateral set-off of receivables against payables, posted via `kompEntries` (journal kind `komp`, nalog 16).
  *
- * Open items come from the open-items source (ledger until Phase 3); bank payments are subtracted (`openAmount`).
+ * Open items come from the open-items source (Phase 3 documents by default); bank payments are subtracted (`openAmount`).
  * The compensation's own journal is excluded while it is edited. FIX: legacy did not check that an amount does not
  * exceed the document's open amount — here it is refused.
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { kompEntries, kompNextNumber, kompTot, openAmount, type CompensationDoc, type DocType } from '@wise/core';
+import { docKonto, kompEntries, kompNextNumber, kompTot, openAmount, type CompensationDoc, type DocType } from '@wise/core';
 import { audit, type Tx } from '../audit';
 import { assertOpenPeriod, postJournal, unpostSource } from '../posting';
 import { bankLines, compensations, journals, partners, type CompensationRowData } from '../schema/index';
-import { BankError, cents, den, firmPostingContext, loadFirm } from './context';
+import { BankError, cents, den, firmPostingContext, loadBankEnv, loadFirm } from './context';
 import { openItemsSource } from './open-items';
 import { toBankRow } from './rows';
 
@@ -30,13 +30,14 @@ export async function kompOpenItems(tx: Tx, firmId: string, year: number, partne
   const items = await openItemsSource().load(tx, firmId, year, { excludeJournalIds: await journalIdOf(tx, firmId, excludeId) });
   const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), sql`${bankLines.refId} is not null`));
   const rows = L.map(toBankRow);
+  const { konta } = await loadBankEnv(tx, firmId);
   const P = new Set(partnerIds);
   const out: KompOpenRow[] = [];
   const add = (side: 'rec' | 'pay', type: DocType, D: typeof items.invoices) => {
     for (const d of D) {
       if (!d.partner || !P.has(d.partner)) continue;
       const o = openAmount(rows, type, d);
-      if (o > 0) out.push({ side, refId: d.id, docNo: d.number ?? '', date: d.date, partnerId: d.partner, konto: d.konto ?? (side === 'rec' ? '1200' : '2200'), open: o });
+      if (o > 0) out.push({ side, refId: d.id, docNo: d.number ?? '', date: d.date, partnerId: d.partner, konto: docKonto(type, d, konta), open: o });
     }
   };
   add('rec', 'invoice', items.invoices);

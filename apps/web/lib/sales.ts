@@ -4,7 +4,7 @@ import 'server-only';
  * Повратници, Е-Фактура, Скенирање, Масовно).
  */
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { effectiveChart, codes, itemBarcodes, items, type Firm } from '@wise/db';
+import { documentPayments, effectiveChart, codes, itemBarcodes, items, type DocPayment, type Firm } from '@wise/db';
 import type { DocActor } from '@wise/db';
 import type { SessionUser } from './auth';
 import { db } from './db';
@@ -49,3 +49,12 @@ export const firmScheme = (f: Firm, k: string, def: string): string => {
   return typeof v === 'string' && v ? v : def;
 };
 
+/** Paid / remaining per document for the lists (legacy `paidFor`; denars, MKD counter-value for FX documents). */
+export async function listPayments(firmId: string, ids: { invoiceIds?: string[]; purchaseIds?: string[] }): Promise<Map<string, DocPayment>> {
+  return documentPayments(db(), firmId, ids);
+}
+
+/** Legacy `payPill` (3723): платена / делумно / отворена. */
+export function payState(paid: number, total: number): 'paid' | 'part' | 'open' {
+  return paid >= total - 0.009 ? 'paid' : paid > 0 ? 'part' : 'open';
+}

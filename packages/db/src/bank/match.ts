@@ -9,11 +9,12 @@
  */
 import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import {
-  autoMatch, BKPK_RE, fifoPick, isFxAccount, linkPayment, linkPaymentFx, openDocsFor,
+  autoMatch, BKPK_RE, fifoPick, isFxAccount, linkPayment, linkPaymentFx, openDocsFor, Payroll,
   type BankRow, type DocRefAmt, type DocType, type MatchContext, type MatchHow, type OpenDoc,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
-import { bankLines, bankStatements, partners } from '../schema/index';
+import { loadPayOverrides, loadPayScheme, loadRun } from '../payroll';
+import { bankLines, bankStatements, partners, payrollRuns } from '../schema/index';
 import { BankError, den, loadBankEnv, POS_PARTNER_NAME, type BankEnv } from './context';
 import { openItemsSource } from './open-items';
 import { assertStatementOpen, postStatements } from './posting';
@@ -26,11 +27,34 @@ export async function matchContext(tx: Tx, env: BankEnv, year: number): Promise<
     tx.select().from(bankLines).where(and(eq(bankLines.firmId, env.firm.id), or(sql`${bankLines.date} between ${y0} and ${y1}`, isNotNull(bankLines.refId)))),
     openItemsSource().load(tx, env.firm.id, year),
   ]);
+  const payMatch = await payrollMatcher(tx, env, year);
   return {
     rows: L.map(toBankRow), accounts: env.accounts, invoices: items.invoices, purchases: items.purchases, partners: env.partners,
     year, firmName: env.firm.name, rules: env.rules, osnovK: env.osnovK, posPartner: env.posPartner, konta: env.konta,
-    // TODO(payroll): legacy `payMatch` recognised net-salary payments; Phase 6 owns payroll runs.
+    ...(payMatch ? { payMatch } : {}),
     lineStatement: new Map(L.map((l) => [l.id, l.statementId])),
+  };
+}
+
+/**
+ * Legacy `payMatch` over the Phase 6 payroll runs of the year (and the previous December): an outflow equal to a
+ * run's net total or one employee's net is booked on `pay_net` (2401), contributions / PIT on their kontos (with a
+ * split when several), and `payRef` = the payroll month. Null when the firm has no runs.
+ */
+export async function payrollMatcher(tx: Tx, env: BankEnv, year: number): Promise<NonNullable<MatchContext['payMatch']> | null> {
+  const R = await tx.select({ id: payrollRuns.id }).from(payrollRuns)
+    .where(and(eq(payrollRuns.firmId, env.firm.id), sql`${payrollRuns.month} between ${`${year - 1}-12`} and ${`${year}-12`}`));
+  if (!R.length) return null;
+  const [runs, scheme, overrides] = await Promise.all([
+    Promise.all(R.map((r) => loadRun(tx, env.firm.id, { id: r.id }))),
+    loadPayScheme(tx, env.firm),
+    loadPayOverrides(tx, env.firm.id),
+  ]);
+  const P = runs.filter((r) => !!r && r.emps.length).map((r) => ({ month: r!.month, params: r!.params, emps: r!.emps }));
+  return (amountCents, date) => {
+    const m = Payroll.payMatch(P, den(amountCents), date, scheme, overrides);
+    if (!m) return null;
+    return { month: m.month, konto: m.konto, ...(m.split ? { split: m.split.map((x) => ({ k: x.k, a: Math.round(x.a * 100), n: x.n })) } : {}) };
   };
 }
 
