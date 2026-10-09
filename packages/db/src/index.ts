@@ -37,3 +37,4 @@ export * from './stock-service';
 export * from './stock-docs';
 export * from './stock-reports';
 export * from './payroll';
+export * from './industry/index';

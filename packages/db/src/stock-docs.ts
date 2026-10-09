@@ -458,6 +458,21 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
     cart.forEach((l, ix) => {
       const it = L.ctx.items!.find((i) => i.id === l.itemId)!;
       if (!it.type || it.type === 'service') return;
+      // FIX (Phase 10, legacy posSell 5845): a product with a BOM that is not on stock (a dish, a cocktail) issues its
+      // BOM components instead of the product itself — the restaurant / POS discharges the raw materials.
+      if (kind === 'pos' && it.type === 'product' && (it.bom ?? []).length) {
+        const have = live.moves.filter((m) => m.item === it.id && (m.wh ?? 'main') === W && !m.pend).reduce((s, m) => s + m.qty, 0);
+        if (have < l.qty - 1e-9) {
+          for (const b of it.bom ?? []) {
+            const mt = L.ctx.items!.find((i) => i.id === b.item);
+            if (!mt || !mt.type || mt.type === 'service' || !Number(b.qty)) continue;
+            const mv = postOut(live, { item: mt, qty: r4(l.qty * Number(b.qty)), date: input.date, type: 'sale', src: `pos-${id}-${ix}-${mt.id}`, label: `${zLabel} · ${it.name} (норматив)`, debitAccount: cogsAccount(L.ctx, mt), wh: W }).move;
+            moves.push(mv);
+            live = withMoves(live, [mv]);
+          }
+          return;
+        }
+      }
       const mv = postOut(live, { item: it, qty: l.qty, date: input.date, type: 'sale', src: `pos-${id}-${ix}`, label: `${zLabel} · ${L.locName(loc)}`, debitAccount: cogsAccount(L.ctx, it), wh: W }).move;
       moves.push(mv);
       live = withMoves(live, [mv]);

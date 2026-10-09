@@ -71,6 +71,13 @@
       "when": 1791484989436,
       "tag": "0009_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791486194591,
+      "tag": "0010_industry",
+      "breakpoints": true
     }
   ]
 }
