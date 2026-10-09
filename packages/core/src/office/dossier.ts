@@ -18,6 +18,12 @@ export const DOS_CAT = [
   'Сертификати и уверенија',
   'Банкарски документи',
   'Друго',
+  // added by legacy at 14039 for documents routed from the client inbox (`irArch`)
+  'Плати и персонал',
+  'Благајна',
+  'Магацински документи',
+  'Патни налози и гориво',
+  'Друго од клиентот',
 ] as const;
 
 /** Categories that institutions only accept when recent (≤ 3 or ≤ 6 months). */

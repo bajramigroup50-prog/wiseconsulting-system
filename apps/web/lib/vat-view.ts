@@ -45,6 +45,8 @@ function checkPeriods(sel: string, year: number, kind: 'month' | 'quarter'): str
 
 export interface VatBookData {
   t: BookKind; from: string; to: string; origin: VatSourceOrigin;
+  /** Journals without a VAT document that were rebuilt from the ledger (manual nalozi etc.). */
+  ledgerJournals: number;
   rows: (VatBookOutRow | VatBookInRow)[];
   sum: Record<string, number>;
   /** Columns that differ from ДДВ-04 by more than 1 den. (key, book, ДДВ-04); null when not comparable. */
@@ -75,7 +77,7 @@ export async function loadVatBook(firm: Firm, year: number, t: BookKind, sel: st
     }
     check = Object.entries(s).filter(([k, v]) => Math.abs((sum[k] ?? 0) - v) > 1).map(([k, v]) => ({ k, book: sum[k] ?? 0, ddv: Math.round(v * 100) / 100 }));
   }
-  return { t, from, to, origin: data.origin, rows, sum, check };
+  return { t, from, to, origin: data.origin, ledgerJournals: data.ledgerJournals ?? 0, rows, sum, check };
 }
 
 export const bookColumns = (t: BookKind) => VAT_BOOK_COLUMNS[t];

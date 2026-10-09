@@ -11,7 +11,7 @@ import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { deleteContact, deleteDossierDoc, saveContact, saveDeadline, saveDossierDoc, setDeadlineDone } from './actions';
+import { deleteContact, deleteDossierDoc, mailDossierDocs, saveContact, saveDeadline, saveDossierDoc, setDeadlineDone } from './actions';
 
 export default async function DosiePage() {
   const { u, firm } = await officePage('dosie');
@@ -131,7 +131,23 @@ export default async function DosiePage() {
           </div>
         </div>
       )}
-      {/* TODO(mail): legacy `dosMail` / `dosShare` (send selected documents by e-mail) → Phase 6 `mail.send`. Packages: see /paket. */}
+      {/* legacy `dosMail` / `dosShare`: send selected documents by e-mail (packages with a cover letter: /paket) */}
+      {write && docs.some((d) => F.get(d.id)?.length) && (
+        <ActionForm action={mailDossierDocs}>
+          <h2 style={{ fontSize: 15 }}>✉ Испрати документи по е-пошта</h2>
+          <div className="row" style={{ gap: '4px 14px', flexWrap: 'wrap' }}>
+            {docs.filter((d) => F.get(d.id)?.length).map((d) => (
+              <label key={d.id} className="chk"><input type="checkbox" name="docId" value={d.id} /> {d.title || d.category}{d.date ? ` (${dmy(d.date)})` : ''}</label>
+            ))}
+          </div>
+          <div className="form">
+            <label className="f">До (е-пошта)<input name="to" type="email" required defaultValue={firm.email ?? ''} /></label>
+            <label className="f">Наслов<input name="subject" placeholder={`Документи – ${firm.name}`} /></label>
+            <label className="f wide">Порака<input name="note" /></label>
+          </div>
+          <div className="row"><button className="btn">✉ Испрати</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
+        </ActionForm>
+      )}
     </>
   );
 }

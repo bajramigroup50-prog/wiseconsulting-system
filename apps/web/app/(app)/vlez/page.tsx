@@ -12,12 +12,13 @@ import {
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { accountOptions, itemOptions, locationOptions, partnerOptions } from '@/lib/sales';
+import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { DownloadCsv } from '@/components/download-csv';
 import { PurchaseEditor, type PurItemOpt } from '@/components/sales/purchase-editor';
+import { PayPill } from '@/components/sales/invoices-view';
 import { blankCost, COSTS, newPurchase, s, type EdPurchase } from '@/components/sales/model';
 import { approvePurchaseAction, deletePurchaseAction } from './actions';
 
@@ -75,7 +76,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       const x = doc?.drafts[idx];
       const dr = x?.draft as ScanPurchaseDraft | undefined;
       if (!doc || !dr) return <NoFirm t="Скенираниот документ не постои" />;
-      fileIds = [doc.fileId];
+      fileIds = doc.fileId ? [doc.fileId] : [];
       init = {
         ...init, number: dr.number, date: dr.date, docDate: dr.docDate, due: dr.due, partnerId: dr.partnerId, supplierName: dr.supplierName, supplierEdb: dr.supplierEdb,
         ptype: dr.ptype, art32: dr.art32, cash: dr.cash, warehouseId: dr.warehouseId ?? '', shifted: dr.shifted, credit: dr.credit,
@@ -108,7 +109,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const att = ids.length ? await db().select({ e: fileLinks.entityId, id: files.id, name: files.name }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
     .where(and(eq(fileLinks.entityType, 'purchase'), inArray(fileLinks.entityId, ids))) : [];
   const nStock = ids.length ? new Map((await db().select({ p: purchaseStockLines.purchaseId, n: sql<number>`count(*)::int` }).from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, ids)).groupBy(purchaseStockLines.purchaseId)).map((x) => [x.p, x.n])) : new Map<string, number>();
-  const T = list.reduce((t, { p }) => ({ b: t.b + Number(p.base), v: t.v + (p.art32 ? 0 : Number(p.vat)), t: t.t + Number(p.total) }), { b: 0, v: 0, t: 0 });
+  // Платено / Останува / Плаќање (legacy `payPill(paidFor('purchase'), purTotal)`).
+  const PM = await listPayments(firm.id, { purchaseIds: ids });
+  const payOf = (id: string, total: string) => { const m = PM.get(id); return m ? { paid: m.paid, rest: m.remaining, due: m.total } : { paid: 0, rest: Number(total), due: Number(total) }; };
+  const T = list.reduce((t, { p }) => ({ b: t.b + Number(p.base), v: t.v + (p.art32 ? 0 : Number(p.vat)), t: t.t + Number(p.total), pd: t.pd + payOf(p.id, p.total).paid, r: t.r + payOf(p.id, p.total).rest }), { b: 0, v: 0, t: 0, pd: 0, r: 0 });
 
   return (
     <>
@@ -121,7 +125,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       {write && <Link className="drop drop-sm" href="/skan?k=purchase"><b>Прочитај фактура од PDF</b> — прикачете една или повеќе фактури (PDF, JPG, PNG, UBL XML). Програмот ги чита добавувачот, бројот, датумот и износите по стапка, и ја прикачува оригиналната фактура.</Link>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px' }}><input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {list.length ? (
-        <div className="tw"><table><thead><tr><th>Датум</th><th>Бр.</th><th>Добавувач</th><th>Вид</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th></th></tr></thead>
+        <div className="tw"><table><thead><tr><th>Датум</th><th>Бр.</th><th>Добавувач</th><th>Вид</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th className="n">Платено</th><th className="n">Останува</th><th>Плаќање</th><th></th></tr></thead>
           <tbody>{list.map(({ p, name }) => (
             <tr key={p.id}>
               <td>{dmy(p.date)}</td><td>{p.number}</td><td>{name ?? p.supplierName}</td>
@@ -129,6 +133,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
                 {att.filter((a) => a.e === p.id).map((a) => <a key={a.id} className="pill info" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer">📎 {a.name.slice(0, 20)}</a>)}
                 {!att.some((a) => a.e === p.id) && <span className="pill warn">без документ</span>}</td>
               <td className="n">{fmt(p.base)}</td><td className="n">{fmt(p.art32 ? 0 : p.vat)}</td><td className="n">{fmt(p.total)}</td>
+              {(() => { const pm = payOf(p.id, p.total); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && p.due && p.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td><td>{p.status === 'pending' ? null : <PayPill paid={pm.paid} total={pm.due} />}</td></>; })()}
               <td><div className="row" style={{ flexWrap: 'nowrap' }}>
                 {write && <Link className="btn sm" href={`/vlez?edit=${p.id}`}>Измени</Link>}
                 {nStock.get(p.id) ? <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калкулација</Link> : null}
@@ -137,7 +142,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
                 {del && <RowAction action={deletePurchaseAction.bind(null, p.id)} label="Избриши" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура ${p.number}? Се бришат и налогот и приемот на залиха.`} />}
               </div></td>
             </tr>))}</tbody>
-          <tfoot><tr><td colSpan={4}>Вкупно ({list.length})</td><td className="n">{fmt(T.b)}</td><td className="n">{fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td /></tr></tfoot></table></div>
+          <tfoot><tr><td colSpan={4}>Вкупно ({list.length})</td><td className="n">{fmt(T.b)}</td><td className="n">{fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td className="n">{fmt(T.pd)}</td><td className="n">{fmt(T.r)}</td><td colSpan={2} /></tr></tfoot></table></div>
       ) : <div className="card empty">Сè уште нема влезни фактури за {year}.</div>}
     </>
   );

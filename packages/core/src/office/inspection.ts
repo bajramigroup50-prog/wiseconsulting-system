@@ -125,7 +125,7 @@ function cashPays(c: InspCtx) {
 export const INSP_AUTO: Record<string, (c: InspCtx) => InspRes | null> = {
   u_z: (c) => {
     const Z = c.snap.fiscalDays;
-    if (!Z) return null; // TODO(merge): Phase 7 fiscal reports
+    if (!Z) return null; // fiscal reports not available
     const have = new Set(Z);
     const miss: string[] = [];
     for (let d = addDays(c.td, -60); d < c.td; d = addDays(d, 1)) {
@@ -137,7 +137,7 @@ export const INSP_AUTO: Record<string, (c: InspCtx) => InspRes | null> = {
   },
   u_ddv: (c) => {
     const closed = c.snap.vatClosedPeriods;
-    if (!closed) return null; // TODO(merge): Phase 5 VAT closes
+    if (!closed) return null; // VAT closes not available
     const per = c.snap.firm.vatPeriod ?? 'quarter', step = per === 'month' ? 1 : 3;
     const miss: string[] = [];
     let [a] = vatPeriodRange(c.td, per);
@@ -151,7 +151,7 @@ export const INSP_AUTO: Record<string, (c: InspCtx) => InspRes | null> = {
   },
   u_mpin: (c) => {
     const P = c.snap.payrollMonths;
-    if (!P) return null; // TODO(merge): Phase 6 payroll
+    if (!P) return null; // payroll not available
     const first = c.emps.map((e) => e.start ?? '').filter(Boolean).sort()[0] ?? `${c.y}-01-01`;
     const miss: string[] = [];
     for (let m = ymAdd(c.td.slice(0, 7), -1), i = 0; i < 12 && m >= first.slice(0, 7) && m.startsWith(c.y); m = ymAdd(m, -1), i++)
@@ -187,7 +187,7 @@ export const INSP_AUTO: Record<string, (c: InspCtx) => InspRes | null> = {
   },
   u_inv: (c) => {
     const I = c.snap.invoices;
-    if (!I) return null; // TODO(merge): Phase 3 invoices
+    if (!I) return null; // invoices not available
     const gaps = invoiceGaps(I, c.y);
     if (!I.some((i) => i.date.startsWith(c.y))) return null;
     return gaps.length ? iBad(`прескокнати броеви: ${gaps.map(([k, m]) => (k ? `${k}: ` : '') + m.slice(0, 10).join(', ')).join('; ')}`, 'izlez') : iOk('Излезните фактури се по ред');

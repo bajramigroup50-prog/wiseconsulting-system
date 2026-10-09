@@ -1,7 +1,7 @@
 /**
  * Нормативи (производство) — legacy `VIEWS.normativ` (final 13914), `saveBom` 13902, `unitCost` 5629.
  * FIX (LEGACY-MAP §7.4 item 13): `unitCost` has a cycle guard and a cyclic normativ is refused on save. AI-suggested
- * BOM (`bomAI` 13860) is not ported — TODO(ai).
+ * BOM (`bomAI` 13860): text-only read in the worker (`BomAi`), the proposal prefills the editor (`?ai=<id>`).
  */
 import Link from 'next/link';
 import { r2, trackedItems, unitCost } from '@wise/core';
@@ -14,8 +14,11 @@ import { fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { BomEditor } from '../_stock/editors';
+import { bomFromSuggestion, bomMaterials } from '@wise/core/ai/bom';
+import { loadAiResult } from '@/lib/ai';
+import { BomAi } from './bom-ai';
 
-export default async function NormativPage({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
+export default async function NormativPage({ searchParams }: { searchParams: Promise<{ p?: string; ai?: string }> }) {
   const sp = await searchParams;
   const { u, firm, L } = await stockPage('normativ');
   if (!firm || !L) return <NoFirm t="Нормативи" />;
@@ -27,6 +30,12 @@ export default async function NormativPage({ searchParams }: { searchParams: Pro
   const opt = items.find((i) => i.id === p.id)!;
   const cost = unitCost(L.ctx, p);
   const price = Number(p.price) || 0;
+  // AI proposal (legacy `bomAI`): `?ai=<id>` of a finished read for this product
+  const write = canDo(u, 'saveBom', firm.id);
+  const aiDoc = write ? await loadAiResult(firm.id, sp.ai, 'bom') : null;
+  const ai = aiDoc && (aiDoc.options as { productId?: string }).productId === p.id
+    ? bomFromSuggestion(aiDoc.result, bomMaterials((L.ctx.items ?? []).map((i) => ({ id: i.id, name: i.name ?? '', unit: i.unit, type: i.type })), p.id))
+    : null;
   return (
     <>
       <Hd t="Нормативи" sub="состав на производот" />
@@ -36,8 +45,17 @@ export default async function NormativPage({ searchParams }: { searchParams: Pro
         </div>
         <p className="note">Цена на чинење за 1 {p.unit}: <b>{fmt(cost)}</b> (со подсклопови) · Продажна цена: {fmt(price)} · маржа {price ? r2(((price - cost) / price) * 100) : 0}%</p>
       </div>
-      {canDo(u, 'saveBom', firm.id)
-        ? <BomEditor key={p.id} product={opt} items={items} labor0={String(Number(bom?.labor ?? 0))} initial={(bom?.lines ?? []).map((l) => ({ itemId: l.itemId, qty: String(l.qty) }))} />
+      {write && <div className="row" style={{ marginBottom: 8, gap: 8 }}><BomAi firmId={firm.id} productId={p.id} /></div>}
+      {ai && (
+        <div className="callout">🤖 <b>Предлог од AI</b> – проверете ги количините и притиснете „Зачувај норматив“.{ai.note ? <> {ai.note}</> : null}
+          {ai.missing.length > 0 && <div className="mini">Недостасуваат во шифрарникот: {ai.missing.map((m) => `${m.name} (${m.qty} ${m.unit})`).join(', ')}</div>}
+          {!ai.lines.length && <div className="mini">AI не најде соодветни материјали во шифрарникот.</div>}
+          {' '}<Link className="btn sm ghost" href={`/normativ?p=${p.id}`}>Откажи</Link>
+        </div>
+      )}
+      {write
+        ? <BomEditor key={p.id + (ai ? ':' + aiDoc!.id : '')} product={opt} items={items} labor0={String(Number(bom?.labor ?? 0))}
+            initial={ai?.lines.length ? ai.lines.map((l) => ({ itemId: l.itemId, qty: String(l.qty) })) : (bom?.lines ?? []).map((l) => ({ itemId: l.itemId, qty: String(l.qty) }))} />
         : null}
       <div className="card">
         <h2>Маржа на артиклите на залиха</h2>

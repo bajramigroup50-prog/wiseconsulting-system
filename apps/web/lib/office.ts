@@ -10,7 +10,7 @@ import { notFound } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
 import { klAllowedViews, todaySkopje, tplVars, type KlConfig } from '@wise/core/office';
-import { fileLinks, files, firms, getOfficeProfile, OfficeError, type Firm, type Tx } from '@wise/db';
+import { fileLinks, files, firms, getOfficeProfile, OfficeError, PostingError, StockDocError, type Firm, type Tx } from '@wise/db';
 import { Forbidden, requireCan, requireUser, type SessionUser } from './auth';
 import { currentFirm } from './context';
 import { db } from './db';
@@ -44,7 +44,8 @@ export async function officeAction(perm: string): Promise<{ u: SessionUser; firm
 export const officeGlobal = (perm = 'office') => requireCan(perm, null);
 
 export function officeError(e: unknown): ActionState {
-  if (e instanceof OfficeError || e instanceof Forbidden) return { error: e.message };
+  // PostingError covers the document services' DocumentError (approving a client entry books it); StockDocError the daily sales
+  if (e instanceof OfficeError || e instanceof Forbidden || e instanceof PostingError || e instanceof StockDocError) return { error: e.message };
   const cause = (e as { cause?: { code?: string } })?.cause;
   if (cause?.code === '23505') return { error: 'Записот веќе постои.' };
   throw e;

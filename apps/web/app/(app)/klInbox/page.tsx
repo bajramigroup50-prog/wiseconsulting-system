@@ -11,6 +11,7 @@ import { Hd, dmy, dmyHm } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { fmt } from '@/lib/fmt';
 import { decideEntry, replyToClient, routeInbox } from './actions';
+import { AutoRoute } from './auto-route';
 
 export default async function KlInboxPage({ searchParams }: { searchParams: Promise<{ firm?: string; all?: string }> }) {
   const sp = await searchParams;
@@ -88,6 +89,7 @@ export default async function KlInboxPage({ searchParams }: { searchParams: Prom
                   {DOS_CAT.map((c) => <option key={c}>{c}</option>)}
                 </select>
                 <button className="btn sm pri">✓ Обработи</button>
+                {(IF.get(i.id)?.length ?? 0) > 0 && <AutoRoute itemId={i.id} />}
               </ActionForm>
             )}
           </div>

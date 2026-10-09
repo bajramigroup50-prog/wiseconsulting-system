@@ -71,8 +71,10 @@ flat-10 % stopgap is gone); the root `@wise/core` names are the engine versions.
 - Transport vehicles (0136/0137) have no accumulated-depreciation account of their own in KONTO_SRC/ZS_DEF; their
   depreciation (0193) still reduces bs015 instead of bs014.
 - `zcFindings` returns plain-text messages; the legacy HTML links (`go`/`goSt` view ids) are passed through as data.
-- EMP (bu257) needs the head count from the payroll module (`YePayrollSource`, TODO(merge) Phase 6); the ledger only
-  gives the tax/contribution amounts.
+- EMP (bu257) takes the head count from the payroll module (`YePayrollSource`, registered by `@wise/db` payroll); the
+  ledger alone only gives the tax/contribution amounts.
+- The gate inputs (bank lines and accounts, stock moves and items, invoices, purchases, documents pending approval) are
+  read from the module tables by `@wise/db` `yearEndFindingInputs`.
 - Done in Phase 8: print layouts (`zsOffHTML`, `zsCrmHTML`, `dbFormHTML`, `vpFormHTML` as HTML print views),
   explanatory notes, `obRebuild`, gating of close / open / lock and a permission-gated undo. Still open: `tpBookHTML`
   (sole-trader books), the dossier (`zsDos`), the AOP rule editor (`zs_aop`/`zs_pr`), `zs_skr`, `zsRok`.

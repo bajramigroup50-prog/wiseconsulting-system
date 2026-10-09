@@ -5,6 +5,7 @@ import { audit, autopilotFindings, autopilotMessages, patchOfficeProfile, runAut
 import { requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { dispatchMail } from '@/lib/mail';
 import { officeError } from '@/lib/office';
 
 /**
@@ -17,20 +18,26 @@ export async function runNow(): Promise<ActionState> {
   try {
     const u = await requireCan('office');
     const r = await runAutopilot(db(), { trigger: 'manual', userId: u.id });
+    await dispatchMail(r.mailIds); // messages sent automatically (`apAuto`) by e-mail
     revalidatePath('/autop');
     return { ok: `Проверени ${r.firms} фирми: ${r.findings} наоди (${r.newBad} нови проблеми), ${r.messages} нови пораки.` };
   } catch (e) { return officeError(e); }
 }
 
-/** Legacy `apSendOne`: send a proposed message to the client portal. TODO(mail): also by e-mail via Phase 6. */
+/**
+ * Legacy `apSendOne` → `apSend`: to the client portal and, when the firm has an e-mail, by e-mail (the `mail_log`
+ * row is queued in the same transaction and handed to the `mail.send` queue after COMMIT).
+ */
 export async function sendMessage(key: string): Promise<ActionState> {
   try {
     const [m] = await db().select({ firmId: autopilotMessages.firmId }).from(autopilotMessages).where(eq(autopilotMessages.key, key)).limit(1);
     if (!m) return { error: 'Пораката не постои.' };
     const u = await requireCan('office', m.firmId);
-    const ok = await db().transaction((tx) => sendAutopilotMessage(tx, key, { portal: true, mail: true }, u.id, u.name));
+    const r = await db().transaction((tx) => sendAutopilotMessage(tx, key, { portal: true, mail: true }, u.id, u.name));
+    const d = await dispatchMail(r.mailIds);
     revalidatePath('/autop');
-    return { ok: ok.length ? `Испратено: ${ok.join(', ')}` : 'Веќе е испратено.' };
+    if (!r.channels.length) return { ok: 'Веќе е испратено.' };
+    return { ok: `Испратено: ${r.channels.join(', ')}${r.channels.includes('е-пошта') ? '' : ' (фирмата нема е-пошта)'}${d.deferred ? ' – е-поштата ќе замине за неколку минути' : ''}.` };
   } catch (e) { return officeError(e); }
 }
 

@@ -5,10 +5,11 @@
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import {
   BANK_KONTA, r2, schemeValue,
-  type BankAccount, type BankKonta, type BankRule, type FxRateRow, type Partner as MatchPartner, type PostingContext, type SchemeSettings,
+  type BankAccount, type BankKonta, type BankRule, type FxRateRow, type Partner as MatchPartner, type PostingContext,
 } from '@wise/core';
 import type { Tx } from '../audit';
-import { appSettings, bankAccounts, bankRules, codes, firms, fxRates, partners, type BankAccountRow, type Firm } from '../schema/index';
+import { loadVatPostingContext } from '../vat-context';
+import { bankAccounts, bankRules, codes, firms, fxRates, partners, type BankAccountRow, type Firm } from '../schema/index';
 
 /** Domain error of the bank / cash services (message is shown to the user). */
 export class BankError extends Error {
@@ -30,25 +31,11 @@ const settingsOf = (f: Pick<Firm, 'settings'>) => (f.settings ?? {}) as Record<s
 
 /**
  * Posting context of a firm: `firms.settings` scheme overrides (`sch`, `vatIn`, `vatOut`, `vatImp`, `vatInKonto`,
- * `posK`) and the office scheme (`app_settings` key `schemes`).
- * Shared by the sales, purchase and bank services (`sales/context.ts` re-exports it).
+ * `posK`) and the office scheme (`app_settings` key `schemes`). Shared by the sales, purchase and bank services
+ * (`sales/context.ts` re-exports it); the one implementation is `loadVatPostingContext` (`vat-context.ts`).
  */
 export async function firmPostingContext(tx: Tx, f: Firm, posPartnerId?: string | null): Promise<PostingContext> {
-  const s = settingsOf(f);
-  const [g] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'schemes')).limit(1);
-  return {
-    firm: {
-      sch: (s.sch as SchemeSettings['sch']) ?? null,
-      vatOut: (s.vatOut as SchemeSettings['vatOut']) ?? null,
-      vatIn: (s.vatIn as SchemeSettings['vatIn']) ?? null,
-      vatImp: (s.vatImp as SchemeSettings['vatImp']) ?? null,
-      vatInKonto: (s.vatInKonto as string) ?? null,
-      ddv: f.vatRegistered,
-      posK: (s.posK as string) ?? null,
-      posPartnerId: posPartnerId ?? null,
-    },
-    global: (g?.value as SchemeSettings | undefined) ?? null,
-  };
+  return loadVatPostingContext(tx, f, posPartnerId);
 }
 
 /**

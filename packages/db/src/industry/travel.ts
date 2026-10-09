@@ -6,7 +6,7 @@
  * Prior-service purchases linked to an own arrangement are marked `noDed` (no input-VAT deduction, чл. 38 ст. 4).
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
-import { schemeValue, vatAccount, perRange, travelMarginFor, type InvoiceDoc, type TravelMarginOptions } from '@wise/core';
+import { schemeValue, vatAccount, perRange, travelMarginFor, type TravelMarginOptions } from '@wise/core';
 import {
   arrangementResult, arrangementVatTotals, bookingInvoice, bookingPaid, bookingPax, nextModuleNumber, travelConfig, type TravelConfig,
 } from '@wise/core/industry';
@@ -17,6 +17,7 @@ import type { ArrangementCostRow, BookingPayRow } from '../schema/industry';
 import { firmPostingContext } from '../sales/context';
 import { setPurchaseNoDed } from '../sales/purchases';
 import { deleteVoucher } from '../bank/cash';
+import { documentsVatSource } from '../vat-source';
 import {
   assertPartner, cashMovement, dec2, dmy, findOrCreatePartner, IndustryError, industryConfigOf, issueModuleInvoice, loadIndustryFirm, n, type IndActor,
 } from './context';
@@ -221,8 +222,7 @@ export async function arrangementsWithResults(tx: Tx, f: Firm) {
 
 /**
  * The `travel` option of Phase 5 `ddvFor` / `vatBookOut` for this firm: `{ rev, cost, own }` of every own arrangement
- * and the margin basis. TODO(merge): the documents VAT source should pass this for firms with the `tour` module and map
- * `invoices.data.tourM` / `data.arrangementId` to `InvoiceDoc.tourM` / `arrangementId`.
+ * and the margin basis. `documentsVatSource` attaches it whenever a period has margin-scheme invoices.
  */
 export async function travelMarginInputs(tx: Tx, f: Firm): Promise<TravelMarginOptions> {
   const L = await arrangementsWithResults(tx, f);
@@ -231,22 +231,15 @@ export async function travelMarginInputs(tx: Tx, f: Firm): Promise<TravelMarginO
   return { arrangements, agg: firmTravelConfig(f).agg };
 }
 
-/** Margin-scheme invoices of the firm as core `InvoiceDoc`s (legacy `tuMarginFor` input). */
-export async function marginInvoices(tx: Tx, firmId: string, from: string, to: string): Promise<(InvoiceDoc & { number: string; partnerId: string | null })[]> {
-  const I = await tx.select().from(invoices).where(and(eq(invoices.firmId, firmId), sql`${invoices.data}->>'tourM' = 'true'`, sql`${invoices.date} between ${from} and ${to}`));
-  if (!I.length) return [];
-  const L = await tx.select().from(invoiceLines).where(inArray(invoiceLines.invoiceId, I.map((i) => i.id)));
-  return I.map((i) => ({
-    id: i.id, date: i.date, number: i.number, partnerId: i.partnerId, credit: i.kind === 'credit', pend: i.status === 'pending', tourM: true, arrangementId: i.data.arrangementId,
-    items: L.filter((l) => l.invoiceId === i.id).map((l) => ({ qty: Number(l.qty), price: Number(l.price) * (Number(i.fx) || 1), disc: Number(l.disc), rate: l.rate, konto: l.account })),
-  }));
-}
-
-/** Legacy `tuMarginFor` for one VAT period. */
+/**
+ * Legacy `tuMarginFor` for one VAT period, from the same documents Phase 5 files (`documentsVatSource`: invoices with
+ * `data.tourM` / `data.arrangementId` and the arrangement totals of {@link travelMarginInputs}).
+ */
 export async function travelMarginPeriod(tx: Tx, f: Firm, period: string) {
   const [a, b] = perRange(period);
   const ctx = await firmPostingContext(tx, f);
-  return travelMarginFor(await marginInvoices(tx, f.id, a, b), period, f.vatPeriod, ctx, await travelMarginInputs(tx, f));
+  const D = await documentsVatSource.load(tx, f, a, b, ctx);
+  return travelMarginFor(D.docs.invoices ?? [], period, f.vatPeriod, ctx, D.travel ?? (await travelMarginInputs(tx, f)));
 }
 
 /** Legacy `tuVatPost`: VAT on the margin of a period — journal `tourVat`, D revenue / P output VAT 18%. */

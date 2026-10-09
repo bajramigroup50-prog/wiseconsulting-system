@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  calculationRows, finalizeStockLines, purchaseEntries, PostingError as CorePostingError, r2, roundPurchase,
+  calculationRows, finalizeStockLines, purchaseEntries, PostingError as CorePostingError, r2, retailPrice, roundPurchase, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
@@ -20,7 +20,8 @@ import {
 import {
   assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, stockLocations, type DocActor,
 } from './context';
-import { removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
+import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
+import { saveLevelling } from '../stock-docs';
 
 export const COST_SLOTS = ['car', 't1', 't2', 'sped', 'trans', 'dr', 'dev'] as const;
 export interface PurchaseGroupInput { account?: string | null; rate: number | string; base: number | string; vat?: number | string | null }
@@ -292,20 +293,42 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   if (status === 'posted') await postPurchase(tx, f, pur, actor.userId);
   else await unpostPurchase(tx, firmId, pur.id, actor.userId);
 
-  // legacy `learnItemCodes`: remember the supplier's article code; `applySalePrices`: new sale prices.
+  // legacy `learnItemCodes`: remember the supplier's article code; `applySalePrices` (4398): new sale prices.
+  const store = !!W && (await stockLocations(tx, firmId)).find((l) => l.id === W)?.kind === 'store';
+  // Store retail prices and stock before this purchase changes the prices (legacy `salePriceUpdates` 4393).
+  const storeCtx = store && status === 'posted' && stock.some((s) => !empty(s.sp) && n(s.sp) > 0) ? (await loadStockContext(tx, firmId)).ctx : null;
+  const level: { item: string; qty: number; old: number; sp: number }[] = [];
   for (const s of stock) {
     if (partnerId && s.code) await tx.insert(itemSupplierCodes).values({ firmId, itemId: s.itemId!, partnerId, code: String(s.code), name: s.name ?? null }).onConflictDoNothing();
     if (!empty(s.sp) && n(s.sp) > 0) {
       const it = IT.get(s.itemId!)!;
-      const locs = W ? await stockLocations(tx, firmId) : [];
-      if (W && locs.find((l) => l.id === W)?.kind === 'store') {
-        const d = (it.data ?? {}) as Record<string, unknown>;
-        await tx.update(items).set({ data: { ...d, sp: { ...((d.sp as Record<string, unknown>) ?? {}), [W]: n(s.sp) } } }).where(eq(items.id, it.id));
-        // TODO(phase7): a changed retail price in a store needs a levelling (нивелација) document — Phase 7 owns `nivel`.
+      if (store) {
+        const ci = storeCtx?.items?.find((x) => x.id === it.id);
+        if (storeCtx && ci && !level.some((l) => l.item === it.id)) {
+          const old = retailPrice(ci, W!);
+          // the stock that was in the store before this receipt is re-priced: stock at the date − received qty
+          if (Math.abs(old - n(s.sp)) >= 0.005) {
+            const recv = stock.filter((x) => x.itemId === it.id).reduce((a, x) => a + n(x.qty), 0);
+            level.push({ item: it.id, qty: r2(stockAt(storeCtx, { item: it.id, wh: W!, date: input.date }).qty - recv), old, sp: n(s.sp) });
+          }
+        }
+        const [cur] = await tx.select({ data: items.data }).from(items).where(eq(items.id, it.id)).limit(1);
+        const d = (cur?.data ?? it.data ?? {}) as Record<string, unknown>;
+        await tx.update(items).set({ data: { ...d, sp: { ...((d.sp as Record<string, unknown>) ?? {}), [W!]: n(s.sp) } } }).where(eq(items.id, it.id));
       } else {
         await tx.update(items).set({ price: n4(n(s.sp) / (1 + it.vatRate / 100)) }).where(eq(items.id, it.id));
       }
     }
+  }
+  // legacy `applySalePrices`: a changed retail price in a store creates a levelling (нивелација) for the earlier stock
+  // (lines with no earlier stock are skipped, as in legacy).
+  const lv = level.filter((l) => l.qty > 0);
+  if (lv.length) {
+    await saveLevelling(tx, { firmId, userId: actor.userId }, {
+      date: input.date, wh: W, today: new Date().toISOString().slice(0, 10), note: 'од калкулација ' + (pur.calcNo || pur.number || ''),
+      prices: Object.fromEntries(lv.map((l) => [l.item, l.sp])), qty: Object.fromEntries(lv.map((l) => [l.item, l.qty])),
+      old: Object.fromEntries(lv.map((l) => [l.item, l.old])),
+    });
   }
   await audit(tx, { userId: actor.userId, firmId, action: existing ? 'editPur' : 'savePur', entityType: 'purchase', entityId: pur.id,
     data: { number, date: pur.date, status, total: n(pur.total), stockLines: fin.length } });

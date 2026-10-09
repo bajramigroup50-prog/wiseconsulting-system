@@ -9,6 +9,7 @@ import { seedReference } from './seed/reference';
 import { createDefaultRegisters } from './bank/cash';
 import { savePurchase } from './sales/purchases';
 import { saveBom } from './stock-docs';
+import { documentsVatSource } from './vat-source';
 import {
   addBookingPayment, checkIn, checkOut, invoiceAppointment, invoiceBooking, invoiceFreightTours, invoiceRental, invoiceReservation, invoiceSituation,
   issueReservationAdvance, payOrder, postTravelCash, postTravelVat, receiveDeposit, returnVehicle, handOut, saveAppointment, saveArrangement, saveBooking,
@@ -119,6 +120,11 @@ describe('travel agency', () => {
     const f = (await db.select().from(schema.firms).where(eq(schema.firms.id, A.firmId)))[0]!;
     const M = await tx((t) => travelMarginInputs(t, f));
     expect(M.arrangements![x.id]).toEqual({ rev: 60000, cost: 42000, own: 3000 });
+    // Phase 5 documents source sees the margin-scheme invoice and the arrangement totals
+    const D = await tx((t) => documentsVatSource.load(t, f, '2026-07-01', '2026-09-30', {} as never));
+    expect(D.docs.invoices!.find((i) => i.id === inv.id)).toMatchObject({ tourM: true, arrangementId: x.id });
+    expect(D.travel?.arrangements?.[x.id]).toEqual({ rev: 60000, cost: 42000, own: 3000 });
+    expect(D.docs.purchases!.find((pp) => pp.id === p.id)?.noDed).toBe(true);
     expect(await tx((t) => settleBookingAdvance(t, A, b.id, '2026-08-05'))).toBe(20000);
     const vat = await tx((t) => postTravelVat(t, A, '2026-Т3'));
     // margin 60000 − 42000 − 3000 = 15000 → 2288.14; own 3000 → 457.63

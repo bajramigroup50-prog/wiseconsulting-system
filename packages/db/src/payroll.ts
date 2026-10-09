@@ -493,5 +493,5 @@ export function payrollYearEndSource(getTx: () => Tx | Promise<Tx>) {
   };
 }
 
-// Registered with the year-end service at load (resolves its TODO(merge)); reads through the app's pool.
+// Registered with the year-end service at load (payroll head counts for the AOP statements); reads through the app pool.
 registerYearEndInputs({ payroll: payrollYearEndSource(async () => (await import('./index')).getDb()) });

@@ -48,6 +48,8 @@ export interface InvoiceInput {
   data?: InvoiceData;
   lines: InvoiceLineInput[];
   advances?: { advanceId: string; amount: number | string }[];
+  /** Save an invoice as an unbooked `draft` (Phase 9 recurring invoices); `approveInvoice` books it. */
+  draft?: boolean;
 }
 export interface SaveResult { id: string; number: string; status: string; renumbered: boolean; warnings: string[] }
 
@@ -305,7 +307,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   }
 
   const T = invoiceTotals({ items: toItems(lines.map((l) => ({ ...l, qty: String(l.qty), price: String(l.price), disc: String(l.disc) }))), art32, credit: kind === 'credit', advance: input.advance });
-  const status = kind === 'proforma' ? 'draft' : pendingFor(actor) ? 'pending' : 'posted';
+  const status = kind === 'proforma' || (kind === 'invoice' && input.draft) ? 'draft' : pendingFor(actor) ? 'pending' : 'posted';
   const header = {
     firmId, kind, status, number, date: input.date, pdate: kind === 'invoice' ? input.pdate || input.date : input.pdate || null, due: input.due || null,
     partnerId: input.partnerId, warehouseId: input.warehouseId || null, art32, advance: kind === 'invoice' && !!input.advance, export: isExport,
@@ -339,13 +341,13 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   return { id: inv.id, number, status, renumbered, warnings };
 }
 
-/** Approve a client-submitted (pending) document and book it. */
+/** Approve a client-submitted (pending) document, or a draft invoice (recurring), and book it. */
 export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: DocActor): Promise<string[]> {
   if (pendingFor(actor)) throw new DocumentError('Немате право да одобрувате.');
   const f = await loadFirmForUpdate(tx, firmId);
   const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
   if (!inv) throw new DocumentError('Документот не постои.');
-  if (inv.status !== 'pending') throw new DocumentError('Документот не чека одобрување.');
+  if (inv.status !== 'pending' && !(inv.status === 'draft' && inv.kind === 'invoice')) throw new DocumentError('Документот не чека одобрување.');
   const [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
   const w = await postInvoice(tx, f, u!, actor.userId);
   await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'invoice', entityId: id, data: { number: inv.number } });

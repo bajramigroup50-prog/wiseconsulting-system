@@ -13,7 +13,7 @@ import {
   addManualLine, applyMatches, cashBook, closeTransit, deleteStatement, deleteVoucher, lineOpenDocs, linkLine, loadRegisters,
   createDefaultRegisters, proposeMatches, saveBankAccount, saveFxList, saveImport, savePaymentOrder, saveVoucher, setLineKonto,
   statementGapsFor, undoImport, updateStatement, planImport, removeBankAccount, transitResidues, numberStatements, deleteLine,
-  kompOpenItems, saveCompensation, deleteCompensation,
+  kompOpenItems, saveCompensation, deleteCompensation, ledgerOpenItemsSource, setOpenItemsSource,
 } from './bank/index';
 import { postJournal, PostingError } from './posting';
 import * as schema from './schema/index';
@@ -45,6 +45,8 @@ const MT1 = [
 ].join('\n');
 
 beforeAll(async () => {
+  // These flows use ledger stand-ins for documents; the document source is tested in bank-documents.test.ts.
+  setOpenItemsSource(ledgerOpenItemsSource);
   await migrate(db, { migrationsFolder: fileURLToPath(new URL('../migrations', import.meta.url)) });
   await seedReference(db);
   const [f] = await db.insert(schema.firms).values({ name: 'Тест ДООЕЛ' }).returning();

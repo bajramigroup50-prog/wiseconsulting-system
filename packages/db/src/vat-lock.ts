@@ -17,16 +17,25 @@ import type { Tx } from './audit';
 import { journalLines, vatPeriods, type Firm } from './schema/index';
 import { PostingError } from './posting';
 import { loadVatPostingContext } from './vat-context';
-import { VAT_CLOSE_SOURCE } from './vat-source';
 
 /**
- * Document source types whose journals feed ДДВ-04 (legacy `vatCol`).
- * TODO(merge): align with the `sourceType` names Phases 3/4/7 actually use when posting.
+ * Source type of the VAT-close journal (posted by `closeVatPeriod`). Defined here (not in `vat-source.ts`, which
+ * re-exports it) so the posting service → lock import chain does not pull in the document tables.
  */
-export const VAT_SOURCE_TYPES: ReadonlySet<string> = new Set([
-  'invoice', 'purchase', 'sale', 'sales', 'fisk', 'zreport', 'blg', 'cashVoucher', 'supcr', 'supplierCredit',
-  'cash_voucher', // Phase 4 cash vouchers (blgEntries, input VAT)
-]);
+export const VAT_CLOSE_SOURCE = 'vatPeriod';
+
+/**
+ * Document source types whose journals feed ДДВ-04 (legacy `vatCol`) — exactly the `sourceType` strings the
+ * document services pass to `postJournal`, and exactly the documents `documentsVatSource` reads:
+ * - `invoice`: invoices / credit notes / advance invoices (`sales/invoices.ts`);
+ * - `purchase`: incoming invoices and import calculations (`sales/purchases.ts`);
+ * - `supplier_credit`: supplier returns and credits (`sales/supplier-credits.ts`);
+ * - `sales_daily`: POS days and Z / periodic fiscal reports (`stock-docs.ts` `saveSalesDay`);
+ * - `cash_voucher`: cash register vouchers (`bank/cash.ts` `CASH_SOURCE_TYPE`).
+ * Every other journal (manual nalog, bank statement, compensation, payroll, stock journals `stock:*`, …) counts for
+ * VAT only through the lines it posts on VAT kontos (ledger fallback in `defaultVatSource`).
+ */
+export const VAT_SOURCE_TYPES: ReadonlySet<string> = new Set(['invoice', 'purchase', 'supplier_credit', 'sales_daily', 'cash_voucher']);
 
 const dmy = (d: string) => d.split('-').reverse().join('.');
 

@@ -11,7 +11,7 @@
  * `openYear`/`doTransfer` no gate and `lockYear` wrote the lock without audit. Here close, open and lock all require
  * the phase gate to be clear (`zcOpen` = no unacknowledged blocking finding) and every action is audited.
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   clearCrmImport, crmImportPatch, deAuto, depEntries, depFor, deVals, f35Rows, parseCrmXml, r2, obRebuild, yeClosePlan, yeComputeYear,
   yeEntityOf, yeInputsFromLedger, yeManualOnly, yeMergePayroll, yeOpenPlan, yePayrollFromLedger, zcFindings, zcOpen, zsRules,
@@ -22,7 +22,8 @@ import { audit, type Tx } from './audit';
 import { loadLedgerLines } from './ledger-queries';
 import { PostingError, postJournal, unpostSource } from './posting';
 import {
-  annualStatements, depreciationRuns, firms, fixedAssets, journals, yearClosings,
+  annualStatements, bankAccounts, bankLines, clientEntries, codes, depreciationRuns, firms, fixedAssets, invoices, items, journals, partners,
+  purchases, stockMoves, yearClosings,
   type AnnualStatement, type Firm, type FixedAsset, type Journal, type YearClosing,
 } from './schema/index';
 
@@ -31,12 +32,12 @@ import {
 /* ------------------------------------------------------------------ */
 
 /**
- * Data the year-end needs from modules built in parallel phases. Each is optional; without it the engine reads what
- * it can from the ledger (payroll totals from `plati` journals) and the gate skips the check.
+ * Data the year-end needs from other modules. Without `payroll` the engine reads what it can from the ledger (payroll
+ * totals from `plati` journals).
  *
  * Phase 6 registers `payroll` (`payrollYearEndSource` in ./payroll, at module load — employee counts, bu214–216 / bu257).
- * TODO(merge): Phases 3/4/7/9 register `findings` (bank statement lines and accounts, stock moves and items, invoices, purchases,
- * documents pending approval) for `zcFindings`. Call {@link registerYearEndInputs} once at app start-up.
+ * The gate inputs of `zcFindings` from the bank, stock, sales/purchases and client portal tables are read by
+ * {@link yearEndFindingInputs}; a registered `findings` reader is merged on top of them (tests, extra modules).
  */
 export interface YearEndExternalInputs {
   payroll?: YePayrollSource;
@@ -184,14 +185,56 @@ export async function loadYear(tx: Tx, firmId: string, year: number): Promise<Lo
 
 const SRC_OF_KIND: Record<string, string> = { izlez: 'Излез', vlez: 'Влез', vlezDev: 'Влез', open: 'Почетна' };
 
+/**
+ * Gate inputs from the module tables (legacy `zcFindings` read `S.data.bank`, `banks()`, `S.data.moves`, `items()`,
+ * `invoices`, `purchases` and every `pend` document): bank statement lines (unbooked = no konto and no document link)
+ * and accounts, stock moves and items (negative stock), invoices and purchases (without partner), and documents
+ * waiting for the office — client-submitted invoices / purchases (`pending`) and pending client-portal entries.
+ */
+export async function yearEndFindingInputs(tx: Tx, firmId: string, year: number): Promise<Partial<Omit<ZcInput, 'year' | 'today' | 'lines'>>> {
+  const end = `${year}-12-31`;
+  const inYear = (c: Parameters<typeof sql>[1]) => sql`${c} between ${`${year}-01-01`} and ${end}`;
+  // sequential: one transaction, one connection
+  const P = await tx.select({ id: partners.id, name: partners.name }).from(partners).where(eq(partners.firmId, firmId));
+  const BA = await tx.select({ id: bankAccounts.id, name: bankAccounts.name, account: bankAccounts.account }).from(bankAccounts)
+    .where(eq(bankAccounts.firmId, firmId)).orderBy(asc(bankAccounts.sort));
+  const BL = await tx.select({ date: bankLines.date, refId: bankLines.refId, konto: bankLines.konto, split: bankLines.split, acct: bankLines.bankAccountId })
+    .from(bankLines).where(eq(bankLines.firmId, firmId));
+  const M = await tx.select({ item: stockMoves.itemId, qty: stockMoves.qty, date: stockMoves.date, pend: stockMoves.pending, wh: stockMoves.locationId })
+    .from(stockMoves).where(and(eq(stockMoves.firmId, firmId), sql`${stockMoves.date} <= ${end}`));
+  const IT = await tx.select({ id: items.id, name: items.name, unit: items.unit, type: items.type }).from(items).where(eq(items.firmId, firmId));
+  const LOC = await tx.select({ id: codes.id, name: codes.name }).from(codes).where(and(eq(codes.firmId, firmId), inArray(codes.cb, ['warehouse', 'store'])));
+  const I = await tx.select({ date: invoices.date, partner: invoices.partnerId, status: invoices.status }).from(invoices)
+    .where(and(eq(invoices.firmId, firmId), inArray(invoices.kind, ['invoice', 'credit']), ne(invoices.status, 'draft'), inYear(invoices.date)));
+  const PU = await tx.select({ date: purchases.date, partner: purchases.partnerId, status: purchases.status, cash: purchases.cash }).from(purchases)
+    .where(and(eq(purchases.firmId, firmId), ne(purchases.status, 'draft'), inYear(purchases.date)));
+  const CE = await tx.select({ data: clientEntries.data, at: clientEntries.submittedAt }).from(clientEntries)
+    .where(and(eq(clientEntries.firmId, firmId), eq(clientEntries.status, 'pending')));
+  const pn = new Map(P.map((p) => [p.id, p.name]));
+  const ln = new Map(LOC.map((l) => [l.id, l.name]));
+  return {
+    partnerName: (id) => pn.get(id),
+    bank: BL.map((b) => ({ date: b.date, ref: b.refId ?? (b.split?.length ? 'split' : undefined), konto: b.konto ?? undefined, acct: b.acct })),
+    bankAccounts: BA.map((b) => ({ id: b.id, name: b.name, account: b.account ?? undefined })),
+    moves: M.map((m) => ({ item: m.item, qty: Number(m.qty), date: m.date, pend: m.pend, wh: m.wh ?? 'main' })),
+    items: Object.fromEntries(IT.map((i) => [i.id, { name: i.name, unit: i.unit ?? undefined, type: i.type ?? undefined }])),
+    locName: (id) => ln.get(id) ?? id,
+    invoices: I.map((i) => ({ date: i.date, partner: i.partner, pend: i.status === 'pending' })),
+    purchases: PU.map((p) => ({ date: p.date, partner: p.partner, pend: p.status === 'pending', cash: p.cash })),
+    pendingDocs: [
+      ...I.filter((i) => i.status === 'pending').map((i) => ({ date: i.date, pend: true })),
+      ...PU.filter((p) => p.status === 'pending').map((p) => ({ date: p.date, pend: true })),
+      ...CE.map((e) => ({ date: String((e.data as { date?: string }).date || e.at.toISOString().slice(0, 10)), pend: true })),
+    ],
+  };
+}
+
 export async function yearFindings(tx: Tx, L: LoadedYear, today: string): Promise<{ all: ZcFinding[]; open: ZcFinding[] }> {
-  const [assets, ids, ext] = await Promise.all([
-    tx.select({ cost: fixedAssets.cost, date: fixedAssets.date, vehicleOnly: fixedAssets.vehicleOnly, disposed: fixedAssets.disposed })
-      .from(fixedAssets).where(eq(fixedAssets.firmId, L.firm.id)),
-    tx.select({ s: journals.sourceId }).from(journals)
-      .where(and(eq(journals.firmId, L.firm.id), sql`${journals.date} between ${L.year + '-01-01'} and ${L.year + '-12-31'}`, sql`${journals.sourceId} is not null`)),
-    external.findings ? external.findings(tx, L.firm.id, L.year) : Promise.resolve({}),
-  ]);
+  const assets = await tx.select({ cost: fixedAssets.cost, date: fixedAssets.date, vehicleOnly: fixedAssets.vehicleOnly, disposed: fixedAssets.disposed })
+    .from(fixedAssets).where(eq(fixedAssets.firmId, L.firm.id));
+  const ids = await tx.select({ s: journals.sourceId }).from(journals)
+    .where(and(eq(journals.firmId, L.firm.id), sql`${journals.date} between ${L.year + '-01-01'} and ${L.year + '-12-31'}`, sql`${journals.sourceId} is not null`));
+  const ext = { ...(await yearEndFindingInputs(tx, L.firm.id, L.year)), ...(external.findings ? await external.findings(tx, L.firm.id, L.year) : {}) };
   const all = zcFindings({
     year: L.year, today,
     lines: L.lines.filter((l) => l.kind !== 'close').map((l) => ({

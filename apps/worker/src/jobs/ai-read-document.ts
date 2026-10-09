@@ -4,6 +4,8 @@
  * Purchases (legacy `aiReadPurchase` 4679): UBL XML is imported without AI (`ublToScan`); otherwise a quick read
  * (Haiku), and when lines / recapitulation / total do not agree a second, deeper read (Sonnet).
  * Sales invoices (legacy `aiReadSale` 8384): quick read, deeper read only when nothing usable came back.
+ * Receipts, employee documents, bank statements, fiscal reports, inbox classification and BOM suggestions
+ * (`RESULT_KINDS`, ../ai/kinds.ts) store only the parsed JSON in `result`; their screens map it and the user confirms.
  *
  * Errors (no API key, unreadable file, refusal) are stored on the row for the review UI; the job does not throw, so
  * pg-boss does not retry and spend tokens again.
@@ -17,6 +19,7 @@ import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
 import { readObject } from '../ai/storage';
+import { readResultKind, RESULT_KINDS } from '../ai/kinds';
 
 export const AI_READ_DOCUMENT = 'ai.read-document';
 
@@ -31,6 +34,14 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   if (!f) return;
   await db.update(aiDocuments).set({ status: 'reading', error: null }).where(eq(aiDocuments.id, docId));
   try {
+    if (RESULT_KINDS.has(doc.kind)) {
+      if (!aiConfigured()) throw new AiUnavailableError();
+      const { result, model } = await readResultKind(db, doc, f);
+      await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(eq(aiDocuments.id, docId));
+      log(`${docId}: ${doc.kind} read via ${model}`);
+      return;
+    }
+    if (!doc.fileId) throw new Error('Датотеката не е пронајдена.');
     const file = await loadFile(db, f.id, doc.fileId);
     const bytes = await readObject(file.bucketKey);
     let result: ScanResult | null = null;

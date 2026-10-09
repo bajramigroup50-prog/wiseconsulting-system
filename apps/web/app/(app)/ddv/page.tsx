@@ -16,7 +16,7 @@ import {
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
-import { vatSource, VAT_SOURCE_NOTE } from '@/lib/vat-source';
+import { vatLedgerNote, vatSource } from '@/lib/vat-source';
 import { DT_DEF, DT_SH, periodShortLabel } from '@/lib/vat-view';
 import type { SessionUser } from '@/lib/auth';
 import { Hd } from '@/components/hd';
@@ -117,7 +117,7 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
 
       {/* FIX (LEGACY-MAP 5.4 item 11): the threshold comes from VAT_REGISTRATION_LIMIT instead of a hard-coded text. */}
       {!firm.vatRegistered && <div className="callout warn">Фирмата не е регистрирана за ДДВ. Регистрацијата е задолжителна кога годишниот промет ќе надмине {fi(VAT_REGISTRATION_LIMIT)} ден.</div>}
-      {ov.data.origin === 'ledger' && <div className="callout">{VAT_SOURCE_NOTE}</div>}
+      {!!ov.data.ledgerJournals && <div className="callout">{vatLedgerNote(ov.data.ledgerJournals)}</div>}
 
       <div className="tw"><table>
         <thead><tr><th>Даночен период</th><th className="n">Излезен ДДВ (20)</th><th className="n">Претходен данок (29)</th><th className="n">За плаќање / поврат (31)</th><th>Рок за пријава</th><th>Статус</th><th /></tr></thead>

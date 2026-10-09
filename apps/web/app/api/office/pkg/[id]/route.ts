@@ -24,9 +24,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const ids = p.items.map((i) => i.dossierId).filter((x): x is string => !!x);
   const L = ids.length ? await db().select({ e: fileLinks.entityId, f: files }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
     .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.dossier), inArray(fileLinks.entityId, ids), eq(files.firmId, p.firmId))) : [];
+  // generated reports added from the print views (legacy PKG_REP, `pdf.render`) are stored as `fileId` items
+  const fids = p.items.map((i) => i.fileId).filter((x): x is string => !!x);
+  const R = fids.length ? await db().select().from(files).where(and(inArray(files.id, fids), eq(files.firmId, p.firmId), eq(files.status, 'ready'))) : [];
   const entries: { name: string; data: Uint8Array | string }[] = [];
   for (const [n, it] of p.items.entries()) {
-    const fs = L.filter((l) => l.e === it.dossierId);
+    const fs = it.fileId ? R.filter((f) => f.id === it.fileId).map((f) => ({ e: it.fileId!, f })) : L.filter((l) => l.e === it.dossierId);
     for (const [k, l] of fs.entries()) {
       const ext = /\.[^.]+$/.exec(l.f.name)?.[0] ?? '';
       entries.push({ name: `${String(n + 1).padStart(2, '0')} ${it.label}${fs.length > 1 ? ` (${k + 1})` : ''}${ext}`, data: await getObjectBytes(l.f.bucketKey) });

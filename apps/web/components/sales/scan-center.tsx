@@ -25,8 +25,8 @@ type Row = { doc: AiDocument; i: number | null; fileName: string };
 
 function rowsOf(docs: AiDocument[], names: Map<string, string>): Row[] {
   return docs.flatMap((doc): Row[] => (doc.status === 'done' || doc.status === 'saved') && doc.drafts.length
-    ? doc.drafts.map((_, i) => ({ doc, i, fileName: (names.get(doc.fileId) ?? '') + (doc.drafts.length > 1 ? ` #${i + 1}/${doc.drafts.length}` : '') }))
-    : [{ doc, i: null, fileName: names.get(doc.fileId) ?? '' }]);
+    ? doc.drafts.map((_, i) => ({ doc, i, fileName: ((doc.fileId ? names.get(doc.fileId) : undefined) ?? '') + (doc.drafts.length > 1 ? ` #${i + 1}/${doc.drafts.length}` : '') }))
+    : [{ doc, i: null, fileName: (doc.fileId ? names.get(doc.fileId) : undefined) ?? '' }]);
 }
 
 export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'masovnoM'; sp: { k?: string; b?: string; wh?: string; cash?: string; cost?: string; saved?: string } }) {
@@ -42,7 +42,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const docs = mode === 'skan'
     ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, kind), isNull(aiDocuments.batchId))).orderBy(desc(aiDocuments.createdAt)).limit(60)
     : batchId ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.batchId, batchId))).orderBy(aiDocuments.createdAt) : [];
-  const names = new Map((docs.length ? await db().select({ id: files.id, n: files.name }).from(files).where(inArray(files.id, docs.map((d) => d.fileId))) : []).map((f) => [f.id, f.n]));
+  const names = new Map((docs.length ? await db().select({ id: files.id, n: files.name }).from(files).where(inArray(files.id, docs.flatMap((d) => (d.fileId ? [d.fileId] : [])))) : []).map((f) => [f.id, f.n]));
   const P = new Map((await db().select({ id: partners.id, n: partners.name }).from(partners).where(eq(partners.firmId, firm.id))).map((p) => [p.id, p.n]));
   const R = rowsOf(docs, names);
   const st = (r: Row) => (r.i == null ? r.doc.status : r.doc.drafts[r.i]!.savedId ? 'saved' : r.doc.drafts[r.i]!.status);

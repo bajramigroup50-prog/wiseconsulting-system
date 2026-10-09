@@ -48,5 +48,5 @@ describe.skipIf(!chromiumPath())('Chromium rendering (needs a local Chrome/Chrom
     expect(Buffer.from(pdf.slice(0, 5)).toString()).toBe('%PDF-');
     expect(pdf.byteLength).toBeGreaterThan(1000);
     await closeBrowser();
-  }, 60_000);
+  }, 180_000); // Chromium start-up is slow while the whole monorepo tests in parallel
 });

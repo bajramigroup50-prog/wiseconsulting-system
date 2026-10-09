@@ -4,6 +4,11 @@
  * `ai_documents` is one uploaded file sent through the `ai.read-document` job. The worker stores the raw model
  * result and one draft per invoice found in the file (a PDF can hold several); the review UI turns each draft into a
  * purchase / invoice and records the saved id. Batch mode ("масовно") groups documents by `batch_id`.
+ *
+ * The other kinds (`blg` receipts, `emp` employee documents, `bank` statements, `fisk` fiscal reports, `classify`
+ * office-inbox classification, `bom` BOM suggestion) store only the parsed model JSON in `result`; the screen that
+ * started the read maps it (`@wise/core/ai/*`) and the user confirms before anything is saved. `bom` reads no file
+ * (text-only prompt built from the firm's materials), so `file_id` is nullable.
  */
 import { bigserial, index, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { files, firms, users } from './foundation';
@@ -29,7 +34,7 @@ export const aiUsage = pgTable('ai_usage', {
   refId: text('ref_id'),
 }, (t) => [index('ai_usage_firm_at_idx').on(t.firmId, t.at)]);
 
-export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr';
+export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | 'fisk' | 'classify' | 'bom';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */
@@ -46,12 +51,13 @@ export interface AiDraft {
 export const aiDocuments = pgTable('ai_documents', {
   id: uuid('id').primaryKey().defaultRandom(),
   firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
-  fileId: uuid('file_id').notNull().references(() => files.id, { onDelete: 'restrict' }),
+  /** Null only for text-only reads (`bom`). */
+  fileId: uuid('file_id').references(() => files.id, { onDelete: 'restrict' }),
   kind: text('kind').$type<AiDocKind>().notNull(),
   /** Groups the documents of one "масовно" run. */
   batchId: uuid('batch_id'),
   status: text('status').$type<AiDocStatus>().notNull().default('queued'),
-  /** Batch options: `{cash, warehouseId, costOnly}`. */
+  /** Batch options: `{cash, warehouseId, costOnly}`; `bom`: `{productId}`; `classify`: `{inboxId}`. */
   options: jsonb('options').$type<Record<string, unknown>>().notNull().default({}),
   /** Raw model / UBL result. */
   result: jsonb('result'),
