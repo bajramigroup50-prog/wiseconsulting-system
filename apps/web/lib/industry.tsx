@@ -56,11 +56,11 @@ export const nowLocal = () => {
 };
 
 /** Rows of a repeated form group: `prefix.field.i` → [{field: value}] (blank rows dropped by `keep`). */
-export function rows(form: FormData, prefix: string, fields: readonly string[], keep: (r: Record<string, string>) => boolean): Record<string, string>[] {
+export function rows<K extends string>(form: FormData, prefix: string, fields: readonly K[], keep: (r: Record<K, string>) => boolean): Record<K, string>[] {
   const max = Math.max(-1, ...[...form.keys()].filter((k) => k.startsWith(prefix + '.')).map((k) => Number(k.split('.').pop())).filter((x) => Number.isInteger(x)));
-  const out: Record<string, string>[] = [];
+  const out: Record<K, string>[] = [];
   for (let i = 0; i <= max; i++) {
-    const r = Object.fromEntries(fields.map((f) => [f, String(form.get(`${prefix}.${f}.${i}`) ?? '').trim()]));
+    const r = Object.fromEntries(fields.map((f) => [f, String(form.get(`${prefix}.${f}.${i}`) ?? '').trim()])) as Record<K, string>;
     if (keep(r)) out.push(r);
   }
   return out;
