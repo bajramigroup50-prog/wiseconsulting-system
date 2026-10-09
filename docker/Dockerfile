@@ -2,7 +2,8 @@
 #   docker build -f docker/Dockerfile --target web    -t wise-web .
 #   docker build -f docker/Dockerfile --target worker -t wise-worker .
 FROM node:24-slim AS base
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
+# COREPACK_HOME outside any home dir: pnpm is fetched once at build time, so the non-root runtime user never downloads it.
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1 COREPACK_HOME=/corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable pnpm
 WORKDIR /repo
 
@@ -31,6 +32,6 @@ ENV NODE_ENV=production CHROMIUM_PATH=/usr/bin/chromium
 RUN apt-get update \
  && apt-get install -y --no-install-recommends chromium fonts-dejavu-core fonts-liberation \
  && rm -rf /var/lib/apt/lists/*
-RUN useradd -r -u 1001 wise && chown -R wise /repo
+RUN useradd -r -u 1001 wise && chown -R wise /repo /corepack
 USER wise
 CMD ["pnpm", "--filter", "@wise/worker", "start"]
