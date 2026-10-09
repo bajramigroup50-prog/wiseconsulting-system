@@ -4,7 +4,7 @@ import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 /**
- * MinIO via the S3 API. Two clients: `internal` talks to minio:9000 inside the compose network;
+ * Object storage via the S3 API (SeaweedFS in production). Two clients: `internal` talks to s3:8333 inside the compose network;
  * `public` only signs URLs with the host the browser uses (S3_PUBLIC_URL, proxied by Caddy).
  */
 export const BUCKET = process.env.S3_BUCKET ?? 'wise-docs';

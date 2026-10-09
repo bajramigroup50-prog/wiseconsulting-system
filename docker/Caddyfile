@@ -2,26 +2,42 @@
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
-	encode zstd gzip
+(security) {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
 		X-Frame-Options DENY
 	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	import security
 	request_body {
 		max_size 110MB
 	}
 	reverse_proxy app:3000
 }
 
-# Presigned uploads/downloads go straight to MinIO (S3 API only; the console is not exposed).
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
+
+# Presigned uploads/downloads go straight to the S3 store (SeaweedFS S3 API only).
 files.{$DOMAIN} {
 	request_body {
 		max_size 110MB
 	}
-	reverse_proxy minio:9000 {
+	reverse_proxy s3:8333 {
 		header_up Host {host}
 	}
+}
+
+# Temporary access by IP address before DNS works (self-signed certificate, browser warning).
+# Set IP_HOST=<server ip> in .env to enable; leave it empty in production. File uploads need files.DOMAIN.
+{$IP_HOST:localhost} {
+	tls internal
+	import security
+	reverse_proxy app:3000
 }

@@ -14,9 +14,9 @@ The system is being re-implemented as:
 
 - **Next.js** (App Router, TypeScript) — web UI and server actions
 - **PostgreSQL** + Drizzle ORM — relational data with a persisted double-entry ledger
-- **MinIO** — S3-compatible storage for documents and images
+- **SeaweedFS** (S3 API) — object storage for documents and images (MinIO images are no longer published)
 - **pg-boss** worker — AI document reading, OCR, PDFs, e-mail, scheduled jobs
-- **Docker Compose** on a VPS (app, worker, postgres, minio, caddy)
+- **Docker Compose** on a VPS (app, worker, postgres, s3, caddy)
 
 Structure (pnpm workspaces + Turborepo):
 
@@ -41,7 +41,7 @@ pnpm --filter @wise/db dev-server        # PGlite on 127.0.0.1:54329 (leave runn
 
 Create `apps/web/.env.local` (gitignored) with `DATABASE_URL=postgres://postgres@127.0.0.1:54329/postgres`, `DB_POOL=1`,
 `ADMIN_USERNAME` and `ADMIN_PASSWORD`, then load it in your shell and run `pnpm db:migrate`, `pnpm db:seed` and `pnpm --filter @wise/web dev`.
-Uploads need a MinIO/S3 endpoint (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`).
+Uploads need an S3-compatible endpoint (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`).
 
 Checks: `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
