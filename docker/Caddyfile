@@ -1,5 +1,7 @@
 {
 	email {$ACME_EMAIL}
+	# Clients connecting by IP send no SNI; serve the IP_HOST certificate to them.
+	default_sni {$IP_HOST:localhost}
 }
 
 (security) {
