@@ -18,6 +18,7 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { createDefaultRegistersAction, deleteVoucherAction, removeRegisterAction, saveRegisterAction } from './actions';
 import { VoucherForm, type VoucherInit } from './voucher-form';
+import { ReceiptScan } from './receipt-scan';
 
 type SP = { reg?: string; nov?: string; edit?: string; set?: string; from?: string; to?: string; saldo?: string };
 
@@ -91,6 +92,14 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
       curs={CURS} firmId={firm.id} nextNo={Object.fromEntries(nn)} />;
   }
 
+  // bulk receipt scanning (legacy `blgScanFiles` / `blgBatchHTML`): only when no editor is open
+  let scan: React.ReactNode = null;
+  if (write && !init) {
+    const [fxS, missing] = await Promise.all([loadFxSources(db(), firm.id), missingAccounts(db(), firm.id, CAT_KONTA)]);
+    scan = <ReceiptScan firmId={firm.id} registers={R} reg0={reg.id} kontos={CAT_KONTA.filter((k) => !missing.includes(k))} codes={chart.map((a) => a.code)}
+      fx={fxS} ddv={firm.vatRegistered} curs={CURS} />;
+  }
+
   const closing = X.closing;
   return (
     <>
@@ -140,7 +149,7 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
         </div>
       )}
 
-      {/* TODO(ai): bulk receipt scanning (legacy `blgScanFiles` / `blgBatchHTML`, 2 workers, `BLG_PROMPT`) — Phase 3 owns the AI client. */}
+      {scan}
       {editor}
 
       <div className="tiles">

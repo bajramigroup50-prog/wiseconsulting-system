@@ -6,36 +6,76 @@
 import { useRouter } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 import { fmt, dmy } from '@/lib/fmt';
+import { uploadFile } from '@/lib/upload';
+import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
 import { previewImportAction, saveImportAction, type PreviewResult } from './actions';
 
 const CLS: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија' };
 
-export function ImportBox({ accounts, defaultAcct, fx }: { accounts: { id: string; label: string }[]; defaultAcct: string; fx: boolean }) {
+/** PDF / image statements are read by the AI job (legacy `importBankImg`); everything else is parsed on the server. */
+const isAiFile = (f: File) => /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || /^image\/|pdf/.test(f.type);
+
+/** Upload the PDF / image statements, start the reads and wait for them (legacy: „10–60 секунди“). */
+async function readAiStatements(L: File[], firmId: string, note: (m: string) => void): Promise<{ ids: string[]; error?: string }> {
+  const ids: string[] = L.map(() => '');
+  const up: { i: number; id: string }[] = [];
+  for (const [i, f] of L.entries()) {
+    if (!isAiFile(f)) continue;
+    note(`Се прикачува „${f.name}“…`);
+    const r = await uploadFile(f, firmId);
+    if (!r.ok) return { ids, error: `„${f.name}“: ${r.error}` };
+    up.push({ i, id: r.id });
+  }
+  if (!up.length) return { ids };
+  const s = await startAiRead({ kind: 'bank', fileIds: up.map((x) => x.id) });
+  if (s.error || !s.ids) return { ids, error: s.error ?? 'Изводот не е прочитан.' };
+  s.ids.forEach((id, k) => { ids[up[k]!.i] = id; });
+  note('Се чита изводот… (10–60 секунди)');
+  for (let t = 0; t < 120; t++) {
+    await new Promise((ok) => setTimeout(ok, 2500));
+    const S = await aiReadStatus(s.ids);
+    const bad = S.find((x) => x.status === 'error');
+    if (bad) return { ids, error: 'Изводот не е прочитан: ' + (bad.error || '') };
+    if (S.length === s.ids.length && S.every((x) => x.status === 'done' || x.status === 'saved')) return { ids };
+  }
+  return { ids, error: 'Читањето трае предолго – обидете се повторно.' };
+}
+
+export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { id: string; label: string }[]; defaultAcct: string; fx: boolean; firmId: string }) {
   const router = useRouter();
   const ref = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
+  const [aiIds, setAiIds] = useState<string[]>([]);
   const [acct, setAcct] = useState(defaultAcct);
   const [dups, setDups] = useState(false);
   const [prev, setPrev] = useState<PreviewResult | null>(null);
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
+  const [note, setNote] = useState('');
   const [pending, start] = useTransition();
 
-  const form = () => {
+  const formOf = (L: File[], ids: string[]) => {
     const f = new FormData();
-    for (const x of files) f.append('file', x);
+    // AI-read files are not sent again: the server uses the stored read (`aiDoc`, same index as the file)
+    for (const [i, x] of L.entries()) { f.append('file', ids[i] ? new File([], x.name) : x); f.append('aiDoc', ids[i] ?? ''); }
     f.set('acct', acct);
+    return f;
+  };
+  const form = () => {
+    const f = formOf(files, aiIds);
     if (dups) f.set('dups', 'on');
     return f;
   };
   const preview = (L: File[]) => {
     setFiles(L);
     setMsg({});
+    setAiIds([]);
     if (!L.length) { setPrev(null); return; }
     start(async () => {
-      const f = new FormData();
-      for (const x of L) f.append('file', x);
-      f.set('acct', acct);
-      setPrev(await previewImportAction(f));
+      const a = await readAiStatements(L, firmId, setNote);
+      setNote('');
+      if (a.error) { setPrev({ error: a.error }); return; }
+      setAiIds(a.ids);
+      setPrev(await previewImportAction(formOf(L, a.ids)));
     });
   };
   const save = () => start(async () => {
@@ -56,9 +96,9 @@ export function ImportBox({ accounts, defaultAcct, fx }: { accounts: { id: strin
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
         </label>
-        <input ref={ref} type="file" multiple accept=".xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf" disabled={pending}
+        <input ref={ref} type="file" multiple accept=".xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp" disabled={pending}
           onChange={(e) => preview(Array.from(e.target.files ?? []))} />
-        {pending && <span className="note">Се чита…</span>}
+        {pending && <span className="note">{note || 'Се чита…'}</span>}
       </div>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
       {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}</div>}

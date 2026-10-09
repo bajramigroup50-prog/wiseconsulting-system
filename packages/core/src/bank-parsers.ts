@@ -20,7 +20,7 @@ import { r2 } from './money';
 
 export { decodeBankBytes, decodeCp1251, detectEncoding, isUtf8 } from './bank/text';
 
-export type StatementFormat = 'mt940' | 'halk-xml' | 'camt.053' | 'kb' | 'table';
+export type StatementFormat = 'mt940' | 'halk-xml' | 'camt.053' | 'kb' | 'table' | 'ai';
 
 export interface StatementLine {
   /** Booking date `YYYY-MM-DD`. */

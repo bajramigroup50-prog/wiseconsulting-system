@@ -1,7 +1,8 @@
 'use server';
 /** Legacy ACT `blgReg … blgXlsx` (7937–7952) and `blgSetSave`: cash registers and vouchers, posted via `blgEntries`. */
 import { redirect } from 'next/navigation';
-import { createDefaultRegisters, deleteVoucher, removeRegister, saveRegister, saveVoucher } from '@wise/db';
+import { createDefaultRegisters, deleteVoucher, loadRegisters, removeRegister, saveRegister, saveVoucher } from '@wise/db';
+import { markAiReadsSaved } from '@/lib/ai';
 import { bankRun, isDate, num, str } from '@/lib/bank';
 import type { FormState } from '@/components/bank-form';
 
@@ -50,4 +51,44 @@ export async function saveVoucherAction(_p: FormState, form: FormData): Promise<
 
 export async function deleteVoucherAction(id: string): Promise<FormState> {
   return bankRun('del', P, ({ tx, u, firm }) => deleteVoucher(tx, { firmId: firm.id, userId: u.id, id }).then(() => 'Избришано.'));
+}
+
+/** One reviewed receipt of the bulk scan (`ReceiptDraft` of `@wise/core/ai/receipts` + its file). */
+export interface ScannedReceipt {
+  date: string; country: string; cur: string; docNo: string; merchant: string; vatId: string; amt: number | ''; fx: number | '';
+  rate: number; vat: number | ''; cat: string; konto: string; liters: number | ''; fileId: string | null;
+}
+
+/**
+ * Legacy ACT `blgBSave` (7945): save and post the reviewed receipts as исплатници of one register, in date order,
+ * numbered automatically; marks the AI reads as used. One transaction: a receipt that cannot be saved stops all.
+ */
+export async function saveReceiptBatchAction(reg: string, rows: ScannedReceipt[], docIds: string[]): Promise<FormState> {
+  if (!Array.isArray(rows) || !rows.length) return { error: 'Нема сметки за зачувување.' };
+  if (rows.length > 500) return { error: 'Премногу сметки одеднаш.' };
+  const n = (v: unknown) => (v === '' || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+  return bankRun('blgSave', P, async ({ tx, u, firm }) => {
+    const L = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let dup = 0;
+    for (const [i, x] of L.entries()) {
+      try {
+        const s = await saveVoucher(tx, {
+          firmId: firm.id, userId: u.id,
+          input: {
+            id: null, registerId: String(reg), kind: 'out', date: String(x.date), number: null, docNo: String(x.docNo || '') || null,
+            merchant: String(x.merchant || '') || null, vatId: String(x.vatId || '') || null, country: String(x.country || 'MK'), cur: String(x.cur || 'MKD'),
+            amt: n(x.amt) ?? 0, fx: n(x.fx), vatRate: n(x.rate), vat: n(x.vat), cat: String(x.cat || '') || null, konto: String(x.konto || '').split(/\s/)[0] || null,
+            partnerId: null, note: null, payK: null, liters: n(x.liters), fileId: typeof x.fileId === 'string' && x.fileId ? x.fileId : null,
+          },
+        });
+        if (s.duplicate) dup++;
+      } catch (e) {
+        if (e instanceof Error) e.message = `Сметка ${i + 1} (${x.docNo || x.merchant || x.date}): ${e.message}`;
+        throw e;
+      }
+    }
+    await markAiReadsSaved(tx, firm.id, Array.isArray(docIds) ? docIds.map(String) : []);
+    const name = (await loadRegisters(tx, firm.id)).find((x) => x.id === reg)?.name ?? '';
+    return `${L.length} сметки се зачувани и прокнижени во ${name}.${dup ? ` Внимание: ${dup} веќе постоеја со ист број, датум и износ.` : ''}`;
+  });
 }

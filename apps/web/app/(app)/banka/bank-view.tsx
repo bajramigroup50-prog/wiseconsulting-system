@@ -238,7 +238,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
 
       {BK.length > 0 && write && (
         <div className="card">
-          <ImportBox fx={fx} defaultAcct={acct!.id} accounts={BK.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))} />
+          <ImportBox firmId={firm.id} fx={fx} defaultAcct={acct!.id} accounts={BK.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))} />
         </div>
       )}
 

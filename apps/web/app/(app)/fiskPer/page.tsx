@@ -3,8 +3,8 @@
  * reports (`fkManual` 13048), posting with the fiscal scheme (`fkPost` 13101 → `fiskEntries`), goods issue for the
  * turnover with FIFO / LIFO / proportional selection (`fkIssuePlan` 11407, `fkIssue` 11454) and the daily fiscal
  * report control (`dfiHTML` 13131 → `dfiControl` 11479).
- * TODO(ai): reading a fiscal report from a photo / PDF (legacy `fkRead`, `FISK_PROMPT`) is Phase 3's AI job — hook it
- * to prefill `FiskEditor`.
+ * Reading a fiscal report from a photo / PDF (legacy `fkRead`, `FISK_PROMPT`) runs in the worker (`FiskScan`) and
+ * prefills `FiskEditor` (`?ai=<id>`).
  */
 import Link from 'next/link';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
@@ -18,9 +18,12 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteSalesDayAction } from '../_stock/actions';
-import { FiskEditor } from '../_stock/editors';
+import { FiskEditor, type FiskDraft } from '../_stock/editors';
+import { fiskAfterRead, fiskEditorRows, fiskFinish, type FiskEditorRow, type FiskRead } from '@wise/core/ai/fisk';
+import { loadAiResult } from '@/lib/ai';
+import { FiskScan } from './fisk-scan';
 
-type SP = { tab?: string; d?: string; wh?: string; meth?: string; g18?: string; g10?: string; g5?: string; g0?: string; from?: string; to?: string };
+type SP = { ai?: string; r?: string; tab?: string; d?: string; wh?: string; meth?: string; g18?: string; g10?: string; g5?: string; g0?: string; from?: string; to?: string };
 
 export default async function FiskPerPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -45,7 +48,24 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
     const names = new Map((L.ctx.items ?? []).map((i) => [i.id, (i.code ? i.code + ' · ' : '') + i.name]));
     plan = P[0]!.lines.map((l) => ({ itemId: l.item, label: names.get(l.item) ?? l.item, qty: l.qty, price: l.price, rate: l.rate }));
   }
-  const schemes: [string, string][] = [['', 'Без шема: Д благајна / Д картичка / П приход + ДДВ'], ...Object.entries(FISCAL_SCHEMES).map(([k, v]) => [k, v[0]] as [string, string])];
+  // AI read of a fiscal report (legacy `fkRead`, FISK_PROMPT): prefill the editor with one report row (`?ai=<id>&r=<i>`)
+  const aiDoc = write ? await loadAiResult(firm.id, sp.ai, 'fisk') : null;
+  let aiRows: { rows: FiskEditorRow[]; daily: boolean; R: FiskRead } | null = null;
+  let aiInit: Partial<FiskDraft> = {};
+  if (aiDoc) {
+    const R = fiskFinish(fiskAfterRead(aiDoc.result), todayIso());
+    const X = fiskEditorRows(R, { today: todayIso(), nonVat: nonVat || undefined });
+    aiRows = { ...X, R };
+    const r = X.rows[Math.min(Math.max(0, Number(sp.r) || 0), Math.max(0, X.rows.length - 1))];
+    if (r) {
+      aiInit = {
+        date: dateInYear(r.date, year), number: r.z || [R.zFrom, R.zTo].filter(Boolean).join('–'),
+        gross: Object.fromEntries(Object.entries(r.gross).filter(([, v]) => v).map(([k, v]) => [k, String(v)])), total: String(r.total || ''), card: r.card ? String(r.card) : '',
+        from: X.daily ? '' : R.from ?? '', to: X.daily ? '' : R.to ?? '', note: R.device ? `ФМ ${R.device}` : '',
+      };
+    }
+  }
+  const schemes: [string, string][] =[['', 'Без шема: Д благајна / Д картичка / П приход + ДДВ'], ...Object.entries(FISCAL_SCHEMES).map(([k, v]) => [k, v[0]] as [string, string])];
   const list = await db().select().from(salesDaily)
     .where(and(eq(salesDaily.firmId, firm.id), eq(salesDaily.kind, 'fisk'), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
     .orderBy(desc(salesDaily.date));
@@ -72,9 +92,19 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
         <Link className={`btn sm ${tab === 'dfi' ? 'pri' : ''}`} href="/fiskPer?tab=dfi">Контрола на ДФИ</Link>
         <Link className="btn sm" href="/kdfi">КДФИ-01</Link>
       </div>
+      {tab === 'list' && write && !aiDoc && <FiskScan firmId={firm.id} />}
+      {tab === 'list' && aiRows && (
+        <div className="callout">🤖 Прочитан извештај{aiRows.R.device ? ` (ФМ ${aiRows.R.device})` : ''}: {aiRows.rows.length} {aiRows.daily ? 'дневни извештаи' : 'период'} ·
+          вкупно {fmt(aiRows.rows.reduce((a, r) => a + r.total, 0))}. Проверете ги износите и прокнижете.
+          {aiRows.rows.length > 1 && <div className="row" style={{ gap: 4, marginTop: 6, flexWrap: 'wrap' }}>{aiRows.rows.map((r, i) => (
+            <Link key={i} className={`btn sm ${(Number(sp.r) || 0) === i ? 'pri' : ''}`} href={`/fiskPer?ai=${aiDoc!.id}&r=${i}`}>{dmy(r.date)}{r.z ? ` Z ${r.z}` : ''} · {fmt(r.total)}</Link>
+          ))}</div>}
+          {' '}<Link className="btn sm ghost" href="/fiskPer">Откажи</Link>
+        </div>
+      )}
       {tab === 'list' && write && (
-        <FiskEditor locs={locs} schemes={schemes} nonVat={nonVat} plan={plan}
-          initial={{ date, wh, number: '', gross, total: '', card: '', sc: O.sc ?? (nonVat ? 'trgNoVat' : ''), from: '', to: '', meth, issue: !!plan?.length, note: '' }} />
+        <FiskEditor key={aiDoc ? `${aiDoc.id}:${sp.r ?? 0}` : 'new'} locs={locs} schemes={schemes} nonVat={nonVat} plan={plan}
+          initial={{ date, wh, number: '', gross, total: '', card: '', sc: O.sc ?? (nonVat ? 'trgNoVat' : ''), from: '', to: '', meth, issue: !!plan?.length, note: '', ...aiInit }} />
       )}
       {tab === 'list' && (list.length ? (
         <div className="tw"><table>

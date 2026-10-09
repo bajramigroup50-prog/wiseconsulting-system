@@ -14,7 +14,9 @@ import {
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, type ImportPlan,
 } from '@wise/db';
+import { statementFromRead } from '@wise/core/ai/bank';
 import { firmAction } from '@/lib/books';
+import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
 import type { FormState } from '@/components/bank-form';
@@ -27,7 +29,15 @@ const fail = (m: string) => Object.assign(new Error(m), { name: 'BankError' });
 
 /* ---------------- import ---------------- */
 
-async function readStatements(f: File): Promise<{ statements: Statement[]; format: string }> {
+async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{ statements: Statement[]; format: string }> {
+  if (aiDoc) {
+    // PDF / image statement read by the AI job (legacy `importBankImg` 4796, `BANK_PROMPT`) → the normal import pipeline
+    const d = await loadAiResult(firmId, aiDoc, 'bank');
+    if (!d) throw fail(`„${f.name}“: изводот сè уште не е прочитан.`);
+    const st = statementFromRead(d.result);
+    if (!st) throw fail(`„${f.name}“: во изводот не се пронајдени ставки.`);
+    return { statements: [st], format: 'ai' };
+  }
   if (f.size > MAX) throw fail('Датотеката е преголема (најмногу 20 MB).');
   const bytes = new Uint8Array(await f.arrayBuffer());
   const kind = detectStatementFormat(bytes, f.name);
@@ -41,8 +51,8 @@ async function readStatements(f: File): Promise<{ statements: Statement[]; forma
     throw fail(`„${f.name}“: не се препознаени колоните (датум, износ / прилив / одлив).`);
   }
   if (kind === 'ai') {
-    // TODO(ai): PDF / image statements → Phase 3 AI reading job (legacy `importBankImg`, prompt at 4796), then planImport.
-    throw fail(`„${f.name}“: PDF и слики од изводи ќе се читаат со AI (во подготовка). Користете XML, MT940, KB (.300), CSV или Excel.`);
+    // PDF / images are read by the AI job before the preview (import-box.tsx) and arrive here as `aiDoc`.
+    throw fail(`„${f.name}“: форматот не е препознаен. PDF и слики од изводи се читаат автоматски – изберете ја датотеката повторно.`);
   }
   const S = parseStatementFile(bytes, f.name);
   if (!S || !S.length) throw fail(`„${f.name}“: форматот не е препознаен или нема ставки.`);
@@ -51,8 +61,14 @@ async function readStatements(f: File): Promise<{ statements: Statement[]; forma
 
 export interface PreviewResult { error?: string; plans?: { file: string; format: string; plan: ImportPlan }[] }
 
-function filesOf(form: FormData): File[] {
-  return form.getAll('file').filter((x): x is File => typeof x === 'object' && 'arrayBuffer' in x && (x as File).size > 0);
+/** Files with the id of their AI read (`aiDoc`, same order; '' = parse the file itself). */
+function filesOf(form: FormData): { f: File; ai: string }[] {
+  const ai = form.getAll('aiDoc').map(String);
+  return form.getAll('file').flatMap((x, i) => {
+    if (typeof x !== 'object' || !('arrayBuffer' in x)) return [];
+    const a = /^[0-9a-f-]{36}$/i.test(ai[i] ?? '') ? ai[i]! : '';
+    return (x as File).size > 0 || a ? [{ f: x as File, ai: a }] : [];
+  });
 }
 
 /** Step 1: parse the files and show what would be imported (nothing is written). */
@@ -61,8 +77,8 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
     const { firm } = await firmAction('write');
     const acct = str(form.get('acct')) || null;
     const out: NonNullable<PreviewResult['plans']> = [];
-    for (const f of filesOf(form)) {
-      const { statements, format } = await readStatements(f);
+    for (const { f, ai } of filesOf(form)) {
+      const { statements, format } = await readStatements(f, firm.id, ai);
       const plan = await db().transaction((tx) => planImport(tx, { firmId: firm.id, userId: null, statements, defaultAccountId: acct }));
       out.push({ file: f.name, format, plan });
     }
@@ -80,10 +96,11 @@ export async function saveImportAction(form: FormData): Promise<FormState> {
   const acct = str(form.get('acct')) || null;
   const skip = form.get('dups') !== 'on';
   const msgs: string[] = [];
-  for (const f of filesOf(form)) {
+  for (const { f, ai } of filesOf(form)) {
     const r = await bankRun('write', P, async ({ tx, u, firm }) => {
-      const { statements, format } = await readStatements(f);
+      const { statements, format } = await readStatements(f, firm.id, ai);
       const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format });
+      if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
       return `„${f.name}“: ${x.statements} изводи, ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.posted}, за довршување ${x.drafts}.`;
     });
     if (r.error) return { error: `„${f.name}“: ${r.error}`, ...(msgs.length ? { ok: msgs.join(' ') } : {}) };

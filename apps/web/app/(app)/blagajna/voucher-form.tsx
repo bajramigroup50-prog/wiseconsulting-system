@@ -5,7 +5,10 @@
  * category → konto and the Macedonian VAT rate (fuel 10 %). Receipt photo goes to MinIO (`uploadFile`).
  */
 import Link from 'next/link';
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
+import { receiptDrafts } from '@wise/core/ai/receipts';
+import { useAiPoll } from '@/components/ai-read';
+import { startAiRead } from '@/app/(app)/_ai/actions';
 import { CASH_COUNTRIES, CASH_COUNTRY_CURRENCY, cashDefaultRate } from '@wise/core/bank/cash';
 import { CASH_EXPENSE_CATEGORIES } from '@wise/core/data/posting';
 import { cashExpenseAccount } from '@wise/core/posting';
@@ -43,6 +46,26 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
   const rateOf = (cur: string, date: string) => (cur === 'MKD' ? '1' : String(fxRate(cur, date, fx) || ''));
   const set = (patch: Partial<VoucherInit>) => setV((o) => ({ ...o, ...patch }));
   const reg = registers.find((r) => r.id === v.reg) ?? registers[0]!;
+
+  // AI read of the attached receipt → prefill (the user checks and saves)
+  const { docs, setDocs } = useAiPoll();
+  useEffect(() => {
+    const d = docs[0];
+    if (!d || d.status === 'queued' || d.status === 'reading') return;
+    setDocs([]);
+    if (d.status === 'error') { setUp('✓ ' + d.name + ' · ' + (d.error || 'не е прочитана')); return; }
+    const [x] = receiptDrafts(d.result, {
+      today: new Date().toISOString().slice(0, 10), kontoFor: (c, abroad) => cashExpenseAccount(c, abroad, (k) => has.has(k)),
+      fxFor: (c, dt) => Number(rateOf(c, dt)) || 0,
+    });
+    if (!x) { setUp('✓ ' + d.name + ' · на сликата не е пронајдена сметка'); return; }
+    set({
+      date: x.date, docNo: x.docNo, merchant: x.merchant, vatId: x.vatId, country: x.country, cur: x.cur, amt: x.amt === '' ? '' : String(x.amt),
+      fx: x.fx === '' ? '' : String(x.fx), rate: x.rate, vat: x.vat === '' ? '' : String(x.vat), cat: x.cat, konto: x.konto, liters: x.liters === '' ? '' : String(x.liters),
+    });
+    setUp('🤖 ' + d.name + ' – прочитано, проверете ги податоците');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docs]);
 
   const onCountry = (country: string) => {
     const cur = CASH_COUNTRY_CURRENCY[country] ?? v.cur;
@@ -104,8 +127,12 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
             if (!r.ok) { setUp('✗ ' + r.error); return; }
             set({ fileId: r.id, fileName: f.name });
             setUp(r.duplicate ? `↺ веќе постои како „${r.name}“` : '✓ ' + f.name);
-            // TODO(ai): read the receipt with the Phase 3 AI client (legacy `BLG_PROMPT` 6525 / `blgScanFiles`) and prefill
-            // date, docNo, merchant, country, currency, total, VAT rate/amount, category, liters.
+            // legacy `blgScanFiles` (BLG_PROMPT 6525): read the receipt in the worker and prefill the voucher
+            if (inn || !/pdf|image\//i.test(f.type)) return;
+            const s = await startAiRead({ kind: 'blg', fileIds: [r.id] });
+            if (s.error || !s.ids?.length) { if (s.error) setUp('✓ ' + f.name + ' · ' + s.error); return; }
+            setUp('🤖 Се чита сметката…');
+            setDocs([{ id: s.ids[0]!, kind: 'blg', status: 'queued', error: null, model: null, result: null, name: f.name, fileId: r.id }]);
           }} />
           {(up || v.fileName) && <small className="mut">{up || v.fileName}</small>}
         </label>

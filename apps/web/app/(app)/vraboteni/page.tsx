@@ -12,6 +12,7 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteEmployee, setEmployeeActive } from './actions';
 import { EmployeeForm } from './employee-form';
+import { EmpScan } from './emp-scan';
 
 export default async function VraboteniPage({ searchParams }: { searchParams: Promise<{ edit?: string; nov?: string; all?: string; q?: string }> }) {
   const sp = await searchParams;
@@ -44,9 +45,7 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
         <Link className="btn" href="/plati">Пресметка на плата</Link>
         <Link className="btn" href="/dogovori">Евиденција на договори</Link>
       </Hd>
-      {/* TODO(ai): legacy `readEmployeeDocs` (EMP_PROMPT, 6044–6056) — "Додај вработени од PDF": read a contract / М1 / ID card
-          with the Phase 3 AI client, then create or update the employee by ЕМБГ (net from gross via `grossFromNet` with the
-          month's params — no 18.8/1.2 fallbacks) and link the file (`file_links` entity `employee`). */}
+      {write && sp.nov === undefined && !edit && <EmpScan firmId={firm.id} />}
       {(sp.nov !== undefined || edit) && write && <EmployeeForm e={edit ?? null} nextNo={nextNo} positions={[...new Set(all.map((e) => e.position).filter((x): x is string => !!x))]} />}
       <form className="row" style={{ gap: 8, marginBottom: 10 }}>
         <input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Барај по име, број, ЕМБГ, работно место…" style={{ flex: 1, minWidth: 220 }} />

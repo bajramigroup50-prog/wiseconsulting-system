@@ -1,12 +1,14 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { audit, employees, payrollEmp, type NewEmployee } from '@wise/db';
+import { resolvePayParams } from '@wise/core';
+import { employeeFromRead, readEmbg, type ReadEmployee } from '@wise/core/ai/employee';
+import { aiDocuments, audit, employees, fileLinks, files, payrollEmp, type NewEmployee } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
-import { payAction, payError } from '@/lib/payroll/server';
+import { payAction, payCtx, payError } from '@/lib/payroll/server';
 
 const opt = z.string().trim().max(300).transform((s) => s || null);
 const dateOpt = opt.refine((s) => !s || /^\d{4}-\d{2}-\d{2}$/.test(s), 'Неважечки датум.');
@@ -91,6 +93,49 @@ export async function deleteEmployee(id: string): Promise<ActionState> {
   } catch (e) { return payError(e); }
   revalidatePath('/vraboteni');
   return { ok: 'Избришано.' };
+}
+
+/**
+ * Legacy `readEmployeeDocs` (6047–6056, "Додај вработени од PDF"): apply finished `EMP_PROMPT` reads — update the
+ * employee with the same ЕМБГ or add a new one (net from the gross with the current month's params) and link the
+ * document (`file_links` entity `employee`). The user confirmed the list of read documents.
+ */
+export async function saveEmployeesFromReads(docIds: string[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await payAction('write');
+    const ids = (Array.isArray(docIds) ? docIds : []).map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 50);
+    if (!ids.length) return { error: 'Нема прочитани документи.' };
+    const month = new Date().toISOString().slice(0, 7);
+    const { overrides } = await payCtx(firm);
+    const P = (() => { try { return resolvePayParams(null, month, overrides); } catch { return null; } })();
+    const out = await db().transaction(async (tx) => {
+      const D = await tx.select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'emp'), eq(aiDocuments.status, 'done'), inArray(aiDocuments.id, ids)));
+      const names = new Map((D.length ? await tx.select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, D.flatMap((d) => (d.fileId ? [d.fileId] : [])))) : []).map((f) => [f.id, f.name]));
+      let added = 0, updated = 0;
+      for (const d of D) {
+        const r = (d.result ?? {}) as ReadEmployee;
+        const emb = readEmbg(r);
+        const all = await tx.select().from(employees).where(eq(employees.firmId, firm.id));
+        const ex = emb ? all.find((e) => String(e.embg ?? '').replace(/\D/g, '') === emb) ?? null : null;
+        const nextNo = String(Math.max(0, ...all.map((e) => parseInt(e.no ?? '') || 0)) + 1);
+        const v = employeeFromRead(r, { fileName: (d.fileId && names.get(d.fileId)?.replace(/\.[^.]+$/, '')) || 'Вработен', ex, nextNo, P });
+        const row = { ...v, netBase: String(v.netBase), coef: String(v.coef), stazPrev: String(v.stazPrev) };
+        let id: string;
+        if (ex) {
+          await tx.update(employees).set(row).where(eq(employees.id, ex.id));
+          id = ex.id; updated++;
+        } else {
+          id = (await tx.insert(employees).values({ ...row, firmId: firm.id }).returning({ id: employees.id }))[0]!.id; added++;
+        }
+        if (d.fileId) await tx.insert(fileLinks).values({ fileId: d.fileId, entityType: 'employee', entityId: id, role: 'source' }).onConflictDoNothing();
+        await audit(tx, { userId: u.id, firmId: firm.id, action: ex ? 'saveS' : 'addEmpNow', entityType: 'employee', entityId: id, data: { name: v.name, embg: v.embg, from: 'ai', aiDoc: d.id } });
+      }
+      await tx.update(aiDocuments).set({ status: 'saved' }).where(inArray(aiDocuments.id, D.map((d) => d.id)));
+      return { added, updated };
+    });
+    revalidatePath('/vraboteni');
+    return { ok: `Додадени ${out.added}, ажурирани ${out.updated} вработени – проверете ги податоците.` };
+  } catch (e) { return payError(e); }
 }
 
 /** Legacy `activateEmp` / deactivate. */
