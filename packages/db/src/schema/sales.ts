@@ -45,6 +45,11 @@ export interface InvoiceData {
   unloadDate?: string; dAddr?: string; loadPlace?: string; vehicle?: string; driver?: string;
   /** Buyer as read from a scanned sales invoice (before a partner is chosen). */
   buyer?: { name: string; edb: string; address: string; city: string };
+  /** Phase 10 travel agency: margin scheme (чл. 38) — maps to core `InvoiceDoc.tourM` / `arrangementId` for the VAT source. */
+  tourM?: boolean;
+  arrangementId?: string;
+  /** Phase 10: industry document the invoice was issued from (`hotel_reservation`, `rent_rental`, `travel_booking`, …). */
+  source?: { type: string; id: string };
 }
 
 /**

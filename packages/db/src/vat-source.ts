@@ -28,11 +28,12 @@ import {
 } from '@wise/core';
 import type { Tx } from './audit';
 import {
-  cashVouchers, invoiceAdvances, invoiceLines, invoices, journalLines, journals, partners, purchaseCosts, purchases, purchaseVatGroups,
+  cashVouchers, firms, invoiceAdvances, invoiceLines, invoices, journalLines, journals, partners, purchaseCosts, purchases, purchaseVatGroups,
   salesDaily, supplierCreditLines, supplierCredits, type Firm,
 } from './schema/index';
 import { loadAdvances } from './sales/invoices';
 import { voucherToCore } from './bank/cash';
+import { travelMarginInputs } from './industry/travel';
 import { VAT_CLOSE_SOURCE, VAT_SOURCE_TYPES } from './vat-lock';
 
 export { VAT_CLOSE_SOURCE };
@@ -112,6 +113,8 @@ async function loadInvoices(tx: Tx, firmId: string, from: string, to: string): P
       id: h.id, date: h.date, number: h.number, partner: h.partnerId ?? undefined, items,
       art32: h.art32, credit: h.kind === 'credit', advance: h.advance, export: h.export,
       ...(h.refInvoiceId ? { refInv: h.refInvoiceId } : {}),
+      // Phase 10 travel agency: margin-scheme invoices (чл. 38) and their arrangement.
+      ...(h.data?.tourM ? { tourM: true, ...(h.data.arrangementId ? { arrangementId: h.data.arrangementId } : {}) } : {}),
       ...(adv.length ? { advances: await loadAdvances(tx, adv, fx) } : {}),
       ...(h.status === 'pending' ? { pend: true } : {}),
     });
@@ -188,9 +191,16 @@ export const documentsVatSource: VatDocumentSource = {
     ]);
     const pids = new Set<string>();
     for (const d of [...inv, ...pur, ...scr]) if (d.partner) pids.add(d.partner);
+    // Phase 10: arrangement totals `{rev, cost, own}` for the margin-scheme invoices of the travel module.
+    let travel: TravelMarginOptions | undefined;
+    if (inv.some((i) => i.tourM)) {
+      const [f] = await tx.select().from(firms).where(eq(firms.id, firm.id)).limit(1);
+      if (f) travel = await travelMarginInputs(tx, f);
+    }
     return {
       docs: { invoices: inv, purchases: pur, supplierCredits: scr, sales, cashVouchers: blg },
       partners: await partnerInfo(tx, firm.id, [...pids]),
+      ...(travel ? { travel } : {}),
       origin: 'documents',
     };
   },

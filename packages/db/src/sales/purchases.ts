@@ -358,3 +358,19 @@ export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: 
   await tx.delete(purchases).where(eq(purchases.id, id));
   await audit(tx, { userId: actor.userId, firmId, action: 'delPur', entityType: 'purchase', entityId: id, data: { number: pur.number, date: pur.date, total: n(pur.total) } });
 }
+
+/**
+ * Phase 10 (travel agency, legacy `taSave` 11932): mark a purchase as a prior travel service without input-VAT
+ * deduction (чл. 38 ст. 4) — or clear the mark — and re-book it. Legacy re-saved the whole purchase through every
+ * save wrapper; here only the flag changes and the journal is re-posted (period / VAT locks apply).
+ */
+export async function setPurchaseNoDed(tx: Tx, firmId: string, id: string, noDed: boolean, actor: DocActor): Promise<boolean> {
+  const f = await loadFirmForUpdate(tx, firmId);
+  const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firmId))).for('update').limit(1);
+  if (!pur) throw new DocumentError('Влезната фактура не постои.');
+  if (pur.noDed === noDed) return false;
+  const [u] = await tx.update(purchases).set({ noDed, updatedBy: actor.userId }).where(eq(purchases.id, id)).returning();
+  if (u!.status === 'posted') await postPurchase(tx, f, u!, actor.userId);
+  await audit(tx, { userId: actor.userId, firmId, action: 'purNoDed', entityType: 'purchase', entityId: id, data: { number: pur.number, noDed } });
+  return true;
+}

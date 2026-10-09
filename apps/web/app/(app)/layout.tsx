@@ -1,21 +1,24 @@
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { navFor } from '@/lib/nav';
+import { filterNavByModules } from '@/lib/nav-industry';
 import { Nav } from '@/components/nav';
 import { TopBar } from '@/components/top-bar';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const u = await requireUser();
   const [firm, year] = await Promise.all([currentFirm(u), currentYear()]);
+  // Phase 10: views of industry modules that are off for the firm are hidden (FIX LEGACY-MAP 10.4 item 9).
+  const groups = filterNavByModules(navFor(u.role), firm, u.role === 'klient');
   return (
     <div className="app">
       <header className="mbar">
         <div className="brand" title="WISE CONSULTING"><i aria-hidden="true">W</i><span>WISE CONSULTING</span></div>
-        <Nav groups={navFor(u.role)} />
+        <Nav groups={groups} />
       </header>
       <main>
         <TopBar
-          groups={navFor(u.role)}
+          groups={groups}
           user={{ name: u.name, role: u.role }}
           year={year}
           firm={firm && {
