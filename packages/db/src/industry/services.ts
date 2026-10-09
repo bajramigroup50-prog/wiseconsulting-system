@@ -10,7 +10,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { apptClash, apptConfig, netOfGross, orderTotal, type ApptConfig, type OrderLine } from '@wise/core/industry';
 import { audit, type Tx } from '../audit';
-import { appointments, firmDocs, items, type AppointmentRow, type Firm } from '../schema/index';
+import { appointments, firmDocs, items, partners, type AppointmentRow, type Firm } from '../schema/index';
 import { posSell } from '../stock-docs';
 import { assertPartner, findOrCreatePartner, IndustryError, industryConfigOf, issueModuleInvoice, loadIndustryFirm, n, type IndActor } from './context';
 
@@ -127,7 +127,8 @@ export async function saveAppointment(tx: Tx, a: IndActor, x: ApptInput): Promis
     if (!it) fail('Услугата не постои.');
   }
   const row = {
-    date: x.date, time: x.time.padStart(5, '0'), dur: Math.max(5, Math.round(n(x.dur)) || 30), res: x.res, partnerId, client: x.client?.trim() || null,
+    date: x.date, time: x.time.padStart(5, '0'), dur: Math.max(5, Math.round(n(x.dur)) || 30), res: x.res, partnerId,
+    client: x.client?.trim() || (await tx.select({ n: partners.name }).from(partners).where(eq(partners.id, partnerId)).limit(1))[0]?.n || null,
     phone: x.phone?.trim() || null, email: x.email?.trim() || null, svc: x.svc?.trim() || null, itemId: x.itemId || null, price: x.price ? (Math.round(x.price * 100) / 100).toFixed(2) : null,
     status: x.status ?? prev?.status ?? 'booked', note: x.note?.trim() || null,
   };
