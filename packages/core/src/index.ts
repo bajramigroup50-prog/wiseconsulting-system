@@ -38,3 +38,4 @@ export * from './stock-books';
 export * as StockBooks from './stock-books';
 export * as Industry from './industry';
 export * as Law from './law';
+export * as Finance from './finance';

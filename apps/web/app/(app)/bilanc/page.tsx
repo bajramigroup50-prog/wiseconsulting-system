@@ -40,6 +40,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <Hd t="Бруто биланс">
+        <a className="btn" href={'/print/bilanc?' + new URLSearchParams(Object.entries({ lvl, from, to, q, p: pf ?? '', close: withClose ? '1' : '' }).filter(([, v]) => v) as [string, string][]).toString()} target="_blank" rel="noopener">🖨 Печати / PDF</a>
         <DownloadCsv name={`Bruto_bilans_${year}.csv`} rows={[['Конто', 'Назив', 'Салдо', 'Вк. должи', 'Вк. побарува', 'Поч. сост. должи', 'Поч. сост. побарува', 'Должи од тек. година', 'Побарува од тек. година'],
           ...R.map((r) => [r.k, r.name, r.s, r.vd, r.vp, r.od, r.op, r.td, r.tp])]} />
       </Hd>
@@ -81,7 +82,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
                       <Fragment key={r.k}>
                         <tr className="bbrow">
                           <td><Link href={href}><b style={{ color: 'var(--accent)' }}>{hasP ? (open ? '▾ ' : '▸ ') : ''}{r.k}</b></Link></td>
-                          <td>{r.name}{hasP && <> <span className="mini" style={{ color: 'var(--muted)' }}>· по комитенти</span> <Link className="mini" href={`/kkart?k=${r.k}&from=${from}&to=${to}`}>картица</Link></>}</td>
+                          <td>{r.name}{hasP && <> <span className="mini" style={{ color: 'var(--muted)' }}>· по комитенти</span> <Link className="mini" href={`/kkart?k=${r.k}&from=${from}&to=${to}`}>картица</Link> <Link className="mini" href={`/bbPart?k=${r.k}&from=${from}&to=${to}${withClose ? '&close=1' : ''}`}>табела по комитенти</Link></>}</td>
                           {cells(r)}
                         </tr>
                         {open && expRows.map((p) => (

@@ -16,3 +16,4 @@ export * from './industry';
 export * from './law';
 export * from './vehicles';
 export * from './system';
+export * from './finance';

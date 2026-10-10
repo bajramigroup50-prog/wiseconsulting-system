@@ -14,6 +14,7 @@ import { deletePackage, mailPackage, savePackage } from './actions';
 /** Generated reports a package can hold (print views with the server „⬇ PDF“ button). */
 const REPORTS: [string, string][] = [
   ['/print/ddv04', 'ДДВ-04'], ['/pecati/bs-crm', 'Биланс на состојба'], ['/pecati/bu-crm', 'Биланс на успех'], ['/pecati/db', 'Даночен биланс'],
+  ['/print/bilanc?lvl=a', 'Бруто биланс (аналитика)'], ['/print/bilanc?lvl=3', 'Бруто биланс (синтетика, 3 цифри)'],
 ];
 
 export default async function PaketPage() {
