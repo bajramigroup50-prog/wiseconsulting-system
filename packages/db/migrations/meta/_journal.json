@@ -99,6 +99,13 @@
       "when": 1791625463830,
       "tag": "0013_law",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791627413110,
+      "tag": "0014_parity_vehicles_system_finance",
+      "breakpoints": true
     }
   ]
 }
