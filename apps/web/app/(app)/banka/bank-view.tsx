@@ -25,8 +25,11 @@ import {
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
 import { ImportBox } from './import-box';
+import { ClassifyButton } from './classify-button';
+import { applyBankClassifyAction } from './classify-actions';
+import { bankClassifyProposals } from './classify';
 
-export type BankSP = { banks?: string; review?: string; line?: string; m?: string; open?: string; acct?: string; manual?: string };
+export type BankSP = { banks?: string; review?: string; line?: string; m?: string; open?: string; acct?: string; manual?: string; ai?: string };
 
 const CURS = ['MKD', 'EUR', 'USD', 'CHF', 'GBP'];
 const n2 = (v: string | null | undefined) => (v == null ? '' : String(Number(v)));
@@ -110,6 +113,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
 
   /* ---------- review & line editor ---------- */
   const review = sp.review !== undefined && write ? await db().transaction((tx) => proposeMatches(tx, firm.id, year, { fx })) : null;
+  const aiProps = review && sp.ai ? await bankClassifyProposals(firm.id, year, sp.ai) : null;
+  const lineById = new Map(L.map((l) => [l.id, l]));
   const edLine = sp.line ? L.find((l) => l.id === sp.line) ?? (await db().select().from(bankLines).where(and(eq(bankLines.id, sp.line), eq(bankLines.firmId, firm.id))).limit(1))[0] : undefined;
   const edDocs = edLine && write ? await db().transaction((tx) => lineOpenDocs(tx, firm.id, year, edLine.id)) : null;
 
@@ -246,6 +251,27 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
               <div className="row"><span className="note">Редослед: POS картички, ДДВ, шифра на плаќање, девизни фактури, фактури по број / износ / збир, провизии, правила. Отштиклирајте ги погрешните.</span><span style={{ flex: 1 }} /><button className="btn pri">Прокнижи избраните</button></div>
             </BankForm>
           ) : <p className="note">Нема ставки за автоматско книжење – останатите прокнижете ги рачно (копче „Прокнижи…“).</p>}
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+            {aiProps ? (aiProps.length ? (
+              <BankForm action={applyBankClassifyAction}>
+                <input type="hidden" name="ai" value={sp.ai} />
+                <h3 style={{ margin: '0 0 6px' }}>🤖 Препознаени ставки ({aiProps.length}) – проверете ги</h3>
+                <div className="tw"><table className="dense">
+                  <thead><tr><th></th><th>Датум</th><th>Опис</th><th className="n">Износ</th><th>Предлог</th><th>Причина</th></tr></thead>
+                  <tbody>{aiProps.map((p) => { const l = lineById.get(p.id); return (
+                    <tr key={p.id}>
+                      <td><input type="checkbox" name="accept" value={p.id} defaultChecked aria-label="Прифати" /></td>
+                      <td>{l ? dmy(l.date) : ''}</td><td style={{ minWidth: 220 }}>{l?.description ?? ''}</td><td className="n">{l ? fmt(Number(l.amount)) : ''}</td>
+                      <td>{p.ref ? <span className="pill good">{p.ref.type === 'invoice' ? 'Наша фактура' : 'Влезна ф-ра'}</span> : <span className="pill info">{p.konto} {kName(p.konto)}</span>}</td>
+                      <td><small>{p.reason}</small></td>
+                    </tr>); })}</tbody>
+                </table></div>
+                <div className="row"><span className="note">Ставките ќе бидат означени „препознаено – провери“.</span><span style={{ flex: 1 }} /><button className="btn pri">Прокнижи ги избраните</button></div>
+              </BankForm>
+            ) : <p className="note">Ставките не се препознаени; изберете рачно.</p>) : (
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}><ClassifyButton base={base} /><span className="note">Ставките што ниту едно правило не ги препознало се препознаваат автоматски (фактура или конто, со причина).</span></div>
+            )}
+          </div>
         </div>
       )}
 

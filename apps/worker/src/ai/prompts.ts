@@ -80,3 +80,18 @@ export const OB_PROMPT = "This is a trial balance (бруто биланс), usu
 
 /** Legacy `REC_PROMPT` (12909) — partner card read for reconciliation (`recParse`), verbatim. */
 export const REC_PROMPT = "This is an analytic account card / statement of open items (картица на комитент, ИОС, аналитичка картица) printed from the books of a company in North Macedonia, showing its transactions with one business partner. Reply with ONLY JSON: {\"issuer\":string (company whose books these are),\"partner\":string (the counterparty the card is about),\"from\":\"YYYY-MM-DD\" or \"\",\"to\":\"YYYY-MM-DD\" or \"\",\"opening\":number (opening balance, debit positive, 0 if none),\"rows\":[{\"date\":\"YYYY-MM-DD\",\"doc\":string (document / invoice / statement number as printed),\"desc\":string,\"debit\":number (должи),\"credit\":number (побарува)}],\"saldo\":number (final balance, debit positive)}. Include EVERY transaction row, skip only total / balance lines.";
+
+/** Legacy `aiClassify` prompt (4863–4875), verbatim; the lists come from `@wise/core/bank/parity` `bankClassifyLists`. */
+export const BANK_CLASSIFY_PROMPT = (firmName: string, acc: string, docs: string, lines: string): string => `You are an accountant in North Macedonia (chart of accounts per Правилник 174/2011). Classify each bank statement line (извод) of the company "${firmName}".
+Positive amount = money received (прилив), negative = money paid (одлив).
+For each line choose EITHER an open document it settles (use its ref id exactly) OR the counter-account (конто) from the list. Typical: cash withdrawal for the cash box (подигнување готовина, исплата на готово, банкомат) → 1020; bank fees, провизија, надомест за одржување на (девизна) сметка, пакет услуги, трошоци за платен промет, charged by the bank itself → 4460 (Банкарски услуги) – NEVER 2200 for bank fees; ПИО/здравство/вработување contributions → 2410/2411/2412/2413; персонален данок → 2420; ДДВ payment to УЈП (VAT owed per the closed VAT return) → 23008; ДДВ refund / поврат на ДДВ received from УЈП → 1308; net salaries → 2400; utilities/ЕВН/electricity → 4010; administrative / court fees (такси) → 44792; payment to a supplier without a matching document → 2200; receipt from a customer without a matching document → 1200.
+Reply with ONLY a JSON array: [{"id":string,"ref":string|null,"konto":string|null,"reason":string (short, Macedonian)}].
+
+Accounts:
+${acc}
+
+Open documents:
+${docs}
+
+Bank lines:
+${lines}`;

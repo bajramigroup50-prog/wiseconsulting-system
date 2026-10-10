@@ -34,7 +34,7 @@ export const aiUsage = pgTable('ai_usage', {
   refId: text('ref_id'),
 }, (t) => [index('ai_usage_firm_at_idx').on(t.firmId, t.at)]);
 
-export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | 'fisk' | 'classify' | 'bom' | 'ob' | 'rec';
+export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | 'fisk' | 'classify' | 'bom' | 'ob' | 'rec' | 'bankcls';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */
