@@ -58,6 +58,10 @@ describe('production from a sales invoice', () => {
     expect(o).toMatchObject({ date: '2026-03-10', mat: '450.00', lab: '100.00', note: `Фактура ${r.number}` });
     const M = await moves('production', o!.id);
     expect(M.map((m) => [m.itemId, Number(m.qty), Number(m.value)]).sort()).toEqual([[glue, -1, -50], [table, 2, 550], [wood, -4, -400]].sort());
+    const [j] = await db.select().from(schema.journals).where(and(eq(schema.journals.sourceType, 'stock:production'), eq(schema.journals.sourceId, o!.id)));
+    const JL = await db.select().from(schema.journalLines).where(eq(schema.journalLines.journalId, j!.id));
+    expect(JL.reduce((a, l) => a + Number(l.debit) - Number(l.credit), 0)).toBeCloseTo(0, 2);
+    expect(JL.reduce((a, l) => a + Number(l.debit), 0)).toBeGreaterThan(0);
     expect(await qtyOf(table)).toBe(0); // produced 2, sold 2
     expect(await qtyOf(wood)).toBe(6);
     const [bom] = await db.select().from(schema.boms).where(eq(schema.boms.productId, table));

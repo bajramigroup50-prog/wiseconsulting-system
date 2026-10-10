@@ -4,13 +4,13 @@
  * hard-coded literals. Custom materials per order (`pc*`, `?pc=1`), materials as % of the price without a normativ (`pnbRun`), the
  * v439 hint (normativ per unit, „Доволно за“, maximum) and the tab to the period write-off (`rasNorm`).
  */
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { productionNeeds } from '@wise/core';
 import { bomHint, pnbPlan, rnItems } from '@wise/core/parity-stock';
 import Link from 'next/link';
 import { itemOptions } from '@/lib/stock';
 import { CustomProdEditor, PnbPct, PnbRun } from '../_stock/prod-tools';
-import { productionOrders } from '@wise/db';
+import { invoices, productionOrders, type InvoiceData } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dateInYear, locOptions, pickLoc, stockPage } from '@/lib/stock';
@@ -38,6 +38,10 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
   const list = await db().select().from(productionOrders)
     .where(and(eq(productionOrders.firmId, firm.id), gte(productionOrders.date, `${year}-01-01`), lte(productionOrders.date, `${year}-12-31`)))
     .orderBy(desc(productionOrders.date), desc(productionOrders.number));
+  const invOf = new Map<string, { id: string; number: string }>();
+  for (const v of await db().select({ id: invoices.id, number: invoices.number, data: invoices.data }).from(invoices).where(and(eq(invoices.firmId, firm.id), sql`${invoices.data} ? 'prodRun'`))) {
+    for (const o of ((v.data ?? {}) as InvoiceData).prodRun?.orders ?? []) invOf.set(o.id, { id: v.id, number: v.number });
+  }
   const names = new Map((L.ctx.items ?? []).map((i) => [i.id, i.name]));
   const hint = p && (p.bom ?? []).length ? bomHint(L.ctx, p, wh) : null;
   const rnPct = Number((L.firm.settings as Record<string, unknown> | null)?.rnPct) || 60;
@@ -117,6 +121,7 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
           )}
         </div>
       ) : <div className="card empty">Нема производи. Додадете артикл од вид „Готов производ“.</div>}
+      {/* production made from a sales invoice („Производство = Да“): link to the invoice */}
       {list.length > 0 && (
         <div className="tw"><table>
           <thead><tr><th>Датум</th><th>Бр.</th><th>Производ</th><th>Објект</th><th className="n">Количина</th><th className="n">Материјал</th><th className="n">Труд</th><th className="n">Цена по единица</th><th /></tr></thead>
@@ -125,7 +130,8 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
               <tr key={x.id}>
                 <td>{dmy(x.date)}</td><td>{x.number}</td><td>{names.get(x.productId)}</td><td>{L.locName(x.locationId)}</td><td className="n">{fq(x.qty)}</td>
                 <td className="n">{fmt(x.mat)}</td><td className="n">{fmt(x.lab)}</td><td className="n">{fmt(x.unitCost)}</td>
-                <td>{write && <RowAction action={deleteProdAction.bind(null, x.id)} label="Сторнирај" className="btn sm ghost danger" confirm={`Да се сторнира работниот налог ${x.number}?`} />}</td>
+                <td>{invOf.get(x.id) ? <Link className="btn sm" href={`/izlez?edit=${invOf.get(x.id)!.id}`} title="Производство од фактура – се менува и брише со фактурата">📄 Фактура {invOf.get(x.id)!.number}</Link>
+                  : write && <RowAction action={deleteProdAction.bind(null, x.id)} label="Сторнирај" className="btn sm ghost danger" confirm={`Да се сторнира работниот налог ${x.number}?`} />}</td>
               </tr>
             ))}
           </tbody>

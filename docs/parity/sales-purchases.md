@@ -80,6 +80,18 @@ book in this area exports to PDF and Excel; specific legacy exports (ПЛТ, к�
 | save | Per-kind success toasts, auto-open preview | | different | one „Документот е зачуван. 👁 Преглед / печатење“ callout |
 | editor | art. 32-a lines konto '7460' | | different | FIX LEGACY-MAP 3.4 item 3 (scheme konto kept) |
 
+### 3a. New (not in legacy): production from a sales invoice
+
+Legacy had only a free „Трошоци за производство“ field when „Производство = Да“. Now the invoice editor opens
+„🏭 Репроматеријали за производство“: materials per produced line from the normativ (BOM × quantity) or picked from stock
+(quick „шифра количина“), stock on hand, average cost, red when short; materials warehouse; „зачувај како норматив“;
+extra costs. On save (same transaction, before the invoice issues the product) one production order per produced line is
+made through the production engine (`runProduction` + `replaceSourceMoves`, production posting scheme), dated the invoice
+date; „Трошоци за производство“ = materials + extra. Editing replaces, deleting removes, client entries keep the plan and
+approval runs it; locked periods are refused. Links: „🏭 Налог за производство бр. …“ in the editor and the list (to its
+journal), „📄 Фактура …“ on the production order. Code: `@wise/core/sales` inv-production.ts, `packages/db/src/sales/invoice-production.ts`,
+`components/sales/prod-panel.tsx`; tests in `packages/core/src/inv-production.test.ts` and `packages/db/src/invoice-production.test.ts`.
+
 ## 4. Prints, PDF, e-mail, QR, UBL, e-invoice
 
 | Print / view | Element | Server | Fix |

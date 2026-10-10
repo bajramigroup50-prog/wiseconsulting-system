@@ -29,6 +29,10 @@ const Payload = z.object({
   note: z.string().max(4000), data: z.record(z.string(), z.string().max(500)),
   lines: z.array(Line).max(2000), advances: z.array(z.object({ advanceId: z.string().max(40), amount: str })).max(100),
   scanDocId: z.string().max(40).optional(), scanIndex: z.number().int().min(0).optional(), back: z.string().max(200).optional(),
+  production: z.object({
+    wh: z.string().max(40).nullable(), extra: str, saveBom: z.boolean(),
+    lines: z.array(z.object({ lineNo: z.number().int().min(0), productId: z.uuid(), qty: str, materials: z.array(z.object({ itemId: z.uuid(), qty: str })).max(200) })).max(200),
+  }).nullable().optional(),
 });
 
 /** List view of a document kind. */
@@ -45,6 +49,7 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
       const r = await saveInvoice(tx, firm.id, {
         ...v, lines: v.lines.map((l) => ({ ...l, itemId: l.itemId || null })), partnerId: v.partnerId || null, warehouseId: v.warehouseId || null,
         refInvoiceId: v.refInvoiceId || null, fromDocId: v.fromDocId || null, scanned: !!v.scanDocId,
+        production: v.production ? { ...v.production, wh: v.production.wh || null } : null,
         advances: v.advances.filter((a) => Number(a.amount) > 0),
         data: v.data,
       }, actorOf(u));
