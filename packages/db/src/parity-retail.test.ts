@@ -11,7 +11,7 @@ import { seedReference } from './seed/reference';
 import { loadStockContext, replaceSourceMoves } from './stock-service';
 import type { Actor } from './stock-docs';
 import { saveCoupon, saveLoyaltyCard } from './retail';
-import { posSaleWithLoyalty } from './parity-retail';
+import { posSaleWithLoyalty, postFiskRead } from './parity-retail';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -63,5 +63,34 @@ describe('posSaleWithLoyalty', () => {
     // a used-up coupon is refused, nothing is booked
     expect((await err(tx((t) => posSaleWithLoyalty(t, A, { date: '2026-03-02', cart, coupon: 'JESEN' })))).message).toBe('Купонот е веќе искористен.');
     expect((await err(tx((t) => posSaleWithLoyalty(t, A, { date: '2026-03-02', cart, cardNo: '999' })))).message).toMatch(/не е пронајдена/);
+  });
+});
+
+describe('postFiskRead', () => {
+  const read = {
+    device: 'AC240119487', from: '2026-04-01', to: '2026-04-02',
+    days: [
+      { date: '2026-04-01', z: '11', gross: { 'А': 1180, 'Б': 105 }, vat: { 'А': 180, 'Б': 5 }, total: 1285, cash: 1000, card: 285, receipts: 7 },
+      { date: '2026-04-02', z: '12', gross: { 'А': 590 }, vat: { 'А': 90 }, total: 590, cash: 590 },
+    ],
+  };
+  const fisk = () => db.select().from(schema.salesDaily).where(eq(schema.salesDaily.kind, 'fisk'));
+  it('posts each day, replaces on a repost, keeps the days of a single posting, issues goods', async () => {
+    const r = await tx((t) => postFiskRead(t, A, { read, today: '2026-04-10', nonVat: false, sum: false, sc: 'trg' }));
+    expect(r.ids).toHaveLength(2);
+    expect(r.total).toBe(1875);
+    await tx((t) => postFiskRead(t, A, { read, today: '2026-04-10', nonVat: false, sum: false, sc: 'trg' }));
+    const S = await fisk();
+    expect(S).toHaveLength(2);
+    const d1 = S.find((s) => s.date === '2026-04-01')!;
+    expect([d1.number, Number(d1.card), d1.count, d1.fisk?.device, d1.fisk?.sc]).toEqual(['11', 285, 7, 'AC240119487', 'trg']);
+    expect(d1.groups.map((g) => [g.rate, g.base + g.vat]).sort()).toEqual([[18, 1180], [5, 105]]);
+    const s = await tx((t) => postFiskRead(t, A, { read, today: '2026-04-10', nonVat: false, sum: true, sc: 'trg', issue: true, meth: 'fifo' }));
+    expect(s.ids).toHaveLength(1);
+    const [one] = await db.select().from(schema.salesDaily).where(eq(schema.salesDaily.id, s.ids[0]!));
+    expect(one!.days?.map((d) => d.date)).toEqual(['2026-04-01', '2026-04-02']);
+    expect(s.issued).toBeGreaterThan(0);
+    const [f] = await db.select().from(schema.firms).where(eq(schema.firms.id, firmId));
+    expect((f!.settings as { fiskOpt?: { sc?: string } }).fiskOpt?.sc).toBe('trg');
   });
 });

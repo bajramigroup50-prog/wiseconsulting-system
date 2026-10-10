@@ -175,6 +175,8 @@ export interface SalesDayRow { date: string; z?: string; total: number; est?: bo
 export interface SalesFiskInfo {
   device?: string; z?: string; sc?: 'trg' | 'usl' | 'trgNoVat'; cashK?: string; rev?: string; nonVat?: boolean;
   from?: string; to?: string; storno?: number; cash?: number;
+  /** Days of a read report posted as one row (legacy `periodic`); scanned report file (legacy `z.files`, archive). */
+  periodic?: boolean; fileId?: string | null; receipts?: number;
   /** Goods issued for the turnover with FIFO / LIFO / proportional selection. */
   meth?: 'fifo' | 'lifo' | 'prop';
 }

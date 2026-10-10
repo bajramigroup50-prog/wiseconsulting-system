@@ -24,3 +24,13 @@ export function LocSelect({ label, param, value, options, keep = false, empty }:
   );
   return label ? <label className="f">{label}{sel}</label> : sel;
 }
+
+/** Legacy `.ftabs` tab strip (buttons with `aria-selected`), each tab a link. */
+export function FTabs({ tabs, active }: { tabs: readonly (readonly [string, string, string])[]; active: string }) {
+  const router = useRouter();
+  return (
+    <div className="ftabs" role="tablist">
+      {tabs.map(([k, label, href]) => <button key={k} type="button" role="tab" aria-selected={k === active} onClick={() => router.push(href)}>{label}</button>)}
+    </div>
+  );
+}
