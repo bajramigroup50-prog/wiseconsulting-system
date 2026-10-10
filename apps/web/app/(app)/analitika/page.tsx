@@ -13,6 +13,8 @@ import { finLines, partnerMap, srchMatch } from '@/lib/finance';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { DownloadCsv } from '@/components/download-csv';
+import { ConfirmLink } from '@/components/parity-fin/confirm-link';
+import { dmy } from '@/lib/fmt';
 
 type SP = { q?: string; k?: string; bal?: string };
 
@@ -39,7 +41,11 @@ export default async function AnalitikaPage({ searchParams }: { searchParams: Pr
         <DownloadCsv name={`Analitika_${year}.csv`} label="CSV" rows={[['Партнер', 'ЕДБ', 'Конто', 'Должи', 'Побарува', 'Салдо'], ...rows.map((r) => [pn(r.p), P.get(r.p)?.edb ?? '', r.k, r.d, r.c, Math.round((r.d - r.c) * 100) / 100])]} />
         <a className="btn" href={pr('analitika')} target="_blank" rel="noopener">PDF преглед</a>
         <a className="btn" href={pr('pkartica')} target="_blank" rel="noopener">PDF картици ({np})</a>
-        <a className={`btn pri${np ? '' : ' disabled'}`} href={pr('ios')} target="_blank" rel="noopener">ИОС PDF за сите прикажани ({np})</a>
+        {/* legacy `anCsv` 7261: every partner line of the year */}
+        <DownloadCsv name={`Analitika_stavki_${year}.csv`} label="CSV ставки" rows={[['Датум', 'Партнер', 'Конто', 'Документ', 'Должи', 'Побарува'],
+          ...lines.filter((l) => l.partnerId).map((l) => [dmy(l.date), pn(l.partnerId!), l.account, [l.description, l.doc].filter(Boolean).join(' · '), l.debit, l.credit])]} />
+        <Link className="btn" href="/kartici/potvrdi">📨 Потврди на салдо – сите</Link>
+        <ConfirmLink className={`btn pri${np ? '' : ' disabled'}`} href={pr('ios')} ask={np > 30 ? `Да се направи ИОС за ${np} партнери во еден PDF? Ова може да трае.` : undefined}>ИОС PDF за сите прикажани ({np})</ConfirmLink>
       </Hd>
       <form className="card"><div className="row" style={{ gap: '10px 16px', alignItems: 'end', flexWrap: 'wrap' }}>
         <input name="q" placeholder="🔍 Барај партнер по име, ЕДБ, шифра, град…" defaultValue={F.q} style={{ width: 320 }} autoComplete="off" />
@@ -61,7 +67,7 @@ export default async function AnalitikaPage({ searchParams }: { searchParams: Pr
               <td>{pn(r.p)}{P.get(r.p)?.edb && <><br /><small className="mut">ЕДБ {P.get(r.p)!.edb}</small></>}</td>
               <td>{r.k} {kName(r.k)}</td><td className="n">{fmt(r.d)}</td><td className="n">{fmt(r.c)}</td><td className="n">{fmt(r.d - r.c)}</td>
               <td className="row" style={{ flexWrap: 'nowrap' }}>
-                <Link className="btn sm" href={`/kartici?k=${r.k.slice(0, 2)}&pid=${r.p}`}>Картица</Link>
+                <Link className="btn sm" href={`/kartici?k=12,22&pid=${r.p}`}>Картица</Link>
                 <a className="btn sm" href={`/print/fin/pkartica?pid=${r.p}`} target="_blank" rel="noopener">Картица PDF</a>
                 <a className="btn sm" href={`/print/fin/ios?pid=${r.p}`} target="_blank" rel="noopener">ИОС PDF</a>
               </td>
