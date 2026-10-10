@@ -4,6 +4,7 @@ import { zsRokRows } from './zsrok';
 import { opDays, opDue, opGroups, opText, waPhone } from './dunning';
 import { mhKind, mhKindGroup } from './mailhist';
 import { klStrongPw, klUserName } from './klprofili';
+import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -106,5 +107,19 @@ describe('monthly close (legacy zatTasks / zatPrio)', () => {
     expect(zatPrio({ vat: true, vatPeriod: 'month', activeEmployees: 0 }, '2026-02')[0]).toBe(1);
     expect(zatPrio({ vat: true, vatPeriod: 'quarter', activeEmployees: 0 }, '2026-03')[0]).toBe(2);
     expect(zatPrio({ vat: false, vatPeriod: 'quarter', activeEmployees: 0 }, '2026-03')[0]).toBe(5);
+  });
+});
+
+describe('firm import (legacy fimpField / fimpRead / fimpFind)', () => {
+  it('finds the header row, maps columns, flags and existing firms', () => {
+    const P = fimpParse([['Извоз'], ['Шифра', 'Име на фирма', 'ЕДБ', 'Жиро сметка', 'ДДВ', 'ДДВ период', 'Правна форма'], ['1', 'Алфа ДООЕЛ', 'MK 4030 000000 001', '300 1', 'да', 'месечно', 'ДООЕЛ'], ['', '', '']]);
+    if ('error' in P) throw new Error(P.error);
+    expect(P.L).toHaveLength(1);
+    expect(P.L[0]).toMatchObject({ code: '1', name: 'Алфа ДООЕЛ', edb: 'MK4030000000001', bank: '3001', ddv: true, per: 'month' });
+    const F = fimpToFirm(P.L[0]!);
+    expect(F.cols).toMatchObject({ edb: '4030000000001', legalForm: 'dooel', vatRegistered: true, vatPeriod: 'month' });
+    expect(F.settings.bankAccount).toBe('3001');
+    expect(fimpFind(P.L[0]!, [{ id: 'x', name: 'Друга', edb: '4030000000001', embs: null }])?.id).toBe('x');
+    expect('error' in fimpParse([['a', 'b']])).toBe(true);
   });
 });
