@@ -56,7 +56,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       const prompt = doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT;
       const base = { db, firmId: f.id, prompt, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
       let quick: ScanResult | null = null;
-      try {
+      // legacy `outDeep` / `outRunDeep`: a deeper read straight away (no quick read)
+      const deep = !!(doc.options as { deep?: boolean }).deep;
+      if (!deep) try {
         const r = await readContent<ScanResult>({ ...base, tier: 'quick' }, content);
         quick = fx(r.data);
         model = r.model;

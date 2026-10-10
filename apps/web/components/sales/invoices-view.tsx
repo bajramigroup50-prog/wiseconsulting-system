@@ -18,6 +18,7 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { DownloadCsv } from '@/components/download-csv';
 import { approveInvoiceAction, deleteInvoiceAction, saveInvoiceStyle } from '@/app/(app)/izlez/actions';
+import { ensureScanBuyer } from '@/app/(app)/skan/actions';
 import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-editor';
 import { blankLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
 
@@ -27,7 +28,7 @@ export function PayPill({ paid, total }: { paid: number; total: number }) {
   return st === 'paid' ? <span className="pill good">платена</span> : st === 'part' ? <span className="pill warn">делумно</span> : <span className="pill">отворена</span>;
 }
 
-export type SP = { nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string };
+export type SP = { nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
 
 const INTRO: Record<DtKey, string> = {
   credit: 'Книжно одобрение (рабат, поврат, корекција на цена) кон купувач. Се книжи како сторно на фактурата (1200, приход и ДДВ на обратна страна) и го намалува долгот по фактурата. Повратница: стоката се враќа на залиха.',
@@ -80,6 +81,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     if (dt === 'service') init.svc = true;
     let title = DT[dt].nova, sub = '', scanInfo: string | undefined, back = view;
     let nalogNo: string | null = null;
+    let buyerBox: { doc: string; i: number; name: string; edb: string } | null = null;
     if (sp.edit) {
       const e = await loadFull(sp.edit);
       if (!e) return <NoFirm t="Документот не постои" />;
@@ -111,7 +113,8 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         lines: dr.items.map((l) => ({ ...blankLine(l.konto), itemId: l.itemId, name: l.name, unit: l.unit, qty: s(l.qty), price: s(l.price), rate: s(l.rate) })),
         data: dr.buyer.name ? { buyerName: dr.buyer.name } : {}, scanDocId: doc.id, scanIndex: idx,
       };
-      scanInfo = `Податоците се прочитани автоматски${dr.partnerId ? '' : ` – купувачот „${dr.buyer.name}“ (ЕДБ ${dr.buyer.edb || '—'}) го нема во комитенти: додадете го во Партнери и изберете го`}. Проверете ги и зачувајте.`;
+      scanInfo = 'Проверете ја фактурата и притиснете „Зачувај“.';
+      if (!dr.partnerId && dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb };
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
     }
     const [P, I, Lc, accts, stockRows, refs, advs] = await Promise.all([
@@ -140,9 +143,11 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       id: a.id, number: a.number, date: a.date, partnerId: a.partnerId, base: Number(a.base), art32: a.art32, lines: AL.get(a.id) ?? [],
       used: usedAdv.filter((x) => x.a === a.id && x.inv !== init.id).reduce((t, x) => t + Number(x.s), 0),
     }));
-    return <InvoiceEditor initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
+    return <>{buyerBox && <div className="callout warn">Купувачот „{buyerBox.name}“ (ЕДБ {buyerBox.edb || '—'}) не е во комитенти. <RowAction className="btn sm pri" action={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} label="Додај го како партнер" /></div>}
+      {sp.prevSaved && <div className="callout good">Претходната фактура е зачувана. Се отвора следната скенирана фактура.</div>}
+      <InvoiceEditor key={init.partnerId || 'np'} initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
       refInvoices={refInvoices} advances={advances} revDefault={revDefault} revByType={{ service: schemeValue(ctx, 'revService'), goods: schemeValue(ctx, 'revGoods'), material: schemeValue(ctx, 'revGoods'), product: schemeValue(ctx, 'revProduct') }} advanceKonto={schemeValue(ctx, 'advance')} nonVat={!firm.vatRegistered}
-      nalogNo={nalogNo} back={back} firmAddress={firm.address} scanInfo={scanInfo} />;
+      nalogNo={nalogNo} back={back} firmAddress={firm.address} scanInfo={scanInfo} /></>;
   }
 
   /* ---------------- list ---------------- */

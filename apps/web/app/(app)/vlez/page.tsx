@@ -7,7 +7,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import type { ScanPurchaseDraft } from '@wise/core/sales';
 import {
-  aiDocuments, codes, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
+  aiDocuments, codes, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -17,12 +17,14 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { DownloadCsv } from '@/components/download-csv';
-import { PurchaseEditor, type PurItemOpt } from '@/components/sales/purchase-editor';
+import { PurchaseEditor, type PurItemOpt, type ScanQueueProp } from '@/components/sales/purchase-editor';
 import { PayPill } from '@/components/sales/invoices-view';
 import { blankCost, COSTS, newPurchase, s, type EdPurchase } from '@/components/sales/model';
 import { approvePurchaseAction, deletePurchaseAction } from './actions';
+import { scanEditorHref, scanQueue } from '@/lib/scan-queue';
+import { fuelRuleNow } from '@/lib/sales-parity';
 
-type SP = { nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string };
+type SP = { nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string };
 
 export default async function VlezPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -41,6 +43,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
     let title = sp.imp !== undefined ? 'Увозна (девизна) влезна фактура' : 'Влезна фактура', scanInfo: string | undefined, back = '/vlez';
     let nalogNo: string | null = null;
     let fileIds: string[] = [];
+    let queue: ScanQueueProp | undefined;
     if (sp.edit) {
       const [pu] = await db().select().from(purchases).where(and(eq(purchases.id, sp.edit), eq(purchases.firmId, firm.id))).limit(1);
       if (!pu) return <NoFirm t="Влезната фактура не постои" />;
@@ -84,11 +87,17 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         stock: dr.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: l.unit ?? 'ком', qty: s(l.qty), price: s(l.price), rab: '', amount: l.amount ? s(l.amount) : '', cn: '', dep: '', sp: l.sp === undefined ? '' : s(l.sp), type: l.type ?? '', rate: s(l.rate ?? ''), isNew: l.isNew })),
         fileIds, scanned: true, scanDocId: doc.id, scanIndex: idx,
       };
-      scanInfo = 'Податоците се прочитани автоматски од документот' + (x?.msg ? ' – провери: ' + x.msg : '') + '. Проверете ги и зачувајте.';
+      scanInfo = 'Податоците се прочитани автоматски од документот' + (x?.msg ? ' – провери: ' + x.msg : '') + '. Проверете ги износите пред да зачувате.';
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
+      const Q = await scanQueue(firm.id, doc.id, idx);
+      if (Q && (Q.batchId || Q.rest)) queue = { batch: !!Q.batchId, name: Q.name, rest: Q.rest, skipHref: Q.next ? await scanEditorHref(firm.id, Q.next, back) : null, listHref: back };
     }
+    const [fuelRule, closedP] = await Promise.all([
+      fuelRuleNow(),
+      db().select({ a: vatPeriods.dateFrom, b: vatPeriods.dateTo }).from(vatPeriods).where(and(eq(vatPeriods.firmId, firm.id), eq(vatPeriods.status, 'closed'))),
+    ]);
     const [P, I, Lc, accts, F, last] = await Promise.all([
-      partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id), accountOptions(firm.id, (k) => /^[0346]/.test(k)),
+      partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id), accountOptions(firm.id, (k) => /^[02346]/.test(k)),
       fileIds.length ? db().select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fileIds)) : Promise.resolve([]),
       db().select({ item: stockMoves.itemId, v: stockMoves.value, q: stockMoves.qty, d: stockMoves.date }).from(stockMoves)
         .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.direction, 'in'), eq(stockMoves.kind, 'in'))).orderBy(desc(stockMoves.date)),
@@ -97,7 +106,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
     for (const m of last) if (!lastCost.has(m.item) && Number(m.q) > 0) lastCost.set(m.item, Math.round((Number(m.v) / Number(m.q)) * 1e4) / 1e4);
     const items: PurItemOpt[] = I.map((i) => ({ ...i, lastCost: lastCost.get(i.id) }));
     return <PurchaseEditor initial={init} title={title} partners={P} items={items} locations={Lc} accounts={accts} nonVat={!firm.vatRegistered}
-      defMargin={Number(S.defMargin) || 25} mgRound={Number(S.mgRound) || 1} back={back} scanInfo={scanInfo} files={F} nalogNo={nalogNo} />;
+      defMargin={Number(S.defMargin) || 25} mgRound={Number(S.mgRound) || 1} back={back} scanInfo={scanInfo} files={F} nalogNo={nalogNo} queue={queue} prevSaved={!!sp.prevSaved} warn={sp.prevSaved ? sp.w : undefined}
+      firmId={firm.id} canDel={del} fuelRule={fuelRule} closed={closedP.map((x) => [String(x.a), String(x.b)] as [string, string])}
+      typeKonto={{ goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), product: schemeValue(ctx, 'product') }} />;
   }
 
   const q = (sp.q ?? '').toLowerCase().trim();

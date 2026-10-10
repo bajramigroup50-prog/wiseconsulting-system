@@ -6,12 +6,13 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { approveInvoice, audit, deleteInvoice, firms, markDraftSaved, saveInvoice } from '@wise/db';
+import { aiDocuments, approveInvoice, audit, deleteInvoice, fileLinks, firms, markDraftSaved, saveInvoice } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
+import { scanEditorHref, scanQueue } from '@/lib/scan-queue';
 
 const str = z.union([z.string(), z.number()]).transform((v) => String(v).trim().replace(',', '.'));
 const date = z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Неважечки датум.');
@@ -46,13 +47,23 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
         advances: v.advances.filter((a) => Number(a.amount) > 0),
         data: v.data,
       }, actorOf(u));
-      if (v.scanDocId != null && v.scanIndex != null) await markDraftSaved(tx, firm.id, v.scanDocId, v.scanIndex, r.id);
+      if (v.scanDocId != null && v.scanIndex != null) {
+        await markDraftSaved(tx, firm.id, v.scanDocId, v.scanIndex, r.id);
+        // the scanned original stays attached to the invoice (legacy `outDraft` files: [att])
+        const [ad] = await tx.select({ f: aiDocuments.fileId }).from(aiDocuments).where(and(eq(aiDocuments.id, v.scanDocId), eq(aiDocuments.firmId, firm.id))).limit(1);
+        if (ad?.f) await tx.insert(fileLinks).values({ fileId: ad.f, entityType: 'invoice', entityId: r.id, role: 'source' }).onConflictDoNothing();
+      }
       return r;
     });
     const back = v.back && /^\/[a-zA-Z]/.test(v.back) ? v.back : '/' + viewOf(v.kind, v.svc);
     const q = new URLSearchParams({ saved: res.id });
     if (res.warnings.length) q.set('w', res.warnings.join(' | ').slice(0, 1500));
     target = back + (back.includes('?') ? '&' : '?') + q.toString();
+    // legacy `outSaveOne` / scan queue: the next scanned invoice of the run opens automatically
+    if (v.scanDocId != null && v.scanIndex != null) {
+      const Q = await scanQueue(firm.id, v.scanDocId, v.scanIndex);
+      if (Q?.next) target = (await scanEditorHref(firm.id, Q.next, back)) + '&prevSaved=' + res.id;
+    }
   } catch (e) { return actionError(e); }
   revalidatePath('/', 'layout');
   redirect(target);

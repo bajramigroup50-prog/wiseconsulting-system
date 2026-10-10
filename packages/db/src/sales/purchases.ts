@@ -14,7 +14,7 @@ import { findDuplicate, purchaseTotal } from '@wise/core/sales';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource } from '../posting';
 import {
-  fileLinks, files, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
+  fileLinks, files, itemBarcodes, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
   supplierCredits, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
@@ -22,6 +22,7 @@ import {
 } from './context';
 import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
 import { saveLevelling } from '../stock-docs';
+import { ensurePartner } from './partners-auto';
 
 export const COST_SLOTS = ['car', 't1', 't2', 'sped', 'trans', 'dr', 'dev'] as const;
 export interface PurchaseGroupInput { account?: string | null; rate: number | string; base: number | string; vat?: number | string | null }
@@ -76,7 +77,7 @@ async function nextCalcNo(tx: Tx, firmId: string, wh: string | null, whCode: str
  * code sequence from 1000, sale price = cost × (1 + default margin, 25%). FIX (LEGACY-MAP 3.4 item 3): no hard-coded
  * revenue konto '7400' — the item's revenue konto stays empty and the scheme decides by item type.
  */
-async function createMissingItems(tx: Tx, firmId: string, lines: PurchaseStockInput[], defMargin: number, partnerId: string | null): Promise<number> {
+export async function createMissingItems(tx: Tx, firmId: string, lines: PurchaseStockInput[], defMargin: number, partnerId: string | null): Promise<number> {
   const todo = lines.filter((s) => !s.itemId && String(s.name ?? '').trim() && n(s.qty));
   if (!todo.length) return 0;
   const codes = (await tx.select({ c: items.code }).from(items).where(eq(items.firmId, firmId))).map((r) => r.c ?? '');
@@ -96,9 +97,12 @@ async function createMissingItems(tx: Tx, firmId: string, lines: PurchaseStockIn
     }).returning({ id: items.id });
     s.itemId = it!.id;
     byName.set(key, it!.id);
+    // legacy: the barcode (8+ digits) and the supplier's code go onto the new item
+    const bc = String(s.barcode ?? '').replace(/\D/g, '');
+    if (bc.length >= 8) await tx.insert(itemBarcodes).values({ firmId, itemId: it!.id, barcode: bc, primary: true }).onConflictDoNothing();
+    if (partnerId && s.code) await tx.insert(itemSupplierCodes).values({ firmId, itemId: it!.id, partnerId, code: String(s.code), name: String(s.name).trim() }).onConflictDoNothing();
     made++;
   }
-  void partnerId;
   return made;
 }
 
@@ -196,9 +200,9 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
     if (!p) throw new DocumentError('Добавувачот не постои во оваа фирма.');
   } else if (String(input.supplierName ?? '').trim()) {
     // legacy `ensureSupplier`: create the supplier from the read document
-    const [p] = await tx.insert(partners).values({ firmId, name: String(input.supplierName).trim(), edb: input.supplierEdb?.trim() || null, foreign: imp }).returning({ id: partners.id });
-    partnerId = p!.id;
-    warnings.push(`Додаден е нов добавувач „${String(input.supplierName).trim()}“.`);
+    const r = await ensurePartner(tx, firmId, { name: String(input.supplierName), edb: input.supplierEdb, foreign: imp, type: 'supplier' });
+    partnerId = r.id;
+    if (r.created) warnings.push(`Додаден е нов добавувач „${String(input.supplierName).trim()}“.`);
   } else if (!cash) throw new DocumentError('Изберете добавувач.');
 
   const groups = input.groups
@@ -217,6 +221,14 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   const stock = stockIn.filter((s) => s.itemId && n(s.qty));
   const IT = await firmItems(tx, firmId, stock.map((s) => s.itemId!));
   for (const s of stock) if (IT.get(s.itemId!)!.type === 'service') throw new DocumentError(`„${IT.get(s.itemId!)!.name}“ е услуга и не оди на залиха.`);
+  // legacy `savePur_`: the line's „Вид“ (goods / material / product) chosen in the receipt is saved on the item
+  for (const s of stock) {
+    const it = IT.get(s.itemId!)!;
+    if (s.type && s.type !== it.type && ['goods', 'material', 'product'].includes(String(s.type))) {
+      await tx.update(items).set({ type: s.type as 'goods' }).where(eq(items.id, it.id));
+      it.type = s.type as 'goods';
+    }
+  }
 
   const total = purchaseTotal({ art32, groups });
   const number = String(input.number ?? '').trim();
@@ -285,6 +297,12 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
     date: c.date || null, due: c.due || null, partnerId: c.partner || null, byQty: !!c.byQty, foreign: !!c.foreign,
     lines: (c.lines ?? []).filter((l): l is NonNullable<typeof l> => !!l).map((l) => ({ base: n(l.base), rate: n(l.rate), vat: n(l.vat) })),
   })));
+  // legacy `rmFile`: documents removed in the editor are unlinked (only when the editor sent its file list)
+  if (existing && input.fileIds) {
+    const keep = input.fileIds;
+    await tx.delete(fileLinks).where(and(eq(fileLinks.entityType, 'purchase'), eq(fileLinks.entityId, existing.id),
+      keep.length ? sql`${fileLinks.fileId} not in (${sql.join(keep.map((x) => sql`${x}::uuid`), sql`, `)})` : undefined));
+  }
   if (input.fileIds?.length) {
     const F = await tx.select({ id: files.id }).from(files).where(and(eq(files.firmId, firmId), inArray(files.id, input.fileIds)));
     if (F.length) await tx.insert(fileLinks).values(F.map((x) => ({ fileId: x.id, entityType: 'purchase', entityId: pur.id, role: 'source' }))).onConflictDoNothing();

@@ -8,3 +8,4 @@ export * from './sales/xml';
 export * from './sales/ubl';
 export * from './sales/scan';
 export * from './sales/invoice-print';
+export * from './sales/fuel';
