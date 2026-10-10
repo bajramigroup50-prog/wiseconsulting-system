@@ -74,7 +74,8 @@ const FMT_LBL: Record<string, string> = { mt940: 'MT940', 'halk-xml': 'XML Racun
 
 /** Summarise parsed statements of one file (`kind` from `detectStatementFormat`, `bank` from `bankByText` / IBAN). */
 export function analyzeStatements(S: readonly Statement[] | null, kind: string, bank: string, text = ''): StatementAnalysis {
-  const R: StatementAnalysis = { fmt: FMT_LBL[kind] ?? kind, bank, no: '', n: 0, names: 0, purp: 0, bal: false, mkd: false, osnov: false, note: '' };
+  // Legacy `bkAnalyze` 12730: a KBFileFormat file is Комерцијална банка (300) when the text names no bank.
+  const R: StatementAnalysis = { fmt: FMT_LBL[kind] ?? kind, bank: bank || (kind === 'kb' ? '300' : ''), no: '', n: 0, names: 0, purp: 0, bal: false, mkd: false, osnov: false, note: '' };
   if (kind === 'ai') return { ...R, fmt: 'PDF / слика', note: 'Се чита со AI при увоз – побавно и ретко може да згреши. Користете го ако банката нема XML.' };
   if (!S || !S.length) return { ...R, fmt: R.fmt + ' (не е препознаено)' };
   const it = S.flatMap((s) => s.lines);
