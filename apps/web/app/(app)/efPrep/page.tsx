@@ -14,6 +14,7 @@ import { allowedFirms } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { saveEfAction } from './actions';
+import { PickFirm } from '../lawrep/pick-firm';
 import { can, efOf } from './status';
 
 export default async function EfPrepPage({ searchParams }: { searchParams: Promise<{ run?: string; open?: string }> }) {
@@ -52,8 +53,9 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
           <li><b>Документација:</b> од efakturawiki.ujp.gov.mk преземете ја спецификацијата (JSON пример, API) – испратете ја за поврзување на програмата.</li>
           <li><b>Сертификат за секој клиент:</b> квалификуван (КИБС / Халком / Телеком) – токен (USB) или датотека (.p12/.pfx). Проверете важност.</li>
           <li><b>Купувачите:</b> ЕДБ (13 цифри), адреса, град и ДДВ статус мора да се точни – УЈП ги проверува (табелата долу).</li>
-          <li><b>Продукција:</b> по донесување на законот – клиентите по ред, пред рокот.</li>
+          <li><b>Продукција:</b> по донесување на законот – клиентите по ред, пред рокот (предлог: ДДВ обврзници од 01.04.2027).</li>
         </ol>
+        <p className="mini" style={{ margin: '6px 0 0' }}>Статус на законот (04.10.2026): предлог-закон, доброволно од 01.10.2026. Роботот за законски промени секој ден проверува и ве известува (<Link href="/zakoni">⚖️ Законски промени</Link>).</p>
       </div>
       <div className="card"><div className="row" style={{ gap: 8, alignItems: 'center' }}>
         <Link className="btn pri" href="/efPrep?run=1">{run ? '↻ Освежи' : '🔍 Провери ги сите фирми'}</Link>
@@ -90,13 +92,14 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
               </tr>,
               run && sp.open === f.id && r?.bad.length ? (
                 <tr key={f.id + '-bad'}><td colSpan={8} style={{ background: 'var(--panel)' }}>
-                  <b>Купувачи за поправка – {f.name}</b> <span className="mini">(изберете ја фирмата и отворете „Комитенти“)</span>
+                  <b>Купувачи за поправка – {f.name}</b> <PickFirm id={f.id} to="/partneri" label="✎ Отвори партнери" />
                   <table className="dense"><tbody>{r.bad.map((x, i) => <tr key={i}><td>{x.name}</td><td>{x.edb}</td><td style={{ color: 'var(--bad)' }}>{x.E.join(', ')}</td></tr>)}</tbody></table>
                 </td></tr>
               ) : null,
             ];
           })}</tbody>
         </table>
+        {run && <p className="note">Проверени купувачи: само тие на кои им е издадена фактура во {year}. Странските купувачи немаат македонски ЕДБ – нив занемарете ги. Проверено: {new Date().toLocaleString('mk-MK', { timeZone: 'Europe/Skopje' })}.</p>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn pri">Зачувај</button></div>
       </ActionForm>
     </>
