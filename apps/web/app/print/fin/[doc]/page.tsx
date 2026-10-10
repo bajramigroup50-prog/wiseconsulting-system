@@ -8,6 +8,7 @@
  * - `pkartica`   — `partnerCard` 6645 / `anCardPdf` / `anAllPdf`
  * - `poobjekti`  — `ACT.poObjPdf`
  * - `pdd`        — `pddPdfHTML` 8355
+ * - `pozajmica`  — `lnPdf` / `lnDoc` 16708 (loan contract)
  */
 import { Fragment } from 'react';
 import { notFound } from 'next/navigation';
@@ -16,7 +17,8 @@ import {
 } from '@wise/core/finance';
 import { and, eq } from 'drizzle-orm';
 import { pddTypes, type PddType } from '@wise/core/finance';
-import { effectiveChart, pddPayments, type Firm } from '@wise/db';
+import { effectiveChart, loans, partners, pddPayments, type Firm } from '@wise/db';
+import { LoanContract } from '../../../(app)/pozajmici/contract';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { finLines, isDate, lineText, partnerMap, srchMatch, today } from '@/lib/finance';
@@ -29,7 +31,7 @@ import { printGuard } from '../../guard';
 export const metadata = { title: 'Печатење' };
 
 type SP = KcSP & { all?: string; bal?: string; id?: string };
-const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'analitika', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd' };
+const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'analitika', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd', pozajmica: 'pozajmici' };
 
 export default async function PrintFin({ params, searchParams }: { params: Promise<{ doc: string }>; searchParams: Promise<SP> }) {
   const { doc } = await params;
@@ -44,6 +46,7 @@ export default async function PrintFin({ params, searchParams }: { params: Promi
     case 'ios': case 'analitika': case 'pkartica': return <Analitika firm={firm} year={year} sp={sp} doc={doc} />;
     case 'poobjekti': return <Poobjekti firm={firm} year={year} sp={sp} />;
     case 'pdd': return <Pdd firm={firm} year={year} sp={sp} />;
+    case 'pozajmica': return <Pozajmica firm={firm} year={year} sp={sp} />;
   }
   notFound();
 }
@@ -267,4 +270,13 @@ async function Pdd({ firm, sp }: P) {
       <Sig />
     </div>
   );
+}
+
+/** Legacy `ACT.lnPdf`: the loan contract. */
+async function Pozajmica({ firm, sp }: P) {
+  if (!sp.id || !/^[0-9a-f-]{36}$/i.test(sp.id)) notFound();
+  const [l] = await db().select().from(loans).where(and(eq(loans.id, sp.id), eq(loans.firmId, firm.id))).limit(1);
+  if (!l) notFound();
+  const [p] = l.partnerId ? await db().select().from(partners).where(eq(partners.id, l.partnerId)).limit(1) : [];
+  return <div className="pdfdoc"><LoanContract l={l} firm={firm} partner={p} /></div>;
 }
