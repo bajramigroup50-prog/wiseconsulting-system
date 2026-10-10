@@ -47,8 +47,8 @@ export default async function BkAdvPage() {
     ...unl.map((b) => [b.date, pName.get(b.partner ?? '') ?? b.name ?? '', b.desc ?? '', b.amount > 0 ? b.amount / 100 : '', b.amount < 0 ? -b.amount / 100 : ''])];
   return (
     <>
-      <Hd t="Плаќања без фактура" sub="уплати и исплати што не се поврзани со фактура">
-        <ExportBar name={`Placanja_bez_faktura_${year}`} title={`Плаќања без фактура ${year}`} rows={all} sheets={[{ name: 'Без фактура', rows: all }, { name: 'Затвори рачно', rows: unlRows }]} />
+      <Hd t="Плаќања без фактура" sub="уплати и исплати што не се поврзани со фактура" excel={false}>
+        <ExportBar pdf={false} name={`Placanja_bez_faktura_${year}`} title={`Плаќања без фактура ${year}`} rows={all} sheets={[{ name: 'Без фактура', rows: all }, { name: 'Затвори рачно', rows: unlRows }]} />
         <Link className="btn" href="/banka">Изводи</Link>{unl.length > 0 && <a className="btn pri" href="#bkUnl">Затвори рачно ({unl.length})</a>}
       </Hd>
       <div id="finArea">

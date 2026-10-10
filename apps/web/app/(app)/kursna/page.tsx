@@ -48,8 +48,8 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <Hd t="Курсна листа" sub="заедничка за сите фирми · среден курс">
-        <ExportBar name="Kursna_lista" title="Курсна листа" rows={fxExportRows(R)} />
+      <Hd t="Курсна листа" sub="заедничка за сите фирми · среден курс" excel={false}>
+        <ExportBar pdf={false} name="Kursna_lista" title="Курсна листа" rows={fxExportRows(R)} />
         {ed && <TableImport action={importFxAction} template={{ name: 'Kursna_lista_obrazec.xlsx', rows: FX_IMPORT_TEMPLATE }}
           confirm="Курсните листи за датумите од датотеката ќе бидат заменети. Продолжи?" note="Колони: Датум, Валута, Курс (среден курс за 1 единица во МКД)" />}
         {ed && <Link className="btn pri" href="/kursna?nov">+ Нова курсна листа</Link>}

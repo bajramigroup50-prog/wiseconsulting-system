@@ -41,7 +41,7 @@ export default async function KamatiPage({ searchParams }: { searchParams: Promi
     ['Вкупно', '', '', '', Math.round(rows.reduce((a, x) => a + x.o, 0) * 100) / 100, Math.round(rows.reduce((a, x) => a + x.k, 0) * 100) / 100]];
   return (
     <>
-      <Hd t="Казнена камата" sub="каматен лист" />
+      <Hd t="Казнена камата" sub="каматен лист" excel={false} />
       <form className="card">
         <div className="form">
           <label className="f">Годишна стапка на казнена камата %<input name="rate" type="number" step="any" defaultValue={rate || ''} placeholder="референтна стапка на НБРСМ + 8" /></label>
@@ -51,7 +51,7 @@ export default async function KamatiPage({ searchParams }: { searchParams: Promi
         <p className="note">Според Законот за облигационите односи, казнената камата = референтната стапка на НБРСМ + 8 процентни поени. Внесете ја тековната стапка.</p>
       </form>
       {rows.length ? (<>
-        <div className="row"><ExportBar name={`kamati_${asOf}`} title={`Каматен лист до ${dmy(asOf)}${rate ? ` · ${rate}%` : ''}`} rows={xrows} /></div>
+        <div className="row"><ExportBar pdf={false} name={`kamati_${asOf}`} title={`Каматен лист до ${dmy(asOf)}${rate ? ` · ${rate}%` : ''}`} rows={xrows} /></div>
         <div className="tw" id="finArea"><table>
           <thead><tr><th>Фактура</th><th>Купувач</th><th>Рок</th><th className="n">Денови доцнење</th><th className="n">Долг</th><th className="n">Камата</th><th className="noprint" /></tr></thead>
           <tbody>{rows.map((x) => (

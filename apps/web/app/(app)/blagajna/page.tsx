@@ -106,7 +106,7 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
   const closing = X.closing;
   return (
     <>
-      <Hd t="Благајна" sub={`${reg.name} · конто ${reg.konto} · ${reg.cur}`}>
+      <Hd t="Благајна" sub={`${reg.name} · конто ${reg.konto} · ${reg.cur}`} excel={false}>
         <Link className="btn" href={`/kkart?k=${reg.konto}`}>Картица {reg.konto}</Link>
         <Link className="btn" href={q({ set: sp.set ? undefined : '1' })}>⚙ Благајни</Link>
         {/* legacy ACT `blgXlsx` 7952: .xlsx with Курс and Салдо {cur}, file Blagajna_{konto}_{from}_{to} */}
