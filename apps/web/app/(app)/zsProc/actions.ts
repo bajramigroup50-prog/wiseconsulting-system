@@ -394,3 +394,38 @@ export async function saveActMap(_prev: ActionState, form: FormData): Promise<Ac
     return { ok: 'Шифрите на дејност се зачувани.' };
   } catch (e) { return actionError(e); }
 }
+
+/* ---------------- zsProc cards 5 / 6 / 8 (legacy zpArch 11118, crmPeriod 11190) ---------------- */
+
+/**
+ * Legacy `zpArchive`: keep the notes' amounts of year `y` (`belSnap[y]`, AOP → rounded amount) so they become next
+ * year's „претходна година“, and mark the archive (`zsArch[y]`). Stored in the firm settings (no schema change);
+ * the notes PDF itself goes to the dossier through „7. Досие“ → „💾 Зачувај ги датотеките“.
+ */
+export async function archiveNotesAction(y: number): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    if (!Number.isInteger(y) || y < 2000 || y > 2100) return { error: 'Неважечка година.' };
+    const n = await db().transaction(async (tx) => {
+      const L = await loadYear(tx, firm.id, y);
+      const snap: Record<string, number> = {};
+      for (const [k, v] of Object.entries(L.Y.co.zs.V)) if (/^b[su]\d{3}$/.test(k) && Math.round(v || 0)) snap[k] = Math.round(v);
+      const s = (firm.settings ?? {}) as { belSnap?: Record<string, unknown>; zsArch?: Record<string, unknown> };
+      await patchFirmSettings(tx, firm.id, {
+        belSnap: { ...(s.belSnap ?? {}), [y]: snap },
+        zsArch: { ...(s.zsArch ?? {}), [y]: { at: new Date().toISOString(), by: u.name, n: Object.keys(snap).length } },
+      });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'zpArch', entityType: 'annualStatement', entityId: String(y), data: { n: Object.keys(snap).length } });
+      return Object.keys(snap).length;
+    });
+    done();
+    return { ok: `Белешките за ${y} се зачувани (${n} износи) – тие се „претходна година“ во ${y + 1}. PDF-от во досието: „7. Досие“ → „💾 Зачувај ги датотеките“.` };
+  } catch (e) { return actionError(e); }
+}
+
+/** Legacy card 6 „Period (ЦРМ, 0–4)“. */
+export async function setCrmPeriodAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const p = Math.trunc(Number(form.get('crmPeriod')));
+  if (!(p >= 0 && p <= 4)) return { error: 'Period е 0–4.' };
+  return patchStatement('crmPeriod', () => ({ crmPeriod: p }), `Period за ЦРМ: ${p}.`);
+}

@@ -30,7 +30,8 @@ export default async function PrintPage({ params }: { params: Promise<{ form: st
   const sig: Signers = {
     rep: O.rep || u.name, office: O.name || '', lic: O.lic || fs.accReg || '', officeEdb: O.edb || '', signer: fs.signer || '', signerRole: fs.signerRole || 'Управител',
   };
-  const cur = L.Y.co.zs.V, prev = L.prev.V;
+  const snap = form === 'bel' ? ((firm.settings ?? {}) as { belSnap?: Record<string, Record<string, number>> }).belSnap?.[String(year - 1)] : undefined;
+  const cur = L.Y.co.zs.V, prev = snap ?? L.prev.V;
   switch (form) {
     case 'bs-prav': case 'bu-prav':
       return <OffForm rep={form.slice(0, 2) as 'bs' | 'bu'} rules={L.rules} cur={cur} prev={prev} firm={firm} year={year} sig={sig} />;
