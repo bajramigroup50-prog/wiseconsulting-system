@@ -27,13 +27,21 @@ import { CheckAll, LgDelBar } from './lager-tools';
 const TYPES: Record<string, string> = { goods: 'Стока (трговија)', material: 'Суровина / материјал', product: 'Готов производ' };
 const IMP: [string, string][] = [['in', 'Приемница / почетна залиха (количина + набавна цена)'], ['pop', 'Попис – пописани количини (кусок / вишок)'], ['nivel', 'Нови малопродажни цени → нивелација']];
 
+/** Retail stock-list templates (m_lager / m_lagerp import). */
+const RETAIL_TPL: Record<'in' | 'pop' | 'nivel', { name: string; rows: (string | number)[][] }> = {
+  in: { name: 'Lager_maloprodazba_uvoz.xlsx', rows: [['Шифра', 'Назив', 'Ед.мера', 'Количина', 'Набавна цена', 'Продажна цена со ДДВ', 'ДДВ %', 'Баркод'], ['101', 'Кафе 200г', 'ком', 50, 85, 150, 18, '5310000000017']] },
+  pop: { name: 'Lager_maloprodazba_popis.xlsx', rows: [['Шифра', 'Назив', 'Ед.мера', 'Пописано', 'Баркод'], ['101', 'Кафе 200г', 'ком', 48, '5310000000017']] },
+  nivel: { name: 'Lager_maloprodazba_nivelacija.xlsx', rows: [['Шифра', 'Назив', 'Нова МПЦ со ДДВ', 'Баркод'], ['101', 'Кафе 200г', 140, '5310000000017']] },
+};
+
 export type LagerSP = { wh?: string; d?: string; t?: string; q?: string; z?: string; imp?: string };
 
 export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) {
   const def = LAGER[view];
   const { u, firm, year, L } = await stockPage(view);
   if (!firm || !L) return <NoFirm t={def.title} />;
-  const wh = pickLoc(L, sp.wh);
+  // retail lists: the import goes into a store — preselect the first store (legacy m_lager is store-only)
+  const wh = pickLoc(L, sp.wh) || (view[0] === 'm' && sp.imp !== undefined ? L.locations.find((l) => l.kind === 'store')?.id ?? '' : '');
   const date = dateInYear(sp.d, year);
   const type = sp.t && TYPES[sp.t] ? sp.t : '';
   const q = (sp.q ?? '').trim();
@@ -69,7 +77,8 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
               : <Link key={k} href={'/' + view + qs({ imp: k })} className="chk" style={{ display: 'block', margin: '5px 0' }}>{imp === k ? '●' : '○'} {n}</Link>))}
           </fieldset>
           <p className="note">Колони (ги препознава сам): <b>Шифра</b> или <b>Баркод</b>, Назив, {imp === 'in' ? <><b>Количина</b>, Набавна цена (или Износ/Вредност), МПЦ со ДДВ</> : imp === 'pop' ? <><b>Пописано</b> (или Количина)</> : <><b>МПЦ</b> (нова продажна цена со ДДВ)</>}. Датум на увозот: {dmy(date)}. Формат на броеви (1.234,56 или 1,234.56) се препознава автоматски. Непознатите шифри при приемница се креираат како нови артикли.</p>
-          {wh && <Importer key={imp + wh} t={imp as 'in' | 'pop' | 'nivel'} locs={locOptions(L).map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} date0={date} wh0={wh} />}
+          {wh && <Importer key={imp + wh} t={imp as 'in' | 'pop' | 'nivel'} locs={locOptions(L).map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} date0={date} wh0={wh}
+            tpl={view[0] === 'm' ? RETAIL_TPL[imp as 'in' | 'pop' | 'nivel'] : undefined} />}
           <p className="mini"><Link href="/artQ">🧹 Анализа на артикли</Link> · за увозна фактура со добавувач, царина и трошоци користете <Link href="/uvozMat">Увоз → Увозна фактура со ставки</Link>.</p>
         </div>
       )}

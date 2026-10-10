@@ -48,5 +48,6 @@ export * from './firm-data';
 export * from './app-errors';
 export * from './retail';
 export * from './retail-items';
+export * from './parity-retail';
 export * from './parity-stock';
 export * from './sales/partners-auto';

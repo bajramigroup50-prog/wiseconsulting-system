@@ -358,7 +358,7 @@ export interface SalesDayInput {
   /** Macedonian-product turnover per rate (КДФИ). */
   mk?: Record<string, { g: number; v: number }> | null;
   /** POS cart / goods to issue. `price` incl. VAT; `rate` defaults to the item's rate. */
-  lines?: readonly { itemId: string; qty: number; price: number; rate?: number | null }[];
+  lines?: readonly { itemId: string; qty: number; price: number; rate?: number | null; name?: string | null }[];
   /** Issue `lines` from stock (POS always; fiscal `trg` / plain reports when goods are chosen). */
   issue?: boolean;
   note?: string | null;
@@ -392,7 +392,9 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
   const fisk: SalesFiskInfo | null = kind === 'fisk' ? { ...(input.fisk ?? {}), ...(input.number ? { z: input.number } : {}) } : null;
   const sc = fisk?.sc;
   const nonVat = !L.settings.vatRegistered || !!fisk?.nonVat;
-  const cart: SalesItemLine[] = (input.lines ?? []).filter((l) => l.itemId && r4(l.qty) > 0).map((l) => {
+  const cart: SalesItemLine[] = (input.lines ?? []).filter((l) => (l.itemId || (kind === 'pos' && r2(l.price) < 0)) && r4(l.qty) > 0).map((l) => {
+    // POS discount line (legacy `posSell` wrapper 9940: „Попуст (…)“, qty 1 × −amount per VAT rate, no item)
+    if (!l.itemId) return { itemId: '', qty: r4(l.qty), price: r2(l.price), rate: nonVat ? 0 : Number(l.rate ?? 0), ...(l.name ? { name: l.name } : {}) };
     const it = L.ctx.items?.find((i) => i.id === l.itemId);
     if (!it) throw new StockDocError('Артиклот не постои во оваа фирма.');
     return { itemId: l.itemId, qty: r4(l.qty), price: r2(l.price), rate: nonVat ? 0 : Number(l.rate ?? it.rate ?? 18) };
@@ -456,8 +458,8 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
   const moves: StockMove[] = [];
   if (issue)
     cart.forEach((l, ix) => {
-      const it = L.ctx.items!.find((i) => i.id === l.itemId)!;
-      if (!it.type || it.type === 'service') return;
+      const it = L.ctx.items!.find((i) => i.id === l.itemId);
+      if (!it || !it.type || it.type === 'service') return; // discount lines (legacy posSell wrapper 9940) have no item
       // FIX (Phase 10, legacy posSell 5845): a product with a BOM that is not on stock (a dish, a cocktail) issues its
       // BOM components instead of the product itself — the restaurant / POS discharges the raw materials.
       if (kind === 'pos' && it.type === 'product' && (it.bom ?? []).length) {
