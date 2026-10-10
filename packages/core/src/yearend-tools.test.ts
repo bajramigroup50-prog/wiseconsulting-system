@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ZS_DEF } from './yearend/aop';
-import { aopXml, prClean, prParse, prTemplate, skrRows } from './yearend/tools';
+import { aopXml, prClean, prParse, prTemplate, skrRows, spRows } from './yearend/tools';
 
 describe('year-end tools (legacy zs_aop / zs_pr / zs_skr)', () => {
   it('rule template round-trips through the importer', () => {
@@ -19,5 +19,11 @@ describe('year-end tools (legacy zs_aop / zs_pr / zs_skr)', () => {
     expect(x).toContain('naziv="A&amp;B"');
     expect(x).toContain('<AOP broj="063" naziv="Актива" tekovna="10" prethodna="0"/>');
     expect(skrRows({ bu201: 100, bu204: 60, bu250: 40, bu252: 4, bu255: 36 }).map((r) => r[1])).toEqual([100, 60, 40, 4, 36]);
+  });
+  it('form 35 base rows by revenue account (legacy spData)', () => {
+    const D = spRows({ 7400: { s: -100 }, 7600: { s: -50 }, 4000: { s: 30 }, 7700: { s: 0 } }, { 7400: 'Приходи од продажба' }, { 7600: '68.20' }, '46.90');
+    expect(D.rows.map((x) => [x.k, x.v, x.a])).toEqual([['7400', 100, '46.90'], ['7600', 50, '68.20']]);
+    expect(D.tot).toBe(150);
+    expect(D.byA).toEqual({ '46.90': 100, '68.20': 50 });
   });
 });

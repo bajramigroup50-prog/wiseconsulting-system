@@ -58,3 +58,13 @@ export function skrRows(V: Readonly<Record<string, number>>): [string, number, b
     ['Нето добивка / загуба', u('255') - u('256'), true],
   ];
 }
+
+/** Legacy `spData` 7652: revenue accounts 74–79 (balance without the close, credit = +) with their activity code. */
+export function spRows(pre: Readonly<Record<string, { s: number }>>, names: Readonly<Record<string, string>>, actMap: Readonly<Record<string, string>>, activity: string) {
+  const rows = Object.entries(pre).filter(([k]) => /^7[4-9]/.test(k)).map(([k, v]) => ({ k, n: names[k] ?? '', v: Math.round(-v.s * 100) / 100, a: actMap[k] || activity || '' }))
+    .filter((x) => Math.abs(x.v) > 0.009).sort((a, b) => a.k.localeCompare(b.k));
+  const tot = Math.round(rows.reduce((s, x) => s + x.v, 0) * 100) / 100;
+  const byA: Record<string, number> = {};
+  for (const x of rows) byA[x.a || '—'] = Math.round(((byA[x.a || '—'] || 0) + x.v) * 100) / 100;
+  return { rows, tot, byA };
+}

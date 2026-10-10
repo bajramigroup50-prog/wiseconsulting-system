@@ -13,7 +13,7 @@ import {
   audit, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
   snapshotAop, undoClose, undoOpen, unlockYear, upsertStatement, type StatementPatch,
 } from '@wise/db';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { canDo } from '@/lib/books';
 import { Forbidden } from '@/lib/auth';
@@ -360,5 +360,26 @@ export async function resetZsRulesAction(): Promise<ActionState> {
     });
     done();
     return { ok: 'Вратени се стандардните правила.' };
+  } catch (e) { return actionError(e); }
+}
+
+/* ---------------- form 35 base: activity code per revenue account (legacy spSave 7722) ---------------- */
+
+export async function saveActMap(_prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const map: Record<string, string> = { ...(((firm.settings ?? {}) as { actMap?: Record<string, string> }).actMap ?? {}) };
+    for (const [k, v] of form.entries()) {
+      if (!k.startsWith('act:')) continue;
+      const acc = k.slice(4), val = String(v).trim().slice(0, 20);
+      if (!/^7[4-9]\w*$/.test(acc)) continue;
+      if (val) map[acc] = val; else delete map[acc];
+    }
+    await db().transaction(async (tx) => {
+      await tx.update(firms).set({ settings: sql`(${firms.settings} - 'actMap') || ${JSON.stringify({ actMap: map })}::jsonb` }).where(eq(firms.id, firm.id));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'spSave', entityType: 'firm', entityId: firm.id, data: { n: Object.keys(map).length } });
+    });
+    done();
+    return { ok: 'Шифрите на дејност се зачувани.' };
   } catch (e) { return actionError(e); }
 }
