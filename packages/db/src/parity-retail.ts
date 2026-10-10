@@ -8,17 +8,18 @@
  * before the till was even opened).
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { fkIssuePlan, schemeValue } from '@wise/core';
+import { cogsAccount, fkIssuePlan, postOut, priceAt, schemeValue, stockAt, type StockMove } from '@wise/core';
 import { fkNormDate, type FiskRead } from '@wise/core/ai/fisk';
 import {
   FK_SC, couponCheck, findCard, fkGrossByRate, fkMetgDays, fkRows2, pointsEarned, posDiscount, posDiscountLines, posSaldo, type Coupon, type LoyaltyCard,
 } from '@wise/core/retail';
-import { r2 } from '@wise/core/stock/num';
+import { r2, r4 } from '@wise/core/stock/num';
+const fq = (x: number) => String(Math.round(x * 1000) / 1000).replace('.', ',');
 import { audit, type Tx } from './audit';
-import { coupons, firmDocs, firms, journalLines, journals, loyaltyCards, salesDaily } from './schema/index';
-import { postJournal } from './posting';
-import { StockDocError, ensurePosPartner, loadStockContext, requireLocation, whId } from './stock-service';
-import { posSell, saveSalesDay, type Actor } from './stock-docs';
+import { coupons, firmDocs, firms, journalLines, journals, loyaltyCards, partners, salesDaily, storeOuts, type StoreOutLine } from './schema/index';
+import { assertOpenPeriod, postJournal } from './posting';
+import { StockDocError, ensurePosPartner, loadStockContext, removeSourceMoves, replaceSourceMoves, requireLocation, requireTracked, whId } from './stock-service';
+import { deleteSalesDay, posSell, retailDocNumber, saveSalesDay, type Actor } from './stock-docs';
 import { loyaltyApplySale, loyaltyRulesOf, patchFirmSettings } from './retail';
 
 export interface PosSaleInput {
@@ -151,6 +152,109 @@ export async function saveFiscalDevice(tx: Tx, a: Actor, i: number, d: FiscalDev
 export async function saveDfiOptions(tx: Tx, a: Actor, o: { offDays?: string; cashMax?: number; depDays?: number }): Promise<void> {
   const L = await loadStockContext(tx, a.firmId);
   await patchFirmSettings(tx, a, { fiskOpt: { ...L.settings.fiskOpt, ...o } }, 'dfiOpt');
+}
+
+/* ================================================================== m_izlez: store sale (парагон) / supplier return */
+
+export interface StoreOutInput {
+  id?: string | null;
+  kind: 'sale' | 'ret';
+  date: string;
+  wh?: string | null;
+  number?: string | null;
+  partnerId?: string | null;
+  ref?: string | null;
+  /** Sale: cash account („Наплата“, 10..). */
+  account?: string | null;
+  note?: string | null;
+  lines: readonly { itemId: string; qty: number; price?: number | null }[];
+}
+
+const SO_PREFIX = { sale: 'ПР', ret: 'ПВ' } as const;
+
+/**
+ * Legacy `moSaveDoc` 5766 for kinds `sale` / `ret`: stock checked per item at the date (own lines excluded on edit);
+ * sale → a fiscal-day row with the turnover (D „Наплата“ / C revenue + VAT, КДФИ / ЕТМ) and goods issued at average
+ * cost to COGS; return → goods issued with D 2200 (supplier) at cost. Number `ПР-001/26` / `ПВ-001/26`.
+ */
+export async function saveStoreOut(tx: Tx, a: Actor, x: StoreOutInput): Promise<{ id: string; number: string }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) throw new StockDocError('Неважечки датум.');
+  const [prev] = x.id ? await tx.select().from(storeOuts).where(and(eq(storeOuts.id, x.id), eq(storeOuts.firmId, a.firmId))).limit(1) : [];
+  if (x.id && !prev) throw new StockDocError('Документот не постои.');
+  const kind = prev?.kind ?? x.kind;
+  const L = await loadStockContext(tx, a.firmId, prev ? { excludeSource: { sourceType: 'store_out', sourceId: prev.id } } : {});
+  assertOpenPeriod(L.firm, x.date);
+  if (prev) assertOpenPeriod(L.firm, prev.date);
+  const loc = requireLocation(L, x.wh);
+  const W = whId(loc);
+  if (kind === 'ret' && !x.partnerId) throw new StockDocError('Изберете добавувач.');
+  if (x.partnerId) {
+    const [p] = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.id, x.partnerId), eq(partners.firmId, a.firmId))).limit(1);
+    if (!p) throw new StockDocError('Комитентот не постои.');
+  }
+  const acc = x.account?.trim() || null;
+  if (acc && !/^\d{3,10}$/.test(acc)) throw new StockDocError('Контото мора да има само цифри.');
+  const nonVat = !L.settings.vatRegistered;
+  const lines: StoreOutLine[] = x.lines.filter((l) => l.itemId && r4(l.qty) > 0).map((l) => {
+    const it = requireTracked(L, l.itemId);
+    const sp = priceAt(L.ctx, it, W, x.date);
+    const price = kind === 'sale' ? r2(l.price ?? sp) : sp;
+    return { itemId: it.id, qty: r4(l.qty), price, rate: nonVat ? 0 : Number(it.rate ?? 18), val: r2(r4(l.qty) * price) };
+  });
+  if (!lines.length) throw new StockDocError('Додадете барем еден артикл со количина.');
+  const need = new Map<string, number>();
+  for (const l of lines) need.set(l.itemId, (need.get(l.itemId) ?? 0) + l.qty);
+  for (const [id, q] of need) {
+    const av = stockAt(L.ctx, { item: id, wh: W, date: x.date }).qty;
+    if (q > av + 1e-9) throw new StockDocError(`Нема доволно залиха од „${L.items.get(id)?.name}“ во ${L.locName(loc)} (има ${fq(av)}).`);
+  }
+  let number = x.number?.trim() || prev?.number || '';
+  if (!number || (prev && prev.date.slice(0, 4) !== x.date.slice(0, 4) && !x.number?.trim())) {
+    const ex = await tx.select({ number: storeOuts.number, date: storeOuts.date }).from(storeOuts).where(and(eq(storeOuts.firmId, a.firmId), eq(storeOuts.kind, kind)));
+    number = retailDocNumber(SO_PREFIX[kind], ex, x.date);
+  }
+  const head = { kind, number, date: x.date, locationId: loc, partnerId: x.partnerId || null, ref: x.ref?.trim() || null, account: acc, lines, note: x.note?.trim() || null };
+  const id = prev
+    ? (await tx.update(storeOuts).set(head).where(eq(storeOuts.id, prev.id)).returning({ id: storeOuts.id }))[0]!.id
+    : (await tx.insert(storeOuts).values({ ...head, firmId: a.firmId, createdBy: a.userId }).returning({ id: storeOuts.id }))[0]!.id;
+  const lab = (kind === 'sale' ? 'Продажба ' : 'Повратница ') + number;
+  let salesDayId: string | null = prev?.salesDayId ?? null;
+  if (kind === 'sale') {
+    // the turnover as a fiscal-day row: D „Наплата“ / C revenue + VAT; no goods issue there (the moves are this document's)
+    const gross: Record<string, number> = {};
+    for (const l of lines) gross[String(l.rate)] = r2((gross[String(l.rate)] ?? 0) + l.val);
+    const d = await saveSalesDay(tx, a, {
+      id: salesDayId, kind: 'fisk', date: x.date, wh: loc, number, gross, count: 1, issue: false,
+      fisk: { sc: 'trg', ...(acc ? { cashK: acc } : {}), ...(nonVat ? { nonVat: true } : {}) }, note: lab,
+    });
+    salesDayId = d.id;
+  }
+  await tx.update(storeOuts).set({ salesDayId }).where(eq(storeOuts.id, id));
+  let live = L.ctx;
+  const moves: StockMove[] = [];
+  const pName = x.partnerId ? (await tx.select({ name: partners.name }).from(partners).where(eq(partners.id, x.partnerId)).limit(1))[0]?.name ?? '' : '';
+  lines.forEach((l, ix) => {
+    const it = requireTracked(L, l.itemId);
+    const mv = kind === 'sale'
+      ? postOut(live, { item: it, qty: l.qty, date: x.date, type: 'sale', src: `mo-${id}-${ix}`, label: `${lab} · ${L.locName(loc)}`, debitAccount: cogsAccount(L.ctx, it), wh: W }).move
+      : postOut(live, { item: it, qty: l.qty, date: x.date, type: 'return', src: `mo-${id}-${ix}`, label: `${lab} · ${pName}`, debitAccount: '2200', wh: W, extra: { partner: x.partnerId! } }).move;
+    moves.push(mv);
+    live = { ...live, moves: [...live.moves, mv] };
+  });
+  await replaceSourceMoves(tx, { firmId: a.firmId, sourceType: 'store_out', sourceId: id, moves, date: x.date, description: lab + ' · ' + L.locName(loc), userId: a.userId });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'moSave', entityType: 'store_out', entityId: id, data: { kind, number, date: x.date, wh: W, lines: lines.length, edit: !!prev } });
+  return { id, number };
+}
+
+export async function deleteStoreOut(tx: Tx, a: Actor, id: string): Promise<void> {
+  const [row] = await tx.select().from(storeOuts).where(and(eq(storeOuts.id, id), eq(storeOuts.firmId, a.firmId))).limit(1);
+  if (!row) throw new StockDocError('Документот не постои.');
+  const L = await loadStockContext(tx, a.firmId);
+  assertOpenPeriod(L.firm, row.date);
+  await removeSourceMoves(tx, { firmId: a.firmId, sourceType: 'store_out', sourceId: id, userId: a.userId });
+  if (row.salesDayId) await deleteSalesDay(tx, a, row.salesDayId);
+  await tx.delete(storeOuts).where(eq(storeOuts.id, id));
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'moDel', entityType: 'store_out', entityId: id, data: { kind: row.kind, number: row.number, date: row.date } });
 }
 
 export interface PosSaleResult { id: string; total: number; pay: number; disc: number; card?: { name: string; earn: number; red: number; points: number } }
