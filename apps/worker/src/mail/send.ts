@@ -25,6 +25,8 @@ export interface MailDeps {
   mailer: Mailer | null;
   /** Reads an uploaded file (MinIO). Without it, messages with attachments fail. */
   readFile?: (bucketKey: string) => Promise<Buffer>;
+  /** Adds the office e-mail signature / confidentiality notice to the body (`mailPotpis`). */
+  signHtml?: (html: string) => Promise<string>;
 }
 
 const EMAIL_RE = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/;
@@ -71,7 +73,8 @@ export async function sendLoggedMail(db: DB, d: MailSendData, deps: MailDeps): P
     }
   }
   try {
-    const r = await deps.mailer.transport.sendMail({ from: deps.mailer.from, to, subject: row.subject, html: row.html, ...(attachments.length ? { attachments } : {}) });
+    const html = deps.signHtml ? await deps.signHtml(row.html).catch(() => row.html) : row.html;
+    const r = await deps.mailer.transport.sendMail({ from: deps.mailer.from, to, subject: row.subject, html, ...(attachments.length ? { attachments } : {}) });
     return finish(db, row.id, { status: 'sent', error: null, messageId: r.messageId ?? null, attempts, sentAt: new Date() });
   } catch (e) {
     return fail('SMTP: ' + ((e as Error).message || String(e)).slice(0, 500));

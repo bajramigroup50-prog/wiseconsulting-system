@@ -10,17 +10,18 @@ import { defineJob } from '../job';
 import { mailerFromEnv, type Mailer } from '../mail/mailer';
 import { readS3File, s3Configured } from '../mail/files';
 import { sendLoggedMail, type MailDeps, type MailSendData } from '../mail/send';
+import { signatureSigner } from '../mail/signature';
 
 let mailer: Mailer | null | undefined;
-const deps = (): MailDeps => {
+const deps = (db: Parameters<typeof signatureSigner>[0]): MailDeps => {
   if (mailer === undefined) mailer = mailerFromEnv();
-  return { mailer, ...(s3Configured() ? { readFile: readS3File } : {}) };
+  return { mailer, ...(s3Configured() ? { readFile: readS3File } : {}), signHtml: signatureSigner(db) };
 };
 
 export const mailSend = defineJob<MailSendData>({
   name: 'mail.send',
   async run(data, { db, log }) {
-    const r = await sendLoggedMail(db, data, deps());
+    const r = await sendLoggedMail(db, data, deps(db));
     log(`${r.id} → ${r.to.join(', ')}: ${r.status}${r.error ? ' (' + r.error + ')' : ''}`);
   },
 });
@@ -32,7 +33,7 @@ export const mailFlush = defineJob({
     const rows = await db.select({ id: mailLog.id }).from(mailLog)
       .where(and(eq(mailLog.status, 'queued'), lt(mailLog.createdAt, new Date(Date.now() - 120_000)), lt(mailLog.attempts, 3)))
       .orderBy(asc(mailLog.createdAt)).limit(100);
-    for (const r of rows) await sendLoggedMail(db, { logId: r.id }, deps());
+    for (const r of rows) await sendLoggedMail(db, { logId: r.id }, deps(db));
     if (rows.length) log(`flushed ${rows.length} queued message(s)`);
   },
 });
