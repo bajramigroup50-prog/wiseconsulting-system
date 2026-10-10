@@ -48,7 +48,10 @@ export function VatAccountsForm({ values, names, firmName, canGlobal, options }:
     ['А', 18, 'Општа стапка', '01/02 · 21/22'], ['Б', 10, 'Угостителство и др. повластени', '03/04'], ['В', 5, 'Храна, лекови, книги и др. повластени', '05/06'],
   ];
   return (
-    <form action={action}>
+    <form action={action} onSubmit={(e) => {
+      const g = (e.currentTarget.elements.namedItem('scope') as RadioNodeList | null)?.value === 'g';
+      if (g && !window.confirm('Контата за ДДВ да важат за СИТЕ фирми (освен фирмите што имаат свои конта)?')) e.preventDefault();
+    }}>
       <Msg st={st} />
       <div className="tw"><table>
         <thead><tr><th>Тарифа</th><th>Стапка</th><th>Примена</th><th>Излезен ДДВ</th><th>Претходен ДДВ</th><th>ДДВ при увоз</th><th>ДДВ-04 полиња</th></tr></thead>
@@ -67,7 +70,7 @@ export function VatAccountsForm({ values, names, firmName, canGlobal, options }:
           <span style={{ flex: 1 }} />
           <button className="btn pri" disabled={pending}>Зачувај конта</button>
         </div>
-        <p className="note" style={{ margin: '8px 0 0' }}>Новите конта важат за документите што ќе се книжат одсега. Збирните конта (2300, 1300, 230, 130 …) не се дозволени за ДДВ. Затворањето на ДДВ и пресметката од налозите ги гледаат контата од оваа табела.</p>
+        <p className="note" style={{ margin: '8px 0 0' }}>Новите конта важат за документите што ќе се книжат одсега. За веќе книжените документи од годината користете „Прекнижи според шемите“ (Шифрарник → Шеми за книжење) – иначе ДДВ-04 и затворањето на ДДВ ќе ги гледаат старите конта. Збирните конта (2300, 1300, 230, 130 …) не се дозволени за ДДВ. Буквите на тарифите се ознаки за фискалната каса; проверете ги според вашиот фискален апарат.</p>
       </div>
     </form>
   );

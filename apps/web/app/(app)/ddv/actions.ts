@@ -5,7 +5,8 @@
  */
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
-import { isAccountCode, validateVatAccountSettings, type VatAccountMap } from '@wise/core';
+import { DDV04_FIELDS, isAccountCode, validateVatAccountSettings, type VatAccountMap } from '@wise/core';
+import { patchFirmSettings } from '@/lib/firms-office';
 import {
   appSettings, audit, closeVatPeriod, firms, missingAccounts, normalizeVatPeriod, reopenVatPeriod, saveVatCorrections, SCHEMES_SETTINGS_KEY,
 } from '@wise/db';
@@ -121,4 +122,18 @@ export async function saveVatAccountsAction(_prev: ActionState, form: FormData):
     done();
     return { ok: all ? 'Контата за ДДВ се зачувани за сите фирми.' : 'Контата за ДДВ се зачувани за фирмата.' };
   } catch (e) { return asError(e); }
+}
+
+/** Legacy `dtSaveCols` 16822: the inspector table's columns are remembered per firm (`firm.dtCols`). */
+export async function saveDtColsAction(cols: string[]): Promise<{ ok?: string; error?: string }> {
+  const ok = new Set(DDV04_FIELDS.map(([k]) => k));
+  const C = (Array.isArray(cols) ? cols : []).filter((k) => ok.has(k));
+  if (!C.length) return { error: 'Изберете колони.' };
+  const { u, firm } = await firmAction('write');
+  await db().transaction(async (tx) => {
+    await patchFirmSettings(tx, firm.id, { dtCols: C });
+    await audit(tx, { userId: u.id, firmId: firm.id, action: 'dtSaveCols', entityType: 'firm', entityId: firm.id, data: { cols: C } });
+  });
+  revalidatePath('/ddv');
+  return { ok: 'Колоните се запомнети.' };
 }

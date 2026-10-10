@@ -16,10 +16,11 @@ const REPORTS: [string, string, string][] = [
   ['bba', '/print/bilanc?lvl=a', 'Бруто биланс (аналитика)'], ['bb3', '/print/bilanc?lvl=3', 'Бруто биланс (синтетика, 3 цифри)'],
   ['bs', '/pecati/bs-crm', 'Биланс на состојба (АОП)'], ['bu', '/pecati/bu-crm', 'Биланс на успех (АОП)'], ['db', '/pecati/db', 'Даночен биланс'],
   ['ddv', '/print/ddv04', 'ДДВ-04 пријави'], ['ddvk', '/print/ddvKnigi', 'Книга на влезни / излезни фактури (ДДВ)'],
+  ['ddvt', '/print/ddvTab?mode=month', 'Табела ДДВ по месеци (за инспектор)'],
 ];
 /** Legacy `PKG_PRE` (+ 16580 „🏛 УЈП – еден клик“): reports and the newest dossier document of each listed kind. */
 const PRE: Record<string, { n: string; rep: string[]; dos: string[] }> = {
-  ujp: { n: '🏛 УЈП – еден клик', rep: ['bba', 'ddv', 'ddvk'], dos: [] },
+  ujp: { n: '🏛 УЈП – еден клик', rep: ['bba', 'ddv', 'ddvk', 'ddvt'], dos: [] },
   bank: { n: 'Банка – кредит', rep: ['bba', 'bs', 'bu', 'ddv'], dos: ['Тековна состојба (ЦРМ)', 'Тековна состојба – вистински сопственик (ЦРМ)', 'Решение за ДДВ / ЕДБ'] },
   lease: { n: 'Лизинг / тендер', rep: ['bb3', 'bs', 'bu', 'db'], dos: ['Тековна состојба (ЦРМ)', 'Тековна состојба – вистински сопственик (ЦРМ)'] },
   ddv: { n: 'ДДВ пријави', rep: ['ddv', 'ddvk'], dos: [] },

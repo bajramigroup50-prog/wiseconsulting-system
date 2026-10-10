@@ -1,22 +1,18 @@
-/** Legacy `VIEWS.tarifi` 6975 — Шифрарник › Даночни тарифи (VAT rates, accounts and ДДВ-04 fields). */
-import Link from 'next/link';
+/**
+ * Legacy `VIEWS.tarifi` — Шифрарник › Даночни тарифи. The final legacy definition (12844) is the editable VAT-konto
+ * table (it replaced the static 6975 list), so this route renders the same editor as ДДВ-04 › Даночни тарифи.
+ */
 import { notFound } from 'next/navigation';
-import { TARIFI } from '@wise/core/codebooks';
 import { requireUser } from '@/lib/auth';
+import { booksPage } from '@/lib/books';
 import { sysViewAllowed } from '@/lib/nav-system';
-import { Hd } from '@/components/hd';
+import { NoFirm } from '@/components/no-firm';
+import { TarifiView } from '../ddv/tarifi-view';
 
 export default async function TarifiPage() {
-  const u = await requireUser();
-  if (!sysViewAllowed(u.role, 'tarifi')) notFound();
-  return (
-    <>
-      <Hd t="Даночни тарифи" sub="ДДВ"><Link className="btn" href="/sifrarnik">← Шифрарник</Link></Hd>
-      <div className="tw"><table>
-        <thead><tr><th>Тарифа</th><th>Стапка</th><th>Примена</th><th>Излезен ДДВ</th><th>Претходен ДДВ</th><th>ДДВ-04 полиња</th></tr></thead>
-        <tbody>{TARIFI.map((r) => <tr key={r[0]}>{r.map((c, i) => <td key={i}>{c}</td>)}</tr>)}</tbody>
-      </table></div>
-      <p className="note">Буквите на тарифите се ознаки за фискалната каса; проверете ги според вашиот фискален апарат.</p>
-    </>
-  );
+  const u0 = await requireUser();
+  if (!sysViewAllowed(u0.role, 'tarifi')) notFound();
+  const { u, firm } = await booksPage('ddv');
+  if (!firm) return <NoFirm t="Даночни тарифи" />;
+  return <TarifiView firm={firm} u={u} back={{ href: '/sifrarnik', label: '← Шифрарник' }} />;
 }
