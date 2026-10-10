@@ -7,7 +7,9 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { isCbKey, cbIsGlobal } from '@wise/core/codebooks';
-import { deleteItemsStock, importAccounts, importCodebook, patchFirmSettings, runCustomProductionOrder, type Tx } from '@wise/db';
+import { and, eq, inArray } from 'drizzle-orm';
+import { StockDocError, audit, deleteItemsStock, importAccounts, importCodebook, items, partners, patchFirmSettings, runCustomProductionOrder, supplierOrders, type Tx } from '@wise/db';
+import { dispatchMail, queueMail } from '@/lib/mail';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { requireCan, requireUser } from '@/lib/auth';
 import { currentFirm } from '@/lib/context';
@@ -92,4 +94,35 @@ export async function importAccountsAction(_p: ActionState, f: FormData): Promis
     revalidatePath('/konto');
     return { ok: `Увезено: ${R.add} нови конта, ${R.upd} изменети називи${R.skip.length ? `; прескокнати ${R.skip.length}: ${R.skip.slice(0, 8).join(' · ')}` : '.'}` };
   } catch (e) { return actionError(e); }
+}
+
+/* ---------------- Нарачка до добавувач по е-пошта (legacy poMail) ---------------- */
+
+const escH = (x: unknown) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+export async function poMailAction(id: string): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('poMail');
+    const ids = await db().transaction(async (t) => {
+      const tx = t as unknown as Tx;
+      const [o] = await tx.select().from(supplierOrders).where(and(eq(supplierOrders.id, id), eq(supplierOrders.firmId, firm.id))).limit(1);
+      if (!o) throw new StockDocError('Нарачката не постои.');
+      const [p] = o.partnerId ? await tx.select().from(partners).where(eq(partners.id, o.partnerId)).limit(1) : [];
+      if (!p?.email) throw new StockDocError('Добавувачот нема е-пошта.');
+      const its = o.lines.length ? await tx.select({ id: items.id, code: items.code }).from(items).where(inArray(items.id, o.lines.map((l) => l.itemId))) : [];
+      const code = new Map(its.map((i) => [i.id, i.code ?? '']));
+      const html = `<p>Почитувани,</p><p>Во прилог Ви ја испраќаме нарачката бр. ${escH(o.number)} од ${escH(o.date.split('-').reverse().join('.'))}. Ве молиме потврдете цена и рок на испорака.</p>`
+        + '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse"><thead><tr><th>Р.бр</th><th>Шифра</th><th>Артикл</th><th>ЕМ</th><th>Количина</th></tr></thead><tbody>'
+        + o.lines.map((l, i) => `<tr><td>${i + 1}</td><td>${escH(code.get(l.itemId))}</td><td>${escH(l.name)}</td><td>${escH(l.unit)}</td><td style="text-align:right">${escH(String(l.qty).replace('.', ','))}</td></tr>`).join('')
+        + `</tbody></table>${o.note ? `<p>${escH(o.note)}</p>` : ''}<p>Со почит,<br>${escH(firm.name)}${firm.phone ? '<br>Тел.: ' + escH(firm.phone) : ''}</p>`;
+      const mid = await queueMail(tx, { firmId: firm.id, to: p.email, subject: `Нарачка ${o.number} – ${firm.name}`, html, entityType: 'supplier_order', entityId: o.id, userId: u.id });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'poMail', entityType: 'supplier_order', entityId: o.id, data: { to: p.email } });
+      return [mid];
+    });
+    await dispatchMail(ids);
+    return { ok: 'Испратено на добавувачот.' };
+  } catch (e) {
+    if (e instanceof StockDocError) return { error: e.message };
+    return actionError(e);
+  }
 }
