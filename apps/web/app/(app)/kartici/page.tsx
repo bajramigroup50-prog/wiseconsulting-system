@@ -5,9 +5,14 @@
  * Sub-view `?nop=1`: lines without partner (legacy `VIEWS.kpNoP` 12447).
  */
 import Link from 'next/link';
+import { and, eq, isNull, like, sql } from 'drizzle-orm';
+import { openAmount, virtualAdvances } from '@wise/core';
 import { syntheticCard } from '@wise/core/finance';
-import { effectiveChart } from '@wise/db';
-import { booksPage } from '@/lib/books';
+import { supplierWarnings } from '@wise/core/finpar-cards';
+import { bankLines, effectiveChart, journalLines, loadBankEnv, matchContext, purchases } from "@wise/db";
+import { booksPage, canDo } from '@/lib/books';
+import { RowAction } from '@/components/row-action';
+import { bkpFixAction } from '../banka/actions';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { lineText } from '@/lib/finance';
@@ -20,7 +25,7 @@ import { KcTable, SynTable } from './tables';
 
 export default async function KarticiPage({ searchParams }: { searchParams: Promise<KcSP> }) {
   const sp = await searchParams;
-  const { firm, year } = await booksPage('kartici');
+  const { u, firm, year } = await booksPage('kartici');
   if (!firm) return <NoFirm t="Аналитички картици по комитент" />;
   const s = kcState(sp, year);
   if (!s.kontos.length) return <Picker firmId={firm.id} s={s} kq={(sp.kq ?? '').trim()} post={sp.post !== '0'} />;
@@ -59,6 +64,25 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
   }
   const npAmt = Math.round(D.noPartner.reduce((a, l) => a + l.debit - l.credit, 0) * 100) / 100;
   const td = new Date().toISOString().slice(0, 10);
+  // legacy wrappers 8621 (supplier warnings) and 12554 (`#kcAdv` advances without invoice) for the selected partner
+  let warns: ReturnType<typeof supplierWarnings> = [];
+  let adv: ReturnType<typeof virtualAdvances>['ADV'] = [];
+  if (sel) {
+    const ctx = await db().transaction(async (tx) => matchContext(tx, await loadBankEnv(tx, firm.id), year));
+    adv = virtualAdvances({ ...ctx, rows: ctx.rows.filter((r) => String(r.date).startsWith(String(year))) }).ADV.filter((a) => a.pid === sel.id && a.paid > 0);
+    const [PM, UP, B22] = await Promise.all([
+      db().select({ d: purchases.date }).from(purchases).where(and(eq(purchases.firmId, firm.id), eq(purchases.partnerId, sel.id))),
+      db().select({ date: bankLines.date, amount: bankLines.amount }).from(bankLines).where(and(eq(bankLines.firmId, firm.id), eq(bankLines.partnerId, sel.id), like(bankLines.konto, '22%'), isNull(bankLines.refId))),
+      db().select({ s: sql<string>`coalesce(sum(${journalLines.debit} - ${journalLines.credit}), 0)` }).from(journalLines).where(and(eq(journalLines.firmId, firm.id), eq(journalLines.partnerId, sel.id), like(journalLines.account, '22%'))),
+    ]);
+    const openInv = ctx.purchases.filter((x) => x.partner === sel.id).reduce((a, x) => a + Math.max(0, openAmount(ctx.rows, 'purchase', x)), 0) / 100;
+    warns = supplierWarnings({
+      pid: sel.id, name: sel.name, today: td, year: String(year), purchaseMonths: PM.map((x) => x.d.slice(0, 7)),
+      unlinkedPays: UP.map((x) => ({ date: x.date, amount: Number(x.amount) })), openInvoices: openInv, balance22: Number(B22[0]?.s ?? 0), fmt,
+    });
+  }
+  const fixOk = canDo(u, 'nalEdit', firm.id), writeOk = canDo(u, 'write', firm.id);
+  const SRC: Record<string, string> = { invoice: 'Излез', purchase: 'Влез', bank_statement: 'Извод', cash_voucher: 'Благајна', sales_daily: 'Каса', compensation: 'Компензација', opening: 'Почетна' };
 
   return (
     <>
@@ -67,6 +91,7 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
         <Link className="btn" href={q({ syn: '1' })}>Синтетичка картица</Link>
         <DownloadCsv name={`Analiticki_kartici_${year}.csv`} rows={csv} />
         <a className="btn" href={`/print/fin/kartici?${kcQs(s, { pid: '' })}`} target="_blank" rel="noopener">PDF сите картици</a>
+        <Link className="btn" href="/kartici/potvrdi" title="Потврди на салдо до сите комитенти со салдо – PDF и е-пошта">📨 Потврди на салдо – сите</Link>
         {sel && <>
           <a className="btn" href={`/print/fin/potvrda?pid=${sel.id}&to=${s.to < td ? s.to : td}`} target="_blank" rel="noopener" title="Потврда за состојба на салда (чл. 483 ЗТД)">📄 Потврда на салдо</a>
           <Link className="btn" href={`/recon?${kcQs(s)}`} title="Спореди со картицата што ја испратил комитентот">🔍 Усогласи со картица од комитент</Link>
@@ -79,15 +104,22 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
           <span>👥 <b>{D.noPartner.length}</b> ставки на {s.kontos.join(', ')} се книжени <b>без комитент</b> (салдо {fmt(npAmt)}) – затоа не се гледаат во картицата на комитентот.</span>
           <span style={{ flex: 1 }} />
           <Link className="btn" href={q({ nop: sp.nop === '1' ? '' : '1' })}>{sp.nop === '1' ? 'Скриј ги' : 'Прикажи ги'}</Link>
+          {writeOk && <RowAction className="btn pri" action={bkpFixAction} label="Поврзи ги со комитентот од изводот" confirm="Ставките од изводите на 12x / 22x без комитент да се поврзат со комитентот наведен во изводот? Комитентите што ги нема ќе се креираат." />}
         </div>
+      )}
+      {warns.map((w, i) => <div key={i} className={`callout ${w.lvl === 'bad' ? 'bad' : 'warn'}`} style={{ marginBottom: 8 }}>⚠ {w.txt}</div>)}
+      {adv.length > 0 && (
+        <div className="callout" id="kcAdv">🧾 {adv.map((a, i) => <span key={i}>{a.type === 'invoice' ? 'Примено' : 'Платено'} без поврзана фактура: <b>{fmt(a.paid / 100)}</b>{a.applied ? ` (распоредено на најстарите отворени фактури ${fmt(a.applied / 100)})` : ''}{a.left ? <> · <b>вишок без фактура {fmt(a.left / 100)}</b></> : null}<br /></span>)}
+          <Link className="btn sm" href="/bkAdv">Детали</Link></div>
       )}
       {sp.nop === '1' && D.noPartner.length > 0 && (
         <div className="card">
           <p className="note" style={{ marginTop: 0 }}>Отворете го налогот и изберете комитент во колоната „Комитент“ (изводите: во „Изводи“ изберете комитент на ставката).</p>
           <div className="tw"><table className="dense">
-            <thead><tr><th>Датум</th><th>Налог</th><th>Опис</th><th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th></tr></thead>
+            <thead><tr><th>Датум</th><th>Извор</th><th>Налог</th><th>Опис / назив од извод</th><th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th></tr></thead>
             <tbody>{D.noPartner.map((l) => (
-              <tr key={l.id}><td>{dmy(l.date)}</td><td><Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(l.number ?? '')}`}>✎ {l.number}</Link></td><td>{lineText(l)}</td>
+              <tr key={l.id}><td>{dmy(l.date)}</td><td><span className="pill">{SRC[l.sourceType ?? ''] ?? (l.kind === 'manual' ? 'Налог' : l.kind)}</span></td>
+                <td>{fixOk ? <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(l.number ?? '')}`}>✎ {l.number}</Link> : l.number}</td><td>{lineText(l)}</td>
                 <td><b>{l.account}</b>{l.kind === 'open' && <small className="mut"> почетна</small>}</td><td className="n">{l.debit ? fmt(l.debit) : ''}</td><td className="n">{l.credit ? fmt(l.credit) : ''}</td></tr>
             ))}</tbody>
           </table></div>
