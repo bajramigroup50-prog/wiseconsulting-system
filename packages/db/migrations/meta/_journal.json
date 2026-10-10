@@ -134,6 +134,13 @@
       "when": 1791646109585,
       "tag": "0018_aml_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791650892799,
+      "tag": "0019_store_outs",
+      "breakpoints": true
     }
   ]
 }
