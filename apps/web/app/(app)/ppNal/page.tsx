@@ -128,6 +128,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                 <datalist id="pp_sif">{PP_SIF.map(([c, t]) => <option key={c} value={c}>{t}</option>)}</datalist>
                 <label className="chk" style={{ marginTop: 6 }}><input type="checkbox" name="iban" defaultChecked={draft.iban ?? ppIbanOn(draft.date)} /> Сметките во IBAN формат (задолжително од 01.11.2026)</label>
                 {W.length > 0 && <div className="callout warn" style={{ marginTop: 8 }}>{W.map((w) => <div key={w}>{w}</div>)}</div>}
+                <p className="note" style={{ margin: '6px 0' }}>За купени обрасци („Допечати“): ако текстот не паѓа точно во полињата, поместете го (во мм): десно + / лево −, долу + / горе −.</p>
                 <p className="note">„Цел образец“ го црта налогот на бела хартија (А4, 3 налози). Пред прво користење прашајте ја банката дали прифаќа налог печатен на бела хартија. „Допечати“ печати само податоци врз купени обрасци (ласерски за единечни листови; за самокопирни сетови – матричен печатач). Распоредот е приближен – проверете со еден образец и калибрирајте.</p>
               </div>
               <div className="pdfwrap" style={{ maxHeight: '72vh', overflow: 'auto', background: '#fff' }}>
@@ -139,11 +140,23 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
         </div>
       )}
 
-      {write && sug.length > 0 && (
+      {draft && write && (
+        <BankForm action={savePpCalAction.bind(null, draft.kind)} className="card row" style={{ gap: 10, alignItems: 'end' }}>
+          <b>📐 Калибрација за {PP_T[draft.kind]} (допечатување)</b>
+          <label className="f">Поместување десно (мм)<input name="dx" type="number" step="0.5" defaultValue={kc.dx ?? 0} style={{ width: 90 }} /></label>
+          <label className="f">Поместување долу (мм)<input name="dy" type="number" step="0.5" defaultValue={kc.dy ?? 0} style={{ width: 90 }} /></label>
+          <button className="btn sm">Зачувај калибрација</button>
+          <span className="note">Важи за сите фирми во канцеларијата (ист печатач).</span>
+        </BankForm>
+      )}
+
+      {write && (sug.length > 0 || vatSug) && (
         <div className="card"><h2>Предлог – неплатени влезни фактури ({sug.length})</h2>
           <div className="tw" style={{ maxHeight: 300 }}><table className="dense">
             <thead><tr><th>Добавувач · фактура · датум</th><th className="n">Отворено</th><th></th></tr></thead>
-            <tbody>{sug.map((s) => (
+            <tbody>{vatSug && (
+              <tr><td><b>{vatSug.label}</b> <span className="pill">ПП50</span></td><td className="n">{fmt(vatSug.amount)}</td><td><Link className="btn sm" href="/ppNal?tax=ddv">Направи налог</Link></td></tr>
+            )}{sug.map((s) => (
               <tr key={s.refId}><td>{s.label}{s.warn && <span className="pill warn"> {s.warn}</span>}</td><td className="n">{fmt(s.amount)}</td>
                 <td><Link className="btn sm" href={`/ppNal?ref=${encodeURIComponent(s.refId)}`}>ПП30</Link></td></tr>
             ))}</tbody>
@@ -155,6 +168,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
       <form className="card" action="/ppNal/print" target="_blank">
         <div className="hd"><h2>Зачувани налози ({list.length})</h2>
           <div className="row">
+            <ExportBar pdf={false} name="Platni_nalozi" title="Платни налози" rows={ppExportRows(list.map((o) => ({ kind: o.kind, date: o.date, amount: o.amount, printedAt: o.printedAt, data: o.data as unknown as PaymentOrder })))} />
             <select name="m" defaultValue="full" aria-label="Начин на печатење"><option value="full">Цел образец (А4)</option><option value="data">Допечати (А4 – 3)</option><option value="data1">Допечати (210×99)</option></select>
             <button className="btn">🖨 Печати избрани</button>
           </div></div>
@@ -178,6 +192,10 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
           </table></div>
         ) : <p className="note">Нема зачувани налози.</p>}
       </form>
+      <div className="card">
+        <h2>🖨 Печатач за налози</h2>
+        <p className="note">За самокопирни (повеќеделни) обрасци ПП30/ПП50 потребен е <b>матричен (иглен) печатач</b> – на пр. Epson LQ-350 (за единечни налози) или Epson LQ-590II (полесно внесување на обрасците и подолг век). Ласерски / инкџет печатач може да печати само на единечни листови или „Цел образец“ на бела хартија (ако банката го прифаќа). По првото печатење проверете со вистински образец и подесете ја калибрацијата погоре.</p>
+      </div>
     </>
   );
 }
