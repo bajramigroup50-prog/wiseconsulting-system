@@ -12,7 +12,7 @@ import {
 import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
-  updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, type ImportPlan,
+  updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
 } from '@wise/db';
 import { statementFromRead } from '@wise/core/ai/bank';
 import { ownerCheck, withNote, type OwnerFirm } from '@wise/core/bank/parity';
@@ -21,6 +21,7 @@ import { firmAction } from '@/lib/books';
 import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
+import { runPayNotes } from './paynotes';
 import type { FormState } from '@/components/bank-form';
 
 const P = ['/banka', '/devizni', '/bkAdv', '/nalozi'];
@@ -136,19 +137,19 @@ export async function applyMatchesAction(_p: FormState, form: FormData): Promise
   const accept = form.getAll('accept').map(String);
   const createPartners = form.getAll('mkp').map(String);
   if (!accept.length) return { error: 'Не е избрана ниту една ставка.' };
-  return bankRun('autoMatch', P, async ({ tx, u, firm, year }) => {
+  return notifyAfter(await bankRun('autoMatch', P, async ({ tx, u, firm, year }) => {
     const r = await applyMatches(tx, { firmId: firm.id, userId: u.id, year, accept, createPartners });
     return `Прокнижени ${r.applied} ставки · изводи книжени: ${r.posted}${r.drafts ? `, сè уште за довршување: ${r.drafts}` : ''}.`;
-  });
+  }));
 }
 
 export async function linkLineAction(_p: FormState, form: FormData): Promise<FormState> {
   const lineId = str(form.get('line'));
   const docIds = form.getAll('doc').map(String);
-  return bankRun('bkPickSave', P, async ({ tx, u, firm, year }) => {
+  return notifyAfter(await bankRun('bkPickSave', P, async ({ tx, u, firm, year }) => {
     const r = await linkLine(tx, { firmId: firm.id, userId: u.id, year, lineId, docIds });
     return r.excess ? `Поврзано. Остаток ${(r.excess / 100).toFixed(2)} ден. останува како аванс кај комитентот.` : 'Поврзано.';
-  });
+  }));
 }
 
 export async function setKontoAction(_p: FormState, form: FormData): Promise<FormState> {
@@ -233,7 +234,7 @@ export async function addManualLineAction(_p: FormState, form: FormData): Promis
   const mkd = num(form.get('amountMkd'));
   const desc = str(form.get('desc')) || (doc ? `${dirIn ? 'Уплата' : 'Плаќање'} по фактура ${doc.no}` : dirIn ? 'Уплата' : 'Плаќање');
   if (!isDate(date)) return { error: 'Внесете датум.' };
-  return bankRun('mbSave', P, async ({ tx, u, firm, year }) => {
+  return notifyAfter(await bankRun('mbSave', P, async ({ tx, u, firm, year }) => {
     const id = str(form.get('acct'));
     const [acc] = await loadBankAccounts(tx, firm.id).then((A) => A.filter((x) => x.id === id));
     if (!acc) return 'Сметката не постои.';
@@ -245,7 +246,7 @@ export async function addManualLineAction(_p: FormState, form: FormData): Promis
     });
     if (doc) await linkLine(tx, { firmId: firm.id, userId: u.id, year, lineId, docIds: [doc.id] });
     return doc ? `Ставката е додадена и ја затвора фактурата ${doc.no}.` : 'Ставката е додадена.';
-  });
+  }));
 }
 
 /* ---------------- rules, fees, transit ---------------- */
@@ -278,6 +279,25 @@ export async function saveBankAccountAction(_p: FormState, form: FormData): Prom
   });
 }
 /* ---------------- finance parity ---------------- */
+
+/** After a link to our invoices: legacy `pnRun` payment notifications (never fails the action). */
+async function notifyAfter(r: FormState): Promise<FormState> {
+  if (r.error) return r;
+  try { const { u, firm, year } = await firmAction('write'); await runPayNotes(firm, u.id, year); } catch (e) { console.warn('[pnRun]', (e as Error).message); }
+  return r;
+}
+
+/** Legacy `pnCard` checkboxes (`saveFirmPatch({autoNotify})`): confirmation to the customer, summary for the office. */
+export async function saveAutoNotifyAction(_p: FormState, form: FormData): Promise<FormState> {
+  const v = { pay: form.get('pay') === 'on', sum: form.get('sum') === 'on', to: str(form.get('to')).slice(0, 200) };
+  if (v.to && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.to)) return { error: 'Неважечка е-пошта.' };
+  return bankRun('settings', P, async ({ tx, u, firm }) => {
+    const [f] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, firm.id)).limit(1);
+    await tx.update(firms).set({ settings: { ...((f?.settings ?? {}) as Record<string, unknown>), autoNotify: v } }).where(eq(firms.id, firm.id));
+    await audit(tx, { userId: u.id, firmId: firm.id, action: 'autoNotify', entityType: 'firm', entityId: firm.id, data: v });
+    return 'Зачувано.';
+  });
+}
 
 /** Legacy ACT `bkpFix` 12433: link 12x/22x lines to the partner from the statement (missing partners are created). */
 export async function bkpFixAction(): Promise<FormState> {

@@ -20,12 +20,13 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import {
-  addManualLineAction, addRuleAction, applyMatchesAction, bkpFixAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
+  addManualLineAction, addRuleAction, applyMatchesAction, bkpFixAction, saveAutoNotifyAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
 import { ImportBox } from './import-box';
 import { ClassifyButton } from './classify-button';
+import type { PnLast } from './paynotes';
 import { applyBankClassifyAction } from './classify-actions';
 import { bankClassifyProposals } from './classify';
 
@@ -183,6 +184,25 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
           ? 'Сè уште нема девизна сметка. Додадете ја: назив (на пр. Комерцијална EUR), девизна сметка / IBAN, валута и конто (на пр. 1030). Потоа увезете го изводот (најдобро XML или MT940).'
           : 'Сè уште нема банкарска сметка. Додадете ја: назив на банката, жиро сметка (15 цифри) и конто (на пр. 1000 или аналитика 100005).'}</div>
       )}
+
+      {write && BK.length > 0 && !fx && (() => {
+        // legacy `pnCard` 13319: payment confirmations to customers + summary for the office
+        const st = (firm.settings ?? {}) as { autoNotify?: { pay?: boolean; sum?: boolean; to?: string }; pnLast?: PnLast };
+        const cfg = { pay: st.autoNotify?.pay !== false, sum: st.autoNotify?.sum !== false, to: st.autoNotify?.to ?? '' };
+        const Lt = st.pnLast;
+        return (
+          <div className="card" id="pnCard" style={{ padding: '8px 12px' }}>
+            <BankForm action={saveAutoNotifyAction} className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <b>🔔 Автоматски известувања по изводот</b>
+              <label className="chk"><input type="checkbox" name="pay" defaultChecked={cfg.pay} /> потврда за уплата до купувачот (е-пошта)</label>
+              <label className="chk"><input type="checkbox" name="sum" defaultChecked={cfg.sum} /> преглед за мене на</label>
+              <input name="to" type="email" defaultValue={cfg.to} placeholder="moja@posta.mk" style={{ width: 220 }} />
+              <button className="btn sm">Зачувај</button>
+            </BankForm>
+            {Lt && <details style={{ marginTop: 6 }}><summary className="mini" style={{ cursor: 'pointer' }}>Последно: {dmy(Lt.at)} {Lt.at.slice(11, 16)} · {Lt.n} уплати · {fmt(Lt.tot / 100)} ден. · {Lt.sent} потврди{Lt.mailed ? ' · преглед на ' + Lt.mailed : ''}</summary><pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: '6px 0 0' }}>{Lt.txt}</pre></details>}
+          </div>
+        );
+      })()}
 
       {(sp.banks || !BK.length) && (
         <div className="card">

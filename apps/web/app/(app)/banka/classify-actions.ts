@@ -8,6 +8,7 @@ import { eq, sql } from 'drizzle-orm';
 import { bankClassifyLists } from '@wise/core/bank/parity';
 import { audit, bankLines, linkLine, setLineKonto } from '@wise/db';
 import { bankClassifyProposals, classifyInput } from './classify';
+import { runPayNotes } from './paynotes';
 import { firmAction } from '@/lib/books';
 import { dispatchAiReads, markAiReadsSaved, queueAiReads } from '@/lib/ai';
 import { bankRun } from '@/lib/bank';
@@ -46,7 +47,7 @@ export async function applyBankClassifyAction(_p: FormState, form: FormData): Pr
   const { firm, year } = await firmAction('autoMatch');
   const R = (await bankClassifyProposals(firm.id, year, aiId)) ?? [];
   const L = R.filter((r) => accept.has(r.id));
-  return bankRun('autoMatch', P, async ({ tx, u }) => {
+  const res = await bankRun('autoMatch', P, async ({ tx, u }) => {
     let n = 0;
     for (const r of L) {
       if (r.ref) await linkLine(tx, { firmId: firm.id, userId: u.id, year, lineId: r.id, docIds: [r.ref.id] });
@@ -59,4 +60,6 @@ export async function applyBankClassifyAction(_p: FormState, form: FormData): Pr
     await audit(tx, { userId: u.id, firmId: firm.id, action: 'aiClassifyApply', entityType: 'bank_line', data: { n, ids: L.map((r) => r.id) } });
     return n ? `Автоматски прокнижени ${n} ставки. Проверете ги ознаките „препознаено – провери“.` : 'Ставките не се препознаени; изберете рачно.';
   });
+  if (!res.error) { try { const c = await firmAction('write'); await runPayNotes(c.firm, c.u.id, c.year); } catch { /* notifications never fail the booking */ } }
+  return res;
 }
