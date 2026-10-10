@@ -13,6 +13,7 @@ import {
   saveIndustryConfig, saveTravelOrder, stopsFrom, travelOrderEvent, travelOrders, travelReturnCredit, unassignedDocs, type FreightDoc,
 } from '@wise/db';
 import { requireUser } from '@/lib/auth';
+import { storeImageDataUrl } from '@/lib/data-url-file';
 import { bankError } from '@/lib/bank';
 import { db } from '@/lib/db';
 import { indRun, num, nz, rows, str, today } from '@/lib/industry';
@@ -84,10 +85,15 @@ export async function travelEventAction(_p: FormState, f: FormData): Promise<For
     const k = str(f.get('k'));
     const geo = num(f.get('lat')) != null && num(f.get('lon')) != null ? { lat: num(f.get('lat'))!, lon: num(f.get('lon'))! } : null;
     const at = new Date().toISOString();
-    await db().transaction((tx) => travelOrderEvent(tx, { firmId: o.firmId, userId: u.id, role: u.role }, id,
-      k === 'dep' ? { k: 'dep', km: num(f.get('km')) }
-        : k === 'deliv' ? { k: 'deliv', i: Number(f.get('i')), recv: str(f.get('recv')), cash: num(f.get('cash')) ?? 0, ret: rows(f, 'r', ['k', 'qty'], (r) => nz(r.qty) > 0).map((r) => ({ k: Number(r.k), qty: nz(r.qty) })) }
-          : { k: 'ret', km: num(f.get('km')), fuelL: num(f.get('fuelL')), fuelAmt: num(f.get('fuelAmt')) }, at, u.name, geo));
+    await db().transaction(async (tx) => {
+      // Driver flow (legacy `pnDeliv`): signature and photo are stored as files and referenced from the stop.
+      const sig = k === 'deliv' ? await storeImageDataUrl(tx, { firmId: o.firmId, userId: u.id, dataUrl: str(f.get('sig')), name: `potpis-${id.slice(0, 8)}-${f.get('i')}` }) : null;
+      const photo = k === 'deliv' ? await storeImageDataUrl(tx, { firmId: o.firmId, userId: u.id, dataUrl: str(f.get('photo')), name: `isporaka-${id.slice(0, 8)}-${f.get('i')}` }) : null;
+      await travelOrderEvent(tx, { firmId: o.firmId, userId: u.id, role: u.role }, id,
+        k === 'dep' ? { k: 'dep', km: num(f.get('km')) }
+          : k === 'deliv' ? { k: 'deliv', i: Number(f.get('i')), recv: str(f.get('recv')), cash: num(f.get('cash')) ?? 0, ret: rows(f, 'r', ['k', 'qty'], (r) => nz(r.qty) > 0).map((r) => ({ k: Number(r.k), qty: nz(r.qty) })), sig, photo }
+            : { k: 'ret', km: num(f.get('km')), fuelL: num(f.get('fuelL')), fuelAmt: num(f.get('fuelAmt')) }, at, u.name, geo);
+    });
   } catch (e) { return bankError(e); }
   for (const p of P) revalidatePath(p);
   return { ok: 'Забележано.' };

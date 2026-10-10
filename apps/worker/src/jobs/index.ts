@@ -7,6 +7,10 @@ import { recurring } from './recurring';
 import { remindersJob } from './reminders';
 import { pdfRender } from './pdf';
 import { invoiceMail } from './invoice-mail';
+import { mpinRead } from './mpin-read';
+import { lawAsk, lawRobot } from './law';
+import { legacyImport } from './legacy-import';
+import { firmResh } from './firm-resh';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -19,4 +23,9 @@ export const JOBS: JobDef<any>[] = [
   remindersJob,
   pdfRender,
   invoiceMail,
+  mpinRead,
+  lawRobot,
+  lawAsk,
+  legacyImport,
+  firmResh,
 ];

@@ -248,6 +248,9 @@ importers:
       '@wise/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@wise/legacy-import':
+        specifier: workspace:*
+        version: link:../../packages/legacy-import
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@electric-sql/pglite@0.5.8)(@opentelemetry/api@1.9.1)(pg@8.23.1)(postgres@3.4.9)
@@ -319,6 +322,31 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(vite@8.3.3(@types/node@24.19.1)(esbuild@0.28.2)(tsx@4.23.15))
+
+  packages/legacy-import:
+    dependencies:
+      '@wise/core':
+        specifier: workspace:*
+        version: link:../core
+      '@wise/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@electric-sql/pglite@0.5.8)(@opentelemetry/api@1.9.1)(pg@8.23.1)(postgres@3.4.9)
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.8
+        version: 0.5.8
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.1
       typescript:
         specifier: ~5.9.3
         version: 5.9.3

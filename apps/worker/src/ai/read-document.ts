@@ -21,7 +21,8 @@ export type Validator<T> = { parse(x: unknown): T } | ((x: unknown) => T);
 
 export interface ReadDocumentArgs<T> {
   db: Tx;
-  firmId: string;
+  /** Null for office-wide reads (e.g. the all-firms МПИН inbox, the law robot). */
+  firmId: string | null;
   fileId: string;
   prompt: string;
   tier?: AiTier;
@@ -101,7 +102,7 @@ export async function readContent<T>(a: Omit<ReadDocumentArgs<T>, 'fileId'>, con
 }
 
 /** Read an uploaded file of a firm with a prompt and return the parsed JSON. */
-export async function readDocument<T = unknown>(a: ReadDocumentArgs<T>): Promise<ReadDocumentResult<T>> {
+export async function readDocument<T = unknown>(a: ReadDocumentArgs<T> & { firmId: string }): Promise<ReadDocumentResult<T>> {
   const f = await loadFile(a.db, a.firmId, a.fileId);
   const bytes = await readObject(f.bucketKey);
   return readContent(a, fileContent(f, bytes));

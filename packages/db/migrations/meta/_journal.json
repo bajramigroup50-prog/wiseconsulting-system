@@ -85,6 +85,48 @@
       "when": 1791511330772,
       "tag": "0011_industry",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791624573686,
+      "tag": "0012_mpin_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791625463830,
+      "tag": "0013_law",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791627413110,
+      "tag": "0014_parity_vehicles_system_finance",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791627851358,
+      "tag": "0015_legacy_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791627871013,
+      "tag": "0016_retail",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791628274739,
+      "tag": "0017_firms_office",
+      "breakpoints": true
     }
   ]
 }

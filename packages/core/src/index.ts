@@ -37,3 +37,6 @@ export * as Office from './office';
 export * from './stock-books';
 export * as StockBooks from './stock-books';
 export * as Industry from './industry';
+export * as Law from './law';
+export * as Finance from './finance';
+export * as Retail from './retail';

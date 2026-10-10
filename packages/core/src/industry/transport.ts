@@ -19,6 +19,8 @@ export interface TravelStop {
   at?: string | null; recv?: string | null; cash?: number | null; ret?: { k: number; qty: number }[] | null; geo?: { lat: number; lon: number } | null;
   /** Cash voucher booked from this stop / return credit note made from it (FIX: legacy matched by `pnRef` strings). */
   cashVoucherId?: string | null; returnCreditId?: string | null; mailed?: string | null;
+  /** Driver flow (legacy `pnDeliv`): receiver's signature and delivery photo (`files.id`). */
+  sig?: string | null; photo?: string | null;
 }
 export interface TravelEvent { k: 'dep' | 'pick' | 'deliv' | 'ret' | 'note'; txt: string; at: string; by?: string | null; geo?: { lat: number; lon: number } | null }
 

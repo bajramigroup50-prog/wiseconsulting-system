@@ -18,4 +18,11 @@ docker run --rm --network wise_default -v "$BACKUP_DIR/files:/backup" \
   amazon/aws-cli:2.31.0 --endpoint-url http://s3:8333 s3 sync "s3://${S3_BUCKET:-wise-docs}" /backup --only-show-errors
 
 find "$BACKUP_DIR/db" -name 'wise_*.dump' -mtime +30 -delete
+
+# Status for the app („Податоци и резервна копија“ reads app_settings `backup.last`); a failure here never fails the backup.
+SIZE=$(wc -c < "$BACKUP_DIR/db/wise_$STAMP.dump" | tr -d ' ')
+KEPT=$(find "$BACKUP_DIR/db" -name 'wise_*.dump' | wc -l | tr -d ' ')
+docker compose -f compose.yml --env-file "$ENV_FILE" exec -T postgres \
+  psql -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "insert into app_settings (key, value, updated_at) values ('backup.last', jsonb_build_object('at', now(), 'file', 'wise_$STAMP.dump', 'size', $SIZE, 'kept', $KEPT), now()) on conflict (key) do update set value = excluded.value, updated_at = now();" \
+  || echo "backup status not recorded"
 echo "backup ok: $STAMP"
