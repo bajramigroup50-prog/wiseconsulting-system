@@ -75,6 +75,21 @@ export async function ackFinding(id: number): Promise<ActionState> {
   } catch (e) { return officeError(e); }
 }
 
+/** Legacy `alAck` on an acknowledged item („↺“): show it again. */
+export async function unackFinding(id: number): Promise<ActionState> {
+  try {
+    const [f] = await db().select({ firmId: autopilotFindings.firmId }).from(autopilotFindings).where(eq(autopilotFindings.id, id)).limit(1);
+    if (!f) return { error: 'Не постои.' };
+    const u = await requireCan('office', f.firmId);
+    await db().transaction(async (tx) => {
+      await tx.update(autopilotFindings).set({ ackBy: null, ackAt: null }).where(eq(autopilotFindings.id, id));
+      await audit(tx, { userId: u.id, firmId: f.firmId, action: 'alUnack', entityType: 'autopilot_finding', entityId: String(id) });
+    });
+    revalidatePath('/izvestuvanja');
+    return { ok: 'Вратено.' };
+  } catch (e) { return officeError(e); }
+}
+
 /** Autopilot settings (legacy `apAuto` in `appsettings/office`, now a jsonb merge — FIX #7). Owner/admin only. */
 export async function saveAutopilotSettings(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
