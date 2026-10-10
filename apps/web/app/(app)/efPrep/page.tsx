@@ -2,6 +2,7 @@
  * Legacy `VIEWS.efPrep` 15215 (v499) — 🧾 е-Фактура – подготовка (сите фирми): steps, per-firm EUJP-ID / certificate /
  * status, and the buyers' data check (EDB 13 digits, address, city) for buyers invoiced this year (`efCheck`). `?run=1` checks all firms.
  */
+import { OpenFirm } from '@/components/sales/open-firm';
 import Link from 'next/link';
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { EF_STATUS, einvoiceBuyerProblems } from '@wise/core/finance';
@@ -52,8 +53,9 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
           <li><b>Документација:</b> од efakturawiki.ujp.gov.mk преземете ја спецификацијата (JSON пример, API) – испратете ја за поврзување на програмата.</li>
           <li><b>Сертификат за секој клиент:</b> квалификуван (КИБС / Халком / Телеком) – токен (USB) или датотека (.p12/.pfx). Проверете важност.</li>
           <li><b>Купувачите:</b> ЕДБ (13 цифри), адреса, град и ДДВ статус мора да се точни – УЈП ги проверува (табелата долу).</li>
-          <li><b>Продукција:</b> по донесување на законот – клиентите по ред, пред рокот.</li>
+          <li><b>Продукција:</b> по донесување на законот – клиентите по ред, пред рокот (предлог: ДДВ обврзници од 01.04.2027).</li>
         </ol>
+        <p className="mini" style={{ margin: '6px 0 0' }}>Статус на законот (04.10.2026): предлог-закон, доброволно од 01.10.2026. Роботот за законски промени секој ден проверува и ве известува.</p>
       </div>
       <div className="card"><div className="row" style={{ gap: 8, alignItems: 'center' }}>
         <Link className="btn pri" href="/efPrep?run=1">{run ? '↻ Освежи' : '🔍 Провери ги сите фирми'}</Link>
@@ -90,7 +92,7 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
               </tr>,
               run && sp.open === f.id && r?.bad.length ? (
                 <tr key={f.id + '-bad'}><td colSpan={8} style={{ background: 'var(--panel)' }}>
-                  <b>Купувачи за поправка – {f.name}</b> <span className="mini">(изберете ја фирмата и отворете „Комитенти“)</span>
+                  <b>Купувачи за поправка – {f.name}</b> <OpenFirm id={f.id} href="/partneri" label="✎ Отвори партнери" />
                   <table className="dense"><tbody>{r.bad.map((x, i) => <tr key={i}><td>{x.name}</td><td>{x.edb}</td><td style={{ color: 'var(--bad)' }}>{x.E.join(', ')}</td></tr>)}</tbody></table>
                 </td></tr>
               ) : null,

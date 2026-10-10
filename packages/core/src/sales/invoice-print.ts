@@ -12,7 +12,8 @@
  * FIX (item 15): in e-signature mode the stamp is not rendered (legacy only resized the signature), and the
  * чл. 53 footnote is printed on tax documents only (invoice, credit note) — not on proformas.
  */
-import { ART32_TXT, type AdvanceDeduction } from '../vat';
+import qrcode from 'qrcode-generator';
+import { advDeduct, ART32_TXT, type AdvanceDeduction } from '../vat';
 import { INV_NOTE0, invoiceTotals } from './docs';
 import { amountInWords } from './words';
 
@@ -106,7 +107,26 @@ export function invoicePrintTitle(kind: InvoicePrintKind, advance?: boolean): st
 /** PDF file name base (legacy `sendMailGo`: Faktura_/Odobrenie_/Profaktura_ + number). */
 export function invoicePdfName(kind: string, number: string): string {
   const p = ({ invoice: 'Faktura', credit: 'Odobrenie', proforma: 'Profaktura', dispatch: 'Ispratnica', waybill: 'Tovaren_list' } as Record<string, string>)[kind] ?? 'Dokument';
-  return `${p}_${String(number).replace(/[\\/:*?"<>|\s]+/g, '-')}`;
+  // legacy `fn` (3258): every run of characters that are not letters or digits becomes `_`
+  return `${p}_${String(number).replace(/[^\p{L}\p{N}]+/gu, '_')}`;
+}
+
+/** Legacy `invQRText` (4226): the payment data encoded in the invoice QR. */
+export function invoiceQrText(o: { number: string; date: string; due?: string | null; firmEdb?: string | null; buyerEdb?: string | null; base: number; vat: number; pay: number; bank?: string | null }): string {
+  return ['ФАКТУРА бр. ' + o.number, 'Датум: ' + dmy(o.date) + (o.due ? ' | Рок: ' + dmy(o.due) : ''), 'Издавач ЕДБ: ' + (o.firmEdb ?? ''), 'Купувач ЕДБ: ' + (o.buyerEdb ?? ''),
+    'Основица: ' + fmt(o.base), 'ДДВ: ' + fmt(o.vat), 'ЗА ПЛАЌАЊЕ: ' + fmt(o.pay) + ' МКД', 'Жиро сметка: ' + (o.bank ?? ''), 'Повикување на број: ' + o.number].join(String.fromCharCode(10));
+}
+
+/** Legacy `qrImg` (4225, same qrcode-generator library): a QR code as a GIF `data:` URI ('' on failure). */
+export function qrDataUrl(text: string, cell = 3): string {
+  try {
+    const Q = qrcode as unknown as { stringToBytes: unknown; stringToBytesFuncs: Record<string, unknown> };
+    Q.stringToBytes = Q.stringToBytesFuncs['UTF-8'];
+    const q = qrcode(0, 'M');
+    q.addData(text);
+    q.make();
+    return q.createDataURL(cell, 0);
+  } catch { return ''; }
 }
 
 /** Full `<div class="pdfdoc printarea">…</div>` markup of the document. */
@@ -132,6 +152,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
   if (kind === 'invoice') meta.push(['Датум на промет', dmy(doc.pdate || doc.date)]);
   if ((kind === 'invoice' || kind === 'proforma') && doc.due) meta.push([kind === 'proforma' ? 'Важи до' : 'Рок на плаќање', dmy(doc.due)]);
   if (p.from) meta.push(['Врска', h(`${p.from.kind === 'dispatch' ? 'Испратница' : 'Профактура'} бр. ${p.from.number}`)]);
+  else if (kind !== 'invoice' && doc.kind === 'invoice') meta.push(['Врска', h('Фактура бр. ' + doc.number)]);
   if (data.refDoc) meta.push(['По документ', h(data.refDoc)]);
   if (data.dispNo && kind === 'invoice') meta.push(['Испратница', h(data.dispNo)]);
   if (kind === 'credit' && p.ref) meta.push(['Кон фактура', h(`${p.ref.number} од ${dmy(p.ref.date)}`)]);
@@ -177,7 +198,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
     const ispNo = doc.kind === 'invoice' ? data.dispNo || doc.number : doc.number;
     const c0 = sa({ border: 0, padding: '1px 10px 1px 0' }), c1 = sa({ border: 0, padding: '1px 0' });
     body = (logo ? `<div${sa({ textAlign: 'center', marginBottom: 4 })}>${imgTag(logo, { maxHeight: '18mm', maxWidth: '60mm' })}</div>` : '')
-      + `<div class="fh"><div class="fn">${h(f.name)}</div><div class="fa">${h(f.address)}${f.city ? ', ' + h(f.city) : ''} · ЕДБ ${h(f.edb)}</div></div>`
+      + `<div class="fh"><div class="fn">${h(String(f.name ?? '').toUpperCase())}</div><div class="fa">${h([f.address, f.city].filter(Boolean).join(' '))}${f.phone ? ' * Тел.: ' + h(f.phone) + (st('phone2') ? ', ' + h(st('phone2')) : '') : ''}${f.email ? ' * ' + h(f.email) : ''}<br>${st('bank') ? 'Жиро сметка: ' + h(st('bank')) + ' * ' : ''}${st('bankName') ? 'Банка: ' + h(st('bankName')) + ' * ' : ''}ЕДБ: ${h(f.edb)}${f.embs ? ' * ЕМБС: ' + h(f.embs) : ''}</div></div>`
       + `<div${sa({ display: 'flex', justifyContent: 'space-between', gap: 14, margin: '12px 0 8px', alignItems: 'flex-start' })}>`
       + `<div${sa({ fontSize: 11, lineHeight: 1.6 })}><table${sa({ margin: 0, width: 'auto', fontSize: 11, border: 0 })}><tbody>`
       + `<tr><td${c0}><b>Датум</b></td><td${c1}>${dmy(doc.date)}</td></tr>`
@@ -185,26 +206,31 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
       + `<tr><td${c0}><b>Од магацин</b></td><td${c1}>${loc ? h(`${loc.code ?? ''} ${loc.name.toUpperCase()}`) : '01 ГЛАВЕН МАГАЦИН'}</td></tr></tbody></table>`
       + `<div${sa({ fontSize: 19, fontWeight: 700, marginTop: 10 })}>Испратница</div><div${sa({ fontSize: 13 })}><b>Број:</b> ${h(ispNo)}${doc.kind === 'invoice' ? `<span class="muted"${sa({ fontSize: 10 })}> (по фактура ${h(doc.number)})</span>` : ''}</div></div>`
       + `<div${sa({ minWidth: '88mm' })}><div${sa({ border: '1.5px solid #111', padding: '6px 8px', minHeight: '22mm' })}><div${sa({ fontSize: 14, fontWeight: 700, lineHeight: 1.3 })}>${h((partner?.name ?? '').toUpperCase())}</div><div${sa({ fontSize: 13, fontWeight: 700 })}>${h((partner?.address ?? '').toUpperCase())}</div><div${sa({ marginTop: 8 })}>${h((partner?.city ?? '').toUpperCase())}</div>${partner?.edb ? `<div class="muted"${sa({ fontSize: 9.5 })}>ЕДБ: ${h(partner.edb)}</div>` : ''}</div>`
-      + `<div${sa({ fontSize: 10.5, marginTop: 3 })}>Место на испорака: ${h(data.dAddr ?? '')}</div></div>`
+      + `<div${sa({ fontSize: 10.5, marginTop: 3 })}>За магацин: ${h(data.forWh ?? '')}<br>За продавница: ${h(data.forStore || data.dAddr || '')}</div></div>`
       + `</div>`
       + `<table><thead><tr><th rowspan="2"${sa({ width: '8mm' })}>Р.б</th><th rowspan="2"${sa({ width: '22mm' })}>Шифра</th><th rowspan="2">Назив на производот</th><th rowspan="2"${sa({ width: '12mm' })}>ЕМ</th><th rowspan="2" class="n"${sa({ width: '24mm' })}>Количина</th><th colspan="2"${sa({ textAlign: 'center' })}>Цена со данок</th></tr><tr><th class="n"${sa({ width: '24mm' })}>По един.</th><th class="n"${sa({ width: '28mm' })}>Износ</th></tr></thead>`
       + `<tbody>${R.map((r, i) => `<tr><td>${i + 1}.</td><td>${h(r.code)}</td><td>${h(r.l.name)}</td><td>${h((r.l.unit ?? '').toUpperCase())}</td><td class="n">${fq(r.l.qty)}</td><td class="n">${fmt(r.pu)}</td><td class="n">${fmt(r.am)}</td></tr>`).join('')}</tbody></table>`
       + `<div${sa({ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 6 })}><b${sa({ fontSize: 12 })}>Вкупно:</b><span${sa({ border: '1.5px solid #111', padding: '3px 10px', minWidth: '30mm', textAlign: 'right', fontWeight: 700, fontSize: 13 })}>${fmt(tot)}</span></div>`
       + (doc.note ? `<p${sa({ marginTop: 8 })}>${h(doc.note)}</p>` : '')
-      + `<div class="sig sigimg"${sa({ marginTop: '22mm' })}><span${sa({ border: 0 })}>ПРИМИЛ</span><span${sa({ border: 0 })}>${stamp ? imgTag(stamp, {}, 'sti') : ''}ОДОБРИЛ</span><span${sa({ border: 0 })}>${sign ? imgTag(sign, {}, 'sgi') : ''}ИСПРАТИЛ</span></div>`;
+      + (data.vehicle || data.driver ? `<p class="muted"${sa({ marginTop: 4 })}>${data.vehicle ? 'Возило: ' + h(data.vehicle) + ' ' : ''}${data.driver ? 'Возач: ' + h(data.driver) : ''}</p>` : '')
+      + `<div class="sig sigimg"${esign ? ' style="margin-top:40mm!important"' : sa({ marginTop: '22mm' })}><span${sa({ border: 0 })}>ПРИМИЛ</span><span${sa({ border: 0 })}>${stamp ? imgTag(stamp, {}, 'sti') : ''}ОДОБРИЛ</span><span${sa({ border: 0 })}>${sign ? imgTag(sign, {}, 'sgi') : ''}ИСПРАТИЛ</span></div>`;
   } else {
     const rows = L.map((l) => {
       const b = Math.round(Number(l.qty) * Number(l.price) * (1 - Number(l.disc) / 100) * 100) / 100;
       const rate = nonVat ? 0 : doc.art32 ? 18 : l.rate;
-      return { l, code: l.itemCode ?? null, b, rate, v: doc.art32 || nonVat ? 0 : Math.round(b * rate) / 100 };
+      // legacy docHTML 4288: art. 32-a rows show the 18% VAT the buyer computes (display only, nothing to pay)
+      return { l, code: l.itemCode ?? null, b, rate, v: nonVat ? 0 : Math.round(b * rate) / 100 };
     });
     const rec = new Map<number, { b: number; v: number }>();
     for (const r of rows) { const x = rec.get(r.rate) ?? { b: 0, v: 0 }; x.b += r.b; x.v += r.v; rec.set(r.rate, x); }
     const recs = [...rec].sort((a, b) => b[0] - a[0]);
     const vatAll = doc.art32 ? T.transferredVat : T.vat;
     const pay = T.pay;
+    const qr = (kind === 'invoice' || kind === 'proforma') && S.qr !== false
+      ? qrDataUrl(invoiceQrText({ number: doc.number, date: doc.date, due: doc.due, firmEdb: f.edb, buyerEdb: partner?.edb, base: T.base, vat: T.vat, pay, bank: st('bank') }), 3) : '';
     const style = st('invStyle') || 'classic';
-    const sigBlock = `<div class="sig sigimg"${sa(esign ? { marginTop: '40mm' } : null)}>`
+    // legacy e-sign patch 13479: `margin-top:40mm!important` (the print CSS has `.sigimg{margin-top:30mm!important}`)
+    const sigBlock = `<div class="sig sigimg"${esign ? ' style="margin-top:40mm!important"' : ''}>`
       + `<span>${sign ? imgTag(sign, esign ? { maxHeight: '34mm', maxWidth: '75mm', bottom: 'calc(100% + 1mm)' } : {}, 'sgi') : ''}${kind === 'proforma' ? 'Изготвил' : 'Фактурирал'}<br><b>${h(st('short') || f.name)}</b>${st('signer') ? `<br>${h(st('signerRole') || 'Управител')}: <b>${h(st('signer'))}</b>` : ''}</span>`
       + `<span${sa({ border: 0 })}>${stamp ? imgTag(stamp, {}, 'sti') : ''}${esign ? '' : 'М.П.'}</span>`
       + `<span>Примил${partner?.name ? `<br><b>${h(partner.name)}</b>` : ''}</span>`
@@ -224,10 +250,11 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<div${sa({ display: 'flex', gap: 12, alignItems: 'center' })}>${logo ? imgTag(logo, { maxHeight: '20mm', maxWidth: '48mm' }) : `<div${sa({ width: '13mm', height: '13mm', borderRadius: M ? 0 : 10, background: Acol, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 20 })}>${h(f.name.trim()[0])}</div>`}`
         + `<div><div${sa({ fontSize: 15, fontWeight: 800 })}>${h(f.name)}</div><div${sa({ color: '#666', fontSize: 9.5, lineHeight: 1.45 })}>${h([f.address, f.city].filter(Boolean).join(', '))}<br>ЕДБ ${h(f.edb)}${f.embs ? ' · ЕМБС ' + h(f.embs) : ''}${f.phone ? ' · ' + h(f.phone) : ''}${f.email ? ' · ' + h(f.email) : ''}</div></div></div>`
         + `<div${sa({ textAlign: 'right' })}><div${sa({ fontSize: M ? 22 : 26, fontWeight: M ? 300 : 800, letterSpacing: M ? '.25em' : '.02em', color: M ? '#111' : Acol, lineHeight: 1 })}>${T0}</div><div${sa({ fontSize: 13, marginTop: 4 })}>бр. <b>${h(doc.number)}</b></div></div></div>`
-        + `<div${sa({ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 10, margin: '14px 0 12px' })}>`
+        + `<div${sa({ display: 'grid', gridTemplateColumns: '1.3fr 1fr' + (qr ? ' auto' : ''), gap: 10, margin: '14px 0 12px' })}>`
         + `<div${sa(M ? { borderLeft: '2px solid #111', padding: '2px 10px' } : { background: soft, borderRadius: 10, padding: '10px 12px' })}>${lbl(kind === 'credit' ? 'Одобрение за' : 'Фактурирано на')}<div${sa({ fontSize: 13, fontWeight: 700 })}>${h(partner?.name)}</div><div${sa({ color: '#555', fontSize: 10, lineHeight: 1.45 })}>${h([partner?.address, partner?.city].filter(Boolean).join(', '))}${partner?.edb ? `<br>ЕДБ ${h(partner.edb)}` : ''}</div></div>`
         + `<div${sa(M ? { borderLeft: '2px solid #111', padding: '2px 10px' } : { border: '1px solid #e3e6ea', borderRadius: 10, padding: '10px 12px' })}>${meta.filter(([a]) => a !== 'Број').map(([a, b]) => mrow(a, b)).join('')}`
-        + `${kind === 'invoice' ? mrow('Повикување на број', `<b>${h(doc.number)}</b>`) : ''}</div></div>`
+        + `${kind === 'invoice' ? mrow('Повикување на број', `<b>${h(doc.number)}</b>`) : ''}</div>`
+        + (qr ? `<div${sa({ textAlign: 'center' })}><img src="${qr}" alt="QR" style="width:24mm;height:24mm;image-rendering:pixelated"><div${sa({ fontSize: 7, color: '#888' })}>QR за плаќање</div></div>` : '') + `</div>`
         + `<table${sa({ borderCollapse: 'collapse', width: '100%', border: 0 })}><thead><tr>${['#', 'Опис', 'Ед.м.', 'Кол.', 'Цена', 'Рабат', 'ДДВ', 'Износ без ДДВ'].map((x, i) => `<th${i >= 3 ? ' class="n"' : ''}${sa(th)}>${x}</th>`).join('')}</tr></thead>`
         + `<tbody>${rows.map((r, i) => `<tr${sa(!M && i % 2 ? { background: soft } : null)}><td${td}>${i + 1}</td><td${td}><b>${h(r.l.name)}</b>${r.l.code || r.code ? `<div${sa({ color: '#999', fontSize: 8.5 })}>шифра ${h(r.l.code || r.code)}</div>` : ''}</td><td${td}>${h(r.l.unit)}</td><td class="n"${td}>${fq(r.l.qty)}</td><td class="n"${td}>${fmt(r.l.price)}</td><td class="n"${td}>${Number(r.l.disc) ? Number(r.l.disc) + '%' : '–'}</td><td class="n"${td}>${r.rate}%</td><td class="n"${td}><b>${fmt(r.b)}</b></td></tr>`).join('')}</tbody></table>`
         + `<div${sa({ display: 'flex', justifyContent: 'space-between', gap: 14, marginTop: 12, alignItems: 'flex-start' })}>`
@@ -247,9 +274,9 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
       const extra = [data.payMethod && data.payMethod !== 'Вирман' ? 'Начин на плаќање: ' + data.payMethod : '', data.parity ? 'Паритет: ' + data.parity : '', data.pay1, data.pay2, data.pay3].filter(Boolean);
       const totCell = sa({ background: AC, color: '#fff', fontWeight: 700, fontSize: 11.5 });
       body = head
-        + `<div class="grid2"${sa({ margin: '8px 0' })}>${buyerBox}<div class="box"${sa({ margin: 0 })}>${f.city ? `<b>Место на издавање:</b> ${h(f.city)}<br>` : ''}${data.dAddr ? `<b>Место на испорака:</b> ${h(data.dAddr)}<br>` : ''}${kind === 'invoice' ? `<b>Повикување на број:</b> ${h(doc.number)}` : ''}</div></div>`
+        + `<div class="grid2"${sa({ margin: '8px 0' })}>${buyerBox}<div class="box"${sa({ margin: 0, display: 'flex', justifyContent: 'space-between', gap: 8 })}><div>${f.city ? `<b>Место на издавање:</b> ${h(f.city)}<br>` : ''}${data.dAddr ? `<b>Место на испорака:</b> ${h(data.dAddr)}<br>` : ''}${kind === 'invoice' ? `<b>Повикување на број:</b> ${h(doc.number)}` : ''}</div>${qr ? `<div${sa({ textAlign: 'center', flex: 'none' })}><img src="${qr}" alt="QR" style="width:22mm;height:22mm;image-rendering:pixelated"><div${sa({ fontSize: 7, color: '#666' })}>QR – податоци за плаќање</div></div>` : ''}</div></div>`
         + `<table><thead><tr><th${sa({ width: '7mm' })}>Р.б.</th><th>Опис</th><th${sa({ width: '11mm' })}>Ед.м.</th><th class="n">Кол.</th><th class="n">Цена без ДДВ</th><th class="n">Рабат</th><th class="n">Износ без ДДВ</th><th class="n">ДДВ %</th><th class="n">ДДВ</th><th class="n">Вкупно</th></tr></thead>`
-        + `<tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${h(r.l.name)}</td><td>${h(r.l.unit)}</td><td class="n">${fq(r.l.qty)}</td><td class="n">${fmt(r.l.price)}</td><td class="n">${Number(r.l.disc) ? Number(r.l.disc) + '%' : ''}</td><td class="n">${fmt(r.b)}</td><td class="n">${r.rate}%${doc.art32 ? '*' : ''}</td><td class="n">${fmt(r.v)}</td><td class="n">${fmt(r.b + r.v)}</td></tr>`).join('')}</tbody></table>`
+        + `<tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${h(r.l.name)}</td><td>${h(r.l.unit)}</td><td class="n">${fq(r.l.qty)}</td><td class="n">${fmt(r.l.price)}</td><td class="n">${Number(r.l.disc) ? Number(r.l.disc) + '%' : ''}</td><td class="n">${fmt(r.b)}</td><td class="n">${r.rate}%${doc.art32 ? '*' : ''}</td><td class="n">${fmt(r.v)}</td><td class="n">${fmt(doc.art32 ? r.b : r.b + r.v)}</td></tr>`).join('')}</tbody></table>`
         + `<div${sa({ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 4 })}>`
         + `<div${sa({ flex: 1, minWidth: 0 })}><table><thead><tr><th>Стапка</th><th class="n">Основица</th><th class="n">ДДВ</th></tr></thead><tbody>${recs.map(([k, x]) => `<tr><td>${k}%${doc.art32 ? '*' : ''}</td><td class="n">${fmt(x.b)}</td><td class="n">${fmt(x.v)}</td></tr>`).join('')}</tbody></table>`
         + (doc.export ? `<div${sa({ marginTop: 4 })}><b>Извоз – ослободено од ДДВ согласно член 23 од ЗДДВ.</b>${data.icd ? ' ИЦД: ' + h(data.icd) : ''}</div>` : '')
@@ -257,7 +284,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<div${sa({ marginTop: 6 })}><span class="muted">Со зборови:</span> ${words}</div></div>`
         + `<table${sa({ width: '78mm', margin: '4px 0 0' })}><tbody><tr><td>Износ без ДДВ</td><td class="n">${fmt(T.base)}</td></tr>`
         + `<tr><td>ДДВ${doc.art32 ? ' 18% – пренесена обврска*' : ''}</td><td class="n">${fmt(vatAll)}</td></tr>`
-        + (T.advTotal > 0 ? `<tr><td>Вкупно</td><td class="n">${fmt(doc.art32 ? T.base : T.total)}</td></tr>${adv.map((a) => `<tr><td>Одбиен аванс ф-ра ${h(a.invoice.number)}</td><td class="n">−${fmt(a.amount)} + ДДВ</td></tr>`).join('')}` : '')
+        + (T.advTotal > 0 ? `<tr><td>Вкупно</td><td class="n">${fmt(doc.art32 ? T.base : T.total)}</td></tr>${advDeduct(adv, { nonVat }).list.map((a) => `<tr><td>Одбиен аванс ф-ра ${h(a.number)} (${fmt(a.base)} + ДДВ ${fmt(a.vat)})</td><td class="n">−${fmt(a.base + a.vat)}</td></tr>`).join('')}` : '')
         + `<tr><td${totCell}>${kind === 'credit' ? 'ИЗНОС НА ОДОБРЕНИЕТО' : 'ЗА ПЛАЌАЊЕ'}</td><td class="n"${totCell}>${fmt(pay)} ${h(cur)}</td></tr>`
         + (doc.currency !== 'MKD' ? `<tr><td>Денарска противвредност</td><td class="n">${fmt(pay * fx)} ден.</td></tr>` : '')
         + `</tbody></table></div>`

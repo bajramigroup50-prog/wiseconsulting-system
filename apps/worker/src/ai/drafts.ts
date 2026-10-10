@@ -3,7 +3,7 @@
  * `outRun` → `outDraft`). Loads the firm's partners, items, duplicates and closed VAT periods.
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { periodOf, schemeValue } from '@wise/core';
+import { calcLines, periodOf, schemeValue } from '@wise/core';
 import {
   batchStatus, findDuplicate, nextDocNumber, ownerCheck, purchaseDraftFromScan, purchaseTotal, saleDraftFromScan, scanInvoices,
   type MatchItem, type ScanResult,
@@ -59,15 +59,24 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult): Promise<AiDraf
   const used = (await db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.firmId, f.id), eq(invoices.kind, 'invoice'),
     sql`extract(year from ${invoices.date}) = ${Number(today.slice(0, 4))}`))).map((x) => x.n);
   const out: AiDraft[] = [];
+  const fm = (v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   for (const x of scanInvoices(r)) {
     const d = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)) });
-    used.push(d.number);
+    // legacy `outCheck` (8402): existing number → „веќе внесена“; a new buyer alone does not block „спремна“
     const why: string[] = [];
+    const dup = used.some((u) => String(u).trim() === d.number.trim());
+    if (dup) why.push('бројот ' + d.number + ' веќе постои');
+    used.push(d.number);
+    if (!d.partnerId) why.push(d.buyer.name ? 'нов купувач: ' + d.buyer.name : 'купувачот не е препознаен');
+    const c = calcLines(d.items, d.art32);
+    if (d.total && Math.abs(c.total - d.total) > Math.max(2, d.total * 0.005)) why.push('износот не се совпаѓа (' + fm(c.total) + ' / ' + fm(d.total) + ')');
+    const free = d.items.filter((l) => !l.itemId && Number(l.qty) && !/услуг|транспорт|превоз/i.test(l.name)).length;
+    if (free) why.push(free + ' ставки не се поврзани со артикл');
+    if (!d.items.length) why.push('нема ставки');
     const own = ownerCheck('sale', x, f.edb);
     if (own) why.push(own);
-    if (!d.partnerId) why.push(d.buyer.name ? 'нов купувач: ' + d.buyer.name : 'нема купувач');
-    if (!d.items.length) why.push('нема ставки');
-    out.push({ draft: d as unknown as Record<string, unknown>, status: why.length ? 'check' : 'ok', msg: why.join(', ') });
+    const status = dup ? 'dup' : why.some((m) => !m.startsWith('нов купувач')) ? 'check' : 'ok';
+    out.push({ draft: { ...d, calcTotal: c.total } as unknown as Record<string, unknown>, status, msg: why.join(' · ') });
   }
   return out;
 }
