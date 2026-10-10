@@ -279,9 +279,13 @@ export async function artAutoAction(_p: ActionState, f: FormData): Promise<Actio
 export async function artKontaAction(_p: ActionState, f: FormData): Promise<ActionState> {
   const rawK = s(f, 'rawK') || '3100';
   if (!/^\d{3,10}$/.test(rawK)) return { error: 'Контото мора да има само цифри.' };
-  const ch = fields(f, 'chg_').filter((id) => s(f, 'chg_' + id) === '1').map((id) => ({
-    id, role: (s(f, 'role_' + id) || 'goods') as Retail.ArtRole, costPrice: nOrNull(f, 'cp_' + id), costPct: nOrNull(f, 'pc_' + id),
-  }));
+  // rows whose role / cost differ from the original (`o_<id>` = "role|cp|pc"); a bulk role applies to the ticked rows
+  const bulk = s(f, 'bulk') as Retail.ArtRole | '';
+  const ch = fields(f, 'o_').map((id) => {
+    const role = (bulk && f.get('sel_' + id) === 'on' ? bulk : s(f, 'role_' + id) || 'goods') as Retail.ArtRole;
+    return { id, role, cp: s(f, 'cp_' + id), pc: s(f, 'pc_' + id) };
+  }).filter((x) => `${x.role}|${x.cp}|${x.pc}` !== s(f, 'o_' + x.id))
+    .map((x) => ({ id: x.id, role: x.role, ...(f.has('cp_' + x.id) ? { costPrice: nOrNull(f, 'cp_' + x.id), costPct: nOrNull(f, 'pc_' + x.id) } : {}) }));
   const st = await stockAction('akSave', ['/artKonta', '/artikli'], async (tx, a) => {
     const S = await firmSettings(tx, a.firmId);
     if (S.prodRawK !== rawK) await patchFirmSettings(tx, a, { prodRawK: rawK }, 'akRaw');
