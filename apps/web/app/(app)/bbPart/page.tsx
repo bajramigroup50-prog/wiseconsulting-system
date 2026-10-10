@@ -34,7 +34,7 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
     <>
       <Hd t={`${k} ${chart.find((a) => a.code === k)?.name ?? ''} – по комитенти`} sub={`${dmy(from)} – ${dmy(to)}`}>
         <Link className="btn" href={back}>← Бруто биланс</Link>
-        <Link className="btn" href={`/kkart?k=${k}&from=${from}&to=${to}`}>Картица за целото конто</Link>
+        <Link className="btn" href={`/kkart?k=${k}&from=${from}&to=${to}&back=bbPart`}>Картица за целото конто</Link>
       </Hd>
       <form className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center' }}>
         <input type="hidden" name="k" value={k} /><input type="hidden" name="from" value={from} /><input type="hidden" name="to" value={to} />
@@ -47,7 +47,7 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
         <thead><tr><th>Комитент</th><th className="n">Поч. Д</th><th className="n">Поч. П</th><th className="n">Промет Д</th><th className="n">Промет П</th><th className="n">Вкупно Д</th><th className="n">Вкупно П</th><th className="n">Салдо Д</th><th className="n">Салдо П</th></tr></thead>
         <tbody>{L.length ? L.map((p) => (
           <tr key={p.k || '-'}>
-            <td><Link href={`/kkart?k=${k}&from=${from}&to=${to}&p=${p.k || 'none'}`}><b>{p.name}</b></Link></td>
+            <td><Link href={`/kkart?k=${k}&from=${from}&to=${to}&p=${p.k || "none"}&back=bbPart`}><b>{p.name}</b></Link></td>
             {F.map((f) => <td key={f} className="n">{p[f] ? fmt(p[f]) : ''}</td>)}
             <td className="n">{p.s > 0 ? fmt(p.s) : ''}</td><td className="n">{p.s < 0 ? fmt(-p.s) : ''}</td>
           </tr>
