@@ -4,7 +4,7 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { addDays, DT, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
+import { addDays, DT, INV_NOTE0, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
 import {
   aiDocuments, codes, employees, firmPostingContext, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
@@ -16,6 +16,7 @@ import { accountOptions, itemOptions, listPayments, locationOptions, partnerOpti
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { UploadField } from '@/components/upload-field';
 import { fuelBannerFor, fuelRuleNow } from '@/lib/sales-parity';
 import { DownloadCsv } from '@/components/download-csv';
 import { approveInvoiceAction, deleteInvoiceAction, deleteInvoicesAction, fuelItemsRateAction, saveCrMode, saveInvoiceStyle } from '@/app/(app)/izlez/actions';
@@ -208,6 +209,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const style = (k: string) => String(((firm.settings ?? {}) as Record<string, unknown>)[k] ?? '');
   const settingsOk = canDo(u, 'settings', firm.id);
   const crMode = style('crMode') || 'minus';
+  const lastInv = sp.style !== undefined ? (await db().select({ id: invoices.id }).from(invoices).where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'))).orderBy(desc(invoices.date)).limit(1))[0]?.id : undefined;
   // legacy `opHint` (16892): unpaid invoices past their due date
   const OP = kind === 'invoice' && dt === 'invoice' ? (await loadDunning(firm)).G.filter((g) => g.over > 0) : [];
   const fuel = dt === 'invoice' ? await fuelBannerFor(firm) : null;
@@ -228,7 +230,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         <form action={saveInvoiceStyle} className="card">
           <h2>Изглед на фактурата (печатење)</h2>
           <div className="form">
-            <label className="f">Стил<select name="invStyle" defaultValue={style('invStyle') || 'classic'}><option value="classic">Класичен</option><option value="modern">Модерен</option><option value="minimal">Минималистички</option></select></label>
+            <label className="f">Стил<select name="invStyle" defaultValue={style('invStyle') || 'classic'}><option value="classic">Класичен (табели)</option><option value="modern">Модерен (боја, картички)</option><option value="minimal">Минималистички (црно-бел)</option></select></label>
             <label className="f">Боја (модерен)<input name="invColor" type="color" defaultValue={style('invColor') || '#1f5eff'} /></label>
             <label className="f">Жиро сметка<input name="bank" defaultValue={style('bank')} /></label>
             <label className="f">Банка<input name="bankName" defaultValue={style('bankName')} /></label>
@@ -238,11 +240,18 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
             <label className="f">Лого (ID на датотека или URL)<input name="logo" defaultValue={style('logo')} /></label>
             <label className="f">Потпис (ID / URL)<input name="sign" defaultValue={style('sign')} /></label>
             <label className="f">Печат (ID / URL)<input name="stamp" defaultValue={style('stamp')} /></label>
-            <label className="f">Фуснота чл. 53<select name="legalFoot" defaultValue={style('legalFoot') || 'auto'}><option value="auto">автоматски</option><option value="paper">хартиена (без печат)</option><option value="esign">е-потпис (чл. 53-б)</option><option value="none">без фуснота</option></select></label>
-            <label className="f wide">Напомена на фактурата<textarea name="invNote" rows={3} defaultValue={(firm.settings as Record<string, unknown>)?.invNote as string ?? ''} placeholder="(стандардна напомена)" /></label>
+            <fieldset className="fs wide"><legend>Фактура: лого, потпис, печат</legend>
+              <UploadField firmId={firm.id} name="logoUp" label="📎 Лого (слика)" accept="image/*" />
+              <UploadField firmId={firm.id} name="signUp" label="📎 Потпис (слика)" accept="image/*" />
+              <UploadField firmId={firm.id} name="stampUp" label="📎 Печат (слика)" accept="image/*" /></fieldset>
+            <label className="f wide">Законска забелешка (чл. 53 ЗДДВ)<select name="legalFoot" defaultValue={style('legalFoot') || 'auto'}><option value="auto">Автоматски (без печат → „печатот не е задолжителен“; со е-сертификат → квалификуван е-потпис)</option><option value="paper">Хартиена / PDF: печатот не е задолжителен (чл. 53 ЗДДВ)</option><option value="esign">Електронска фактура со квалификуван е-потпис (чл. 53-б ЗДДВ)</option><option value="none">Без забелешка</option></select></label>
+            <fieldset className="fs wide"><legend>Регистриран сертификат во Е-ФАКТУРА</legend><label className="f">Сериски број<input name="cert_serial" defaultValue={style('cert_serial')} /></label><label className="f">Thumbprint<input name="cert_thumb" defaultValue={style('cert_thumb')} /></label></fieldset>
+            <label className="chk wide"><input type="checkbox" name="qr" value="1" defaultChecked={((firm.settings ?? {}) as Record<string, unknown>).qr !== false} /><input type="hidden" name="qr" value="0" /> Прикажи QR код на фактурата (износ, жиро сметка, повикување на број)</label>
+            <label className="f wide">Напомена на фактурата<textarea name="invNote" rows={4} defaultValue={((firm.settings as Record<string, unknown>)?.invNote as string | undefined) ?? INV_NOTE0} /></label>
             <label className="chk"><input type="checkbox" name="invNoteDefault" /> врати ја стандардната напомена</label>
           </div>
-          <button className="btn pri">Зачувај</button>
+          <div className="row" style={{ gap: 8 }}><button className="btn pri">Зачувај</button>{lastInv && <Link className="btn" href={`/print/doc/${lastInv}`} target="_blank">👁 Преглед</Link>}</div>
+          <p className="note">Зачувајте ја фирмата за изгледот да важи за сите фактури.</p>
         </form>
       )}
       {fuel && <div className={'callout' + (fuel.warn ? ' warn' : '')} id="fuelBan">⛽ <b>Оваа фирма продава гориво.</b> ДДВ за гориво денес: <b>{fuel.rate}%</b>{fuel.inR && fuel.to ? <> – намалената стапка важи до <b>{dmy(fuel.to)}</b>{fuel.left != null ? ` (уште ${fuel.left} ден${fuel.left === 1 ? '' : 'а'})` : ''}, потоа {fuel.else}% освен ако Владата не продолжи</> : null}.{fuel.wrong ? <> <b>{fuel.wrong} артикли гориво</b> се со друга стапка.</> : null} Прилагодете ги и <b>фискалните апарати</b>.{' '}
