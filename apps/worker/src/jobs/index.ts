@@ -9,6 +9,7 @@ import { pdfRender } from './pdf';
 import { invoiceMail } from './invoice-mail';
 import { mpinRead } from './mpin-read';
 import { lawAsk, lawRobot } from './law';
+import { legacyImport } from './legacy-import';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -24,4 +25,5 @@ export const JOBS: JobDef<any>[] = [
   mpinRead,
   lawRobot,
   lawAsk,
+  legacyImport,
 ];

@@ -5,9 +5,10 @@ import { addIndustryNav } from './nav-industry';
 import { addLawNav } from './nav-law';
 import { addTransportNav } from './nav-transport';
 import { addFinanceNav } from './nav-finance';
+import { addLegacyImportNav } from './nav-legacy-import';
 
 /** Legacy `NAV` plus the items legacy added at runtime (per-phase files). */
-export const NAV = addFinanceNav(addTransportNav(addIndustryNav(addLawNav(addOfficeNav(NAV_DATA)))));
+export const NAV = addLegacyImportNav(addFinanceNav(addTransportNav(addIndustryNav(addLawNav(addOfficeNav(NAV_DATA))))));
 export type { NavGroup, NavItem };
 
 /** Legacy `NAV_SHORT` / `NAV_MINI` (group label abbreviations). */
