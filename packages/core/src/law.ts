@@ -4,3 +4,4 @@
  * robot (`zakoni`). Pure TypeScript, no I/O.
  */
 export * from './law/mpin-in';
+export * from './law/lawrep';

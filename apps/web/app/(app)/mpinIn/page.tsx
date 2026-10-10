@@ -18,6 +18,7 @@ import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { clearMpinList, deleteMpinMonth, editMpin, rereadMpin } from './actions';
 import { MpinBook, MpinFirmSelect, MpinGo, MpinUpload } from './mpin-client';
+import { PickFirm } from '../lawrep/pick-firm';
 
 type Sp = { book?: string; q?: string; only?: string };
 
@@ -90,7 +91,7 @@ export default async function MpinInPage({ searchParams }: { searchParams: Promi
                     {r.error && stat !== 'done' && <div className="note" style={{ color: 'var(--bad)', whiteSpace: 'normal' }}>{r.error}</div>}
                   </td>
                   <td style={{ maxWidth: 260, fontSize: 12 }}>
-                    {stat === 'done' ? <>{r.res}<div><Link className="btn sm" href="/nalozi">→ Налози</Link></div></>
+                    {stat === 'done' ? <>{r.res}{r.firmId && <div><PickFirm id={r.firmId} to="/nalozi" label={`→ Налози на ${fname.get(r.firmId) ?? ''}`} /></div>}</>
                       : what ? <>{what.corr && <><span style={{ color: 'var(--warn,#b26b00)' }}><b>Корекција:</b> {what.corr.replace(/^Корекција: /, '')}</span><br /></>}<span style={what.warn ? { color: 'var(--bad)' } : undefined}>{what.text}</span></> : null}
                     {['ok', 'notm', 'error'].includes(stat) && (
                       <details><summary className="mini">✎ Внеси / поправи рачно</summary>

@@ -1,15 +1,17 @@
 /**
  * Фирми menu items that legacy added to `NAV` at runtime, in legacy load order:
  *  - `mpinIn` (14101–14102): after `zatvoranje` in Фирми, and after `plati` in Финансово › Плата;
- *  - `insp` (16569, nav-office.ts) then lands between `zatvoranje` and `mpinIn`.
- * Result in Фирми: … izvestuvanja, zatvoranje, insp, mpinIn.
+ *  - `insp` (16569, nav-office.ts) then lands between `zatvoranje` and `mpinIn`;
+ *  - `lawrep` (16665): after `insp`.
+ * Result in Фирми: … izvestuvanja, zatvoranje, insp, lawrep, mpinIn.
  * Inserted by group and anchor id (the first anchor found wins), never by a fixed index.
  */
 import type { NavGroup, NavItem } from './nav-data';
 
 /** [group, anchors (insert after the first one present; none = end), item] */
 const ADD: [string, string[], NavItem][] = [
-  ['Фирми', ['insp', 'zatvoranje'], ['mpinIn', '📥 МПИН од УЈП (сите фирми)']],
+  ['Фирми', ['insp', 'zatvoranje'], ['lawrep', '⚖️ Даночен преглед (според законите)']],
+  ['Фирми', ['lawrep', 'insp', 'zatvoranje'], ['mpinIn', '📥 МПИН од УЈП (сите фирми)']],
 ];
 /** [group, submenu label, anchor, item] */
 const SUB: [string, string, string, NavItem][] = [

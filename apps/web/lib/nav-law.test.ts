@@ -4,9 +4,10 @@ import { NAV, NAV_LBL, navFlat, viewAllowed } from './nav';
 const ids = (g: string) => navFlat(NAV.find(([x]) => x === g)![1]).map(([id]) => id);
 
 describe('Фирми law / УЈП items (legacy runtime NAV inserts)', () => {
-  it('Фирми: … zatvoranje, insp, mpinIn', () => {
+  it('Фирми: … zatvoranje, insp, lawrep, mpinIn', () => {
     const f = ids('Фирми');
-    expect(f.slice(f.indexOf('zatvoranje'), f.indexOf('zatvoranje') + 3)).toEqual(['zatvoranje', 'insp', 'mpinIn']);
+    expect(f.slice(f.indexOf('zatvoranje'), f.indexOf('zatvoranje') + 4)).toEqual(['zatvoranje', 'insp', 'lawrep', 'mpinIn']);
+    expect(NAV_LBL.lawrep).toBe('⚖️ Даночен преглед (според законите)');
     expect(NAV_LBL.mpinIn).toBe('📥 МПИН од УЈП (сите фирми)');
   });
   it('Финансово › Плата: mpinIn right after plati', () => {

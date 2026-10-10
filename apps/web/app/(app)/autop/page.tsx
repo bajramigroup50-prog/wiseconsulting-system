@@ -40,7 +40,8 @@ export default async function AutopPage({ searchParams }: { searchParams: Promis
         <RowAction className="btn pri" action={runNow} label="▶ Провери ги сите фирми" />
       </Hd>
       <p className="note">Се пушта автоматски на секои 6 часа. Наодите исчезнуваат сами кога ќе се реши проблемот.</p>
-      <div className="ftabs row" style={{ gap: 6, margin: '6px 0' }}>{tabs.map(([k, l]) => <a key={k} className={`btn sm ${tab === k ? 'pri' : ''}`} href={`/autop?tab=${k}`}>{l}</a>)}</div>
+      <div className="ftabs row" style={{ gap: 6, margin: '6px 0' }}>{tabs.map(([k, l]) => <a key={k} className={`btn sm ${tab === k ? 'pri' : ''}`} href={`/autop?tab=${k}`}>{l}</a>)}
+        <a className="btn sm" href="/lawrep?all=1">⚖️ Даночен преглед</a></div>
 
       {tab === 'find' && (order.length ? order.map((fid) => (
         <div key={fid} className="card">
