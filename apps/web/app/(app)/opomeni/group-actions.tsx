@@ -38,7 +38,7 @@ export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail }: {
           <label className="f">До<input name="to" type="email" defaultValue={email} required /></label>
           <label className="f">Наслов<input name="subject" defaultValue={t.subj} /></label>
           <label className="f">Порака<textarea name="body" rows={12} defaultValue={t.body} /></label>
-          <p className="mini" style={{ margin: 0 }}>Опомената (како во PDF) се додава под текстот; потписот и напомената од „✏ Потпис и напомена“ – на крајот.</p>
+          <p className="mini" style={{ margin: 0 }}>Опомената се праќа како PDF во прилог (Opomena_….pdf); потписот и напомената од „✏ Потпис и напомена“ – на крајот на текстот.</p>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn pri" disabled={busy}>{busy ? 'Се праќа…' : '✉ Испрати'}</button>
             <button type="button" className="btn" onClick={() => setOpen('')}>Откажи</button>

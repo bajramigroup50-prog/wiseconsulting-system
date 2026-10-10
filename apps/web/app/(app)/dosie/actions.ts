@@ -26,6 +26,13 @@ export async function saveDossierDoc(_p: ActionState, f: FormData): Promise<Acti
         const [e] = await tx.insert(clientEntries).values({ firmId: firm.id, kind: 'dossier', data: v, submittedBy: u.id }).returning({ id: clientEntries.id });
         await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.clientEntry, e!.id);
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosSave', entityType: 'client_entry', entityId: e!.id, data: { pending: true, category } });
+      } else if (fv(f, 'id')) {
+        // legacy `dosEditB` → `dosSave` on an existing document: fields change, new pages are added
+        const id = fv(f, 'id')!;
+        const [d] = await tx.update(dossierDocs).set(v).where(and(eq(dossierDocs.id, id), eq(dossierDocs.firmId, firm.id))).returning({ id: dossierDocs.id });
+        if (!d) throw new Error('Документот не постои.');
+        const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.dossier, d.id);
+        await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosEdit', entityType: 'dossier_doc', entityId: d.id, data: { ...v, files: n } });
       } else {
         const [d] = await tx.insert(dossierDocs).values({ ...v, firmId: firm.id, createdBy: u.id }).returning({ id: dossierDocs.id });
         const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.dossier, d!.id);
