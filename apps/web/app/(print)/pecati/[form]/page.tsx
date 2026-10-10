@@ -3,6 +3,7 @@
  * `bel`, `tp` (Образец Б + ДЛД-ДБ), `npo`, `os` (fixed-asset register). Same guards as the screens.
  */
 import { notFound } from 'next/navigation';
+import { npoDbRows } from '@wise/core/yearend/books';
 import { eq } from 'drizzle-orm';
 import { appSettings, depreciationFor } from '@wise/db';
 import { db } from '@/lib/db';
@@ -39,7 +40,7 @@ export default async function PrintPage({ params }: { params: Promise<{ form: st
     case 'vp': return <VpForm D={L.Y.vp} firm={firm} year={year} sig={sig} />;
     case 'bel': return <BelPrint firm={firm} year={year} cur={cur} prev={prev} notes={L.statement?.notes} prevNotes={L.prevStatement?.notes} sig={sig} />;
     case 'tp': return L.Y.tp ? <TpTables T={L.Y.tp} firm={firm} year={year} print /> : notFound();
-    case 'npo': return L.Y.npo ? <NpoTables N={L.Y.npo} firm={firm} year={year} print /> : notFound();
+    case 'npo': return L.Y.npo ? <NpoTables N={L.Y.npo} firm={firm} year={year} print dbRows={npoDbRows(L.Y.co.balances.pre, L.Y.npoChart !== 'npo')} /> : notFound();
     case 'os': {
       const d = await depreciationFor(db(), firm.id, year);
       const by = new Map(d.rows.map((r) => [r.id, r]));
