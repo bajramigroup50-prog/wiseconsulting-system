@@ -4,15 +4,6 @@
 	default_sni {$IP_HOST:localhost}
 }
 
-# The original single-file program (legacy/index.html) at /klasik; its data stays in each browser's localStorage.
-(klasik) {
-	redir /klasik /klasik/
-	handle_path /klasik/* {
-		root * /srv/klasik
-		file_server
-	}
-}
-
 (security) {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -28,10 +19,7 @@
 	request_body {
 		max_size 110MB
 	}
-	import klasik
-	handle {
-		reverse_proxy app:3000
-	}
+	reverse_proxy app:3000
 }
 
 www.{$DOMAIN} {
@@ -53,8 +41,5 @@ files.{$DOMAIN} {
 {$IP_HOST:localhost} {
 	tls internal
 	import security
-	import klasik
-	handle {
-		reverse_proxy app:3000
-	}
+	reverse_proxy app:3000
 }
