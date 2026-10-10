@@ -170,7 +170,7 @@ export function plxEmp(rec: PxlRecord, E: PxlEmployee, month: string, P: PayPara
   if (rec.gross && rec.net == null) e.grossBase = rec.gross;
   let regH = rec.reg;
   if (regH != null && regH > 0 && regH <= 31) regH = regH * 8;
-  const fullH = +P.hours || 176;
+  const fullH = +(P.hours ?? 0) || 176;
   let plan = rec.regPlan;
   if (plan != null && plan > 0 && plan <= 31) plan = plan * 8;
   let hNormSave: number | null = null;
@@ -190,7 +190,7 @@ export function plxEmp(rec: PxlRecord, E: PxlEmployee, month: string, P: PayPara
   }
   if (rec.bonus) L.push({ type: 'Награда / бонус', amt: rec.bonus, cat: 'kor' });
   e.lines = L;
-  if (regH == null) fixRegular(e, +(e.hNorm ?? 0) || +P.hours);
+  if (regH == null) fixRegular(e, +(e.hNorm ?? 0) || fullH);
   if (!+(e.netBase ?? 0) && !e.grossBase) warn.push(e.name + ': нема нето/бруто плата');
   const coef = +(e.coef ?? 1) || 1;
   if (+(e.netBase ?? 0) && +P.minNet && +(e.netBase ?? 0) * coef < +P.minNet - 1 && coef >= 1) warn.push(e.name + ': нето ' + fmt0(+(e.netBase ?? 0)) + ' е под минималната (' + fmt0(+P.minNet) + ')');
