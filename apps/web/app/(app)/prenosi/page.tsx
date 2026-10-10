@@ -67,14 +67,17 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
     if (edit) {
       initial = { id: edit.id, number: edit.number, date: edit.date, from: edit.fromLocationId ?? 'main', to: edit.toLocationId ?? 'main', note: edit.note ?? '', lines: edit.lines.map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' })) };
     } else {
-      const c = sp.calc ? calcs.find((x) => x.id === sp.calc) : undefined;
+      // one or more calculations (legacy `prFromCalc` / `ksPren`): same warehouse, newest date
+      const cs = (sp.calc ?? '').split(',').map((id) => calcs.find((x) => x.id === id)).filter((x): x is CalcOpt => !!x);
+      const c = cs[0];
       const from = c?.wh ?? 'main';
       const to = stores[0]?.id ?? '';
+      const last = cs.map((x) => x.date).sort().pop();
       // legacy prFromCalc: date = today when the calculation is from this year and older, else its date
-      const date = c ? (c.date.slice(0, 4) === today.slice(0, 4) && c.date < today ? today : c.date) : dflt;
-      const lines = c ? transferFromCalc(L.ctx, c.lines, from, to, date).map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' })) : [];
+      const date = last ? (last.slice(0, 4) === today.slice(0, 4) && last < today ? today : last) : dflt;
+      const lines = transferFromCalc(L.ctx, cs.filter((x) => x.wh === from).flatMap((x) => x.lines), from, to, date).map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' }));
       if (c && !lines.some((l) => Number(l.qty) > 0)) info = `Нема залиха од оваа калкулација во ${L.locName(from)}. Стоката е веќе пренесена или издадена/продадена.`;
-      initial = { date, from, to, note: c ? 'Од калкулација ' + c.label.split(' · ')[0] : '', lines };
+      initial = { date, from, to, note: cs.length ? 'Од калкулација ' + cs.map((x) => x.label.split(' · ')[0]).join(', ') : '', lines };
     }
     const nextNo = nextYearNumber(list.map((x) => ({ number: x.number, date: x.date })), (initial.date ?? dflt).slice(0, 4), 4);
     const round = String((L.firm.settings as Record<string, unknown> | null)?.mgRound ?? '1');
