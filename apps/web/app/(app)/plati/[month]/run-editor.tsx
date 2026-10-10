@@ -13,6 +13,7 @@ import {
 } from '@wise/core/payroll';
 import { fmt, fq } from '@/lib/fmt';
 import { deleteRunAction, lockRunAction, mailSlipsAction, saveRunAction, unpostRunAction } from '../actions';
+import { saveEmployeesOe } from '../oe-actions';
 
 export interface EditorEmployee {
   id: string; no: string; name: string; embg: string; netBase: number; coef: number; start?: string; end?: string; stazPrev?: string; stazY?: string;
@@ -370,7 +371,8 @@ function LineDialog({ ed, psif, setEd, onOk }: { ed: LineEd; psif: PsifCode[]; s
 }
 
 function MailPanel({ p, onDone }: { p: Props; onDone: (r: { ok?: string; error?: string }) => void }) {
-  const [mode, setMode] = useState<'one' | 'each' | 'grp'>('each');
+  const [mode, setMode] = useState<'one' | 'each' | 'grp'>('one');
+  const [oeEd, setOeEd] = useState(false);
   const [to, setTo] = useState(p.firmEmail);
   const [by, setBy] = useState<'oe' | 'city'>('oe');
   const [pending, start] = useTransition();
@@ -387,15 +389,56 @@ function MailPanel({ p, onDone }: { p: Props; onDone: (r: { ok?: string; error?:
       <label className="chk"><input type="radio" checked={mode === 'one'} onChange={() => setMode('one')} /> Сите пресметки во една порака на адреса: <input value={to} onChange={(x) => setTo(x.target.value)} placeholder="sopstvenik@firma.mk" style={{ width: 240, marginLeft: 6 }} /></label>
       <label className="chk"><input type="radio" checked={mode === 'grp'} onChange={() => setMode('grp')} /> <b>По пункт / град</b>, групирано по <select value={by} onChange={(x) => setBy(x.target.value as 'oe' | 'city')} style={{ width: 'auto', marginLeft: 4 }}><option value="oe">Организациона единица (ОЕ / пункт)</option><option value="city">Град</option></select></label>
       {mode === 'grp' && (
-        <table className="dense"><thead><tr><th>{by === 'city' ? 'Град' : 'Пункт / ОЕ'}</th><th>Е-пошта на пунктот</th></tr></thead>
-          <tbody>{groups.map((k) => <tr key={k}><td>{k}</td><td><input value={gv(k)} onChange={(x) => setG({ ...G, [`${by}:${k}`]: x.target.value })} placeholder="punkt@firma.mk" style={{ width: 220 }} /></td></tr>)}</tbody></table>
+        <>
+          <table className="dense"><thead><tr><th>{by === 'city' ? 'Град' : 'Пункт / ОЕ'}</th><th className="n">Вработени</th><th>Е-пошта на пунктот</th></tr></thead>
+            <tbody>{groups.map((k) => {
+              const L = p.run.emps.filter((x) => (String(E.get(x.empId)?.[by] ?? '').trim() || `(без ${by === 'city' ? 'град' : 'ОЕ'})`) === k);
+              return <tr key={k}><td><b>{k}</b><div className="mini">{L.map((x) => x.name).join(', ')}</div></td><td className="n">{L.length}</td><td><input value={gv(k)} onChange={(x) => setG({ ...G, [`${by}:${k}`]: x.target.value })} placeholder="punkt@firma.mk" style={{ width: 220 }} /></td></tr>;
+            })}</tbody></table>
+          {by === 'oe' && p.canWrite && <button type="button" className="btn sm" onClick={() => setOeEd(!oeEd)}>✎ Распореди ги вработените по единици</button>}
+          {oeEd && <OeEditor employees={p.employees.filter((x) => p.run.emps.some((r) => r.empId === x.id))} onDone={(r) => { onDone(r); setOeEd(false); }} />}
+        </>
       )}
-      <p className="mini" style={{ margin: 0 }}>Пресметката се испраќа во самата порака (HTML). Пораките се праќаат преку серверот за е-пошта и се евидентираат; статусот се гледа во колоната „Е-пошта“.</p>
+      <p className="mini" style={{ margin: 0 }}>Пресметките се праќаат како PDF во прилог (Presmetki_{p.run.month}.pdf / Presmetka_{p.run.month}_име.pdf). Пораките се праќаат преку серверот за е-пошта и се евидентираат; статусот се гледа во колоната „Е-пошта“.</p>
       <div className="row"><button className="btn pri" disabled={pending} onClick={() => {
         const groupsIn = Object.fromEntries(groups.map((k) => [k, gv(k)]).filter(([, v]) => v));
         if (!window.confirm(mode === 'each' ? `Да се испрати пресметката на секој од ${withMail.length} вработени?` : mode === 'one' ? `Да се испратат сите ${p.run.emps.length} пресметки на ${to}?` : `Да се испратат пресметките на ${Object.keys(groupsIn).length} групи?`)) return;
         start(async () => onDone(await mailSlipsAction({ runId: p.run.id, mode, to, groupBy: by, groups: groupsIn })));
       }}>✉ Испрати</button></div>
+    </div>
+  );
+}
+
+/** Legacy `pdOeEd` 14886: assign employees to units, then „💾 Зачувај“. */
+function OeEditor({ employees, onDone }: { employees: EditorEmployee[]; onDone: (r: { ok?: string; error?: string }) => void }) {
+  const [V, setV] = useState<Record<string, string>>(() => Object.fromEntries(employees.map((e) => [e.id, e.oe ?? ''])));
+  const [on, setOn] = useState<Record<string, boolean>>({});
+  const [q, setQ] = useState('');
+  const [unit, setUnit] = useState('');
+  const [pending, start] = useTransition();
+  const L = employees.filter((e) => !q || `${e.name} ${e.position}`.toLowerCase().includes(q.toLowerCase()));
+  const units = [...new Set(Object.values(V).filter(Boolean))].sort();
+  return (
+    <div className="card" style={{ marginTop: 6 }}>
+      <div className="callout">Означете ги вработените, впишете единица и „Постави за означените“ – или внесете ја кај секој посебно. Потоа „💾 Зачувај“.</div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        <input placeholder="🔍 барај вработен…" value={q} onChange={(x) => setQ(x.target.value)} style={{ width: 180 }} />
+        <input list="oeList" placeholder="Подружница / единица" value={unit} onChange={(x) => setUnit(x.target.value)} style={{ width: 200 }} />
+        <datalist id="oeList">{units.map((u) => <option key={u} value={u} />)}</datalist>
+        <button type="button" className="btn sm" onClick={() => setV({ ...V, ...Object.fromEntries(Object.keys(on).filter((k) => on[k]).map((k) => [k, unit.trim()])) })}>Постави за означените</button>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn sm pri" disabled={pending} onClick={() => {
+          const ch = employees.filter((e) => (V[e.id] ?? '') !== (e.oe ?? '')).map((e) => ({ id: e.id, oe: V[e.id] ?? '' }));
+          if (!ch.length) { onDone({ ok: 'Нема промени.' }); return; }
+          start(async () => onDone(await saveEmployeesOe(ch)));
+        }}>💾 Зачувај</button>
+        <button type="button" className="btn sm" onClick={() => onDone({})}>Откажи</button>
+      </div>
+      <table className="dense"><thead><tr><th><input type="checkbox" checked={L.length > 0 && L.every((e) => on[e.id])} onChange={(x) => setOn({ ...on, ...Object.fromEntries(L.map((e) => [e.id, x.target.checked])) })} /></th><th>Вработен</th><th>Работно место</th><th>Подружница / единица</th></tr></thead>
+        <tbody>{L.map((e) => (
+          <tr key={e.id}><td><input type="checkbox" checked={!!on[e.id]} onChange={(x) => setOn({ ...on, [e.id]: x.target.checked })} /></td><td>{e.name}</td><td>{e.position}</td>
+            <td><input list="oeList" value={V[e.id] ?? ''} onChange={(x) => setV({ ...V, [e.id]: x.target.value })} style={{ width: 200 }} /></td></tr>
+        ))}</tbody></table>
     </div>
   );
 }

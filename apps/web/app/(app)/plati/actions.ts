@@ -9,12 +9,13 @@ import { and, asc, desc, eq, like, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { payCopyPrev, payDraft, type PayEmp, type PayParams } from '@wise/core';
 import {
-  audit, deleteRun, employees, loadRun, payrollNotes, payrollRuns, payrollSettings, postRun, saveRun, setRunLocked, unpostRun,
+  audit, deleteRun, employees, getOfficeProfile, loadRun, payrollNotes, payrollRuns, payrollSettings, postRun, saveRun, setRunLocked, textMailHtml, unpostRun, type PdfMailJob,
 } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dispatchMail, queueMail, splitAddresses, validAddresses } from '@/lib/mail';
-import { mmYYYY, monthName } from '@/lib/payroll/html';
+import { dispatchPdfMail, queuePdfMail } from '@/lib/pdf-mail';
+import { fname, mmYYYY, monthName } from '@/lib/payroll/html';
 import { coreEmp, firmEmployees, isMonth, payAction, payCtx, payError } from '@/lib/payroll/server';
 import { slipHtml } from '@/lib/payroll/slip';
 
@@ -201,9 +202,12 @@ export interface MailSlipsInput {
   groups?: Record<string, string>;
 }
 
-/** Queue payslip e-mails; the payslip HTML is the message body. */
+/**
+ * Queue payslip e-mails with the payslips as a PDF attachment (legacy `pdMailGo` 8288–8305: `Presmetki_<month>.pdf`,
+ * `Presmetka_<month>_<name>.pdf`, per group `Presmetki_<month>_<group>.pdf`), rendered by the worker's `pdf.mail`.
+ */
 export async function mailSlipsAction(input: MailSlipsInput): Promise<ActionState> {
-  let ids: string[] = [];
+  let ids: PdfMailJob[] = [];
   let skipped: string[] = [];
   try {
     const { u, firm } = await payAction('pdMailGo');
@@ -214,15 +218,16 @@ export async function mailSlipsAction(input: MailSlipsInput): Promise<ActionStat
       const ctx = await payCtx(firm, tx);
       const E = new Map((await firmEmployees(firm.id, tx)).map((e) => [e.id, e]));
       const mm = mmYYYY(run.month);
-      const slip = (e: PayEmp) => slipHtml(run, e, ctx.firm, E.get(e.empId) ?? null, u.name);
-      const body = (intro: string, emps: PayEmp[]) =>
-        `<div style="font-family:Arial,sans-serif;font-size:13px"><p>${intro}</p>${emps.map((e, i) => `<div style="max-width:720px;margin:${i ? '24px' : '8px'} 0;padding:12px;border:1px solid #d6e4df;border-radius:8px">${slip(e)}</div>`).join('')}<p>Со почит,<br>${ctx.firm.name}</p></div>`;
-      const out: string[] = [];
+      const O = (await getOfficeProfile(tx)) as { rep?: string; brand?: string; name?: string; sig?: string | null };
+      const slip = (e: PayEmp) => slipHtml(run, e, ctx.firm, E.get(e.empId) ?? null, { rep: O.rep, brand: O.brand || O.name, sig: O.sig, user: u.name });
+      const pdf = (title: string, emps: PayEmp[]) => ({ title, html: `<div class="pdfdoc">${emps.map((e, i) => (i ? '<div style="page-break-before:always"></div>' : '') + slip(e)).join('')}</div>` });
+      const out: PdfMailJob[] = [];
       const base = { firmId: firm.id, userId: u.id };
       if (input.mode === 'one') {
         const to = splitAddresses(input.to ?? '');
         if (!validAddresses(to)) throw new MailErr('Внесете валидна е-пошта.');
-        out.push(await queueMail(tx, { ...base, to, subject: `Пресметки на плата ${mm} – ${ctx.firm.name}`, html: body(`Почитувани,<br><br>Пресметките на плата за ${monthName(run.month)} за сите вработени (${run.emps.length}):`, run.emps), entityType: 'payroll_run', entityId: run.id }));
+        out.push(await queuePdfMail(tx, { ...base, to, subject: `Пресметки на плата ${mm} – ${ctx.firm.name}`, html: textMailHtml(`Почитувани,\n\nВо прилог се пресметките на плата за ${mm} за сите вработени (${run.emps.length}).\n\nСо почит,\n${u.name}`), entityType: 'payroll_run', entityId: run.id },
+          pdf(`Presmetki_${run.month}`, run.emps)));
       } else if (input.mode === 'grp') {
         const by = input.groupBy === 'city' ? 'city' : 'oe';
         const G = new Map<string, PayEmp[]>();
@@ -239,14 +244,16 @@ export async function mailSlipsAction(input: MailSlipsInput): Promise<ActionStat
         for (const [k, emps] of G) {
           const to = map[`${by}:${k}`];
           if (!to) { skipped.push(k); continue; }
-          out.push(await queueMail(tx, { ...base, to, subject: `Пресметки на плата ${mm} – ${k} – ${ctx.firm.name}`, html: body(`Почитувани,<br><br>Пресметките на плата за ${monthName(run.month)} за вработените во ${k} (${emps.length}):`, emps), entityType: 'payroll_run', entityId: run.id }));
+          out.push(await queuePdfMail(tx, { ...base, to, subject: `Пресметки на плата ${mm} – ${k} – ${ctx.firm.name}`, html: textMailHtml(`Почитувани,\n\nВо прилог се пресметките на плата за ${mm} за вработените во ${k} (${emps.length}):\n${emps.map((e) => '• ' + e.name).join('\n')}\n\nСо почит,\n${u.name}`), entityType: 'payroll_run', entityId: run.id },
+            pdf(`Presmetki_${run.month}_${fname(k).slice(0, 30)}`, emps)));
         }
         if (!out.length) throw new MailErr('Внесете е-пошта барем за една група.');
       } else {
         for (const e of run.emps) {
           const to = E.get(e.empId)?.email ?? '';
           if (!validAddresses(to)) { skipped.push(e.name); continue; }
-          out.push(await queueMail(tx, { ...base, to, subject: `Пресметка на плата ${mm} – ${e.name}`, html: body(`Почитуван/а ${e.name},<br><br>Вашата пресметка на плата за ${monthName(run.month)}:`, [e]), entityType: 'payroll_emp', entityId: `${run.id}:${e.empId}` }));
+          out.push(await queuePdfMail(tx, { ...base, to, subject: `Пресметка на плата ${mm} – ${e.name}`, html: textMailHtml(`Почитуван/а ${e.name},\n\nВо прилог е Вашата пресметка на плата за ${mm}.\n\nСо почит,\n${ctx.firm.name}`), entityType: 'payroll_emp', entityId: `${run.id}:${e.empId}` },
+            pdf(`Presmetka_${run.month}_${fname(e.name)}`, [e])));
         }
         if (!out.length) throw new MailErr('Ниту еден вработен нема внесена е-пошта.');
       }
@@ -257,9 +264,9 @@ export async function mailSlipsAction(input: MailSlipsInput): Promise<ActionStat
     if (e instanceof MailErr) return { error: e.message };
     return payError(e);
   }
-  const d = await dispatchMail(ids);
+  const failed = await dispatchPdfMail(ids);
   rev();
-  return { ok: `Ставени во ред за испраќање: ${ids.length} пораки${d.deferred ? ' (редот е недостапен – ќе се испратат за неколку минути)' : ''}.${skipped.length ? ' Прескокнати (без е-пошта): ' + skipped.join(', ') + '.' : ''}` };
+  return { ok: `Ставени во ред за испраќање: ${ids.length} пораки со PDF во прилог${failed ? ' (редот е недостапен – ќе се испратат за неколку минути)' : ''}.${skipped.length ? ' Прескокнати (без е-пошта): ' + skipped.join(', ') + '.' : ''}` };
 }
 
 class MailErr extends Error {}

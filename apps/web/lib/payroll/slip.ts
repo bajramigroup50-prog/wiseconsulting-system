@@ -47,8 +47,14 @@ export function stazYMD(E: SlipEmployee | null | undefined, month: string): { y:
 
 const nkd = (a: string) => String(a || '').match(/\d{2}\.?\d*/)?.[0] || '';
 
-/** One payslip. `preparedBy` = name printed under "Пресметката ја изготвил". */
-export function slipHtml(run: { month: string; params: PayParams }, e: PayEmp, f: SlipFirm, E: SlipEmployee | null, preparedBy = ''): string {
+/** Accountant block under „Пресметката ја изготвил“ (legacy v487 `offSigPrep` 14827: office signature, rep · brand). */
+export interface SlipPreparer { rep?: string | null; brand?: string | null; sig?: string | null; user?: string | null }
+
+/** One payslip. `preparedBy` = name printed under "Пресметката ја изготвил", or the office signature block. */
+export function slipHtml(run: { month: string; params: PayParams }, e: PayEmp, f: SlipFirm, E: SlipEmployee | null, preparedBy: string | SlipPreparer = ''): string {
+  const pb: SlipPreparer = typeof preparedBy === 'string' ? { user: preparedBy } : preparedBy;
+  const sgImg = pb.sig && /^[0-9a-f-]{36}$/i.test(pb.sig) ? `<img src="/api/files/${pb.sig}" alt="" style="max-height:17mm;max-width:55mm;object-fit:contain">` : '';
+  const sgName = pb.rep ? '<br><b>' + h(pb.rep) + '</b> · ' + h(pb.brand || 'WISE CONSULTING') : pb.user ? '<br><b>' + h(pb.user) + '</b>' : '';
   const P = run.params, c = empCalc(e, P), T = c.T;
   const z = E?.start || E?.stazPrev ? stazYMD(E, run.month) : { y: Math.floor(+(e.stazY ?? 0) || 0), m: 0, d: 0 };
   const cat = (r: { cat?: string; type: string }) => r.cat || payCatOf(r.type);
@@ -75,7 +81,7 @@ export function slipHtml(run: { month: string; params: PayParams }, e: PayEmp, f
     + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div>${sec('Придонеси')}<table style="margin:0">${tr('ПИО ' + fq(P.pio) + '%', fmt(T.pio))}${tr('Здравство ' + fq(P.zdr) + '%', fmt(T.zdr))}${tr('Дополнително здравствено ' + fq(P.dop) + '%', fmt(T.dop))}${tr('Вработување ' + fq(P.vrab) + '%', fmt(T.vrab))}${T.dopl ? tr('Доплата до најниска основица (работодавач)', fmt(T.dopl)) : ''}${tr('Вкупно придонеси', fmt(T.contr), true)}</table></div>`
     + `<div>${sec('Данок')}<table style="margin:0">${tr('Даночно ослободување', fmt(T.ex))}${tr('Даночна основа', fmt(Math.max(0, T.gross - T.contr - T.ex)))}${tr('Персонален данок ' + fq(P.tax) + '%', fmt(T.tax))}</table>${dd.length ? sec('Задршки') + '<table style="margin:0">' + dd.map((r) => tr(h(r.type), fmt(r.ded))).join('') + '</table>' : ''}</div></div>`
     + `<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;background:${G};color:#fff;border-radius:10px;padding:9px 14px"><span style="font-size:13px">НЕТО ЗА ИСПЛАТА</span><b style="font-size:20px">${fmt(T.net)} ден.</b></div>`
-    + `<div style="display:flex;gap:12mm;margin-top:10mm;font-size:10.5px;text-align:center;align-items:flex-start"><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Пресметката ја изготвил${preparedBy ? '<br><b>' + h(preparedBy) + '</b>' : ''}</div></div><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Примил</div></div><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Раководител · М.П.</div></div></div></div>`;
+    + `<div style="display:flex;gap:12mm;margin-top:10mm;font-size:10.5px;text-align:center;align-items:flex-start"><div style="flex:1"><div style="height:18mm;display:flex;align-items:flex-end;justify-content:center">${sgImg}</div><div style="border-top:1px solid #111;padding-top:2px">Пресметката ја изготвил${sgName}</div></div><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Примил</div></div><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Раководител · М.П.</div></div></div></div>`;
 }
 
 /** Payroll recap of the month (legacy `payRecPdf`), landscape. */
