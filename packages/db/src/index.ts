@@ -48,3 +48,4 @@ export * from './firm-data';
 export * from './app-errors';
 export * from './retail';
 export * from './retail-items';
+export * from './parity-retail';

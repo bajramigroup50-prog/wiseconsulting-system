@@ -179,7 +179,7 @@ export interface SalesFiskInfo {
   meth?: 'fifo' | 'lifo' | 'prop';
 }
 /** POS cart line / goods issued for a fiscal turnover. */
-export interface SalesItemLine { itemId: string; qty: number; price: number; rate: number }
+export interface SalesItemLine { itemId: string; qty: number; price: number; rate: number; /** POS discount line label (no item). */ name?: string }
 
 /**
  * Legacy `sales` (5840, 11450, 13100): one row per daily cash/POS day (`kind = 'pos'`), per manually entered

@@ -1,65 +1,92 @@
 /**
- * Каса — legacy `VIEWS.kasa` 5680 → 9937, `posSell` 5838 → 9940: cart, cash / card, the day document `z-{wh-}date`
- * accumulates the sales of the day; posted like a cash sale with card payments on the card account (POS partner),
- * goods issued at average cost. Discounts / loyalty / coupons (9940) and BOM explosion are not ported (Phase 10).
+ * Фискална каса — legacy `VIEWS.kasa` 5680 + loyalty box 9937, `posSell` 5838 + wrapper 9940, `posFile` 7229:
+ * location („Продавница / каса“), the fiscal-device callout, „Нова сметка“ (barcode scan, item select, cart, loyalty
+ * card / coupon / points, record the sale, fiscal printer file) and „Дневни извештаи (Z)“ of the location.
+ * The sale accumulates into the day document of the location (POS day, `sales_daily`), posted like a cash sale with
+ * card payments on the card account (POS partner); goods issued at average cost, products with a BOM issue the BOM.
+ * `?ro=<bill>` opens a restaurant bill in the till (legacy `roPay`); the bill is closed together with the sale.
  */
+import Link from 'next/link';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
-import { salesDaily } from '@wise/db';
+import { retailPrice, stock } from '@wise/core';
+import { zBaseVat } from '@wise/core/retail';
+import { coupons, itemBarcodes, listDocs, loyaltyCards, loyaltyRulesOf, salesDaily, type RestaurantOrder } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dateInYear, itemOptions, locOptions, pickLoc, stockPage } from '@/lib/stock';
+import { dateInYear, locOptions, pickLoc, stockPage, todayIso } from '@/lib/stock';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { PdfButton } from '@/components/pdf-button';
+import { DownloadCsv } from '@/components/download-csv';
+import { LocSelect } from '@/components/loc-select';
 import { deleteSalesDayAction } from '../_stock/actions';
-import { PosCart } from '../_stock/editors';
+import { PosTill, type TillItem } from './pos-till';
 
-type SP = { d?: string; wh?: string; ok?: string };
+type SP = { d?: string; wh?: string; ro?: string };
 
 export default async function KasaPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const { u, firm, year, L } = await stockPage('kasa');
-  if (!firm || !L) return <NoFirm t="Каса" />;
+  if (!firm || !L) return <NoFirm t="Фискална каса" />;
   const write = canDo(u, 'posSell', firm.id);
   const locs = locOptions(L);
   const wh = pickLoc(L, sp.wh) || L.settings.fiskOpt.wh || locs.find((l) => l.kind === 'store')?.id || 'main';
-  const date = dateInYear(sp.d, year);
-  const days = await db().select().from(salesDaily)
-    .where(and(eq(salesDaily.firmId, firm.id), eq(salesDaily.kind, 'pos'), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
-    .orderBy(desc(salesDaily.date));
-  const items = itemOptions(L, { services: true });
-  const names = new Map(items.map((i) => [i.id, (i.code ? i.code + ' · ' : '') + i.name]));
-  const today = days.find((d) => d.date === date && (d.locationId ?? 'main') === wh);
+  const date = sp.d ? dateInYear(sp.d, year) : todayIso();
+  const [days, bcs, C, P, ro] = await Promise.all([
+    db().select().from(salesDaily)
+      .where(and(eq(salesDaily.firmId, firm.id), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
+      .orderBy(desc(salesDaily.date)),
+    db().select({ itemId: itemBarcodes.itemId, barcode: itemBarcodes.barcode }).from(itemBarcodes).where(eq(itemBarcodes.firmId, firm.id)),
+    write ? db().select().from(loyaltyCards).where(eq(loyaltyCards.firmId, firm.id)) : Promise.resolve([]),
+    write ? db().select().from(coupons).where(eq(coupons.firmId, firm.id)) : Promise.resolve([]),
+    sp.ro && /^[0-9a-f-]{36}$/i.test(sp.ro) ? listDocs<RestaurantOrder>(db(), firm.id, 'rord', 'open').then((O) => O.find((o) => o.id === sp.ro) ?? null) : Promise.resolve(null),
+  ]);
+  const bcOf = new Map<string, string[]>();
+  for (const b of bcs) bcOf.set(b.itemId, [...(bcOf.get(b.itemId) ?? []), b.barcode]);
+  const items: TillItem[] = (L.ctx.items ?? []).map((it) => ({
+    id: it.id, code: it.code ?? '', name: it.name ?? '', type: String(it.type ?? ''), rate: L.settings.vatRegistered ? Number(it.rate ?? 18) : 0,
+    price: retailPrice(it, wh), have: it.type && it.type !== 'service' ? stock(L.ctx, it.id, wh).qty : 0, barcodes: bcOf.get(it.id) ?? [],
+  })).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
+  const list = days.filter((s) => (s.locationId ?? 'main') === wh);
+  const rows = list.map((s) => ({ s, ...zBaseVat(s.groups) }));
+  const T = rows.reduce((a, r) => ({ n: a.n + r.s.count, b: a.b + r.base, v: a.v + r.vat, t: a.t + Number(r.s.total) }), { n: 0, b: 0, v: 0, t: 0 });
+  const initial = ro ? ro.data.lines.map((l) => ({ itemId: l.itemId, name: l.name, qty: Number(l.qty), price: Number(l.price), rate: Number(l.rate) })) : undefined;
   return (
     <>
-      <Hd t="Каса" sub="малопродажба · дневен промет" />
-      {sp.ok && <div className="callout good">Продажбата е прокнижена во дневниот промет.</div>}
-      {write ? <PosCart items={items} locs={locs} date={date} wh={wh} /> : <div className="callout">Немате дозвола за продажба.</div>}
-      {today && (
+      <Hd t="Фискална каса" sub={'малопродажба · ' + L.locName(wh === 'main' ? null : wh)}>
+        <Link className="btn" href="/lojalnost">💳 Лојалност</Link>
+      </Hd>
+      <div className="card"><div className="row"><LocSelect label="Продавница / каса" param="wh" value={wh} options={locs.map((l) => ({ value: l.id, label: l.name }))} /></div></div>
+      <div className="callout warn">Фискалниот апарат (Accent, David, Expert, Synergy…) се поврзува со компјутерот преку драјверот на производителот; од прелистувачот не може директно да му се испрати. Тука се евидентира продажбата, се раздолжува залихата и се презема датотека за фискалната сметка за програмата на апаратот.</div>
+      {ro && <div className="callout">🍽 Сметка од маса во касата – додадете картичка/купон ако има и „Евидентирај продажба“. Масата се затвора со продажбата.</div>}
+      <div className="cols">
+        {write ? (
+          <PosTill key={`${wh}:${ro?.id ?? ''}`} items={items} date={date} wh={wh} order={ro?.id ?? null} initial={initial}
+            cards={C.map((c) => ({ id: c.id, no: c.number, name: c.name, phone: c.phone, disc: Number(c.discount), points: Number(c.points) }))}
+            coupons={P.map((c) => ({ id: c.id, code: c.code, kind: c.kind, val: Number(c.value), from: c.validFrom, to: c.validTo, max: c.maxUses, used: c.used, minTotal: Number(c.minTotal) }))}
+            rules={loyaltyRulesOf((firm.settings ?? {}) as Record<string, unknown>)} />
+        ) : <div className="card"><div className="callout">Немате дозвола за продажба.</div></div>}
         <div className="card">
-          <h2>Дневен промет {dmy(today.date)} · {L.locName(today.locationId)}</h2>
-          <div className="tw"><table>
-            <thead><tr><th>Артикл</th><th className="n">Количина</th><th className="n">Цена</th><th className="n">Износ</th></tr></thead>
-            <tbody>{today.lines.map((l, i) => <tr key={i}><td>{names.get(l.itemId)}</td><td className="n">{l.qty}</td><td className="n">{fmt(l.price)}</td><td className="n">{fmt(l.qty * l.price)}</td></tr>)}</tbody>
-            <tfoot><tr><td colSpan={3}>Вкупно (картичка {fmt(today.card)})</td><td className="n">{fmt(today.total)}</td></tr></tfoot>
-          </table></div>
+          <div className="hd"><h2>Дневни извештаи (Z) · {L.locName(wh === 'main' ? null : wh)}</h2>
+            {rows.length > 0 && <div className="row noprint" style={{ gap: 6 }}>
+              <PdfButton selector="#kasaZ" title={`Дневни извештаи ${year}`} className="btn sm" />
+              <DownloadCsv name={`Kasa_Z_${year}.csv`} label="Excel (CSV)" rows={[['Датум', 'Сметки', 'Основица', 'ДДВ', 'Вкупно', 'Картичка'], ...rows.map((r) => [dmy(r.s.date), r.s.count, r.base, r.vat, Number(r.s.total), Number(r.s.card)])]} />
+            </div>}
+          </div>
+          {rows.length ? (
+            <div className="tw" id="kasaZ"><table>
+              <thead><tr><th>Датум</th><th className="n">Сметки</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th className="noprint" /></tr></thead>
+              <tbody>{rows.map(({ s, base, vat }) => (
+                <tr key={s.id}><td>{dmy(s.date)}{s.kind === 'fisk' ? <span className="mini"> · фиск. изв.</span> : ''}</td><td className="n">{s.count}</td><td className="n">{fmt(base)}</td><td className="n">{fmt(vat)}</td><td className="n">{fmt(s.total)}</td>
+                  <td className="noprint">{write && s.kind === 'pos' && <RowAction action={deleteSalesDayAction.bind(null, s.id)} label="🗑" title="Избриши" confirm={`Да се избрише дневниот промет ${dmy(s.date)}? Залихата и налозите се враќаат.`} />}</td></tr>
+              ))}</tbody>
+              <tfoot><tr><td>Вкупно</td><td className="n">{T.n}</td><td className="n">{fmt(T.b)}</td><td className="n">{fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td className="noprint" /></tr></tfoot>
+            </table></div>
+          ) : <div className="empty">Сè уште нема малопродажба.</div>}
         </div>
-      )}
-      {days.length ? (
-        <div className="tw"><table>
-          <thead><tr><th>Датум</th><th>Објект</th><th className="n">Сметки</th><th className="n">Вкупно</th><th className="n">Картичка</th><th>ДДВ групи</th><th /></tr></thead>
-          <tbody>
-            {days.map((d) => (
-              <tr key={d.id}>
-                <td>{dmy(d.date)}</td><td>{L.locName(d.locationId)}</td><td className="n">{d.count}</td><td className="n">{fmt(d.total)}</td><td className="n">{fmt(d.card)}</td>
-                <td className="mini">{d.groups.map((g) => `${g.rate}%: ${fmt(g.base + g.vat)}`).join(' · ')}</td>
-                <td>{write && <RowAction action={deleteSalesDayAction.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише дневниот промет ${dmy(d.date)}? Залихата и налозите се враќаат.`} />}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-      ) : <div className="card empty">Нема продажби од каса во {year}.</div>}
+      </div>
     </>
   );
 }
