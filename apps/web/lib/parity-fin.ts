@@ -2,7 +2,8 @@ import 'server-only';
 /** Finance parity: helpers for export routes (legacy `xlsx` / `csv` downloads). */
 import * as XLSX from 'xlsx';
 import { vatAccount } from '@wise/core/vat';
-import { loadVatPostingContext, missingAccounts, type Firm } from '@wise/db';
+import { eq } from 'drizzle-orm';
+import { firms, loadVatPostingContext, missingAccounts, type Firm, type Tx } from '@wise/db';
 import { db } from './db';
 import { getUser } from './auth';
 import { currentFirm, currentYear } from './context';
@@ -55,3 +56,12 @@ export async function missingVatAccounts(firm: Firm): Promise<{ code: string; na
   return miss.map((code) => ({ code, name: want.get(code)! }));
 }
 
+
+/** Merge options into `firms.settings.fiskOpt` (legacy `saveFirmPatch({fiskOpt})`), inside the caller's transaction. */
+export async function saveFiskOpt(tx: Tx, firmId: string, patch: Record<string, unknown>): Promise<void> {
+  const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+  if (!Object.keys(clean).length) return;
+  const [f] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, firmId)).limit(1);
+  const s = (f?.settings ?? {}) as Record<string, unknown>;
+  await tx.update(firms).set({ settings: { ...s, fiskOpt: { ...((s.fiskOpt ?? {}) as Record<string, unknown>), ...clean } } }).where(eq(firms.id, firmId));
+}

@@ -22,15 +22,25 @@ import { FiskEditor, type FiskDraft } from '../_stock/editors';
 import { fiskAfterRead, fiskEditorRows, fiskFinish, type FiskEditorRow, type FiskRead } from '@wise/core/ai/fisk';
 import { loadAiResult } from '@/lib/ai';
 import { FiskScan } from './fisk-scan';
+import { FiskRead as FiskReadPanel, type ReadRow } from './fisk-read';
+import { DfiSettings, DeviceForm } from './fisk-forms';
+import { deleteDeviceAction, type FiskDevice } from './actions';
+import { fkRows } from '@wise/core/ai/fisk';
+import { fkCheck } from '@wise/core/fisk-parity';
+import { posBalance } from '@wise/db';
 
-type SP = { ai?: string; r?: string; tab?: string; d?: string; wh?: string; meth?: string; g18?: string; g10?: string; g5?: string; g0?: string; from?: string; to?: string };
+type SP = {
+  ai?: string; r?: string; tab?: string; d?: string; wh?: string; meth?: string; g18?: string; g10?: string; g5?: string; g0?: string; from?: string; to?: string;
+  /** Draft fields carried by the „Предложи стока“ link. */
+  n?: string; sc?: string; t?: string; c?: string; f?: string; tt?: string; note?: string; rev?: string; ck?: string; cash?: string; dev?: string; nv?: string;
+};
 
 export default async function FiskPerPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const { u, firm, year, L } = await stockPage('fiskPer');
   if (!firm || !L) return <NoFirm t="Фискални извештаи" />;
   const write = canDo(u, 'fkPost', firm.id);
-  const tab = sp.tab === 'dfi' ? 'dfi' : 'list';
+  const tab = sp.tab === 'dfi' ? 'dfi' : sp.tab === 'dev' ? 'dev' : 'list';
   const locs = locOptions(L);
   const O = L.settings.fiskOpt;
   const wh = pickLoc(L, sp.wh) || O.wh || locs.find((l) => l.kind === 'store')?.id || 'main';
@@ -50,12 +60,14 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
   }
   // AI read of a fiscal report (legacy `fkRead`, FISK_PROMPT): prefill the editor with one report row (`?ai=<id>&r=<i>`)
   const aiDoc = write ? await loadAiResult(firm.id, sp.ai, 'fisk') : null;
-  let aiRows: { rows: FiskEditorRow[]; daily: boolean; R: FiskRead } | null = null;
+  let aiRows: { rows: FiskEditorRow[]; daily: boolean; R: FiskRead; read: ReadRow[]; G: Record<string, number> } | null = null;
   let aiInit: Partial<FiskDraft> = {};
   if (aiDoc) {
     const R = fiskFinish(fiskAfterRead(aiDoc.result), todayIso());
     const X = fiskEditorRows(R, { today: todayIso(), nonVat: nonVat || undefined });
-    aiRows = { ...X, R };
+    // legacy read table with the control checks (`fkCheck` 11351)
+    const Y = fkRows(R, todayIso());
+    aiRows = { ...X, R, G: Y.G, read: Y.rows.map((r) => ({ date: r.date, z: r.z, gross: r.gross, vat: r.vat, total: r.total, cash: r.cash, card: r.card, problems: nonVat ? [] : fkCheck(r, Y.G) })) };
     const r = X.rows[Math.min(Math.max(0, Number(sp.r) || 0), Math.max(0, X.rows.length - 1))];
     if (r) {
       aiInit = {
@@ -70,6 +82,9 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
     .where(and(eq(salesDaily.firmId, firm.id), eq(salesDaily.kind, 'fisk'), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
     .orderBy(desc(salesDaily.date));
 
+  const devs = (((firm.settings ?? {}) as { fiskDev?: FiskDevice[] }).fiskDev ?? []);
+  const readDevs = [...new Set(list.map((d) => d.fisk?.device).filter((x): x is string => !!x))];
+  const pos = tab === 'list' ? await db().transaction((tx) => posBalance(tx, firm.id, year)).catch(() => null) : null;
   let dfi: ReturnType<typeof dfiControl> | null = null;
   let [from, to] = rangeOf(sp, year);
   if (tab === 'dfi') {
@@ -90,11 +105,24 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
       <div className="row" style={{ gap: 6, marginBottom: 8 }}>
         <Link className={`btn sm ${tab === 'list' ? 'pri' : ''}`} href="/fiskPer">Внес и листа</Link>
         <Link className={`btn sm ${tab === 'dfi' ? 'pri' : ''}`} href="/fiskPer?tab=dfi">Контрола на ДФИ</Link>
+        <Link className={`btn sm ${tab === 'dev' ? 'pri' : ''}`} href="/fiskPer?tab=dev">🖨 Апарати и PC поврзување</Link>
         <Link className="btn sm" href="/kdfi">КДФИ-01</Link>
+        <Link className="btn sm" href="/m_trg">МЕТГ</Link>
+        <Link className="btn sm" href="/ddv">ДДВ-04</Link>
       </div>
+      {tab === 'list' && pos && pos.state !== 'none' && pos.state !== 'closed' && (
+        <div className="callout">💳 <b>Плаќања со картички (POS, конто {pos.k})</b>: продажба со картички {fmt(pos.d / 100)} · примено од банка {fmt(pos.p / 100)} · отворено <b>{fmt(pos.s / 100)}</b>.
+          {pos.state === 'fee' ? <> Разликата е најчесто провизијата на банката – <Link href="/banka#posBox">книжи ја провизијата (4460) во Изводи</Link>.</> : pos.state === 'waiting' ? ' Банката сè уште не ги уплатила.' : ' Примено е повеќе отколку продадено.'}</div>
+      )}
       {tab === 'list' && write && !aiDoc && <FiskScan firmId={firm.id} />}
+      {tab === 'list' && aiRows && write && (
+        <FiskReadPanel ai={aiDoc!.id} rows={aiRows.read} G={aiRows.G} daily={aiRows.daily} device={aiRows.R.device ?? ''}
+          period={[aiRows.R.from, aiRows.R.to].filter(Boolean).join(' – ')} text={aiRows.R.text ?? ''} text2={aiRows.R.text2 ?? ''}
+          locs={locs} schemes={schemes} dupDates={list.map((d) => `${d.date}|${d.locationId ?? 'main'}`)}
+          init={{ wh, sc: O.sc ?? (nonVat || aiRows.R.nonVat ? 'trgNoVat' : ''), rev: (O as { konto?: string }).konto ?? '', cardK: O.cardK ?? '', cashK: O.cashK ?? '', nonVat: nonVat || !!aiRows.R.nonVat }} />
+      )}
       {tab === 'list' && aiRows && (
-        <div className="callout">🤖 Прочитан извештај{aiRows.R.device ? ` (ФМ ${aiRows.R.device})` : ''}: {aiRows.rows.length} {aiRows.daily ? 'дневни извештаи' : 'период'} ·
+        <div className="callout">✎ Рачна корекција на еден ред од прочитаниот извештај{aiRows.R.device ? ` (ФМ ${aiRows.R.device})` : ''}: {aiRows.rows.length} {aiRows.daily ? 'дневни извештаи' : 'период'} ·
           вкупно {fmt(aiRows.rows.reduce((a, r) => a + r.total, 0))}. Проверете ги износите и прокнижете.
           {aiRows.rows.length > 1 && <div className="row" style={{ gap: 4, marginTop: 6, flexWrap: 'wrap' }}>{aiRows.rows.map((r, i) => (
             <Link key={i} className={`btn sm ${(Number(sp.r) || 0) === i ? 'pri' : ''}`} href={`/fiskPer?ai=${aiDoc!.id}&r=${i}`}>{dmy(r.date)}{r.z ? ` Z ${r.z}` : ''} · {fmt(r.total)}</Link>
@@ -104,7 +132,10 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
       )}
       {tab === 'list' && write && (
         <FiskEditor key={aiDoc ? `${aiDoc.id}:${sp.r ?? 0}` : 'new'} locs={locs} schemes={schemes} nonVat={nonVat} plan={plan}
-          initial={{ date, wh, number: '', gross, total: '', card: '', sc: O.sc ?? (nonVat ? 'trgNoVat' : ''), from: '', to: '', meth, issue: !!plan?.length, note: '', ...aiInit }} />
+          initial={{
+            date, wh, number: sp.n ?? '', gross, total: sp.t ?? '', card: sp.c ?? '', sc: sp.sc ?? O.sc ?? (nonVat ? 'trgNoVat' : ''), from: sp.f ?? '', to: sp.tt ?? '', meth, issue: !!plan?.length, note: sp.note ?? '',
+            rev: sp.rev ?? (O as { konto?: string }).konto ?? '', cardK: sp.ck ?? O.cardK ?? '', cashK: sp.cash ?? O.cashK ?? '', device: sp.dev ?? '', nonVat: sp.nv === '1', ...aiInit,
+          }} />
       )}
       {tab === 'list' && (list.length ? (
         <div className="tw"><table>
@@ -121,8 +152,26 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
           </tbody>
         </table></div>
       ) : <div className="card empty">Нема внесени фискални извештаи во {year}.</div>)}
+      {tab === 'dev' && (
+        <div className="card">
+          <h2>🖨 Фискални апарати и PC поврзување</h2>
+          {devs.length > 0 && (
+            <div className="tw"><table className="dense">
+              <thead><tr><th>Сериски број</th><th>Објект</th><th>Марка / модел</th><th>Поврзување</th><th>Порт / IP</th><th>Оператор</th><th>Режим</th><th>Фискализиран</th><th>Сервисер</th><th>Последен / следен сервис</th><th /></tr></thead>
+              <tbody>{devs.map((d) => (
+                <tr key={d.id}><td><b>{d.serial}</b></td><td>{L.locName(d.wh || 'main')}</td><td>{d.brand} {d.model}</td><td>{d.conn}</td><td>{d.port}</td><td>{d.operator}</td><td>{d.mode}</td><td>{d.fiscal}</td><td>{d.servicer}</td>
+                  <td>{d.lastSvc ? dmy(d.lastSvc) : ''}{d.nextSvc ? ' / ' + dmy(d.nextSvc) : ''}{d.nextSvc && d.nextSvc < todayIso() ? <span className="pill bad"> задоцнет</span> : null}</td>
+                  <td>{write && <RowAction action={deleteDeviceAction.bind(null, d.id)} label="🗑" confirm={`Да се избрише апаратот ${d.serial}?`} />}</td></tr>
+              ))}</tbody>
+            </table></div>
+          )}
+          {readDevs.length > 0 && <p className="note">Прочитани апарати од извештаите: {readDevs.map((x) => <b key={x}>{x} </b>)}</p>}
+          {write && <DeviceForm locs={locs} suggest={readDevs.find((x) => !devs.some((d) => d.serial === x)) ?? ''} />}
+        </div>
+      )}
       {tab === 'dfi' && dfi && (
         <>
+          {write && <DfiSettings offDays={O.offDays ?? ''} cashMax={O.cashMax ?? 0} depDays={O.depDays ?? 0} />}
           <form className="card">
             <input type="hidden" name="tab" value="dfi" />
             <div className="row" style={{ gap: 12, alignItems: 'end' }}>

@@ -289,6 +289,8 @@ export function PosCart({ items, locs, date, wh }: { items: ItemOpt[]; locs: Loc
 export interface FiskDraft {
   date: string; wh: string; number: string; gross: Record<string, string>; total: string; card: string; sc: string; from: string; to: string;
   meth: 'fifo' | 'lifo' | 'prop'; issue: boolean; note: string;
+  /** Finance parity (legacy fk_k / fk_ck / fk_cash / fk_nv, device, replace). */
+  rev?: string; cardK?: string; cashK?: string; nonVat?: boolean; device?: string; replace?: boolean;
 }
 
 export function FiskEditor({ initial, locs, schemes, nonVat, plan }: {
@@ -307,10 +309,18 @@ export function FiskEditor({ initial, locs, schemes, nonVat, plan }: {
     gross: Object.fromEntries(rates.filter((r) => n(d.gross[r])).map((r) => [r, n(d.gross[r])])),
     total: d.total === '' ? null : n(d.total), card: d.card === '' ? null : n(d.card),
     issue: canIssue && d.issue && !!plan?.length, lines: canIssue && d.issue && plan ? plan.map((p) => ({ itemId: p.itemId, qty: p.qty, price: p.price, rate: p.rate })) : [],
+    rev: d.rev ?? '', cashK: d.cashK ?? '', cardAccount: d.cardK ?? '', nonVat: !!d.nonVat, device: d.device ?? '', replace: !!d.replace,
   };
-  const planHref = '/fiskPer?' + new URLSearchParams({ d: d.date, wh: d.wh, meth: d.meth, ...Object.fromEntries(rates.filter((r) => n(d.gross[r])).map((r) => ['g' + r, String(n(d.gross[r]))])) }).toString();
+  // the plan link keeps every field of the draft (legacy re-rendered in place)
+  const planHref = '/fiskPer?' + new URLSearchParams(Object.entries({
+    d: d.date, wh: d.wh, meth: d.meth, n: d.number, sc: d.sc, t: d.total, c: d.card, f: d.from, tt: d.to, note: d.note, rev: d.rev ?? '', ck: d.cardK ?? '', cash: d.cashK ?? '', dev: d.device ?? '', nv: d.nonVat ? '1' : '',
+    ...Object.fromEntries(rates.filter((r) => n(d.gross[r])).map((r) => ['g' + r, String(n(d.gross[r]))])),
+  }).filter(([, v]) => v)).toString();
   return (
-    <form action={action} className="card">
+    <form action={action} className="card" onSubmit={(e) => {
+      const tot = d.total === '' ? sum : n(d.total);
+      if (!window.confirm(`Да се прокнижи фискалниот извештај (вкупно ${fmt(tot)} ден.${d.nonVat || nonVat ? ', без ДДВ' : ''}) во „${locs.find((l) => l.id === d.wh)?.name ?? d.wh}“?`)) e.preventDefault();
+    }}>
       <input type="hidden" name="payload" value={JSON.stringify(payload)} />
       <h2>Внес на дневен / периодичен фискален извештај</h2>
       <Err st={st} />
@@ -326,8 +336,17 @@ export function FiskEditor({ initial, locs, schemes, nonVat, plan }: {
         ))}
         <label className="f">Вкупно (празно = збир {fmt(sum)})<input inputMode="decimal" value={d.total} onChange={(e) => set({ total: e.target.value })} /></label>
         <label className="f">Од тоа со картичка<input inputMode="decimal" value={d.card} onChange={(e) => set({ card: e.target.value })} /></label>
+        <label className="f">Конто за приход<input value={d.rev ?? ''} onChange={(e) => set({ rev: e.target.value.trim() })} placeholder="7411" /></label>
+        <label className="f">Конто за картички (POS)<input value={d.cardK ?? ''} onChange={(e) => set({ cardK: e.target.value.trim() })} placeholder="1200001" /></label>
+        <label className="f">Конто за готовина<input value={d.cashK ?? ''} onChange={(e) => set({ cashK: e.target.value.trim() })} placeholder="1009" /></label>
+        <label className="f">Фискален апарат (ФМ)<input value={d.device ?? ''} onChange={(e) => set({ device: e.target.value })} /></label>
         <label className="f wide">Забелешка<input value={d.note} onChange={(e) => set({ note: e.target.value })} /></label>
       </div>
+      <div className="row" style={{ gap: 14, margin: '4px 0' }}>
+        {!nonVat && <label className="chk"><input type="checkbox" checked={!!d.nonVat} onChange={(e) => set({ nonVat: e.target.checked, ...(e.target.checked ? { sc: 'trgNoVat' } : {}) })} /> не е ДДВ обврзник (промет без ДДВ)</label>}
+        <label className="chk"><input type="checkbox" checked={!!d.replace} onChange={(e) => set({ replace: e.target.checked })} /> замени го постојниот извештај за овој датум и објект</label>
+      </div>
+      {locs.find((l) => l.id === d.wh)?.kind === 'warehouse' && d.sc !== 'usl' && <div className="callout warn">Објектот не е продавница – прометот нема да се појави во МЕТГ.</div>}
       {canIssue && (
         <div className="card" style={{ marginTop: 8 }}>
           <div className="row" style={{ gap: 12, alignItems: 'end' }}>

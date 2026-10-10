@@ -12,6 +12,7 @@ import {
 } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { stockAction, todayIso } from '@/lib/stock';
+import { saveFiskOpt } from '@/lib/parity-fin';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Неважечки датум.');
 const id = z.string().uuid().nullish();
@@ -102,16 +103,27 @@ const FiskIn = z.object({
   sc: z.enum(['', 'trg', 'usl', 'trgNoVat']).optional().default(''), from: date.nullish().or(z.literal('')), to: date.nullish().or(z.literal('')),
   meth: z.enum(['fifo', 'lifo', 'prop']).optional(), issue: z.boolean().optional(),
   lines: z.array(z.object({ itemId: z.string().uuid(), qty: num, price: num, rate: numOpt })).max(2000).optional().default([]),
+  // finance parity (legacy fk_k / fk_ck / fk_cash / fk_nv, 11422–11428, 13104): revenue, card and cash kontos, no-VAT
+  rev: z.string().regex(/^\d{3,10}$/).nullish().or(z.literal('')), cashK: z.string().regex(/^\d{3,10}$/).nullish().or(z.literal('')),
+  nonVat: z.boolean().optional(), replace: z.boolean().optional(), device: z.string().max(60).nullish(),
 });
 
 export async function saveFiskAction(_p: ActionState, form: FormData): Promise<ActionState> {
   const v = payload(FiskIn, form);
   if (isErr(v)) return v;
-  const st = await stockAction('fkPost', ['/fiskPer', '/kdfi'], (tx, a) => saveSalesDay(tx, a, {
-    id: v.id, kind: 'fisk', date: v.date, wh: v.wh, number: v.number, gross: v.gross, total: v.total, card: v.card, cardAccount: v.cardAccount || null,
-    note: v.note, issue: !!v.issue, lines: v.lines,
-    fisk: { ...(v.sc ? { sc: v.sc } : {}), ...(v.from ? { from: v.from } : {}), ...(v.to ? { to: v.to } : {}), ...(v.meth ? { meth: v.meth } : {}) },
-  }));
+  const st = await stockAction('fkPost', ['/fiskPer', '/kdfi'], async (tx, a) => {
+    const r = await saveSalesDay(tx, a, {
+      id: v.id, kind: 'fisk', date: v.date, wh: v.wh, number: v.number, gross: v.gross, total: v.total, card: v.card, cardAccount: v.cardAccount || null,
+      note: v.note, issue: !!v.issue, lines: v.lines, replace: !!v.replace,
+      fisk: {
+        ...(v.sc ? { sc: v.sc } : {}), ...(v.from ? { from: v.from } : {}), ...(v.to ? { to: v.to } : {}), ...(v.meth ? { meth: v.meth } : {}),
+        ...(v.rev ? { rev: v.rev } : {}), ...(v.cashK ? { cashK: v.cashK } : {}), ...(v.nonVat ? { nonVat: true } : {}), ...(v.device ? { device: v.device } : {}),
+      },
+    });
+    // legacy `saveFirmPatch({fiskOpt})` 11453: remember the location, kontos, scheme and method
+    await saveFiskOpt(tx, a.firmId, { wh: v.wh ?? undefined, cardK: v.cardAccount || undefined, sc: v.sc || undefined, cashK: v.cashK || undefined, meth: v.meth, konto: v.rev || undefined });
+    return r;
+  });
   return done(st, '/fiskPer');
 }
 export async function deleteSalesDayAction(docId: string): Promise<ActionState> {
