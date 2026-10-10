@@ -133,7 +133,7 @@ export function plxParse(aoa: readonly (readonly unknown[])[]): { error: string 
     for (const k of Object.keys(PXL_LINE) as PxlKey[]) hours[k] = num(g(r, k));
     rows.push({
       embg, name: [str(g(r, 'name')), str(g(r, 'sur'))].filter(Boolean).join(' '), pos: str(g(r, 'pos')), oe: str(g(r, 'oe')),
-      ops: str(g(r, 'ops')).replace(/\D/g, ''), fzo: str(g(r, 'fzo')).replace(/\D/g, ''), start: g(r, 'start') ? impDate(g(r, 'start')) : '',
+      ops: str(g(r, 'ops')).replace(/\D/g, ''), fzo: str(g(r, 'fzo')).replace(/\D/g, ''), start: g(r, 'start') ? impDate(/^\d{5}$/.test(str(g(r, 'start'))) ? +str(g(r, 'start')) : g(r, 'start')) : '',
       net: num(g(r, 'net')), gross: num(g(r, 'gross')), coef: num(g(r, 'coef')), staz: num(g(r, 'staz')),
       reg: num(g(r, 'reg')), regPlan: num(g(r, 'regPlan')), bonus: num(g(r, 'bonus')), total: num(g(r, 'total')), hours,
     });
