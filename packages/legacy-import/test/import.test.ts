@@ -4,7 +4,7 @@ import { schema, type Tx } from '@wise/db';
 import { parseBackupJson } from '../src/format';
 import { importBundle, importFirm, type FileSink } from '../src/writer';
 import { fixtureBackup } from './fixture';
-import { testDb } from './db';
+import { testDb } from '../src/testing';
 
 let db: Tx;
 const stored = new Map<string, Uint8Array>();
