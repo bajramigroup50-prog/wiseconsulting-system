@@ -112,10 +112,10 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
         ) : <div className="card empty">Додадете ја вашата фирма. Сметководствено биро тука ги додава сите клиенти.</div>}
         {admin && nArch > 0 && (
           <div style={{ marginTop: 10 }}>
-            {sp.arh === undefined ? <Link className="btn sm ghost" href="/firmi?arh">🗄 Избришани фирми ({nArch})</Link> : (
-              <div className="card"><h2>🗄 Избришани фирми</h2><p className="note">Избришаните фирми се архивирани – книгите и документите се чуваат и фирмата може да се врати.</p>
+            {sp.arh === undefined ? <Link className="btn sm ghost" href="/firmi?arh">🗄 Неактивни фирми ({nArch})</Link> : (
+              <div className="card"><h2>🗄 Неактивни фирми</h2><p className="note">Неактивните фирми не се гледаат во работата – книгите и документите се чуваат и фирмата може повторно да се активира.</p>
                 <div className="tw"><table><thead><tr><th>Фирма</th><th>ЕДБ</th><th></th></tr></thead><tbody>
-                  {archived.map((f) => <tr key={f.id}><td>{f.name}</td><td>{f.edb ?? ''}</td><td><form action={restoreFirm}><input type="hidden" name="id" value={f.id} /><button className="btn sm">↩ Врати</button></form></td></tr>)}
+                  {archived.map((f) => <tr key={f.id}><td>{f.name}</td><td>{f.edb ?? ''}</td><td><form action={restoreFirm}><input type="hidden" name="id" value={f.id} /><button className="btn sm">▶ Активирај</button></form></td></tr>)}
                 </tbody></table></div>
               </div>
             )}
