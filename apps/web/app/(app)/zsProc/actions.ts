@@ -4,6 +4,7 @@
  * change and its `audit` row in one transaction; postings go through the `@wise/db` year-end service.
  */
 import { revalidatePath } from 'next/cache';
+import { zmCsvGrid, zmParse, zmSplit } from '@wise/core/yearend/zm-import';
 import { csvToGrid, DB_F, DE38, DLD_ND, parseTurnoverTb } from '@wise/core';
 import {
   audit, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
@@ -301,4 +302,32 @@ export async function setStatementStatus(status: 'draft' | 'ready' | 'submitted'
   } catch (e) { return actionError(e); }
   done();
   return { ok: 'Статусот е променет.' };
+}
+
+/* ---------------- import of a filed annual account (legacy zmImport 10953) ---------------- */
+
+/** Excel (all sheets, first column = sheet name) or CSV text → manual AOP amounts for Y (current) and Y−1 (previous). */
+export async function importZsAopAction(input: { csv?: string; grid?: unknown[][] }): Promise<ActionState> {
+  try {
+    const { u, firm, year } = await firmAction('write');
+    const grid = typeof input?.csv === 'string' ? zmCsvGrid(input.csv.slice(0, 5_000_000)) : Array.isArray(input?.grid) ? input.grid.slice(0, 20000).filter(Array.isArray) as unknown[][] : [];
+    const rows = zmParse(grid);
+    if (!rows.length) return { error: 'Не се најдени АОП редови.' };
+    const { cur, prev } = zmSplit(rows);
+    const L = await db().transaction(async (tx) => {
+      const merge = async (y: number, M: Record<string, number>) => {
+        if (!Object.keys(M).length) return;
+        const s = await getStatement(tx, firm.id, y);
+        await upsertStatement(tx, firm.id, y, { zsMan: { ...(s?.zsMan ?? {}), ...M } }, u.id);
+      };
+      await merge(year, cur);
+      await merge(year - 1, prev);
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'zmImport', entityType: 'annualStatement', entityId: String(year), data: { cur: Object.keys(cur).length, prev: Object.keys(prev).length } });
+      return loadYear(tx, firm.id, year);
+    });
+    done();
+    const V = L.Y.co.zs.V;
+    const ok = Math.abs((V.bs063 || 0) - (V.bs111 || 0)) < 1;
+    return { ok: `✓ Увезени ${Object.keys(cur).length} износи за ${year}${Object.keys(prev).length ? ' и ' + Object.keys(prev).length + ' за ' + (year - 1) : ''}. Актива ${fmt(V.bs063 || 0)} / Пасива ${fmt(V.bs111 || 0)} ${ok ? '✓' : '✕ не се совпаѓаат – проверете'}.` };
+  } catch (e) { return actionError(e); }
 }

@@ -7,6 +7,7 @@
  */
 import Link from 'next/link';
 import { crmRules } from '@wise/core';
+import { ConfirmLink } from '@/components/yearend/confirm-link';
 import { forms3538 } from '@wise/db';
 import { dmy } from '@/lib/fmt';
 import { accountNames, phaseDone, yePage } from '@/lib/yearend';
@@ -28,6 +29,8 @@ export default async function ZsXmlPage() {
   const leOk = /^((0[4-9][0-9]{6})|([4-9][0-9]{6}))$/.test(le);
   const miss35 = f35.filter((r) => !r.aop);
   const st = L.statement;
+  // Legacy `crmXmlDl` 11066: hard ЦРМ rule errors → confirm before the download.
+  const ask = errs.length ? `Има ${errs.length} наоди од контролите на ЦРМ (${errs.slice(0, 3).map((r) => String(r[1] ?? r[0])).join('; ')}${errs.length > 3 ? ' …' : ''}) – ЦРМ може да ја одбие сметката. Сепак да се преземе XML?` : undefined;
   const blocked = findings.open.length > 0;
   const checks: [boolean, React.ReactNode][] = [
     [!blocked, blocked ? <>{findings.open.length} неразрешени наоди во <Link href="/zsKontrola">Контрола</Link> – XML не се издава</> : 'Контролата е чиста'],
@@ -43,9 +46,13 @@ export default async function ZsXmlPage() {
         <div className="card"><h2>Проверка пред поднесување</h2>
           <ul className="steps">{checks.map(([ok, t], i) => <li key={i}>{ok ? <span className="pill good">✓</span> : <span className="pill warn">!</span>} <span>{t}</span></li>)}</ul>
           <div className="row" style={{ marginTop: 10 }}>
-            {blocked ? <button className="btn pri" disabled>⬇ XML за ЦРМ</button> : <a className="btn pri" href="/zsXml/download">⬇ XML за ЦРМ</a>}
-            {!blocked && <a className="btn" href="/zsXml/download?prev=1">⬇ XML со претходна година</a>}
+            {blocked ? <button className="btn pri" disabled>⬇ XML за ЦРМ</button> : <ConfirmLink className="btn pri" href="/zsXml/download" confirm={ask}>⬇ XML за ЦРМ</ConfirmLink>}
+            {!blocked && <ConfirmLink className="btn" href="/zsXml/download?prev=1" confirm={ask}>⬇ XML со претходна година</ConfirmLink>}
           </div>
+          {errs.length > 0 && (
+            <table className="dense" style={{ marginTop: 8 }}><thead><tr><th>Правило на ЦРМ</th><th></th></tr></thead>
+              <tbody>{errs.map((r, i) => <tr key={i}><td>{String(r[1] ?? r[0])}</td><td><span className="pill bad">✕</span></td></tr>)}</tbody></table>
+          )}
           <p className="note">XML-от се прикачува на e-submit.crm.com.mk (Годишна сметка, операција 450, обрасци 35–38). Рок: електронски до 15 март.</p>
         </div>
         <div className="card"><h2>Статус на годишната сметка</h2>
