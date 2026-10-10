@@ -2,10 +2,10 @@
 import Link from 'next/link';
 import { and, asc, eq, like } from 'drizzle-orm';
 import { payNotesOpen } from '@wise/core';
-import { journals, payrollNotes, payrollRuns } from '@wise/db';
+import { journals, mpinAcks, payrollNotes, payrollRuns } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { fmt } from '@/lib/fmt';
+import { dmy, fmt } from '@/lib/fmt';
 import { firmEmployees, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -23,6 +23,10 @@ export default async function PlatiPage() {
     db().select().from(payrollNotes).where(eq(payrollNotes.firmId, firm.id)).orderBy(asc(payrollNotes.month), asc(payrollNotes.createdAt)),
     firmEmployees(firm.id),
   ]);
+  // МПИН вратени од УЈП (legacy v451 `VIEWS.plati` wrapper 14098)
+  const acks = await db().select().from(mpinAcks).where(and(eq(mpinAcks.firmId, firm.id), like(mpinAcks.month, `${year}-%`), eq(mpinAcks.replaced, false))).orderBy(asc(mpinAcks.month));
+  const ackOf = (mo: string) => acks.find((a) => a.month === mo);
+  const ex = acks.filter((a) => !runs.some(({ r }) => r.month === a.month));
   const write = canDo(u, 'write', firm.id);
   const last = runs.at(-1)?.r.month;
   const next = last ? (last.slice(5) === '12' ? `${+last.slice(0, 4) + 1}-01` : `${last.slice(0, 4)}-${String(+last.slice(5) + 1).padStart(2, '0')}`) : `${year}-${new Date().toISOString().slice(5, 7)}`;
@@ -39,7 +43,7 @@ export default async function PlatiPage() {
         canWrite={write} canDel={canDo(u, 'del', firm.id)} />
       <div className="pay-win">
         <div className="tw" style={{ minWidth: 0 }}><table className="dense">
-          <thead><tr><th>Година</th><th>Месец</th><th>Статус</th><th>Закл.</th><th className="n">Вработени</th><th className="n">Бруто</th><th className="n">Износ за исплата</th><th>Налог</th></tr></thead>
+          <thead><tr><th>Година</th><th>Месец</th><th>Статус</th><th>Закл.</th><th className="n">Вработени</th><th className="n">Бруто</th><th className="n">Износ за исплата</th><th>Налог</th><th>МПИН од УЈП</th></tr></thead>
           <tbody>
             {runs.map(({ r, number }) => (
               <tr key={r.id}>
@@ -49,9 +53,10 @@ export default async function PlatiPage() {
                 <td>{r.locked ? <span className="pill bad">Да</span> : 'Не'}</td>
                 <td className="n">{r.totals.emps ?? 0}</td><td className="n">{fmt(r.totals.gross)}</td><td className="n">{fmt(r.totals.net)}</td>
                 <td>{number ?? ''}</td>
+                <td>{(() => { const a = ackOf(r.month); return a ? <><span className="pill good" title={`${a.status ?? ''}${a.date ? ' · ' + dmy(a.date) : ''}`}>✓ {a.no || 'прифатен'}</span>{a.fileId && <> <a className="btn sm ghost" href={`/api/files/${a.fileId}`} target="_blank" rel="noopener">PDF</a></>}</> : <span className="note">—</span>; })()}</td>
               </tr>
             ))}
-            {!runs.length && <tr><td colSpan={8} className="note">Нема пресметани месеци за {year}. Креирајте нов месец.</td></tr>}
+            {!runs.length && <tr><td colSpan={9} className="note">Нема пресметани месеци за {year}. Креирајте нов месец.</td></tr>}
           </tbody>
         </table></div>
         <div className="pay-btns">
@@ -63,6 +68,19 @@ export default async function PlatiPage() {
               confirm={`Да се пресметаат и прокнижат повторно сите отклучени прокнижени месеци од ${year}?`} />
           )}
         </div>
+      </div>
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><b>📥 МПИН вратени од УЈП</b><Link className="btn pri" href="/mpinIn">Внеси прифатени МПИН (сите фирми)</Link></div>
+        {ex.length ? (
+          <>
+            <p className="note">Месеци со МПИН без пресметка во програмот (прокнижени од МПИН):</p>
+            <table className="dense"><thead><tr><th>Месец</th><th>Бр. за поднесување</th><th className="n">Бруто</th><th className="n">Придонеси + данок</th><th>Рок</th><th></th></tr></thead>
+              <tbody>{ex.map((a) => (
+                <tr key={a.id}><td>{a.month.slice(5)}/{a.month.slice(0, 4)}</td><td>{a.no ?? ''}</td><td className="n">{fmt(a.gross)}</td><td className="n">{fmt(a.total)}</td><td>{a.due ? dmy(a.due) : ''}</td>
+                  <td>{a.fileId && <a className="btn sm ghost" href={`/api/files/${a.fileId}`} target="_blank" rel="noopener">PDF</a>}</td></tr>
+              ))}</tbody></table>
+          </>
+        ) : <p className="note" style={{ marginBottom: 0 }}>Откако ќе се вратат прифатените МПИН од УЈП, прикачете ги сите одеднаш – секој се распоредува кај својата фирма.</p>}
       </div>
       <p className="note">Отворете го месецот за „Содржина на пресметка“. Заклучен месец не може да се менува ниту брише. Ставките по вработен (редовно, боледување, одмори, прекувремено, корекции, синдикат) се внесуваат во „Преглед“ на вработениот. Вработени во фирмата: {emps.filter((e) => e.active).length}.</p>
     </>
