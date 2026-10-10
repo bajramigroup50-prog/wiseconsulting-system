@@ -12,11 +12,18 @@ export function UserForm({ user: d, allFirms, isSelf }: { user: EditUser | null;
   const [role, setRole] = useState<Role>(d?.role ?? 'acc');
   const [all, setAll] = useState(d?.allFirms ?? false);
   const [q, setQ] = useState('');
+  const [show, setShow] = useState(false);
   const shown = q ? allFirms.filter((f) => f.name.toLowerCase().includes(q.toLowerCase())) : allFirms;
   return (
-    <form className="card" action={action}>
+    <form className="card" action={action} autoComplete="off">
       {d && <input type="hidden" name="id" value={d.id} />}
-      <h2>{d ? 'Измена: ' + d.name : 'Нов корисник'}</h2>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 2, paddingBottom: 6 }}>
+        <h2 style={{ margin: 0 }}>{d ? 'Измена: ' + d.name : 'Нов корисник'}</h2>
+        <div className="row" style={{ gap: 8 }}>
+          <Link className="btn" href="/korisnici">Откажи</Link>
+          <button className="btn pri" disabled={pending}>{pending ? 'Се зачувува…' : '✓ Зачувај'}</button>
+        </div>
+      </div>
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
       <div className="form">
         <label className="f">Име и презиме<input name="name" defaultValue={d?.name ?? ''} required /></label>
@@ -28,7 +35,14 @@ export function UserForm({ user: d, allFirms, isSelf }: { user: EditUser | null;
           </select>
           {isSelf && <input type="hidden" name="role" value={role} />}
         </label>
-        <label className="f">{d ? 'Нова лозинка (празно = без промена)' : 'Привремена лозинка'}<input name="password" type="password" autoComplete="new-password" /></label>
+        {/* Browsers autofill a saved (admin) password into any password field; these stay read-only until clicked. */}
+        <label className="f">{d ? 'Нова лозинка (празно = без промена)' : 'Привремена лозинка'}
+          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+            <input name="pwNew" type={show ? 'text' : 'password'} autoComplete="new-password" readOnly onFocus={(e) => { e.currentTarget.readOnly = false; }} defaultValue="" data-lpignore="true" />
+            <button type="button" className="btn sm" title="Прикажи / скриј" onClick={() => setShow(!show)}>👁</button>
+          </span>
+        </label>
+        <label className="f">Потврди лозинка<input name="pwNew2" type={show ? 'text' : 'password'} autoComplete="new-password" readOnly onFocus={(e) => { e.currentTarget.readOnly = false; }} defaultValue="" data-lpignore="true" /></label>
         <label className="f" style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <input type="checkbox" name="active" defaultChecked={d?.active ?? true} style={{ width: 'auto' }} disabled={isSelf} /> Активен
           {isSelf && <input type="hidden" name="active" value="on" />}
@@ -41,7 +55,7 @@ export function UserForm({ user: d, allFirms, isSelf }: { user: EditUser | null;
       </label>
       <div hidden={all}>
         <input placeholder="🔍 Филтрирај фирми…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginTop: 6 }} />
-        <div className="ufirms">
+        <div className="ufirms" style={{ maxHeight: 300, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 8 }}>
           {allFirms.map((f) => (
             <label key={f.id} hidden={!shown.includes(f)}>
               <input type="checkbox" name="firms" value={f.id} defaultChecked={d?.firms.includes(f.id)} style={{ width: 'auto' }} /> {f.name}

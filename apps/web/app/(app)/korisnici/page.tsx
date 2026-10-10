@@ -9,7 +9,7 @@ import { MyPassword } from './my-password';
 import { UserForm } from './user-form';
 import { DeleteUser } from './delete-user';
 
-export default async function KorisniciPage({ searchParams }: { searchParams: Promise<{ edit?: string; nov?: string }> }) {
+export default async function KorisniciPage({ searchParams }: { searchParams: Promise<{ edit?: string; nov?: string; saved?: string }> }) {
   const sp = await searchParams;
   const me = await requireUser();
   const selfBox = (
@@ -54,6 +54,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <Hd t="Корисници и улоги" sub={`${UC.length} колеги · ${UK.length} компании`}>
         <Link className="btn pri" href="/korisnici?nov">+ Нов корисник</Link>
       </Hd>
+      {sp.saved && <div className="callout good" role="status">✓ Промените се зачувани.</div>}
       {showForm && (
         <UserForm
           user={editing ? { ...editing, firms: firmsOf(editing.id) } : null}

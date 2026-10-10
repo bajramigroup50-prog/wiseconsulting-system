@@ -1,8 +1,9 @@
 'use server';
 /**
  * Legacy ACT `opMailGo` / `opMailAll` / `opPdf` / `opWaDone` / `opDays` / `opSet` (13346–13400): every letter is
- * logged (`dunning_letters`) — the next one's level is suggested from them. FIX: the e-mail goes through the mail
- * queue (`mail_log`, Историја на праќања) with the letter itself in the body instead of a browser-made PDF.
+ * logged (`dunning_letters`) — the next one's level is suggested from them. As in legacy, the letter is attached as a PDF
+ * (`Opomena_<купувач>.pdf`, rendered by the worker's `pdf.mail` with the print view's markup); the e-mail goes through
+ * the mail queue (`mail_log`, Историја на праќања).
  */
 import { revalidatePath } from 'next/cache';
 import { and, eq } from 'drizzle-orm';
@@ -11,12 +12,15 @@ import { audit, dunningLetters, partners, textMailHtml, type Tx } from '@wise/db
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { patchFirmSettings } from '@/lib/firms-office';
-import { dispatchMail, queueMail, validAddresses } from '@/lib/mail';
+import { validAddresses } from '@/lib/mail';
+import { dispatchPdfMail, pdfFileTitle, queuePdfMail } from '@/lib/pdf-mail';
 import { officeAction, officeError } from '@/lib/office';
 import { letterFor, loadDunning, lvlOk } from './data';
 
 const rev = () => { revalidatePath('/opomeni'); revalidatePath('/mailhist'); };
 const CHANNELS = ['PDF', 'WhatsApp/Viber'] as const;
+/** The letter as PDF input (the `(print)` view wraps it in `.pdfdoc` the same way). */
+const letterPdf = (html: string, pname: string) => ({ html: `<div class="pdfdoc">${html}</div>`, title: pdfFileTitle('Opomena', pname) });
 
 async function logLetter(tx: Tx, a: { firmId: string; userId: string; g: OpGroup; pname: string; lvl: number; channel: string; ids: string[]; total: number; date: string; mailId?: string }) {
   const [d] = await tx.insert(dunningLetters).values({
@@ -41,16 +45,17 @@ export async function sendDunning(pid: string, _p: ActionState, f: FormData): Pr
     const subject = String(f.get('subject') ?? '').trim().slice(0, 300) || X.subj;
     const body = String(f.get('body') ?? '').trim().slice(0, 20000) || X.body;
     const p = D.pOf(pid);
-    const ids = await db().transaction(async (tx) => {
-      const mailId = await queueMail(tx, { firmId: firm.id, to, subject, html: textMailHtml(body) + '<hr style="margin:18px 0">' + html, entityType: 'dunning', entityId: pid, userId: u.id });
+    const jobs = await db().transaction(async (tx) => {
+      const job = await queuePdfMail(tx, { firmId: firm.id, to, subject, html: textMailHtml(body), entityType: 'dunning', entityId: pid, userId: u.id }, letterPdf(html, p.name));
+      const mailId = job.logId;
       await logLetter(tx, { firmId: firm.id, userId: u.id, g, pname: p.name, lvl, channel: 'е-пошта', ids: X.L.map((r) => r.inv.id), total: X.tot, date: D.td, mailId });
       // Legacy: a customer without e-mail gets the address the letter was sent to.
       if (!p.email && pid !== '—') await tx.update(partners).set({ email: to }).where(and(eq(partners.id, pid), eq(partners.firmId, firm.id)));
-      return [mailId];
+      return [job];
     });
-    await dispatchMail(ids);
+    await dispatchPdfMail(jobs);
     rev();
-    return { ok: `${OP_LV[lvl]} е испратена на ${to}.` };
+    return { ok: `${OP_LV[lvl]} е испратена на ${to} (PDF во прилог).` };
   } catch (e) { return officeError(e); }
 }
 
@@ -61,21 +66,22 @@ export async function sendDunningAll(): Promise<ActionState> {
     const D = await loadDunning(firm);
     const G = D.G.filter((g) => g.over > 0 && D.pOf(g.pid).email && validAddresses(D.pOf(g.pid).email!));
     if (!G.length) return { error: 'Нема купувачи со е-пошта и достасани фактури.' };
-    const ids = await db().transaction(async (tx) => {
-      const out: string[] = [];
+    const jobs = await db().transaction(async (tx) => {
+      const out: Awaited<ReturnType<typeof queuePdfMail>>[] = [];
       for (const g of G) {
         const lvl = g.lvlAuto;
         const { X, html } = letterFor(D, g, lvl);
         const p = D.pOf(g.pid);
-        const mailId = await queueMail(tx, { firmId: firm.id, to: p.email!, subject: X.subj, html: textMailHtml(X.body) + '<hr style="margin:18px 0">' + html, entityType: 'dunning', entityId: g.pid, userId: u.id });
+        const job = await queuePdfMail(tx, { firmId: firm.id, to: p.email!, subject: X.subj, html: textMailHtml(X.body), entityType: 'dunning', entityId: g.pid, userId: u.id }, letterPdf(html, p.name));
+        const mailId = job.logId;
         await logLetter(tx, { firmId: firm.id, userId: u.id, g, pname: p.name, lvl, channel: 'е-пошта', ids: X.L.map((r) => r.inv.id), total: X.tot, date: D.td, mailId });
-        out.push(mailId);
+        out.push(job);
       }
       return out;
     });
-    await dispatchMail(ids);
+    await dispatchPdfMail(jobs);
     rev();
-    return { ok: `Испратени ${ids.length} опомени.` };
+    return { ok: `Испратени ${jobs.length} опомени (со PDF во прилог).` };
   } catch (e) { return officeError(e); }
 }
 

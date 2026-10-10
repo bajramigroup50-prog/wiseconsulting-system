@@ -77,6 +77,8 @@ const COLS = new Set(['name', 'code', 'lf', 'edb', 'embs', 'address', 'city', 'p
 /** One imported record → firm columns + settings (bank account etc.). */
 export function fimpToFirm(f: FimpRecord): FimpFirm {
   const s = (k: string) => (f[k] == null || f[k] === '' ? null : String(f[k]).trim().slice(0, 300));
+  // „Даночен број“ matches the legacy heading „даночен бр…“ (the bank's tax no.); with no own ЕДБ column it is the firm's ЕДБ.
+  if (!f.edb && f.bankEdb && /^(MK)?\d{13}$/i.test(String(f.bankEdb))) { f = { ...f, edb: String(f.bankEdb).replace(/^MK/i, '') }; delete f.bankEdb; }
   const e = digits(f.edb);
   const settings: Record<string, string> = {};
   for (const [k, v] of Object.entries(f)) {

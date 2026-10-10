@@ -24,7 +24,7 @@ export async function sendInvoiceMail(invoiceId: string, _p: ActionState, f: For
       : [];
     if (!inv) return { error: 'Документот не постои.' };
     const u = await requireCan('sendMailGo', inv.firmId);
-    if (!['invoice', 'credit', 'proforma'].includes(inv.kind) || inv.status !== 'posted') return { error: 'Овој документ не може да се испрати по е-пошта.' };
+    if (!['invoice', 'credit', 'proforma'].includes(inv.kind) || !(inv.status === 'posted' || (inv.kind === 'proforma' && inv.status !== 'pending'))) return { error: 'Овој документ не може да се испрати по е-пошта.' };
     const to = splitAddresses(String(f.get('to') ?? ''));
     if (!validAddresses(to)) return { error: 'Внесете валидна е-пошта.' };
     const subject = String(f.get('subject') ?? '').trim().slice(0, 300);
