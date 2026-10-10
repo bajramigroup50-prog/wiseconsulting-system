@@ -12,7 +12,9 @@
  */
 import { eq } from 'drizzle-orm';
 import { fixRates, scanResultConsistent, scanInvoices, ublToScan, type ScanResult } from '@wise/core/sales';
-import { aiDocuments, firms, type Tx } from '@wise/db';
+import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
+import { s3Store, storeFile, type ObjectStore } from '../storage';
+import { splitInvoicePdf } from '../ai/split';
 import { defineJob } from '../job';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
@@ -27,7 +29,7 @@ const fx = (r: ScanResult | null) => { if (r) for (const x of scanInvoices(r)) f
 const has = (r: ScanResult | null) => !!r && scanInvoices(r).some((x) => (x.lines ?? []).length || (x.groups ?? []).length);
 
 /** The work of the job, separated for tests. */
-export async function runReadDocument(db: Tx, docId: string, log: (m: string) => void = () => {}): Promise<void> {
+export async function runReadDocument(db: Tx, docId: string, log: (m: string) => void = () => {}, store: ObjectStore = s3Store): Promise<void> {
   const [doc] = await db.select().from(aiDocuments).where(eq(aiDocuments.id, docId)).limit(1);
   if (!doc || !['queued', 'error', 'reading'].includes(doc.status)) return;
   const [f] = await db.select().from(firms).where(eq(firms.id, doc.firmId)).limit(1);
@@ -44,6 +46,23 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     if (!doc.fileId) throw new Error('Датотеката не е пронајдена.');
     const file = await loadFile(db, f.id, doc.fileId);
     const bytes = await readObject(file.bucketKey);
+    // legacy `invSplit` (13685): a PDF with several invoices is cut into one PDF per invoice, each read on its own
+    const opts0 = doc.options as { split?: boolean; noSplit?: boolean };
+    if (!opts0.split && !opts0.noSplit && aiConfigured() && (file.mime === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+      const parts = await splitInvoicePdf({ db, firmId: f.id, refId: doc.id, userId: doc.createdBy, name: file.name, bytes, purpose: doc.kind });
+      if (parts) {
+        const ids: string[] = [];
+        for (const pt of parts) {
+          const fileId = await storeFile(db as unknown as DB, store, { firmId: f.id, name: pt.name, mime: 'application/pdf', ext: 'pdf', body: pt.bytes, userId: doc.createdBy });
+          const [c] = await db.insert(aiDocuments).values({ firmId: f.id, fileId, kind: doc.kind, batchId: doc.batchId, createdBy: doc.createdBy, options: { ...doc.options, split: true, parentId: doc.id } }).returning({ id: aiDocuments.id });
+          ids.push(c!.id);
+        }
+        await db.update(aiDocuments).set({ status: 'done', drafts: [], result: { split: ids }, batchId: null, options: { ...doc.options, inline: true } }).where(eq(aiDocuments.id, docId));
+        log(`${docId}: split into ${ids.length} invoices`);
+        for (const id of ids) await runReadDocument(db, id, log, store);
+        return;
+      }
+    }
     let result: ScanResult | null = null;
     let model: string | null = null;
     if (/\.xml$/i.test(file.name) || /xml/.test(file.mime)) {
