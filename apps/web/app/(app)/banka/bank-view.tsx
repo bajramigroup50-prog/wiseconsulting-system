@@ -20,7 +20,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import {
-  addManualLineAction, addRuleAction, applyMatchesAction, bkpFixAction, saveAutoNotifyAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
+  addManualLineAction, addRuleAction, applyMatchesAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
@@ -42,6 +42,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const { u, firm, year } = await booksPage(view);
   if (!firm) return <NoFirm t={T} />;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
+  const admin = del && u.role === 'admin';
   const all = await loadBankAccounts(db(), firm.id);
   const BK = all.filter((a) => (a.cur !== 'MKD') === fx);
   const acct = BK.find((a) => a.id === sp.acct) ?? BK[0];
@@ -419,6 +420,12 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         </BankForm>
       )}
 
+      {admin && S.length > 0 && (
+        <BankForm id="bkDelForm" action={bulkDeleteLinesAction} confirm="Да се избришат штиклираните ставки од изводите? Налозите се прекнижуваат." className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+          <span className="mini">Администратор: штиклирајте ставки во колоната десно</span>
+          <button className="btn sm danger">🗑 Избриши ги избраните</button>
+        </BankForm>
+      )}
       {S.length ? (
         <div className="tw"><table>
           <thead><tr><th>Датум</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Поврзување / конто</th><th></th></tr></thead>
@@ -475,7 +482,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                     </span>
                   </BankForm>
                 </td></tr>,
-                ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id })} active={l.id === sp.line} unlinked={unlIds.has(l.id)} />),
+                ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id })} active={l.id === sp.line} unlinked={unlIds.has(l.id)} bulk={admin} />),
               ];
             })}
           </tbody>
@@ -485,8 +492,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   );
 }
 
-function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked }: {
-  l: BankLine; fx: boolean; kName: (k: string | null | undefined) => string; pName: Map<string, string>; write: boolean; del: boolean; href: string; active: boolean; unlinked?: boolean;
+function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk }: {
+  l: BankLine; fx: boolean; kName: (k: string | null | undefined) => string; pName: Map<string, string>; write: boolean; del: boolean; href: string; active: boolean; unlinked?: boolean; bulk?: boolean;
 }) {
   const amt = Number(l.amount);
   const cur = l.amountCur != null ? Number(l.amountCur) : null;
@@ -534,6 +541,7 @@ function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked }: {
       </td>
       <td>
         <div className="row" style={{ flexWrap: 'nowrap' }}>
+          {bulk && <input type="checkbox" name="bl" value={l.id} form="bkDelForm" aria-label="Избери за бришење" />}
           {write && <RowAction action={flipLineAction.bind(null, l.id)} label="⇅" title="Промени насока (прилив ↔ одлив)" confirm="Да се промени насоката на ставката?" />}
           {del && <RowAction action={deleteLineAction.bind(null, l.id)} label="✕" className="btn sm ghost danger" confirm={`Да се избрише ставката „${l.description.slice(0, 60)}“?`} />}
         </div>

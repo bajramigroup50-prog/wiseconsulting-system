@@ -5,6 +5,7 @@
  * Sub-view `?nop=1`: lines without partner (legacy `VIEWS.kpNoP` 12447).
  */
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { and, eq, isNull, like, sql } from 'drizzle-orm';
 import { openAmount, virtualAdvances } from '@wise/core';
 import { syntheticCard } from '@wise/core/finance';
@@ -89,7 +90,8 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
       <Hd t="Аналитички картици по комитент" sub={kl}>
         {back}
         <Link className="btn" href={q({ syn: '1' })}>Синтетичка картица</Link>
-        <DownloadCsv name={`Analiticki_kartici_${year}.csv`} rows={csv} />
+        {/* legacy `kcCsv` 7298: `;` with decimal comma for Macedonian Excel */}
+        <DownloadCsv name={`Analiticki_kartici_${year}.csv`} rows={csv.map((r, i) => (i ? r.map((c) => (typeof c === 'number' ? c.toFixed(2).replace('.', ',') : c)) : r))} />
         <a className="btn" href={`/print/fin/kartici?${kcQs(s, { pid: '' })}`} target="_blank" rel="noopener">PDF сите картици</a>
         <Link className="btn" href="/kartici/potvrdi" title="Потврди на салдо до сите комитенти со салдо – PDF и е-пошта">📨 Потврди на салдо – сите</Link>
         {sel && <>
@@ -186,6 +188,9 @@ async function Picker({ firmId, s, kq, post }: { firmId: string; s: ReturnType<t
   const q = kq.toLowerCase();
   if (q) rows = rows.filter((r) => r.c.startsWith(q) || r.n.toLowerCase().includes(q));
   const base = `from=${s.from}&to=${s.to}${s.sort === 'nal' ? '&sort=nal' : ''}`;
+  // legacy `kcPicker` 6457: Enter on the search opens the exact konto (or the only match)
+  const exact = q ? rows.find((r) => r.c === q) ?? (rows.length === 1 ? rows[0] : undefined) : undefined;
+  if (exact) redirect(`/kartici?k=${exact.c}&${base}`);
   return (
     <>
       <Hd t="Избор на конто за аналитика" sub="аналитички картици" />

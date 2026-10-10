@@ -307,6 +307,17 @@ export async function bkpFixAction(): Promise<FormState> {
   });
 }
 
+/** Legacy `bulkScan` / `bkDel` 16905–16930 (administrator): delete the ticked statement lines, one confirm. */
+export async function bulkDeleteLinesAction(_p: FormState, form: FormData): Promise<FormState> {
+  const ids = form.getAll('bl').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+  if (!ids.length) return { error: 'Не е избрана ниту една ставка.' };
+  return bankRun('del', P, async ({ tx, u, firm }) => {
+    if (u.role !== 'admin') throw Object.assign(new Error('Масовното бришење е само за администратор.'), { name: 'BankError' });
+    for (const lineId of ids) await deleteLine(tx, { firmId: firm.id, userId: u.id, lineId });
+    return `Избришани ${ids.length} ставки.`;
+  });
+}
+
 /** Legacy ACT `izvFill` 12400: fill empty statement numbers by neighbour (previous + 1). */
 export async function izvFillAction(): Promise<FormState> {
   return bankRun('write', P, async ({ tx, u, firm, year }) => `Пополнети ${await fillStatementNumbers(tx, { firmId: firm.id, userId: u.id, year })} броеви на изводи.`);
