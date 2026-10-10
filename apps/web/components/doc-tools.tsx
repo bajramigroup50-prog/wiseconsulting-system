@@ -115,7 +115,8 @@ export function ImportButton({ action, fields, template, name, label = 'Увоз
   /** Template file name (without extension). */
   name: string;
   label?: string;
-  confirmText?: (n: number, file: string) => string;
+  /** Confirmation text; `{n}` = number of rows, `{file}` = file name (a string: functions can't cross to client components). */
+  confirmText?: string;
   extra?: Record<string, unknown>;
 }) {
   const [st, run, pending] = useActionState<ActionState, FormData>(action, {});
@@ -130,7 +131,7 @@ export function ImportButton({ action, fields, template, name, label = 'Увоз
       const p = parseImport(R, fields);
       if (p.error) { setErr(p.error); return; }
       if (!p.rows.length) { setErr('Нема редови за увоз.'); return; }
-      if (!window.confirm(confirmText ? confirmText(p.rows.length, f.name) : `Да се увезат ${p.rows.length} редови од „${f.name}“?`)) return;
+      if (!window.confirm(confirmText ? confirmText.replaceAll('{n}', String(p.rows.length)).replaceAll('{file}', f.name) : `Да се увезат ${p.rows.length} редови од „${f.name}“?`)) return;
       const fd = new FormData();
       fd.set('payload', JSON.stringify({ ...(extra ?? {}), rows: p.rows }));
       startTransition(() => run(fd));

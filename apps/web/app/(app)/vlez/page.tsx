@@ -170,7 +170,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         <RowAction className="btn danger" action={deletePurchasesAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px' }}><input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {list.length ? (<>
-        {del && <BulkBar label={(k) => `🗑 Избриши избрани (${k})`} confirm={(k) => `Да се избришат ${k} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesAction} />}
+        {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesAction} />}
         <div className="tw"><table><thead><tr>{del && <th style={{ width: 30 }}><SelAll /></th>}<th>Датум</th><th>Бр.</th><th>Добавувач</th><th>Вид</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th className="n">Девизен износ</th><th className="n">Платено</th><th className="n">Останува</th><th>Плаќање</th><th></th></tr></thead>
           <tbody>{list.map(({ p, name }) => {
             const x = fxInfo(p);
