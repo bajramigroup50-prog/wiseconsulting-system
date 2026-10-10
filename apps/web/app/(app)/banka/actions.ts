@@ -12,9 +12,11 @@ import {
 import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
-  updateStatement, loadBankAccounts, type ImportPlan,
+  updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, type ImportPlan,
 } from '@wise/db';
 import { statementFromRead } from '@wise/core/ai/bank';
+import { ownerCheck, withNote, type OwnerFirm } from '@wise/core/bank/parity';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import { firmAction } from '@/lib/books';
 import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { bankRun, isDate, num, str } from '@/lib/bank';
@@ -60,6 +62,15 @@ async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{
   return { statements: S, format: kind };
 }
 
+/** The user's firms with their bank account numbers (for the owner check across firms). */
+async function ownerFirms(u: { id: string; principal: { firms: readonly string[] } }): Promise<OwnerFirm[]> {
+  const scoped = u.principal.firms.includes('*') ? undefined
+    : or(inArray(firms.id, db().select({ id: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))), eq(firms.ownerId, u.id));
+  const F = await db().select({ id: firms.id, name: firms.name, edb: firms.edb }).from(firms).where(scoped);
+  const B = F.length ? await db().select({ firmId: bankAccounts.firmId, account: bankAccounts.account, iban: bankAccounts.iban }).from(bankAccounts).where(inArray(bankAccounts.firmId, F.map((f) => f.id))) : [];
+  return F.map((f) => ({ ...f, accounts: B.filter((b) => b.firmId === f.id).flatMap((b) => [b.account, b.iban]) }));
+}
+
 export interface PreviewResult { error?: string; plans?: { file: string; format: string; plan: ImportPlan }[] }
 
 /** Files with the id of their AI read (`aiDoc`, same order; '' = parse the file itself). */
@@ -75,12 +86,20 @@ function filesOf(form: FormData): { f: File; ai: string }[] {
 /** Step 1: parse the files and show what would be imported (nothing is written). */
 export async function previewImportAction(form: FormData): Promise<PreviewResult> {
   try {
-    const { firm } = await firmAction('write');
+    const { u, firm } = await firmAction('write');
     const acct = str(form.get('acct')) || null;
     const out: NonNullable<PreviewResult['plans']> = [];
+    let others: OwnerFirm[] | null = null;
     for (const { f, ai } of filesOf(form)) {
       const { statements, format } = await readStatements(f, firm.id, ai);
       const plan = await db().transaction((tx) => planImport(tx, { firmId: firm.id, userId: null, statements, defaultAccountId: acct }));
+      // legacy `ownerCheck` 12880: the statement may belong to another firm of the office (by ЕДБ / account / name)
+      for (const st of statements) {
+        others ??= await ownerFirms(u);
+        const cur = others.find((x) => x.id === firm.id) ?? { id: firm.id, name: firm.name, edb: firm.edb };
+        const w = ownerCheck(cur, others, { name: st.owner, acct: st.account || st.iban });
+        if (w?.other) plan.warnings.push(w.message);
+      }
       out.push({ file: f.name, format, plan });
     }
     if (!out.length) return { error: 'Изберете датотека.' };
@@ -137,8 +156,17 @@ export async function setKontoAction(_p: FormState, form: FormData): Promise<For
   const konto = str(form.get('konto')).split(/\s/)[0]!;
   const partnerId = str(form.get('partner')) || null;
   const learn = form.get('learn') === 'on';
+  const note = form.has('note') ? str(form.get('note')) : null;
   // legacy toast 4843: „Прокнижено. Запомнато: „key“ → konto; следниот пат автоматски.“
   return bankRun('write', P, ({ tx, u, firm }) => setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId, konto, partnerId, learn })
+    .then(async (L) => {
+      // legacy `bkPickSave` 12703: „на кого / за што“ is appended to the description as ` · [note]`
+      if (note != null) {
+        const [l] = await tx.select({ d: bankLines.description }).from(bankLines).where(and(eq(bankLines.id, lineId), eq(bankLines.firmId, firm.id))).limit(1);
+        if (l && withNote(l.d, note) !== l.d) await tx.update(bankLines).set({ description: withNote(l.d, note) }).where(eq(bankLines.id, lineId));
+      }
+      return L;
+    })
     .then((L) => (L.length ? `Прокнижено. Запомнато: ${L.map((k) => `„${k.replace('|in', ' (прилив)').replace('|out', ' (одлив)')}“`).join(', ')} → ${konto}; следниот пат автоматски.` : 'Прокнижено.')));
 }
 

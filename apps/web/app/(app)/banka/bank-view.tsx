@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { BKPK_RE, bankEffKonto, feeFix, BANKS_MK, bankCodeOf, openDocsFor, unlinkedPayments } from '@wise/core';
-import { transitOpen, transitResidueLabel } from '@wise/core/bank/parity';
+import { sameRefKey, transitOpen, transitResidueLabel } from '@wise/core/bank/parity';
 import {
   bankLines, bankPartnerFixPlan, bankRules, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
   loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
@@ -117,6 +117,10 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const lineById = new Map(L.map((l) => [l.id, l]));
   const edLine = sp.line ? L.find((l) => l.id === sp.line) ?? (await db().select().from(bankLines).where(and(eq(bankLines.id, sp.line), eq(bankLines.firmId, firm.id))).limit(1))[0] : undefined;
   const edDocs = edLine && write ? await db().transaction((tx) => lineOpenDocs(tx, firm.id, year, edLine.id)) : null;
+  // legacy `bkSameRef` 12691: other lines with the same reference (≥ 6 digits) that already have a partner
+  const refKey = edLine ? sameRefKey({ bref: edLine.bref ?? '', desc: edLine.description }) : '';
+  const sameRef = refKey ? (await db().select().from(bankLines).where(and(eq(bankLines.firmId, firm.id), sql`${bankLines.id} <> ${edLine!.id}`, sql`${bankLines.partnerId} is not null`,
+    sql`(coalesce(${bankLines.bref}, '') || ' ' || ${bankLines.description} || ' ' || coalesce(${bankLines.counterAccount}, '')) like ${'%' + refKey + '%'}`)).limit(10)) : [];
 
   const partnerSelect = (name: string, value?: string | null) => (
     <select name={name} defaultValue={value ?? ''} style={{ maxWidth: 260 }}>
@@ -307,6 +311,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                   <input type="hidden" name="line" value={edLine.id} />
                   <label className="f">Конто<input name="konto" list="bkK2" defaultValue={edLine.konto ?? ''} required /></label>
                   <label className="f">Комитент{partnerSelect('partner', edLine.partnerId)}</label>
+                  <label className="f wide">На кого / за што (белешка, се додава на описот)<input name="note" defaultValue={/ · \[(.*)\]$/.exec(edLine.description)?.[1] ?? ''} /></label>
                   <label className="chk"><input type="checkbox" name="learn" defaultChecked /> запомни правило за овој опис / шифра</label>
                   <div className="row"><button className="btn pri">Прокнижи</button></div>
                 </BankForm>
@@ -317,6 +322,17 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                     {edLine.newPartner && <label className="chk"><input type="checkbox" name="create" value={edLine.newPartner} /> креирај „{edLine.newPartner}“</label>}
                     <button className="btn">Постави комитент</button>
                   </BankForm>
+                )}
+                {sameRef.length > 0 && (
+                  <div className="callout" style={{ marginTop: 8 }}><b>Истата референца ({refKey}) во други изводи:</b>
+                    {sameRef.map((x) => (
+                      <BankForm key={x.id} action={setPartnerAction} className="row" style={{ gap: 6 }}>
+                        <input type="hidden" name="line" value={edLine.id} /><input type="hidden" name="partner" value={x.partnerId ?? ''} />
+                        <span className="mini">{dmy(x.date)} · {x.description.slice(0, 60)} · <b>{pName.get(x.partnerId ?? '')}</b></span>
+                        <button className="btn sm">Преземи комитент</button>
+                      </BankForm>
+                    ))}
+                  </div>
                 )}
                 {(edLine.konto || edLine.refId) && <div className="row" style={{ marginTop: 8 }}><RowAction className="btn" action={unlinkLineAction.bind(null, edLine.id)} label="Врати во непрокнижено" /></div>}
               </div>
