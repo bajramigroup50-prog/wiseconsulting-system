@@ -5,6 +5,9 @@
  */
 import { revalidatePath } from 'next/cache';
 import { zmCsvGrid, zmParse, zmSplit } from '@wise/core/yearend/zm-import';
+import { prClean } from '@wise/core/yearend/tools';
+import type { ZsRule } from '@wise/core/yearend/aop';
+import { patchFirmSettings } from '@/lib/firms-office';
 import { csvToGrid, DB_F, DE38, DLD_ND, parseTurnoverTb } from '@wise/core';
 import {
   audit, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
@@ -329,5 +332,33 @@ export async function importZsAopAction(input: { csv?: string; grid?: unknown[][
     const V = L.Y.co.zs.V;
     const ok = Math.abs((V.bs063 || 0) - (V.bs111 || 0)) < 1;
     return { ok: `✓ Увезени ${Object.keys(cur).length} износи за ${year}${Object.keys(prev).length ? ' и ' + Object.keys(prev).length + ' за ' + (year - 1) : ''}. Актива ${fmt(V.bs063 || 0)} / Пасива ${fmt(V.bs111 || 0)} ${ok ? '✓' : '✕ не се совпаѓаат – проверете'}.` };
+  } catch (e) { return actionError(e); }
+}
+
+/* ---------------- AOP rules (legacy zprSave / prReset, ACT_NEED settings) ---------------- */
+
+export async function saveZsRulesAction(rows: Partial<ZsRule>[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('settings');
+    const R = prClean(Array.isArray(rows) ? rows.slice(0, 2000) : []);
+    if (!R.length) return { error: 'Нема правила за зачувување.' };
+    await db().transaction(async (tx) => {
+      await patchFirmSettings(tx, firm.id, { zsRules: R });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'zprSave', entityType: 'firm', entityId: firm.id, data: { rules: R.length } });
+    });
+    done();
+    return { ok: `Зачувани ${R.length} правила.` };
+  } catch (e) { return actionError(e); }
+}
+
+export async function resetZsRulesAction(): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('settings');
+    await db().transaction(async (tx) => {
+      await patchFirmSettings(tx, firm.id, { zsRules: [] });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'prReset', entityType: 'firm', entityId: firm.id });
+    });
+    done();
+    return { ok: 'Вратени се стандардните правила.' };
   } catch (e) { return actionError(e); }
 }
