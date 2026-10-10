@@ -3,6 +3,7 @@ import { MS_DISC, mailSigCfg, mailSigText, signMailHtml } from './mailsig';
 import { zsRokRows } from './zsrok';
 import { opDays, opDue, opGroups, opText, waPhone } from './dunning';
 import { mhKind, mhKindGroup } from './mailhist';
+import { klStrongPw, klUserName } from './klprofili';
 
 describe('zsRok', () => {
   it('deadlines fall in the next year, per entity', () => {
@@ -68,5 +69,22 @@ describe('mail history kinds (legacy mhKind)', () => {
     expect(mhKind('Здраво')).toBe('Е-пошта');
     expect(mhKindGroup('Опомена (последна)')).toBe('Опомена');
     expect(mhKindGroup('Опомена 2.')).toBe('Опомена');
+  });
+});
+
+describe('client profiles (legacy klUserName / klStrongPw)', () => {
+  let i = 0;
+  const rnd = (n: number) => Array.from({ length: n }, () => (i = (i * 7 + 13) % 997));
+  it('username from the first meaningful word, latinised, + 4 chars, unique', () => {
+    const u = klUserName({ name: 'ДООЕЛ БАЈРАМИ ГРОУП Скопје' }, new Set(), rnd);
+    expect(u).toMatch(/^bajrami\.[a-z2-9]{4}$/);
+    const used = new Set([u]);
+    expect(klUserName({ name: 'ДООЕЛ БАЈРАМИ ГРОУП Скопје' }, used, rnd)).not.toBe(u);
+    expect(klUserName({ name: 'ДОО' }, new Set(), rnd)).toMatch(/^klient\./);
+  });
+  it('password: 3 groups of 4 with upper, lower and digit', () => {
+    const p = klStrongPw(rnd);
+    expect(p).toMatch(/^[A-Za-z2-9]{4}-[A-Za-z2-9]{4}-[A-Za-z2-9]{4}$/);
+    expect(/[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p)).toBe(true);
   });
 });
