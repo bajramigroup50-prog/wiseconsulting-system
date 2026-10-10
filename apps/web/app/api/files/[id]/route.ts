@@ -1,7 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
-import { audit, files } from '@wise/db';
+import { cookies } from 'next/headers';
+import { audit, fileLinks, files, firms } from '@wise/db';
 import { getUser } from '@/lib/auth';
+import { FIRM_COOKIE } from '@/lib/context';
+import { klientViews } from '@/lib/kl-views';
+import { klFileAllowed } from '@/lib/route-guard';
 import { db } from '@/lib/db';
 import { objectSize, presignGet } from '@/lib/storage';
 
@@ -19,7 +23,16 @@ export async function GET(req: Request, { params }: Ctx) {
   if (!u) return new Response('unauthorized', { status: 401 });
   const f = await load((await params).id);
   // Reading needs firm access only (view role included); office files need the office permission.
-  const allowed = f && (f.firmId ? firmAllowed(u.principal, f.firmId) : can(u.principal, 'office') || f.uploadedBy === u.id);
+  let allowed = !!f && (f.firmId ? firmAllowed(u.principal, f.firmId) : can(u.principal, 'office') || f.uploadedBy === u.id);
+  // A client sees only files of the sections the office opened for them (or their own uploads).
+  if (allowed && f && u.role === 'klient') {
+    const links = await db().select({ entityType: fileLinks.entityType, role: fileLinks.role }).from(fileLinks).where(eq(fileLinks.fileId, f.id));
+    // the firm's logo / signature / stamp (file ids in `firms.settings`) print on every document the client opens
+    const [fr] = f.firmId ? await db().select({ s: firms.settings }).from(firms).where(eq(firms.id, f.firmId)).limit(1) : [];
+    const S = (fr?.s ?? {}) as Record<string, unknown>;
+    const img = ['logo', 'sign', 'stamp'].some((k) => S[k] === f.id);
+    allowed = klFileAllowed(links, await klientViews(u.id, (await cookies()).get(FIRM_COOKIE)?.value), f.uploadedBy === u.id, img);
+  }
   if (!f || f.status !== 'ready' || !allowed) return new Response('not found', { status: 404 });
   const dl = new URL(req.url).searchParams.get('dl') === '1';
   return Response.redirect(await presignGet(f.bucketKey, f.name, !dl), 302);

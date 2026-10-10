@@ -51,7 +51,7 @@ export async function CodebookPage({ k, searchParams }: { k: CbKey; searchParams
       <Hd t={D.t} sub={global ? 'шифрарник · заеднички за сите фирми' : 'шифрарник'}>
         {k === 'cenovnik' && <a className="btn" href="/print/cenovnik" target="_blank" rel="noopener">PDF ценовник</a>}
         <Link className="btn" href="/sifrarnik">← Шифрарник</Link>
-        {canNew && <ImportButton action={importCodebookAction.bind(null, k)} fields={impFields(k)} name={`Sifrarnik_${k}`} confirmText={(n, f) => `Да се увезат ${n} редови од „${f}“ во „${D.t}“? Иста шифра = измена.`} />}
+        {canNew && <ImportButton action={importCodebookAction.bind(null, k)} fields={impFields(k)} name={`Sifrarnik_${k}`} confirmText={`Да се увезат {n} редови од „{file}“ во „${D.t}“? Иста шифра = измена.`} />}
         {canNew && <Link className="btn pri" href={`${href}?nov`}>+ Додај</Link>}
       </Hd>
 

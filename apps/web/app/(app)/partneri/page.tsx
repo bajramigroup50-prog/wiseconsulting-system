@@ -55,7 +55,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
         <button className="btn">Барај</button>
       </form>
       {rows.length ? (<>
-        {admin && <BulkBar label={(k) => `🗑 Избриши ги избраните (${k})`} confirm={(k) => `Да се избришат ${k} избрани?\nТие што се користат во фактури, каса, налози или плати НЕ се бришат (може „Неактивен“).\n\nОва не може да се врати.`} action={deletePartnersAction} />}
+        {admin && <BulkBar label={`🗑 Избриши ги избраните ({n})`} confirm={`Да се избришат {n} избрани?\nТие што се користат во фактури, каса, налози или плати НЕ се бришат (може „Неактивен“).\n\nОва не може да се врати.`} action={deletePartnersAction} />}
         <div className="tw"><table>
           <thead><tr>{admin && <th style={{ width: 30 }}><SelAll /></th>}<th>Шифра</th><th>Назив</th><th>ЕДБ</th><th>Адреса</th><th>Град</th><th>Е-пошта</th><th>Телефон (WhatsApp/Viber)</th><th>Жиро сметка</th><th>ДДВ обврзник</th><th>Активен</th><th></th></tr></thead>
           <tbody>
