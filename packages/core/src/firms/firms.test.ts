@@ -4,6 +4,7 @@ import { zsRokRows } from './zsrok';
 import { opDays, opDue, opGroups, opText, waPhone } from './dunning';
 import { mhKind, mhKindGroup } from './mailhist';
 import { klStrongPw, klUserName } from './klprofili';
+import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
   it('deadlines fall in the next year, per entity', () => {
@@ -86,5 +87,24 @@ describe('client profiles (legacy klUserName / klStrongPw)', () => {
     const p = klStrongPw(rnd);
     expect(p).toMatch(/^[A-Za-z2-9]{4}-[A-Za-z2-9]{4}-[A-Za-z2-9]{4}$/);
     expect(/[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p)).toBe(true);
+  });
+});
+
+describe('monthly close (legacy zatTasks / zatPrio)', () => {
+  const base = { vat: true, vatPeriod: 'quarter', lockDate: null, statements: 2, invoices: 3, purchases: 1, invoiceNumbers: ['1', '2', '5', 'A-1', 'A-2'],
+    cash: { any: true, balance: -10 }, activeEmployees: 2, payrollRun: null, vatClosed: new Set(['2026-Т1']) };
+  it('tasks and states', () => {
+    expect(zatMonthEnd('2026-02')).toBe('2026-02-28');
+    expect(numberGaps(['1', '2', '5', 'A-1', 'A-2'])).toBe(2);
+    const T = zatTasks(base, '2026-03');
+    const by = Object.fromEntries(T.map((t) => [t.k, t.ok]));
+    expect(by).toEqual({ izv: true, vlez: true, izlez: false, blg: false, pay: false, ddv: true, lock: false });
+    expect(T.find((t) => t.k === 'pay')!.due).toBe('2026-04-15');
+    expect(zatTasks(base, '2026-02').some((t) => t.k === 'ddv')).toBe(false);
+  });
+  it('priority', () => {
+    expect(zatPrio({ vat: true, vatPeriod: 'month', activeEmployees: 0 }, '2026-02')[0]).toBe(1);
+    expect(zatPrio({ vat: true, vatPeriod: 'quarter', activeEmployees: 0 }, '2026-03')[0]).toBe(2);
+    expect(zatPrio({ vat: false, vatPeriod: 'quarter', activeEmployees: 0 }, '2026-03')[0]).toBe(5);
   });
 });
