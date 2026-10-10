@@ -70,6 +70,8 @@ export interface Statement {
   /** Debit / credit turnover in cents (null = not stated). */
   debit: number | null;
   credit: number | null;
+  /** Exchange rate to MKD printed on the statement (AI read, legacy `izvRate` from `r.rate` 4802). */
+  rate?: number;
   lines: StatementLine[];
 }
 

@@ -13,6 +13,9 @@ export interface StatementDay {
   /** Opening / closing balance in the statement currency (cents), null when unknown. */
   opening: number | null;
   closing: number | null;
+  /** Debit / credit turnover stated in the file (cents) — only for a one-day file (legacy `izvTot` 4783 / 4805). */
+  debit?: number | null;
+  credit?: number | null;
   lines: StatementLine[];
 }
 
@@ -38,7 +41,10 @@ export function splitStatementByDate(st: Statement): StatementDay[] {
     const L = by.get(d)!;
     const close: number | null = open == null ? null : open + sum(L);
     const lineNo = L.find((l) => l.stmtNo)?.stmtNo;
-    out.push({ date: d, no: lineNo || (i === dates.length - 1 ? st.no : ''), opening: open, closing: close, lines: L });
+    out.push({
+      date: d, no: lineNo || (i === dates.length - 1 ? st.no : ''), opening: open, closing: close, lines: L,
+      ...(dates.length === 1 && (st.debit != null || st.credit != null) ? { debit: st.debit, credit: st.credit } : {}),
+    });
     open = close;
   });
   return out;

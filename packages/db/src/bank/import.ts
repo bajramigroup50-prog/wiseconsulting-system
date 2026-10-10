@@ -32,6 +32,8 @@ export interface ImportOptions {
   fileName?: string | null;
   fileId?: string | null;
   format?: string | null;
+  /** Legacy `_impAsk` 12661: the same statement imported again in another format replaces the old lines. */
+  replace?: boolean;
 }
 
 export interface PreviewLine {
@@ -68,6 +70,9 @@ export interface PreviewDay {
   opening: number | null;
   closing: number | null;
   rate: number | null;
+  /** Debit / credit turnover stated in the file (cents), one-day files only. */
+  statedDebit?: number | null;
+  statedCredit?: number | null;
   /** A statement for this account and date already exists. */
   existingId: string | null;
   lines: PreviewLine[];
@@ -110,7 +115,8 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
     const nums = await numsFor(acct);
     for (const day of splitStatementByDate(st)) {
       const [ex] = await tx.select().from(bankStatements).where(and(eq(bankStatements.bankAccountId, acct.id), eq(bankStatements.date, day.date))).limit(1);
-      const rate = fx ? (ex?.rate != null ? Number(ex.rate) : fxRate(acct.cur, day.date, fxs) || null) : null;
+      // legacy 4802: the rate printed on the statement (AI read) becomes the day's rate when none is set
+      const rate = fx ? (ex?.rate != null ? Number(ex.rate) : st.rate || fxRate(acct.cur, day.date, fxs) || null) : null;
       if (fx && !rate) warnings.push(`Нема курс за ${acct.cur} на ${day.date} – внесете го курсот на изводот.`);
       const lines: PreviewLine[] = [];
       for (const l of day.lines) {
@@ -165,6 +171,7 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
       days.push({
         accountId: acct.id, accountName: acct.name, cur: acct.cur || 'MKD', date: day.date, no,
         opening: day.opening, closing: day.closing, rate, existingId: ex?.id ?? null, lines, allDup,
+        ...(day.debit != null || day.credit != null ? { statedDebit: day.debit ?? null, statedCredit: day.credit ?? null } : {}),
       });
     }
   }
@@ -190,7 +197,9 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
   let nLines = 0;
   let skipped = 0;
   for (const d of plan.days) {
-    const L = d.lines.filter((l) => !(skip && l.dup));
+    // replace: the old lines of an existing statement go (legacy „ДА = старите ставки се бришат“)
+    const replacing = !!(o.replace && d.existingId && !d.allDup);
+    const L = d.lines.filter((l) => replacing || !(skip && l.dup));
     skipped += d.lines.length - L.length;
     if (!L.length) continue;
     assertOpenPeriod(env.firm, d.date);
@@ -198,15 +207,22 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     let stId = d.existingId;
     if (stId) {
       const [ex] = await tx.select().from(bankStatements).where(eq(bankStatements.id, stId)).limit(1);
+      if (replacing) {
+        await tx.delete(bankLines).where(eq(bankLines.statementId, stId));
+        await audit(tx, { userId: o.userId, firmId: o.firmId, action: 'importReplace', entityType: 'bank_statement', entityId: stId, data: { file: o.fileName ?? null } });
+      }
       await tx.update(bankStatements).set({
         number: ex!.number || d.no || null,
         opening: ex!.opening ?? toDec(d.opening), closing: ex!.closing ?? toDec(d.closing),
         rate: ex!.rate ?? (d.rate != null ? String(d.rate) : null),
+        statedDebit: ex!.statedDebit ?? toDec(d.statedDebit ?? null), statedCredit: ex!.statedCredit ?? toDec(d.statedCredit ?? null),
+        ...(o.fileId && !ex!.fileId ? { fileId: o.fileId } : {}),
       }).where(eq(bankStatements.id, stId));
     } else {
       const [s] = await tx.insert(bankStatements).values({
         firmId: o.firmId, bankAccountId: d.accountId, date: d.date, number: d.no || null,
         opening: toDec(d.opening), closing: toDec(d.closing), rate: d.rate != null ? String(d.rate) : null,
+        statedDebit: toDec(d.statedDebit ?? null), statedCredit: toDec(d.statedCredit ?? null),
         format: o.format ?? null, fileName: o.fileName ?? null, fileId: o.fileId ?? null, importBatch: batch, createdBy: o.userId,
       }).returning({ id: bankStatements.id });
       stId = s!.id;

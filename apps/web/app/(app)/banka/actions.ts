@@ -10,9 +10,9 @@ import {
   detectStatementFormat, parseBankTable, parseStatementFile, type Statement,
 } from '@wise/core';
 import {
-  addManualLine, addRule, applyFeeFix, applyMatches, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
+  addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
-  updateStatement, type ImportPlan,
+  updateStatement, loadBankAccounts, type ImportPlan,
 } from '@wise/db';
 import { statementFromRead } from '@wise/core/ai/bank';
 import { firmAction } from '@/lib/books';
@@ -29,14 +29,15 @@ const fail = (m: string) => Object.assign(new Error(m), { name: 'BankError' });
 
 /* ---------------- import ---------------- */
 
-async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{ statements: Statement[]; format: string }> {
+async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{ statements: Statement[]; format: string; fileId?: string | null }> {
   if (aiDoc) {
     // PDF / image statement read by the AI job (legacy `importBankImg` 4796, `BANK_PROMPT`) → the normal import pipeline
     const d = await loadAiResult(firmId, aiDoc, 'bank');
     if (!d) throw fail(`„${f.name}“: изводот сè уште не е прочитан.`);
     const st = statementFromRead(d.result);
     if (!st) throw fail(`„${f.name}“: во изводот не се пронајдени ставки.`);
-    return { statements: [st], format: 'ai' };
+    // legacy `archiveFile(file,{sub:'Извод'})` 4807: the read file stays linked to the statement
+    return { statements: [st], format: 'ai', fileId: d.fileId };
   }
   if (f.size > MAX) throw fail('Датотеката е преголема (најмногу 20 MB).');
   const bytes = new Uint8Array(await f.arrayBuffer());
@@ -95,11 +96,12 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
 export async function saveImportAction(form: FormData): Promise<FormState> {
   const acct = str(form.get('acct')) || null;
   const skip = form.get('dups') !== 'on';
+  const replace = form.get('replace') === 'on';
   const msgs: string[] = [];
   for (const { f, ai } of filesOf(form)) {
     const r = await bankRun('write', P, async ({ tx, u, firm }) => {
-      const { statements, format } = await readStatements(f, firm.id, ai);
-      const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format });
+      const { statements, format, fileId } = await readStatements(f, firm.id, ai);
+      const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null, replace });
       if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
       return `„${f.name}“: ${x.statements} изводи, ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.posted}, за довршување ${x.drafts}.`;
     });
@@ -135,7 +137,9 @@ export async function setKontoAction(_p: FormState, form: FormData): Promise<For
   const konto = str(form.get('konto')).split(/\s/)[0]!;
   const partnerId = str(form.get('partner')) || null;
   const learn = form.get('learn') === 'on';
-  return bankRun('write', P, ({ tx, u, firm }) => setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId, konto, partnerId, learn }).then(() => 'Прокнижено.'));
+  // legacy toast 4843: „Прокнижено. Запомнато: „key“ → konto; следниот пат автоматски.“
+  return bankRun('write', P, ({ tx, u, firm }) => setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId, konto, partnerId, learn })
+    .then((L) => (L.length ? `Прокнижено. Запомнато: ${L.map((k) => `„${k.replace('|in', ' (прилив)').replace('|out', ' (одлив)')}“`).join(', ')} → ${konto}; следниот пат автоматски.` : 'Прокнижено.')));
 }
 
 export async function setPartnerAction(_p: FormState, form: FormData): Promise<FormState> {
@@ -182,20 +186,37 @@ export async function numberStatementsAction(): Promise<FormState> {
   return bankRun('numIzv', P, async ({ tx, u, firm, year }) => `Нумерирани ${await numberStatements(tx, { firmId: firm.id, userId: u.id, year })} изводи.`);
 }
 
+/**
+ * Legacy `mbNew` / `mbSave` 13255–13296: manual statement line — account, date, direction, the open invoice it
+ * closes (amount and partner from the invoice, description „Уплата по фактура N“ / „Плаќање по фактура N“), amount in
+ * the account currency (FX: denars by the statement rate), description, konto, partner.
+ */
 export async function addManualLineAction(_p: FormState, form: FormData): Promise<FormState> {
   const date = str(form.get('date'));
-  const amount = num(form.get('amount'));
-  const amountCur = num(form.get('amountCur'));
-  const desc = str(form.get('desc'));
+  const dirIn = str(form.get('dir')) !== 'out';
+  const sign = dirIn ? 1 : -1;
+  // doc = "inv|<id>|<open cents>|<number>|<partner>" or "pur|…"
+  const [dt, docId, openC, docNo, docP] = str(form.get('doc')).split('|');
+  const doc = docId && (dt === 'inv' || dt === 'pur') ? { id: docId, open: Number(openC) || 0, no: docNo ?? '', partner: docP ?? '' } : null;
+  if (doc && (dt === 'inv') !== dirIn) return { error: dirIn ? 'Приливот може да затвора само наша (излезна) фактура.' : 'Одливот може да затвора само влезна фактура.' };
+  const a0 = num(form.get('amount'));
+  const amt = a0 != null && a0 !== 0 ? Math.abs(a0) : doc ? doc.open / 100 : 0;
+  if (!amt) return { error: 'Внесете износ.' };
+  const mkd = num(form.get('amountMkd'));
+  const desc = str(form.get('desc')) || (doc ? `${dirIn ? 'Уплата' : 'Плаќање'} по фактура ${doc.no}` : dirIn ? 'Уплата' : 'Плаќање');
   if (!isDate(date)) return { error: 'Внесете датум.' };
-  if (!desc) return { error: 'Внесете опис.' };
-  return bankRun('mbSave', P, async ({ tx, u, firm }) => {
+  return bankRun('mbSave', P, async ({ tx, u, firm, year }) => {
     const id = str(form.get('acct'));
-    await addManualLine(tx, {
-      firmId: firm.id, userId: u.id, bankAccountId: id, date, amount: amount ?? 0, amountCur, desc,
-      konto: str(form.get('konto')).split(/\s/)[0] || null, partnerId: str(form.get('partner')) || null,
+    const [acc] = await loadBankAccounts(tx, firm.id).then((A) => A.filter((x) => x.id === id));
+    if (!acc) return 'Сметката не постои.';
+    const fx = acc.cur !== 'MKD';
+    const lineId = await addManualLine(tx, {
+      firmId: firm.id, userId: u.id, bankAccountId: id, date,
+      amount: fx ? (mkd ? sign * Math.abs(mkd) : 0) : sign * amt, amountCur: fx ? sign * amt : null, desc,
+      konto: doc ? null : str(form.get('konto')).split(/\s/)[0] || null, partnerId: (doc?.partner || str(form.get('partner'))) || null,
     });
-    return 'Ставката е додадена.';
+    if (doc) await linkLine(tx, { firmId: firm.id, userId: u.id, year, lineId, docIds: [doc.id] });
+    return doc ? `Ставката е додадена и ја затвора фактурата ${doc.no}.` : 'Ставката е додадена.';
   });
 }
 
@@ -228,6 +249,30 @@ export async function saveBankAccountAction(_p: FormState, form: FormData): Prom
     return 'Сметката е зачувана.';
   });
 }
+/* ---------------- finance parity ---------------- */
+
+/** Legacy ACT `bkpFix` 12433: link 12x/22x lines to the partner from the statement (missing partners are created). */
+export async function bkpFixAction(): Promise<FormState> {
+  return bankRun('write', [...P, '/kartici', '/partneri'], async ({ tx, u, firm, year }) => {
+    const r = await applyBankPartnerFix(tx, { firmId: firm.id, userId: u.id, year });
+    return r.linked ? `Поврзани ${r.linked} ставки со комитентот од изводот${r.created ? `; креирани ${r.created} нови комитенти` : ''}.` : 'Нема такви ставки.';
+  });
+}
+
+/** Legacy ACT `izvFill` 12400: fill empty statement numbers by neighbour (previous + 1). */
+export async function izvFillAction(): Promise<FormState> {
+  return bankRun('write', P, async ({ tx, u, firm, year }) => `Пополнети ${await fillStatementNumbers(tx, { firmId: firm.id, userId: u.id, year })} броеви на изводи.`);
+}
+
+/** Legacy ACT `posFee` 13078: „Книжи провизија 4460“ (amount in denars, date). */
+export async function posFeeAction(_p: FormState, form: FormData): Promise<FormState> {
+  const amount = num(form.get('amount'));
+  const date = str(form.get('date'));
+  if (!amount || amount <= 0) return { error: 'Внесете износ на провизијата.' };
+  if (!isDate(date)) return { error: 'Внесете датум.' };
+  return bankRun('write', [...P, '/fiskPer'], async ({ tx, u, firm, year }) => `Провизијата е книжена (налог ${await bookPosFee(tx, { firmId: firm.id, userId: u.id, year, amount: Math.round(amount * 100), date })}).`);
+}
+
 export async function removeBankAccountAction(id: string): Promise<FormState> {
   return bankRun('rmBankAcct', [...P, '/bankFmt'], ({ tx, u, firm }) => removeBankAccount(tx, { firmId: firm.id, userId: u.id, id }).then(() => 'Сметката е отстранета.'));
 }

@@ -15,12 +15,25 @@ const CLS: Record<string, string> = { pos: 'POS картички', conv: 'отк
 /** PDF / image statements are read by the AI job (legacy `importBankImg`); everything else is parsed on the server. */
 const isAiFile = (f: File) => /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || /^image\/|pdf/.test(f.type);
 
+/**
+ * Legacy 4789 / 4792: an Excel / CSV / TXT whose columns are not recognised is read automatically (AI). Excel is
+ * converted to CSV text in the browser (the reader takes text, PDF and images).
+ */
+async function asAiFile(f: File): Promise<File> {
+  if (!/\.(xlsx|xls)$/i.test(f.name)) return f;
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(new Uint8Array(await f.arrayBuffer()), { type: 'array', cellDates: true });
+  const csv = wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n]!, { FS: ';' })).join('\n\n');
+  return new File([csv], f.name.replace(/\.(xlsx|xls)$/i, '.csv'), { type: 'text/csv' });
+}
+
 /** Upload the PDF / image statements, start the reads and wait for them (legacy: „10–60 секунди“). */
-async function readAiStatements(L: File[], firmId: string, note: (m: string) => void): Promise<{ ids: string[]; error?: string }> {
+async function readAiStatements(L: File[], firmId: string, note: (m: string) => void, all = false): Promise<{ ids: string[]; error?: string }> {
   const ids: string[] = L.map(() => '');
   const up: { i: number; id: string }[] = [];
-  for (const [i, f] of L.entries()) {
-    if (!isAiFile(f)) continue;
+  for (const [i, f0] of L.entries()) {
+    if (!all && !isAiFile(f0)) continue;
+    const f = all ? await asAiFile(f0) : f0;
     note(`Се прикачува „${f.name}“…`);
     const r = await uploadFile(f, firmId);
     if (!r.ok) return { ids, error: `„${f.name}“: ${r.error}` };
@@ -48,6 +61,7 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
   const [aiIds, setAiIds] = useState<string[]>([]);
   const [acct, setAcct] = useState(defaultAcct);
   const [dups, setDups] = useState(false);
+  const [replace, setReplace] = useState(false);
   const [prev, setPrev] = useState<PreviewResult | null>(null);
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [note, setNote] = useState('');
@@ -63,15 +77,17 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
   const form = () => {
     const f = formOf(files, aiIds);
     if (dups) f.set('dups', 'on');
+    if (replace) f.set('replace', 'on');
     return f;
   };
-  const preview = (L: File[]) => {
+  const preview = (L: File[], all = false) => {
     setFiles(L);
     setMsg({});
     setAiIds([]);
+    setReplace(false);
     if (!L.length) { setPrev(null); return; }
     start(async () => {
-      const a = await readAiStatements(L, firmId, setNote);
+      const a = await readAiStatements(L, firmId, setNote, all);
       setNote('');
       if (a.error) { setPrev({ error: a.error }); return; }
       setAiIds(a.ids);
@@ -81,7 +97,8 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
   const save = () => start(async () => {
     const r = await saveImportAction(form());
     setMsg(r);
-    if (!r.error) { setFiles([]); setPrev(null); if (ref.current) ref.current.value = ''; router.refresh(); }
+    // legacy 4761 / 4782 / 4807: after the import the remaining lines are matched automatically → the review
+    if (!r.error) { setFiles([]); setPrev(null); if (ref.current) ref.current.value = ''; router.push(window.location.pathname + '?review=1'); router.refresh(); }
   });
 
   return (
@@ -101,7 +118,8 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
         {pending && <span className="note">{note || 'Се чита…'}</span>}
       </div>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
-      {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}</div>}
+      {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}
+        {/колоните|форматот не е препознаен/.test(prev?.error ?? '') && files.length > 0 && <> <button type="button" className="btn sm pri" disabled={pending} onClick={() => preview(files, true)}>Прочитај го автоматски (AI)</button></>}</div>}
       {prev?.plans && (
         <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 8 }}>
           {prev.plans.map((p) => (
@@ -116,7 +134,8 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
                       {d.existingId && <span className="pill warn">се додава на постоечки извод</span>}
                       {d.allDup && <span className="pill bad">веќе увезен</span>}
                       {d.rate != null && <> · курс {d.rate}</>}
-                      {d.opening != null && <> · салдо {fmt(d.opening / 100)} → {fmt((d.closing ?? 0) / 100)} {d.cur}</>}</td></tr>
+                      {d.opening != null && <> · салдо {fmt(d.opening / 100)} → {fmt((d.closing ?? 0) / 100)} {d.cur}</>}
+                      {d.statedDebit != null && <> · по изводот должува {fmt((d.statedDebit ?? 0) / 100)} / побарува {fmt((d.statedCredit ?? 0) / 100)}</>}</td></tr>
                     <tr><th>Датум</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Препознаено</th></tr>
                   </thead>
                   <tbody>{d.lines.map((l, i) => (
@@ -134,6 +153,9 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
           ))}
           <div className="row" style={{ gap: 10, marginTop: 8 }}>
             <label className="chk"><input type="checkbox" checked={dups} onChange={(e) => setDups(e.target.checked)} /> увези ги и дупликатите</label>
+            {prev.plans.some((p) => p.plan.days.some((d) => d.existingId && !d.allDup)) && (
+              <label className="chk" title="Истиот извод е веќе увезен (на пр. во друг формат)"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> замени ги старите ставки на постоечките изводи (инаку новите се додаваат)</label>
+            )}
             <span style={{ flex: 1 }} />
             <button className="btn" type="button" onClick={() => preview([])} disabled={pending}>Откажи</button>
             <button className="btn pri" type="button" onClick={save} disabled={pending || prev.plans.some((p) => p.plan.errors.length > 0)}>Зачувај и прокнижи</button>

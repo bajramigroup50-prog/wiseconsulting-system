@@ -9,3 +9,4 @@ export * from './lines';
 export * from './cash';
 export * from './orders';
 export * from './komp';
+export * from './bank-parity';

@@ -5,10 +5,11 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { BKPK_RE, bankEffKonto, feeFix, BANKS_MK, bankCodeOf } from '@wise/core';
+import { BKPK_RE, bankEffKonto, feeFix, BANKS_MK, bankCodeOf, openDocsFor, unlinkedPayments } from '@wise/core';
+import { transitOpen, transitResidueLabel } from '@wise/core/bank/parity';
 import {
-  bankLines, bankRules, bankStatements, effectiveChart, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
-  loadBankAccounts, proposeMatches, statementGapsFor, toBankRow, transitResidues, type BankLine, type BankStatement,
+  bankLines, bankPartnerFixPlan, bankRules, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
+  loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { AUTO_LBL } from '@/lib/bank';
@@ -19,7 +20,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import {
-  addManualLineAction, addRuleAction, applyMatchesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction,
+  addManualLineAction, addRuleAction, applyMatchesAction, bkpFixAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
@@ -74,6 +75,27 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       .groupBy(journalLines.account, journals.date) : Promise.resolve([]),
   ]);
   const kName = (k: string | null | undefined) => chart.find((a) => a.code === k)?.name ?? '';
+  /* finance parity: legacy wrappers 12401 (izvFill), 12443 (bkpFix), 12522 (unlinked), 12764 (trOpen), 13082 (POS box), 12652 (FX balance) */
+  const [env, sugg, bkp, pos] = await Promise.all([
+    db().transaction((tx) => loadBankEnv(tx, firm.id)),
+    db().transaction((tx) => statementNoSuggestions(tx, firm.id, year)),
+    write ? db().transaction((tx) => bankPartnerFixPlan(tx, firm.id, year)) : Promise.resolve([]),
+    fx ? Promise.resolve(null) : db().transaction((tx) => posBalance(tx, firm.id, year)),
+  ]);
+  const ctx = await db().transaction((tx) => matchContext(tx, env, year));
+  const unl = unlinkedPayments({ rows: ctx.rows.filter((r) => BK.some((b) => b.id === r.acct)), accounts: env.accounts, year });
+  const unlIds = new Set(unl.map((r) => r.id));
+  const TL = await db().select({ k: journalLines.account, date: journals.date, d: journalLines.debit, p: journalLines.credit }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .where(and(eq(journalLines.firmId, firm.id), inArray(journalLines.account, [env.konta.transitFx, env.konta.transit]), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
+  const trOpen = transitOpen(TL.map((l) => ({ k: l.k, date: l.date, d: Math.round(Number(l.d) * 100), p: Math.round(Number(l.p) * 100) })), env.konta);
+  const fxBal = new Map<string, number | null>();
+  if (fx) for (const s0 of S) if (s0.closing != null) fxBal.set(s0.id, await db().transaction((tx) => fxStatementBalance(tx, s0.bankAccountId, s0.date)));
+  const bankK = new Set(all.map((a) => a.konto));
+  const manualDocs = sp.manual && write ? [
+    ...openDocsFor({ id: 'm', acct: acct?.id ?? '', date: `${year}-12-31`, amount: 1, desc: '' }, ctx).O.map((z) => ({ v: `inv|${z.x.id}`, t: `Наша фактура ${z.x.number ?? ''} · ${pNameOf(z.x.partner)} · ${fmt(z.o / 100)}`, o: z.o, n: z.x.number ?? '', p: z.x.partner ?? '' })),
+    ...openDocsFor({ id: 'm', acct: acct?.id ?? '', date: `${year}-12-31`, amount: -1, desc: '' }, ctx).O.map((z) => ({ v: `pur|${z.x.id}`, t: `Влезна ф-ра ${z.x.number ?? ''} · ${pNameOf(z.x.partner)} · ${fmt(z.o / 100)}`, o: z.o, n: z.x.number ?? '', p: z.x.partner ?? '' })),
+  ] : [];
+  function pNameOf(id?: string | null) { return P.find((p) => p.id === id)?.name ?? ''; }
   const pName = new Map(P.map((p) => [p.id, p.name]));
   const nalog = new Map(J.map((j) => [j.id!, j.number]));
   const bookBal = (konto: string, date: string, cur: boolean) =>
@@ -81,7 +103,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const byStatement = new Map<string, BankLine[]>();
   for (const l of L) (byStatement.get(l.statementId) ?? byStatement.set(l.statementId, []).get(l.statementId)!).push(l);
   const acctOf = new Map(all.map((a) => [a.id, a]));
-  const fees = write ? feeFix(L.map(toBankRow), year).length : 0;
+  // legacy 12407: the count is over the whole year (the action fixes the whole year)
+  const fees = write ? feeFix(ctx.rows.filter((r) => BK.some((b) => b.id === r.acct)), year).length : 0;
   const unnumbered = S.some((s) => !s.number);
   const nOpen = L.filter((l) => lineProblem(l, fx)).length;
 
@@ -102,9 +125,49 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       <Hd t={T} sub={fx ? 'EUR, USD, CHF… по курс на НБРСМ' : 'денарски сметки · автоматско книжење'}>
         {write && unnumbered && <RowAction className="btn" action={numberStatementsAction} label="Нумерирај изводи" />}
         {write && <Link className="btn pri" href={q({ review: '1' })}>Прокнижи автоматски</Link>}
+        {write && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
         <Link className="btn" href={q({ banks: sp.banks ? undefined : '1' })}>Банкарски сметки…</Link>
+        <Link className="btn" href="/bankFmt" title="Кој формат на извод е најдобар за секоја банка">🔎 Формати по банка</Link>
+        <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
       </Hd>
       <datalist id="bkK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
+      {/* line kontos: the bank kontos themselves are not offered (legacy `kontoOpts(…, k => !bankKontos().includes(k))`) */}
+      <datalist id="bkK2">{chart.filter((a) => !bankK.has(a.code)).map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
+      {write && sugg.size > 0 && (
+        <div className="callout warn" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>📄 <b>{sugg.size}</b> изводи немаат број (банката не го дала во датотеката). Предлогот е по редослед – претходниот број + 1.</span><span style={{ flex: 1 }} />
+          <RowAction className="btn pri" action={izvFillAction} label="✓ Пополни ги броевите" confirm={`Да се пополнат ${sugg.size} празни броеви на изводи по редослед (претходен број + 1, по сметка и година)? Проверете ги со изводите од банката.`} />
+        </div>
+      )}
+      {write && bkp.length > 0 && (
+        <div className="callout warn" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>👥 <b>{bkp.length}</b> ставки на 1200/2200 немаат комитент (или имаат погрешен) – без комитент нема аналитичка картица и изводот не се книжи: {[...new Set(bkp.map((x) => x.name))].slice(0, 6).join(', ')}{bkp.length > 6 ? '…' : ''}</span><span style={{ flex: 1 }} />
+          <RowAction className="btn pri" action={bkpFixAction} label="Поврзи ги со комитентот од изводот" confirm={`Да се поврзат ${bkp.length} ставки со комитентите од изводот? Комитентите што ги нема ќе се креираат: ${[...new Set(bkp.filter((x) => !x.partner).map((x) => x.name))].slice(0, 15).join(', ') || '—'}`} />
+        </div>
+      )}
+      {unl.length > 0 && (
+        <div className="callout" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>🧾 <b>{unl.length}</b> плаќања на купувачи / добавувачи не се поврзани со фактура (аванси или фактура што недостасува).</span><span style={{ flex: 1 }} />
+          <Link className="btn" href="/bkAdv">Прикажи и затвори рачно</Link>
+        </div>
+      )}
+      {trOpen.length > 0 && (
+        <div className="callout warn">🔁 <b>Пренос меѓу сопствени сметки без другата страна</b>: {trOpen.map((t) => <span key={t.k + t.date}>{t.k} на {dmy(t.date)}: {fmt(t.r / 100)} ({t.r > 0 ? 'излезено, не е примено' : 'примено, не е испратено'}) · </span>)} Увезете го изводот од другата сметка.</div>
+      )}
+      {pos && pos.state !== 'none' && pos.state !== 'closed' && (
+        <div className="callout" id="posBox">
+          💳 <b>Плаќања со картички (POS, конто {pos.k})</b>: продажба со картички {fmt(pos.d / 100)} · примено од банка {fmt(pos.p / 100)} · отворено <b>{fmt(pos.s / 100)}</b>{pos.d ? ` (${Math.round((pos.p / pos.d) * 100)}%)` : ''}.
+          {pos.state === 'fee' && <> Разликата е најчесто провизијата на банката.{write && (
+            <BankForm action={posFeeAction} className="row" style={{ gap: 6, marginTop: 6 }}>
+              <input name="amount" inputMode="decimal" defaultValue={(pos.s / 100).toFixed(2)} style={{ width: 120, textAlign: 'right' }} aria-label="Износ на провизијата" />
+              <input type="date" name="date" defaultValue={pos.last || `${year}-12-31`} />
+              <button className="btn sm pri">Книжи провизија 4460</button>
+            </BankForm>
+          )}</>}
+          {pos.state === 'waiting' && ' Банката сè уште не ги уплатила.'}
+          {pos.state === 'over' && ' Примено е повеќе отколку продадено – проверете ги фискалните извештаи.'}
+        </div>
+      )}
 
       {!BK.length && (
         <div className="callout">{fx
@@ -154,12 +217,12 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       )}
       {trans.length > 0 && (
         <div className="callout warn"><b>Остаток на преодна сметка</b> (откуп / пренос меѓу свои сметки): {trans.map((t) => (
-          <span key={t.konto + t.date} className="row" style={{ gap: 6, display: 'inline-flex' }}>{t.konto} на {dmy(t.date)}: {fmt(t.residue)}
+          <span key={t.konto + t.date} className="row" style={{ gap: 6, display: 'inline-flex' }}>{t.konto} на {dmy(t.date)}: {fmt(t.residue)} → {transitResidueLabel(t.residue)}
             {write && <RowAction className="btn sm" action={closeTransitAction.bind(null, t.konto, t.date)} label="Книжи курсна разлика" />}</span>
         ))}</div>
       )}
       {fees > 0 && (
-        <div className="callout warn">{fees} банкарски провизии се книжени на 2200/4400 без фактура. <RowAction className="btn sm" action={feeFixAction} label="Прекнижи на 4460" /></div>
+        <div className="callout warn">{fees} банкарски провизии се книжени на 2200/4400 без фактура. <RowAction className="btn sm" action={feeFixAction} label="Прекнижи на 4460" confirm={`${fees} банкарски надомести се прокнижени на 2200/4400 без документ. Да се префрлат на 4460 Банкарски услуги?`} /></div>
       )}
 
       {review && (
@@ -216,7 +279,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                 <h3>Директно на конто</h3>
                 <BankForm action={setKontoAction} className="form">
                   <input type="hidden" name="line" value={edLine.id} />
-                  <label className="f">Конто<input name="konto" list="bkK" defaultValue={edLine.konto ?? ''} required /></label>
+                  <label className="f">Конто<input name="konto" list="bkK2" defaultValue={edLine.konto ?? ''} required /></label>
                   <label className="f">Комитент{partnerSelect('partner', edLine.partnerId)}</label>
                   <label className="chk"><input type="checkbox" name="learn" defaultChecked /> запомни правило за овој опис / шифра</label>
                   <div className="row"><button className="btn pri">Прокнижи</button></div>
@@ -271,18 +334,24 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <button className="btn">Прикажи</button>
         {nOpen > 0 && <span className="pill warn">{nOpen} непрокнижени ставки</span>}
         <span style={{ flex: 1 }} />
-        {write && BK.length > 0 && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>+ Рачна ставка</Link>}
+        {write && BK.length > 0 && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
       </form>
 
       {sp.manual && write && acct && (
         <BankForm action={addManualLineAction} className="card form">
           <h3 style={{ width: '100%' }}>Рачна ставка во извод</h3>
           <label className="f">Сметка<select name="acct" defaultValue={acct.id}>{BK.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-          <label className="f">Датум<input type="date" name="date" required defaultValue={`${year}-${month || '01'}-01`} /></label>
-          <label className="f">Износ во денари (+ прилив / − одлив)<input name="amount" inputMode="decimal" required /></label>
-          {fx && <label className="f">Износ во валута (+/−)<input name="amountCur" inputMode="decimal" /></label>}
-          <label className="f wide">Опис<input name="desc" required /></label>
-          <label className="f">Конто (празно = за книжење)<input name="konto" list="bkK" /></label>
+          <label className="f">Датум<input type="date" name="date" required defaultValue={new Date().toISOString().slice(0, 10).startsWith(String(year)) ? new Date().toISOString().slice(0, 10) : `${year}-${month || '01'}-01`} /></label>
+          <label className="f">Насока<select name="dir" defaultValue="in"><option value="in">Прилив (уплата кон нас)</option><option value="out">Одлив (плаќање)</option></select></label>
+          <label className="f wide">Затвора наша / влезна фактура
+            <select name="doc" defaultValue="">
+              <option value="">— без фактура —</option>
+              {manualDocs.map((d) => <option key={d.v} value={`${d.v}|${d.o}|${d.n}|${d.p}`}>{d.t}</option>)}
+            </select></label>
+          <label className="f">{fx ? `Износ во ${acct.cur}` : 'Износ'} (празно = отвореното на фактурата)<input name="amount" inputMode="decimal" /></label>
+          {fx && <label className="f">Износ во денари (празно = по курсот на изводот)<input name="amountMkd" inputMode="decimal" /></label>}
+          <label className="f wide">Опис (празно = „Уплата“ / „Плаќање“)<input name="desc" /></label>
+          <label className="f">Конто (празно = за книжење)<input name="konto" list="bkK2" /></label>
           <label className="f">Комитент{partnerSelect('partner')}</label>
           <div className="row"><button className="btn pri">Додај</button></div>
         </BankForm>
@@ -303,7 +372,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
               const prM = its.filter((l) => Number(l.amount) > 0).reduce((x, l) => x + Number(l.amount), 0);
               const odM = its.filter((l) => Number(l.amount) < 0).reduce((x, l) => x - Number(l.amount), 0);
               const tot = s.statedDebit != null || s.statedCredit != null ? Math.abs(Number(s.statedDebit ?? 0) - od) < 0.01 && Math.abs(Number(s.statedCredit ?? 0) - pr) < 0.01 : null;
-              const book = s.closing != null ? bookBal(a.konto, s.date, fx) : null;
+              // devizni: balance in the account currency by the statement chain (legacy `bookSaldoCur` 12652)
+              const book = s.closing != null ? (fx ? (fxBal.get(s.id) != null ? fxBal.get(s.id)! / 100 : bookBal(a.konto, s.date, fx)) : bookBal(a.konto, s.date, fx)) : null;
               const diff = book != null ? Math.round((book - Number(s.closing)) * 100) / 100 : null;
               const no = nalog.get(s.id);
               return [
@@ -312,7 +382,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                     <input type="hidden" name="st" value={s.id} />
                     <span className="row" style={{ gap: 6 }}>
                       <b>{a.name}</b> · <label htmlFor={`izv-${s.id}`}>Извод бр.</label>
-                      <input id={`izv-${s.id}`} name="number" defaultValue={s.number ?? ''} placeholder="—" style={{ width: 64, padding: '2px 6px' }} disabled={!write} />
+                      <input id={`izv-${s.id}`} name="number" defaultValue={s.number ?? ''} placeholder={sugg.get(s.id) ? 'предлог ' + sugg.get(s.id) : '—'} title={sugg.get(s.id) ? 'Предлог по редослед: ' + sugg.get(s.id) : undefined} style={{ width: 64, padding: '2px 6px', ...(sugg.get(s.id) ? { borderStyle: 'dashed' } : {}) }} disabled={!write} />
                       од {dmy(s.date)} · {its.length} ставки
                       {fx && <> · {a.cur} · <label htmlFor={`izr-${s.id}`}>курс</label><input id={`izr-${s.id}`} name="rate" defaultValue={n2(s.rate)} inputMode="decimal" style={{ width: 80, padding: '2px 6px' }} disabled={!write} /></>}
                     </span>
@@ -320,7 +390,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                       <label className="mini" htmlFor={`izo-${s.id}`}>Салдо по банка</label>
                       <input id={`izo-${s.id}`} name="opening" defaultValue={n2(s.opening)} placeholder="почетно" style={{ width: 100, padding: '2px 6px', textAlign: 'right' }} disabled={!write} />
                       <input name="closing" defaultValue={n2(s.closing)} placeholder="ново салдо" aria-label="Ново салдо" style={{ width: 110, padding: '2px 6px', textAlign: 'right' }} disabled={!write} />
-                      {diff != null && (Math.abs(diff) < 0.5 ? <span className="pill good" title="Салдото во книгите = салдото на банката">✓ салдо</span>
+                      {diff != null && s.status !== 'posted' ? <span className="pill warn" title="Изводот има непрокнижени ставки и сè уште не е во книгите – салдото не може да се спореди">непрокнижен – не е во книгите</span>
+                        : diff != null && (Math.abs(diff) < 0.5 ? <span className="pill good" title="Салдото во книгите = салдото на банката">✓ салдо</span>
                         : <span className="pill bad" title={`Во книгите: ${fmt(book)} · Банка: ${fmt(Number(s.closing))}`}>⚠ разлика {fmt(diff)}</span>)}
                       {s.status === 'posted' ? (no ? <Link className="btn sm pri" href={`/nalozi?n=${encodeURIComponent(no)}`}>Налог бр. {no}</Link> : <span className="pill good">нема што да се книжи</span>)
                         : <span className="pill warn">{probs} за книжење</span>}
@@ -333,11 +404,16 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                       <span style={{ flex: 1 }} />
                       {write && <button className="btn sm">Зачувај</button>}
                       {del && s.importBatch && <RowAction action={undoImportAction.bind(null, s.importBatch)} label="Поништи увоз" confirm={`Да се поништи увозот${s.fileName ? ' „' + s.fileName + '“' : ''} (сите изводи од таа датотека)?`} />}
+                      {/* legacy `undoImp` 7201 / `impMsg` 4813: lines added to this statement by a later import can be undone too */}
+                      {del && [...new Set(its.map((l) => l.importBatch).filter((b): b is string => !!b && b !== s.importBatch))].map((b) => (
+                        <RowAction key={b} action={undoImportAction.bind(null, b)} label={`Поништи дополнителен увоз (${its.filter((l) => l.importBatch === b).length})`}
+                          confirm="Да се поништи подоцнежниот увоз во овој извод (ставките додадени од друга датотека)?" />
+                      ))}
                       {del && <RowAction action={deleteStatementAction.bind(null, s.id)} label="Избриши извод" className="btn sm ghost danger" confirm={`Да се избрише изводот од ${dmy(s.date)} со ${its.length} ставки и налогот?`} />}
                     </span>
                   </BankForm>
                 </td></tr>,
-                ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id })} active={l.id === sp.line} />),
+                ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id })} active={l.id === sp.line} unlinked={unlIds.has(l.id)} />),
               ];
             })}
           </tbody>
@@ -347,8 +423,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   );
 }
 
-function LineRow({ l, fx, kName, pName, write, del, href, active }: {
-  l: BankLine; fx: boolean; kName: (k: string | null | undefined) => string; pName: Map<string, string>; write: boolean; del: boolean; href: string; active: boolean;
+function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked }: {
+  l: BankLine; fx: boolean; kName: (k: string | null | undefined) => string; pName: Map<string, string>; write: boolean; del: boolean; href: string; active: boolean; unlinked?: boolean;
 }) {
   const amt = Number(l.amount);
   const cur = l.amountCur != null ? Number(l.amountCur) : null;
@@ -367,7 +443,8 @@ function LineRow({ l, fx, kName, pName, write, del, href, active }: {
   return (
     <tr style={active ? { outline: '2px solid var(--accent)' } : undefined}>
       <td>{dmy(l.date)}</td>
-      <td style={{ minWidth: 200 }}>{l.description}{l.manual && <span className="pill"> рачно</span>}</td>
+      <td style={{ minWidth: 200 }}>{l.description}{l.manual && <span className="pill"> рачно</span>}
+        {(l.osnov || l.bref) && <><br /><small className="note">{[l.osnov ? 'шифра ' + l.osnov : '', l.bref ? 'реф. ' + l.bref : ''].filter(Boolean).join(' · ')}</small></>}</td>
       <td className="n">{cell(true)}</td>
       <td className="n">{cell(false)}</td>
       <td>
@@ -378,7 +455,11 @@ function LineRow({ l, fx, kName, pName, write, del, href, active }: {
             {l.partnerId && <span className="mini">{pName.get(l.partnerId)}</span>}
             {l.refs && l.refs.length > 0 && <small className="note">{l.refs.map((x) => `${x.label}: ${fmt(x.amt)}`).join(', ')}</small>}
             {l.split && l.split.length > 0 && <small className="note">поделено на {l.split.length} конта</small>}
-            {l.auto && <span className="pill warn" title="Книжено автоматски – проверете">автоматски: {AUTO_LBL[l.auto] ?? l.auto}</span>}
+            {l.auto && <span className="pill warn" title={String((l.data as { ai?: string } | null)?.ai ?? 'Книжено автоматски – проверете')}>автоматски: {AUTO_LBL[l.auto] ?? l.auto}</span>}
+            {l.own && !l.conv && l.auto !== 'own' && <span className="pill">сопствена сметка</span>}
+            {l.conv && l.auto !== 'conv' && <span className="pill">💱 откуп (неутрално)</span>}
+            {l.pos && l.auto !== 'pos' && <span className="pill">💳 POS</span>}
+            {unlinked && <span className="pill warn" title="Плаќање на купувач / добавувач без поврзана фактура">без фактура</span>}
             {prob && <span className="pill bad">{prob}{effK && BKPK_RE.test(effK) && l.newPartner ? ` (${l.newPartner})` : ''}</span>}
             {write && <Link className="btn sm ghost" href={href}>Промени</Link>}
           </div>
