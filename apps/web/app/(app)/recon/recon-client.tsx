@@ -6,6 +6,7 @@ import { dmy, fmt } from '@/lib/fmt';
 import { DownloadCsv } from '@/components/download-csv';
 import { PdfButton } from '@/components/pdf-button';
 import { compareAction, reconAction } from './actions';
+import { RecArchive } from './archive';
 
 type Recon = Extract<Awaited<ReturnType<typeof reconAction>>, { ok: true }>;
 type Cmp = Extract<Awaited<ReturnType<typeof compareAction>>, { ok: true }>;
@@ -76,6 +77,7 @@ export function ReconForm({ pid, k, from, to, years, year }: { pid: string; k: s
         <>
           <Tiles T={[['Салдо кај нас', res.sums.sO], ['Салдо кај комитентот (огледално)', res.sums.sT], ['Разлика', res.sums.dif]]} />
           {res.sums.ok && <div className="callout good">✓ Картиците се усогласени.</div>}
+          <RecArchive partner={res.partner} from={res.from} to={res.to} sO={res.sums.sO} dif={res.sums.dif} ok={res.sums.ok} potvrda={`/print/fin/potvrda?pid=${pid}&to=${res.to}&diff=${res.sums.ok ? 0 : res.sums.dif}`} />
           <Diffs M={res.M} l1="кај нас – ги нема кај комитентот" l2="кај комитентот – ги нема кај нас" title="ЗАПИСНИК ЗА УСОГЛАСУВАЊЕ НА КАРТИЦА" sub={`${res.partner} · ${dmy(res.from)} – ${dmy(res.to)} · ${res.file}`} />
           {res.M.open.length > 0 && <p className="note">Почетното салдо кај нас: {fmt(res.M.open.reduce((a, o) => a + o.amt, 0))}{res.opening ? ' · кај комитентот: ' + fmt(-res.opening) : ''} – вклучено во салдата.</p>}
         </>
@@ -118,6 +120,7 @@ export function CompareForm({ firmName }: { firmName: string }) {
           </div>
           <Tiles T={[['Салдо – ' + (names.a || 'Картица 1'), X.sA], ['Салдо – ' + (names.b || 'Картица 2') + (X.mirror ? ' (огледално)' : ''), X.sB], ['Разлика', Math.round((X.sA - X.sB) * 100) / 100]]} />
           {Math.abs(X.sA - X.sB) < 0.01 && !X.M.onlyO.length && !X.M.onlyT.length && !X.M.adiff.length && <div className="callout good">✓ Картиците се усогласени.</div>}
+          <RecArchive partner={names.b || 'Картица 2'} from={X.from} to={X.to} sO={X.sA} dif={Math.round((X.sA - X.sB) * 100) / 100} ok={Math.abs(X.sA - X.sB) < 0.01 && !X.M.onlyO.length && !X.M.onlyT.length && !X.M.adiff.length} />
           <Diffs M={X.M} l1={'во картица 1' + (names.a ? ` (${names.a})` : '')} l2={'во картица 2' + (names.b ? ` (${names.b})` : '')} title="ЗАПИСНИК ЗА УСОГЛАСУВАЊЕ НА КАРТИЦИ" sub={`${names.a || 'Картица 1'} ↔ ${names.b || 'Картица 2'} · споредуван период ${dmy(X.from)} – ${dmy(X.to)}`} />
         </>
       )}

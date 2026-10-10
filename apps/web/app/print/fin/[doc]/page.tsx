@@ -30,7 +30,7 @@ import { printGuard } from '../../guard';
 
 export const metadata = { title: 'Печатење' };
 
-type SP = KcSP & { all?: string; bal?: string; id?: string };
+type SP = KcSP & { all?: string; bal?: string; id?: string; /** potvrda: difference found by the card reconciliation (legacy `recDocHTML` opt.diff) */ diff?: string };
 const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'analitika', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd', pozajmica: 'pozajmici' };
 
 export default async function PrintFin({ params, searchParams }: { params: Promise<{ doc: string }>; searchParams: Promise<SP> }) {
@@ -152,6 +152,7 @@ async function Potvrda({ firm, year, sp }: P) {
         </div>
         <p style={{ marginTop: '6mm' }}>Доколку нашата евиденција не соодветствува со Вашата Ве молиме кусо наведете ги разликите и пратете ни картички за спроредување на истата e-mail адреса во истиот рок.</p>
         <div style={{ ...bx, height: '14mm' }} />
+        {Math.abs(Number(sp.diff) || 0) > 0.004 && <p style={{ marginTop: '4mm', fontSize: '8.5pt' }}>Напомена: при споредбата со Вашата картица е утврдена разлика од {fmt(Math.abs(Number(sp.diff)))} ден. – записникот за усогласување е во прилог.</p>}
         <div className="sigrow" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10mm', gap: '10mm', breakInside: 'avoid' }}>
           <div style={{ textAlign: 'center', minWidth: '70mm' }}><b>{firm.name}</b><div style={{ height: '24mm' }} /><div style={{ borderTop: '1px solid #000' }}>{s.signerRole || 'Управител'}{s.signer ? ': ' + s.signer : ''}</div></div>
           <div style={{ textAlign: 'center', minWidth: '70mm' }}><b>{p.name}</b><div style={{ height: '24mm' }} /><div style={{ borderTop: '1px solid #000' }}>Одговорно лице · М.П.</div></div>
