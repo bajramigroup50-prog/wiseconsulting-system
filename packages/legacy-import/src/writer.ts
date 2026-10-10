@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { NEW_ACCOUNT_CODE_RE, nalogNumber, r2 } from '@wise/core';
 import {
-  accounts, appSettings, appointments, audit, bankAccounts, bankLines, bankStatements, boms, cashRegisters, cashVouchers, codes,
+  accounts, appSettings, appointments, audit, bankAccounts, bankRules, bankLines, bankStatements, boms, cashRegisters, cashVouchers, codes,
   compensations, constructionDiary, constructionProjects, constructionSituations, depreciationRuns, dossierDocs, employees,
   fileLinks, files, firmDocs, firmNalogSettings, firms, fixedAssets, fleetVehicles, freightTours, fxRates, hotelReservations,
   hotelRooms, hrDocs, inboxItems, invoiceAdvances, invoiceLines, invoices, itemBarcodes, items, journalLines, journals, legacyIdMap,
@@ -368,6 +368,13 @@ class FirmImport {
     const settingsBanks = bankRows.map((b) => ({ id: this.R('bank_account', b.legacyId), name: b.name, account: b.account, konto: b.konto, cur: b.cur, nal: b.nal })).filter((b) => b.id);
     const [fs] = await this.tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, firmId)).limit(1);
     await this.tx.update(firms).set({ settings: { ...(fs?.settings ?? {}), banks: settingsBanks } }).where(eq(firms.id, firmId));
+    const rules = M.mapBankRules(firm);
+    if (rules.length) {
+      await this.attempt('Правила за изводи', async (tx) => {
+        const r = await tx.insert(bankRules).values(rules.map((x) => ({ ...x, firmId: firmId! }))).onConflictDoNothing().returning({ id: bankRules.id });
+        this.count('bank_rules', r.length);
+      });
+    }
     for (const r of M.mapCashRegisters(firm)) await this.attempt(`Благајна ${r.name}`, async (tx) => { await this.upsert(tx, 'register', r.legacyId, cashRegisters, { ...r, firmId }); this.count('cash_registers'); });
 
     /* ---- documents ---- */

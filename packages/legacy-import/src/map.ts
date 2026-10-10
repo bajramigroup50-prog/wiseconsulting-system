@@ -88,6 +88,14 @@ export function mapCashRegisters(f: LDoc) {
   }));
 }
 
+/** Bank matching rules (legacy `firm.rules[]` and `firm.osnovK {'<osnov>|in/out': konto}`). */
+export function mapBankRules(f: LDoc) {
+  const out: { kind: 'desc' | 'osnov'; match: string; konto: string; learned: boolean }[] = [];
+  for (const r of arr(f.rules)) { const k = accountOrNull(r?.konto), m = str(r?.match); if (k && m) out.push({ kind: 'desc', match: m, konto: k, learned: !!r.learned }); }
+  for (const [m, k0] of Object.entries(obj(f.osnovK))) { const k = accountOrNull(k0); if (k && m) out.push({ kind: 'osnov', match: m, konto: k, learned: false }); }
+  return out;
+}
+
 /* ------------------------------------------------------------------ masters */
 
 export function mapCode(c: LDoc) {

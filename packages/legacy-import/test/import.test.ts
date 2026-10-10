@@ -29,7 +29,7 @@ describe('firm import', () => {
     expect(r.trialBalance.ok).toBe(true);
     expect(r.trialBalance.diffs).toEqual([]);
     expect(r.journals.failed).toBe(0);
-    expect(r.counts).toMatchObject({ partners: 3, items: 1, employees: 1, invoices: 3, purchases: 1, bank_statements: 1, bank_lines: 2, sales_daily: 1, payroll_runs: 1, stock_moves: 2, fixed_assets: 1, fleet_vehicles: 1, cash_vouchers: 1, hotel_rooms: 1, dossier_docs: 1 });
+    expect(r.counts).toMatchObject({ partners: 3, items: 1, employees: 1, invoices: 3, purchases: 1, bank_statements: 1, bank_lines: 2, sales_daily: 1, payroll_runs: 1, stock_moves: 2, fixed_assets: 1, fleet_vehicles: 1, cash_vouchers: 1, hotel_rooms: 1, dossier_docs: 1, bank_rules: 2 });
     expect(r.firmDocs).toEqual({ loan: 1 });
     expect(r.files).toEqual({ imported: 1, unavailable: 1 });
     expect(stored.size).toBe(1);

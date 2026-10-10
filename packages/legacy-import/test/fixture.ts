@@ -13,6 +13,7 @@ export function fixtureBackup() {
       accounts: { '10001': { mk: 'Жиро сметка 2' } },
       izv: { 'b1:2026-02-05': '12' },
       sch: { stock: '6600' },
+      rules: [{ match: 'ЕВН', konto: '4010', learned: true }], osnovK: { '930|out': '4490' },
       mods: ['hotel'],
       invColor: '#123456',
       logo: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
