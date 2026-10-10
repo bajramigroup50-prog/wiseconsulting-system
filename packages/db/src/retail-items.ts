@@ -379,8 +379,9 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         const nm = name || code || bc;
         const mpc = gn(r, 'mpc');
         const [c] = await tx.insert(items).values({
-          firmId: a.firmId, code: code || await nextItemCode(tx, a.firmId), name: nm, type: 'goods', unit: 'ком', vatRate: 18,
-          price: mpc ? String(r2(mpc / 1.18)) : '0', data: { cost: gn(r, 'cost') || 0 },
+          firmId: a.firmId, code: code || await nextItemCode(tx, a.firmId), name: nm, type: 'goods', unit: gs(r, 'unit') || 'ком', vatRate: [0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18,
+          // retail stock import (m_lager): the new item gets the store's retail price, the rate from the row
+          price: mpc ? String(r2(mpc / (1 + ([0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18) / 100))) : '0', data: { cost: gn(r, 'cost') || 0, ...(mpc && isStore && W0 ? { sp: { [whId(W0)]: r2(mpc) } } : {}) },
         }).returning();
         it = c!;
         if (bc) {

@@ -5,7 +5,9 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { stock } from '@wise/core';
+import { retailPrice, stock } from '@wise/core';
+import { impAuto } from '@wise/core/retail';
+import { importRows } from './retail-items';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import { loadStockContext, replaceSourceMoves } from './stock-service';
@@ -90,6 +92,22 @@ describe('store sale / supplier return (m_izlez)', () => {
     await tx((t) => deleteStoreOut(t, A, s.id));
     expect((await db.select().from(schema.salesDaily).where(eq(schema.salesDaily.id, o!.salesDayId!))).length).toBe(0);
     expect(stock((await loadStockContext(db, firmId)).ctx, I['002']!).qty).toBe(q0 - 1);
+  });
+});
+
+describe('retail stock-list import (m_lager)', () => {
+  it('receipt into a store creates missing items with unit, VAT rate and the store retail price', async () => {
+    const store = (await db.insert(schema.codes).values({ firmId, cb: 'store', code: '07', name: 'Продавница 7' }).returning())[0]!.id;
+    const hdr = ['Шифра', 'Назив', 'Ед.мера', 'Количина', 'Набавна цена', 'Продажна цена со ДДВ', 'ДДВ %', 'Баркод'];
+    const map = impAuto('in', hdr);
+    expect(map).toMatchObject({ code: 0, name: 1, unit: 2, qty: 3, cost: 4, mpc: 5, rate: 6, barcode: 7 });
+    const r = await tx((t) => importRows(t, { ...A, role: 'admin' }, 'in', [{ code: 'R1', name: 'Сок 1л', unit: 'шише', qty: 12, cost: 40, mpc: 70, rate: 5, barcode: '5310000000099' }], { date: '2026-06-01', wh: store, today: '2026-06-01' }));
+    expect(r.add).toBe(1);
+    const [it] = await db.select().from(schema.items).where(eq(schema.items.code, 'R1'));
+    expect([it!.unit, it!.vatRate]).toEqual(['шише', 5]);
+    const L = await loadStockContext(db, firmId);
+    expect(stock(L.ctx, it!.id, store).qty).toBe(12);
+    expect(retailPrice(L.ctx.items!.find((x) => x.id === it!.id)!, store)).toBe(70);
   });
 });
 
