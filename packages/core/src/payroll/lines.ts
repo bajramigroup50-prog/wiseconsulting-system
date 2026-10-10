@@ -212,14 +212,18 @@ export function payEmpSummary(e: PayEmp, P: PayParams) {
  * FIX (#14): legacy recomputed regular hours with `params.hours` for everybody; part-time employees (`hNorm`) keep
  * their own fund and get the holiday hours pro-rated, like the calendar draft.
  */
-export function payCopyPrev(month: string, prevEmps: readonly PayEmp[], P: Pick<PayParams, 'hours'>, extra: readonly Holiday[] = []): PayEmp[] {
+/**
+ * `cats`: the line categories carried over. Плати „Нов месец – како претходниот“ copies dop/kor/sin; the all-firms
+ * batch (legacy `pbBuild` 15283) copies only `sin` (union, insurance, credit deductions) — no overtime or bonuses.
+ */
+export function payCopyPrev(month: string, prevEmps: readonly PayEmp[], P: Pick<PayParams, 'hours'>, extra: readonly Holiday[] = [], cats: readonly PayCat[] = ['dop', 'kor', 'sin']): PayEmp[] {
   const full = n(P.hours) || 176;
   return prevEmps.map((e0) => {
     const e: PayEmp = JSON.parse(JSON.stringify(e0));
     const hN = n(e.hNorm);
     const base = defaultPayLines(month, extra);
     if (hN && hN < full) for (const l of base) if (l.type === PAY_HOLIDAY) l.hours = Math.round((n(l.hours) * hN) / full);
-    e.lines = [...base, ...(e0.lines ?? []).filter((l) => ['dop', 'kor', 'sin'].includes(payLineCat(l))).map((l) => ({ ...l, cat: payLineCat(l) }))];
+    e.lines = [...base, ...(e0.lines ?? []).filter((l) => cats.includes(payLineCat(l))).map((l) => ({ ...l, cat: payLineCat(l) }))];
     delete e.inout;
     delete e.ioDate;
     fixRegular(e, empHourFund(e, P));

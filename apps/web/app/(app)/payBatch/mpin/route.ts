@@ -41,7 +41,8 @@ export async function GET(req: Request) {
         employees: E, template: ctx.template, overrides: ctx.overrides,
       });
       const nm = f.name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
-      files.push({ name: `МПИН – ${nm} – ЕДБ ${edb} – ${month.slice(0, 4)} – ${r.name}`, data: r.bytes });
+      // Legacy `mpinDir` 15335: each firm in its own folder (name + ЕДБ → year).
+      files.push({ name: `МПИН – ${nm.replace(/[. ]+$/, '')} – ЕДБ ${edb}/${month.slice(0, 4)}/${r.name}`, data: r.bytes });
       await db().transaction(async (tx) => {
         const [x] = await tx.insert(payrollExports).values({
           firmId: f.id, runId: run.id, kind: 'mpin-txt', name: r.name, mime: 'text/plain; charset=windows-1251', size: r.bytes.length,
@@ -56,6 +57,6 @@ export async function GET(req: Request) {
   }
   if (!files.length) return new Response('Нема пресметани плати за МПИН.\n' + warn.join('\n'), { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   if (warn.length) files.push({ name: 'upozorenja.txt', data: warn.join('\r\n') });
-  const zip = zipFiles(files);
+  const zip = zipFiles(files, { dirs: true });
   return new Response(Buffer.from(zip), { headers: { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="MPIN_${month}_${files.length - (warn.length ? 1 : 0)}_firmi.zip"`, 'cache-control': 'no-store' } });
 }

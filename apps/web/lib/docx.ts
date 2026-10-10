@@ -47,11 +47,12 @@ export function fillDocx(buf: Uint8Array, vars: Record<string, string>): { out: 
 }
 
 /** ZIP of named files (packages: legacy `zipStore` 8121). Duplicate names get a numeric suffix. */
-export function zipFiles(entries: { name: string; data: Uint8Array | string }[]): Uint8Array {
+export function zipFiles(entries: { name: string; data: Uint8Array | string }[], opts: { dirs?: boolean } = {}): Uint8Array {
   const zip = new PizZip();
   const used = new Set<string>();
   for (const e of entries) {
-    let n = e.name.replace(/[\\/:*?"<>|]+/g, '_');
+    // `dirs`: `/` separates folders inside the zip (each segment sanitised on its own).
+    let n = opts.dirs ? e.name.split('/').map((x) => x.replace(/[\\:*?"<>|]+/g, '_')).join('/') : e.name.replace(/[\\/:*?"<>|]+/g, '_');
     for (let i = 2; used.has(n.toLowerCase()); i++) n = e.name.replace(/(\.[^.]*)?$/, (x) => ` (${i})${x}`);
     used.add(n.toLowerCase());
     zip.file(n, e.data, { binary: typeof e.data !== 'string' });
