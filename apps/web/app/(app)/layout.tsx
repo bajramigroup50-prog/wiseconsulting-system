@@ -6,6 +6,7 @@ import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { navFor } from '@/lib/nav';
 import { filterNavByModules } from '@/lib/nav-industry';
+import { klNav } from '@/lib/kl-nav';
 import { topStatus } from '@/lib/top-status';
 import { AinbPanel } from '@/components/ainb';
 import { AlStartup } from '@/components/al-startup';
@@ -17,7 +18,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const u = await requireUser();
   const [firm, year] = await Promise.all([currentFirm(u), currentYear()]);
   // Phase 10: views of industry modules that are off for the firm are hidden (FIX LEGACY-MAP 10.4 item 9).
-  const groups = filterNavByModules(navFor(u.role), firm, u.role === 'klient');
+  // klient: legacy `klNav` — the sections the office switched on for this firm
+  const groups = u.role === 'klient' ? await klNav(firm) : filterNavByModules(navFor(u.role), firm, false);
   const office = u.role !== 'klient' && u.role !== 'teren';
   const [st, [y0]] = await Promise.all([
     topStatus(u).catch(() => ({ bell: null, ainb: [], law: null })),
