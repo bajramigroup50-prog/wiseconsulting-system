@@ -1,8 +1,9 @@
 /** Legacy `payContent` 6176 → 14409 ("Содржина на пресметка"), with `payDoneModal` / slips / MPIN / orders actions. */
 import Link from 'next/link';
-import { and, desc, eq, like } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, like, sql } from 'drizzle-orm';
 import { monthHours, monthSplit, mpinParamDiff, payNotesOpen, resolvePayParams } from '@wise/core';
-import { journals, loadRun, mailLog, payrollExports, payrollNotes } from '@wise/db';
+import { payRateWarnNeeded } from '@wise/core/payroll/params';
+import { auditLog, journals, lawChanges, loadRun, mailLog, payrollExports, payrollNotes } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { coreEmp, firmEmployees, monthOr404, payCtx, payPage } from '@/lib/payroll/server';
@@ -11,8 +12,9 @@ import { NoFirm } from '@/components/no-firm';
 import { NewMonth } from '../new-month';
 import { RunEditor } from './run-editor';
 
-export default async function RunPage({ params }: { params: Promise<{ month: string }> }) {
+export default async function RunPage({ params, searchParams }: { params: Promise<{ month: string }>; searchParams: Promise<{ e?: string }> }) {
   const month = monthOr404((await params).month);
+  const initialEmp = (await searchParams).e;
   const { u, firm } = await payPage('plati');
   if (!firm) return <NoFirm t="Пресметка на плата" />;
   const run = await loadRun(db(), firm.id, { month });
@@ -33,6 +35,15 @@ export default async function RunPage({ params }: { params: Promise<{ month: str
       .from(payrollExports).where(eq(payrollExports.runId, run.id)).orderBy(desc(payrollExports.createdAt)).limit(10),
     run.journalId ? db().select({ number: journals.number }).from(journals).where(eq(journals.id, run.journalId)).limit(1) : Promise.resolve([]),
   ]);
+  const [imp] = run.status === 'draft' ? await db().select({ data: auditLog.data }).from(auditLog)
+    .where(and(eq(auditLog.firmId, firm.id), eq(auditLog.action, 'plxImp'), eq(auditLog.entityId, run.id))).orderBy(desc(auditLog.at)).limit(1) : [];
+  const importNote = imp?.data ? { file: String(imp.data.file ?? ''), warn: (Array.isArray(imp.data.warn) ? imp.data.warn : []).map(String) } : null;
+  let rateWarn: { law: string | null } | null = null;
+  if (payRateWarnNeeded(month, ctx.overrides)) {
+    const [law] = await db().select({ title: lawChanges.title }).from(lawChanges)
+      .where(and(gte(lawChanges.from, '2027-01'), sql`${lawChanges.impact} ? 'plati'`)).orderBy(asc(lawChanges.from)).limit(1);
+    rateWarn = { law: law?.title ?? null };
+  }
   const official = { ...resolvePayParams({}, month, ctx.overrides), hours: monthHours(month) };
   const mailByEmp: Record<string, { status: string; error: string | null; at: string; to: string }> = {};
   for (const m of mails) {
@@ -56,6 +67,9 @@ export default async function RunPage({ params }: { params: Promise<{ month: str
       firmEmail={ctx.firm.email}
       canWrite={canDo(u, 'write', firm.id)}
       canDel={canDo(u, 'del', firm.id)}
+      importNote={importNote}
+      rateWarn={rateWarn}
+      initialEmp={initialEmp}
     />
   );
 }

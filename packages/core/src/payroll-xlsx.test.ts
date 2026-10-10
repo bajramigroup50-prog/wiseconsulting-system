@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PXL_COLS, plxEmp, plxFileName, plxMatch, plxN, plxParse, plxTemplate } from './payroll/xlsx-import';
-import { resolvePayParams } from './payroll/params';
+import { payRateWarnNeeded, resolvePayParams } from './payroll/params';
 import { monthHours, monthSplit } from './payroll/calendar';
 
 const P = { ...resolvePayParams({}, '2026-03'), hours: monthHours('2026-03') };
@@ -72,5 +72,13 @@ describe('Плата од Excel (legacy plxTpl / plxImp)', () => {
     const reg = e.lines!.find((l) => l.type === 'Редовно работење')!;
     const abs = e.lines!.filter((l) => l.type !== 'Редовно работење').reduce((s, l) => s + +(l.hours ?? 0), 0);
     expect(+reg.hours! + abs).toBe(P.hours);
+  });
+});
+
+describe('payRateWarn (legacy 14407)', () => {
+  it('warns from 2027-01 only while no 2027 parameter row exists', () => {
+    expect(payRateWarnNeeded('2026-12')).toBe(false);
+    expect(payRateWarnNeeded('2027-02')).toBe(true);
+    expect(payRateWarnNeeded('2027-02', [{ from: '2027-01', pio: 18.8 }])).toBe(false);
   });
 });
