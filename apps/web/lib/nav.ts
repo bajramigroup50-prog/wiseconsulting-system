@@ -2,9 +2,10 @@ import type { Role } from '@wise/core';
 import { NAV as NAV_DATA, type NavGroup, type NavItem } from './nav-data';
 import { addOfficeNav } from './nav-office';
 import { addIndustryNav } from './nav-industry';
+import { addFirmsNav } from './nav-firms';
 
 /** Legacy `NAV` plus the items legacy added at runtime (per-phase files). */
-export const NAV = addIndustryNav(addOfficeNav(NAV_DATA));
+export const NAV = addFirmsNav(addIndustryNav(addOfficeNav(NAV_DATA)));
 export type { NavGroup, NavItem };
 
 /** Legacy `NAV_SHORT` / `NAV_MINI` (group label abbreviations). */
