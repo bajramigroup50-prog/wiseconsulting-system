@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { fuelBannerData, fuelInvoiceCheck, fuelPurchaseWarning, isFuel, pxAuto, pxGroups, pxHeaderRow, pxLines, pxN6, pxNum } from './sales';
 
+describe('supplier return scan (legacy scrFromScan 16213)', () => {
+  it('matches the supplier, the original purchase and the returned items', async () => {
+    const { scrDraftFromScan } = await import('./sales');
+    const R = scrDraftFromScan({ docType: 'return', supplierName: 'Добавувач ДОО', supplierEdb: 'MK4030999000111', number: 'P-7', date: '2026-03-02', refInvoice: '123/26',
+      lines: [{ name: 'Сок', qty: 2, price: 50, rate: 5 }, { name: 'Непознат', qty: 1, amount: 10 }], total: 115 }, {
+      partners: [{ id: 'p1', name: 'Добавувач', edb: '4030999000111' }], items: [{ id: 'i1', name: 'Сок', type: 'goods', rate: 5 }],
+      purchases: [{ id: 'u1', number: '123/26', date: '2026-02-01', partnerId: 'p1', warehouseId: 'w1', itemIds: ['i1'], groups: [] }], today: '2026-03-05', stockKonto: () => '6600',
+    });
+    expect(R.draft).toMatchObject({ kind: 'ret', partnerId: 'p1', refPurchaseId: 'u1', warehouseId: 'w1', supNo: 'P-7', newSupplier: null });
+    expect(R.draft.rows).toEqual([{ itemId: 'i1', name: 'Сок', qty: 2, price: 50, rate: 5, account: '6600' }, { itemId: '', name: 'Непознат', qty: 1, price: 10, rate: 18, account: '6600' }]);
+    expect(R.msgs).toEqual(['Непрепознати артикли: Непознат – изберете ги од шифрарникот']);
+  });
+});
+
 describe('Excel purchase lines (legacy pxBuild 17236–17376)', () => {
   it('parses numbers like legacy fkN / pxN6', () => {
     expect(pxNum('1.333,34')).toBe(1333.34);
