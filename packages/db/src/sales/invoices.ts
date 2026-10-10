@@ -194,6 +194,11 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
       id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32,
       credit: inv.kind === 'credit', advance: inv.advance, export: inv.export, advances: adv,
     }, ctx));
+    // Legacy `stornoOn` / `stF` (3444): credit notes are booked with minus on the original side (red storno) unless the
+    // firm chose „на обратната страна“ (`settings.crMode = 'flip'`). Balances are the same; only the turnovers differ.
+    if (inv.kind === 'credit' && ((f.settings ?? {}) as { crMode?: string }).crMode !== 'flip') {
+      for (const l of lines) { const dr = l.debit, cr = l.credit; l.debit = cr ? -cr : 0; l.credit = dr ? -dr : 0; }
+    }
     // Advance lines (2220) are partner accounts too: book them on the buyer (legacy posted them without a partner).
     for (const l of lines) if (!l.partnerId && needsPartner(l.account) && inv.partnerId) l.partnerId = inv.partnerId;
     if (inv.currency !== 'MKD') {
@@ -360,8 +365,13 @@ export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: D
   const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
   if (!inv) throw new DocumentError('Документот не постои.');
   if (pendingFor(actor) && inv.status !== 'pending') throw new DocumentError('Прокнижен документ не може да се брише од порталот.');
-  const [cr] = await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.refInvoiceId, id)).limit(1);
-  if (cr) throw new DocumentError(`Фактурата има одобрение (${cr.n}) – прво избришете го одобрението.`);
+  const crs = await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.refInvoiceId, id));
+  if (crs.length) throw new DocumentError('Не може да се избрише: постои одобрение ' + crs.map((x) => x.n).join(', ') + ' кон оваа фактура. Прво избришете го одобрението.');
+  // legacy `delDoc` (5061): an invoiced dispatch note stays — otherwise the invoice would issue the stock a second time
+  if (inv.kind === 'dispatch' && inv.invoicedId) {
+    const [fi] = await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.id, inv.invoicedId)).limit(1);
+    if (fi) throw new DocumentError('Испратницата е фактурирана (' + fi.n + '). Прво избришете ја фактурата.');
+  }
   const [ad] = await tx.select({ id: invoiceAdvances.invoiceId }).from(invoiceAdvances).where(eq(invoiceAdvances.advanceId, id)).limit(1);
   if (ad) throw new DocumentError('Авансот е одбиен во друга фактура – прво отстранете го од неа.');
   await unpostInvoice(tx, firmId, inv, actor.userId);
