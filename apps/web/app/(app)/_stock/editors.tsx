@@ -423,26 +423,60 @@ export function BomEditor({ product, initial, items, labor0 }: { product: ItemOp
   const [st, action, pending] = useActionState<ActionState, FormData>(saveBomAction, {});
   const [lines, setLines] = useState(initial);
   const [labor, setLabor] = useState(labor0);
+  const [err, setErr] = useState('');
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const stockOf = (it: ItemOpt) => Object.values(it.have).reduce((a, b) => a + b, 0);
+  // legacy v437: stock next to every material, materials on stock first, then „── без залиха ──“
+  const opts = useMemo(() => {
+    const M = items.filter((x) => x.type !== 'service' && x.id !== product.id).map((x) => ({ x, q: stockOf(x) }));
+    return { ins: M.filter((m) => m.q > 0), zero: M.filter((m) => !(m.q > 0)) };
+  }, [items, product.id]);
+  const optLabel = (m: { x: ItemOpt; q: number }) => `${label(m.x)} · залиха ${fq(m.q)} ${m.x.unit}${m.q > 0 ? ' · ' + fmt(m.x.avg) : ''}`;
   const mat = lines.reduce((s, l) => s + n(l.qty) * (byId.get(l.itemId)?.avg ?? 0), 0);
   const payload = { productId: product.id, labor: n(labor), lines: lines.filter((l) => l.itemId && n(l.qty) > 0).map((l) => ({ itemId: l.itemId, qty: n(l.qty) })) };
+  const noMaterial = !items.some((i) => i.type === 'material');
+  // import (legacy pcImport style): columns Шифра / Назив + Количина
+  const imp = async (f: File | undefined) => {
+    if (!f) return;
+    const { readRows } = await import('../_retail/read-file');
+    const { parseImport } = await import('@/components/doc-tools');
+    const R = parseImport(await readRows(f), [{ key: 'code', label: 'Шифра', re: 'шифр|šifr|code|код' }, { key: 'name', label: 'Назив', re: 'назив|naziv|опис|name|артикл|материјал' }, { key: 'qty', label: 'Количина по единица', re: 'колич|količ|qty|кол\.', num: true, req: true }]);
+    if (R.error) { setErr(R.error); return; }
+    const miss: string[] = [];
+    const add: { itemId: string; qty: string }[] = [];
+    for (const r of R.rows) {
+      const c = String(r.code ?? '').trim().toLowerCase(), nm = String(r.name ?? '').trim().toLowerCase();
+      const it = items.find((x) => c && x.code.toLowerCase() === c) ?? items.find((x) => nm && x.name.toLowerCase() === nm);
+      if (!it || it.id === product.id) { miss.push(String(r.code || r.name || '?')); continue; }
+      if (Number(r.qty) > 0) add.push({ itemId: it.id, qty: String(r.qty) });
+    }
+    setLines((x) => [...x.filter((l) => l.itemId), ...add]);
+    setErr(miss.length ? 'Не се најдени: ' + miss.slice(0, 8).join(', ') : '');
+  };
   return (
-    <form action={action} className="card">
+    <form action={action} className="card" onSubmit={(e) => {
+      if (lines.some((l) => l.itemId && !(n(l.qty) > 0))) { e.preventDefault(); setErr('Внесете количина за секој материјал.'); }
+    }}>
       <input type="hidden" name="payload" value={JSON.stringify(payload)} />
       <Err st={st} />
+      {err && <div className="callout warn">{err}</div>}
       <p className="note">Колку суровина оди за 1 {product.unit || 'единица'} производ, плус трудот и општите трошоци по единица. Цената на чинење се пресметува со просечните цени од залихата.</p>
       <div className="tw"><table>
         <thead><tr><th>Суровина / материјал</th><th className="n">Количина по единица</th><th className="n">Единечна цена</th><th className="n">Вредност</th><th /></tr></thead>
         <tbody>
           {lines.map((l, i) => {
             const it = byId.get(l.itemId);
+            const q = it ? stockOf(it) : 0;
             return (
               <tr key={i}>
                 <td><select value={l.itemId} onChange={(e) => setLines((x) => x.map((y, k) => (k === i ? { ...y, itemId: e.target.value } : y)))}>
-                  <option value="">—</option>
-                  {items.filter((x) => x.type !== 'service' && x.id !== product.id).map((x) => <option key={x.id} value={x.id}>{label(x)}</option>)}
+                  <option value="">— изберете материјал —</option>
+                  {opts.ins.map((m) => <option key={m.x.id} value={m.x.id}>{optLabel(m)}</option>)}
+                  {opts.ins.length > 0 && opts.zero.length > 0 && <option disabled>── без залиха ──</option>}
+                  {opts.zero.map((m) => <option key={m.x.id} value={m.x.id}>{optLabel(m)}</option>)}
                 </select></td>
-                <td><input inputMode="decimal" value={l.qty} onChange={(e) => setLines((x) => x.map((y, k) => (k === i ? { ...y, qty: e.target.value } : y)))} style={{ textAlign: 'right', maxWidth: 120 }} /></td>
+                <td><input inputMode="decimal" value={l.qty} onChange={(e) => setLines((x) => x.map((y, k) => (k === i ? { ...y, qty: e.target.value } : y)))} style={{ textAlign: 'right', maxWidth: 120 }} />
+                  {it && <div className="mini" style={{ marginTop: 2, textAlign: 'right', color: q > 0 ? 'var(--good)' : 'var(--bad)' }}>залиха <b>{fq(q)} {it.unit}</b></div>}</td>
                 <td className="n">{fmt(it?.avg ?? 0)}</td><td className="n">{fmt((it?.avg ?? 0) * n(l.qty))}</td>
                 <td><button type="button" className="btn sm ghost danger" onClick={() => setLines((x) => x.filter((_, k) => k !== i))} aria-label="Отстрани">✕</button></td>
               </tr>
@@ -452,8 +486,10 @@ export function BomEditor({ product, initial, items, labor0 }: { product: ItemOp
         </tbody>
         <tfoot><tr><td colSpan={3}>Цена на чинење за 1 {product.unit} (по просечни цени, без подсклопови)</td><td className="n">{fmt(mat + n(labor))}</td><td /></tr></tfoot>
       </table></div>
-      <div className="row">
+      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+        {noMaterial && <div className="callout warn" style={{ width: '100%' }}>Во шифрарникот нема суровини (вид „Суровина / материјал“). Прво внесете ги – на пр. брашно, квасец, сол.</div>}
         <button type="button" className="btn" onClick={() => setLines((x) => [...x, { itemId: '', qty: '' }])}>+ Материјал</button>
+        <label className="btn">Увоз од Excel (Шифра · Количина)<input type="file" hidden accept=".xlsx,.xls,.csv,.txt" onChange={(e) => { void imp(e.target.files?.[0]); e.target.value = ''; }} /></label>
         <button className="btn pri" disabled={pending}>Зачувај норматив</button>
       </div>
     </form>
