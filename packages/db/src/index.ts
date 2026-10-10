@@ -50,3 +50,4 @@ export * from './retail';
 export * from './retail-items';
 export * from './parity-stock';
 export * from './sales/partners-auto';
+export * from './sales/invoice-production';

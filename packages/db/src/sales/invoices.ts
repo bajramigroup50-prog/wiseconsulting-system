@@ -8,6 +8,7 @@
  * Journals: (`invoice`, id) kind `izlez` (credit notes `odobr`) for the sale itself; stock moves through Phase 7
  * `replaceSourceMoves` (sources `invoice` / `dispatch`) with their stock journal `stock:invoice` / `stock:dispatch`, kind `zaliha`.
  */
+import { removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
   cogsAccount, invoiceEntries, needsPartner, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
@@ -17,7 +18,7 @@ import { checkCredit, invoiceTotals, nextDocNumber, VALID_LINE_RATES, type DocKi
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource, type PostLineInput } from '../posting';
 import {
-  invoiceAdvances, invoiceLines, invoices, partners, stockMoves, type Firm, type Invoice, type InvoiceData, type InvoiceLine,
+  invoiceAdvances, invoiceLines, invoices, partners, stockMoves, type Firm, type Invoice, type InvoiceData, type InvoiceLine, type InvoiceProdState,
 } from '../schema/index';
 import {
   assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, type DocActor,
@@ -50,6 +51,8 @@ export interface InvoiceInput {
   advances?: { advanceId: string; amount: number | string }[];
   /** Save an invoice as an unbooked `draft` (Phase 9 recurring invoices); `approveInvoice` books it. */
   draft?: boolean;
+  /** „Производство = Да“: materials of the produced lines (`sales/invoice-production.ts`). */
+  production?: InvoiceProductionInput | null;
 }
 export interface SaveResult { id: string; number: string; status: string; renumbered: boolean; warnings: string[] }
 
@@ -333,6 +336,18 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc) })));
   if (adv.length) await tx.insert(invoiceAdvances).values(adv.map((a) => ({ invoiceId: inv.id, advanceId: a.advanceId, amount: r2(n(a.amount)).toFixed(2) })));
 
+  // production from the invoice: the old orders go, the new ones are made before the invoice issues the product
+  const prevProd = ((existing?.data ?? {}) as InvoiceData).prodRun;
+  if (prevProd?.orders?.length) await removeInvoiceProduction(tx, firmId, prevProd, actor);
+  const P = input.production;
+  if (kind === 'invoice' && input.data?.prod === 'Д' && P && P.lines.length) {
+    let st: InvoiceProdState;
+    if (status === 'posted') { const r = await runInvoiceProduction(tx, f, inv, P, actor); st = r.state; warnings.push(...r.warnings); }
+    else st = { wh: P.wh ?? null, extra: r2(n(P.extra)), saveBom: !!P.saveBom, mat: 0, orders: [], lines: P.lines.map((l) => ({ ...l, qty: n(l.qty), materials: l.materials.map((m) => ({ itemId: m.itemId, qty: n(m.qty) })) })) };
+    const data: InvoiceData = { ...(inv.data ?? {}), prodRun: st, ...(st.orders.length ? { prodCost: r2(st.mat + st.extra).toFixed(2) } : {}) };
+    [inv] = await tx.update(invoices).set({ data }).where(eq(invoices.id, inv.id)).returning() as [Invoice];
+  }
+
   if (status === 'posted') warnings.push(...(await postInvoice(tx, f, inv, actor.userId)));
   else await unpostInvoice(tx, firmId, inv, actor.userId);
 
@@ -353,8 +368,15 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
   const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
   if (!inv) throw new DocumentError('Документот не постои.');
   if (inv.status !== 'pending' && !(inv.status === 'draft' && inv.kind === 'invoice')) throw new DocumentError('Документот не чека одобрување.');
-  const [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
-  const w = await postInvoice(tx, f, u!, actor.userId);
+  let [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
+  const plan = ((u!.data ?? {}) as InvoiceData).prodRun;
+  const pw: string[] = [];
+  if (u!.kind === 'invoice' && (u!.data as InvoiceData).prod === 'Д' && plan?.lines.length && !plan.orders.length) {
+    const r = await runInvoiceProduction(tx, f, u!, { wh: plan.wh, extra: plan.extra, saveBom: plan.saveBom, lines: plan.lines }, actor);
+    pw.push(...r.warnings);
+    [u] = await tx.update(invoices).set({ data: { ...(u!.data ?? {}), prodRun: r.state, prodCost: r2(r.state.mat + r.state.extra).toFixed(2) } }).where(eq(invoices.id, id)).returning();
+  }
+  const w = [...pw, ...(await postInvoice(tx, f, u!, actor.userId))];
   await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'invoice', entityId: id, data: { number: inv.number } });
   return w;
 }
@@ -375,6 +397,7 @@ export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: D
   const [ad] = await tx.select({ id: invoiceAdvances.invoiceId }).from(invoiceAdvances).where(eq(invoiceAdvances.advanceId, id)).limit(1);
   if (ad) throw new DocumentError('Авансот е одбиен во друга фактура – прво отстранете го од неа.');
   await unpostInvoice(tx, firmId, inv, actor.userId);
+  await removeInvoiceProduction(tx, firmId, ((inv.data ?? {}) as InvoiceData).prodRun, actor);
   await tx.update(invoices).set({ invoicedId: null }).where(eq(invoices.invoicedId, id));
   await tx.update(invoices).set({ fromDocId: null }).where(eq(invoices.fromDocId, id));
   await tx.delete(invoices).where(eq(invoices.id, id));

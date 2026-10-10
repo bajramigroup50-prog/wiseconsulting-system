@@ -36,6 +36,13 @@ export type InvoiceKind = 'invoice' | 'credit' | 'proforma' | 'dispatch';
 /* ---------------- Outgoing documents ---------------- */
 
 /** Header fields without their own column (legacy `data-if` fields of `invHeader`, 4077–4139). */
+/** State of the production made from a sales invoice: the plan (materials per produced line) and the orders made. */
+export interface InvoiceProdState {
+  wh: string | null; extra: number; saveBom: boolean; mat: number;
+  lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[] }[];
+  orders: { id: string; number: string; productId: string; lineNo: number; mat: number; lab: number }[];
+}
+
 export interface InvoiceData {
   oe?: string; payerId?: string; days?: string; refDoc?: string; dispNo?: string; archNo?: string; priceList?: string;
   icd?: string; decl?: string; distrib?: string; gdisc?: string; payMethod?: string; salePlace?: string; city?: string;
@@ -43,6 +50,8 @@ export interface InvoiceData {
   grp1?: string; grp2?: string; costType?: string; placeFrom?: string; placeTo?: string; domestic?: string; repro?: string;
   parity?: string; pay1?: string; pay2?: string; pay3?: string; carrierId?: string; trailer?: string; loadDate?: string;
   unloadDate?: string; dAddr?: string; loadPlace?: string; vehicle?: string; driver?: string;
+  /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
+  prodRun?: InvoiceProdState;
   /** Buyer as read from a scanned sales invoice (before a partner is chosen). */
   buyer?: { name: string; edb: string; address: string; city: string };
   /** Phase 10 travel agency: margin scheme (чл. 38) — maps to core `InvoiceDoc.tourM` / `arrangementId` for the VAT source. */
