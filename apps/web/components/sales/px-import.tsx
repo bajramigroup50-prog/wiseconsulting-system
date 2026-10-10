@@ -19,16 +19,18 @@ type Raw = { A: unknown[][]; hi: number; col: PxMap; file: string; err?: string 
 
 const isoOf = (v: string) => { const m = v.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/); return m ? `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}` : /^\d{4}-\d\d-\d\d$/.test(v.trim()) ? v.trim() : ''; };
 
-export function PxImport({ locations, partners, items, vatFirm, konto, closeHref }: {
+export function PxImport({ locations, partners, items, vatFirm, konto, closeHref, imp0 }: {
   locations: { id: string; name: string; kind: string }[];
   partners: { id: string; name: string }[];
   items: { id: string; code: string | null; name: string; rate: number; barcodes: string[] }[];
   vatFirm: boolean; konto: { warehouse: string; store: string };
   closeHref: string;
+  /** Opened as „увозна“ (legacy UVH `pximp`). */
+  imp0?: boolean;
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10).split('-').reverse().join('.');
-  const [imp, setImp] = useState(false);
+  const [imp, setImp] = useState(!!imp0);
   const [wh, setWh] = useState(locations[0]?.id ?? '');
   const [no, setNo] = useState('');
   const [dt, setDt] = useState(today);
