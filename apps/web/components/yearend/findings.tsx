@@ -10,6 +10,8 @@ import { ActionForm } from './action-form';
 const goHref = (x: ZcFinding): string | null => {
   if (!x.go) return null;
   if (x.go === 'kkart' && x.goSt?.kkK) return `/kkart?k=${x.goSt.kkK}`;
+  // Legacy `zcGo` 11228: the partner card opens on that partner.
+  if (x.go === 'kartici' && x.goSt?.pid) return `/kartici?pid=${encodeURIComponent(x.goSt.pid)}`;
   return `/${x.go}`;
 };
 
