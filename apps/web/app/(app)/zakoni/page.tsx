@@ -3,7 +3,10 @@
  * УЈП and Службен весник, filters by institution and text, „НОВО“ since the user's last „прочитано“, the AI assistant
  * („🤖 Прашај“, worker `law.ask`), removal (administrator) and the robot's last run. Office only (not klient / teren).
  */
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { FUEL_PG, firmShort } from '@wise/core/law/fuel-seller';
+import { invoiceLines, invoices, items } from '@wise/db';
+import { PickFirm } from '../lawrep/pick-firm';
 import { can } from '@wise/core';
 import { fuelRate, LAW_IMP, LAW_INST, lawFilter, lawFirms, lawNew } from '@wise/core/law';
 import { lawAsks, lawRuns, lawSources } from '@wise/db';
@@ -41,6 +44,20 @@ export default async function ZakoniPage({ searchParams }: { searchParams: Promi
   const del = can(u.principal, 'del');
   const qs = (o: Record<string, string>) => '?' + new URLSearchParams(Object.entries({ inst, q: sp.q ?? '', ...o }).filter(([, v]) => v)).toString();
   const errs = S.filter((s) => s.error);
+  // Legacy 14373: while a fuel VAT rate applies, list the firms that sell fuel (items or invoice lines in the last 120 days).
+  let fuelF: { id: string; name: string }[] = [];
+  if (fr && F.length) {
+    const ids = F.map((f) => f.id);
+    const lim = new Date(Date.parse(td + 'T00:00:00Z') - 120 * 864e5).toISOString().slice(0, 10);
+    const [a, b] = await Promise.all([
+      db().selectDistinct({ id: items.firmId }).from(items).where(and(inArray(items.firmId, ids), sql`${items.type} <> 'service'`, sql`${items.name} ~* ${FUEL_PG}`)),
+      db().selectDistinct({ id: invoices.firmId }).from(invoiceLines).innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+        .where(and(inArray(invoices.firmId, ids), gte(invoices.date, lim), sql`${invoiceLines.name} ~* ${FUEL_PG}`)),
+    ]);
+    const sel = new Set([...a, ...b].map((x) => x.id));
+    fuelF = F.filter((f) => sel.has(f.id)).map((f) => ({ id: f.id, name: f.name }));
+  }
+  const fuelCard = R.find((x) => /гориво|горива/i.test(x.title))?.id;
 
   return (
     <>
@@ -103,6 +120,11 @@ export default async function ZakoniPage({ searchParams }: { searchParams: Promi
               {nf > 0 && <> · <b>{nf}</b> ваши фирми</>}
             </div>
             {x.prog && <div className="note" style={{ marginTop: 4 }}>🖥 Во програмата: {x.prog}</div>}
+            {fr && x.id === fuelCard && (
+              <div className="callout" style={{ marginTop: 8 }}>⛽ Фирми што продаваат гориво (препознаени по артикли/фактури):{' '}
+                {fuelF.length ? fuelF.map((f) => <PickFirm key={f.id} id={f.id} to="/pocetna" label={firmShort(f.name)} />) : <span className="note">сè уште нема – се препознаваат кога ќе се отвори фирмата</span>}
+              </div>
+            )}
             <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               {x.urls.filter(Boolean).map((url, i) => <a key={url} className="btn sm" href={url} target="_blank" rel="noopener">🔗 Извор{x.urls.length > 1 ? ' ' + (i + 1) : ''}</a>)}
               {del && <RowAction className="btn sm ghost" style={{ color: 'var(--bad,#b42318)' }} action={lawDelete.bind(null, x.id)} label="🗑" title="Отстрани" confirm="Да се отстрани записот?" />}
