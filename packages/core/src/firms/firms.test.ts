@@ -7,6 +7,7 @@ import { klStrongPw, klUserName } from './klprofili';
 import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
 import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
 import { miCalc, miMonths, miRange } from './mojizv';
+import { FORMS0, TPL0, askFields, fillTpl, formHtml, formVals } from './requests';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -165,5 +166,24 @@ describe('owner report (legacy miRange / miMonths / miCalc)', () => {
     expect(r.feeP).toBe(6000);
     expect(r.perItem).toBe(150);
     expect(r.net).toBe(6000 - 57);
+  });
+});
+
+describe('requests and forms (legacy fillTpl / formVals / formHTML)', () => {
+  const f = { name: 'Алфа ДООЕЛ', edb: '4030000000001', address: 'ул. 1', city: 'Скопје', signer: 'Ана' };
+  it('text templates', () => {
+    expect(TPL0.length).toBe(6);
+    expect(askFields('{?Намена} и {?Намена} {?Банка}')).toEqual(['Намена', 'Банка']);
+    expect(fillTpl('{фирма}, ЕДБ {едб}, {?Намена}, {ембс}', f, { 'Намена': 'кредит' }, '2026-03-01')).toBe('Алфа ДООЕЛ, ЕДБ 4030000000001, кредит, ________');
+  });
+  it('official forms', () => {
+    const tp = FORMS0.find((x) => x.id === 'f_ujp_kod')!;
+    const V = formVals(tp, f, {}, '2026-03-01');
+    expect(V.edb).toBe('4030000000001');
+    expect(V.adresa).toBe('ул. 1, Скопје');
+    expect(V.o1).toBe('1');
+    const html = formHtml(tp, V);
+    expect(html).toContain('/forms/f_ujp_kod.jpg');
+    expect(formHtml(FORMS0.find((x) => x.id === 'f_ujp_ddv_dobr')!, {})).toContain('/forms/f_ujp_ddv_dobr_1.jpg');
   });
 });
