@@ -9,7 +9,9 @@ import { locOptions, pickLoc, rangeOf, stockPage } from '@/lib/stock';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
-import { PrintButton } from '@/components/stock-ui';
+
+import { PdfButton } from '@/components/pdf-button';
+import { FirmHead } from '@/app/print/firm-head';
 
 type SP = { wh?: string; from?: string; to?: string };
 
@@ -46,7 +48,7 @@ export default async function KdfiPage({ searchParams }: { searchParams: Promise
   const est = new Set(sales.flatMap((s) => (s.days ?? []).filter((d) => d.est).map((d) => d.date)));
   return (
     <>
-      <Hd t="КДФИ-01" sub="книга на дневни финансиски извештаи"><PrintButton /></Hd>
+      <Hd t="КДФИ-01" sub="книга на дневни финансиски извештаи"><PdfButton selector="#kdfiForm" title={`KDFI-01_${from}_${to}`} landscape /></Hd>
       <form className="card">
         <div className="row" style={{ gap: 12, alignItems: 'end' }}>
           <label className="f">Објект<select name="wh" defaultValue={wh}><option value="">сите објекти</option>{locOptions(L).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
@@ -63,7 +65,16 @@ export default async function KdfiPage({ searchParams }: { searchParams: Promise
               {est.size > 0 && <div className="mut">{[...est].filter((d) => d >= from && d <= to).length} распределени денови (проценка)</div>}
             </div>
           </div>
-          <div className="tw printarea">
+          {/* legacy 13143: on screen first the turnover (total, per rate, VAT), Macedonian products last; the full form for the PDF */}
+          <div className="tw"><table style={{ fontSize: 12.5 }}>
+            <thead><tr><th>Датум</th><th className="n">Вкупен промет во денот</th><th className="n">0% / без ДДВ</th><th className="n">5%</th><th className="n">10%</th><th className="n">18%</th><th className="n">ДДВ вкупно</th><th className="n">од македонски производи</th></tr></thead>
+            <tbody>{rows.map((r) => <tr key={r.date}><td>{dmy(r.date)}{est.has(r.date) && <> <span className="pill warn" title="Распределено (проценка) – нема детален извештај по Z">распр.</span></>}</td><td className="n"><b>{fmt(r.tot)}</b></td>
+              <td className="n">{r.g[0] ? fmt(r.g[0]) : ''}</td><td className="n">{r.g[5] ? fmt(r.g[5]) : ''}</td><td className="n">{r.g[10] ? fmt(r.g[10]) : ''}</td><td className="n">{r.g[18] ? fmt(r.g[18]) : ''}</td><td className="n">{r.vt ? fmt(r.vt) : ''}</td><td className="n mut">{r.mg ? fmt(r.mg) : ''}</td></tr>)}</tbody>
+            <tfoot><tr><td>ВКУПНО</td><td className="n"><b>{fmt(T.tot)}</b></td><td className="n">{fmt(T.g[0])}</td><td className="n">{fmt(T.g[5])}</td><td className="n">{fmt(T.g[10])}</td><td className="n">{fmt(T.g[18])}</td><td className="n">{fmt(T.vt)}</td><td className="n mut">{fmt(T.mg)}</td></tr></tfoot>
+          </table></div>
+          <details className="card" style={{ padding: '8px 12px' }} open={false}><summary className="mut" style={{ cursor: 'pointer' }}>Целосен образец КДФИ-01 (сите колони, како во PDF)</summary>
+          <div className="tw printarea" id="kdfiForm">
+            <FirmHead firm={firm} title="КДФИ-01 – КНИГА НА ДНЕВНИ ФИНАНСИСКИ ИЗВЕШТАИ" sub={`${wh ? L.locName(wh) : 'сите објекти'} · ${dmy(from)} – ${dmy(to)}`} />
             <p className="mini">{firm.name} · ЕДБ {firm.edb} · КДФИ-01 · {wh ? L.locName(wh) : 'сите објекти'} · {dmy(from)} – {dmy(to)}</p>
             <table style={{ fontSize: 12 }}>
               <thead>
@@ -73,7 +84,7 @@ export default async function KdfiPage({ searchParams }: { searchParams: Promise
               <tbody>{rows.map((r) => <tr key={r.date}><KRow label={dmy(r.date) + (est.has(r.date) ? ' (распр.)' : '')} R={r} /></tr>)}</tbody>
               <tfoot><tr><KRow label="ВКУПНО" R={T} /></tr></tfoot>
             </table>
-          </div>
+          </div></details>
         </>
       ) : <div className="card empty">Нема дневни фискални извештаи за периодот.</div>}
     </>
