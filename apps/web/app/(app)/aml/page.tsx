@@ -1,20 +1,118 @@
-/** Legacy `VIEWS.aml` **15976** — AML (ЗСППФТ) client risk assessment and the office overview. */
-import { eq } from 'drizzle-orm';
+/**
+ * Legacy `VIEWS.aml` **15976** — AML (ЗСППФТ): only the owner and the AML officer see the module (`amlOn`); everyone
+ * else gets the internal suspicion report form. Tabs: 👥 Клиенти (batch analysis, risk counts, client file, overview),
+ * 🏢 Канцеларија (officer / deputy, trainings, annual control, links), 🚩 Пријави (internal reports and their status).
+ */
+import { desc, eq } from 'drizzle-orm';
 import { AML_IND, AML_LEVELS, AML_LV, amlCompleteness, amlNextReview, amlRisk, maskEmbg, type AmlFile, type AmlLevel } from '@wise/core/office';
-import { amlRecords } from '@wise/db';
-import { amlAutoFor } from '@/lib/aml';
+import { amlRecords, amlReports, users } from '@wise/db';
+import { amlAllowed, amlAutoFor, amlOffice } from '@/lib/aml';
 import { db } from '@/lib/db';
 import { allowedFirms, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { Pill } from '@/components/file-chips';
 import { Hd, dmy } from '@/components/hd';
 import { fmt } from '@/lib/fmt';
+import { RowAction } from '@/components/row-action';
 import { saveAml } from './actions';
+import { amlCtl, amlGo, amlOffSet, amlRepNew, amlRepSt, amlTrAdd } from './office-actions';
 
-export default async function AmlPage() {
-  const { u, firm } = await officePage('aml', { perm: 'office' });
+function ReportForm({ firms: F }: { firms: { id: string; name: string }[] }) {
+  return (
+    <ActionForm action={amlRepNew}>
+      <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Нова внатрешна пријава за сомневање</h2>
+      <div className="form">
+        <label className="f">Клиент<select name="firmId"><option value="">—</option>{F.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
+        <label className="f wide">Опис (што, кога, износ, индикатор)<textarea name="text" rows={3} style={{ width: '100%', font: 'inherit' }} /></label>
+      </div>
+      <button className="btn pri" style={{ marginTop: 6 }}>🚩 Испрати до овластеното лице</button>
+      <p className="mini" style={{ margin: '6px 0 0' }}>Овластеното лице ја анализира и без одложување ја известува УФР преку <a href="https://ws-askmk.ufr.gov.mk/logon.html" target="_blank" rel="noopener">АСКМК</a> ако сомневањето е основано.</p>
+    </ActionForm>
+  );
+}
+
+export default async function AmlPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const sp = await searchParams;
+  const { u, firm } = await officePage('aml', { perm: 'write' });
   const td = today();
-  const [F, R] = await Promise.all([allowedFirms(u), db().select().from(amlRecords)]);
+  const F0 = await allowedFirms(u);
+  const clientsF = F0.filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm);
+  if (!(await amlAllowed(u))) {
+    return (
+      <>
+        <Hd t="🚩 Пријави сомневање (УФР)" sub="внатрешна пријава до овластеното лице" exp={false} />
+        <div className="callout bad"><b>Законска обврска:</b> ако забележите сомнителна трансакција или однесување кај клиент, веднаш пријавете го овде. Пријавата ја гледаат <b>само</b> управителот и овластеното лице. <b>Не го известувајте клиентот</b> ниту други лица.</div>
+        <ReportForm firms={clientsF} />
+      </>
+    );
+  }
+  const tab = sp.tab === 'off' || sp.tab === 'rep' ? sp.tab : 'cl';
+  const [F, R, O, reps, U] = await Promise.all([Promise.resolve(F0), db().select().from(amlRecords), amlOffice(),
+    db().select().from(amlReports).orderBy(desc(amlReports.createdAt)), db().select({ id: users.id, name: users.name, role: users.role, active: users.active }).from(users)]);
+  const y = td.slice(0, 4);
+  const tr = (O.tr ?? []).filter((t) => t.date.startsWith(y));
+  const warn = [!O.officer && 'Не е определено овластено лице.', tr.length < 2 && `Обуки во ${y}: ${tr.length} (потребни најмалку 2).`, !(O.ctl ?? '').startsWith(y) && 'Годишна внатрешна контрола не е евидентирана.'].filter(Boolean) as string[];
+  const head = (
+    <>
+      <Hd t="🛡 Спречување перење пари и финансирање тероризам" sub="УФР · ЗСППФТ (151/2022, 208/2024)" />
+      {warn.length > 0 && <div className="callout warn">{warn.map((w) => <div key={w}>{w}</div>)}</div>}
+      <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+        {([['cl', '👥 Клиенти'], ['off', '🏢 Канцеларија (програма, лице, обуки)'], ['rep', '🚩 Пријави']] as const).map(([k, n]) => <a key={k} className={`btn ${tab === k ? 'pri' : ''}`} href={`/aml?tab=${k}`}>{n}</a>)}
+      </div>
+    </>
+  );
+  if (tab === 'off') return (
+    <>
+      {head}
+      <ActionForm action={amlOffSet} reset={false}>
+        <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Овластено лице и заменик</h2>
+        <div className="form">
+          <label className="f">Овластено лице<input name="officer" defaultValue={O.officer ?? ''} /></label>
+          <label className="f">Корисник во програмата (пристап до модулот)<select name="offUid" defaultValue={O.offUid ?? ''}><option value="">—</option>{U.filter((x) => x.role !== 'klient' && x.active).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+          <label className="f">Заменик<input name="deputy" defaultValue={O.deputy ?? ''} /></label>
+        </div>
+        <button className="btn pri" style={{ marginTop: 6 }}>Зачувај</button>
+      </ActionForm>
+      <div className="card">
+        <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Документи на канцеларијата</h2>
+        <p className="note" style={{ margin: 0 }}>Одлука за овластено лице и заменик, Програма за спречување ПП/ФТ (член 12) и Проценка на ризик на канцеларијата (член 11) се прават од <a href="/tpl">📄 Шаблони</a> (Word / PDF).</p>
+      </div>
+      <ActionForm action={amlTrAdd}>
+        <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Обуки (најмалку 2 годишно) · во {y}: {tr.length}</h2>
+        <div className="form">
+          <label className="f">Датум<input name="date" type="date" /></label>
+          <label className="f wide">Тема<input name="topic" placeholder="пр. Индикатори за сомнителни трансакции; нови листи на УФР" /></label>
+          <label className="f wide">Учесници<input name="who" /></label>
+        </div>
+        <button className="btn sm" style={{ marginTop: 6 }}>+ Евидентирај обука</button>
+        {(O.tr ?? []).length > 0 && <table className="dense" style={{ marginTop: 6 }}><tbody>{[...(O.tr ?? [])].reverse().map((t, i) => <tr key={i}><td>{dmy(t.date)}</td><td>{t.topic}</td><td>{t.who ?? ''}</td></tr>)}</tbody></table>}
+      </ActionForm>
+      <div className="card">
+        <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Годишна внатрешна контрола</h2>
+        <p style={{ margin: '0 0 6px' }}>Последна: <b>{O.ctl ? dmy(O.ctl) : '—'}</b></p>
+        <RowAction action={amlCtl} label="✓ Извршена денес" className="btn sm" />
+        <p className="mini" style={{ margin: '8px 0 0' }}>Корисни линкови: <a href="https://ufr.gov.mk/wp-content/uploads/2020/05/Indikatori.pdf" target="_blank" rel="noopener">Листа на индикатори (УФР)</a> · <a href="https://ufr.gov.mk/?page_id=3315" target="_blank" rel="noopener">Високоризични земји</a> · <a href="https://ws-askmk.ufr.gov.mk/logon.html" target="_blank" rel="noopener">АСКМК – пријави до УФР</a></p>
+      </div>
+    </>
+  );
+  if (tab === 'rep') return (
+    <>
+      {head}
+      <div className="callout bad"><b>Забрана за откривање:</b> клиентот или трети лица не смеат да се известат дека има сомневање, внатрешна пријава или пријава до УФР.</div>
+      <ReportForm firms={clientsF} />
+      <div className="card tw">{reps.length ? <table className="dense">
+        <thead><tr><th>Датум</th><th>Клиент</th><th>Опис</th><th>Пријавил</th><th>Статус</th><th></th></tr></thead>
+        <tbody>{reps.map((x) => (
+          <tr key={x.id}><td>{dmy(x.createdAt)}</td><td>{x.firmName}</td><td>{x.text}</td><td>{x.createdByName}</td><td>{x.status}{x.note && <div className="mini">{x.note}</div>}</td>
+            <td style={{ whiteSpace: 'nowrap' }}>{(x.status === 'нова' || x.status === 'анализа') && <>
+              <RowAction action={amlRepSt.bind(null, x.id, 'анализа')} label="Анализа" className="btn sm" />
+              <RowAction action={amlRepSt.bind(null, x.id, 'пријавено во УФР')} label="Пријавено во УФР" className="btn sm pri" />
+              <RowAction action={amlRepSt.bind(null, x.id, 'затворено')} label="Без пријава" className="btn sm" />
+            </>}</td></tr>
+        ))}</tbody>
+      </table> : <div className="empty">Нема внатрешни пријави.</div>}</div>
+    </>
+  );
   const rec = firm ? R.find((r) => r.firmId === firm.id) : undefined;
   const A = (rec?.data ?? {}) as AmlFile;
   const X = firm ? await amlAutoFor(firm, Number(td.slice(0, 4))) : null;
@@ -24,7 +122,15 @@ export default async function AmlPage() {
 
   return (
     <>
-      <Hd t="🛡 Спречување перење пари (УФР)" sub={`${R.length} анализирани · ${due.length} за анализа/преглед`} />
+      {head}
+      <div className="card"><div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <RowAction action={amlGo} label="🔍 Анализирај ги сите клиенти" className="btn pri" />
+        <span className="muted">{R.length} анализирани · {due.length} за анализа/преглед</span></div>
+        <p className="mini" style={{ margin: '6px 0 0' }}>Податоците се пополнуваат автоматски од фирмата, основањето, договорот и книгите (готовина, промет, вработени, дејност). Вие ги дополнувате проверките.</p></div>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '10px 0', alignItems: 'stretch' }}>
+        {[...AML_LEVELS].reverse().map((l) => <div key={l} className="card" style={{ flex: 1, minWidth: 140, margin: 0 }}><div className="muted" style={{ fontSize: 12 }}>{AML_LV[l][0]} ризик</div><div style={{ fontSize: 22, fontWeight: 700 }}>{R.filter((r) => r.level === l).length}</div></div>)}
+        <div className="card" style={{ flex: 1, minWidth: 140, margin: 0 }}><div className="muted" style={{ fontSize: 12 }}>За обновување</div><div style={{ fontSize: 22, fontWeight: 700 }}>{R.filter((r) => r.nextReview && r.nextReview <= td).length}</div></div>
+      </div>
       {firm && risk && X ? (
         <ActionForm action={saveAml} reset={false}>
           <div className="hd"><h2>{firm.name}</h2>

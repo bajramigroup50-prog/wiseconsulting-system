@@ -9,6 +9,23 @@ import { index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-cor
 import { firms, users } from './foundation';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
-void [index, jsonb, pgTable, text, uuid, firms, users, ts];
+
 
 /* ---- tables (append) ---- */
+
+/**
+ * Legacy `appaml/r…` (VIEWS.aml tab „🚩 Пријави“, `amlRepNew` / `amlRepSt`): internal suspicion reports to the
+ * AML officer. Seen only by the owner (admin) and the officer; status нова → анализа → пријавено во УФР / затворено.
+ */
+export const amlReports = pgTable('aml_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: uuid('firm_id').references(() => firms.id, { onDelete: 'set null' }),
+  firmName: text('firm_name').notNull().default(''),
+  text: text('text').notNull(),
+  status: text('status').notNull().default('нова'),
+  note: text('note'),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdByName: text('created_by_name').notNull().default(''),
+  createdAt: ts('created_at').notNull().defaultNow(),
+}, (t) => [index('aml_reports_created_idx').on(t.createdAt)]);
