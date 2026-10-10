@@ -41,7 +41,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
           <a className="btn" href="/firmiImp/obrazec">⬇ Excel образец</a>
           <Link className="btn" href="/firmiImp">📥 Увоз од Excel</Link>
           <Link className="btn pri" href="/firmiResh">📷 Нова фирма од решение</Link>
-          <Link className="btn" href="/firmi/kirilica">🔤 Латиница → кирилица</Link>
+          <Link className="btn" href="/firmi/kirilica">🔧 Поправка на увезени фирми</Link>
         </>}
         {can(u.principal, 'newFirm') && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
       </Hd>
