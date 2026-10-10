@@ -6,6 +6,7 @@ import { mhKind, mhKindGroup } from './mailhist';
 import { klStrongPw, klUserName } from './klprofili';
 import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
 import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
+import { miCalc, miMonths, miRange } from './mojizv';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -149,5 +150,20 @@ describe('dashboard (legacy dashRange / dashAgg / dashMonthly / kdRange)', () =>
     expect(kdBuckets('2026-01-01', '2026-12-31')).toMatchObject({ byMonth: true });
     expect(payDeadline('2026-03-15')).toEqual({ due: '2026-04-10', month: '2026-03' });
     expect(payDeadline('2026-03-05')).toEqual({ due: '2026-03-10', month: '2026-02' });
+  });
+});
+
+describe('owner report (legacy miRange / miMonths / miCalc)', () => {
+  it('fee for the period and den./item', () => {
+    expect(miRange('y', '2026-01', '2026', '2026-04')).toMatchObject({ m0: '2026-01', m1: '2026-04' });
+    expect(miRange('m', '2026-02', '2026', '2026-04')).toMatchObject({ from: '2026-02-01', to: '2026-02-28' });
+    expect(miMonths('2026-03', '2026-04')).toBe(2);
+    expect(miMonths('2026-05', '2026-04')).toBe(0);
+    const R = miRange('y', '2026-01', '2026', '2026-04');
+    const r = miCalc({ inv: 10, pur: 5, ai: 1, stm: 2, bl: 20, sal: 0, jr: 3, emp: 2, payEmp: 2, prih: 0, nab: 0, tro: 0, fee: 3000, feeFrom: '2026-03', aiUsd: 1 }, R, 57);
+    expect(r.items).toBe(40);
+    expect(r.feeP).toBe(6000);
+    expect(r.perItem).toBe(150);
+    expect(r.net).toBe(6000 - 57);
   });
 });
