@@ -43,3 +43,4 @@ export * from './mail-queue';
 export * from './sales/invoice-print';
 export * from './codebooks';
 export * from './firm-data';
+export * from './app-errors';
