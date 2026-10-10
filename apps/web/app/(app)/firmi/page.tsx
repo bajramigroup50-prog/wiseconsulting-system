@@ -36,6 +36,12 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <Hd t="Фирми" sub={`${total?.n ?? 0} фирми`}>
+        {can(u.principal, 'firms') && <>
+          <a className="btn" href="/firmi/izvoz">⬇ Извоз</a>
+          <a className="btn" href="/firmiImp/obrazec">⬇ Excel образец</a>
+          <Link className="btn" href="/firmiImp">📥 Увоз од Excel</Link>
+          <Link className="btn pri" href="/firmiResh">📷 Нова фирма од решение</Link>
+        </>}
         {can(u.principal, 'newFirm') && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
       </Hd>
       {showForm && <FirmForm firm={draft ?? null} />}
