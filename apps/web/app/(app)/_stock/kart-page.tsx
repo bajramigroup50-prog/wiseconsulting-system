@@ -30,7 +30,7 @@ export async function KartPage({ retail, sp }: { retail: boolean; sp: KartSP }) 
   const sub = (it.code ? it.code + ' · ' : '') + it.name + ' · ' + (it.unit || '') + ' · ' + dmy(from) + ' – ' + dmy(to);
   return (
     <>
-      <Hd t={t} sub={retail ? 'по малопродажна цена' : 'по набавна вредност'}>
+      <Hd exp={false} t={t} sub={retail ? 'по малопродажна цена' : 'по набавна вредност'}>
         <Link className="btn" href={all} target="_blank">PDF сите картици</Link>
         <ExportButtons name={(retail ? 'Kartica_proizvod_' : 'Materijalna_kartica_') + (it.code || it.name)} rows={kartAoa(k, retail)} />
         <ServerPdfButton title={t + ' ' + (it.name ?? '')} landscape />

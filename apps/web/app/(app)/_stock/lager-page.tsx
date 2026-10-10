@@ -53,7 +53,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
   const fn = `${def.title.replace(/\s+/g, '_')}_${date}`;
   return (
     <>
-      <Hd t={def.title} sub={'состојба на ' + dmy(date)}>
+      <Hd exp={false} t={def.title} sub={'состојба на ' + dmy(date)}>
         {canDo(u, 'impRun', firm.id) && <Link className="btn" href={'/' + view + qs({ imp: imp ? undefined : 'in' })}>Увоз од Excel / CSV</Link>}
         <ExportButtons name={fn} rows={aoa} sheet="Лагер" widths={aoa[0]!.map((_, i) => (i === 3 ? 38 : i === 2 ? 15 : 12))} />
         <ServerPdfButton title={def.title} landscape={!!def.land} />

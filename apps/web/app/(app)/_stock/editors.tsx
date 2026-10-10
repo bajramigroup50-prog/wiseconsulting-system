@@ -66,60 +66,126 @@ function ItemPicker({ items, onPick, filter }: { items: ItemOpt[]; onPick: (it: 
 /* ================================================================== transfer */
 
 export interface TransferDraft { id?: string; number?: string; date: string; from: string; to: string; note: string; lines: { itemId: string; qty: string; sp: string }[] }
+/** A purchase calculation offered in „Додај ги артиклите од калкулација“ (legacy `pr_calc`). */
+export interface CalcOpt { id: string; wh: string; date: string; label: string; lines: { item: string; qty: number; sp: string | number }[] }
 
-export function TransferEditor({ initial, items, locs }: { initial: TransferDraft; items: ItemOpt[]; locs: LocOpt[] }) {
+const MARGINS = [10, 15, 20, 25, 30, 40, 50];
+const ROUNDS: [string, string][] = [['1', 'на цел денар'], ['0.5', 'на 0,50'], ['10', 'на 10 ден.'], ['0.01', 'без']];
+
+/** Legacy `prMargin`: retail price = average × (1 + margin) × (1 + VAT), rounded (below 5 steps: to 0.01). */
+const marginPrice = (avg: number, rate: number, m: number, step: number) => {
+  if (!(avg > 0)) return null;
+  const sp = avg * (1 + m / 100) * (1 + rate / 100);
+  const rr = sp < step * 5 ? 0.01 : step;
+  return Math.round(Math.round(sp / rr) * rr * 100) / 100;
+};
+
+export function TransferEditor({ initial, items, locs, calcs = [], nextNo, round = '1' }: { initial: TransferDraft; items: ItemOpt[]; locs: LocOpt[]; calcs?: CalcOpt[]; nextNo?: string; round?: string }) {
   const [st, action, pending] = useActionState<ActionState, FormData>(saveTransferAction, {});
   const [d, setD] = useState(initial);
+  const [mg, setMg] = useState('');
+  const [rd, setRd] = useState(ROUNDS.some(([v]) => v === round) ? round : '1');
+  const [msg, setMsg] = useState('');
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const set = (p: Partial<TransferDraft>) => setD((x) => ({ ...x, ...p }));
   const setLine = (i: number, p: Partial<TransferDraft['lines'][number]>) => setD((x) => ({ ...x, lines: x.lines.map((l, k) => (k === i ? { ...l, ...p } : l)) }));
+  const avgOf = (it: ItemOpt | undefined) => (it ? it.avgBy?.[d.from] || it.avg || 0 : 0);
+  const spOf = (l: TransferDraft['lines'][number], it: ItemOpt | undefined) => (l.sp === '' ? it?.sp[d.to] ?? 0 : n(l.sp));
   let nab = 0;
   let spv = 0;
   for (const l of d.lines) {
     const it = byId.get(l.itemId);
-    nab += n(l.qty) * (it?.avg ?? 0);
-    spv += n(l.qty) * (l.sp === '' ? it?.sp[d.to] ?? 0 : n(l.sp));
+    nab += n(l.qty) * avgOf(it);
+    spv += n(l.qty) * spOf(l, it);
   }
+  const addCalc = (id: string) => {
+    const c = calcs.find((x) => x.id === id);
+    if (!c) return;
+    const L = [...d.lines];
+    for (const s of c.lines) {
+      const it = byId.get(s.item);
+      if (!it || !n(s.qty)) continue;
+      const q = Math.max(0, Math.min(n(s.qty), it.have[d.from] ?? 0));
+      const ex = L.find((l) => l.itemId === s.item);
+      if (ex) { ex.qty = String(Math.round((n(ex.qty) + q) * 10000) / 10000); continue; }
+      const cur = it.sp[d.to];
+      L.push({ itemId: s.item, qty: String(Math.round(q * 10000) / 10000), sp: cur ? String(cur) : s.sp !== '' && s.sp != null ? String(s.sp) : '' });
+    }
+    set({ lines: L });
+  };
+  const applyMargin = (m: number) => {
+    if (!Number.isFinite(m)) { setMsg('Внесете процент.'); return; }
+    set({ lines: d.lines.map((l) => { const it = byId.get(l.itemId); const p = marginPrice(avgOf(it), it?.rate ?? 18, m, n(rd) || 1); return p == null ? l : { ...l, sp: String(p) }; }) });
+    setMsg(`Малопродажните цени се пресметани со ${m}% разлика.`);
+  };
   const payload = { id: d.id ?? null, date: d.date, from: d.from, to: d.to, note: d.note, lines: d.lines.filter((l) => n(l.qty) > 0).map((l) => ({ itemId: l.itemId, qty: n(l.qty), sp: l.sp === '' ? null : n(l.sp) })) };
+  const fromCalcs = calcs.filter((c) => c.wh === d.from);
   return (
     <form action={action} className="card">
       <input type="hidden" name="payload" value={JSON.stringify(payload)} />
-      <h2>{d.id ? 'Преносница ' + d.number : 'Нов пренос од магацин во продавница'}</h2>
+      <h2>{d.id ? 'Преносница ' + d.number : 'Нова преносница'} <span className="mini">магацин → продавница</span></h2>
       <Err st={st} />
       <div className="form">
         <label className="f">Датум<input type="date" value={d.date} onChange={(e) => set({ date: e.target.value })} required /></label>
-        <label className="f">Од објект<select value={d.from} onChange={(e) => set({ from: e.target.value })}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
-        <label className="f">Во објект<select value={d.to} onChange={(e) => set({ to: e.target.value })}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+        <label className="f">Од магацин<select value={d.from} onChange={(e) => set({ from: e.target.value })}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}{l.kind === 'store' ? ' · продавница' : ''}</option>)}</select></label>
+        <label className="f">Во продавница<select value={d.to} onChange={(e) => set({ to: e.target.value })}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}{l.kind === 'warehouse' ? ' · магацин' : ''}</option>)}</select></label>
+        <label className="f">Број<input value={d.number ?? nextNo ?? ''} disabled /></label>
         <label className="f wide">Забелешка<input value={d.note} onChange={(e) => set({ note: e.target.value })} /></label>
-        <ItemPicker items={items} onPick={(it) => set({ lines: [...d.lines, { itemId: it.id, qty: '', sp: '' }] })} />
-        <button type="button" className="btn" onClick={() => set({ lines: [...d.lines, ...items.filter((i) => (i.have[d.from] ?? 0) > 0 && !d.lines.some((l) => l.itemId === i.id)).map((i) => ({ itemId: i.id, qty: String(i.have[d.from]), sp: '' }))] })}>Сета залиха од објектот</button>
       </div>
-      <div className="tw"><table>
-        <thead><tr><th>Шифра</th><th>Назив</th><th>Ед.</th><th className="n">Залиха (од)</th><th className="n">Количина</th><th className="n">Набавна (просек)</th><th className="n">МПЦ со ДДВ во продавница</th><th className="n">Продажна вредност</th><th /></tr></thead>
-        <tbody>
-          {d.lines.map((l, i) => {
-            const it = byId.get(l.itemId);
-            const sp = l.sp === '' ? it?.sp[d.to] ?? 0 : n(l.sp);
-            const have = it?.have[d.from] ?? 0;
-            return (
-              <tr key={i}>
-                <td>{it?.code}</td><td>{it?.name ?? '?'}</td><td>{it?.unit}</td>
-                <td className="n" style={n(l.qty) > have + 1e-9 ? { color: 'var(--bad)' } : undefined}>{fq(have)}</td>
-                <td><input inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} style={{ width: 90, textAlign: 'right' }} /></td>
-                <td className="n">{fmt(it?.avg ?? 0)}</td>
-                <td><input inputMode="decimal" value={l.sp} placeholder={fmt(it?.sp[d.to] ?? 0)} onChange={(e) => setLine(i, { sp: e.target.value })} style={{ width: 100, textAlign: 'right' }} /></td>
-                <td className="n">{fmt(n(l.qty) * sp)}</td>
-                <td><button type="button" className="btn sm ghost danger" onClick={() => set({ lines: d.lines.filter((_, k) => k !== i) })} aria-label="Отстрани">✕</button></td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot><tr><td colSpan={5}>Вкупно</td><td className="n">{fmt(nab)}</td><td /><td className="n">{fmt(spv)}</td><td /></tr></tfoot>
-      </table></div>
+      <div className="row" style={{ marginTop: 10, gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+        <label className="mini">Додај ги артиклите од калкулација
+          <select value="" onChange={(e) => addCalc(e.target.value)} style={{ width: 'auto' }}>
+            <option value="">— изберете калкулација —</option>
+            {fromCalcs.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </label>
+        <ItemPicker items={items} onPick={(it) => { if (!d.lines.some((l) => l.itemId === it.id)) set({ lines: [...d.lines, { itemId: it.id, qty: '', sp: '' }] }); }} />
+        <button type="button" className="btn sm" onClick={() => set({ lines: [...d.lines, ...items.filter((i) => (i.have[d.from] ?? 0) > 1e-9 && !d.lines.some((l) => l.itemId === i.id)).map((i) => ({ itemId: i.id, qty: String(i.have[d.from]), sp: '' }))] })}>Целата залиха од магацинот</button>
+      </div>
+      <div className="row" style={{ gap: 6, margin: '10px 0 8px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <span className="mini">Малопродажна цена = набавна + разлика:</span>
+        {MARGINS.map((v) => <button key={v} type="button" className="btn sm" onClick={() => applyMargin(v)}>{v}%</button>)}
+        <input value={mg} onChange={(e) => setMg(e.target.value)} inputMode="decimal" placeholder="%" style={{ width: 64 }} />
+        <button type="button" className="btn sm" onClick={() => applyMargin(n(mg))}>Примени</button>
+        <label className="mini">Заокружи <select value={rd} onChange={(e) => setRd(e.target.value)} style={{ width: 'auto' }}>{ROUNDS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>
+        <button type="button" className="btn sm" title="Постоечка цена во продавницата" onClick={() => set({ lines: d.lines.map((l) => ({ ...l, sp: String(byId.get(l.itemId)?.sp[d.to] ?? '') })) })}>Задржи постоечки цени</button>
+        {msg && <span className="pill good">{msg}</span>}
+      </div>
+      {d.lines.length ? (
+        <div className="tw"><table>
+          <thead><tr><th>Шифра</th><th>Назив</th><th>Ем</th><th className="n">Залиха во магацин</th><th className="n">Количина</th><th className="n">Набавна цена</th><th className="n">Набавна вредност</th><th className="n">ДДВ</th><th className="n">МПЦ со ДДВ</th><th className="n">Продажна вредност</th><th className="n">Разлика</th><th /></tr></thead>
+          <tbody>
+            {d.lines.map((l, i) => {
+              const it = byId.get(l.itemId);
+              const sp = spOf(l, it);
+              const have = it?.have[d.from] ?? 0;
+              const avg = avgOf(it);
+              const rate = it?.rate ?? 18;
+              const net = sp / (1 + rate / 100);
+              const m = avg ? (net / avg - 1) * 100 : null;
+              return (
+                <tr key={i}>
+                  <td>{it?.code}</td><td>{it?.name ?? '?'}</td><td>{it?.unit}</td>
+                  <td className={'n' + (n(l.qty) > have + 1e-9 ? ' bad' : '')} style={n(l.qty) > have + 1e-9 ? { color: 'var(--bad)' } : undefined}>{fq(have)}</td>
+                  <td><input inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} style={{ width: 90, textAlign: 'right' }} /></td>
+                  <td className="n">{avg.toFixed(4).replace('.', ',')}</td>
+                  <td className="n">{fmt(avg * n(l.qty))}</td>
+                  <td className="n">{rate}%</td>
+                  <td><input inputMode="decimal" value={l.sp} placeholder={fmt(it?.sp[d.to] ?? 0)} onChange={(e) => setLine(i, { sp: e.target.value })} style={{ width: 100, textAlign: 'right' }} /></td>
+                  <td className="n">{fmt(n(l.qty) * sp)}</td>
+                  <td className="n">{m == null ? '—' : m.toFixed(1) + '%'}</td>
+                  <td><button type="button" className="btn sm ghost danger" onClick={() => set({ lines: d.lines.filter((_, k) => k !== i) })} aria-label="Отстрани">✕</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot><tr><td colSpan={6}>Вкупно</td><td className="n">{fmt(nab)}</td><td /><td /><td className="n">{fmt(spv)}</td><td /><td /></tr></tfoot>
+        </table></div>
+      ) : <p className="note">Додајте артикли од калкулација или поединечно.</p>}
       <p className="note">Магацинот се раздолжува по просечна набавна цена на денот; продавницата се задолжува по истата набавна вредност. Празна МПЦ = тековната цена во продавницата; внесената МПЦ станува нова цена на артиклот во продавницата.</p>
       <div className="row">
         <Link className="btn" href="/prenosi">Откажи</Link>
-        <button className="btn pri" disabled={pending}>Зачувај преносница</button>
+        <button className="btn pri" disabled={pending}>Зачувај пренос</button>
       </div>
     </form>
   );

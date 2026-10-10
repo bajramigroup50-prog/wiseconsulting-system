@@ -38,7 +38,7 @@ export async function TrgPage({ retail, sp }: { retail: boolean; sp: TrgSP }) {
   const T = tradeBook(L.ctx, { retail, wh, from, to, sales, locationName: L.locName, saleValue });
   return (
     <>
-      <Hd t={t} sub={retail ? 'по продажна вредност со ДДВ' : 'по набавна вредност'}>
+      <Hd exp={false} t={t} sub={retail ? 'по продажна вредност со ДДВ' : 'по набавна вредност'}>
         <ExportButtons name={(retail ? 'ETM_malo_' : 'ET_golemo_') + from + '_' + to} rows={[
           ['Р.б.', 'Датум', 'Документ', 'Задолжување', 'Раздолжување', ...(retail ? [] : ['Продажна вредност без ДДВ']), 'Салдо'],
           ['', dmy(from), 'Пренос / почетна состојба', '', '', ...(retail ? [] : ['']), T.open],
@@ -106,7 +106,7 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
   const T = etBook(L.ctx, { wh, from, to, sales, docOf, firmFiskScheme: L.settings.fiskOpt.sc, locationName: L.locName });
   return (
     <>
-      <Hd t={t} sub="по продажен објект">
+      <Hd exp={false} t={t} sub="по продажен објект">
         <ExportButtons name={'ET_malo_' + from + '_' + to} rows={[
           ['Реден бр.', 'Датум на книжење', 'Назив и број на документот', 'Датум на документот', 'Набавна вредност на стоките', 'Продажна вредност на стоките', 'Дневен промет'],
           ['', dmy(from), 'Пренос од претходен период (состојба по продажни цени)', '', '', T.open, ''],
@@ -169,7 +169,7 @@ export async function MetgPage({ sp }: { sp: TrgSP }) {
   const D = metgCard(L.ctx, { item: it.id, wh, from, to, docOf: await stockDocResolver(db(), L) });
   return (
     <>
-      <Hd t={t} sub="магацин · посебно за секоја стока (шифра)">
+      <Hd exp={false} t={t} sub="магацин · посебно за секоја стока (шифра)">
         <Link className="btn" href={'/print/metg?' + new URLSearchParams({ from, to, ...(wh ? { wh } : {}) }).toString()} target="_blank">PDF за сите артикли</Link>
         <ExportButtons name={'METG_' + (it.code || it.name)} rows={metgAoa(D, from)} />
         <ServerPdfButton title={'МЕТГ ' + (it.name ?? '')} landscape />
