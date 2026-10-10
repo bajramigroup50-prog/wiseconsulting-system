@@ -2,14 +2,15 @@
 import type { Firm } from '@wise/db';
 import { dmy } from '@/lib/fmt';
 
-export function FirmHead({ firm, title, sub }: { firm: Pick<Firm, 'name' | 'address' | 'city' | 'phone' | 'email' | 'edb' | 'embs'>; title: string; sub?: string }) {
+export function FirmHead({ firm, title, sub }: { firm: Pick<Firm, 'name' | 'address' | 'city' | 'phone' | 'email' | 'edb' | 'embs'> & { settings?: unknown }; title: string; sub?: string }) {
+  const st = (firm.settings ?? {}) as { bank?: string; bankName?: string; phone2?: string };
   return (
     <>
       <div className="fh">
         <div className="fn">{String(firm.name ?? '').toUpperCase()}</div>
         <div className="fa">
-          {[firm.address, firm.city].filter(Boolean).join(' ')}{firm.phone ? ' * Тел.: ' + firm.phone : ''}{firm.email ? ' * ' + firm.email : ''}<br />
-          ЕДБ: {firm.edb ?? ''}{firm.embs ? ' * ЕМБС: ' + firm.embs : ''}
+          {[firm.address, firm.city].filter(Boolean).join(' ')}{firm.phone ? ' * Тел.: ' + firm.phone + (st.phone2 ? ', ' + st.phone2 : '') : ''}{firm.email ? ' * ' + firm.email : ''}<br />
+          {st.bank ? 'Жиро сметка: ' + st.bank + ' * ' : ''}{st.bankName ? 'Банка: ' + st.bankName + ' * ' : ''}ЕДБ: {firm.edb ?? ''}{firm.embs ? ' * ЕМБС: ' + firm.embs : ''}
         </div>
       </div>
       <div className="ph">

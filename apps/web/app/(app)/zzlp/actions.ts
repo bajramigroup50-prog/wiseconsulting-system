@@ -58,3 +58,19 @@ export async function saveZzChecklist(_p: ActionState, f: FormData): Promise<Act
     return { ok: 'Зачувано.' };
   } catch (e) { return officeError(e); }
 }
+
+/** Legacy `zzSigned` („✓ Потпишан“ / „↺“ per client): the processing agreement with the client is signed (or undone). */
+export async function zzSigned(firmId: string, signed: boolean): Promise<ActionState> {
+  try {
+    const u = await requireCan('office', firmId);
+    await db().transaction(async (tx) => {
+      const L = await tx.select({ id: gdprRecords.id, kind: gdprRecords.kind }).from(gdprRecords).where(eq(gdprRecords.firmId, firmId));
+      const ids = L.filter((r) => r.kind === 'dpa').map((r) => r.id);
+      if (signed && !ids.length) await tx.insert(gdprRecords).values({ kind: 'dpa', subject: 'Договор за обработка на лични податоци', firmId, date: today(), status: 'signed', data: {}, createdBy: u.id });
+      if (!signed) for (const id of ids) await tx.delete(gdprRecords).where(eq(gdprRecords.id, id));
+      await audit(tx, { userId: u.id, firmId, action: 'zzSigned', entityType: 'firm', entityId: firmId, data: { signed } });
+    });
+    revalidatePath('/zzlp');
+    return { ok: signed ? 'Означено како потпишан.' : 'Вратено.' };
+  } catch (e) { return officeError(e); }
+}

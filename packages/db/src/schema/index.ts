@@ -21,3 +21,4 @@ export * from './legacy-import';
 export * from './retail';
 export * from './firmsoffice';
 export * from './parity-retail';
+export * from './parity-firms';

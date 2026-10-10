@@ -17,6 +17,7 @@
     "@wise/legacy-import": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "nodemailer": "^10.0.16",
+    "pdf-lib": "1.17.1",
     "pg-boss": "^12.37.1",
     "playwright-core": "^1.63.0",
     "tsx": "^4.23.15"

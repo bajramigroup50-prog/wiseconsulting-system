@@ -11,7 +11,8 @@ export function InvoiceMailForm({ invoiceId, to, subject, body, open }: { invoic
         <label className="f">До (е-пошта, повеќе одделени со запирка)<input name="to" defaultValue={to} placeholder="kupuvac@firma.mk" required /></label>
         <label className="f">Наслов<input name="subject" defaultValue={subject} /></label>
         <label className="f">Порака<textarea name="body" rows={7} defaultValue={body} /></label>
-        <div className="row" style={{ gap: 8 }}><button className="btn pri">✉ Испрати веднаш</button></div>
+        <div className="row" style={{ gap: 8 }}><button className="btn pri" onClick={(e) => { const f = (e.currentTarget.form?.elements.namedItem('to') as HTMLInputElement | null)?.value ?? to; if (!window.confirm('Да се испрати фактурата веднаш на ' + f + '?')) e.preventDefault(); }}>✉ Испрати веднаш</button>
+          <a className="btn ghost" href={`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`} target="_blank" rel="noopener noreferrer">Отвори во друга е-пошта (без прилог)</a></div>
       </ActionForm>
     </details>
   );

@@ -1,18 +1,19 @@
 /**
- * Legacy `VIEWS.home` (3788 + patches 11558, 13600, 15846, 16354) — Контролна табла: hero with the result, period
- * filter, quick actions, KPI tiles with year-on-year change and sparklines, monthly revenue / expense chart, deadlines,
- * booking checks, money balance, receivables ageing, top customers / suppliers, expense structure, open items and the
- * latest documents; plus the recurring-invoices and autopilot callouts.
- * Gaps: legacy `ainb` incoming-messages chip and the law-robot banner (other areas).
+ * Legacy `VIEWS.home` (3788 + patches 11558 quick, 13600 recurring, 14010 `#heroMsg`, 14347/14398 law robot,
+ * 15846 ПП, 16354 autopilot) — Контролна табла: hero with the result, period filter, quick actions, KPI tiles with
+ * year-on-year change and sparklines, monthly revenue / expense chart, deadlines, booking checks, money balance,
+ * receivables ageing, top customers / suppliers, expense structure, open items and the latest documents („Налог“).
+ * Without a firm legacy shows the full-screen firm picker instead (`render` → `firmPicker` v455–v458) — so does this page.
+ * Not ported: legacy `fuelBanner` (14370) needs the fuel VAT rule and fuel item flags, which the server does not keep.
  */
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { and, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
-import { ROLES, periodDue, periodOf } from '@wise/core';
+import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { can, periodOf } from '@wise/core';
 import { AGE, DASH_PER, EXPG, MON, dashAgg, dashMonthly, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
-  autopilotFindings, autopilotRuns, bankLines, computeVatPeriod, employees, firms, invoices, partners, payrollRuns, purchases, recurringInvoices, salesDaily,
-  users, vatDueEstimate,
+  autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
+  vatDueEstimate,
 } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { LawHome } from './zakoni/law-home';
@@ -21,9 +22,16 @@ import { acctMonths, cashKontos, stockSummary } from '@/lib/dash';
 import { db } from '@/lib/db';
 import { invoicesWithPayments, partnerNames, purchasesWithPayments } from '@/lib/firms-office';
 import { fmt } from '@/lib/fmt';
-import { allowedFirms, today } from '@/lib/office';
-import { Hd, dmy } from '@/components/hd';
+import { navFor, navFlat } from '@/lib/nav';
+import { filterNavByModules } from '@/lib/nav-industry';
+import { today } from '@/lib/office';
+import { apUnsent, firmScope, pickerFirms, recFirmsDue, topStatus } from '@/lib/top-status';
+import { dmy } from '@/components/hd';
+import { AinbHeroChip } from '@/components/ainb';
 import { BarChart, HBars, LineChart, Spark } from '@/components/dash-charts';
+import { FirmGo } from '@/components/firm-go';
+import { FirmPicker } from '@/components/firm-picker';
+import { PdfButton } from '@/components/pdf-button';
 
 const ICO: Record<string, string> = {
   inv: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 13h7 M9 17h5', scan: 'M4 8V5a1 1 0 0 1 1-1h3 M16 4h3a1 1 0 0 1 1 1v3 M20 16v3a1 1 0 0 1-1 1h-3 M8 20H5a1 1 0 0 1-1-1v-3 M4 12h16',
@@ -71,19 +79,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const [f, year] = await Promise.all([currentFirm(u), currentYear()]);
   const td = today();
   if (!f) {
-    const [[fc], [uc]] = await Promise.all([db().select({ n: sql<number>`count(*)::int` }).from(firms), db().select({ n: sql<number>`count(*)::int` }).from(users)]);
-    return (
-      <>
-        <Hd t="Контролна табла" sub={`нема избрана фирма · ${year}`} />
-        <div className="callout">Изберете фирма со <b>⇄ Промени фирма</b> горе, или отворете <Link href="/firmi">Фирми</Link>.</div>
-        <div className="tiles">
-          <div className="tile"><span className="k">Фирми</span><b className="v num">{fc?.n ?? 0}</b></div>
-          <div className="tile"><span className="k">Корисници</span><b className="v num">{uc?.n ?? 0}</b></div>
-          <div className="tile"><span className="k">Вашата улога</span><b className="v">{ROLES[u.role].n}</b></div>
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><Link className="btn" href="/zatvoranje">✅ Месечно затворање</Link><Link className="btn" href="/izvestuvanja">🔔 Известувања за сите фирми</Link><Link className="btn" href="/autop">🤖 Автопилот</Link></div>
-      </>
-    );
+    // legacy: no firm → `S.chooser` → full-screen `firmPicker` (menu and firm bar hidden, `body.picking`)
+    const [P, O] = await Promise.all([pickerFirms(u), getOfficeProfile(db()).catch(() => ({ name: '' }))]);
+    return <FirmPicker rows={P.rows} canNew={can(u.principal, 'newFirm')} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} />;
   }
   const sp = await searchParams;
   const P = isDashPer(sp.per) ? sp.per : 'year';
@@ -113,7 +111,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const inRange = sql`between ${rg.from} and ${rg.to}`;
   const pm = (() => { let y = +td.slice(0, 4), m = +td.slice(5, 7) - 1; if (!m) { m = 12; y--; } return `${y}-${String(m).padStart(2, '0')}`; })();
   const lim = new Date(Date.UTC(+td.slice(0, 4), +td.slice(5, 7) - 1, +td.slice(8, 10) + 30)).toISOString().slice(0, 10);
-  const [TC, TS, unb, dups, empAct, payPm, exp, recent, stockS] = await Promise.all([
+  const [TC, TSu, unb, dups, empAct, payPm, exp, recent, stockS] = await Promise.all([
     db().select({ p: invoices.partnerId, v: sql<string>`sum(case when ${invoices.kind} = 'credit' then -1 else 1 end * ${invoices.base} * ${invoices.fx})` }).from(invoices)
       .where(and(eq(invoices.firmId, f.id), inArray(invoices.kind, ['invoice', 'credit']), ne(invoices.status, 'draft'), sql`${invoices.date} ${inRange}`)).groupBy(invoices.partnerId),
     db().select({ p: purchases.partnerId, v: sql<string>`sum(${purchases.base} * ${purchases.fx})` }).from(purchases)
@@ -133,10 +131,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     ]),
     safe(stockSummary(f.id), { wh: 0, st: 0, neg: 0, low: 0 }),
   ]);
-  const PN = await partnerNames(f.id, [...TC.map((x) => x.p), ...TS.map((x) => x.p), ...inv.map((x) => x.partnerId), ...pur.map((x) => x.partnerId), ...recent[0].map((x) => x.p), ...recent[1].map((x) => x.p)]);
+  const PN = await partnerNames(f.id, [...TC.map((x) => x.p), ...TSu.map((x) => x.p), ...inv.map((x) => x.partnerId), ...pur.map((x) => x.partnerId), ...recent[0].map((x) => x.p), ...recent[1].map((x) => x.p)]);
   const pn = (id: string | null) => (id ? PN.get(id)?.name ?? '' : '');
   const top = (L2: { p: string | null; v: string }[]) => L2.map((x) => ({ n: pn(x.p) || '—', v: Math.round(Number(x.v) * 100) / 100 })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 6);
-  const topC = top(TC), topS = top(TS);
+  const topC = top(TC), topS = top(TSu);
   const expRows = Object.entries(A.eg).map(([k, v]) => ({ n: EXPG[k] ?? 'Група ' + k, v: Math.round(v * 100) / 100 })).filter((r) => r.v > 0.5).sort((a, b) => b.v - a.v);
   const bal = Math.round(L.reduce((s, l) => s + l.debit - l.credit, 0) * 100) / 100;
   const payMiss = (empAct[0]?.n ?? 0) > 0 && !payPm.length;
@@ -147,28 +145,38 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     { t: `Годишна сметка и ДБ за ${year}`, d: `${year + 1}-03-15`, go: 'zsProc' },
   ].sort((a, b) => (a.d < b.d ? -1 : 1));
   const chk: [number, string, string][] = ([
-    [unb[0]?.n ?? 0, 'Непрокнижени ставки од извод', 'banka'], [late.length, `Задоцнети наплати (${fmt(lateSum)})`, 'opomeni'], [dups[0]?.n ?? 0, 'Дупликати влезни фактури', 'vlez'],
-    [stockS.neg, 'Артикли со негативна залиха', 'g_lager'], [stockS.low, 'Залиха под минимум', 'g_lager'], [payMiss ? 1 : 0, `Плата за ${pm.split('-').reverse().join('-')} не е прокнижена`, 'plati'],
+    [unb[0]?.n ?? 0, 'Непрокнижени ставки од извод', 'banka'], [late.length, `Задоцнети наплати (${fmt(lateSum)})`, 'analitika'], [dups[0]?.n ?? 0, 'Дупликати влезни фактури', 'vlez'],
+    [stockS.neg, 'Артикли со негативна залиха', 'g_lager'], [stockS.low, 'Залиха под минимум', 'zaliha'], [payMiss ? 1 : 0, `Плата за ${pm.split('-').reverse().join('-')} не е прокнижена`, 'plati'],
     [exp[0]?.n ?? 0, 'Договори што истекуваат за 30 дена', 'dogovori'], [Math.abs(bal) > 0.05 ? 1 : 0, `Налозите не се во рамнотежа (разлика ${fmt(bal)})`, 'nalozi'],
   ] as [number, string, string][]).filter((x) => x[0]);
   const rec = [
-    ...recent[0].map((x) => ({ d: x.d, t: 'Излезна', n: x.n, p: pn(x.p), v: Number(x.v), href: '/izlez' })),
-    ...recent[1].map((x) => ({ d: x.d, t: 'Влезна', n: x.n, p: pn(x.p), v: Number(x.v), href: '/vlez' })),
-    ...recent[2].map((x) => ({ d: x.d, t: 'Каса', n: '', p: 'Дневен извештај', v: Number(x.v), href: '/kasa' })),
+    ...recent[0].map((x) => ({ d: x.d, t: 'Излезна', n: x.n, p: pn(x.p), v: Number(x.v), st: 'invoice', id: x.id, href: '/izlez' })),
+    ...recent[1].map((x) => ({ d: x.d, t: 'Влезна', n: x.n, p: pn(x.p), v: Number(x.v), st: 'purchase', id: x.id, href: '/vlez' })),
+    ...recent[2].map((x) => ({ d: x.d, t: 'Каса', n: '', p: 'Дневен извештај', v: Number(x.v), st: 'sales_daily', id: x.id, href: '/kasa' })),
   ].sort((a, b) => (a.d < b.d ? 1 : -1)).slice(0, 8);
 
-  // Office-wide callouts (legacy 13600 recurring invoices due, 16354 autopilot tile).
-  const AF = await allowedFirms(u);
+  // Office-wide callouts (legacy 13600 recurring invoices due, 16354 autopilot tile, 14010 incoming messages chip),
+  // the journal of each latest document (legacy „Налог“ → `nalog`), bank names for the cash chart and the quick
+  // actions the firm / role can open (legacy `viewOn`).
+  const AF = await firmScope(u);
   const afIds = AF.map((x) => x.id);
-  const [recDue, apRun, apBad] = await Promise.all([
-    afIds.length ? db().select({ f: recurringInvoices.firmId, next: sql<string>`min(${recurringInvoices.next})`, n: sql<number>`count(*)::int` }).from(recurringInvoices)
-      .where(and(inArray(recurringInvoices.firmId, afIds), eq(recurringInvoices.active, true), lte(recurringInvoices.next, td))).groupBy(recurringInvoices.firmId) : [],
+  const [recDue, apRun, apBad, apMsgs, TS, nal, banks] = await Promise.all([
+    recFirmsDue(afIds),
     db().select().from(autopilotRuns).orderBy(desc(autopilotRuns.startedAt)).limit(1),
     afIds.length ? db().select({ f: autopilotFindings.firmId, lvl: autopilotFindings.lvl }).from(autopilotFindings)
       .where(and(inArray(autopilotFindings.firmId, afIds), isNull(autopilotFindings.resolvedAt), isNull(autopilotFindings.ackAt), ne(autopilotFindings.lvl, 'info'))) : [],
+    apUnsent(afIds),
+    topStatus(u),
+    rec.length ? db().select({ st: journals.sourceType, id: journals.sourceId, no: journals.number }).from(journals)
+      .where(and(eq(journals.firmId, f.id), inArray(journals.sourceId, rec.map((x) => x.id)))) : Promise.resolve([]),
+    db().select({ name: bankAccounts.name }).from(bankAccounts).where(and(eq(bankAccounts.firmId, f.id), eq(bankAccounts.active, true))).orderBy(asc(bankAccounts.sort)),
   ]);
-  const AFn = new Map(AF.map((x) => [x.id, x.name]));
+  const nalOf = new Map(nal.map((x) => [`${x.st}|${x.id}`, x.no]));
+  const AFn = new Map(AF.map((x) => [x.id, x]));
   const badF = new Set(apBad.filter((x) => x.lvl === 'bad').map((x) => x.f)).size;
+  const vis = new Set(filterNavByModules(navFor(u.role), f, false).flatMap(([, it]) => navFlat(it).map(([id]) => id)));
+  const QV = Q.filter(([v]) => vis.has(v));
+  const ainbMine = TS.ainb.filter((x) => x.fid === f.id).length;
 
   const _d = new Date(td + 'T12:00:00Z');
   const dstr = `${WD[_d.getUTCDay()]}, ${_d.getUTCDate()} ${MN[_d.getUTCMonth()]} ${_d.getUTCFullYear()}`;
@@ -179,13 +187,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     <>
       <LawHome userId={u.id} role={u.role} />
       {recDue.length > 0 && (
-        <div className="callout warn">🔁 <b>Месечни фактури за издавање</b> во {recDue.length} фирми: {recDue.map((r) => <span key={r.f} className="pill" style={{ marginRight: 4 }}>{AFn.get(r.f)} · {dmy(r.next)}</span>)}<br />
-          <small>Изберете ја фирмата → <Link href="/periodicni">Периодични фактури</Link> – ако е вклучено „автоматски“, фактурите се издаваат и праќаат сами.</small></div>
+        <div className="callout warn" id="recDueAll">🔁 <b>Месечни фактури за издавање</b> во {recDue.length} фирми:{' '}
+          {recDue.map((r) => {
+            const x = AFn.get(r.f);
+            return <FirmGo key={r.f} fid={r.f} current={f.id} to="/periodicni" className="btn sm" style={{ marginRight: 4 }} title={`${r.n} периодични · рок ${dmy(r.next)}`}>{((x?.settings as { short?: string } | undefined)?.short || x?.name) ?? ''} · {dmy(r.next)}</FirmGo>;
+          })}<br />
+          <small>Со клик се отвора фирмата → Периодични фактури – ако е вклучено „автоматски“, фактурите се издаваат и праќаат сами.</small></div>
       )}
       {apRun[0] && (
-        <Link href="/autop" className="callout" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', textDecoration: 'none', color: 'inherit' }}>
+        <Link href="/autop" id="apTile" className="callout" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', textDecoration: 'none', color: 'inherit' }}>
           <b>🤖 Автопилот</b><span className="pill good">✓ {Math.max(0, AF.length - new Set(apBad.map((x) => x.f)).size)} подготвени</span>
           {badF > 0 && <span className="pill bad">⛔ {badF} со проблеми</span>}
+          {apMsgs > 0 && <span className="pill">📨 {apMsgs} пораки</span>}
           <span className="muted" style={{ fontSize: 12 }}>проверено {apRun[0].startedAt.toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Skopje' })} – отвори →</span>
         </Link>
       )}
@@ -194,6 +207,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <p className="eyebrow">{dstr}</p>
           <h1>{f.name}</h1>
           <p className="note"><span className="hchip">ЕДБ {f.edb || '—'}</span><span className="hchip">Деловна {year}</span><span className="hchip">{f.vatRegistered ? 'ДДВ обврзник · ' + (per === 'month' ? 'месечно' : 'тромесечно') : 'Не е ДДВ обврзник'}</span></p>
+          <AinbHeroChip n={TS.ainb.length} mine={ainbMine} />
         </div>
         <div className="hero-kpi"><span>Резултат · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '' : 'маржа ' + mg.toLocaleString('mk-MK') + '% · '}данок на добивка 10% ≈ {fmt(Math.max(0, A.res * 0.1))}</i></div>
       </section>
@@ -203,8 +217,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         <span className="mini" style={{ marginLeft: 'auto' }}>Споредба со ист период {year - 1}</span>
       </div>
       <div className="quick q2">
-        {Q.map(([v, ic, t, s, tn]) => (
-          <Link key={v} href={`/${v}`}><i className={`ib ${tn}`}><Ico k={ic} sz={24} /></i><span><b>{t}</b><small>{s}</small></span></Link>
+        {QV.map(([v, ic, t, s, tn]) => (
+          <Link key={v} href={v === 'izlez' ? '/izlez?nov' : `/${v}`}><i className={`ib ${tn}`}><Ico k={ic} sz={24} /></i><span><b>{t}</b><small>{s}</small></span></Link>
         ))}
       </div>
       <div className="tiles kpi k4">
@@ -214,7 +228,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         <Tile lab="Пари (банки + благајна)" val={fmt(cashNow)} sub={<DPill d={pct(cashNow, cashLY)} py={year - 1} />} sp={<Spark vals={M.CB.slice(0, lastM + 1).concat(Array(11 - lastM).fill(0))} col="var(--c1)" />} ic="wallet" tn="t3" />
         <Tile lab="Побарувања од купувачи" val={fmt(recv)} sub={<>{inv.length} отворени{late.length ? <> · <strong style={{ color: 'var(--bad)' }}>{late.length} задоцнети ({kfmt(lateSum)})</strong></> : ' · сите во рок'}</>} ic="users" tn="t6" />
         <Tile lab="Обврски кон добавувачи" val={fmt(pay)} sub={<>{pur.length} отворени · за 7 дена: <strong>{kfmt(due7)}</strong>{payLate ? <> · <strong style={{ color: 'var(--bad)' }}>задоцнети {kfmt(payLate)}</strong></> : null}</>} ic="truck" tn="t5" />
-        {f.vatRegistered && <Tile lab={'ДДВ ' + cur} val={fmt(Dcur)} sub={(Dcur > 0 ? 'за плаќање' : 'за поврат') + ' · тековен период'} col={Dcur > 0 ? 'var(--bad)' : 'var(--good)'} ic="tax" tn="t7" />}
+        <Tile lab={'ДДВ ' + cur} val={fmt(Dcur)} sub={(Dcur > 0 ? 'за плаќање' : 'за поврат') + ' · тековен период'} col={Dcur > 0 ? 'var(--bad)' : 'var(--good)'} ic="tax" tn="t7" />
         <Tile lab="Залиха (набавна вредност)" val={fmt(stockS.wh + stockS.st)} sub={`магацин ${kfmt(stockS.wh)} · продавници ${kfmt(stockS.st)}`} ic="box" tn="t4" />
       </div>
       <div className="dash-grid">
@@ -240,7 +254,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         </div>
       </div>
       <div className="dash-grid g2">
-        <div className="card dash-chart"><div className="hd"><h2>Пари на сметка и благајна · крај на месец</h2><span className="note">банки + благајна</span></div>
+        <div className="card dash-chart"><div className="hd"><h2>Пари на сметка и благајна · крај на месец</h2><span className="note">{[banks.map((b) => b.name).join(', '), 'благајна'].filter(Boolean).join(' + ')}</span></div>
           {M.CB.some((v) => Math.abs(v) > 0.5) ? <LineChart V={M.CB} lastM={lastM} year={year} /> : <div className="empty">Нема прокнижени изводи и благајна за {year}. Увезете извод во Финанс. → Изводи.</div>}</div>
         <div className="card"><div className="hd"><h2>Старосна структура на побарувањата</h2><span className="num">{fmt(recv)}</span></div>
           {recv ? <HBars rows={AGEROWS} unit="Неплатено" /> : <div className="empty">Нема отворени побарувања.</div>}
@@ -252,22 +266,21 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         <div className="card"><div className="hd"><h2>Структура на расходите</h2><span className="note">{rg.lab}</span></div><HBars rows={expRows} col="var(--c2)" unit="Расход" /></div>
       </div>
       <div className="cols">
-        <div className="card"><div className="hd"><h2>Отворени побарувања</h2><Link className="btn sm" href="/opomeni">Опомени →</Link></div>
+        <div className="card"><div className="hd"><h2>Отворени побарувања</h2><Link className="btn sm" href="/analitika">ИОС →</Link></div>
           {inv.length ? <div className="tw"><table><thead><tr><th>Фактура</th><th>Купувач</th><th>Рок</th><th className="n">Неплатено</th></tr></thead><tbody>
             {[...inv].sort((a, b) => od(a) - od(b)).slice(0, 6).map((x) => <tr key={x.id}><td>{x.number}</td><td>{pn(x.partnerId)}</td><td>{dmy(x.due || x.date)}{od(x) < 0 && <> <span className="pill bad">{-od(x)} ден.</span></>}</td><td className="n">{fmt(open(x))}</td></tr>)}
           </tbody></table></div> : <div className="empty">Сите фактури се наплатени.</div>}</div>
-        <div className="card"><div className="hd"><h2>Обврски кон добавувачи</h2><Link className="btn sm" href="/ppNal">Платни налози →</Link></div>
+        <div className="card"><div className="hd"><h2>Обврски кон добавувачи</h2><Link className="btn sm" href="/kartici">Картици →</Link></div>
           {pur.length ? <div className="tw"><table><thead><tr><th>Фактура</th><th>Добавувач</th><th>Рок</th><th className="n">Неплатено</th></tr></thead><tbody>
             {[...pur].sort((a, b) => od(a) - od(b)).slice(0, 6).map((x) => <tr key={x.id}><td>{x.number}</td><td>{pn(x.partnerId)}</td><td>{dmy(x.due || x.date)}{od(x) < 0 && <> <span className="pill bad">{-od(x)} ден.</span></>}</td><td className="n">{fmt(open(x))}</td></tr>)}
           </tbody></table></div> : <div className="empty">Нема отворени обврски.</div>}</div>
       </div>
       <div className="card"><div className="hd"><h2>Последни документи</h2></div>
         {rec.length ? <div className="tw"><table><thead><tr><th>Датум</th><th>Вид</th><th>Број</th><th>Партнер</th><th className="n">Износ</th><th></th></tr></thead><tbody>
-          {rec.map((x, i) => <tr key={i}><td>{dmy(x.d)}</td><td><span className="pill">{x.t}</span></td><td>{x.n}</td><td>{x.p}</td><td className="n">{fmt(x.v)}</td><td><Link className="btn sm" href={x.href}>Отвори</Link></td></tr>)}
+          {rec.map((x, i) => <tr key={i}><td>{dmy(x.d)}</td><td><span className="pill">{x.t}</span></td><td>{x.n}</td><td>{x.p}</td><td className="n">{fmt(x.v)}</td><td>{nalOf.get(`${x.st}|${x.id}`) ? <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(nalOf.get(`${x.st}|${x.id}`)!)}`}>Налог</Link> : <Link className="btn sm" href={x.href} title="Документот сè уште не е прокнижен">Налог</Link>}</td></tr>)}
         </tbody></table></div> : <div className="empty">Сè уште нема документи.</div>}
       </div>
-      {/* `periodDue` kept for the VAT deadline when no estimate is available */}
-      {!est && f.vatRegistered && <p className="note">ДДВ-04 за {cur}: рок {dmy(periodDue(cur))}.</p>}
+      <div className="row noprint" style={{ justifyContent: 'flex-end', marginTop: 8 }}><PdfButton selector="#main" title={`Контролна табла – ${f.name}`} landscape /></div>
     </>
   );
 }

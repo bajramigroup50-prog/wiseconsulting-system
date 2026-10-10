@@ -28,7 +28,7 @@ export default async function KlHomePage() {
     ['Благајна', sumPref(B, ['102'])],
     ['Жиро сметка', sumPref(B, ['100'])],
   ];
-  const S = klSections((firm.settings as { kl?: KlConfig }).kl);
+  const S = klSections((firm.settings as { kl?: KlConfig }).kl, firm.mods);
   return (
     <>
       <Hd t={`🏠 ${firm.name}`} sub="портал за клиенти" />
