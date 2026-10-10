@@ -28,6 +28,29 @@ const SHARED_API = ['/api/files', '/api/pdf', '/api/errors'];
 const TEREN_VIEWS = ['mojzad', 'mojpn', 'lozinka', 'izlezF'];
 
 /**
+ * Which client sections a file link belongs to (`file_links.entity_type` → view ids). A client may open a file only
+ * through one of these; types not listed (payroll runs of other screens, office records, AI scans…) are never
+ * served to a client unless they uploaded the file themselves.
+ */
+export const FILE_ENTITY_VIEWS: Readonly<Record<string, readonly string[]>> = {
+  dossier_doc: ['dosie'], inbox_item: ['klSend'], client_entry: ['klSend'], service_contract: ['kdogovori'],
+  purchase: ['vlez'], invoice: ['izlez', 'profakturi', 'ispratnici'], sales_daily: ['kdfi', 'kasa'],
+  payroll_run: ['plati'], employee: ['plati'], hr_doc: ['plati'],
+  hotel_reservation: ['hotel'], rent_rental: ['rent'], work_order: ['servis'], customer_vehicle: ['vozila'],
+  construction_project: ['gradba'], construction_situation: ['gradba'], construction_diary: ['gradba'],
+  travel_arrangement: ['tura'], travel_booking: ['tura'], appointment: ['termini'], customer_order: ['porachki'],
+};
+/** The firm's logo / signature / stamp appear on every printed document the client may open. */
+const FIRM_IMAGE_ROLES = new Set(['logo', 'signature', 'stamp']);
+
+/** Client access to one file (`/api/files/:id`): uploaded by them, or linked to a section they may see. */
+export function klFileAllowed(links: readonly { entityType: string; role: string }[], views: readonly string[], uploadedByMe: boolean, firmImage = false): boolean {
+  if (uploadedByMe || firmImage) return true;
+  const V = new Set(views);
+  return links.some((l) => (l.entityType === 'firm' && FIRM_IMAGE_ROLES.has(l.role)) || (FILE_ENTITY_VIEWS[l.entityType] ?? []).some((v) => V.has(v)));
+}
+
+/**
  * `null` = allowed; otherwise where to send the user (`'403'` for an API call).
  * `views` = the view ids the user may open (klient: `klAllowedViews` + `kdogovori`).
  */
