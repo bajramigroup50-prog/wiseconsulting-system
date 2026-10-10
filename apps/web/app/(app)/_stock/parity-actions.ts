@@ -5,15 +5,13 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { isCbKey, cbIsGlobal } from '@wise/core/codebooks';
-import { deleteItemsStock, importAccounts, importCodebook, partners, patchFirmSettings, runCustomProductionOrder, audit, type Tx } from '@wise/db';
+import { deleteItemsStock, importAccounts, importCodebook, patchFirmSettings, runCustomProductionOrder, type Tx } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { requireCan, requireUser } from '@/lib/auth';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
-import { nextCode } from '@/lib/codes';
 import { numIn, stockAction } from '@/lib/stock';
 
 function json<T extends z.ZodType>(schema: T, form: FormData): z.infer<T> | { error: string } {
@@ -95,27 +93,3 @@ export async function importAccountsAction(_p: ActionState, f: FormData): Promis
     return { ok: `Увезено: ${R.add} нови конта, ${R.upd} изменети називи${R.skip.length ? `; прескокнати ${R.skip.length}: ${R.skip.slice(0, 8).join(' · ')}` : '.'}` };
   } catch (e) { return actionError(e); }
 }
-
-/* ---------------- Комитенти: „Додели шифри“ (legacy autoCodes) ---------------- */
-
-export async function autoCodesAction(): Promise<ActionState> {
-  try {
-    const { u, firm } = await firmAction('autoCodes');
-    const n = await db().transaction(async (t) => {
-      const tx = t as unknown as Tx;
-      const all = await tx.select({ id: partners.id, code: partners.code, name: partners.name }).from(partners).where(eq(partners.firmId, firm.id)).orderBy(asc(partners.name));
-      const codes = all.map((p) => p.code);
-      const todo = all.filter((p) => !String(p.code ?? '').trim());
-      for (const p of todo) {
-        const c = nextCode(codes);
-        codes.push(c);
-        await tx.update(partners).set({ code: c }).where(eq(partners.id, p.id));
-      }
-      await audit(tx, { userId: u.id, firmId: firm.id, action: 'autoCodes', entityType: 'partner', data: { assigned: todo.length } });
-      return todo.length;
-    });
-    revalidatePath('/partneri');
-    return { ok: 'Доделени шифри: ' + n };
-  } catch (e) { return actionError(e); }
-}
-
