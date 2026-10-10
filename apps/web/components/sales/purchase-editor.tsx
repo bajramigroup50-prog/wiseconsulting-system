@@ -18,6 +18,7 @@ import { addSupplierAction, createItemsAction, deletePurchaseAction, saveMarginD
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
 import { blankCost, COSTS, type EdPurchase, type EdStock } from './model';
+import { PX_DRAFT_KEY, type PxDraft } from './px-import';
 
 export interface PurItemOpt { id: string; code: string | null; name: string; unit: string | null; rate: number; type: string; barcodes: string[]; sp: Record<string, number>; price: number; lastCost?: number }
 export interface ScanQueueProp { batch: boolean; name: string; rest: number; skipHref: string | null; listHref: string }
@@ -45,6 +46,8 @@ export interface PurchaseEditorProps {
   /** Closed VAT periods `[from, to]` (legacy `ddvClosed`). */
   closed?: [string, string][];
   fuelRule?: FuelRule | null;
+  /** Opened from „📥 Фактура со ставки од Excel“: the lines wait in sessionStorage (`PX_DRAFT_KEY`). */
+  pxInfo?: string;
 }
 
 const RATES = ['18', '10', '5', '0'];
@@ -79,6 +82,19 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const impRef = useRef<HTMLInputElement>(null);
   const bcRef = useRef<HTMLInputElement>(null);
   const set = (x: Partial<EdPurchase>) => setD((o) => ({ ...o, ...x }));
+  useEffect(() => {
+    if (!p.pxInfo) return;
+    try {
+      const x = JSON.parse(sessionStorage.getItem(PX_DRAFT_KEY) ?? 'null') as PxDraft | null;
+      sessionStorage.removeItem(PX_DRAFT_KEY);
+      if (!x) return;
+      setD((o) => ({ ...o, imp: x.imp, warehouseId: x.wh, number: x.number || o.number, date: x.date || o.date, docDate: x.date || o.docDate, partnerId: x.partnerId, supplierName: x.supplierName,
+        ...(x.imp ? { currency: x.currency, fx: x.fx, data: { ...o.data, fxAmt: String(x.fxAmt) } } : {}), groups: x.groups, ptype: 'stock',
+        stock: x.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: 'ком', qty: l.qty, price: l.price, rab: '', amount: '', cn: '', dep: '', sp: l.sp, type: 'goods', rate: l.rate, isNew: !l.itemId })) }));
+      setToast(p.pxInfo);
+      if (x.imp) setTab('dev');
+    } catch { /* nothing to load */ }
+  }, [p.pxInfo]);
   const setData = (x: Record<string, string>) => setD((o) => ({ ...o, data: { ...o.data, ...x } }));
   const setG = (i: number, x: Partial<EdPurchase['groups'][number]>) => setD((o) => ({ ...o, groups: o.groups.map((g, k) => (k === i ? { ...g, ...x } : g)) }));
   const setS = (i: number, x: Partial<EdStock>) => setD((o) => ({ ...o, stock: o.stock.map((s, k) => (k === i ? { ...s, ...x } : s)) }));

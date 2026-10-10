@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { fuelBannerData, fuelInvoiceCheck, fuelPurchaseWarning, isFuel } from './sales';
+import { fuelBannerData, fuelInvoiceCheck, fuelPurchaseWarning, isFuel, pxAuto, pxGroups, pxHeaderRow, pxLines, pxN6, pxNum } from './sales';
+
+describe('Excel purchase lines (legacy pxBuild 17236–17376)', () => {
+  it('parses numbers like legacy fkN / pxN6', () => {
+    expect(pxNum('1.333,34')).toBe(1333.34);
+    expect(pxNum('1,333.34')).toBe(1333.34);
+    expect(pxNum('80,000')).toBe(80000);
+    expect(pxN6('0,123456')).toBe(0.123456);
+  });
+  it('finds the header row and maps the columns', () => {
+    const A = [['Фактура бр 5'], ['Шифра', 'Назив на производ', 'Количина', 'Набавна цена', 'Продажна цена', 'ДДВ %'], ['A1', 'Сок', '10', '50,5', '90', '5'], ['', '', '', '', '', '']];
+    const { hi } = pxHeaderRow(A);
+    expect(hi).toBe(1);
+    const col = pxAuto(A[hi]!, A.slice(hi + 1));
+    expect(col).toMatchObject({ code: 0, name: 1, qty: 2, price: 3, sp: 4, rate: 5 });
+    const L = pxLines(A, hi, col, true);
+    expect(L).toEqual([{ code: 'A1', name: 'Сок', qty: 10, price: 50.5, sp: 90, rate: 5, barcode: '' }]);
+    expect(pxGroups(L, { imp: false, fx: 1, vatFirm: true, konto: '6600' }).groups).toEqual([{ account: '6600', rate: 5, base: 505, vat: 25.25 }]);
+    expect(pxGroups(L, { imp: true, fx: 61.5, vatFirm: true, konto: '6600' })).toEqual({ fxAmt: 505, groups: [{ account: '6600', rate: 0, base: 31057.5, vat: 0 }] });
+  });
+});
 
 const R = { rate: 10, else: 18, from: '2026-01-01', to: '2026-12-31', title: 'ДДВ на горива 10%', url: '' };
 

@@ -82,6 +82,27 @@ export async function approvePurchaseAction(id: string): Promise<ActionState> {
   return { ok: 'Одобрено.' };
 }
 
+/**
+ * Legacy `delPurSel` (17354) / `delPurDups` (7195): delete several purchases with their journals and receipts. Each one
+ * in its own transaction with the usual checks (period / VAT lock, linked returns); blocked ones are skipped.
+ */
+export async function deletePurchasesAction(ids: string[]): Promise<ActionState> {
+  try {
+    const L = z.array(z.uuid()).max(2000).parse(ids);
+    const { u, firm } = await firmAction('del');
+    let n = 0;
+    const bad: string[] = [];
+    for (const id of L) {
+      try { await db().transaction((tx) => deletePurchase(tx, firm.id, id, actorOf(u))); n++; } catch (e) { bad.push(e instanceof Error ? e.message : String(e)); }
+    }
+    revalidatePath('/', 'layout');
+    return bad.length ? { error: `Избришани ${n} од ${L.length}. ${bad.length} фактури не може да се избришат (заклучен период / поднесена ДДВ / поврзани документи): ${bad[0]}` } : { ok: `${n} фактури се избришани.` };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Неважечки податоци.' };
+    return actionError(e);
+  }
+}
+
 /** Legacy `addSupplier` (7161): add the read supplier to the partners now. */
 export async function addSupplierAction(name: string, edb: string, foreign: boolean): Promise<ActionState & { id?: string; code?: string | null; name?: string; edb?: string | null }> {
   try {
