@@ -28,15 +28,14 @@ export default async function CashBookPrint({ searchParams }: { searchParams: Pr
             <tr><td></td><td>{dmy(from)}</td><td></td><td></td><td></td><td><i>Почетно салдо</i></td><td className="n">{X.opening > 0 ? fmt(X.opening) : ''}</td><td className="n">{X.opening < 0 ? fmt(-X.opening) : ''}</td><td className="n">{fmt(X.opening)}</td>{fxR && <td className="n">{fmt(X.openingCur)}</td>}</tr>
             {X.rows.map((r, i) => (
               <tr key={i}><td>{i + 1}</td><td>{dmy(r.date)}</td><td>{r.nalog}</td><td>{r.voucher?.number ?? ''}</td><td>{r.doc}</td>
-                <td>{r.label}{r.voucher && r.voucher.cur !== 'MKD' ? ` (${fmt(Number(r.voucher.amt))} ${r.voucher.cur})` : ''}</td>
+                <td>{r.label}{r.voucher?.country && r.voucher.country !== 'MK' ? ` (${r.voucher.country})` : ''}{r.voucher && r.voucher.cur !== 'MKD' ? ` (${fmt(Number(r.voucher.amt))} ${r.voucher.cur})` : ''}</td>
                 <td className="n">{r.debit ? fmt(r.debit) : ''}</td><td className="n">{r.credit ? fmt(r.credit) : ''}</td><td className="n">{fmt(r.balance)}</td>{fxR && <td className="n">{fmt(r.balanceCur)}</td>}</tr>
             ))}
           </tbody>
           <tfoot><tr><td colSpan={6}><b>Вкупно промет</b></td><td className="n"><b>{fmt(X.debit)}</b></td><td className="n"><b>{fmt(X.credit)}</b></td><td className="n"><b>{fmt(X.closing)}</b></td>{fxR && <td className="n"><b>{fmt(X.closingCur)}</b></td>}</tr></tfoot>
         </table>
-        <div className="row" style={{ justifyContent: 'space-between', marginTop: 40 }}>
-          <span>Благајник: ______________________</span><span>Контролирал: ______________________</span>
-        </div>
+        {/* legacy `sig('Благајник','Одговорно лице')` */}
+        <div className="sig"><span>Благајник</span><span>Одговорно лице</span></div>
       </div>
     </PrintPage>
   );

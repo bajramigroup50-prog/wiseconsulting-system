@@ -5,14 +5,15 @@
  * category → konto and the Macedonian VAT rate (fuel 10 %). Receipt photo goes to MinIO (`uploadFile`).
  */
 import Link from 'next/link';
-import { useActionState, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { receiptDrafts } from '@wise/core/ai/receipts';
 import { useAiPoll } from '@/components/ai-read';
 import { startAiRead } from '@/app/(app)/_ai/actions';
-import { CASH_COUNTRIES, CASH_COUNTRY_CURRENCY, cashDefaultRate } from '@wise/core/bank/cash';
+import { CASH_COUNTRIES, CASH_COUNTRY_CURRENCY, cashDefaultRate, cashVoucherDuplicate, type CashDupKey } from '@wise/core/bank/cash';
 import { CASH_EXPENSE_CATEGORIES } from '@wise/core/data/posting';
 import { cashExpenseAccount } from '@wise/core/posting';
-import { fxRate, type FxRateRow } from '@wise/core/bank-match';
+import { fxRate, fxRateSource, type FxRateRow } from '@wise/core/bank-match';
 import { r2 } from '@wise/core/money';
 import { uploadFile } from '@/lib/upload';
 import { fmt } from '@/lib/fmt';
@@ -25,7 +26,7 @@ export interface VoucherInit {
   fileId?: string; fileName?: string;
 }
 
-export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, firmId, nextNo }: {
+export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, firmId, nextNo, dups = [], kNames = {} }: {
   init: VoucherInit;
   registers: { id: string; name: string; konto: string; cur: string }[];
   partners: { id: string; name: string }[];
@@ -36,7 +37,13 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
   curs: string[];
   firmId: string;
   nextNo: Record<string, string>;
+  /** Saved vouchers with a receipt number (legacy `blgDup`: live warning „Веќе постои сметка со ист број, датум и износ“). */
+  dups?: CashDupKey[];
+  /** Konto → name of the firm chart (shown under the konto field, legacy `kName`). */
+  kNames?: Record<string, string>;
 }) {
+  const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const [st, action, pending] = useActionState<FormState, FormData>(saveVoucherAction, {});
   const [v, setV] = useState(init);
   const [up, setUp] = useState<string>('');
@@ -67,6 +74,18 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docs]);
 
+  // legacy keydown 7957: F4 = save, Esc = cancel (only while no modal is open)
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (document.querySelector('#modal > *, dialog[open]')) return;
+      if (e.key === 'F4') { e.preventDefault(); (document.activeElement as HTMLElement | null)?.blur(); setTimeout(() => formRef.current?.requestSubmit(), 30); }
+      else if (e.key === 'Escape') { e.preventDefault(); router.push(`/blagajna?reg=${init.reg}`); }
+    };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  }, [router, init.reg]);
+  const dup = cashVoucherDuplicate({ id: v.id, docNo: v.docNo, date: v.date, amt: Number(v.amt) || 0 }, dups);
+
   const onCountry = (country: string) => {
     const cur = CASH_COUNTRY_CURRENCY[country] ?? v.cur;
     set({ country, cur, fx: rateOf(cur, v.date), rate: cashDefaultRate(v.cat, country), vat: '', konto: inn ? v.konto : kontoFor(v.cat, country) });
@@ -80,9 +99,9 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
   const vat = ded ? (v.vat !== '' ? r2(Number(v.vat) * fxN) : r2((mkd * v.rate) / (100 + v.rate))) : 0;
 
   return (
-    <form className="card" style={{ borderColor: 'var(--accent)' }} action={action}>
+    <form ref={formRef} className="card" style={{ borderColor: 'var(--accent)' }} action={action}>
       <div className="hd"><h2>{inn ? 'Уплатница' : 'Исплатница'} {v.number || nextNo[v.reg + ':' + v.kind] || ''}</h2>
-        <div className="row"><Link className="btn" href={`/blagajna?reg=${v.reg}`}>Откажи</Link><button className="btn pri" disabled={pending}>Зачувај</button></div></div>
+        <div className="row"><Link className="btn" href={`/blagajna?reg=${v.reg}`}>Откажи (Esc)</Link><button className="btn pri" disabled={pending}>Зачувај (F4)</button></div></div>
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
       {st.ok && <div className="callout warn" role="status">{st.ok}</div>}
       {v.id && <input type="hidden" name="id" value={v.id} />}
@@ -95,7 +114,7 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
         }}>{registers.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.konto} · {r.cur}</option>)}</select></label>
         <label className="f">Датум<input type="date" name="date" value={v.date} required onChange={(e) => set({ date: e.target.value, ...(v.cur !== 'MKD' ? { fx: rateOf(v.cur, e.target.value) } : {}) })} /></label>
         <label className="f">Број ({inn ? 'уплатница' : 'исплатница'})<input name="number" value={v.number} placeholder={nextNo[v.reg + ':' + v.kind] ?? 'автоматски'} onChange={(e) => set({ number: e.target.value })} /></label>
-        <label className="f">{inn ? 'Документ (бр.)' : 'Бр. на фискална сметка / фактура'}<input name="docNo" defaultValue={v.docNo} /></label>
+        <label className="f">{inn ? 'Документ (бр.)' : 'Бр. на фискална сметка / фактура'}<input name="docNo" value={v.docNo} autoFocus={!v.id} onChange={(e) => set({ docNo: e.target.value })} /></label>
         {!inn && <>
           <label className="f">Земја<select name="country" value={v.country} onChange={(e) => onCountry(e.target.value)}>
             {Object.entries(CASH_COUNTRIES).map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</select></label>
@@ -104,11 +123,11 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
           <label className="f">Вид трошок<select name="cat" value={v.cat} onChange={(e) => onCat(e.target.value)}>
             {Object.entries(CASH_EXPENSE_CATEGORIES).map(([k, c]) => <option key={k} value={k}>{c[0]}</option>)}</select></label>
         </>}
-        <label className="f">{inn ? 'Спротивно конто (од каде)' : 'Конто на трошок'}<input name="konto" list="blgK" value={v.konto} onChange={(e) => set({ konto: e.target.value })} required={inn} /></label>
+        <label className="f">{inn ? 'Спротивно конто (од каде)' : 'Конто на трошок'}<input name="konto" list="blgK" value={v.konto} onChange={(e) => set({ konto: e.target.value })} required={inn} /><small className="mut">{kNames[v.konto.split(/\s/)[0] ?? ''] ?? ''}</small></label>
         <label className="f">Валута<select name="cur" value={v.cur} onChange={(e) => set({ cur: e.target.value, fx: rateOf(e.target.value, v.date) })}>
           {curs.map((c) => <option key={c}>{c}</option>)}</select></label>
         <label className="f">Износ ({v.cur})<input name="amt" inputMode="decimal" value={v.amt} required onChange={(e) => set({ amt: e.target.value, vat: '' })} /></label>
-        {v.cur !== 'MKD' && <label className="f">Курс (1 {v.cur} = МКД)<input name="fx" inputMode="decimal" value={v.fx} onChange={(e) => set({ fx: e.target.value })} /></label>}
+        {v.cur !== 'MKD' && <label className="f">Курс (1 {v.cur} = МКД)<input name="fx" inputMode="decimal" value={v.fx} onChange={(e) => set({ fx: e.target.value })} /><small className="mut">{fxRateSource(v.cur, v.date, fx)}</small></label>}
         {!inn && v.country === 'MK' && <>
           <label className="f">ДДВ стапка<select name="rate" value={v.rate} onChange={(e) => set({ rate: Number(e.target.value), vat: '' })}>
             {[18, 10, 5, 0].map((r) => <option key={r} value={r}>{r}%</option>)}</select></label>
@@ -137,8 +156,8 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
           {(up || v.fileName) && <small className="mut">{up || v.fileName}</small>}
         </label>
       </div>
-      <div className="callout">Во денари: <b>{fmt(mkd)}</b>{vat ? <> · основа {fmt(mkd - vat)} + претходен ДДВ {fmt(vat)}</> : !inn && v.country !== 'MK' ? ' · странски ДДВ не се одбива (влегува во трошокот)' : ''}.
-        {' '}Книжење: {inn ? <>Должи {reg.konto} / Побарува {v.konto || '—'}</> : <>Должи {v.konto}{vat ? ' + претходен ДДВ' : ''} / Побарува {reg.konto}</>}.</div>
+      <div className={`callout ${dup ? 'warn' : ''}`}>Во денари: <b>{fmt(mkd)}</b>{vat ? <> · основа {fmt(mkd - vat)} + претходен ДДВ {fmt(vat)}</> : !inn && v.country !== 'MK' ? ' · странски ДДВ не се одбива (влегува во трошокот)' : ''}.
+        {' '}Книжење: {inn ? <>Должи {reg.konto} / Побарува {v.konto || '—'}</> : <>Должи {v.konto}{vat ? ' + претходен ДДВ' : ''} / Побарува {reg.konto}</>}.{dup && <b> Веќе постои сметка со ист број, датум и износ.</b>}</div>
     </form>
   );
 }

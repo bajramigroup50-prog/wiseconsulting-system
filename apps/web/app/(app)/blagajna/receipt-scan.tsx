@@ -7,7 +7,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import { receiptDraftProblem, receiptDrafts, type ReceiptDraft } from '@wise/core/ai/receipts';
-import { CASH_COUNTRIES, CASH_COUNTRY_CURRENCY, cashDefaultRate } from '@wise/core/bank/cash';
+import { CASH_COUNTRIES, CASH_COUNTRY_CURRENCY, cashDefaultRate, cashVoucherDuplicate, type CashDupKey } from '@wise/core/bank/cash';
 import { CASH_EXPENSE_CATEGORIES } from '@wise/core/data/posting';
 import { cashExpenseAccount } from '@wise/core/posting';
 import { fxRate, type FxRateRow } from '@wise/core/bank-match';
@@ -18,7 +18,7 @@ import { saveReceiptBatchAction } from './actions';
 
 type Row = ReceiptDraft & { key: string; docId: string; fileId: string | null; fname: string };
 
-export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, curs }: {
+export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, curs, dups = [] }: {
   firmId: string;
   registers: { id: string; name: string; konto: string; cur: string }[];
   reg0: string;
@@ -28,6 +28,8 @@ export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, c
   fx: { firm: FxRateRow[]; office: FxRateRow[] };
   ddv: boolean;
   curs: string[];
+  /** Saved vouchers with a receipt number (legacy `blgDup` → pill „дупликат?“). */
+  dups?: CashDupKey[];
 }) {
   const router = useRouter();
   const ai = useAiRead(firmId);
@@ -118,7 +120,8 @@ export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, c
                     ? <select value={d.rate} onChange={(e) => upd(d.key, 'rate', e.target.value)} style={{ width: 66 }}>{[18, 10, 5, 0].map((r) => <option key={r} value={r}>{r}%</option>)}</select>
                     : <small className="mut">странски</small>}</td>
                   <td className="n"><b>{fmt(c.mkd)}</b>{c.vat ? <><br /><small className="mut">ДДВ {fmt(c.vat)}</small></> : null}</td>
-                  <td>{d.fileId && <a href={`/api/files/${d.fileId}`} target="_blank" rel="noopener" title={d.fname}>📎</a>}</td>
+                  <td>{d.fileId && <a href={`/api/files/${d.fileId}`} target="_blank" rel="noopener" title={d.fname}>📎</a>}
+                    {cashVoucherDuplicate({ docNo: d.docNo, date: d.date, amt: +d.amt || 0 }, [...dups, ...rows.filter((x) => x.key !== d.key).map((x) => ({ id: x.key, docNo: x.docNo, date: x.date, amt: +x.amt || 0 }))]) ? <> <span className="pill bad">дупликат?</span></> : null}</td>
                   <td><button type="button" className="btn sm ghost" style={{ color: 'var(--bad)' }} onClick={() => setRows((R) => R.filter((x) => x.key !== d.key))}>✕</button></td>
                 </tr>
               );
