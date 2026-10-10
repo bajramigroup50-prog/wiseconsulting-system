@@ -19,7 +19,11 @@ const ts = (name: string) => timestamp(name, { withTimezone: true });
  */
 export const amlReports = pgTable('aml_reports', {
   id: uuid('id').primaryKey().defaultRandom(),
-  firmId: uuid('firm_id').references(() => firms.id, { onDelete: 'set null' }),
+  /**
+   * The client concerned. Deliberately not `firm_id`: these are the office's records, so they must never travel in
+   * the client's per-firm export / backup (ЗСППФТ ban on disclosure).
+   */
+  firmId: uuid('client_firm_id').references(() => firms.id, { onDelete: 'set null' }),
   firmName: text('firm_name').notNull().default(''),
   text: text('text').notNull(),
   status: text('status').notNull().default('нова'),
