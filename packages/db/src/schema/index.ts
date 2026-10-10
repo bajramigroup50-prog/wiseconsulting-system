@@ -19,3 +19,4 @@ export * from './system';
 export * from './finance';
 export * from './legacy-import';
 export * from './retail';
+export * from './firmsoffice';
