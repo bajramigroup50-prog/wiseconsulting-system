@@ -5,6 +5,7 @@ import { opDays, opDue, opGroups, opText, waPhone } from './dunning';
 import { mhKind, mhKindGroup } from './mailhist';
 import { klStrongPw, klUserName } from './klprofili';
 import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
+import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -121,5 +122,32 @@ describe('firm import (legacy fimpField / fimpRead / fimpFind)', () => {
     expect(F.settings.bankAccount).toBe('3001');
     expect(fimpFind(P.L[0]!, [{ id: 'x', name: 'Друга', edb: '4030000000001', embs: null }])?.id).toBe('x');
     expect('error' in fimpParse([['a', 'b']])).toBe(true);
+  });
+});
+
+describe('dashboard (legacy dashRange / dashAgg / dashMonthly / kdRange)', () => {
+  const L = [
+    { account: '7400', month: 1, debit: 0, credit: 1000 }, { account: '4100', month: 1, debit: 300, credit: 0 },
+    { account: '7000', month: 2, debit: 200, credit: 0 }, { account: '1000', month: 1, debit: 500, credit: 100 }, { account: '1020', month: 3, debit: 50, credit: 0 },
+  ];
+  it('ranges', () => {
+    expect(dashRange(2026, 'q1', '2026-05-10')).toMatchObject({ from: '2026-01-01', to: '2026-03-31', m0: 0, m1: 2 });
+    expect(dashRange(2026, 'ytd', '2026-05-10')).toMatchObject({ to: '2026-05-31', m1: 4 });
+    expect(dashRange(2025, 'm', '2026-05-10')).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
+  });
+  it('aggregates and monthly cash', () => {
+    expect(dashAgg(L, 0, 11)).toEqual({ rev: 1000, exp: 500, res: 500, eg: { '41': 300, '70': 200 } });
+    const M = dashMonthly(L, new Set(['1000', '1020']));
+    expect(M.CB.slice(0, 3)).toEqual([400, 400, 450]);
+    expect(pct(110, 100)).toBe(10);
+    expect(pct(1, 0)).toBeNull();
+  });
+  it('klDash ranges and buckets, payroll deadline', () => {
+    expect(kdRange(2026, 'pm', '2026-03-15')).toEqual(['2026-02-01', '2026-02-28', 'Претходен месец']);
+    expect(kdRange(2026, '7', '2026-03-15')[0]).toBe('2026-03-09');
+    expect(kdBuckets('2026-01-01', '2026-01-03').keys).toEqual(['2026-01-01', '2026-01-02', '2026-01-03']);
+    expect(kdBuckets('2026-01-01', '2026-12-31')).toMatchObject({ byMonth: true });
+    expect(payDeadline('2026-03-15')).toEqual({ due: '2026-04-10', month: '2026-03' });
+    expect(payDeadline('2026-03-05')).toEqual({ due: '2026-03-10', month: '2026-02' });
   });
 });
