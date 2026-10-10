@@ -181,7 +181,18 @@ export async function saveVp(_prev: ActionState, form: FormData): Promise<Action
 export async function saveDld(_prev: ActionState, form: FormData): Promise<ActionState> {
   const A: Record<string, number> = {};
   for (const [k] of [...DLD_ND, ['red'], ['ak']] as [string][]) { const v = int(form.get('dld' + k)); if (v != null) A[k] = v; }
-  return patchStatement('tpSave', () => ({ dldAdj: A }), 'ДЛД-ДБ е зачуван.');
+  // Legacy `tpSave` 10518 also stores the year's tax: next year's monthly advance = tax / 12.
+  try {
+    const { u, firm, year } = await firmAction('write');
+    await db().transaction(async (tx) => {
+      await upsertStatement(tx, firm.id, year, { dldAdj: A }, u.id);
+      const L = await loadYear(tx, firm.id, year);
+      if (L.Y.tp) await upsertStatement(tx, firm.id, year, { dldAdj: { ...A, tax: L.Y.tp.tax } }, u.id);
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'tpSave', entityType: 'annualStatement', entityId: String(year), data: { keys: Object.keys(A), tax: L.Y.tp?.tax ?? null } });
+    });
+  } catch (e) { return actionError(e); }
+  done();
+  return { ok: 'ДЛД-ДБ е зачуван.' };
 }
 
 /* ---------------- manual AOP amounts (legacy zmEdit / zmClear) ---------------- */
