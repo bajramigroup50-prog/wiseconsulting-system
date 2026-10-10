@@ -35,6 +35,16 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = n
     if (!doc.fileId) throw new AiReadError('Датотеката не е пронајдена.');
     const file = await loadFile(db, f.id, doc.fileId);
     content = fileContent(file, await readObject(file.bucketKey));
+    // legacy `fkTiles` 13005 + `FK_TILE_NOTE` 13010: several photos / pages of ONE fiscal report read together
+    const extra = ((doc.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [];
+    if (doc.kind === 'fisk' && extra.length) {
+      for (const id of extra.slice(0, 7)) {
+        const x = await loadFile(db, f.id, id);
+        const c = fileContent(x, await readObject(x.bucketKey));
+        content = { blocks: [...content.blocks, ...c.blocks], extra: content.extra + c.extra };
+      }
+      content.extra += '\n\nThe images are CONSECUTIVE PARTS (top → bottom, slightly overlapping) of ONE long fiscal receipt/report – read them together as one document and do not count overlapping lines twice.';
+    }
   }
   const read = async (prompt: string, tier: AiTier) => readContent<unknown>({ ...base, prompt, tier }, content);
 

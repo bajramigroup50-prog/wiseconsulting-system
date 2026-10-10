@@ -92,7 +92,7 @@ New table (schema `packages/db/src/schema/parity-finance.ts`, migration to be ge
 | P2 | Owner check against the office's other firms | 12880 | partial | ✅ |
 | P2 | KB `.300` unknown account (add 108x) and balances-only file | 12677 / 12679 | different / missing | open |
 | P3 | Osnov / ref under description, own / conv / POS pills, „🔎 Формати по банка“ | | missing | ✅ |
-| P3 | Admin bulk delete (`bkDel`) | 16905 | missing | open |
+| P3 | Admin bulk delete (`bkDel`) | 16905 | missing | ✅ checkbox column + „🗑 Избриши ги избраните“ (admin, one confirm) |
 | P2 | PDF / Excel of the statements | none in legacy | missing | ✅ generic screen PDF / Excel |
 
 ## kursna · bkAdv · bankFmt · kompenzacii · ppNal
@@ -129,7 +129,7 @@ New table (schema `packages/db/src/schema/parity-finance.ts`, migration to be ge
 | P2 | analitika/kartici | ИОС printable from either screen | ✅ |
 | P2 | recFree | period mode (v433), difference-in-period tile (v432), opening comparison rule, record extras | ✅ `compareCardsPeriod` (core, tested) |
 | P2 | recon | ЕДБ in the record, Конто column, their D / P headers, file names | ✅ |
-| P3 | kartici | CSV decimal comma; Enter opens the exact konto | open (P3) |
+| P3 | kartici | CSV decimal comma; Enter opens the exact konto | ✅ |
 | ok | kartici / analitika / poobjekti / bbPart / bilanc | header buttons, picker, cards, synthetic card, ИОС, card PDFs, poobjekti PDF, levels / filters | ok |
 
 ## blagajna · fiskPer · kamati · pozajmici
@@ -145,7 +145,7 @@ New table (schema `packages/db/src/schema/parity-finance.ts`, migration to be ge
 | P1 | fiskPer | revenue / card / cash konto inputs, no-VAT | ✅ (read and manual) |
 | P2 | fiskPer | read VAT per group, `fkCheck` + „ги проверив разликите“, read table, transcript, confirm, `fiskOpt` remembered, DFI settings, scan attached | ✅ |
 | P2 | fiskPer | device register tab, МЕТГ / ДДВ-04 links, non-store warning, POS box, device field, plan link keeps the draft | ✅ |
-| P2 | fiskPer | several images / pages of one report in one read (`fk_cam`, tiles) | open — the worker reads one file per read |
+| P2 | fiskPer | several images / pages of one report in one read (`fk_cam`, `fkTiles`) | ✅ grouped read (up to 8 files, legacy `FK_TILE_NOTE`); images are not split into tiles |
 | P2 | fiskPer | step-2 goods issue per day for multi-day reads | open — the issue plan works per posted record (manual editor) |
 | P1 | pozajmici | loans from statement lines on other kontos (`lnBankKind`) | ✅ `loanMovesFromBank` (core, tested) |
 | P2 | pozajmici | rebook to 1620 / 2620, „🔗 Поврзи“, 📎 signed contract, amount in words, Word export, select all | ✅ |
@@ -155,9 +155,7 @@ New table (schema `packages/db/src/schema/parity-finance.ts`, migration to be ge
 
 - banka: KB `.300` files of a special account (offer „Додај сметка 108x“) and KB balance-only files — rare bank-specific
   edge cases; the KB parser does not expose the account / balance-only record yet.
-- banka: admin bulk delete with checkboxes (P3) — per-line and per-statement delete exist.
 - kartici: bank counterparty name / purpose in the „без комитент“ table and `kcSod` text on the card print — journal lines
   do not carry the statement line id; needs a line-level link in the bank posting.
-- kartici: CSV with decimal comma, Enter opens an exact konto (P3).
-- fiskPer: several pages of one report in one AI read; per-day goods issue after a multi-day post.
+- fiskPer: per-day goods issue after a multi-day post (the issue plan works per posted record in the manual editor); long receipts are not cut into tiles (whole images are sent).
 - The firm-backup / bulk-confirmation „📁 архивирај“ (dossier) is part of the reconciliation-archive work of another agent.
