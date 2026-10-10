@@ -286,7 +286,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
         <button className="btn">Филтрирај</button><span className="note">{list.length} од {all.length} документи</span>
       </form>
       {list.length ? (<>
-        {del && u.role === 'admin' && <BulkBar label={(k) => `🗑 Избриши ги избраните (${k})`} confirm={(k) => `Да се избришат ${k} избрани ставки?
+        {del && u.role === 'admin' && <BulkBar label={`🗑 Избриши ги избраните ({n})`} confirm={`Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
 Ова не може да се врати.`} action={deleteInvoicesAction} />}
         <div className="tw"><table className="dense">

@@ -20,10 +20,12 @@ export function SelBox({ id, group = 'r' }: { id: string; group?: string }) {
 }
 
 export function BulkBar({ group = 'r', label, confirm: ask, action, extra }: {
-  group?: string; label: (n: number) => string; confirm: (n: number) => string;
+  /** Texts with `{n}` = number of ticked rows (strings: server pages can't pass functions to this client component). */
+  group?: string; label: string; confirm: string;
   action: (ids: string[]) => Promise<{ ok?: string; error?: string }>;
   /** Extra buttons that receive the selection (e.g. „Опомени →“). */
-  extra?: { label: string; href: (ids: string[]) => string }[];
+  /** `href` gets `{ids}` replaced by the comma-separated selection. */
+  extra?: { label: string; href: string }[];
 }) {
   const router = useRouter();
   const [n, setN] = useState(0);
@@ -40,10 +42,10 @@ export function BulkBar({ group = 'r', label, confirm: ask, action, extra }: {
       <button type="button" className="btn danger" disabled={!n || pending} onClick={() => {
         const ids = ticked(group);
         if (!ids.length) { setMsg('Изберете (кутичката лево).'); return; }
-        if (!window.confirm(ask(ids.length))) return;
+        if (!window.confirm(ask.replaceAll('{n}', String(ids.length)))) return;
         start(async () => { const r = await action(ids); setMsg(r.error ?? r.ok ?? ''); router.refresh(); });
-      }}>{pending ? 'Се брише…' : label(n)}</button>
-      {extra?.map((x) => <button key={x.label} type="button" className="btn" onClick={() => { window.location.href = x.href(ticked(group)); }}>{x.label}</button>)}
+      }}>{pending ? 'Се брише…' : label.replaceAll('{n}', String(n))}</button>
+      {extra?.map((x) => <button key={x.label} type="button" className="btn" onClick={() => { window.location.href = x.href.replaceAll('{ids}', encodeURIComponent(ticked(group).join(','))); }}>{x.label}</button>)}
       {msg && <span className="note">{msg}</span>}
     </div>
   );

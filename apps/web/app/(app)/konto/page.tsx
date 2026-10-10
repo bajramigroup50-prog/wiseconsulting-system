@@ -28,7 +28,7 @@ export default async function KontoPage({ searchParams }: { searchParams: Promis
       <Hd t="Контен план" sub={`${A.length} конта`}>
         {write && <ImportButton action={importAccountsAction} name="Konten_plan" label="Увоз од Excel" template={[['10000', 'Жиро сметка']]}
           fields={[{ key: 'code', label: 'Конто', re: '^(конто|број|code|sifra|шифра)', req: true }, { key: 'name', label: 'Назив', re: '^(назив|name|naziv|опис)', req: true }]}
-          confirmText={(n, f) => `Да се увезат ${n} конта од „${f}“? Постоечко конто = нов назив.`} />}
+          confirmText="Да се увезат {n} конта од „{file}“? Постоечко конто = нов назив." />}
         {write && <Link className="btn pri" href="/konto?nov">+ Конто</Link>}
       </Hd>
       <p className="note">Контниот план на фирмата може да се менува тука: додадете аналитички конта или поправете називи според вашиот контен план. Измените важат само за оваа фирма.</p>

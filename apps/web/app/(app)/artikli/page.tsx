@@ -81,7 +81,7 @@ export default async function ArtikliPage({ searchParams }: { searchParams: Prom
         <button className="btn">Барај</button>
       </form>
       {rows.length ? (<>
-        {admin && <BulkBar label={(k) => `🗑 Избриши ги избраните (${k})`} confirm={(k) => `Да се избришат ${k} избрани?\nТие што се користат во документи НЕ се бришат (може „Неактивен“).\n\nОва не може да се врати.`} action={deleteItemsAction} />}
+        {admin && <BulkBar label={`🗑 Избриши ги избраните ({n})`} confirm={`Да се избришат {n} избрани?\nТие што се користат во документи НЕ се бришат (може „Неактивен“).\n\nОва не може да се врати.`} action={deleteItemsAction} />}
         <div className="tw"><table>
           <thead><tr>{admin && <th style={{ width: 30 }}><SelAll /></th>}<th>Шифра</th><th>Баркод</th><th>Назив</th><th>Вид</th><th>Ед. мерка</th><th className="n">Продажна цена без ДДВ</th><th>ДДВ %</th><th>Конто за приход</th><th className="n">Минимална залиха</th>{auto && <><th className="n">Тежина (кг)</th><th>OE броеви</th><th>Замени</th><th>Возила</th></>}<th></th></tr></thead>
           <tbody>

@@ -106,6 +106,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
                       <td>{ex ? ex.lvl === 'bad' ? <Pill c="bad">истечен {dmy(d.validTo)}</Pill> : ex.lvl === 'warn' ? <Pill c="warn">истекува за {ex.days} дена</Pill> : dmy(d.validTo) : <span className="note">—</span>}</td>
                       <td><FileChips files={F.get(d.id)} /></td>
                       <td style={{ whiteSpace: 'nowrap' }}>
+                        {F.get(d.id)?.[0] && <a className="btn sm" href={`/api/files/${F.get(d.id)![0]!.id}`} target="_blank" rel="noopener" title="Погледни го документот">👁</a>}
                         <a className="btn sm" href={`/dosie?mail=1&id=${d.id}`} title="Испрати по е-пошта">✉</a>
                         <a className="btn sm" href={`/dosie/wa?id=${d.id}`} title="WhatsApp / Viber">💬</a>
                         {write && <a className="btn sm" href={`/dosie?edit=${d.id}`} title="Промени">✎</a>}

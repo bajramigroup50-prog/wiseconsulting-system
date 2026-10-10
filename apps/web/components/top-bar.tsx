@@ -53,7 +53,7 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
       {!teren && <>
         <span className="meta">Фирма</span>
         <b id="firmName" className="firmname">{firm?.name ?? ''}</b>
-        {firm
+        {user.role === 'klient' ? null : firm
           ? <a className="btn" href="/izlezF" title="Излез од фирмата – враќање на изборот на фирма"
             style={{ marginLeft: 6, fontSize: 15, fontWeight: 700, padding: '7px 16px', border: '2px solid var(--accent)', color: 'var(--accent)' }}>⏏ ИЗЛЕЗ ОД ФИРМАТА</a>
           : <button className="btn sm" title="Промени фирма (посебен прозорец)" onClick={() => setWin(true)}>⇄ Промени фирма</button>}
