@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { klAllowedViews } from '@wise/core/office';
-import { routeVerdict } from './route-guard';
+import { klFileAllowed, routeVerdict } from './route-guard';
+
+describe('client file access (klFileAllowed)', () => {
+  const base = [...klAllowedViews({}), 'kdogovori'];
+  const withPay = [...klAllowedViews({ on: { plati: true } }), 'kdogovori'];
+  it('dossier, own uploads, firm images and the contract are allowed', () => {
+    expect(klFileAllowed([{ entityType: 'dossier_doc', role: 'attachment' }], base, false)).toBe(true);
+    expect(klFileAllowed([], base, true)).toBe(true);
+    expect(klFileAllowed([{ entityType: 'firm', role: 'logo' }], base, false)).toBe(true);
+    expect(klFileAllowed([{ entityType: 'service_contract', role: 'attachment' }], base, false)).toBe(true);
+  });
+  it('sections the client does not see are refused', () => {
+    expect(klFileAllowed([{ entityType: 'payroll_run', role: 'attachment' }], base, false)).toBe(false);
+    expect(klFileAllowed([{ entityType: 'payroll_run', role: 'attachment' }], withPay, false)).toBe(true);
+    expect(klFileAllowed([{ entityType: 'purchase', role: 'source' }], base, false)).toBe(false);
+    expect(klFileAllowed([{ entityType: 'ai_document', role: 'source' }, { entityType: 'gdpr_record', role: 'attachment' }], withPay, false)).toBe(false);
+    expect(klFileAllowed([{ entityType: 'firm', role: 'other' }], base, false)).toBe(false);
+    expect(klFileAllowed([], base, false)).toBe(false);
+  });
+});
 
 const base = [...klAllowedViews({}), 'kdogovori'];
 const withInv = [...klAllowedViews({ on: { izlez: true } }), 'kdogovori'];
