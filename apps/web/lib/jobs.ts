@@ -31,7 +31,7 @@ export async function enqueue(name: string, data: object): Promise<string | null
  * `pdf.render` (worker, Chromium): returns the pre-allocated `files.id`; `/api/files/{id}` answers 404 until
  * the worker has stored the PDF.
  */
-export async function renderPdf(p: { html: string; css?: string; title?: string; firmId?: string | null; userId?: string | null; landscape?: boolean }): Promise<string> {
+export async function renderPdf(p: { html: string; css?: string; title?: string; firmId?: string | null; userId?: string | null; landscape?: boolean; link?: { entityType: string; entityId: string; role?: string } }): Promise<string> {
   const fileId = randomUUID();
   await enqueue('pdf.render', { ...p, fileId });
   return fileId;
