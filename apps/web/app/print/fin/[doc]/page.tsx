@@ -7,13 +7,16 @@
  * - `analitika`  — `ACT.anaPdf` 7298 (overview)
  * - `pkartica`   — `partnerCard` 6645 / `anCardPdf` / `anAllPdf`
  * - `poobjekti`  — `ACT.poObjPdf`
+ * - `pdd`        — `pddPdfHTML` 8355
  */
 import { Fragment } from 'react';
 import { notFound } from 'next/navigation';
 import {
   analyticsRows, balanceConfirmation, filterAnalytics, iosStatement, resultsByLocation, syntheticCard,
 } from '@wise/core/finance';
-import { effectiveChart, type Firm } from '@wise/db';
+import { and, eq } from 'drizzle-orm';
+import { pddTypes, type PddType } from '@wise/core/finance';
+import { effectiveChart, pddPayments, type Firm } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { finLines, isDate, lineText, partnerMap, srchMatch, today } from '@/lib/finance';
@@ -25,8 +28,8 @@ import { printGuard } from '../../guard';
 
 export const metadata = { title: 'Печатење' };
 
-type SP = KcSP & { all?: string; bal?: string };
-const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'analitika', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti' };
+type SP = KcSP & { all?: string; bal?: string; id?: string };
+const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'analitika', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd' };
 
 export default async function PrintFin({ params, searchParams }: { params: Promise<{ doc: string }>; searchParams: Promise<SP> }) {
   const { doc } = await params;
@@ -40,6 +43,7 @@ export default async function PrintFin({ params, searchParams }: { params: Promi
     case 'potvrda': return <Potvrda firm={firm} year={year} sp={sp} />;
     case 'ios': case 'analitika': case 'pkartica': return <Analitika firm={firm} year={year} sp={sp} doc={doc} />;
     case 'poobjekti': return <Poobjekti firm={firm} year={year} sp={sp} />;
+    case 'pdd': return <Pdd firm={firm} year={year} sp={sp} />;
   }
   notFound();
 }
@@ -239,6 +243,27 @@ async function Poobjekti({ firm, year, sp }: P) {
       <table><thead><tr><th>Објект</th><th className="n">Приходи</th><th className="n">Набавна вредност на продаденото</th><th className="n">Други трошоци</th><th className="n">Резултат</th></tr></thead>
         <tbody>{R.map((r) => <tr key={r.w}><td>{r.w ? names.get(r.w) ?? '—' : 'Заеднички (без објект)'}</td><td className="n">{fmt(r.rev)}</td><td className="n">{fmt(r.cogs)}</td><td className="n">{fmt(r.exp)}</td><td className="n">{fmt(r.res)}</td></tr>)}</tbody>
         <tfoot><tr><td>Вкупно</td><td className="n">{T('rev')}</td><td className="n">{T('cogs')}</td><td className="n">{T('exp')}</td><td className="n">{T('res')}</td></tr></tfoot></table>
+      <Sig />
+    </div>
+  );
+}
+
+/** Legacy `pddPdfHTML` 8355: ПДД payment calculation, landscape. */
+async function Pdd({ firm, sp }: P) {
+  if (!sp.id || !/^[0-9a-f-]{36}$/i.test(sp.id)) notFound();
+  const [d] = await db().select().from(pddPayments).where(and(eq(pddPayments.id, sp.id), eq(pddPayments.firmId, firm.id))).limit(1);
+  if (!d) notFound();
+  const T = pddTypes(((firm.settings ?? {}) as { pddTypes?: Partial<PddType>[] }).pddTypes);
+  const tOf = (id: string) => T.find((t) => t.id === id) ?? T[0]!;
+  return (
+    <div className="pdfdoc land">
+      <style dangerouslySetInnerHTML={{ __html: '@page{size:A4 landscape}' }} />
+      <FirmHead firm={firm} title="ПРЕСМЕТКА – ЗАКУПНИНА / БОНУСИ / УСЛУГИ" sub={'Датум на исплата ' + dmy(d.date)} />
+      <p>Исплатувач: <b>{firm.name}</b> · ЕДБ {firm.edb}{d.note ? ' · ' + d.note : ''}</p>
+      <table><thead><tr><th>ЕМБГ</th><th>Име и презиме</th><th>Трансакциска сметка</th><th>Вид / подвид приход</th><th className="n">Бруто</th><th className="n">Одбитоци</th><th className="n">ПДД</th><th className="n">Нето</th></tr></thead>
+        <tbody>{d.rows.map((r, i) => <tr key={i}><td>{r.embg}</td><td>{r.name.toUpperCase()}</td><td>{r.acct}</td><td style={{ fontSize: '8pt' }}>{tOf(r.tid).vid}<br />{tOf(r.tid).pod}</td>
+          <td className="n">{fmt(r.G)}</td><td className="n">{fmt(r.ded)}</td><td className="n">{fmt(r.tax)}</td><td className="n">{fmt(r.net)}</td></tr>)}</tbody>
+        <tfoot><tr><td colSpan={4}>Вкупно</td><td className="n">{fmt(Number(d.gross))}</td><td className="n">{fmt(Number(d.deductions))}</td><td className="n">{fmt(Number(d.tax))}</td><td className="n">{fmt(Number(d.net))}</td></tr></tfoot></table>
       <Sig />
     </div>
   );
