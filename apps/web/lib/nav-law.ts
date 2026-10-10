@@ -3,8 +3,8 @@
  *  - `mpinIn` (14101–14102): after `zatvoranje` in Фирми, and after `plati` in Финансово › Плата;
  *  - `insp` (16569, nav-office.ts) then lands between `zatvoranje` and `mpinIn`;
  *  - `zakoni` (14346): after `izvestuvanja`;
- *  - `lawrep` (16665): after `insp`.
- * Result in Фирми: … izvestuvanja, zakoni, zatvoranje, insp, lawrep, mpinIn.
+ *  - `lawrep` (16665): after `insp`; `ujpZakoni` (16799): after `lawrep`.
+ * Result in Фирми: … izvestuvanja, zakoni, zatvoranje, insp, lawrep, ujpZakoni, mpinIn.
  * Inserted by group and anchor id (the first anchor found wins), never by a fixed index.
  */
 import type { NavGroup, NavItem } from './nav-data';
@@ -13,7 +13,8 @@ import type { NavGroup, NavItem } from './nav-data';
 const ADD: [string, string[], NavItem][] = [
   ['Фирми', ['izvestuvanja'], ['zakoni', '⚖️ Законски промени']],
   ['Фирми', ['insp', 'zatvoranje'], ['lawrep', '⚖️ Даночен преглед (според законите)']],
-  ['Фирми', ['lawrep', 'insp', 'zatvoranje'], ['mpinIn', '📥 МПИН од УЈП (сите фирми)']],
+  ['Фирми', ['lawrep', 'insp', 'zatvoranje'], ['ujpZakoni', '📚 Закони на УЈП (синхронизирано)']],
+  ['Фирми', ['ujpZakoni', 'lawrep', 'insp', 'zatvoranje'], ['mpinIn', '📥 МПИН од УЈП (сите фирми)']],
 ];
 /** [group, submenu label, anchor, item] */
 const SUB: [string, string, string, NavItem][] = [
