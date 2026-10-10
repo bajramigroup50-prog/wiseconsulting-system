@@ -15,6 +15,9 @@ import { dmy, fmt, fq } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { PrintButton } from '@/components/stock-ui';
+import { ExportButtons, ServerPdfButton } from '@/components/doc-tools';
+import { PrintHead, PrintSig } from '@/components/print-head';
+import { MetgTable, metgAoa } from './book-tables';
 
 export type TrgSP = { wh?: string; from?: string; to?: string; f?: string; i?: string };
 
@@ -35,7 +38,16 @@ export async function TrgPage({ retail, sp }: { retail: boolean; sp: TrgSP }) {
   const T = tradeBook(L.ctx, { retail, wh, from, to, sales, locationName: L.locName, saleValue });
   return (
     <>
-      <Hd t={t} sub={retail ? 'по продажна вредност со ДДВ' : 'по набавна вредност'}><PrintButton /></Hd>
+      <Hd exp={false} t={t} sub={retail ? 'по продажна вредност со ДДВ' : 'по набавна вредност'}>
+        <ExportButtons name={(retail ? 'ETM_malo_' : 'ET_golemo_') + from + '_' + to} rows={[
+          ['Р.б.', 'Датум', 'Документ', 'Задолжување', 'Раздолжување', ...(retail ? [] : ['Продажна вредност без ДДВ']), 'Салдо'],
+          ['', dmy(from), 'Пренос / почетна состојба', '', '', ...(retail ? [] : ['']), T.open],
+          ...T.rows.map((r, i) => [i + 1, dmy(r.date), r.doc, r.d || '', r.p || '', ...(retail ? [] : [r.sale !== '' && r.sale != null ? Number(r.sale) : '']), r.bal]),
+          ['', '', 'Вкупно', T.totals.d, T.totals.p, ...(retail ? [] : [T.totals.sale]), T.totals.bal],
+        ]} />
+        <ServerPdfButton title={t} landscape={!retail} />
+        <PrintButton label="Печати" className="btn" />
+      </Hd>
       {retail && <RetailTabs f="etm" sp={{ wh, from, to }} />}
       <form className="card">
         {retail && <input type="hidden" name="f" value="etm" />}
@@ -51,8 +63,9 @@ export async function TrgPage({ retail, sp }: { retail: boolean; sp: TrgSP }) {
           ? 'Задолжување: приеми на стока и преносници од магацин по малопродажна цена со ДДВ, нивелации. Раздолжување: дневниот промет од касата (Z извештаи) и другите излези.'
           : 'Задолжување: влезни фактури по набавна вредност. Раздолжување: излезни фактури по набавна вредност, со продажната вредност од фактурата. Преносниците во продавница не се тука – тие се во МЕТГ (количински) и во евиденцијата на мало.'}</p>
       </form>
-      <div className="tw printarea">
-        <p className="mini">{firm.name} · {t} · {wh ? L.locName(wh) : retail ? 'сите продавници' : 'сите магацини'} · {dmy(from)} – {dmy(to)}</p>
+      <div className="tw printarea" id="rpt">
+        <PrintHead firm={firm} title={retail ? 'ЕВИДЕНЦИЈА ВО ТРГОВИЈАТА НА МАЛО (ЕТМ)' : 'ЕВИДЕНЦИЈА ВО ТРГОВИЈАТА НА ГОЛЕМО (ЕТ)'} sub={dmy(from) + ' – ' + dmy(to) + ' · ' + (wh ? L.locName(wh) : retail ? 'сите продавници' : 'сите магацини')} />
+        <p className="mini noprint">{firm.name} · {t} · {wh ? L.locName(wh) : retail ? 'сите продавници' : 'сите магацини'} · {dmy(from)} – {dmy(to)}</p>
         <table>
           <thead><tr><th>Р.б.</th><th>Датум</th><th>Документ</th><th className="n">Задолжување</th><th className="n">Раздолжување</th>{!retail && <th className="n">Продажна вредност без ДДВ</th>}<th className="n">Салдо</th></tr></thead>
           <tbody>
@@ -64,6 +77,7 @@ export async function TrgPage({ retail, sp }: { retail: boolean; sp: TrgSP }) {
           </tbody>
           <tfoot><tr><td colSpan={3}>Вкупно</td><td className="n">{fmt(T.totals.d)}</td><td className="n">{fmt(T.totals.p)}</td>{!retail && <td className="n">{fmt(T.totals.sale)}</td>}<td className="n">{fmt(T.totals.bal)}</td></tr></tfoot>
         </table>
+        <PrintSig />
       </div>
     </>
   );
@@ -92,7 +106,17 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
   const T = etBook(L.ctx, { wh, from, to, sales, docOf, firmFiskScheme: L.settings.fiskOpt.sc, locationName: L.locName });
   return (
     <>
-      <Hd t={t} sub="по продажен објект"><PrintButton /></Hd>
+      <Hd exp={false} t={t} sub="по продажен објект">
+        <ExportButtons name={'ET_malo_' + from + '_' + to} rows={[
+          ['Реден бр.', 'Датум на книжење', 'Назив и број на документот', 'Датум на документот', 'Набавна вредност на стоките', 'Продажна вредност на стоките', 'Дневен промет'],
+          ['', dmy(from), 'Пренос од претходен период (состојба по продажни цени)', '', '', T.open, ''],
+          ...T.rows.map((r, i) => [i + 1, dmy(r.date), r.no + (r.name ? ' · ' + r.name : ''), dmy(r.ddate), r.nab || '', r.sp || '', r.pr || '']),
+          ['', '', 'Вкупно за периодот', '', T.totals.nab, T.totals.sp, T.totals.pr],
+          ['', '', 'Состојба на залиха по продажни цени (пренос + кол. 6 − кол. 7)', '', '', T.totals.close, ''],
+        ]} />
+        <ServerPdfButton title="Образец ЕТ" landscape />
+        <PrintButton label="Печати" className="btn" />
+      </Hd>
       <RetailTabs f="et" sp={{ wh, from, to }} />
       <form className="card">
         <div className="row" style={{ gap: 12, alignItems: 'end' }}>
@@ -105,8 +129,9 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
         </div>
         <p className="note">Кол. 5 – набавна вредност (кол. 6 + 7 од ПЛТ), кол. 6 – продажна вредност (кол. 10 од ПЛТ, преносници, нивелации; враќања и отпис како сторно со минус), кол. 7 – дневен промет од фискалната каса. Во ист ден прво се книжат влезовите, па излезите.</p>
       </form>
-      <div className="tw printarea">
-        <p className="mini">{firm.name} · Образец ЕТ · {wh ? L.locName(wh) : 'сите продавници'} · {dmy(from)} – {dmy(to)}</p>
+      <div className="tw printarea" id="rpt">
+        <PrintHead firm={firm} title="ЕВИДЕНЦИЈА ВО ТРГОВИЈАТА НА МАЛО – ОБРАЗЕЦ ЕТ" sub={(wh ? L.locName(wh) : 'сите продажни објекти') + ' · ' + dmy(from) + ' – ' + dmy(to)} />
+        <p className="mini noprint">{firm.name} · Образец ЕТ · {wh ? L.locName(wh) : 'сите продавници'} · {dmy(from)} – {dmy(to)}</p>
         <table>
           <thead>
             <tr><th>Реден бр.</th><th>Датум на книжење</th><th>Назив и број на документот</th><th>Датум на документот</th><th className="n">Набавна вредност на стоките</th><th className="n">Продажна вредност на стоките</th><th className="n">Дневен промет</th></tr>
@@ -124,6 +149,7 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
             <tr><td colSpan={5}>Состојба на залиха по продажни цени (пренос + кол. 6 − кол. 7)</td><td className="n" colSpan={2}>{fmt(T.totals.close)}</td></tr>
           </tfoot>
         </table>
+        <PrintSig />
       </div>
     </>
   );
@@ -143,7 +169,12 @@ export async function MetgPage({ sp }: { sp: TrgSP }) {
   const D = metgCard(L.ctx, { item: it.id, wh, from, to, docOf: await stockDocResolver(db(), L) });
   return (
     <>
-      <Hd t={t} sub="магацин · посебно за секоја стока (шифра)"><PrintButton /></Hd>
+      <Hd exp={false} t={t} sub="магацин · посебно за секоја стока (шифра)">
+        <Link className="btn" href={'/print/metg?' + new URLSearchParams({ from, to, ...(wh ? { wh } : {}) }).toString()} target="_blank">PDF за сите артикли</Link>
+        <ExportButtons name={'METG_' + (it.code || it.name)} rows={metgAoa(D, from)} />
+        <ServerPdfButton title={'МЕТГ ' + (it.name ?? '')} landscape />
+        <PrintButton label="Печати" className="btn" />
+      </Hd>
       <form className="card">
         <div className="row" style={{ gap: 12, alignItems: 'end' }}>
           <label className="f" style={{ minWidth: 260 }}>Стока
@@ -158,25 +189,10 @@ export async function MetgPage({ sp }: { sp: TrgSP }) {
         </div>
         <p className="note">Количински: набавено (влезни фактури, приемници), продадено/издадено (излезни фактури, испратници, преносници во продавница). Во ист ден прво се книжат влезовите, па излезите.</p>
       </form>
-      <div className="tw printarea">
-        <div className="grid2">
-          <div className="box"><b>Назив на стоката:</b> {it.name}<br /><b>Шифра:</b> {it.code} · <b>Ед. мера:</b> {it.unit}</div>
-          <div className="box"><b>Магацин:</b> {wh ? L.locName(wh) : 'сите магацини'}<br /><b>Период:</b> {dmy(from)} – {dmy(to)}</div>
-        </div>
-        <table>
-          <thead>
-            <tr><th>Реден број</th><th>Датум на книжење</th><th>Број на документ</th><th>Датум на документ</th><th>Назив на документ / комитент</th><th className="n">Количина набавена</th><th className="n">Количина продадена</th><th className="n">Крајна состојба</th></tr>
-            <tr>{[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <th key={n} style={{ textAlign: 'center' }}>{n}</th>)}</tr>
-          </thead>
-          <tbody>
-            <tr className="sub"><td /><td>{dmy(from)}</td><td colSpan={3}>Почетна состојба / пренос</td><td /><td /><td className="n">{fq(D.open)}</td></tr>
-            {D.rows.map((r, i) => (
-              <tr key={i}><td>{i + 1}</td><td>{dmy(r.date)}</td><td>{r.no}</td><td>{dmy(r.ddate)}</td><td>{r.name}</td>
-                <td className="n">{r.in ? fq(r.in) : ''}</td><td className="n">{r.out ? fq(r.out) : ''}</td><td className="n" style={neg(r.bal)}>{fq(r.bal)}</td></tr>
-            ))}
-          </tbody>
-          <tfoot><tr><td colSpan={5}>Вкупно</td><td className="n">{fq(D.totals.in)}</td><td className="n">{fq(D.totals.out)}</td><td className="n">{fq(D.totals.bal)}</td></tr></tfoot>
-        </table>
+      <div className="tw printarea" id="rpt">
+        <PrintHead firm={firm} title="КОЛИЧИНСКА ЕВИДЕНЦИЈА ПО АРТИКЛ" sub={dmy(from) + ' – ' + dmy(to)} />
+        <MetgTable it={it} D={D} whName={wh ? L.locName(wh) : 'сите магацини'} from={from} to={to} />
+        <PrintSig />
       </div>
     </>
   );

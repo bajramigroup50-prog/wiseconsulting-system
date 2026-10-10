@@ -1,13 +1,18 @@
 /**
  * Материјална картица / Картица на производ — legacy `kartView(retail)` 4981 (`kartData` 4973, `kartTable` 4979).
- * At cost (g_kartica) or at the current retail price of the location (m_kartica).
+ * At cost (g_kartica) or at the current retail price of the location (m_kartica). Header: „PDF сите картици“
+ * (`kartAllPdf` 7362 → `/print/kartice`), „PDF“ (`kartPdf` 7361: firm head, item · unit · period, landscape), plus Excel.
  */
-import { itemCard, trackedItems, type ItemCardMove } from '@wise/core';
+import Link from 'next/link';
+import { itemCard, trackedItems } from '@wise/core';
 import { stockPage, locOptions, pickLoc, rangeOf } from '@/lib/stock';
-import { dmy, fmt, fq } from '@/lib/fmt';
+import { dmy } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
+import { ExportButtons, ServerPdfButton } from '@/components/doc-tools';
+import { PrintHead, PrintSig } from '@/components/print-head';
 import { PrintButton } from '@/components/stock-ui';
+import { KartTable, kartAoa } from './book-tables';
 
 export type KartSP = { i?: string; wh?: string; from?: string; to?: string };
 
@@ -21,9 +26,16 @@ export async function KartPage({ retail, sp }: { retail: boolean; sp: KartSP }) 
   const wh = pickLoc(L, sp.wh);
   const [from, to] = rangeOf(sp, year);
   const k = itemCard(L.ctx, { item: it, wh, from, to, retail });
+  const all = '/print/kartice?' + new URLSearchParams({ r: retail ? '1' : '0', from, to, ...(wh ? { wh } : {}) }).toString();
+  const sub = (it.code ? it.code + ' · ' : '') + it.name + ' · ' + (it.unit || '') + ' · ' + dmy(from) + ' – ' + dmy(to);
   return (
     <>
-      <Hd t={t} sub={retail ? 'по малопродажна цена' : 'по набавна вредност'}><PrintButton /></Hd>
+      <Hd exp={false} t={t} sub={retail ? 'по малопродажна цена' : 'по набавна вредност'}>
+        <Link className="btn" href={all} target="_blank">PDF сите картици</Link>
+        <ExportButtons name={(retail ? 'Kartica_proizvod_' : 'Materijalna_kartica_') + (it.code || it.name)} rows={kartAoa(k, retail)} />
+        <ServerPdfButton title={t + ' ' + (it.name ?? '')} landscape />
+        <PrintButton label="Печати" className="btn" />
+      </Hd>
       <form className="card">
         <div className="row" style={{ gap: 12, alignItems: 'end' }}>
           <label className="f" style={{ minWidth: 260 }}>Артикл
@@ -37,28 +49,12 @@ export async function KartPage({ retail, sp }: { retail: boolean; sp: KartSP }) 
           <button className="btn">Прикажи</button>
         </div>
       </form>
-      <div className="tw printarea">
-        <p className="mini">{firm.name} · {t} · {(it.code ? it.code + ' · ' : '') + it.name} · {wh ? L.locName(wh) : 'сите објекти'} · {dmy(from)} – {dmy(to)}</p>
-        <table className="kart">
-          <thead><tr><th>Датум</th><th>Документ</th><th className="n">Влез</th><th className="n">Излез</th><th className="n">{retail ? 'МПЦ' : 'Цена'}</th><th className="n">Вредност влез</th><th className="n">Вредност излез</th><th className="n">Состојба</th><th className="n">Вредност</th></tr></thead>
-          <tbody>
-            {k.rows.map((r, i) => r.open
-              ? <tr key={i} className="sub"><td>{dmy(from)}</td><td>Почетна состојба</td><td /><td /><td /><td /><td /><td className="n">{fq(r.q)}</td><td className="n">{fmt(r.v)}</td></tr>
-              : <MoveRow key={i} r={r} />)}
-          </tbody>
-          <tfoot><tr><td colSpan={2}>Вкупно</td><td className="n">{fq(k.totals.in)}</td><td className="n">{fq(k.totals.out)}</td><td /><td className="n">{fmt(k.totals.vin)}</td><td className="n">{fmt(k.totals.vout)}</td><td className="n">{fq(k.totals.q)}</td><td className="n">{fmt(k.totals.v)}</td></tr></tfoot>
-        </table>
+      <div className="tw printarea" id="rpt">
+        <PrintHead firm={firm} title={retail ? 'КАРТИЦА НА ПРОИЗВОД' : 'МАТЕРИЈАЛНА КАРТИЦА'} sub={sub} />
+        <p className="mini noprint">{firm.name} · {t} · {(it.code ? it.code + ' · ' : '') + it.name} · {wh ? L.locName(wh) : 'сите објекти'} · {dmy(from)} – {dmy(to)}</p>
+        <KartTable k={k} retail={retail} />
+        <PrintSig />
       </div>
     </>
-  );
-}
-
-function MoveRow({ r }: { r: ItemCardMove }) {
-  return (
-    <tr>
-      <td>{dmy(r.move.date)}</td><td>{r.move.label || r.move.type}</td>
-      <td className="n">{r.in ? fq(r.in) : ''}</td><td className="n">{r.out ? fq(r.out) : ''}</td><td className="n">{fmt(r.price)}</td>
-      <td className="n">{r.vin ? fmt(r.vin) : ''}</td><td className="n">{r.vout ? fmt(r.vout) : ''}</td><td className="n">{fq(r.q)}</td><td className="n">{fmt(r.v)}</td>
-    </tr>
   );
 }

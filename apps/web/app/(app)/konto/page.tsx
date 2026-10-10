@@ -10,6 +10,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteAccount, resetAccount } from './actions';
 import { AccountForm } from './account-form';
+import { ImportButton } from '@/components/doc-tools';
+import { importAccountsAction } from '../_stock/parity-actions';
 
 export default async function KontoPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string }> }) {
   const sp = await searchParams;
@@ -24,6 +26,9 @@ export default async function KontoPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <Hd t="Контен план" sub={`${A.length} конта`}>
+        {write && <ImportButton action={importAccountsAction} name="Konten_plan" label="Увоз од Excel" template={[['10000', 'Жиро сметка']]}
+          fields={[{ key: 'code', label: 'Конто', re: '^(конто|број|code|sifra|шифра)', req: true }, { key: 'name', label: 'Назив', re: '^(назив|name|naziv|опис)', req: true }]}
+          confirmText={(n, f) => `Да се увезат ${n} конта од „${f}“? Постоечко конто = нов назив.`} />}
         {write && <Link className="btn pri" href="/konto?nov">+ Конто</Link>}
       </Hd>
       <p className="note">Контниот план на фирмата може да се менува тука: додадете аналитички конта или поправете називи според вашиот контен план. Измените важат само за оваа фирма.</p>

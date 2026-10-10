@@ -14,6 +14,7 @@ import { dmy, fq } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { poMailAction } from '../_stock/parity-actions';
 import { PrintButton } from '@/components/stock-ui';
 import { poStatusAction } from '../_retail/actions';
 import { PoEditor } from '../_retail/order-editors';
@@ -27,7 +28,7 @@ export default async function NabavkiPage({ searchParams }: { searchParams: Prom
   const write = canDo(u, 'poSaveB', firm.id);
   const [all, P] = await Promise.all([
     db().select().from(supplierOrders).where(eq(supplierOrders.firmId, firm.id)).orderBy(desc(supplierOrders.date), desc(supplierOrders.number)),
-    db().select({ id: partners.id, name: partners.name, address: partners.address }).from(partners).where(eq(partners.firmId, firm.id)).orderBy(asc(partners.name)),
+    db().select({ id: partners.id, name: partners.name, address: partners.address, email: partners.email }).from(partners).where(eq(partners.firmId, firm.id)).orderBy(asc(partners.name)),
   ]);
   const pName = new Map(P.map((p) => [p.id, p.name]));
 
@@ -59,6 +60,7 @@ export default async function NabavkiPage({ searchParams }: { searchParams: Prom
         <Hd t={edit ? 'Нарачка до добавувач ' + edit.number : 'Нова нарачка до добавувач'} sub={ST[st]![0]}>
           <Link className="btn" href="/nabavki">← Листа</Link>
           {edit && <Link className="btn" href={`/nabavki?view=${edit.id}`}>🖨 PDF</Link>}
+          {edit && P.find((x) => x.id === edit.partnerId)?.email && <RowAction action={poMailAction.bind(null, edit.id)} className="btn" label="✉ Испрати на добавувачот" confirm={`Да се испрати нарачката на ${P.find((x) => x.id === edit.partnerId)?.email}?`} />}
           {edit && st === 'open' && <RowAction action={poStatusAction.bind(null, edit.id, 'recv')} className="btn" label="✓ Стоката е примена" confirm="Да се означи нарачката како примена? Внесете ја влезната фактура во Влез." />}
           {edit && st === 'open' && <RowAction action={poStatusAction.bind(null, edit.id, 'cancel')} className="btn ghost" style={{ color: 'var(--bad)' }} label="Откажи" confirm="Да се откаже нарачката?" />}
         </Hd>
