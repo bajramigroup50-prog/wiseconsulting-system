@@ -9,7 +9,7 @@ import { db } from '@/lib/db';
 import { fv, isUuid, officeAction, officeError } from '@/lib/office';
 
 /** Office-wide original sticker image (legacy `appsettings/notice` {url,id}). */
-export const NOTICE_KEY = 'notice';
+const NOTICE_KEY = 'notice';
 
 /**
  * Merge `patch` into `firm.settings.kl` (jsonb, only the `kl` key changes — other settings and the other `kl`

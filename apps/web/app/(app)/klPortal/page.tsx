@@ -17,7 +17,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { addRecommended, onlyBase, removeNoticeImage, saveNote, saveProfiles, saveSections, setNoticeImage, NOTICE_KEY } from './actions';
+import { addRecommended, onlyBase, removeNoticeImage, saveNote, saveProfiles, saveSections, setNoticeImage } from './actions';
 
 export default async function KlPortalPage() {
   const { firm } = await officePage('klPortal', { perm: 'office' });
@@ -31,7 +31,7 @@ export default async function KlPortalPage() {
     db().select({ name: users.name, username: users.username, active: users.active, last: users.lastLoginAt })
       .from(users).innerJoin(userFirms, eq(userFirms.userId, users.id)).where(and(eq(userFirms.firmId, firm.id), eq(users.role, 'klient'))),
     db().select({ n: sql<number>`(select count(*)::int from ${inboxItems} where ${inboxItems.firmId} = ${firm.id} and not ${inboxItems.done} and not ${inboxItems.fromOffice}) + (select count(*)::int from ${clientEntries} where ${clientEntries.firmId} = ${firm.id} and ${clientEntries.status} = 'pending')` }).from(sql`(select 1) x`),
-    db().select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, NOTICE_KEY)).limit(1),
+    db().select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'notice')).limit(1),
   ]);
   const imgId = (img?.value as { fileId?: string } | undefined)?.fileId;
 
