@@ -125,7 +125,7 @@ export async function deleteTravelOrder(tx: Tx, a: IndActor, id: string, canDele
  */
 export async function travelOrderEvent(tx: Tx, a: IndActor, id: string, ev:
   | { k: 'dep'; km?: number | null }
-  | { k: 'deliv'; i: number; recv?: string; cash?: number; ret?: { k: number; qty: number }[] }
+  | { k: 'deliv'; i: number; recv?: string; cash?: number; ret?: { k: number; qty: number }[]; sig?: string | null; photo?: string | null }
   | { k: 'ret'; km?: number | null; fuelL?: number | null; fuelAmt?: number | null },
   at: string, by: string | null, geo?: { lat: number; lon: number } | null): Promise<void> {
   const x = await ownOrder(tx, a.firmId, id);
@@ -142,9 +142,9 @@ export async function travelOrderEvent(tx: Tx, a: IndActor, id: string, ev:
     if (s.status === 'done') fail('Застанувањето е веќе завршено.');
     if ((ev.cash ?? 0) < 0) fail('Износот не може да биде негативен.');
     const ret = (ev.ret ?? []).map((r) => ({ k: r.k, qty: Math.min(n(r.qty), n(s.goods[r.k]?.qty)) })).filter((r) => r.qty > 0);
-    S[ev.i] = { ...s, status: 'done', at, recv: ev.recv?.trim() || null, cash: ev.cash || 0, ret: ret.length ? ret : null, geo: geo ?? null };
+    S[ev.i] = { ...s, status: 'done', at, recv: ev.recv?.trim() || null, cash: ev.cash || 0, ret: ret.length ? ret : null, geo: geo ?? null, sig: ev.sig ?? null, photo: ev.photo ?? null };
     patch.stops = S as unknown as Record<string, unknown>[];
-    txt = (s.kind === 'pick' ? 'Преземено од: ' : 'Испорачано: ') + s.partner + (ev.recv ? ' · ' + ev.recv : '') + (ev.cash ? ' · готовина ' + ev.cash : '') + (ret.length ? ` · поврат ${ret.length} ставки` : '');
+    txt = (s.kind === 'pick' ? 'Преземено од: ' : 'Испорачано: ') + s.partner + (ev.recv ? ' · ' + ev.recv : '') + (ev.sig ? ' · потпис' : '') + (ev.photo ? ' · фото' : '') + (ev.cash ? ' · готовина ' + ev.cash : '') + (ret.length ? ` · поврат ${ret.length} ставки` : '');
   } else {
     if (x.status === 'done') fail('Налогот е завршен.');
     if (ev.km != null && x.depKm != null && ev.km < x.depKm) fail(`Км при враќање е помал од км при тргнување (${x.depKm}).`);

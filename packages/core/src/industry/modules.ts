@@ -36,7 +36,8 @@ export const INDUSTRY_MODULES: readonly IndustryModule[] = [
   { k: 'lot', n: '🏷 Лотови и рок на траење', v: ['lotovi'], p: ['prod', 'wholesale', 'retail'] },
   { k: 'pn', n: '🚚 Патни налози, возила во живо, гориво', v: ['pnalozi', 'pnLive', 'pnGorivo', 'mojpn'], p: ['wholesale', 'prod', 'construct', 'transport'] },
   { k: 'tour', n: '✈ Туристичка агенција (аранжмани, патници, ДДВ на маржа)', v: ['tura', 'turaIzv'], p: ['travel'] },
-  { k: 'frt', n: '🚛 Превоз за трети лица (тури, CMR, дневници, лиценци)', v: ['frTuri', 'frDnev', 'frDok'], p: ['transport'] },
+  // Legacy 14651 / 14690: fuel cards (`frGor`) and the transport invoices (`frFak`, v475) belong to the freight module.
+  { k: 'frt', n: '🚛 Превоз за трети лица (тури, CMR, дневници, лиценци, картички за гориво)', v: ['frTuri', 'frFak', 'frDnev', 'frGor', 'frDok'], p: ['transport'] },
 ];
 
 export const MODULE_KEYS = INDUSTRY_MODULES.map((m) => m.k);

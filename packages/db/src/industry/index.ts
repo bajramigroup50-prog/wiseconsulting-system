@@ -5,3 +5,5 @@ export * from './travel';
 export * from './construction';
 export * from './services';
 export * from './transport';
+export * from './auto';
+export * from './live';
