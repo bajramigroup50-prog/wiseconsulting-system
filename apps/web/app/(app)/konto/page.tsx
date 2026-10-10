@@ -8,7 +8,9 @@ import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deleteAccount, resetAccount } from './actions';
+import { TableImport } from '@/components/parity-fin/table-import';
+import { missingVatAccounts } from '@/lib/parity-fin';
+import { addVatAccounts, deleteAccount, importAccounts, resetAccount } from './actions';
 import { AccountForm } from './account-form';
 
 export default async function KontoPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string }> }) {
@@ -20,12 +22,21 @@ export default async function KontoPage({ searchParams }: { searchParams: Promis
   const rows = q ? A.filter((a) => a.code.startsWith(q) || a.name.toLowerCase().includes(q)) : A;
   const write = canDo(u, 'write', firm.id);
   const edit = sp.edit ? A.find((a) => a.code === sp.edit) : undefined;
+  const vatMiss = await missingVatAccounts(firm);
 
   return (
     <>
       <Hd t="Контен план" sub={`${A.length} конта`}>
+        {write && <TableImport action={importAccounts} label="📥 Увоз (Excel/CSV)" confirm="Контата од датотеката ќе се додадат или преименуваат во контниот план на фирмата. Продолжи?"
+          template={{ name: 'Kontni_plan_obrazec.xlsx', rows: [['Конто', 'Назив'], ['100005', 'Трансакциска сметка – Банка'], ['220001', 'Добавувачи – аналитика']] }} />}
         {write && <Link className="btn pri" href="/konto?nov">+ Конто</Link>}
       </Hd>
+      {vatMiss.length > 0 && (
+        <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>ДДВ контата од шемите / тарифите ги нема во контниот план: {vatMiss.map((a) => <span key={a.code}><b>{a.code}</b> {a.name} · </span>)}</span>
+          {write && <RowAction className="btn sm pri" action={addVatAccounts} label="+ Додај ги" />}
+        </div>
+      )}
       <p className="note">Контниот план на фирмата може да се менува тука: додадете аналитички конта или поправете називи според вашиот контен план. Измените важат само за оваа фирма.</p>
       {write && (sp.nov !== undefined || edit) && <AccountForm code={edit?.code ?? null} name={edit?.name ?? ''} />}
       <form className="row" style={{ gap: 8, marginBottom: 10 }}>

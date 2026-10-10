@@ -1,6 +1,9 @@
 import 'server-only';
 /** Finance parity: helpers for export routes (legacy `xlsx` / `csv` downloads). */
 import * as XLSX from 'xlsx';
+import { vatAccount } from '@wise/core/vat';
+import { loadVatPostingContext, missingAccounts, type Firm } from '@wise/db';
+import { db } from './db';
 import { getUser } from './auth';
 import { currentFirm, currentYear } from './context';
 import { toCsv } from './fmt';
@@ -33,3 +36,22 @@ export function sheetResponse(name: string, rows: Cell[][], o: { csv?: boolean; 
     headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'content-disposition': `attachment; filename="${ascii(name)}.xlsx"` },
   });
 }
+
+/**
+ * Legacy `ACC()` 3278: the firm's VAT kontos (tariffs / schemes, per rate) are part of the chart even when the
+ * standard chart has no such analytic konto („Претходен ДДВ r%“ / „Обврски за ДДВ r%“). Here they are added as firm
+ * accounts so postings to them pass the chart check.
+ */
+export async function missingVatAccounts(firm: Firm): Promise<{ code: string; name: string }[]> {
+  const ctx = await loadVatPostingContext(db(), firm);
+  const want = new Map<string, string>();
+  for (const r of [18, 10, 5]) {
+    const o = vatAccount(ctx, 'out', r), i = vatAccount(ctx, 'in', r), m = vatAccount(ctx, 'imp', r);
+    if (i && !want.has(i)) want.set(i, `Претходен ДДВ ${r}%`);
+    if (m && !want.has(m)) want.set(m, `Претходен ДДВ ${r}%`);
+    if (o && !want.has(o)) want.set(o, `Обврски за ДДВ ${r}%`);
+  }
+  const miss = await missingAccounts(db(), firm.id, [...want.keys()]);
+  return miss.map((code) => ({ code, name: want.get(code)! }));
+}
+
