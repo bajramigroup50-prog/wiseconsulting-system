@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { TravelOrderFlow } from '@/components/travel-order-flow';
+import { LiveTracker } from '@/components/live-tracker';
 import { TRAVEL_ORDER_STATUS } from '@wise/core/industry';
 
 export default async function MojPn() {
@@ -17,6 +18,7 @@ export default async function MojPn() {
   return (
     <>
       <Hd t="Мои патни налози" sub={`${L.length} отворени`} />
+      <LiveTracker orderIds={L.filter((x) => x.status === 'onroad').map((x) => x.id)} />
       {L.map((x) => (
         <div key={x.id}>
           <h2 style={{ fontSize: 16 }}>{x.number} · {dmy(x.date)} · {x.plate} · {F.find((f) => f.id === x.firmId)?.name} <span className={`pill ${TRAVEL_ORDER_STATUS[x.status][1]}`}>{TRAVEL_ORDER_STATUS[x.status][0]}</span></h2>

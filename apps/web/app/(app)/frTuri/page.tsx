@@ -5,7 +5,8 @@
 import Link from 'next/link';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { fxRate } from '@wise/core';
-import { FR_COUNTRIES, FR_REDUCTIONS, FR_STATUS, frCountryName, frPerDiems, nextModuleNumber } from '@wise/core/industry';
+import { FR_COUNTRIES, FR_REDUCTIONS, FR_STATUS, frCountryName, frPerDiems, nextModuleNumber, tourFuel } from '@wise/core/industry';
+import { fuelImports, fuelRowsOf, fxLookup } from '@/lib/fuel';
 import { employees, fleetVehicles, freightTours, industryConfigOf, invoices, loadFxSources } from '@wise/db';
 import { partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -36,11 +37,13 @@ export default async function FrTuri({ searchParams }: { searchParams: Promise<{
     const t = t0 ?? { id: '', number: nextModuleNumber('Т-', all.map((x) => x.n).filter((n) => n.endsWith('/' + year)), year), date: today(), status: 'plan' as const, partnerId: null, orderNo: '', km: null, vehicleId: null, trailer: '', driverId: null, driver2Id: null,
       loadPlace: '', loadC: 'MK', sender: '', unloadDate: null, unloadPlace: '', unloadC: '', consignee: '', retDate: null, goods: '', packages: '', kg: null, m3: null, adr: '', docsAtt: '', price: null, cur: 'EUR', fx: null, vat: 'intl' as const, red: 100, tolls: null, tollCur: 'EUR', otherCost: null, note: '', segs: [], invoiceId: null };
     const d = dn(t);
+    const fuelRows = t.id ? fuelRowsOf(await fuelImports(firm.id)) : [];
+    const fxL = await fxLookup(firm.id);
     const v = (x: unknown) => (x == null ? '' : String(x));
     const ctry = <>{FR_COUNTRIES.map((c) => <option key={c[0]} value={c[0]}>{c[1]}</option>)}</>;
     return (
       <>
-        <Hd t={t.id ? `Тура ${t.number}` : 'Нова тура'} sub={FR_STATUS[t.status][0]}><Link className="btn" href="/frTuri">← Тури</Link></Hd>
+        <Hd t={t.id ? `Тура ${t.number}` : 'Нова тура'} sub={FR_STATUS[t.status][0]}><Link className="btn" href="/frTuri">← Тури</Link>{t.id && <Link className="btn" href={`/frTuri/cmr?id=${t.id}`} target="_blank">📄 CMR</Link>}</Hd>
         <BankForm action={saveFreightAction}>
           <input type="hidden" name="id" value={t.id} />
           <div className="card"><div className="form">
@@ -86,6 +89,25 @@ export default async function FrTuri({ searchParams }: { searchParams: Promise<{
               <tfoot><tr><td colSpan={5}>Вкупно {d.totH ? `${d.totH} ч → ${d.totU} дневници` : ''}{d.miss.length ? ` · нема курс за ${d.miss.join(', ')}` : ''}</td><td className="n">{Object.entries(d.by).map(([c, x]) => `${fmt(x)} ${c}`).join(' + ')}</td><td className="n"><b>{fmt(d.mkd)}</b></td></tr></tfoot></table>
             <p className="note">Времето се брои од преминот на македонската граница до враќањето: за секои 24 ч = 1 дневница, остаток над 12 ч = 1, од 8 до 12 ч = ½; се дели по држави според времето поминато во секоја.</p>
           </div>
+          {t.id && (() => {
+            // Legacy `frCost` / `frTourFuel` (14473): fuel from the card statements, per diems, tolls, other costs → result.
+            const fu = tourFuel(fuelRows, V.find((x) => x.id === t.vehicleId)?.plate, t, fxL);
+            const tolls = Math.round(Number(t.tolls ?? 0) * (t.tollCur && t.tollCur !== 'MKD' ? fxL(t.tollCur, t.date) : 1) * 100) / 100;
+            const oth = Number(t.otherCost ?? 0);
+            const rev = Math.round(Number(t.price ?? 0) * (t.cur && t.cur !== 'MKD' ? Number(t.fx) || fxL(t.cur, t.unloadDate || t.date) : 1) * 100) / 100;
+            const cost = Math.round((fu.mkd + d.mkd + tolls + oth) * 100) / 100;
+            return (
+              <div className="card"><h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Резултат на турата (ден.)</h2>
+                <table className="dense" style={{ maxWidth: 420 }}><tbody>
+                  <tr><td>Приход (цена)</td><td className="n">{fmt(rev)}</td></tr>
+                  <tr><td>Гориво од картички ({fu.n} точења, {fu.l} л)</td><td className="n">{fmt(fu.mkd)}</td></tr>
+                  <tr><td>Дневници</td><td className="n">{fmt(d.mkd)}</td></tr><tr><td>Патарини</td><td className="n">{fmt(tolls)}</td></tr><tr><td>Други трошоци</td><td className="n">{fmt(oth)}</td></tr>
+                  <tr><td><b>Резултат</b></td><td className="n"><b>{fmt(Math.round((rev - cost) * 100) / 100)}</b></td></tr>
+                </tbody></table>
+                <p className="note">Горивото се зема од <Link href="/frGor">⛽ Картички за гориво</Link> – истата регистрација во периодот на турата.</p>
+              </div>
+            );
+          })()}
           {write && !t.invoiceId && <div className="row"><span style={{ flex: 1 }} />{t.id && <RowAction className="btn ghost" action={deleteFreightAction.bind(null, t.id)} confirm={`Да се избрише турата ${t.number}?`} label="Избриши" />}<button className="btn pri">Зачувај</button></div>}
           {t.invoiceId && <p className="note">Турата е фактурирана – цената, валутата, ДДВ и клиентот не се менуваат тука.</p>}
         </BankForm>

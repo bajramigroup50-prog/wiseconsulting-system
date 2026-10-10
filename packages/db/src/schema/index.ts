@@ -14,3 +14,4 @@ export * from './office';
 export * from './stock';
 export * from './industry';
 export * from './law';
+export * from './vehicles';
