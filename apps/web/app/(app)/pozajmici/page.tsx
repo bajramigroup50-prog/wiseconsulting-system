@@ -17,7 +17,9 @@ import { ActionForm } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { createLoansAction, deleteLoanAction, ignoreMoveAction, saveLoanAction } from './actions';
+import { attachSignedAction, createLoansAction, deleteLoanAction, ignoreMoveAction, linkMoveAction, rebookLoansAction, saveLoanAction } from './actions';
+import { UploadField } from '@/components/upload-field';
+import { SelectAll } from './select-all';
 import { LoanContract } from './contract';
 import { lnIgnored, loanData } from './data';
 
@@ -47,7 +49,18 @@ export default async function PozajmiciPage({ searchParams }: { searchParams: Pr
         <Hd t={(ex ? 'Договор за позајмица ' : 'Нов договор за позајмица ') + (E.number ?? '')} sub={E.dir === 'given' ? '📤 фирмата дава позајмица' : '📥 фирмата прима позајмица'}>
           <Link className="btn" href="/pozajmici">← Листа</Link>
           {ex && <a className="btn" href={`/print/fin/pozajmica?id=${ex.id}`} target="_blank" rel="noopener">PDF</a>}
+          {ex && <a className="btn" href={`/pozajmici/word?id=${ex.id}`}>Word</a>}
         </Hd>
+        {ex && (
+          <ActionForm action={attachSignedAction} reset={false}>
+            <input type="hidden" name="id" value={ex.id} />
+            <div className="row" style={{ gap: 8, alignItems: 'end' }}>
+              <UploadField firmId={firm.id} label="📎 Прикачи го потпишаниот договор (скен)" accept="application/pdf,image/*" />
+              <button className="btn">Зачувај прилог</button>
+              {(D.fileOf.get(ex.id) ?? []).map((f, i) => <a key={f} className="btn sm" href={`/api/files/${f}`} target="_blank" rel="noopener">📎 {i + 1}</a>)}
+            </div>
+          </ActionForm>
+        )}
         <ActionForm action={saveLoanAction} reset={false}>
           <input type="hidden" name="id" value={ex?.id ?? ''} />
           <div className="form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8 }}>
@@ -98,11 +111,18 @@ export default async function PozajmiciPage({ searchParams }: { searchParams: Pr
           <div key={t} className="card" style={{ flex: 1, minWidth: 180, margin: 0 }}><div className="muted" style={{ fontSize: 12.5 }}>{t}</div><div style={{ fontSize: 22, fontWeight: 700 }}>{n}</div></div>
         ))}
       </div>
+      {D.misK.length > 0 && (
+        <div className="callout warn" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>🔧 <b>{D.misK.length}</b> позајмици од изводите се прокнижени на други конта (не на 1620 / 2620): {D.misK.slice(0, 5).map((m) => `${dmy(m.date)} ${fmt(m.amt)}`).join(', ')}{D.misK.length > 5 ? '…' : ''}</span>
+          <span style={{ flex: 1 }} />
+          {write && <RowAction className="btn pri" label="🔧 Прекнижи на 1620/2620" action={rebookLoansAction} confirm={`Да се прекнижат ${D.misK.length} ставки од изводите на 1620 (дадени) / 2620 (примени) позајмици?`} />}
+        </div>
+      )}
       {D.unlinked.length > 0 && (
         <ActionForm action={createLoansAction} reset={false} style={{ borderColor: 'var(--bad)' }}>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h2 style={{ margin: '0 0 6px' }}>⛔ Позајмици без договор (изводи, налози, благајна)</h2>
-            {write && <button className="btn sm pri">📝 Креирај договори за означените</button>}
+            <span className="row" style={{ gap: 6 }}>{write && <SelectAll name="mv" />}{write && <button className="btn sm pri">📝 Креирај договори за означените</button>}</span>
           </div>
           <p className="muted" style={{ fontSize: 12.5, margin: '0 0 6px' }}>Инспекцијата бара договор за секоја позајмица. Програмот ги најде на контата за заеми. Означете ги и креирајте договори (непотпишани), или отворете поединечно.</p>
           <table className="dense"><thead><tr><th /><th>Датум</th><th>Вид</th><th>Комитент</th><th>Опис</th><th className="n">Износ</th><th /></tr></thead>
@@ -113,6 +133,7 @@ export default async function PozajmiciPage({ searchParams }: { searchParams: Pr
                 <td>{pm.get(r.partnerId)?.name ?? '—'}</td><td className="mini">{r.desc.slice(0, 70)}</td><td className="n">{fmt(r.amt)}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>{write && <>
                   <Link className="btn sm pri" href={`/pozajmici?ed=new&mv=${encodeURIComponent(r.id)}`}>📝 Направи договор</Link>{' '}
+                  {D.loans.some((l) => l.dir === r.dir && l.partnerId === r.partnerId) && <><RowAction label="🔗 Поврзи" title="Поврзи ја со последниот договор на комитентот" action={linkMoveAction.bind(null, r.id)} confirm="Да се поврзе исплатата со последниот договор на овој комитент?" />{' '}</>}
                   <RowAction label="↩ Не е позајмица" title="Ова е враќање / не е позајмица – да не се бара договор" action={ignoreMoveAction.bind(null, r.id, false)} />
                 </>}</td>
               </tr>
@@ -130,10 +151,11 @@ export default async function PozajmiciPage({ searchParams }: { searchParams: Pr
               <td>{dmy(l.date)}</td><td className="n">{fmt(l.amount)}</td><td className="n">{fmt(r.rep)}</td><td className="n"><b>{fmt(r.bal)}</b></td>
               <td>{l.rate ? `${l.rate}%${r.int ? ' · ' + fmt(r.int) : ''}` : 'без камата'}</td>
               <td>{r.over ? <span className="pill bad">задоцнет {dmy(l.termDate)}</span> : l.termDate ? dmy(l.termDate) : '—'}</td>
-              <td>{l.signed ? <span className="pill good">✓ потпишан</span> : <span className="pill warn">непотпишан</span>}</td>
+              <td>{l.signed ? <span className="pill good">✓ потпишан</span> : <span className="pill warn">непотпишан</span>}{(D.fileOf.get(l.id) ?? []).map((f) => <a key={f} href={`/api/files/${f}`} target="_blank" rel="noopener" title="Потпишан договор"> 📎</a>)}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {write && <Link className="btn sm" href={`/pozajmici?ed=${l.id}`}>✎</Link>}{' '}
-                <a className="btn sm" href={`/print/fin/pozajmica?id=${l.id}`} target="_blank" rel="noopener">PDF</a>
+                <a className="btn sm" href={`/print/fin/pozajmica?id=${l.id}`} target="_blank" rel="noopener">PDF</a>{' '}
+                <a className="btn sm" href={`/pozajmici/word?id=${l.id}`}>Word</a>
                 {canDo(u, 'del', firm.id) && <RowAction label="🗑" title="Избриши" confirm={`Да се избрише договорот ${l.number ?? ''}?`} action={deleteLoanAction.bind(null, l.id)} />}
               </td>
             </tr>
