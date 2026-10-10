@@ -9,6 +9,7 @@ const BUCKET = () => process.env.S3_BUCKET ?? 'wise-docs';
 const defaultReader: ObjectReader = async (key) => {
   s3 ??= new S3Client({
     endpoint: process.env.S3_ENDPOINT, region: process.env.S3_REGION ?? 'us-east-1', forcePathStyle: true,
+    requestChecksumCalculation: 'WHEN_REQUIRED', responseChecksumValidation: 'WHEN_REQUIRED', // see apps/worker/src/storage.ts
     credentials: { accessKeyId: process.env.S3_ACCESS_KEY ?? '', secretAccessKey: process.env.S3_SECRET_KEY ?? '' },
   });
   const r = await s3.send(new GetObjectCommand({ Bucket: BUCKET(), Key: key }));
