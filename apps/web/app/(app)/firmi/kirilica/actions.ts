@@ -7,7 +7,7 @@ import { audit, firms } from '@wise/db';
 import { requireCan } from '@/lib/auth';
 import { db } from '@/lib/db';
 
-const FIELDS = ['name', 'address', 'city'] as const;
+const FIELDS = ['name', 'address', 'city', 'edb'] as const;
 
 /** Apply the reviewed Cyrillic spellings to the ticked firms (one audited update per firm). */
 export async function applyCyr(form: FormData): Promise<void> {
@@ -22,7 +22,8 @@ export async function applyCyr(form: FormData): Promise<void> {
       const set: Partial<Record<(typeof FIELDS)[number], string>> = {};
       const before: Record<string, unknown> = {};
       for (const k of FIELDS) {
-        const v = String(form.get(`${k}.${id}`) ?? '').trim();
+        let v = String(form.get(`${k}.${id}`) ?? '').trim();
+        if (k === 'edb') { v = v.replace(/\s/g, '').replace(/^MK/i, ''); if (v && !/^\d{13}$/.test(v)) continue; }
         if (v && v !== (f[k] ?? '')) { set[k] = v; before[k] = f[k]; }
       }
       if (k0(set) && set.name !== undefined && set.name.length < 2) continue;

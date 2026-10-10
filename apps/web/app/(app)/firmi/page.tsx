@@ -60,7 +60,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
           <a className="btn" href="/firmiImp/obrazec" title="Празен Excel образец со сите колони за фирми">⬇ Excel образец</a>
           <Link className="btn" href="/firmiImp" title="Excel со листа на фирми (на пр. извоз од друга програма: Име на фирма, Жиро сметка, Матичен број, Даночен…)">📥 Увоз од Excel</Link>
           <Link className="btn pri" href="/firmiResh" title="Скенирајте решение од ЦРМ – фирмата се внесува сама">📷 Нова фирма од решение</Link>
-          <Link className="btn" href="/firmi/kirilica">🔤 Латиница → кирилица</Link>
+          <Link className="btn" href="/firmi/kirilica">🔧 Поправка на увезени фирми</Link>
         </>}
         {can(u.principal, 'newFirm') && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
       </Hd>
