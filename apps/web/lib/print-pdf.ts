@@ -8,21 +8,77 @@
  * side is `serverPdf` below (React `PdfButton` and the static payroll print pages share it).
  */
 
-export interface PrintPdfRequest { html: string; css: string; title: string; landscape: boolean; /** Add the PDF to this document package (legacy PKG_REP). */ pkg: string | null }
+/**
+ * Where the stored PDF is also filed (the worker links it after rendering, `pdf.render` `link`):
+ * - `dossier` — a new firm dossier document (legacy `recArchive`: ИОС / записник за усогласување → „Документи на фирмата“)
+ * - `year`    — the year-end dossier of `year` under `role` (legacy `zyAdd` from `zyGen`; a generated role replaces the old file)
+ */
+export type PdfSave =
+  | { to: 'dossier'; category: string; title: string; date: string | null; partner: string | null; note: string | null }
+  | { to: 'year'; year: number; role: string };
+
+export interface PrintPdfRequest {
+  html: string; css: string; title: string; landscape: boolean;
+  /** Add the PDF to this document package (legacy PKG_REP). */
+  pkg: string | null;
+  /** Prepend the firm head + title (legacy `ph(title, sub)`) — used for screens captured as they are (`ScreenExport`). */
+  head: { sub: string } | null;
+  save: PdfSave | null;
+}
 
 export const PDF_MAX_HTML = 6_000_000;
 export const PDF_MAX_CSS = 1_500_000;
 
+const line = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/[\r\n\t]+/g, ' ').trim().slice(0, n) : '');
+
+/** `save` part of the body; `categories` / `roles` are the allowed dossier categories and year-dossier roles. */
+export function parsePdfSave(v: unknown, categories: readonly string[], roles: readonly string[]): PdfSave | null | { error: string } {
+  if (v == null) return null;
+  const o = (typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  if (o.to === 'dossier') {
+    const category = line(o.category, 120);
+    if (!categories.includes(category)) return { error: 'Непозната категорија во досието.' };
+    const date = typeof o.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.date) ? o.date : null;
+    return { to: 'dossier', category, title: line(o.title, 300) || category, date, partner: line(o.partner, 300) || null, note: line(o.note, 1000) || null };
+  }
+  if (o.to === 'year') {
+    const year = Number(o.year), role = line(o.role, 20);
+    if (!Number.isInteger(year) || year < 1990 || year > 2100 || !roles.includes(role)) return { error: 'Неважечка година или вид на документ.' };
+    return { to: 'year', year, role };
+  }
+  return { error: 'Непознато место за зачувување.' };
+}
+
 /** Validate the JSON body of `POST /api/pdf`. */
-export function parsePrintPdfRequest(b: unknown): PrintPdfRequest | { error: string } {
+export function parsePrintPdfRequest(b: unknown, allowed: { categories: readonly string[]; roles: readonly string[] } = { categories: [], roles: [] }): PrintPdfRequest | { error: string } {
   const o = (b && typeof b === 'object' ? b : {}) as Record<string, unknown>;
   const html = typeof o.html === 'string' ? o.html : '';
   const css = typeof o.css === 'string' ? o.css : '';
   if (!html.trim()) return { error: 'Нема содржина за PDF.' };
   if (html.length > PDF_MAX_HTML || css.length > PDF_MAX_CSS) return { error: 'Документот е преголем за PDF – користете „Печати“.' };
-  const title = (typeof o.title === 'string' ? o.title : '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 150) || 'Документ';
+  const title = line(o.title, 150) || 'Документ';
   const pkg = typeof o.pkg === 'string' && /^[0-9a-f-]{36}$/i.test(o.pkg) ? o.pkg : null;
-  return { html, css, title, landscape: o.landscape === true, pkg };
+  const head = o.head && typeof o.head === 'object' ? { sub: line((o.head as Record<string, unknown>).sub, 300) } : null;
+  const save = parsePdfSave(o.save, allowed.categories, allowed.roles);
+  if (save && 'error' in save) return save;
+  return { html, css, title, landscape: o.landscape === true, pkg, head, save };
+}
+
+const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+/** Legacy `firmHead()` + `ph(title, sub)` (3254–3255) as HTML, the same markup as `app/print/firm-head.tsx`. */
+export function firmHeadHtml(
+  firm: { name: string | null; address?: string | null; city?: string | null; phone?: string | null; email?: string | null; edb?: string | null; embs?: string | null } | null,
+  title: string, sub: string, printed: string,
+): string {
+  const fh = firm ? `<div class="fh"><div class="fn">${esc(String(firm.name ?? '').toUpperCase())}</div><div class="fa">${esc([firm.address, firm.city].filter(Boolean).join(' '))}${firm.phone ? ' * Тел.: ' + esc(firm.phone) : ''}${firm.email ? ' * ' + esc(firm.email) : ''}<br>ЕДБ: ${esc(firm.edb ?? '')}${firm.embs ? ' * ЕМБС: ' + esc(firm.embs) : ''}</div></div>` : '';
+  const d = printed.slice(0, 10).split('-').reverse().join('.');
+  return `${fh}<div class="ph"><div><div class="pt">${esc(title)}</div>${sub ? `<div class="ps">${esc(sub)}</div>` : ''}</div><div class="pm">Отпечатено: ${d}</div></div>`;
+}
+
+/** Wrap a captured screen (`#printArea` from `ScreenExport`) in `.pdfdoc` with the firm head in front. */
+export function withFirmHead(html: string, headHtml: string, landscape: boolean): string {
+  return `<div id="printArea" style="display:block"><div class="pdfdoc${landscape ? ' land' : ''}">${headHtml}${html}</div></div>`;
 }
 
 const FILE_SRC = /(src=")(?:https?:\/\/[^"/]+)?\/api\/files\/([0-9a-f-]{36})(?:\?[^"]*)?(")/gi;
