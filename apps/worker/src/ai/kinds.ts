@@ -17,12 +17,12 @@ import { bomMaterials } from '@wise/core/ai/bom';
 import { fiskAfterRead, fiskApplySimple, fiskFinish, fiskReadTotal } from '@wise/core/ai/fisk';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
-import { BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE } from './prompts';
+import { BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, OB_PROMPT, REC_PROMPT } from './prompts';
 import { AiReadError, fileContent, loadFile, readContent } from './read-document';
 import { readObject } from './storage';
 
 /** Kinds handled here (the others are purchase / sale drafts). */
-export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom']);
+export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom', 'ob', 'rec']);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
@@ -49,6 +49,15 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = n
     }
     case 'bank': {
       const r = await read(BANK_PROMPT, 'default');
+      return { result: r.data, model: r.model };
+    }
+    case 'ob': {
+      // legacy `obAi` 10646 read the text in ~11k parts; one complex-tier read with a large answer here
+      const r = await readContent<unknown>({ ...base, prompt: OB_PROMPT, tier: 'complex', maxTokens: 20000 }, content); // non-streaming limit of the SDK (~21k)
+      return { result: r.data, model: r.model };
+    }
+    case 'rec': {
+      const r = await readContent<unknown>({ ...base, prompt: REC_PROMPT, tier: 'default', maxTokens: 16000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'classify': {

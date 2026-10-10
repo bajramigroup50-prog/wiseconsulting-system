@@ -19,8 +19,8 @@ const d8 = (d?: string | null) => (d ? String(d).slice(0, 10).split('-').reverse
 /** Legacy `cont()`: the description in capitals without the trailing „од dd.mm.yyyy“. */
 const nalogContent = (s: string) => s.toUpperCase().replace(/\s+ОД\s+\d{2}\.\d{2}\.\d{4}.*$/, '').replace(/БР\.\s*/, 'БР ');
 
-export default async function PrintNalog({ searchParams }: { searchParams: Promise<{ n?: string }> }) {
-  const { n } = await searchParams;
+export default async function PrintNalog({ searchParams }: { searchParams: Promise<{ n?: string; t?: string }> }) {
+  const { n, t } = await searchParams;
   const { firm, year } = await printGuard('nalozi');
   if (!n) notFound();
   const J = await db().select().from(journals)
@@ -32,7 +32,7 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
     .where(inArray(journalLines.journalId, J.map((j) => j.id))).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo));
   const D = L.reduce((s, x) => s + Number(x.l.debit), 0), P = L.reduce((s, x) => s + Number(x.l.credit), 0);
   const date = J.map((j) => j.date).sort().at(-1)!;
-  const label = J.length === 1 ? J[0]!.description ?? '' : (J[0]!.description ?? '') + ` и уште ${J.length - 1}`;
+  const label = t ? t.slice(0, 120) : J.length === 1 ? J[0]!.description ?? '' : (J[0]!.description ?? '') + ` и уште ${J.length - 1}`;
   const izb = (x: (typeof L)[number]) => {
     if (x.j.kind !== 'bank') return '';
     const m = (x.j.meta ?? {}) as { statementNo?: string };

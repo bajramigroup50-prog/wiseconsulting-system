@@ -13,7 +13,7 @@ import { db } from '@/lib/db';
 import { AI_RESULT_KIND_ACTION, dispatchAiReads, isAiInputError, isAiResultKind, queueAiReads } from '@/lib/ai';
 
 const Start = z.object({
-  kind: z.enum(['blg', 'emp', 'bank', 'fisk', 'bom']),
+  kind: z.enum(['blg', 'emp', 'bank', 'fisk', 'bom', 'ob', 'rec']),
   fileIds: z.array(z.uuid()).max(100).default([]),
   productId: z.uuid().optional(),
 });
