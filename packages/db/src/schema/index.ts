@@ -18,3 +18,4 @@ export * from './vehicles';
 export * from './system';
 export * from './finance';
 export * from './legacy-import';
+export * from './retail';

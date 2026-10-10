@@ -46,3 +46,5 @@ export * from './lawrep';
 export * from './codebooks';
 export * from './firm-data';
 export * from './app-errors';
+export * from './retail';
+export * from './retail-items';

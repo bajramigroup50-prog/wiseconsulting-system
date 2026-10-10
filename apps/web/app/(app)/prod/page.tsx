@@ -38,7 +38,7 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
   const payload = p && q ? JSON.stringify({ date, productId: p.id, qty: q, wh }) : '';
   return (
     <>
-      <Hd t="Работни налози" sub="производство" />
+      <Hd t="Работни налози" sub="производство"><a className="btn" href="/rasNorm">📦 Раздолжување за период – по попис или % од продажба</a></Hd>
       {prods.length ? (
         <div className="card">
           <h2>Нов работен налог</h2>
