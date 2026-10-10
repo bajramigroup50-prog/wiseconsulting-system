@@ -1,7 +1,7 @@
 /**
  * Finance & books menu items that legacy added to `NAV` at runtime (not in the static `NAV` literal):
  * `recFree` after `kartici` (13780), `pozajmici` at the end of Финансово (16846), `efPrep` (15200, Канцеларија in legacy;
- * here in Фирми next to the other all-firms checks, after `insp`). The codebook screens `tarifi` / `terkovi` were opened
+ * here in Фирми after the other all-firms checks (`mpinIn`)). The codebook screens `tarifi` / `terkovi` were opened
  * from the „Сите шифрарници“ page (legacy `data-go`), which has no route yet, so they are listed under Шифрарник.
  */
 import type { NavGroup, NavItem } from './nav-data';
@@ -10,7 +10,7 @@ import type { NavGroup, NavItem } from './nav-data';
 const ADD: [string, string | null, NavItem[]][] = [
   ['Финансово', 'kartici', [['recFree', '🔍 Споредба на две картици']]],
   ['Финансово', null, [['pozajmici', '🤝 Позајмици и заеми (договори)']]],
-  ['Фирми', 'insp', [['efPrep', '🧾 е-Фактура – подготовка']]],
+  ['Фирми', 'mpinIn', [['efPrep', '🧾 е-Фактура – подготовка']]],
   ['Шифрарник', 'konto', [['tarifi', 'Даночни тарифи'], ['terkovi', 'Теркови за книжење']]],
 ];
 

@@ -10,9 +10,9 @@ describe('finance menu items (legacy runtime NAV patches)', () => {
     expect(f[f.length - 1]).toBe('pozajmici');
     expect(NAV_LBL.recFree).toBe('🔍 Споредба на две картици');
   });
-  it('efPrep after insp, codebook screens after the chart', () => {
+  it('efPrep after mpinIn (end of the all-firms checks), codebook screens after the chart', () => {
     const f = ids('Фирми');
-    expect(f.indexOf('efPrep')).toBe(f.indexOf('insp') + 1);
+    expect(f.indexOf('efPrep')).toBe(f.indexOf('mpinIn') + 1);
     const s = ids('Шифрарник');
     expect(s.slice(s.indexOf('konto'))).toEqual(['konto', 'tarifi', 'terkovi']);
   });
