@@ -25,6 +25,12 @@ export function LocSelect({ label, param, value, options, keep = false, empty }:
   return label ? <label className="f">{label}{sel}</label> : sel;
 }
 
+/** „Избери ги сите прикажани“ / „Отстрани ги прикажаните“ (legacy `akAll`): toggles the checkboxes `input[name^=prefix]` of the form. */
+export function CheckAllButtons({ form, prefix, on = 'Избери ги сите прикажани', off = 'Отстрани ги прикажаните' }: { form: string; prefix: string; on?: string; off?: string }) {
+  const set = (v: boolean) => document.querySelectorAll<HTMLInputElement>(`${form} input[type=checkbox][name^="${prefix}"]`).forEach((c) => { c.checked = v; });
+  return <><button type="button" className="btn" onClick={() => set(true)}>{on}</button><button type="button" className="btn" onClick={() => set(false)}>{off}</button></>;
+}
+
 /** Legacy `.ftabs` tab strip (buttons with `aria-selected`), each tab a link. */
 export function FTabs({ tabs, active }: { tabs: readonly (readonly [string, string, string])[]; active: string }) {
   const router = useRouter();

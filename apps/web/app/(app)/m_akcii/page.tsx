@@ -16,6 +16,9 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { ActionForm } from '@/components/action-form';
 import { PrintButton } from '@/components/stock-ui';
+import { PdfButton } from '@/components/pdf-button';
+import { CheckAllButtons } from '@/components/loc-select';
+import { FirmHead } from '@/app/print/firm-head';
 import { deletePromoAction, runPromoAction, savePromoAction } from '../_retail/actions';
 
 type SP = { nov?: string; id?: string; wh?: string; from?: string; to?: string; name?: string; pct?: string; rnd?: string; q?: string; view?: string; k?: string };
@@ -42,18 +45,18 @@ export default async function AkciiPage({ searchParams }: { searchParams: Promis
     let ta = 0, tv = 0;
     return (
       <>
-        <Hd t={'Акција ' + view.number}><Link className="btn" href="/m_akcii">← Назад</Link><PrintButton /></Hd>
+        <Hd t={'Акција ' + view.number} exp={false}><Link className="btn" href="/m_akcii">← Назад</Link><PrintButton /><PdfButton selector=".printarea" title={({ odl: 'Odluka_akcija_', kalk: 'Kalkulacija_namaluvanje_', end: 'Nivelacija_kraj_akcija_' } as Record<string, string>)[k] + view.number.replace(/\//g, '-')} /></Hd>
         <div className="printarea pdfdoc" style={{ background: '#fff', padding: 12 }}>
           {k === 'odl' ? <>
-            <div className="ph"><div><div className="pt">ОДЛУКА ЗА АКЦИСКА ПРОДАЖБА бр. {view.number}</div><div className="ps">{firm.name}</div></div></div>
+            <FirmHead firm={firm} title={'ОДЛУКА ЗА АКЦИСКА ПРОДАЖБА бр. ' + view.number} sub={firm.name} />
             <p>Врз основа на Законот за трговија и интерните акти на {firm.name}, се донесува одлука за акциска продажба (намалување на цени):</p>
             <p><b>Назив на акцијата:</b> {view.name}<br /><b>Продажен објект:</b> {L.locName(view.locationId)}<br /><b>Период:</b> од {dmy(view.dateFrom)} до {dmy(view.dateTo)} година</p>
             <table><thead><tr><th>Р.б.</th><th>Шифра</th><th>Назив</th><th>ЕМ</th><th className="n">Редовна цена со ДДВ</th><th className="n">Попуст %</th><th className="n">Акциска цена со ДДВ</th></tr></thead>
               <tbody>{view.lines.map((l, i) => { const it = its.get(l.itemId); return <tr key={i}><td>{i + 1}</td><td>{it?.code}</td><td>{it?.name}</td><td>{it?.unit}</td><td className="n">{fmt(l.old)}</td><td className="n">{fq(r2((1 - l.new / (l.old || 1)) * 100))}</td><td className="n">{fmt(l.new)}</td></tr>; })}</tbody></table>
             <p>Цените на стоките на акција се истакнуваат со редовната и акциската цена и со периодот на траење на акцијата. По завршувањето на акцијата се враќаат редовните цени со нивелација.</p>
-            <div className="grid2" style={{ marginTop: 40 }}><div>{dmy(view.date)}</div><div style={{ textAlign: 'right' }}>Управител<br /><br />____________________</div></div>
+            <div className="grid2" style={{ marginTop: 40 }}><div>Во {firm.city ?? ''}, {dmy(view.date || view.dateFrom)}</div><div style={{ textAlign: 'right' }}>Управител<br /><br />____________________</div></div>
           </> : !niv ? <p>Нема документ.</p> : <>
-            <div className="ph"><div><div className="pt">{k === 'kalk' ? 'КАЛКУЛАЦИЈА ЗА НАМАЛУВАЊЕ НА ЦЕНИ (АКЦИЈА)' : 'НИВЕЛАЦИЈА – ВРАЌАЊЕ НА РЕДОВНИ ЦЕНИ'} бр. {niv.number}</div><div className="ps">{firm.name} · {L.locName(view.locationId)} · {dmy(niv.date)}</div></div></div>
+            <FirmHead firm={firm} title={(k === 'kalk' ? 'КАЛКУЛАЦИЈА ЗА НАМАЛУВАЊЕ НА ЦЕНИ (АКЦИЈА)' : 'НИВЕЛАЦИЈА – ВРАЌАЊЕ НА РЕДОВНИ ЦЕНИ') + ' бр. ' + niv.number} sub={`${firm.name} · ${L.locName(view.locationId)} · ${dmy(niv.date)}`} />
             <p>Акција: <b>{view.name}</b> ({dmy(view.dateFrom)} – {dmy(view.dateTo)}) · Одлука бр. {view.number}</p>
             <table><thead><tr><th>Р.б.</th><th>Шифра</th><th>Назив</th><th>ЕМ</th><th className="n">Пописана количина</th><th className="n">Стара цена</th><th className="n">Нова цена</th><th className="n">Разлика по ед.</th><th className="n">Вкупна разлика</th><th className="n">од тоа ДДВ</th></tr></thead>
               <tbody>{niv.lines.map((l, i) => {
@@ -98,10 +101,12 @@ export default async function AkciiPage({ searchParams }: { searchParams: Promis
           </div>
           <div className="row"><button className="btn">Освежи листата (продавница, датум, попуст)</button><span className="note">Се нудат артиклите со залиха на денот „Од“.</span></div>
         </form>
-        <ActionForm action={savePromoAction} className="card" reset={false}>
+        <div id="akForm"><ActionForm action={savePromoAction} className="card" reset={false}>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8 }}><CheckAllButtons form="#akForm" prefix="s_" />
+            <span className="mini">Избрани: <b>{sel.size}</b> · разлика по продажни цени: <b>{fmt(cand.filter((r) => sel.has(r.it.id)).reduce((a, r) => a + r.s * ((sel.get(r.it.id) ?? r.old) - r.old), 0))}</b></span></div>
           {[['id', edit?.id ?? ''], ['name', name], ['wh', wh], ['from', from], ['to', to], ['pct', pct], ['rnd', rnd]].map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
           <div className="tw"><table className="dense">
-            <thead><tr><th /><th>Шифра</th><th>Артикл</th><th className="n">Залиха</th><th className="n">Редовна МПЦ</th><th className="n">Попуст %</th><th className="n">Акциска МПЦ</th><th className="n">Набавна со ДДВ</th></tr></thead>
+            <thead><tr><th /><th>Шифра</th><th>Артикл</th><th className="n">Залиха</th><th className="n">Редовна МПЦ</th><th className="n">Попуст %</th><th className="n">Акциска МПЦ</th><th className="n">Набавна со ДДВ</th><th className="n">Разлика</th></tr></thead>
             <tbody>{cand.map((r) => {
               const nw = promotionPrice(r.old, sel.has(r.it.id) ? { price: sel.get(r.it.id) } : {}, { pct, rnd });
               const nab = promotionCostFloor(L.ctx, r.it, wh);
@@ -111,13 +116,14 @@ export default async function AkciiPage({ searchParams }: { searchParams: Promis
                   <td className="n"><input name={'p_' + r.it.id} inputMode="decimal" placeholder={pct} style={{ width: 70, textAlign: 'right' }} /></td>
                   <td className="n"><input name={'n_' + r.it.id} inputMode="decimal" defaultValue={sel.has(r.it.id) ? String(sel.get(r.it.id)) : ''} placeholder={String(nw)} style={{ width: 100, textAlign: 'right' }} /></td>
                   <td className="n">{fmt(nab)}{nw < nab && <> <span className="pill bad" title="Новата цена е под набавната">под набавна</span></>}</td>
+                  <td className="n">{fmt(r.s * (nw - r.old))}</td>
                 </tr>
               );
-            })}{!cand.length && <tr><td colSpan={8} className="empty">Нема артикли со залиха во продавницата.</td></tr>}</tbody>
+            })}{!cand.length && <tr><td colSpan={9} className="empty">Нема артикли со залиха во продавницата.</td></tr>}</tbody>
           </table></div>
           <p className="note">Попустот за сите се задава горе; за поединечен артикл може да внесете свој % или директно акциска цена.</p>
           <div className="row"><span style={{ flex: 1 }} /><Link className="btn" href={base}>Ресетирај</Link><button className="btn pri">Зачувај одлука</button></div>
-        </ActionForm>
+        </ActionForm></div>
       </>
     );
   }
@@ -131,7 +137,7 @@ export default async function AkciiPage({ searchParams }: { searchParams: Promis
       {due.length > 0 && <div className="callout warn">{due.map((a) => <div key={a.id}>{a.status === 'active'
         ? <>Акцијата <b>{a.name}</b> заврши на {dmy(a.dateTo)} – вратете ги редовните цени (нивелација). {write && <RowAction action={runPromoAction.bind(null, a.id, true)} className="btn sm pri" label="Заврши и врати цени" confirm={`Да се вратат редовните цени со нивелација?`} />}</>
         : <>Акцијата <b>{a.name}</b> почнува {dmy(a.dateFrom)} – направете ја калкулацијата за намалување. {write && <RowAction action={runPromoAction.bind(null, a.id, false)} className="btn sm pri" label="Започни акција" confirm="Да се направи калкулација за намалување на цени? Количините се од залихата на тој ден." />}</>}</div>)}</div>}
-      <div className="card"><p className="note" style={{ marginTop: 0 }}>Постапка: 1) <b>Одлука</b> за акциска продажба (назив, период, артикли, стара и нова цена) · 2) на почетокот <b>Калкулација за намалување на цени</b> (нивелација по пописана залиха) · 3) на крајот <b>нивелација за враќање</b> на редовните цени. Разликите влегуваат во ЕТМ и во книжењето (разлика во цена и ДДВ).</p>
+      <div className="card"><p className="note" style={{ marginTop: 0 }}>Постапка: 1) <b>Одлука</b> за акциска продажба (назив, период, артикли, стара и нова цена) · 2) на почетокот <b>Калкулација за намалување на цени</b> (нивелација по пописана залиха) · 3) на крајот <b>нивелација за враќање</b> на редовните цени. Во продавницата цените се истакнуваат со стара и нова цена и периодот на акцијата. Разликите влегуваат во ЕТМ и во книжењето (разлика во цена и ДДВ).</p>
         {L1.length ? <div className="tw"><table>
           <thead><tr><th>Бр.</th><th>Акција</th><th>Продавница</th><th>Период</th><th className="n">Артикли</th><th className="n">Просечен попуст</th><th>Статус</th><th /></tr></thead>
           <tbody>{L1.map((a) => {
