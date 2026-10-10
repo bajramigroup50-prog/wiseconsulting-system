@@ -6,7 +6,9 @@
  */
 import * as XLSX from 'xlsx';
 import { splitCsv } from '@wise/core';
-import { aggregatePrior, compareCards, ourRecRows, parseCardTable, recMatch, recSums, type TheirRow } from '@wise/core/finance';
+import { aggregatePrior, ourRecRows, parseCardTable, recMatch, recSums, type TheirRow } from '@wise/core/finance';
+import { cardFromRead, compareCardsPeriod, type RfMode } from '@wise/core/finpar-cards';
+import { loadAiResult } from '@/lib/ai';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { finLines, partnerMap } from '@/lib/finance';
@@ -14,7 +16,16 @@ import { viewAllowed } from '@/lib/nav';
 
 const MAX = 20 * 1024 * 1024;
 
-async function readCard(f: FormDataEntryValue | null): Promise<{ rows: TheirRow[]; opening: number; name: string }> {
+async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue | null, firmId?: string): Promise<{ rows: TheirRow[]; opening: number; name: string }> {
+  // legacy `recParse` 12923: PDF / image cards are read by AI (`REC_PROMPT`, worker kind `rec`) before submitting
+  const ai = String(aiId ?? '');
+  if (ai && firmId) {
+    const d = await loadAiResult(firmId, ai, 'rec');
+    if (!d) throw new Error('Картицата сè уште не е прочитана.');
+    const R = cardFromRead(d.result);
+    if (!R.rows.length) throw new Error('Во картицата не се пронајдени ставки.');
+    return { ...R, name: f instanceof File ? f.name : 'картица' };
+  }
   if (!(f instanceof File) || !f.size) throw new Error('Изберете датотека.');
   if (f.size > MAX) throw new Error('Датотеката е преголема (најмногу 20 MB).');
   const nm = f.name.toLowerCase();
@@ -30,7 +41,7 @@ async function readCard(f: FormDataEntryValue | null): Promise<{ rows: TheirRow[
   } else if (/\.(csv|txt)$/.test(nm)) {
     rows = splitCsv(await f.text());
   } else {
-    throw new Error('PDF и слики од картици сè уште не се читаат автоматски – извезете ја картицата во Excel или CSV.');
+    throw new Error('Форматот не е препознаен – користете Excel, CSV, PDF или слика.');
   }
   const P = parseCardTable(rows);
   if (!P || !P.rows.length) throw new Error(`„${f.name}“: не се препознаени колоните (датум, должи, побарува) или нема ставки.`);
@@ -60,23 +71,29 @@ export async function reconAction(form: FormData) {
     const one = y1 === year && y2 === year;
     const from = one && /^\d{4}-\d{2}-\d{2}$/.test(String(form.get('from'))) ? String(form.get('from')) : `${y1}-01-01`;
     const to = one && /^\d{4}-\d{2}-\d{2}$/.test(String(form.get('to'))) ? String(form.get('to')) : `${y2}-12-31`;
-    const their = await readCard(form.get('file'));
+    const their = await readCard(form.get('file'), form.get('fileAi'), firm.id);
     const L = (await finLines(firm.id, from, to, { partnerId: pid, ...(kontos.length ? { kontos } : { accountRe: '^(12|22|15|23)' }) }))
       .filter((l) => l.kind !== 'close' && !(l.kind === 'open' && !l.date.startsWith(String(y1))));
     const ours = ourRecRows(L);
     const rows = aggregatePrior(their.rows, from, ours.some((o) => o.open));
     const M = recMatch(ours, rows);
-    return { ok: true as const, partner: p.name, file: their.name, from, to, kontos: kontos.join(', ') || '12/22', M, sums: recSums(ours, rows, their.opening, M), opening: their.opening };
+    return { ok: true as const, partner: p.name, edb: p.edb ?? '', file: their.name, from, to, kontos: kontos.join(', ') || '12/22', M, sums: recSums(ours, rows, their.opening, M), opening: their.opening };
   } catch (e) { return err(e); }
 }
 
 /** Two arbitrary cards (legacy recFree). */
 export async function compareAction(form: FormData) {
   try {
-    await guard();
-    const a = await readCard(form.get('a')), b = await readCard(form.get('b'));
+    const { firm, year } = await guard();
+    const a = await readCard(form.get('a'), form.get('aAi'), firm.id), b = await readCard(form.get('b'), form.get('bAi'), firm.id);
     const m = String(form.get('mirror') ?? 'auto');
-    const X = compareCards(a.rows, b.rows, m === 'auto' ? undefined : m === '1');
+    const md = String(form.get('mode') ?? 'auto');
+    const iso = (k: string) => (/^\d{4}-\d{2}-\d{2}$/.test(String(form.get(k) ?? '')) ? String(form.get(k)) : undefined);
+    // legacy v433 13817: period for the comparison (auto / one year / all / from–to)
+    const X = compareCardsPeriod(a.rows, b.rows, {
+      mode: (['auto', 'year', 'all', 'custom'].includes(md) ? md : 'auto') as RfMode, year: +(form.get('yr') ?? year) || year, from: iso('cf'), to: iso('ct'),
+      ...(m === 'auto' ? {} : { mirror: m === '1' }),
+    });
     if (!X) throw new Error('Во картиците нема ставки со датум.');
     return { ok: true as const, fa: a.name, fb: b.name, na: a.rows.length, nb: b.rows.length, X };
   } catch (e) { return err(e); }
