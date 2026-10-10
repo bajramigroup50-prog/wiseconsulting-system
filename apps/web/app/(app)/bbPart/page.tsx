@@ -11,7 +11,7 @@ import { aggregatedLines } from '@/lib/ledger-agg';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 
-type SP = { k?: string; from?: string; to?: string; close?: string; q?: string };
+type SP = { k?: string; from?: string; to?: string; close?: string; q?: string; p?: string; wh?: string };
 const F = ['od', 'op', 'td', 'tp', 'vd', 'vp'] as const;
 
 export default async function BbPartPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -21,9 +21,11 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
   if (!/^\d{1,10}$/.test(sp.k ?? '')) notFound();
   const k = sp.k!;
   const from = inYearOr(sp.from, year, `${year}-01-01`), to = inYearOr(sp.to, year, `${year}-12-31`);
-  const [lines, chart, P] = await Promise.all([aggregatedLines(firm.id, from, to), effectiveChart(db(), firm.id), partnerOptions(firm.id)]);
+  const [lines, chart, P] = await Promise.all([aggregatedLines(firm.id, from, to, sp.wh), effectiveChart(db(), firm.id), partnerOptions(firm.id)]);
   const pname = new Map(P.map((p) => [p.id, p.name]));
-  const all = trialBalance(lines, { level: 'a', from, to, withClose: sp.close === '1', byPartnerOf: k, partnerName: (id) => pname.get(id) }).rows;
+  // legacy `bbRows('a',…,S.bbP,k)`: the partner filter of the trial balance carries over
+  const pf = sp.p && pname.has(sp.p) ? sp.p : null;
+  const all = trialBalance(lines, { level: 'a', from, to, withClose: sp.close === '1', partnerId: pf, byPartnerOf: k, partnerName: (id) => pname.get(id) }).rows;
   const q = (sp.q ?? '').trim();
   const L = q ? all.filter((p) => srchMatch(p.name, q)) : all;
   const sum = (f: (typeof F)[number]) => all.reduce((s, r) => s + (+r[f] || 0), 0);

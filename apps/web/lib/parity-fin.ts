@@ -65,3 +65,7 @@ export async function saveFiskOpt(tx: Tx, firmId: string, patch: Record<string, 
   const s = (f?.settings ?? {}) as Record<string, unknown>;
   await tx.update(firms).set({ settings: { ...s, fiskOpt: { ...((s.fiskOpt ?? {}) as Record<string, unknown>), ...clean } } }).where(eq(firms.id, firmId));
 }
+
+/** Legacy `bbAnK` 13648: konto prefixes printed per partner in the analytic trial balance PDF. */
+export const bbAnKOf = (settings: unknown): string[] =>
+  String(((settings ?? {}) as { bbAnK?: string }).bbAnK || '0 1620 2620 1200 2200 7414').split(/[,;\s]+/).filter(Boolean);

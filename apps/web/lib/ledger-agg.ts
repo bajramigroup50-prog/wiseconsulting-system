@@ -9,13 +9,15 @@ import { db } from './db';
  * (open / close / bbimp / other). The result is a valid `LedgerLine[]` input for `trialBalance`
  * (dates collapse to `from`, which is inside the period), without loading every line of a large firm.
  */
-export async function aggregatedLines(firmId: string, from: string, to: string): Promise<LedgerLine[]> {
+export async function aggregatedLines(firmId: string, from: string, to: string, wh?: string | null): Promise<LedgerLine[]> {
   const kindClass = sql<string>`case when ${journals.kind} in ('open','close','bbimp') then ${journals.kind} else 't' end`;
   const rows = await db().select({
     account: journalLines.account, partnerId: journalLines.partnerId, kind: kindClass,
     debit: sql<string>`sum(${journalLines.debit})`, credit: sql<string>`sum(${journalLines.credit})`,
   }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
-    .where(and(eq(journalLines.firmId, firmId), sql`${journals.date} between ${from} and ${to}`))
+    .where(and(eq(journalLines.firmId, firmId), sql`${journals.date} between ${from} and ${to}`,
+      // legacy `bb_w` (6665): one location (Објект), or `none` = lines without a location
+      wh === 'none' ? sql`${journalLines.locationId} is null` : wh && /^[0-9a-f-]{36}$/i.test(wh) ? eq(journalLines.locationId, wh) : undefined))
     .groupBy(journalLines.account, journalLines.partnerId, kindClass);
   return rows.map((r) => ({ account: r.account, partnerId: r.partnerId, kind: r.kind, date: from, debit: Number(r.debit), credit: Number(r.credit) }));
 }
