@@ -13,9 +13,9 @@ describe('Фирми law / УЈП items (legacy runtime NAV inserts)', () => {
     expect(NAV_LBL.lawrep).toBe('⚖️ Даночен преглед (според законите)');
     expect(NAV_LBL.mpinIn).toBe('📥 МПИН од УЈП (сите фирми)');
   });
-  it('Финансово › Плата: mpinIn right after plati', () => {
+  it('Финансово › Плата: plati, payBatch (legacy splice at 1), mpinIn', () => {
     const sub = NAV.find(([g]) => g === 'Финансово')![1].find((x) => x[0] === '>' && x[1] === 'Плата')![2]!.map((x) => x[0]);
-    expect(sub.slice(0, 2)).toEqual(['plati', 'mpinIn']);
+    expect(sub.slice(0, 3)).toEqual(['plati', 'payBatch', 'mpinIn']);
   });
   it('office roles only', () => {
     expect(viewAllowed('acc', 'mpinIn')).toBe(true);
