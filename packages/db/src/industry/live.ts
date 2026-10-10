@@ -5,9 +5,9 @@
  * phone (40 s / 150 m) and the last {@link LIVE_MAX_POINTS} per order are kept (legacy kept 400 in the order).
  */
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
-import { LIVE_MAX_POINTS, validGeo, type GeoPos } from '@wise/core/industry';
+import { LIVE_MAX_POINTS, moduleOn, validGeo, type GeoPos } from '@wise/core/industry';
 import { audit, type Tx } from '../audit';
-import { travelOrders, travelPositions, type TravelOrderRow } from '../schema/index';
+import { firms, travelOrders, travelPositions, type TravelOrderRow } from '../schema/index';
 import { IndustryError } from './context';
 
 const fail = (m: string): never => { throw new IndustryError(m); };
@@ -19,12 +19,13 @@ const fail = (m: string): never => { throw new IndustryError(m); };
 export async function recordPosition(tx: Tx, user: { id: string }, orderIds: readonly string[], p: GeoPos, mayWrite: (firmId: string) => boolean): Promise<number> {
   if (!validGeo(p.lat, p.lon)) fail('Неважечка локација.');
   if (!orderIds.length) return 0;
-  const O = await tx.select({ id: travelOrders.id, firmId: travelOrders.firmId, assigneeId: travelOrders.assigneeId, status: travelOrders.status })
-    .from(travelOrders).where(inArray(travelOrders.id, [...orderIds]));
+  const O = await tx.select({ id: travelOrders.id, firmId: travelOrders.firmId, assigneeId: travelOrders.assigneeId, status: travelOrders.status, mods: firms.mods })
+    .from(travelOrders).innerJoin(firms, eq(firms.id, travelOrders.firmId)).where(inArray(travelOrders.id, [...orderIds]));
   const at = /^\d{4}-\d{2}-\d{2}T/.test(p.at) && Math.abs(Date.parse(p.at) - Date.now()) < 36e5 ? new Date(p.at) : new Date();
   let k = 0;
   for (const o of O) {
-    if (o.status !== 'onroad' || (o.assigneeId !== user.id && !mayWrite(o.firmId))) continue;
+    // Module `pn` off → no tracking (FIX LEGACY-MAP 10.4 item 9: the module gates every role).
+    if (o.status !== 'onroad' || !moduleOn(o.mods, 'pn') || (o.assigneeId !== user.id && !mayWrite(o.firmId))) continue;
     await tx.insert(travelPositions).values({
       firmId: o.firmId, orderId: o.id, lat: Number(p.lat).toFixed(6), lon: Number(p.lon).toFixed(6), at,
       acc: p.acc == null ? null : Math.round(Number(p.acc)), spd: p.spd == null ? null : Math.round(Number(p.spd)),
