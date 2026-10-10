@@ -27,6 +27,8 @@ export interface ItemOpt {
   have: Record<string, number>;
   /** Average cost (all locations). */
   avg: number;
+  /** Average cost per location id (legacy `prAvg`: cost at the source of a transfer). */
+  avgBy?: Record<string, number>;
 }
 export interface LocOpt { id: string; name: string; kind: 'warehouse' | 'store' }
 
