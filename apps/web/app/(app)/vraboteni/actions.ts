@@ -1,5 +1,6 @@
 'use server';
 import { revalidatePath } from 'next/cache';
+import { empParse } from '@wise/core/payroll/emp-import';
 import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -93,6 +94,56 @@ export async function deleteEmployee(id: string): Promise<ActionState> {
   } catch (e) { return payError(e); }
   revalidatePath('/vraboteni');
   return { ok: 'Избришано.' };
+}
+
+/** Legacy admin patch `slDel` (16934–16950): delete the ticked employees; those in payroll runs are skipped. */
+export async function deleteEmployeesBulk(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const ids = form.getAll('ids').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 2000);
+  if (!ids.length) return { error: 'Изберете (кутичката лево).' };
+  try {
+    const { u, firm } = await payAction('del');
+    if (u.role !== 'admin') return { error: 'Бришење може само администраторот.' };
+    const r = await db().transaction(async (tx) => {
+      const used = new Set((await tx.select({ id: payrollEmp.employeeId }).from(payrollEmp)
+        .where(and(eq(payrollEmp.firmId, firm.id), inArray(payrollEmp.employeeId, ids)))).map((x) => x.id));
+      const del = ids.filter((id) => !used.has(id));
+      const gone = del.length ? await tx.delete(employees).where(and(eq(employees.firmId, firm.id), inArray(employees.id, del))).returning({ id: employees.id, name: employees.name }) : [];
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'slDel', entityType: 'employee', data: { deleted: gone.map((x) => x.name), skipped: used.size } });
+      return { n: gone.length, skip: used.size };
+    });
+    revalidatePath('/vraboteni');
+    return { ok: `Избришани: ${r.n}${r.skip ? ` · ${r.skip} се во пресметки на плата – означете ги како неактивни` : ''}.` };
+  } catch (e) { return payError(e); }
+}
+
+/** Legacy `IMP_T.employees` import (Excel template „Vraboteni.xlsx“): adds new employees, fills empty fields of existing ones (by ЕМБГ, else name). */
+export async function importEmployeesXlsx(rows: string[][]): Promise<ActionState> {
+  try {
+    const R = empParse(Array.isArray(rows) ? rows.slice(0, 5001) : []);
+    if ('error' in R) return { error: R.error };
+    const { u, firm } = await payAction('write');
+    const r = await db().transaction(async (tx) => {
+      const all = await tx.select().from(employees).where(eq(employees.firmId, firm.id));
+      let m = Math.max(0, ...all.map((e) => parseInt(e.no ?? '') || 0));
+      let n = 0, up = 0;
+      for (const x of R) {
+        const ex = all.find((e) => x.embg && e.embg === x.embg) ?? all.find((e) => e.name.toLowerCase() === x.name.toLowerCase());
+        const vals = Object.fromEntries(Object.entries(x).filter(([, v]) => v !== '' && v != null)) as Partial<NewEmployee>;
+        if (ex) {
+          const patch = Object.fromEntries(Object.entries(vals).filter(([k]) => { const c = (ex as Record<string, unknown>)[k]; return c == null || c === '' || (k === 'netBase' && !Number(c)); }));
+          if (Object.keys(patch).length) { await tx.update(employees).set(patch).where(eq(employees.id, ex.id)); up++; }
+        } else {
+          const [ins] = await tx.insert(employees).values({ ...vals, name: x.name, firmId: firm.id, no: x.no || String(++m), netBase: x.netBase || '0', coef: x.coef || '1', leaveDays: x.leaveDays ? Number(x.leaveDays) : 20, active: true } as NewEmployee).returning();
+          all.push(ins!);
+          n++;
+        }
+      }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'impEmployees', entityType: 'employee', data: { added: n, updated: up } });
+      return { n, up };
+    });
+    revalidatePath('/vraboteni');
+    return { ok: `Увезени ${r.n} нови вработени${r.up ? `, дополнети ${r.up}` : ''}.` };
+  } catch (e) { return payError(e); }
 }
 
 /**

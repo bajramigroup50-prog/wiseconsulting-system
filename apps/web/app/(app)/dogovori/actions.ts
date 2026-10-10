@@ -4,6 +4,7 @@
  * `hrRegister` 6098, `hrPrefix` 6109) through the `@wise/db` HR service.
  */
 import { revalidatePath } from 'next/cache';
+import { HR_LOCK_MSG, hrOfficeLocked } from '@/lib/hr-lock';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { HR_DI_GR, HR_DI_KIND, hrDocCode, hrDocLabel, type HrContract, type HrDiDoc, type HrExtension } from '@wise/core';
@@ -33,6 +34,7 @@ export async function saveContractAction(employeeId: string, c: HrContract): Pro
     const v = Contract.safeParse(c);
     if (!v.success) return { error: 'Проверете ги полињата на договорот (' + (v.error.issues[0]?.path.join('.') ?? '') + ').' };
     const { u, firm } = await payAction('ctSave');
+    if (await hrOfficeLocked(firm, u)) return { error: HR_LOCK_MSG };
     const r = await db().transaction((tx) => saveContract(tx, { firmId: firm.id, employeeId, c: v.data as HrContract, userId: u.id }));
     rev(employeeId);
     return { ok: `Договорот е заведен под бр. ${r.doc.no} и зачуван во досието.`, docId: r.doc.id, no: r.doc.no };
@@ -46,6 +48,7 @@ export async function extendContractAction(employeeId: string, x: HrExtension): 
     const v = Ext.safeParse(x);
     if (!v.success) return { error: 'Проверете ги податоците за продолжувањето.' };
     const { u, firm } = await payAction('extSave');
+    if (await hrOfficeLocked(firm, u)) return { error: HR_LOCK_MSG };
     const d = await db().transaction((tx) => extendContract(tx, { firmId: firm.id, employeeId, x: { ...v.data, end: v.data.end || undefined }, userId: u.id }));
     rev(employeeId);
     return { ok: x.kind === 'transform' ? `Работниот однос е трансформиран во неопределено време (бр. ${d.no}).` : `Договорот е продолжен до ${x.end?.split('-').reverse().join('.')} (бр. ${d.no}).`, docId: d.id, no: d.no };
@@ -56,6 +59,7 @@ export async function saveDiAction(employeeId: string, x: HrDiDoc): Promise<HrRe
   try {
     if (!HR_DI_KIND.some((k) => k[0] === x.kind) || !/^\d{4}-\d{2}-\d{2}$/.test(x.date ?? '')) return { error: 'Неважечки документ.' };
     const { u, firm } = await payAction('diSave');
+    if (await hrOfficeLocked(firm, u)) return { error: '🔒 Само сопственикот.' };
     const title = hrDocLabel({ kind: 'di-' + x.kind });
     const d = await db().transaction((tx) => saveDiDoc(tx, { firmId: firm.id, employeeId, x, title, userId: u.id }));
     rev(employeeId);
@@ -67,6 +71,7 @@ export async function applyTerminationAction(employeeId: string, x: HrDiDoc): Pr
   try {
     if (!x.last) return { error: 'Внесете последен работен ден.' };
     const { u, firm } = await payAction('diApply');
+    if (await hrOfficeLocked(firm, u)) return { error: '🔒 Само сопственикот.' };
     const reason = (HR_DI_KIND.find((k) => k[0] === x.kind)?.[1] ?? '') + (x.kind === 'otkaz' ? ' – ' + ((HR_DI_GR.find((g) => g[0] === x.ground)?.[1] ?? '').split(' – ')[0]) : '');
     await db().transaction((tx) => applyTermination(tx, { firmId: firm.id, employeeId, last: x.last!, reason, docNo: x.no, userId: u.id }));
     rev(employeeId);

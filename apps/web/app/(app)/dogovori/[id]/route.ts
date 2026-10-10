@@ -10,12 +10,14 @@ import { db } from '@/lib/db';
 import { contractHtml, diHtml, extHtml, leaveHtml, sickHtml } from '@/lib/payroll/docs';
 import { fname, htmlResponse, printDoc } from '@/lib/payroll/html';
 import { payCtx, payRoute } from '@/lib/payroll/server';
+import { HR_LOCK_MSG, hrOfficeLocked } from '@/lib/hr-lock';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return new Response('Not found', { status: 404 });
   const g = await payRoute('hrPdf');
   if (g instanceof Response) return g;
+  if (await hrOfficeLocked(g.firm, g.u)) return new Response(HR_LOCK_MSG, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   const [d] = await db().select().from(hrDocs).where(and(eq(hrDocs.id, id), eq(hrDocs.firmId, g.firm.id))).limit(1);
   if (!d) return new Response('Документот не постои.', { status: 404 });
   const [e] = d.employeeId ? await db().select().from(employees).where(eq(employees.id, d.employeeId)).limit(1) : [];

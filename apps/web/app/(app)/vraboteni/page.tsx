@@ -10,7 +10,12 @@ import { firmEmployees, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deleteEmployee, setEmployeeActive } from './actions';
+import { deleteEmployee, deleteEmployeesBulk, importEmployeesXlsx, setEmployeeActive } from './actions';
+import { EMP_EXPORT_HEAD, EMP_EXPORT_KEYS, EMP_TEMPLATE } from '@wise/core/payroll/emp-import';
+import { fileLinks, files } from '@wise/db';
+import { XlsxButton, XlsxImport } from '@/components/vp-tools';
+import { ActionForm } from '@/components/yearend/action-form';
+import { SelectAll } from '@/components/select-all';
 import { EmployeeForm } from './employee-form';
 import { EmpScan } from './emp-scan';
 
@@ -18,7 +23,8 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const { u, firm, year } = await payPage('vraboteni');
   if (!firm) return <NoFirm t="Вработени" />;
-  const all = await firmEmployees(firm.id);
+  // Legacy `simpleList` sorts by name (`localeCompare`).
+  const all = (await firmEmployees(firm.id)).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
   const q = (sp.q ?? '').trim().toLowerCase();
   const rows = all.filter((e) => (sp.all !== undefined || e.active) && (!q || `${e.no} ${e.name} ${e.embg} ${e.position}`.toLowerCase().includes(q)));
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
@@ -37,6 +43,11 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
   for (const l of lines) if (l.empId) (runsByEmp.get(l.empId) ?? runsByEmp.set(l.empId, []).get(l.empId)!).push({ type: l.type, hours: Number(l.hours) });
   const regDays = (id: string, k: string) => Number(reg.find((r) => r.empId === id && r.kind === k)?.days ?? 0);
   const active = all.filter((e) => e.active);
+  const admin = u.role === 'admin' && del;
+  // Legacy leave table 📎: the employee's documents (`e.files`).
+  const docs = active.length ? await db().select({ e: fileLinks.entityId, id: files.id, name: files.name }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+    .where(and(eq(fileLinks.entityType, 'employee'), inArray(fileLinks.entityId, active.map((e) => e.id)))) : [];
+  const xl: (string | number)[][] = [[...EMP_EXPORT_HEAD], ...all.map((e) => EMP_EXPORT_KEYS.map((k) => { const v = (e as unknown as Record<string, unknown>)[k]; return v == null ? '' : typeof v === 'number' ? v : String(v); }))];
 
   return (
     <>
@@ -44,6 +55,8 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
         {write && <Link className="btn pri" href="/vraboteni?nov">+ Додај</Link>}
         <Link className="btn" href="/plati">Пресметка на плата</Link>
         <Link className="btn" href="/dogovori">Евиденција на договори</Link>
+        <XlsxButton name="Vraboteni.xlsx" label="⬇ Excel" sheets={[{ name: 'Вработени', rows: xl }]} />
+        {write && sp.nov === undefined && !edit && <XlsxImport action={importEmployeesXlsx} template={EMP_TEMPLATE.map((r) => r.map(String))} templateName="Vraboteni.xlsx" label="Увоз од Excel" confirm={(n) => `Да се увезат ${n} вработени?`} />}
       </Hd>
       {write && sp.nov === undefined && !edit && <EmpScan firmId={firm.id} />}
       {(sp.nov !== undefined || edit) && write && <EmployeeForm e={edit ?? null} nextNo={nextNo} positions={[...new Set(all.map((e) => e.position).filter((x): x is string => !!x))]} />}
@@ -53,12 +66,15 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
         <button className="btn">Барај</button>
       </form>
       {rows.length ? (
+        <ActionForm action={deleteEmployeesBulk} className="" confirm={admin ? 'Да се избришат избраните вработени? Тие што се во пресметки на плата не се бришат.' : undefined}
+          submit={admin ? '🗑 Избриши ги избраните' : undefined} submitClass="btn sm danger">
         <div className="tw"><table className="dense">
-          <thead><tr><th>Бр.</th><th>Име и презиме</th><th>ЕМБГ</th><th>Работно место</th><th className="n">Основна нето плата</th><th className="n">Коеф.</th><th>Вработен од</th><th>Договор до</th><th>МПИН општина</th><th>Сметка</th><th></th></tr></thead>
+          <thead><tr>{admin && <th><SelectAll /></th>}<th>Бр.</th><th>Име и презиме</th><th>ЕМБГ</th><th>Работно место</th><th className="n">Основна нето плата</th><th className="n">Коеф.</th><th>Вработен од</th><th>Договор до</th><th>МПИН општина</th><th>Сметка</th><th></th></tr></thead>
           <tbody>{rows.map((e) => {
             const codes = mpinEmpCodes({ city: e.city ?? '', address: e.address ?? '', mpOps: e.mpOps ?? '', mpZan: e.mpZan ?? '' });
             return (
               <tr key={e.id} style={e.active ? undefined : { opacity: 0.55 }}>
+                {admin && <td><input type="checkbox" name="ids" value={e.id} /></td>}
                 <td>{e.no}</td><td>{e.name}{e.endReason && <> <span className="pill">{e.endReason}</span></>}</td>
                 <td>{e.embg}{e.embg && e.embg.length !== 13 && <span className="pill bad">ЕМБГ?</span>}</td>
                 <td>{e.position}</td><td className="n">{fmt(e.netBase)}</td><td className="n">{Number(e.coef)}</td>
@@ -77,6 +93,7 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
             );
           })}</tbody>
         </table></div>
+        </ActionForm>
       ) : <div className="card empty">{q ? `Нема вработен што одговара на „${q}“.` : 'Нема внесени вработени. Притиснете „+ Додај“.'}</div>}
 
       {active.length > 0 && (
@@ -96,6 +113,7 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
                     <Link className="btn sm" href={`/vraboteni/${e.id}/dogovor`}>Договор</Link>{' '}
                     {e.contract === 'определено' && e.end && <Link className="btn sm pri" href={`/vraboteni/${e.id}/dogovor#prodolzi`}>Продолжи</Link>}{' '}
                     {e.end && e.end < soon && <span className={'pill ' + (e.end < today ? 'bad' : 'warn')}>договор до {dmy(e.end)}</span>}
+                    {docs.filter((d) => d.e === e.id).map((d) => <a key={d.id} className="btn sm ghost" href={`/api/files/${d.id}`} target="_blank" rel="noopener" title={d.name}>📎</a>)}
                   </td>
                 </tr>
               );
