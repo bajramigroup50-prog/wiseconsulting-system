@@ -12,3 +12,4 @@ export * from './retail/import';
 export * from './retail/pos';
 export * from './retail/fisk-post';
 export * from './retail/mout';
+export * from './retail/nivel';
