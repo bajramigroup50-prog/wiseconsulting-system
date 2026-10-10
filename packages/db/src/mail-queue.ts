@@ -54,3 +54,32 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 /** Plain text (portal message body) → minimal HTML e-mail body. */
 export const textMailHtml = (text: string): string =>
   `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">${esc(text).replace(/\n/g, '<br>')}</div>`;
+
+/* ---------------- Server PDFs that are attached or filed (worker `pdf.render` / `pdf.mail`) ---------------- */
+
+/** After the worker stored a rendered PDF, link it here (`file_links`); `replace` drops the role's previous files first. */
+export interface PdfFileLink { entityType: string; entityId: string; role?: string; replace?: boolean }
+
+/** Worker job that renders a PDF into the pre-allocated `fileId` and then sends the queued `mail_log` row `logId`. */
+export const PDF_MAIL_JOB = 'pdf.mail';
+
+/** Payload of {@link PDF_MAIL_JOB} (legacy `pdfBlob` + Gmail attachment: dunning letters, client report, …). */
+export interface PdfMailJob {
+  logId: string;
+  fileId: string;
+  html: string;
+  css?: string;
+  title: string;
+  landscape?: boolean;
+  firmId: string | null;
+  userId?: string | null;
+}
+
+/**
+ * `mail.flush` must not send a `pdf.mail` message before its PDF exists (the row is queued with the file id the
+ * worker is still rendering): wait while an attachment is missing and the row is younger than `maxWaitMs`; after
+ * that the send is tried and fails with „Прилогот не постои“, so the user sees it.
+ */
+export function mailWaitsForAttachments(row: { attachments: readonly string[]; createdAt: Date }, ready: ReadonlySet<string>, now: Date, maxWaitMs = 30 * 60_000): boolean {
+  return row.attachments.some((id) => !ready.has(id)) && now.getTime() - row.createdAt.getTime() < maxWaitMs;
+}
