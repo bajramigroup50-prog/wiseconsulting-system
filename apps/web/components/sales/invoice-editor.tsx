@@ -15,6 +15,8 @@ import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { saveInvoiceAction, setSvcOnlyAction } from '@/app/(app)/izlez/actions';
 import { blankLine, type EdInvoice, type EdLine } from './model';
+import { ProdPanel, type ProdState } from './prod-panel';
+import type { ProdBom } from '@wise/core/sales';
 
 export interface InvItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
 export interface RefInvoice { id: string; number: string; date: string; partnerId: string | null; total: number; art32: boolean; export: boolean; lines: EdLine[];
@@ -55,7 +57,12 @@ export interface InvoiceEditorProps {
   nonVatPartners?: string[];
   fuelRule?: FuelRule | null;
   canSettings?: boolean;
+  /** Production from the invoice: normativi, average cost per item and location, the saved run. */
+  boms?: Record<string, ProdBom>;
+  avg?: Record<string, Record<string, number>>;
+  prodRun?: InvoiceProdRun | null;
 }
+export interface InvoiceProdRun { wh: string | null; extra: number; saveBom: boolean; lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[] }[]; orders: { id: string; number: string; productId: string }[] }
 
 const RATES = ['18', '10', '5', '0'];
 const toItems = (L: readonly EdLine[]) => L.map((l) => ({ qty: Number(l.qty) || 0, price: Number(l.price) || 0, disc: Number(l.disc) || 0, rate: Number(l.rate) || 0, konto: l.account }));
@@ -68,6 +75,10 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const [tab, setTab] = useState<'osn' | 'dop' | 'pos'>('osn');
   const [qa, setQa] = useState({ q: '', sel: '' as string, qty: '1', i: 0 });
   const [toast, setToast] = useState('');
+  const [prod, setProd] = useState<ProdState>(() => ({
+    wh: p.prodRun?.wh ?? '', extra: p.prodRun?.extra ? String(p.prodRun.extra) : '', saveBom: !!p.prodRun?.saveBom,
+    lines: (p.prodRun?.lines ?? []).map((l) => ({ ...l, marked: p.items.find((i) => i.id === l.productId)?.type !== 'product', materials: l.materials.map((m) => ({ itemId: m.itemId, qty: String(m.qty) })) })),
+  }));
   const [svcOnly, setSvcOnly] = useState(!!p.svcOnly);
   const [, startT] = useTransition();
   const qaRef = useRef<HTMLInputElement>(null), qtyRef = useRef<HTMLInputElement>(null);
@@ -190,7 +201,10 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
 
   return (
     <form action={action} ref={formRef} onSubmit={beforeSave}>
-      <input type="hidden" name="payload" value={JSON.stringify({ ...d, back: p.back })} />
+      <input type="hidden" name="payload" value={JSON.stringify({ ...d, back: p.back, production: isInv && d.data.prod === 'Д' ? {
+        wh: prod.wh || null, extra: prod.extra || '0', saveBom: prod.saveBom,
+        lines: prod.lines.map((l) => ({ lineNo: l.lineNo, productId: l.productId, qty: String(l.qty), materials: l.materials.filter((m) => m.itemId && Number(m.qty) > 0) })).filter((l) => l.materials.length),
+      } : null })} />
       <div className="hd">
         <h1>{p.title}{p.sub && <span className="mk">{p.sub}</span>}</h1>
         <div className="row"><Link className="btn" href={p.back}>Откажи</Link><button className="btn pri" disabled={pending}>{saveLbl}</button></div>
@@ -273,6 +287,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
                 <fieldset className="fs" style={{ flex: 1 }}><legend>Производство</legend><div className="row">{RB('prod', [['Н', 'Не'], ['Д', 'Да']], 'Н')}</div></fieldset>
               </div>
               {d.data.prod === 'Д' && I('prodCost', 'Трошоци за производство')}
+              {d.data.prod === 'Д' && p.prodRun?.orders.map((o) => <Link key={o.id} className="btn sm" href="/prod">🏭 Налог за производство бр. {o.number}</Link>)}
             </div>
           </div>
           <label className="f" style={{ marginTop: 8 }}>Напомена<textarea rows={3} value={d.note} onChange={(e) => set({ note: e.target.value })} /></label>
@@ -333,6 +348,9 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         startT(async () => { await setSvcOnlyAction(v); });
         setToast(v ? 'Фирмата е означена: само услуги.' : 'Брзото додавање артикли е вклучено.');
       }} /> Фирмата има <b>само услуги</b> (без производи) – ставките се пишуваат рачно</label>}
+      {isInv && d.data.prod === 'Д' && <ProdPanel lines={d.lines} items={p.items} stock={p.stock} avg={p.avg ?? {}} boms={p.boms ?? {}} locations={p.locations}
+        value={prod} onChange={setProd} orders={p.prodRun?.orders ?? []}
+        onCost={(v) => setD((o) => (o.data.prodCost === v.toFixed(2) ? o : { ...o, data: { ...o.data, prodCost: v.toFixed(2) } }))} />}
       {!svcMode && <div className="card qa"><div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
         <label className="f" style={{ flex: '1 1 320px', position: 'relative' }}>Брзо додавање артикл – шифра, баркод или назив
           <input ref={qaRef} autoComplete="off" placeholder="🔍 почнете да пишувате или скенирајте баркод…" value={qa.q}

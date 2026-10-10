@@ -3,10 +3,10 @@
  * izlez / uslugi / odobrenija / profakturi / ispratnici.
  */
 import Link from 'next/link';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { addDays, DT, INV_NOTE0, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
 import {
-  aiDocuments, codes, employees, firmPostingContext, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type DocPayment, type Invoice,
+  aiDocuments, boms, codes, employees, firmPostingContext, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
 import { schemeValue } from '@wise/core';
 import { booksPage, canDo } from '@/lib/books';
@@ -121,11 +121,13 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       if (!dr.partnerId && dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb };
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
     }
+    const prodRun = sp.edit ? ((await db().select({ d: invoices.data }).from(invoices).where(and(eq(invoices.id, sp.edit), eq(invoices.firmId, firm.id))).limit(1))[0]?.d as InvoiceData | undefined)?.prodRun ?? null : null;
+    const prodOrderIds = (prodRun?.orders ?? []).map((o) => o.id);
     const [P, I, Lc, accts, stockRows, refs, advs] = await Promise.all([
       partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id),
       accountOptions(firm.id, (k) => k.startsWith('7') && !k.startsWith('70')),
-      db().select({ item: stockMoves.itemId, wh: stockMoves.locationId, q: sql<string>`sum(${stockMoves.qty})` }).from(stockMoves)
-        .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.pending, false))).groupBy(stockMoves.itemId, stockMoves.locationId),
+      db().select({ item: stockMoves.itemId, wh: stockMoves.locationId, q: sql<string>`sum(${stockMoves.qty})`, v: sql<string>`sum(${stockMoves.value})` }).from(stockMoves)
+        .where(and(eq(stockMoves.firmId, firm.id), eq(stockMoves.pending, false), prodOrderIds.length ? notInArray(stockMoves.sourceId, prodOrderIds) : undefined)).groupBy(stockMoves.itemId, stockMoves.locationId),
       kind === 'credit' ? db().select().from(invoices).where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), eq(invoices.status, 'posted'))).orderBy(desc(invoices.date)).limit(500) : Promise.resolve([]),
       kind === 'invoice' ? db().select().from(invoices).where(and(eq(invoices.firmId, firm.id), eq(invoices.advance, true), eq(invoices.kind, 'invoice'))) : Promise.resolve([]),
     ]);
@@ -136,7 +138,13 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       db().select({ id: partners.id }).from(partners).where(and(eq(partners.firmId, firm.id), eq(partners.vatRegistered, false))),
     ]);
     const stock: Record<string, Record<string, number>> = {};
-    for (const r of stockRows) (stock[r.item] ??= {})[r.wh ?? 'main'] = Number(r.q);
+    const avg: Record<string, Record<string, number>> = {};
+    for (const r of stockRows) {
+      (stock[r.item] ??= {})[r.wh ?? 'main'] = Number(r.q);
+      (avg[r.item] ??= {})[r.wh ?? 'main'] = Number(r.q) > 0 ? Math.round((Number(r.v) / Number(r.q)) * 1e4) / 1e4 : 0;
+    }
+    // normativi for the production panel („Производство = Да“)
+    const BM = Object.fromEntries((await db().select().from(boms).where(eq(boms.firmId, firm.id))).map((b) => [b.productId, { lines: b.lines, labor: Number(b.labor) }]));
     const lineMap = async (ids: string[]) => {
       if (!ids.length) return new Map<string, EdLine[]>();
       const L = await db().select().from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)).orderBy(asc(invoiceLines.lineNo));
@@ -170,6 +178,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       nalogNo={nalogNo} back={back} firmAddress={firm.address} scanInfo={scanInfo}
       svcOnly={FS.svcOnly === true || (FS.svcOnly !== false && !I.some((i) => i.type !== 'service'))} svcTexts={Array.isArray(FS.svcTexts) ? FS.svcTexts as string[] : []}
       vehicles={VH.map((v) => ({ code: v.code ?? '', name: v.name }))} drivers={[...new Set([...VH.map((v) => String((v.data as Record<string, unknown>)?.driver ?? '')).filter(Boolean), ...EMP.map((e) => e.name)])]}
+      boms={BM} avg={avg} prodRun={prodRun}
       nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} /></>;
   }
 
@@ -189,6 +198,10 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     .sort((a, b) => nn(a.i.number) - nn(b.i.number) || (a.i.date < b.i.date ? -1 : 1));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals)
     .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'invoice')))).map((x) => [x.s, x.n]));
+  // production made from the invoices („Производство = Да“): the journal of each production order
+  const POs = list.flatMap(({ i }) => ((i.data ?? {}) as InvoiceData).prodRun?.orders?.map((o) => o.id) ?? []);
+  const JP = new Map((POs.length ? await db().select({ s: journals.sourceId, n: journals.number }).from(journals)
+    .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'stock:production'), inArray(journals.sourceId, POs))) : []).map((x) => [x.s, x.n]));
   const refNo = new Map((kind === 'credit' || kind === 'invoice' ? await db().select({ id: invoices.id, n: invoices.number, k: invoices.kind }).from(invoices).where(eq(invoices.firmId, firm.id)) : []).map((x) => [x.id, x]));
   const inv = kind === 'invoice' || kind === 'credit';
   // Наплатено / Останува (legacy docList: invoices and services). FX invoices: converted back to the invoice currency.
@@ -286,7 +299,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
               <td style={{ maxWidth: 280 }}>{p?.name}</td><td className="num">{p?.code}</td>
               <td className="n">{fmt(i.base)}</td><td className="n">{fmt(i.vat)}</td><td className="n"><b>{fmt(i.total)}</b>{i.currency !== 'MKD' && <small className="mini"> {i.currency}</small>}</td>
               {payCols && (() => { const pm = payOf(i); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && i.due && i.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td></>; })()}
-              <td>{st(i)}{i.art32 && <span className="pill info"> 32-а</span>}{i.advance && <span className="pill warn"> авансна</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
+              <td>{st(i)}{((i.data ?? {}) as InvoiceData).prodRun?.orders?.map((o) => <Link key={o.id} className="pill info" href={JP.get(o.id) ? `/nalozi?n=${encodeURIComponent(JP.get(o.id)!)}` : '/prod'} title={`Налог за производство бр. ${o.number}${JP.get(o.id) ? ' · налог за книжење ' + JP.get(o.id) : ''}`}> 🏭 {o.number}</Link>)}{i.art32 && <span className="pill info"> 32-а</span>}{i.advance && <span className="pill warn"> авансна</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Преглед и печатење">👁</Link>
                 {inv && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉</Link>}
