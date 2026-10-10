@@ -12,7 +12,6 @@ import { archRows } from '@/lib/archive';
 import { currentFirm, currentYear } from '@/lib/context';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
-import { PdfButton } from '@/components/pdf-button';
 import { RowAction } from '@/components/row-action';
 import { arDel } from './actions';
 
@@ -35,7 +34,6 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
     <>
       <Hd t="Архива на документи" sub={`${nf} датотеки · ${year}`}>
         <a className="btn" href={`/arhiva/xlsx?${qs}`}>Листа (Excel)</a>
-        <PdfButton selector="#arList" title={`Архива на документи ${year}`} landscape />
       </Hd>
       {can(u.principal, 'write', firm.id) && (
         <div className="card" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
