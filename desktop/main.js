@@ -10,16 +10,18 @@ if (!app.requestSingleInstanceLock()) app.quit();
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
-    title: 'WISE CONSULTING', icon: __dirname + '/build/icon.ico', backgroundColor: '#ffffff',
+    title: 'WISE CONSULTING', icon: __dirname + '/build/icon.ico', backgroundColor: '#0d5b4b', show: false,
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false },
   });
-  win.maximize();
+  // Show the window only once the first page has painted (no white flash while the server answers).
+  win.once('ready-to-show', () => { win.maximize(); win.show(); });
+  setTimeout(() => { if (!win.isVisible()) { win.maximize(); win.show(); } }, 8000);
   win.loadURL(APP_URL);
 
   // Links to other sites (bank, УЈП, WhatsApp, Maps…) open in the normal browser; the app's own pages and PDFs stay here.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (sameApp(url)) return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: __dirname + '/build/icon.ico' } };
+    if (sameApp(url) || url === 'about:blank') return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: __dirname + '/build/icon.ico' } };
     shell.openExternal(url);
     return { action: 'deny' };
   });

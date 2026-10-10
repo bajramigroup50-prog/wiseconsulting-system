@@ -29,12 +29,13 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
   const me = await requireCan(id ? 'uSave' : 'uNew');
   const p = UserInput.safeParse({
     name: form.get('name'), username: form.get('username'), email: form.get('email') ?? '',
-    role: form.get('role'), password: form.get('password') ?? '',
+    role: form.get('role'), password: form.get('pwNew') ?? '',
     active: form.get('active') === 'on', allFirms: form.get('allFirms') === 'on',
     firms: form.getAll('firms').map(String),
   });
   if (!p.success) return { error: p.error.issues[0]?.message ?? 'Неважечки податоци.' };
   const v = p.data;
+  if (v.password !== String(form.get('pwNew2') ?? '')) return { error: 'Лозинката и потврдата не се исти.' };
   if (!id && v.password.length < MIN_PW) return { error: `Лозинката мора да има најмалку ${MIN_PW} знаци.` };
   if (id && v.password && v.password.length < MIN_PW) return { error: `Лозинката мора да има најмалку ${MIN_PW} знаци.` };
   if (id === me.id && (v.role !== 'admin' || !v.active)) return { error: 'Не можете да си ја одземете администраторската улога или да се деактивирате.' };
@@ -66,7 +67,7 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
     });
   });
   revalidatePath('/korisnici');
-  redirect('/korisnici');
+  redirect('/korisnici?saved=1');
 }
 
 export async function deleteUser(id: string): Promise<void> {

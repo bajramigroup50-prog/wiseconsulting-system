@@ -1,7 +1,7 @@
 {
   "name": "wise-desktop",
   "productName": "WISE CONSULTING",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "WISE CONSULTING – десктоп апликација (app.wiseconsulting.com.mk)",
   "author": "WISE CONSULTING",
   "private": true,
@@ -18,7 +18,7 @@
     "appId": "mk.com.wiseconsulting.app",
     "productName": "WISE CONSULTING",
     "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "package.json"],
+    "files": ["main.js", "package.json", "build/icon.ico", "build/icon.png"],
     "win": { "target": "nsis", "icon": "build/icon.ico" },
     "nsis": {
       "oneClick": false,
