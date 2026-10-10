@@ -8,7 +8,7 @@
  *   marks the previous row `replaced` (legacy renamed the dossier document „(заменет)“).
  */
 import { sql } from 'drizzle-orm';
-import { boolean, index, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { files, firms, users } from './foundation';
 import { journals } from './books';
 import { payrollRuns } from './payroll';
@@ -80,3 +80,79 @@ export const mpinAcks = pgTable('mpin_acks', {
 
 export type MpinInboxRow = typeof mpinInbox.$inferSelect;
 export type MpinAckRow = typeof mpinAcks.$inferSelect;
+
+/* ---------------- ⚖️ Законски промени (legacy `applaw`, v464) ---------------- */
+
+/**
+ * One law change found by the daily robot (worker `law.robot`) or entered by hand (legacy `applaw` documents).
+ * `key` dedupes the robot's findings (normalised source URL).
+ */
+export const lawChanges = pgTable('law_changes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  key: text('key').notNull(),
+  /** `LAW_INST` key (UJP, SV, …). */
+  inst: text('inst').notNull(),
+  title: text('title').notNull(),
+  what: text('what'),
+  /** Who is affected (free text, legacy `who`). */
+  who: text('who'),
+  /** `LAW_IMP` keys (ddv, plati, site, …). */
+  impact: jsonb('impact').$type<string[]>().notNull().default([]),
+  /** Published (YYYY-MM-DD). */
+  date: text('date'),
+  /** Valid from / to (YYYY-MM-DD). */
+  from: text('from'),
+  to: text('to'),
+  urls: jsonb('urls').$type<string[]>().notNull().default([]),
+  /** Where it shows in the program (legacy `prog`). */
+  prog: text('prog'),
+  /** false = secondary source, to be confirmed. */
+  verified: boolean('verified').notNull().default(true),
+  /** Machine rule (legacy `rule`, e.g. `{kind:'vatRate', match:'gorivo', rate:10}`). */
+  rule: jsonb('rule').$type<Record<string, unknown> | null>(),
+  source: text('source').notNull().default('robot'),
+  createdBy: by('created_by'),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex('law_changes_key_uq').on(t.key), index('law_changes_date_idx').on(t.date)]);
+
+/** Per user: law changes read up to (legacy `localStorage lk_lawSeen`). */
+export const lawSeen = pgTable('law_seen', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  seenAt: ts('seen_at').notNull(),
+});
+
+/** Questions to the law assistant (legacy `ACT.lawAsk`), answered by the worker (`law.ask`). */
+export const lawAsks = pgTable('law_asks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  question: text('question').notNull(),
+  answer: text('answer'),
+  status: text('status').$type<'queued' | 'done' | 'error'>().notNull().default('queued'),
+  error: text('error'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index('law_asks_user_idx').on(t.userId, t.createdAt)]);
+
+/** Pages the robot watches: the links seen last time (to find new ones) and the last check. */
+export const lawSources = pgTable('law_sources', {
+  url: text('url').primaryKey(),
+  inst: text('inst').notNull(),
+  name: text('name').notNull(),
+  links: jsonb('links').$type<string[]>().notNull().default([]),
+  checkedAt: ts('checked_at'),
+  changedAt: ts('changed_at'),
+  error: text('error'),
+});
+
+/** One robot run (legacy: the scheduled task that wrote `applaw`). */
+export const lawRuns = pgTable('law_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  startedAt: ts('started_at').notNull().defaultNow(),
+  finishedAt: ts('finished_at'),
+  sources: integer('sources').notNull().default(0),
+  found: integer('found').notNull().default(0),
+  added: integer('added').notNull().default(0),
+  errors: jsonb('errors').$type<string[]>().notNull().default([]),
+});
+
+export type LawChangeRow = typeof lawChanges.$inferSelect;

@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
+import { LawHome } from './zakoni/law-home';
 
 export default async function Home() {
   const u = await requireUser();
@@ -17,6 +18,7 @@ export default async function Home() {
   return (
     <>
       <Hd t="Контролна табла" sub={`${firm?.name ?? 'нема избрана фирма'} · ${year}`} />
+      <LawHome userId={u.id} role={u.role} />
       {!firm && (
         <div className="callout">Изберете фирма со <b>⇄ Промени фирма</b> горе, или отворете <Link href="/firmi">Фирми</Link>.</div>
       )}
