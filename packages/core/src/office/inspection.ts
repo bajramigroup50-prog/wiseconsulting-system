@@ -27,7 +27,7 @@ export interface InspCtx {
   codes: string[];
   fisk: boolean; retail: boolean; ugost: boolean; whole: boolean; build: boolean; prod: boolean; rent: boolean; serv: boolean; trans: boolean;
   alc: boolean; web: boolean; kmax: number; ddv: boolean;
-  snap: FirmSnapshot & { inspEmployees?: readonly InspEmployee[] | null };
+  snap: FirmSnapshot & { inspEmployees?: readonly InspEmployee[] | null; inspLoans?: InspLoans | null };
 }
 
 /** Legacy `inspCodes`: two-digit NKD divisions (with optional class) of the main and other activities. */
@@ -77,6 +77,7 @@ export const INSP: readonly InspItem[] = [
   { id: "u_32a", g: "ujp", t: "Градежни услуги кон ДДВ обврзник – пренесување на даночна обврска (член 32-а)", law: "Закон за ДДВ, чл. 32-а", ev: "Фактури со ознака „член 32-а“ (без пресметан ДДВ)", need: (c) => c.build && c.ddv },
   { id: "u_norm", g: "ujp", t: "Нормативи и калкулација на цена на чинење на производите", law: "Закон за сметководство / МСС 2 Залихи", ev: "Нормативи (материјал, труд), калкулации, работни налози", man: true, need: (c) => c.prod },
   { id: "u_rent", g: "ujp", t: "Договори за изнајмување и фактура за секој период на закуп", law: "Закон за ДДВ, чл. 53 (фактура)", ev: "Договори за закуп / рент, фактури, евиденција на возила/опрема", man: true, need: (c) => c.rent },
+  { id: "u_loan", g: "ujp", t: "Договор за секоја дадена и примена позајмица", law: "Закон за даночна постапка (докази за книжењата); ЗДД чл. 11", ev: "Потпишани договори за позајмица (износ, камата, рок за враќање)" },
   { id: "u_arch", g: "ujp", t: "Чување на книговодствени документи 10 години (архивска книга)", law: "Закон за даночна постапка; Закон за архивски материјал", ev: "Архивска книга, листа на архивски материјал", man: true },
   { id: "d_stock", g: "dpi", t: "Набавна документација за целата стока во објектот (нема продажба без влезна фактура)", law: "Закон за трговија, чл. 28", ev: "Влезни фактури и евиденција за набавка и продажба – во објектот", fine: "500 € ако не е во објектот; 3.000–4.000 € ако не се води", man: true, need: (c) => c.retail || c.ugost || c.whole || c.prod },
   { id: "d_hours", g: "dpi", t: "Работно време истакнато на влезот (со телефон на ДПИ) и пријавено во ЦРМ", law: "Закон за трговија, чл. 25–27", ev: "Истакнато работно време, потврда од ЦРМ", fine: "500 €", man: true, need: (c) => c.retail || c.ugost || c.whole },
@@ -122,7 +123,18 @@ function cashPays(c: InspCtx) {
 }
 
 /** Automatic part of the checks (`null` = nothing to say / data not available). */
+/** Loan contracts and loan payments without a contract (legacy `lnState`, v541 `u_loan`). */
+export interface InspLoans { rows: readonly { bal: number; over: boolean; noSig: boolean }[]; unlinked: readonly { date: string; amt: number }[] }
+
 export const INSP_AUTO: Record<string, (c: InspCtx) => InspRes | null> = {
+  u_loan: (c) => {
+    const S = c.snap.inspLoans;
+    if (!S || (!S.rows.length && !S.unlinked.length)) return null;
+    if (S.unlinked.length) { const f = S.unlinked[0]!; return iBad(`${S.unlinked.length} позајмици во изводот без договор (пр. ${dmy(f.date)} ${fmtMk(f.amt)})`, 'pozajmici'); }
+    const ns = S.rows.filter((r) => r.noSig).length, ov = S.rows.filter((r) => r.over).length;
+    if (ns || ov) return iWarn([ns ? `${ns} непотпишани договори` : '', ov ? `${ov} позајмици со поминат рок` : ''].filter(Boolean).join(' · '), 'pozajmici');
+    return iOk('Сите позајмици имаат договор');
+  },
   u_z: (c) => {
     const Z = c.snap.fiscalDays;
     if (!Z) return null; // fiscal reports not available

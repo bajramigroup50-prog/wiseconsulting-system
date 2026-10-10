@@ -10,11 +10,12 @@
 import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import {
   alCompute, apExtra, apRisk, CLIENT_ENTRY_KINDS, dmy, DOS_CAT, fmtMk, INBOX_ROUTE_TARGET, recIssue, todaySkopje, type ClientMessage, type DraftInvoice, type Finding,
-  type FirmSnapshot, type InboxRoute, type InspEmployee, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
+  type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
 } from '@wise/core/office';
 import { audit, type Tx } from './audit';
 import { documentPayments } from './bank/open-items';
-import { loadLedgerLines } from './ledger-queries';
+import { effectiveChart, loadLedgerLines } from './ledger-queries';
+import { loanStateOf } from './lawrep';
 import { firstMailAddress, queueMailRow, textMailHtml } from './mail-queue';
 import { saveInvoice } from './sales/invoices';
 import { fileAlreadyUsed, savePurchase } from './sales/purchases';
@@ -152,7 +153,7 @@ export async function pendingClientCount(tx: Tx, firmId: string): Promise<number
 /** Everything the pure checks need for one firm. */
 export async function buildFirmSnapshot(
   tx: Tx, firmId: string, o: { today?: string; sources?: OfficeDataSources; eurRate?: number; officeName?: string } = {},
-): Promise<(FirmSnapshot & { inspEmployees: InspEmployee[] | null }) | null> {
+): Promise<(FirmSnapshot & { inspEmployees: InspEmployee[] | null; inspLoans: InspLoans | null }) | null> {
   const [f] = await tx.select().from(firms).where(eq(firms.id, firmId)).limit(1);
   if (!f) return null;
   const today = o.today ?? todaySkopje();
@@ -183,6 +184,13 @@ export async function buildFirmSnapshot(
     invoices, employees: emps, payrollMonths: pm, vatClosedPeriods: vat, fiscalDays: fisk, vatEstimate,
     // the inspection looks at the people currently employed
     inspEmployees: emps ? emps.filter((e) => e.active) : null, eurRate: o.eurRate, officeName: o.officeName,
+    inspLoans: await (async () => {
+      try {
+        const chart = await effectiveChart(tx, firmId);
+        const S = await loanStateOf(tx, f, ledger, Object.fromEntries(chart.map((c) => [c.code, c.name])), today);
+        return { rows: S.rows.map((r) => ({ bal: r.bal, over: r.over, noSig: r.noSig })), unlinked: S.unlinked.map((m) => ({ date: m.date, amt: m.amt })) };
+      } catch { return null; }
+    })(),
   };
 }
 

@@ -49,7 +49,7 @@ export default async function LawrepPage({ searchParams }: { searchParams: Promi
           <tbody>{LR_RULES.map((r) => <tr key={r.id}><td><a href={LR_LAWS[r.law][1]} target="_blank" rel="noopener">{LR_LAWS[r.law][0]}</a></td><td>{r.art}</td><td>{r.t}</td></tr>)}</tbody>
         </table>
         <p className="note">Текстовите на законите се на УЈП (пречистени текстови). Кога ќе се смени закон, „⚖️ Законски промени“ (дневниот робот) известува, а правилото се ажурира во програмата.</p>
-        <p className="note">Сè уште не се проверуваат (потребни се договорите за позајмици): {LR_RULES_PENDING.map((r) => r.t).join('; ')}.</p>
+        {LR_RULES_PENDING.length > 0 && <p className="note">Сè уште не се проверуваат: {LR_RULES_PENDING.map((r) => r.t).join('; ')}.</p>}
       </details>
     </>
   );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lrCheck, lrCtx, lrDays, lrInt, lrPartnerLegal, lrVatPeriods, LR_RULES, type LrInput } from './law/lawrep';
+import { INSP_AUTO, type InspCtx } from './office/inspection';
 
 const base = (o: Partial<LrInput> = {}): LrInput => ({
   firm: { name: 'Тест', vat: true, per: 'quarter', nkd: ['47.11'], kasaMax: 0 }, year: '2026', today: '2026-10-10',
@@ -18,8 +19,25 @@ describe('Даночен преглед (legacy LR_RULES / lrCheck)', () => {
     expect(lrVatPeriods('2026', '2026-10-30', 'quarter').map((x) => x.p)).toEqual(['2026-Т3', '2026-Т2', '2026-Т1']);
     expect(lrVatPeriods('2026', '2026-03-10', 'month').map((x) => x.p)).toEqual(['2026-01']);
   });
-  it('rule list in the final legacy order (v541 splice before p_short; loans pending)', () => {
-    expect(LR_RULES.map((r) => r.id)).toEqual(['v_reg', 'v_mon', 'v_repr', 'v_hot', 'v_car', 'v_late', 'p_repr', 'p_spon', 'p_fine', 'p_wo', 'p_own', 'p_loan', 'l_cash', 'p_short', 'p_est', 'l_dnl', 'l_div']);
+  it('rule list in the final legacy order (v541 splice before p_short)', () => {
+    expect(LR_RULES.map((r) => r.id)).toEqual(['v_reg', 'v_mon', 'v_repr', 'v_hot', 'v_car', 'v_late', 'p_repr', 'p_spon', 'p_fine', 'p_wo', 'p_own', 'p_loan', 'p_lnfree', 'l_lnint', 'l_cash', 'p_short', 'p_est', 'l_dnl', 'l_div']);
+  });
+  it('loan rules (legacy v541 p_lnfree / l_lnint)', () => {
+    const loans = [
+      { dir: 'given' as const, rate: 0, bal: 50000, legal: false }, { dir: 'given' as const, rate: 0, bal: 70000, legal: true },
+      { dir: 'given' as const, rate: 5, bal: 10000, legal: false }, { dir: 'received' as const, rate: 6, bal: 1, legal: false },
+    ];
+    const X = lrCheck(lrCtx(base({ loans })));
+    expect(find(X, 'p_lnfree')).toMatchObject({ s: 'warn', txt: expect.stringMatching(/^1 бескаматни дадени позајмици кон физички лица \(50[.,]000/) });
+    expect(find(X, 'l_lnint')).toMatchObject({ s: 'warn', txt: '1 примени позајмици од физички лица со камата' });
+    expect(find(lrCheck(lrCtx(base())), 'p_lnfree')).toBeUndefined();
+  });
+  it('inspection u_loan (legacy 16759)', () => {
+    const run = (inspLoans: unknown) => INSP_AUTO.u_loan!({ snap: { inspLoans } } as unknown as InspCtx);
+    expect(run(null)).toBeNull();
+    expect(run({ rows: [], unlinked: [{ date: '2026-03-05', amt: 1000 }] })).toMatchObject({ s: 'bad', go: 'pozajmici' });
+    expect(run({ rows: [{ bal: 1, over: true, noSig: true }], unlinked: [] })).toMatchObject({ s: 'warn', txt: '1 непотпишани договори · 1 позајмици со поминат рок' });
+    expect(run({ rows: [{ bal: 1, over: false, noSig: false }], unlinked: [] })).toEqual({ s: 'ok', txt: 'Сите позајмици имаат договор' });
   });
   it('ЗДДВ registration threshold for a non-VAT firm', () => {
     const X = lrCheck(lrCtx(base({ firm: nonVat, lines: [L('1200', 1180000, 0, '2026-02-01'), L('7400', 0, 1180000, '2026-02-01'), L('7400', 0, 1000000, '2026-05-20')] })));
