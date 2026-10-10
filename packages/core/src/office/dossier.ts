@@ -24,7 +24,12 @@ export const DOS_CAT = [
   'Магацински документи',
   'Патни налози и гориво',
   'Друго од клиентот',
+  // legacy `recArchive` / `potArchive` 13723–13749: balance confirmations and reconciliation records („Заврши и архивирај“)
+  'Усогласување со комитенти (ИОС)',
 ] as const;
+
+/** Dossier category of the archived ИОС / записник за усогласување (legacy `sub` of `recArchive`). */
+export const DOS_REC_CAT = 'Усогласување со комитенти (ИОС)';
 
 /** Categories that institutions only accept when recent (≤ 3 or ≤ 6 months). */
 export const DOS_FRESH: readonly string[] = [DOS_CAT[0], DOS_CAT[1]];
