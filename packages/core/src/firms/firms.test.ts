@@ -8,6 +8,7 @@ import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
 import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
 import { miCalc, miMonths, miRange } from './mojizv';
 import { FORMS0, TPL0, askFields, fillTpl, formHtml, formVals } from './requests';
+import { fsDup, lfGuess, normalizeResh, otherNkd } from './resh';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -185,5 +186,16 @@ describe('requests and forms (legacy fillTpl / formVals / formHTML)', () => {
     const html = formHtml(tp, V);
     expect(html).toContain('/forms/f_ujp_kod.jpg');
     expect(formHtml(FORMS0.find((x) => x.id === 'f_ujp_ddv_dobr')!, {})).toContain('/forms/f_ujp_ddv_dobr_1.jpg');
+  });
+});
+
+describe('firm from decision (legacy fsRead / fsDup / lfGuess)', () => {
+  it('normalises the model JSON', () => {
+    const r = normalizeResh([{ docType: 'ddv', name: 'БЕТА ДОО Скопје', legalForm: 'kd', edb: 'MK 4030-000000002', regDate: '5.3.2020', managers: [{ name: 'Ана' }], otherNkd: ['46.90 трговија', '62.01'], nkd: '62.01' }]);
+    expect(r).toMatchObject({ docType: 'ddv', lf: 'jtd', edb: '4030000000002', regDate: '2020-03-05', signer: 'Ана', ddv: true });
+    expect(otherNkd(r)).toEqual(['46.90']);
+    expect(normalizeResh({ name: 'ГАМА ДООЕЛ', legalForm: 'other' }).lf).toBe('dooel');
+    expect(lfGuess('ЗДРУЖЕНИЕ НА ГРАЃАНИ')).toBe('zdr');
+    expect(fsDup({ name: 'Бета ДОО', edb: '', embs: '' }, [{ name: 'БЕТА ДОО', edb: null, embs: null }])).toBeTruthy();
   });
 });
