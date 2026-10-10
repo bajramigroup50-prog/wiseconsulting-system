@@ -28,6 +28,7 @@ import {
 import { audit, type Tx } from './audit';
 import { assertVatPeriodOpen } from './vat-lock';
 import { accounts, firms, journalLines, journals, partners, type Firm, type Journal } from './schema/index';
+import { applyJournalOverride } from './journal-override';
 
 export type PostingErrorCode =
   | 'firm_not_found' | 'bad_date' | 'empty' | 'unbalanced' | 'locked' | 'bad_account' | 'unknown_account'
@@ -212,6 +213,8 @@ async function writeJournal(tx: Tx, existing: Journal | null, input: PostJournal
   await assertVatPeriodOpen(tx, f, { date: input.date, sourceType: input.sourceType, accounts: input.lines.map((l) => String(l.account ?? '')) });
   if (existing) await assertVatPeriodOpen(tx, f, { date: existing.date, sourceType: existing.sourceType, journalId: existing.id });
   await assertNoBbimpConflict(tx, f.id, input, existing?.id ?? null);
+  // Finance parity: manual line corrections of document journals (legacy `ed`/`edAdd`) are re-applied on every re-post.
+  input = await applyJournalOverride(tx, f.id, input);
   const { lines, total } = await prepareLines(tx, f.id, input.lines, input.requirePartner ?? true);
   const number = await assignNumber(tx, f, input, existing);
   const header = {
