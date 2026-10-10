@@ -13,7 +13,7 @@ import { industryPage } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { addItemAction, deleteTableAction, lineAction, noteAction, saveTableAction, sendKitchenAction, voidAction } from './actions';
+import { addItemAction, deleteTableAction, lineAction, noteAction, saveTableAction, sendKitchenAction, voidAction, waiterAction } from './actions';
 
 export default async function Restoran({ searchParams }: { searchParams: Promise<{ t?: string; q?: string; ed?: string; wh?: string }> }) {
   const sp = await searchParams;
@@ -44,6 +44,7 @@ export default async function Restoran({ searchParams }: { searchParams: Promise
             ))}{!menu.length && <p className="note">Нема артикли со продажна цена. Менито се артиклите (јадења како „Готов производ“ со норматив – при наплата се раздолжуваат суровините).</p>}</div>
           </div>
           <div className="card">
+            {write && o && <BankForm action={waiterAction} className="form"><input type="hidden" name="table" value={t.id} /><label className="f">Келнер<input name="waiter" defaultValue={o.data.waiter} /></label><button className="btn sm">✓</button></BankForm>}
             <table className="dense"><tbody>{L.map((l, i) => (
               <tr key={i}><td>{l.sent ? (l.ready ? '✅' : '🔥') : '📝'} {l.name}{l.note && <span className="mini"> ({l.note})</span>}</td>
                 <td className="n" style={{ whiteSpace: 'nowrap' }}>{write && <RowAction action={lineAction.bind(null, t.id, i, 'dec')} label="−" confirm={l.sent ? 'Ставката е веќе во кујна. Да се намали?' : undefined} />} {l.qty} {write && <RowAction action={lineAction.bind(null, t.id, i, 'inc')} label="+" />}</td>
