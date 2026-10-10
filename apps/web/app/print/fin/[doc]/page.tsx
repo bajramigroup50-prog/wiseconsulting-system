@@ -15,9 +15,9 @@ import { notFound } from 'next/navigation';
 import {
   analyticsRows, balanceConfirmation, filterAnalytics, iosStatement, resultsByLocation, syntheticCard,
 } from '@wise/core/finance';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { pddTypes, type PddType } from '@wise/core/finance';
-import { effectiveChart, loans, partners, pddPayments, type Firm } from '@wise/db';
+import { effectiveChart, journals, loans, partners, pddPayments, purchases, type Firm } from '@wise/db';
 import { LoanContract } from '../../../(app)/pozajmici/contract';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -68,6 +68,15 @@ async function Kartici({ firm, year, sp }: P) {
   const D = await kcData(firm, year, s);
   const ids = s.pid ? [s.pid] : D.sums.map((x) => x.id);
   let n = 0;
+  // legacy `kcDocInfo` 6442: statement number (Извод број) and calculation number (Калкул. број) per line
+  const jids = [...new Set(D.lines.filter((l) => l.sourceType === 'bank_statement').map((l) => l.journalId).filter((x): x is string => !!x))];
+  const pids = [...new Set(D.lines.filter((l) => l.sourceType === 'purchase' && l.sourceId && /^[0-9a-f-]{36}$/i.test(l.sourceId)).map((l) => l.sourceId!))];
+  const [JM, PC] = await Promise.all([
+    jids.length ? db().select({ id: journals.id, meta: journals.meta }).from(journals).where(inArray(journals.id, jids)) : [],
+    pids.length ? db().select({ id: purchases.id, calc: purchases.calcNo, number: purchases.number }).from(purchases).where(inArray(purchases.id, pids)) : [],
+  ]);
+  const izv = new Map(JM.map((j) => [j.id, String(((j.meta ?? {}) as { statementNo?: string }).statementNo ?? '')]));
+  const calc = new Map(PC.map((x) => [x.id, x.calc || x.number || '']));
   return (
     <div className="pdfdoc">
       {ids.length ? ids.map((pid) => {
@@ -75,22 +84,29 @@ async function Kartici({ firm, year, sp }: P) {
         return D.cardsOf(pid).map((c) => (
           <Fragment key={pid + c.k}>
             <Pb i={n++} />
-            <FirmHead firm={firm} title="Аналитичка картица за конто" sub={`${c.k} ${D.kName(c.k).toUpperCase()} · Период: од ${slash(s.from)} до ${slash(s.to)}`} />
-            <div style={{ fontSize: 12, margin: '4px 0 6px' }}>Комитент &nbsp;&nbsp; <b>{(p?.code ? p.code + '-' : '') + (p?.name ?? '')}</b>{p?.edb ? ' · ЕДБ ' + p.edb : ''}
-              <div style={{ fontSize: 10.5 }}>Жиро с-ка {p?.bankAccount ?? ''} · Банка {p?.bankName ?? ''}</div></div>
+            <FirmHead firm={firm} title="" />
+            {/* legacy `kcPdfPart` 6444: left block (konto, period, partner, bank) + right block (ОЕ / Група1 / Група2 / Трошок / Валута / Продавница) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontFamily: 'Arial, sans-serif' }}>
+              <div><div style={{ fontSize: 18 }}>Аналитичка картица за конто</div><div style={{ fontSize: 12 }}>{c.k} {D.kName(c.k).toUpperCase()}</div><div style={{ fontSize: 11 }}>Период: од {slash(s.from)} до {slash(s.to)}</div>
+                <div style={{ fontSize: 12, marginTop: 10 }}>Комитент &nbsp;&nbsp; <b>{(p?.code ? p.code + '-' : '') + (p?.name ?? '')}</b>{p?.edb ? ' · ЕДБ ' + p.edb : ''}</div>
+                <div style={{ fontSize: 10.5, marginTop: 8 }}>Жиро с-ка {p?.bankAccount ?? ''}<br />Банка {p?.bankName ?? ''}</div></div>
+              <div style={{ fontSize: 10.5, lineHeight: 1.6, minWidth: '40mm' }}>ОЕ:<br />Група1: -<br />Група2: -<br />Трошок:<br />Валута:<br />Продавница:</div>
+            </div>
             <table className="kart">
               <thead>
-                <tr><th rowSpan={2}>Налог<br />Број</th><th colSpan={2} style={{ textAlign: 'center' }}>Книжење</th><th colSpan={3} style={{ textAlign: 'center' }}>Износ на книжење</th><th rowSpan={2}>Документ<br />валута</th></tr>
-                <tr><th>Датум</th><th>Содржина (ф-ра бр.)</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th></tr>
+                <tr><th rowSpan={2}>Налог<br />Број</th><th colSpan={2} style={{ textAlign: 'center' }}>Книжење</th><th colSpan={3} style={{ textAlign: 'center' }}>Износ на книжење</th><th rowSpan={2}>Извод<br />број</th><th colSpan={2} style={{ textAlign: 'center' }}>Документ</th></tr>
+                <tr><th>Датум</th><th>Содржина (ф-ра бр.)</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th><th>Валута</th><th>Калкул. број</th></tr>
               </thead>
               <tbody>
-                {c.o ? <tr><td /><td>{dmy(s.from)}</td><td>Почетно салдо</td><td className="n">{c.o > 0 ? fmt(c.o) : '.00'}</td><td className="n">{c.o < 0 ? fmt(-c.o) : '.00'}</td><td className="n">{fmt(c.o)}</td><td /></tr> : null}
+                {c.o ? <tr><td /><td>{dmy(s.from)}</td><td>Почетно салдо</td><td className="n">{c.o > 0 ? fmt(c.o) : '.00'}</td><td className="n">{c.o < 0 ? fmt(-c.o) : '.00'}</td><td className="n">{fmt(c.o)}</td><td /><td /><td /></tr> : null}
                 {c.rows.map((r, i) => (
                   <tr key={i}><td style={{ textAlign: 'right' }}>{r.line.number}</td><td>{dmy(r.line.date)}</td><td>{lineText(r.line).toUpperCase()}</td>
-                    <td className="n">{r.line.debit ? fmt(r.line.debit) : '.00'}</td><td className="n">{r.line.credit ? fmt(r.line.credit) : '.00'}</td><td className="n">{fmt(r.s)}</td><td>{r.line.due ? dmy(r.line.due) : ''}</td></tr>
+                    <td className="n">{r.line.debit ? fmt(r.line.debit) : '.00'}</td><td className="n">{r.line.credit ? fmt(r.line.credit) : '.00'}</td><td className="n">{fmt(r.s)}</td>
+                    <td>{r.line.sourceType === 'bank_statement' && r.line.journalId ? izv.get(r.line.journalId) : ''}</td><td>{r.line.due ? dmy(r.line.due) : ''}</td>
+                    <td>{r.line.sourceType === 'purchase' && r.line.sourceId ? calc.get(r.line.sourceId) : ''}</td></tr>
                 ))}
               </tbody>
-              <tfoot><tr><td colSpan={3} style={{ textAlign: 'right' }}>Вкупно :</td><td className="n">{fmt(c.td + (c.o > 0 ? c.o : 0))}</td><td className="n">{fmt(c.tp + (c.o < 0 ? -c.o : 0))}</td><td className="n">{fmt(c.end)}</td><td /></tr></tfoot>
+              <tfoot><tr><td colSpan={3} style={{ textAlign: 'right' }}>Вкупно :</td><td className="n">{fmt(c.td + (c.o > 0 ? c.o : 0))}</td><td className="n">{fmt(c.tp + (c.o < 0 ? -c.o : 0))}</td><td className="n">{fmt(c.end)}</td><td colSpan={3} /></tr></tfoot>
             </table>
           </Fragment>
         ));
