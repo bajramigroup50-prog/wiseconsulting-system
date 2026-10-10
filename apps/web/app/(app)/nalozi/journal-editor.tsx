@@ -5,8 +5,10 @@
  * Per-line note and document columns are new (FIX #9: the legacy editor had no per-line note).
  */
 import Link from 'next/link';
-import { useActionState, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { lineTotals, needsPartner } from '@wise/core';
+import { applyCustomScheme, type CustomScheme } from '@wise/core/finance';
 import type { ActionState } from '@/lib/books';
 import { fmt } from '@/lib/fmt';
 import { saveJournal } from './actions';
@@ -15,9 +17,25 @@ import { blankRow as blank, type EditorJournal, type EditorRow } from './editor-
 /** End of month for "period from" (legacy 13461). */
 const monthEnd = (d: string) => { const [y, m] = d.split('-').map(Number); return new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10); };
 
-export function JournalEditor({ initial, chart, partners, numbers }: {
+export function JournalEditor({ initial, chart, partners, numbers, schemes = [] }: {
   initial: EditorJournal; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[]; numbers: string[];
+  /** Custom posting schemes (legacy `S.gsch.custom`, „Од шема“ `jFromSch` 7254). */
+  schemes?: CustomScheme[];
 }) {
+  const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const [sch, setSch] = useState(0);
+  const [schAmt, setSchAmt] = useState('');
+  const cancelHref = initial.id ? `/nalozi?n=${encodeURIComponent(initial.number)}` : '/nalozi';
+  // Legacy 7891–7893: F4 = save, Esc = cancel.
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'F4') { e.preventDefault(); formRef.current?.requestSubmit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); router.push(cancelHref); }
+    };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [router, cancelHref]);
   const [st, action, pending] = useActionState<ActionState, FormData>(saveJournal, {});
   const [j, setJ] = useState(initial);
   const names = new Map(chart);
@@ -26,13 +44,13 @@ export function JournalEditor({ initial, chart, partners, numbers }: {
   const t = lineTotals(j.rows.map((r) => ({ debit: r.debit.replace(',', '.'), credit: r.credit.replace(',', '.') })));
 
   return (
-    <form action={action} onKeyDown={(e) => { if (e.key === 'Insert') { e.preventDefault(); set({ rows: [...j.rows, blank('4400')] }); } }}>
+    <form ref={formRef} action={action} onKeyDown={(e) => { if (e.key === 'Insert') { e.preventDefault(); set({ rows: [...j.rows, blank('4400')] }); } }}>
       <input type="hidden" name="payload" value={JSON.stringify(j)} />
       <div className="hd">
         <h1>{j.id ? 'Корекција на налог ' + j.number : 'Рачен налог за книжење'}</h1>
         <div className="row">
-          <Link className="btn" href={j.id ? `/nalozi?n=${encodeURIComponent(initial.number)}` : '/nalozi'}>Откажи</Link>
-          <button className="btn pri" disabled={pending}>Зачувај</button>
+          <Link className="btn" href={cancelHref}>Откажи (Esc)</Link>
+          <button className="btn pri" disabled={pending}>Зачувај (F4)</button>
         </div>
       </div>
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
@@ -80,6 +98,21 @@ export function JournalEditor({ initial, chart, partners, numbers }: {
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="btn" onClick={() => set({ rows: [...j.rows, blank('4400')] })}>+ Ред (Ins)</button>
         <span className="note">Конто 120–128 и 220–228 бара партнер.</span>
+        {schemes.length ? (
+          <>
+            <span className="mini" style={{ marginLeft: 14 }}>Од шема:</span>
+            <select value={sch} onChange={(e) => setSch(+e.target.value)} style={{ width: 'auto' }}>
+              {schemes.map((c, i) => <option key={c.id || i} value={i}>{c.name}</option>)}
+            </select>
+            <input inputMode="decimal" value={schAmt} onChange={(e) => setSchAmt(e.target.value)} placeholder="износ" style={{ width: 120, textAlign: 'right' }} />
+            <button type="button" className="btn pri" onClick={() => {
+              const c = schemes[sch]; const a = Number(schAmt.replace(',', '.'));
+              if (!c || !(a > 0)) return;
+              const R = applyCustomScheme(c, a).map((r) => ({ ...blank(r.account), debit: r.debit ? String(r.debit) : '', credit: r.credit ? String(r.credit) : '', note: r.note }));
+              set({ rows: R, description: j.description || c.name });
+            }}>Пополни</button>
+          </>
+        ) : <span className="note" style={{ marginLeft: 14 }}>Свои шеми креирате во Систем → Шеми за автоматско книжење → „+ Нова шема“.</span>}
       </div>
     </form>
   );
