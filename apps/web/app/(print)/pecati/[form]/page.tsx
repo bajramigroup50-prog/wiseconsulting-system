@@ -46,14 +46,16 @@ export default async function PrintPage({ params }: { params: Promise<{ form: st
       const d = await depreciationFor(db(), firm.id, year);
       const by = new Map(d.rows.map((r) => [r.id, r]));
       return (
-        <div>
+        <div className="pdfdoc land">
+          <style>{'@page{size:A4 landscape}'}</style>
           <div className="ph"><div><div className="pt">РЕГИСТАР НА ОСНОВНИ СРЕДСТВА</div><div className="ps">амортизација за {year}</div></div><div className="pm">{firm.name}</div></div>
-          <table><thead><tr><th>Инв. бр.</th><th>Назив</th><th>Конто</th><th>Датум</th><th className="n">Стапка</th><th className="n">Набавна вредност</th><th className="n">Амортизација {year}</th><th className="n">Отпис вкупно</th><th className="n">Сегашна вредност</th></tr></thead>
+          <table><thead><tr><th>Инв. бр.</th><th>Назив</th><th>Сериски / таблица</th><th>Конто</th><th>Датум</th><th className="n">Стапка</th><th className="n">Набавна вредност</th><th className="n">Амортизација {year}</th><th className="n">Отпис вкупно</th><th className="n">Сегашна вредност</th></tr></thead>
             <tbody>{d.assets.map((a) => { const r = by.get(a.id); return (
-              <tr key={a.id}><td>{a.invNo}</td><td>{a.name}{a.vehicleOnly ? ' (само евиденција)' : ''}{a.disposed ? ` – отпишано ${dmy(a.disposed)}` : ''}</td><td>{a.konto}</td><td>{dmy(a.date)}</td><td className="n">{Number(a.rate)}%</td>
+              <tr key={a.id}><td>{a.invNo}</td><td>{a.name}{a.vehicleOnly ? ' (само евиденција)' : ''}{a.disposed ? ` – отпишано ${dmy(a.disposed)}` : ''}</td><td>{[a.serial, (a.data as { plate?: string }).plate].filter(Boolean).join(' · ')}</td><td>{a.konto}</td><td>{dmy(a.date)}</td><td className="n">{Number(a.rate)}%</td>
                 <td className="n">{fmt(a.cost)}</td><td className="n">{fmt(r?.year ?? 0)}</td><td className="n">{fmt(r?.acc ?? 0)}</td><td className="n">{fmt(Number(a.cost) - (r?.acc ?? 0))}</td></tr>); })}</tbody>
-            <tfoot><tr><td colSpan={5}>Вкупно</td><td className="n">{fmt(d.assets.reduce((s, a) => s + Number(a.cost), 0))}</td><td className="n">{fmt(d.total)}</td><td className="n">{fmt(d.rows.reduce((s, r) => s + r.acc, 0))}</td><td /></tr></tfoot>
+            <tfoot><tr><td colSpan={6}>Вкупно</td><td className="n">{fmt(d.assets.reduce((s, a) => s + Number(a.cost), 0))}</td><td className="n">{fmt(d.total)}</td><td className="n">{fmt(d.rows.reduce((s, r) => s + r.acc, 0))}</td><td /></tr></tfoot>
           </table>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '14mm' }}><div>Составил<br /><br />______________________</div><div>Одговорно лице<br /><br />______________________</div></div>
         </div>
       );
     }
