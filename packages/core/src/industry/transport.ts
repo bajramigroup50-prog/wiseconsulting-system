@@ -11,18 +11,19 @@ import { num, r2 } from './common';
 
 export const TRAVEL_ORDER_STATUS = { open: ['подготвен', 'info'], onroad: ['на пат', 'warn'], done: ['завршен', 'good'] } as const;
 
-export interface TravelGood { itemId?: string | null; ix?: number; name: string; qty: number | string; unit?: string | null; kg?: number | null; loaded?: boolean }
+/** `kg` = weight per unit, `bc` = barcodes / code of the item, `lq` = quantity scanned while loading (legacy `pnGood`). */
+export interface TravelGood { itemId?: string | null; ix?: number; name: string; qty: number | string; unit?: string | null; kg?: number | null; bc?: string[]; loaded?: boolean; lq?: number }
 export interface TravelStop {
   ref?: { type: 'invoice' | 'dispatch' | 'purchase'; id: string } | null;
   kind: 'pick' | 'deliv'; doc: string; partner: string; partnerId?: string | null; email?: string | null; addr?: string | null;
   goods: TravelGood[]; amt?: number; open?: number; status: 'open' | 'done';
-  at?: string | null; recv?: string | null; cash?: number | null; ret?: { k: number; qty: number }[] | null; geo?: { lat: number; lon: number } | null;
+  at?: string | null; recv?: string | null; cash?: number | null; ret?: { k: number; qty: number }[] | null; geo?: { lat: number; lon: number; acc?: number | null } | null;
   /** Cash voucher booked from this stop / return credit note made from it (FIX: legacy matched by `pnRef` strings). */
   cashVoucherId?: string | null; returnCreditId?: string | null; mailed?: string | null;
   /** Driver flow (legacy `pnDeliv`): receiver's signature and delivery photo (`files.id`). */
   sig?: string | null; photo?: string | null;
 }
-export interface TravelEvent { k: 'dep' | 'pick' | 'deliv' | 'ret' | 'note'; txt: string; at: string; by?: string | null; geo?: { lat: number; lon: number } | null }
+export interface TravelEvent { k: 'dep' | 'pick' | 'deliv' | 'ret' | 'note'; txt: string; at: string; by?: string | null; geo?: { lat: number; lon: number; acc?: number | null } | null }
 
 export interface TransportConfig { vehicleId: string; driverId: string; assignee: string; from: string; dnevAmt: number | ''; dnevOn: boolean }
 export const TRANSPORT_DEFAULTS: TransportConfig = { vehicleId: '', driverId: '', assignee: '', from: '', dnevAmt: '', dnevOn: false };

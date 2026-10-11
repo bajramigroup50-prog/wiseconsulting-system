@@ -12,11 +12,13 @@
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import { travelOrderNo, type TravelEvent, type TravelStop } from '@wise/core/industry';
+import { frCountryName, frTourError } from '@wise/core/industry';
 import { audit, type Tx } from '../audit';
 import {
-  employees, fleetVehicles, freightTours, invoiceLines, invoices, partners, purchaseStockLines, purchases, travelOrders,
+  employees, fleetVehicles, freightTours, invoiceLines, invoices, itemBarcodes, items, partners, purchaseStockLines, purchases, travelOrders,
   type FreightTour, type TravelOrderRow,
 } from '../schema/index';
+import { documentPayments } from '../bank/open-items';
 import { firmPostingContext } from '../sales/context';
 import { saveInvoice } from '../sales/invoices';
 import { cashMovement, IndustryError, issueModuleInvoice, loadIndustryFirm, n, type IndActor } from './context';
@@ -45,27 +47,49 @@ export async function unassignedDocs(tx: Tx, firmId: string, date: string) {
   ];
 }
 
-/** Legacy `pnStopsFrom`: stops (pick-ups first) with goods from the referenced documents. */
+/** Weight, unit, type and barcodes (+ item code) of items (legacy `pnGood` reads `item.weight`, `barcode`, `barcodes`, `code`). */
+export async function travelItemInfo(tx: Tx, firmId: string, ids: readonly (string | null | undefined)[]) {
+  const I = [...new Set(ids.filter((x): x is string => !!x))];
+  const out = new Map<string, { kg: number; unit: string | null; type: string; bc: string[] }>();
+  if (!I.length) return out;
+  const R = await tx.select({ id: items.id, weight: items.weight, unit: items.unit, type: items.type, code: items.code }).from(items).where(and(eq(items.firmId, firmId), inArray(items.id, I)));
+  const B = await tx.select({ itemId: itemBarcodes.itemId, bc: itemBarcodes.barcode }).from(itemBarcodes).where(and(eq(itemBarcodes.firmId, firmId), inArray(itemBarcodes.itemId, I)));
+  for (const r of R) out.set(r.id, { kg: n(r.weight), unit: r.unit, type: r.type, bc: [...B.filter((b) => b.itemId === r.id).map((b) => b.bc), ...(r.code ? [r.code] : [])] });
+  return out;
+}
+
+/**
+ * Legacy `pnStopsFrom`: stops (pick-ups first) with goods from the referenced documents — weight per unit and barcodes
+ * of the item (`pnGood`), service lines left out, `open` = invoice total less what is already paid (`paidFor`).
+ */
 export async function stopsFrom(tx: Tx, firmId: string, refs: { type: 'invoice' | 'dispatch' | 'purchase'; id: string }[]): Promise<TravelStop[]> {
   const out: TravelStop[] = [];
+  const good = (info: Awaited<ReturnType<typeof travelItemInfo>>, itemId: string | null, ix: number, name: string, qty: number, unit: string | null) => {
+    const it = itemId ? info.get(itemId) : undefined;
+    return { itemId, ix, name: name || '', qty, unit: unit || it?.unit || 'ком', kg: it?.kg || 0, bc: it?.bc ?? [], loaded: false, lq: 0 };
+  };
+  const pay = await documentPayments(tx, firmId, { invoiceIds: refs.filter((r) => r.type === 'invoice').map((r) => r.id) });
   for (const r of refs) {
     if (r.type === 'purchase') {
       const [d] = await tx.select().from(purchases).where(and(eq(purchases.id, r.id), eq(purchases.firmId, firmId))).limit(1);
       if (!d) continue;
       const [p] = d.partnerId ? await tx.select().from(partners).where(eq(partners.id, d.partnerId)).limit(1) : [];
       const G = await tx.select().from(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, d.id));
+      const info = await travelItemInfo(tx, firmId, G.map((g) => g.itemId));
       out.push({ ref: r, kind: 'pick', doc: 'Влезна ф-ра ' + d.number, partner: p?.name ?? d.supplierName ?? '', partnerId: d.partnerId, addr: [p?.address, p?.city].filter(Boolean).join(', '),
-        goods: G.map((g, ix) => ({ itemId: g.itemId, ix, name: g.name ?? '', qty: n(g.qty), unit: null, loaded: false })), status: 'open' });
+        goods: G.map((g, ix) => ({ g, ix })).filter((o) => n(o.g.qty)).map((o) => good(info, o.g.itemId, o.ix, o.g.name ?? '', n(o.g.qty), null)), status: 'open' });
       continue;
     }
     const [d] = await tx.select().from(invoices).where(and(eq(invoices.id, r.id), eq(invoices.firmId, firmId))).limit(1);
     if (!d) continue;
     const [p] = d.partnerId ? await tx.select().from(partners).where(eq(partners.id, d.partnerId)).limit(1) : [];
     const G = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, d.id));
+    const info = await travelItemInfo(tx, firmId, G.map((l) => l.itemId));
+    const tot = r.type === 'invoice' ? n(d.total) : 0;
     out.push({
       ref: r, kind: 'deliv', doc: (r.type === 'invoice' ? 'Фактура ' : 'Испратница ') + d.number, partner: p?.name ?? '', partnerId: d.partnerId, email: p?.email ?? null,
-      addr: d.data.dAddr || [p?.address, p?.city].filter(Boolean).join(', '), status: 'open', amt: r.type === 'invoice' ? n(d.total) : 0, open: r.type === 'invoice' ? n(d.total) : 0,
-      goods: G.filter((l) => n(l.qty)).map((l) => ({ itemId: l.itemId, ix: l.lineNo, name: l.name, qty: n(l.qty), unit: l.unit, loaded: false })),
+      addr: d.data.dAddr || [p?.address, p?.city].filter(Boolean).join(', '), status: 'open', amt: tot, open: r.type === 'invoice' ? (pay.get(d.id)?.remaining ?? tot) : 0,
+      goods: G.filter((l) => n(l.qty) && (!l.itemId || info.get(l.itemId)?.type !== 'service')).map((l) => good(info, l.itemId, l.lineNo, l.name, n(l.qty), l.unit)),
     });
   }
   return out.sort((a, b) => (a.kind === 'pick' ? 0 : 1) - (b.kind === 'pick' ? 0 : 1));
@@ -127,7 +151,7 @@ export async function travelOrderEvent(tx: Tx, a: IndActor, id: string, ev:
   | { k: 'dep'; km?: number | null }
   | { k: 'deliv'; i: number; recv?: string; cash?: number; ret?: { k: number; qty: number }[]; sig?: string | null; photo?: string | null }
   | { k: 'ret'; km?: number | null; fuelL?: number | null; fuelAmt?: number | null },
-  at: string, by: string | null, geo?: { lat: number; lon: number } | null): Promise<void> {
+  at: string, by: string | null, geo?: { lat: number; lon: number; acc?: number | null } | null): Promise<void> {
   const x = await ownOrder(tx, a.firmId, id);
   const S = stopsOf(x), E = eventsOf(x);
   const patch: Partial<typeof travelOrders.$inferInsert> = {};
@@ -144,7 +168,7 @@ export async function travelOrderEvent(tx: Tx, a: IndActor, id: string, ev:
     const ret = (ev.ret ?? []).map((r) => ({ k: r.k, qty: Math.min(n(r.qty), n(s.goods[r.k]?.qty)) })).filter((r) => r.qty > 0);
     S[ev.i] = { ...s, status: 'done', at, recv: ev.recv?.trim() || null, cash: ev.cash || 0, ret: ret.length ? ret : null, geo: geo ?? null, sig: ev.sig ?? null, photo: ev.photo ?? null };
     patch.stops = S as unknown as Record<string, unknown>[];
-    txt = (s.kind === 'pick' ? 'Преземено од: ' : 'Испорачано: ') + s.partner + (ev.recv ? ' · ' + ev.recv : '') + (ev.sig ? ' · потпис' : '') + (ev.photo ? ' · фото' : '') + (ev.cash ? ' · готовина ' + ev.cash : '') + (ret.length ? ` · поврат ${ret.length} ставки` : '');
+    txt = (s.kind === 'pick' ? 'Преземено од: ' : 'Испорачано: ') + s.partner + (ev.recv ? (s.kind === 'pick' ? ' · предал ' : ' · примил ') + ev.recv : '') + (ev.sig ? ' · потпис' : '') + (ev.photo ? ' · фото' : '') + (ev.cash ? ' · готовина ' + ev.cash : '') + (ret.length ? ` · поврат ${ret.length} ставки` : '');
   } else {
     if (x.status === 'done') fail('Налогот е завршен.');
     if (ev.km != null && x.depKm != null && ev.km < x.depKm) fail(`Км при враќање е помал од км при тргнување (${x.depKm}).`);
@@ -155,7 +179,7 @@ export async function travelOrderEvent(tx: Tx, a: IndActor, id: string, ev:
     txt = 'Враќање' + (ev.km != null ? ' · км ' + ev.km : '');
     if (ev.km && x.vehicleId) await tx.update(fleetVehicles).set({ odo: sql`greatest(coalesce(${fleetVehicles.odo}, 0), ${Math.round(ev.km)})` }).where(eq(fleetVehicles.id, x.vehicleId));
   }
-  patch.events = [...E, { k: ev.k, txt, at, by, geo: geo ?? null }] as unknown as Record<string, unknown>[];
+  patch.events = [...E, { k: ev.k === 'deliv' && S[ev.i]?.kind === 'pick' ? 'pick' : ev.k, txt, at, by, geo: geo ?? null }] as unknown as Record<string, unknown>[];
   await tx.update(travelOrders).set(patch).where(eq(travelOrders.id, id));
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: ev.k === 'dep' ? 'pnDep' : ev.k === 'deliv' ? 'pnDeliv' : 'pnRet', entityType: 'travel_order', entityId: id, data: { txt } });
 }
@@ -231,13 +255,13 @@ async function ownTour(tx: Tx, firmId: string, id: string): Promise<FreightTour>
 export async function saveFreightTour(tx: Tx, a: IndActor, t: FreightInput): Promise<string> {
   await loadIndustryFirm(tx, a.firmId, 'frt');
   const prev = t.id ? await ownTour(tx, a.firmId, t.id) : null;
-  const number = t.number.trim() || fail('Внесете број на турата.');
-  if (!t.partnerId && (n(t.price) || t.status === 'done')) fail('Изберете клиент (налогодавач) – потребен е за фактурата.');
-  if (!t.partnerId && !t.driverId) fail('Изберете клиент или возач.');
-  const [dup] = await tx.select({ id: freightTours.id }).from(freightTours).where(and(eq(freightTours.firmId, a.firmId), eq(freightTours.number, number), prev ? ne(freightTours.id, prev.id) : undefined)).limit(1);
-  if (dup) fail(`Бројот ${number} веќе постои.`);
-  for (const g of t.segs ?? []) if (g.in && g.out && g.out < g.in) fail('Излезот од државата е пред влезот.');
-  if (prev?.invoiceId && (n(prev.price) !== n(t.price) || prev.cur !== t.cur || prev.vat !== t.vat || prev.partnerId !== t.partnerId)) fail('Турата е фактурирана – цената, валутата, ДДВ и клиентот не се менуваат тука.');
+  const number = t.number.trim();
+  // Legacy `ACT.frSave` 14533–14536 checks, in the legacy order and wording (core `frTourError`).
+  const [dup] = number ? await tx.select({ id: freightTours.id }).from(freightTours).where(and(eq(freightTours.firmId, a.firmId), eq(freightTours.number, number), prev ? ne(freightTours.id, prev.id) : undefined)).limit(1) : [];
+  const [pinv] = prev?.invoiceId ? await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.id, prev.invoiceId)).limit(1) : [];
+  const err = frTourError({ ...t, cur: (t.cur || 'EUR').toUpperCase(), vat: t.vat === 'dom' ? 'dom' : 'intl', segs: t.segs ?? [] },
+    { dupNumber: !!dup, prev: prev ? { ...prev, invNumber: pinv?.n ?? null } : null, countryName: frCountryName });
+  if (err) fail(err);
   const m = (v: number | null | undefined) => (v == null || Number.isNaN(v) ? null : v.toFixed(2));
   const row = {
     number, date: t.date, status: t.status ?? 'plan', partnerId: t.partnerId || null, orderNo: t.orderNo || null, km: t.km ?? null, vehicleId: t.vehicleId || null, trailer: t.trailer || null,
