@@ -21,7 +21,7 @@ export function TkScan({ firmId }: { firmId: string }) {
     <div style={{ margin: '8px 0' }}>
       <AiDrop small multiple disabled={ai.busy} onFiles={(f) => void ai.read('tk', f.slice(0, 20))}
         label={<><b>Нов комитент од тековна состојба</b>PDF или слика од ЦРМ (може повеќе одеднаш). Програмот ги чита назив, ЕДБ, ЕМБС, адреса, управител, дејност и жиро сметка, а документот се чува кај комитентот.</>} />
-      <AiReadList docs={ai.docs} msg={ai.msg} />
+      <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
     </div>
   );
 }

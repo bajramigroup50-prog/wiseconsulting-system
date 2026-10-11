@@ -8,7 +8,7 @@
 import { empCalc, fixRegular, payCatOf, stazFor, type PayEmp, type PayLine } from './calc';
 import { MPIN_OPS, mpinEmpCodes } from './mpin';
 import type { PayParams } from './params';
-import { impDate, impN, impNum } from '../retail/import';
+import { impDate, impN, impNum, impNumFormats, type DecMode } from '../retail/import';
 
 export type PxlKey =
   | 'embg' | 'name' | 'sur' | 'pos' | 'oe' | 'net' | 'gross' | 'coef' | 'staz' | 'start' | 'regPlan' | 'reg' | 'hol' | 'odm' | 'bol' | 'bol30'
@@ -106,7 +106,7 @@ export interface PxlRecord {
 }
 
 /** Find the header row (≥ 3 recognised columns), map the columns and read the employee rows. */
-export function plxParse(aoa: readonly (readonly unknown[])[]): { error: string } | { map: Partial<Record<PxlKey, number>>; rows: PxlRecord[] } {
+export function plxParse(aoa: readonly (readonly unknown[])[], dec: DecMode = ''): { error: string } | { map: Partial<Record<PxlKey, number>>; rows: PxlRecord[] } {
   const isCol = (x: unknown) => PXL_COLS.some((c) => c[2].split(',').some((a) => plxN(a).length > 2 && plxN(x).includes(plxN(a))));
   const hi = aoa.findIndex((r) => r.filter(isCol).length >= 3);
   if (hi < 0) return { error: 'Не се препознаени колоните. Користете го „Excel образец“.' };
@@ -120,8 +120,13 @@ export function plxParse(aoa: readonly (readonly unknown[])[]): { error: string 
     if (i >= 0) { map[k] = i; used.add(i); }
   }
   if (map.name == null && map.embg == null) return { error: 'Нема колона ЕМБГ или Име.' };
-  const g = (r: readonly unknown[], k: PxlKey): unknown => (map[k] == null ? '' : r[map[k]!]);
-  const num = (v: unknown): number | null => (v === '' || v == null || String(v).trim() === '' ? null : impNum(v));
+  const g = (r: readonly unknown[], k: PxlKey): unknown => { numKey = k; return map[k] == null ? '' : r[map[k]!]; };
+  // FIX: number format per column (`numfmt.ts`); a column with only ambiguous amounts („30.000“) needs „Децимали“
+  const body = aoa.slice(hi + 1);
+  const NF = impNumFormats(body, PXL_COLS.filter(([k]) => !['embg', 'name', 'sur', 'pos', 'oe', 'start', 'ops', 'fzo'].includes(k)).map(([k, lab]) => ({ key: k, label: lab, idx: map[k] })));
+  if (NF.ambiguous.length && !dec) return { error: `Износите не се еднозначни во колоните: ${NF.ambiguous.join(', ')} (на пр. „${NF.examples.join('“, „')}“) – „30.000“ може да значи триесет илјади или триесет. Изберете „Децимали“ и увезете повторно.` };
+  let numKey: string = '';
+  const num = (v: unknown): number | null => (v === '' || v == null || String(v).trim() === '' ? null : impNum(v, dec || NF.dec[numKey] || ''));
   const str = (v: unknown) => String(v ?? '').trim();
   const rows: PxlRecord[] = [];
   for (const r of aoa.slice(hi + 1)) {

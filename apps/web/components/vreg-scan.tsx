@@ -24,7 +24,7 @@ export function VregScan({ firmId, back }: { firmId: string; back?: string }) {
         <div className="card" style={{ flexBasis: '100%' }}>
           <AiDrop small multiple={false} onFiles={(f) => void ai.read('vreg', f.slice(0, 1))} disabled={ai.busy}
             label={<><b>Изберете или фотографирајте документ</b> — сообраќајна дозвола: PDF, слика (JPG/PNG), фотографија од телефон.</>} />
-          <AiReadList docs={ai.docs} msg={ai.msg} />
+          <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
         </div>
       )}
     </>

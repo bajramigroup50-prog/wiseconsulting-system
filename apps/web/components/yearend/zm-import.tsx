@@ -63,7 +63,7 @@ export function ZmImport({ year, firmId }: { year: number; firmId: string }) {
         }} /></label>
       </div>
       <p className="mini" style={{ margin: '6px 0 0' }}>Износите за {year} (тековна година) и {year - 1} (претходна година) од поднесената сметка (на пр. од друга програма или од ЦРМ) се зачувуваат како рачни износи. Ако во документот има и колона „Претходна година“, таа се зачувува за {year - 1}.</p>
-      <AiReadList docs={ai.docs} msg={ai.msg} />
+      <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
       {msg && <div className={'callout ' + (msg.error ? 'bad' : 'good')} style={{ marginTop: 6 }}>{msg.error ?? msg.ok}</div>}
     </div>
   );

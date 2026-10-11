@@ -17,6 +17,7 @@ import { decodeBankBytes } from './bank/text';
 import { byLocalInDoc, byTagInDoc, descendants, parseXml, textOf, type XmlElement } from './bank/xml';
 import { toCents } from './bank/cents';
 import { r2 } from './money';
+import { AmbiguousAmountsError, ambExamples, colFormat, parseNumAuto, reconcileFmt, type NumFmt } from './numfmt';
 
 export { decodeBankBytes, decodeCp1251, detectEncoding, isUtf8 } from './bank/text';
 
@@ -411,14 +412,14 @@ export function parseKB(input: Uint8Array | string): Statement | null {
 
 /* ------------------------------------------------------------------ Excel / CSV tables */
 
-/** Legacy `parseAmount` (4745): "1.234,56" → 1234.56, "1,234.56" → 1234.56. */
-export function parseBankAmount(s: unknown): number {
+/**
+ * Legacy `parseAmount` (4745): "1.234,56" → 1234.56, "1,234.56" → 1234.56.
+ * FIX: an ambiguous value („10.000“) is read in `fmt` (the column's / file's format, `numfmt.ts`; default the
+ * Macedonian dot-thousands) — legacy read it as 10.
+ */
+export function parseBankAmount(s: unknown, fmt: NumFmt = 'mk'): number {
   if (typeof s === 'number') return s;
-  let t = String(s || '').trim().replace(/\s/g, '');
-  if (!t) return 0;
-  if (/,\d{1,2}$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
-  else t = t.replace(/,/g, '');
-  return +t || 0;
+  return parseNumAuto(s, fmt) ?? 0;
 }
 
 /**
@@ -455,7 +456,29 @@ export function findHeaderRow(rows: unknown[][]): number {
  * name + purpose columns, payment code, reference, statement number and balances from the rows
  * above the header. `null` when the columns are not recognised or no line has an amount.
  */
-export function parseBankTable(rows: unknown[][]): Statement | null {
+export function parseBankTable(rows: unknown[][], fmt?: NumFmt): Statement | null {
+  if (fmt) return parseBankTableFmt(rows, fmt);
+  // FIX: number format of the amount columns over all lines (`numfmt.ts`). Ambiguous („10.000“ only) → the
+  // interpretation for which opening + movements = closing (balances printed above / below the table); otherwise
+  // AmbiguousAmountsError (flag for review instead of guessing).
+  const cells: unknown[] = [];
+  const first = parseBankTableFmt(rows, 'mk', cells);
+  if (!first) return null;
+  const amb = ambExamples(cells);
+  if (!amb.length) return first;
+  const f = colFormat(cells);
+  if (f === 'mk') return first;
+  if (f === 'dot') return parseBankTableFmt(rows, 'dot');
+  const pick = reconcileFmt((x) => {
+    const st = parseBankTableFmt(rows, x);
+    return !!st && st.opening != null && st.closing != null && st.opening + st.lines.reduce((a, l) => a + l.amount, 0) === st.closing;
+  });
+  if (!pick) throw new AmbiguousAmountsError('Износите во изводот', amb);
+  return parseBankTableFmt(rows, pick);
+}
+
+function parseBankTableFmt(rows: unknown[][], fmt: NumFmt, cells?: unknown[]): Statement | null {
+  const amt = (v: unknown) => { cells?.push(v); return parseBankAmount(v, fmt); };
   const hi = findHeaderRow(rows);
   if (hi < 0) return null;
   const hd = (rows[hi] || []).map((x) => String(x ?? '').toLowerCase().trim());
@@ -477,7 +500,7 @@ export function parseBankTable(rows: unknown[][]): Statement | null {
     const row = r || [];
     const date = parseBankDate(cell(row, iD));
     if (!date) continue;
-    const amount = iAmt >= 0 ? parseBankAmount(cell(row, iAmt)) : parseBankAmount(cell(row, iIn)) - parseBankAmount(cell(row, iOut));
+    const amount = iAmt >= 0 ? amt(cell(row, iAmt)) : amt(cell(row, iIn)) - amt(cell(row, iOut));
     if (!amount) continue;
     const name = iP >= 0 ? str(row[iP]) : '';
     const ref = iRef >= 0 ? str(row[iRef]) : '';
@@ -495,7 +518,7 @@ export function parseBankTable(rows: unknown[][]): Statement | null {
   }
   const all = rows.map((r) => (r || []).join(' '));
   const g = (re: RegExp): number | null => {
-    for (const t of all) { const m = t.match(re); if (m) return parseBankAmount(m[1]); }
+    for (const t of all) { const m = t.match(re); if (m) return amt(m[1]); }
     return null;
   };
   const o = g(/претходна\s+состојба[^0-9\-]*(-?[\d.,]+)/i);

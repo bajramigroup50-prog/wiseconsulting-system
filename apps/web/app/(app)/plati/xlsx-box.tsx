@@ -2,11 +2,13 @@
 /** Legacy `#plx_box` (v478): „📥 Плата од Excel“ on the month list. */
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { numStr } from '@wise/core/numfmt';
 import { payXlsxImport, payXlsxTemplate } from './xlsx-actions';
 
 export function PayXlsxBox({ next }: { next: string }) {
   const [mo, setMo] = useState(next);
   const [file, setFile] = useState<File | null>(null);
+  const [dec, setDec] = useState<'' | 'comma' | 'dot'>('');
   const [msg, setMsg] = useState<{ error?: string; ok?: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -32,12 +34,12 @@ export function PayXlsxBox({ next }: { next: string }) {
         const XLSX = await import('xlsx');
         const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
         const R = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]!]!, { header: 1, raw: true, defval: '' });
-        aoa = R.map((r) => r.map((v) => (typeof v === 'number' ? String(v) : String(v ?? ''))));
+        aoa = R.map((r) => r.map((v) => (typeof v === 'number' ? numStr(v) : String(v ?? ''))));
       } catch { setMsg({ error: 'Датотеката не може да се прочита.' }); return; }
-      let r = await payXlsxImport(mo, file.name, aoa, false);
+      let r = await payXlsxImport(mo, file.name, aoa, false, dec);
       if (r.confirm) {
         if (!window.confirm(r.confirm)) return;
-        r = await payXlsxImport(mo, file.name, aoa, true);
+        r = await payXlsxImport(mo, file.name, aoa, true, dec);
       }
       setMsg(r);
       if (r.month && !r.error) router.push(`/plati/${r.month}`);
@@ -50,6 +52,9 @@ export function PayXlsxBox({ next }: { next: string }) {
         <label className="f" style={{ width: 'auto' }}>Месец<input type="month" value={mo} onChange={(e) => setMo(e.target.value)} /></label>
         <button type="button" className="btn" disabled={pending} onClick={tpl}>⬇ Excel образец</button>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <label className="f" style={{ width: 'auto' }}>Децимали<select value={dec} onChange={(e) => setDec(e.target.value as '' | 'comma' | 'dot')}>
+          <option value="">од датотеката</option><option value="comma">1.234,56 („30.000“ = триесет илјади)</option><option value="dot">1,234.56 („30.000“ = триесет)</option>
+        </select></label>
         <button type="button" className="btn pri" disabled={pending} onClick={imp}>{pending ? 'Се увезува…' : '📥 Увези и отвори'}</button>
       </div>
       {msg && <div className={'callout ' + (msg.error ? 'bad' : 'good')} style={{ marginTop: 8 }}>{msg.error ?? msg.ok}</div>}

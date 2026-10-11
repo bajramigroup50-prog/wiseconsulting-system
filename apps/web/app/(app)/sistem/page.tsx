@@ -9,7 +9,8 @@
 import Link from 'next/link';
 import { and, eq } from 'drizzle-orm';
 import { can } from '@wise/core';
-import { backupCounts, files, firmBackupFiles, firmRecordCounts, firms, parseFirmBackup, PRE_RESTORE_PREFIX, users } from '@wise/db';
+import { AI_ERR_MSG } from '@wise/core/ai/errors';
+import { backupCounts, files, firmBackupFiles, firmRecordCounts, firms, getAiSettings, parseFirmBackup, PRE_RESTORE_PREFIX, users } from '@wise/db';
 import { booksPage } from '@/lib/books';
 import { db } from '@/lib/db';
 import { getObjectBytes } from '@/lib/storage';
@@ -18,7 +19,7 @@ import { ActionForm } from '@/components/action-form';
 import { Hd, dmyHm } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { backupNowAction, pickRestoreAction, restoreAction } from './actions';
+import { backupNowAction, pickRestoreAction, restoreAction, setAiEnabledAction } from './actions';
 
 const tsz = (v: number) => (v > 1048576 ? `${(v / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(v / 1024))} KB`);
 
@@ -26,6 +27,8 @@ export default async function SistemPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const { u, firm } = await booksPage('sistem');
   const srv = await lastServerBackup();
+  const ai = await getAiSettings(db());
+  const aiKey = !!process.env.ANTHROPIC_API_KEY;
   const age = srv ? Math.round((Date.now() - new Date(srv.at).getTime()) / 36e5) : null;
   const settings = !!firm && can(u.principal, 'settings', firm.id);
   const admin = !!firm && u.role === 'admin' && can(u.principal, 'del', firm.id);
@@ -68,6 +71,23 @@ export default async function SistemPage({ searchParams }: { searchParams: Promi
           Резервната копија на серверот ги зачувува <b>сите фирми</b> (целата база: документи, налози, плати, шифрарници) и сите скенирани документи.
           Се прави автоматски <b>секоја ноќ</b>, а се чуваат копиите од последните 30 дена. За дополнителна сигурност, преземете ја копијата на
           фирмата (JSON) на вашиот компјутер или надворешен диск.{!srv && ' Ако копијата сè уште не е поставена, проверете го ноќниот cron на серверот (docker/backup.sh).'}
+        </p>
+      </div>
+
+      {/* „AI читање: вклучено / исклучено“ — off: drop zones keep working, files are read without AI */}
+      <div className="card" style={{ borderLeft: `4px solid ${ai.enabled && aiKey && !ai.lastFail ? '#1f8a4c' : '#e08a00'}` }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <b>AI читање: {ai.enabled ? 'вклучено' : 'исклучено'}</b>
+          {!aiKey && <span className="pill bad">нема ANTHROPIC_API_KEY на серверот</span>}
+          {ai.lastFail && <span className="pill bad" title={ai.lastFail.detail}>{ai.lastFail.code === 'credit' ? 'кредитот е потрошен' : 'клучот е одбиен'} ({dmyHm(new Date(ai.lastFail.at))})</span>}
+          <span style={{ flex: 1 }} />
+          {u.role === 'admin' && <RowAction action={setAiEnabledAction.bind(null, !ai.enabled)} label={ai.enabled ? 'Исклучи AI читање' : 'Вклучи AI читање'} className="btn sm" showOk />}
+          <Link className="btn sm ghost" href="/konvertor">🔄 Конвертор на датотеки</Link>
+        </div>
+        <p className="note" style={{ margin: '6px 0 0' }}>
+          Кога AI е исклучено (или кредитот е потрошен), полињата за прикачување и понатаму примаат датотеки: изводите, бруто билансите и фактурите
+          од Excel/CSV/XML и PDF со текст се читаат без AI; скенираните документи и сликите бараат AI.
+          {ai.lastFail?.code === 'credit' && <> {AI_ERR_MSG.credit}</>}
         </p>
       </div>
 

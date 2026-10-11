@@ -5,7 +5,7 @@
  * dates are parsed here with the detected decimal separator; the server receives field → value rows.
  */
 import { startTransition, useActionState, useRef, useState } from 'react';
-import { IMP_EXAMPLE, IMP_T, detectDec, impAuto, impDate, impHeaderRow, impMissing, impNum, type ImpType } from '@wise/core/retail/import';
+import { IMP_EXAMPLE, IMP_T, impAuto, impDate, impHeaderRow, impMissing, impNum, impNumFormats, type DecMode, type ImpType } from '@wise/core/retail/import';
 import type { ActionState } from '@/lib/books';
 import { importAction } from '../_retail/actions';
 import { downloadXlsx, readRows } from '../_retail/read-file';
@@ -42,6 +42,8 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
   const [date, setDate] = useState(date0);
   const [wh, setWh] = useState(wh0);
   const [err, setErr] = useState('');
+  /** „Децимали“: '' = from the file; required when a column has only ambiguous amounts („10.000“). */
+  const [decSel, setDecSel] = useState<DecMode>('');
   const inp = useRef<HTMLInputElement>(null);
   const whs = t === 'nivel' ? locs.filter((l) => l.kind === 'store') : locs;
 
@@ -52,7 +54,7 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
       const R = await readRows(f);
       if (!R.length) { setErr('Датотеката е празна или форматот не е препознаен.'); return; }
       const h = impHeaderRow(R);
-      setRows(R); setFile(f.name); setHi(h); setMap(impAuto(t, R[h] ?? []));
+      setRows(R); setFile(f.name); setHi(h); setMap(impAuto(t, R[h] ?? [])); setDecSel('');
     } catch { setErr('Датотеката не може да се прочита.'); }
   };
   const hdr = rows?.[hi] ?? [];
@@ -62,18 +64,21 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
     ? { dev: H.some((x) => /девиз|eur|usd|валута|foreign/i.test(x)) } : null;
   const data = (rows ?? []).slice(hi + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
   const cell = (v: unknown) => (v instanceof Date ? impDate(v) : String(v ?? ''));
-  const dec0 = detectDec(data);
-  const errs = data.map((r) => rowErr(t, (k) => (map[k] != null ? r[map[k]!] : ''), (k) => (map[k] != null && String(r[map[k]!] ?? '').trim() !== '' ? impNum(r[map[k]!], dec0) : null)));
+  // number format per column (`numfmt.ts`): ambiguous columns („10.000“ only) block the import until „Децимали“ is chosen
+  const NF = impNumFormats(data, T.f.filter(([k]) => NUM.has(k)).map(([k, n]) => ({ key: k, label: n.replace('*', ''), idx: map[k] })));
+  const decOf = (k: string): DecMode => decSel || NF.dec[k] || '';
+  const blocked = NF.ambiguous.length > 0 && !decSel;
+  const errs = data.map((r) => rowErr(t, (k) => (map[k] != null ? r[map[k]!] : ''), (k) => (map[k] != null && String(r[map[k]!] ?? '').trim() !== '' ? impNum(r[map[k]!], decOf(k)) : null)));
   const nErr = errs.filter(Boolean).length;
   const go = () => {
     const miss = impMissing(t, map);
     if (miss.length) { setErr('Поврзете ги задолжителните колони: ' + miss.join(', ')); return; }
     if (NEEDS_WH.includes(t) && !wh) { setErr('Изберете објект.'); return; }
+    if (blocked) { setErr('Изберете „Децимали“ – износите како „10.000“ може да значат десет илјади или десет.'); return; }
     if (!window.confirm(`Да се увезат ${data.length} редови?`)) return;
-    const dec = detectDec(data);
     const out = data.map((r) => Object.fromEntries(Object.entries(map).map(([k, i]) => {
       const v = r[i];
-      return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, dec)) : DATE.has(k) ? impDate(v) : String(v instanceof Date ? impDate(v) : v ?? '').trim()];
+      return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : String(v instanceof Date ? impDate(v) : v ?? '').trim()];
     })));
     const fd = new FormData();
     fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, rows: out }));
@@ -112,10 +117,17 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
             ))}</div>
             <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label className="mini">Заглавие во ред <input type="number" min={1} value={hi + 1} style={{ width: 60 }} onChange={(e) => { const h = Math.max(0, (Number(e.target.value) || 1) - 1); setHi(h); setMap(impAuto(t, rows[h] ?? [])); }} /></label>
+              <label className="mini">Децимали <select value={decSel} onChange={(e) => setDecSel(e.target.value as DecMode)} style={{ width: 'auto' }}>
+                <option value="">од датотеката</option><option value="comma">1.234,56 – „10.000“ = десет илјади</option><option value="dot">1,234.56 – „10.000“ = десет</option>
+              </select></label>
               {NEEDS_DATE.includes(t) && <label className="mini">Датум <input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>}
               {NEEDS_WH.includes(t) && <label className="mini">{t === 'nivel' ? 'Продавница' : 'Објект'} <select value={wh} onChange={(e) => setWh(e.target.value)} style={{ width: 'auto' }}><option value="">—</option>{whs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>}
             </div>
           </div>
+          {blocked && (
+            <div className="callout bad" role="alert"><b>⚠ Износите не се еднозначни</b> во колоните: {NF.ambiguous.join(', ')} (на пр. „{NF.examples.join('“, „')}“).
+              „10.000“ може да значи десет илјади (10.000,00) или десет (10.000 со точка како децимала). Изберете „Децимали“ погоре – увозот е оневозможен додека не изберете.</div>
+          )}
           <div className="card">
             <div className="hd"><h2>Преглед (првите 8 редови{nErr ? ' и редовите со грешка' : ''})</h2>{nErr ? <span className="pill bad">{nErr} редови со грешка – ќе се прескокнат</span> : <span className="pill good">сите редови се во ред</span>}</div>
             <div className="tw"><table className="dense">
@@ -125,7 +137,7 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
             </table></div>
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10, gap: 8 }}>
               <button type="button" className="btn" onClick={() => { setRows(null); setFile(''); }}>Друга датотека</button>
-              <button type="button" className="btn pri" disabled={pending} onClick={go}>{pending ? 'Се увезува…' : `Увези ${data.length} редови`}</button>
+              <button type="button" className="btn pri" disabled={pending || blocked} onClick={go}>{pending ? 'Се увезува…' : `Увези ${data.length} редови`}</button>
             </div>
           </div>
         </>

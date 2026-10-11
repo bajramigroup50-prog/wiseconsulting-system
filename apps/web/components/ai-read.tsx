@@ -6,9 +6,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
+import { AI_ERR_FREE, aiErrCodeOf } from '@wise/core/ai/errors';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
-import { aiReadStatus, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
+import { aiReadStatus, retryAiRead, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
 
 export interface AiReadDoc extends AiReadState { name: string; fileId: string | null }
 type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom' | 'cmp' | 'imp' | 'scr' | 'ob' | 'rec'
@@ -46,8 +47,10 @@ export function useAiRead(firmId: string) {
 
   /** Upload files and start one read per file. */
   const read = useCallback(async (kind: StartKind, fs: File[], group = false) => {
-    fs = fs.filter((f) => /pdf|image\//i.test(f.type) || /\.(pdf|jpe?g|png|webp)$/i.test(f.name));
-    if (!fs.length) { setMsg('Изберете слики (JPG/PNG) или PDF.'); return; }
+    // statements and trial balances are also read from XML / CSV / TXT (without AI)
+    const txt = kind === 'bank' || kind === 'ob';
+    fs = fs.filter((f) => /pdf|image\//i.test(f.type) || /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || (txt && /\.(xml|csv|txt|sta|mt940|940|\d{3})$/i.test(f.name)));
+    if (!fs.length) { setMsg(txt ? 'Изберете PDF, слика, XML, CSV или TXT.' : 'Изберете слики (JPG/PNG) или PDF.'); return; }
     setUploading(true);
     const up: { id: string; name: string }[] = [], err: string[] = [];
     for (const [i, f] of fs.entries()) {
@@ -78,7 +81,7 @@ export function useAiRead(firmId: string) {
 }
 
 /** Drop zone + file picker (legacy `.drop` label). */
-export function AiDrop({ onFiles, label, disabled, multiple = true, small }: { onFiles: (f: File[]) => void; label: React.ReactNode; disabled?: boolean; multiple?: boolean; small?: boolean }) {
+export function AiDrop({ onFiles, label, disabled, multiple = true, small, text }: { onFiles: (f: File[]) => void; label: React.ReactNode; disabled?: boolean; multiple?: boolean; small?: boolean; /** also XML / CSV / TXT (statements, trial balance) */ text?: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   const [on, setOn] = useState(false);
   return (
@@ -90,14 +93,18 @@ export function AiDrop({ onFiles, label, disabled, multiple = true, small }: { o
         onClick={(e) => { e.preventDefault(); if (!disabled) ref.current?.click(); }}>
         {label}
       </label>
-      <input ref={ref} type="file" hidden multiple={multiple} accept="application/pdf,.pdf,image/jpeg,image/png,image/webp"
+      <input ref={ref} type="file" hidden multiple={multiple} accept={'application/pdf,.pdf,image/jpeg,image/png,image/webp' + (text ? ',.xml,.csv,.txt,.sta,.mt940' : '')}
         onChange={(e) => { const f = [...(e.target.files ?? [])]; e.target.value = ''; if (f.length) onFiles(f); }} />
     </>
   );
 }
 
 /** One line per read that is not done yet (or failed). */
-export function AiReadList({ docs, msg, doneHint }: { docs: AiReadDoc[]; msg?: string; /** legacy „Прочитано: …“ callout once every read finished */ doneHint?: 'amounts' | 'data' }) {
+export function AiReadList({ docs, msg, doneHint, setDocs }: {
+  docs: AiReadDoc[]; msg?: string; /** legacy „Прочитано: …“ callout once every read finished */ doneHint?: 'amounts' | 'data';
+  /** From `useAiRead` / `useAiPoll`: enables „↻ Повторно“ on failed reads. */
+  setDocs?: React.Dispatch<React.SetStateAction<AiReadDoc[]>>;
+}) {
   const L = docs.filter((d) => d.status !== 'done' && d.status !== 'saved');
   const done = doneHint && !docs.some(pending) ? docs.filter((d) => d.status === 'done' || d.status === 'saved') : [];
   if (!L.length && !msg && !done.length) return null;
@@ -105,11 +112,35 @@ export function AiReadList({ docs, msg, doneHint }: { docs: AiReadDoc[]; msg?: s
     <div>
       {L.map((d) => (
         <div key={d.id} className="mini">{d.name ? d.name + ': ' : ''}{d.status === 'error'
-          ? <span className="pill bad">{isAiUnavailable(d.error) ? AI_UNAVAILABLE_MSG : d.error || 'грешка'}</span>
+          ? <AiErrLine d={d} onRetry={setDocs ? () => setDocs((D) => D.map((x) => (x.id === d.id ? { ...x, status: 'queued', error: null, errCode: null } : x))) : undefined} />
           : <span className="pill info">{d.status === 'reading' ? 'се чита…' : 'чека…'}</span>}</div>
       ))}
       {done.length > 0 && <div className="callout good">{aiReadDoneMsg(done.map((d) => d.name || 'документ'), doneHint)}</div>}
       {msg && <div className="note">{msg}</div>}
     </div>
+  );
+}
+
+/**
+ * A failed read: the clear message (never the raw provider JSON), „↻ Повторно“ and — when AI is not usable (credit,
+ * key, switched off, scanned document) — the free paths: the screen's own Excel / CSV / XML import and the converter.
+ */
+export function AiErrLine({ d, onRetry }: { d: Pick<AiReadDoc, 'id' | 'error' | 'errCode'>; onRetry?: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const code = d.errCode ?? aiErrCodeOf(d.error);
+  const text = isAiUnavailable(d.error) ? AI_UNAVAILABLE_MSG : d.error || 'грешка';
+  return (
+    <>
+      <span className="pill bad">{text}</span>
+      {onRetry && code !== 'off' && (
+        <button type="button" className="btn sm ghost" disabled={busy} style={{ marginLeft: 6 }} onClick={async () => {
+          setBusy(true); const r = await retryAiRead(d.id); setBusy(false);
+          if (r.error) setErr(r.error); else onRetry();
+        }}>↻ Повторно</button>
+      )}
+      {code && AI_ERR_FREE.has(code) && <a className="btn sm ghost" style={{ marginLeft: 6 }} href="/konvertor" target="_blank" rel="noreferrer">🔄 Конвертор на датотеки</a>}
+      {err && <span className="mini" style={{ marginLeft: 6 }}>{err}</span>}
+    </>
   );
 }
