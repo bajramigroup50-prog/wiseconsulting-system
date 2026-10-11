@@ -25,7 +25,7 @@ export const firmAutoConfig = (f: Pick<Firm, 'settings'>): AutoConfig => autoCon
 
 /** Legacy `autoCfgSave` (`firm.auto` → `firms.settings.industry.auto`). */
 export async function saveAutoConfig(tx: Tx, a: IndActor, c: Partial<AutoConfig>): Promise<void> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const v = { hr: n(c.hr), km: n(c.km) || 15000, mon: n(c.mon) || 12 };
   await tx.update(firms).set({
     settings: sql`jsonb_set(coalesce(${firms.settings}, '{}'::jsonb), '{industry}', coalesce(${firms.settings}->'industry', '{}'::jsonb) || jsonb_build_object('auto', ${JSON.stringify(v)}::jsonb))`,
@@ -42,7 +42,7 @@ export interface CustomerVehicleInput {
 
 /** Legacy `cvSave`: plate or VIN, no duplicate plate / VIN, plate and VIN in capitals. */
 export async function saveCustomerVehicle(tx: Tx, a: IndActor, v: CustomerVehicleInput): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const plate = String(v.plate ?? '').trim().toUpperCase(), vin = String(v.vin ?? '').trim().toUpperCase();
   const others = await tx.select({ id: customerVehicles.id, plate: customerVehicles.plate, vin: customerVehicles.vin, make: customerVehicles.make, model: customerVehicles.model, year: customerVehicles.year })
     .from(customerVehicles).where(eq(customerVehicles.firmId, a.firmId));
@@ -69,7 +69,7 @@ async function ownVehicle(tx: Tx, firmId: string, id: string): Promise<CustomerV
 
 /** Legacy `potDone` / after `potMail`: owner contacted — hidden from the reminders for 30 days. */
 export async function markVehicleReminded(tx: Tx, a: IndActor, id: string, date: string, via: 'call' | 'mail' = 'call'): Promise<void> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const v = await ownVehicle(tx, a.firmId, id);
   await tx.update(customerVehicles).set({ remindAt: date }).where(eq(customerVehicles.id, v.id));
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: via === 'mail' ? 'potMail' : 'potDone', entityType: 'customer_vehicle', entityId: v.id, data: { plate: v.plate } });
@@ -100,7 +100,7 @@ export async function nextWorkOrderNumber(tx: Tx, firmId: string, date: string):
  * vehicle's km is raised to the order's km. A taken number becomes the next free one.
  */
 export async function saveWorkOrder(tx: Tx, a: IndActor, w: WorkOrderInput): Promise<{ id: string; number: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const prev = w.id ? await ownOrder(tx, a.firmId, w.id) : null;
   if (prev?.invoiceId) fail('Работниот налог е фактуриран.');
   if (!DAY.test(w.date)) fail('Внесете датум.');
@@ -157,7 +157,7 @@ export async function stockOnHand(tx: Tx, firmId: string, itemIds?: readonly str
  * `Работен налог РН-… · возило … · … км`. Short stock fails unless `force` (legacy confirm).
  */
 export async function invoiceWorkOrder(tx: Tx, a: IndActor, id: string, date: string, force = false): Promise<{ id: string; number: string; warnings: string[] }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const w = await ownOrder(tx, a.firmId, id);
   if (w.invoiceId) fail('Работниот налог е веќе фактуриран.');
   if (!w.parts.length && !w.labour.length) fail('Нема делови ни работа.');

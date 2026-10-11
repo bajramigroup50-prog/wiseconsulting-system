@@ -96,7 +96,8 @@ export const moduleOn = (mods: readonly string[] | null | undefined, k: string):
 export function viewEnabled(view: string, mods: readonly string[] | null | undefined, opts: { hasFirm: boolean; client?: boolean }): boolean {
   const m = MODULE_OF_VIEW[view];
   if (!m || !opts.hasFirm) return true;
-  if (!opts.client && OFFICE_ALWAYS.has(m.k)) return true;
+  // Legacy `viewOn`: office users see every module in „Дејности“ (DEJ_V); only clients are limited to their firm's modules.
+  if (!opts.client) return true;
   return moduleOn(mods, m.k);
 }
 

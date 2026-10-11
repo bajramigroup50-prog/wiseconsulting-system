@@ -108,8 +108,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
 
       {!BK.length && (
         <div className="callout">{fx
-          ? 'Сè уште нема девизна сметка. Додадете ја: назив (на пр. Комерцијална EUR), девизна сметка / IBAN, валута и конто (на пр. 1030). Потоа увезете го изводот (најдобро XML или MT940).'
-          : 'Сè уште нема банкарска сметка. Додадете ја: назив на банката, жиро сметка (15 цифри) и конто (на пр. 1000 или аналитика 100005).'}</div>
+          ? 'Сè уште нема девизна сметка. Додадете ја: назив (на пр. Комерцијална EUR), девизна сметка / IBAN, валута и конто (на пр. 1030). Потоа увезете го изводот (најдобро XML или MT940) – или увезете го изводот веднаш подолу (XML, MT940, Excel, PDF или слика): сметката се отвора сама од изводот.'
+          : 'Сè уште нема банкарска сметка. Додадете ја (назив на банката, жиро сметка од 15 цифри, конто 1000 или аналитика 100005) – или веднаш увезете извод подолу (XML, MT940, Excel, PDF или слика): сметката се отвора сама од изводот.'}</div>
       )}
 
       {(sp.banks || !BK.length) && (
@@ -236,9 +236,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         </div>
       )}
 
-      {BK.length > 0 && write && (
+      {write && (
         <div className="card">
-          <ImportBox firmId={firm.id} fx={fx} defaultAcct={acct!.id} accounts={BK.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))} />
+          <ImportBox firmId={firm.id} fx={fx} defaultAcct={acct?.id ?? ''} accounts={BK.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))} />
         </div>
       )}
 

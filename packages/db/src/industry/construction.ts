@@ -32,7 +32,7 @@ async function ownProject(tx: Tx, firmId: string, id: string): Promise<Construct
 
 /** Legacy `cpSaveB`. FIX (10.4 item 12): the code is the next free number, not `count + 1`. */
 export async function saveProject(tx: Tx, a: IndActor, p: ProjectInput): Promise<{ id: string; code: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const prev = p.id ? await ownProject(tx, a.firmId, p.id) : null;
   const name = p.name.trim() || fail('Внесете назив на објектот.');
   const investorId = (await assertPartner(tx, a.firmId, p.investorId)) ?? fail('Изберете инвеститор.');
@@ -61,7 +61,7 @@ export interface SituationInput { id?: string | null; projectId: string; no: str
 
 /** Legacy `csSave`: a final situation closes the project. Invoiced situations are frozen. */
 export async function saveSituation(tx: Tx, a: IndActor, s: SituationInput): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const P = await ownProject(tx, a.firmId, s.projectId);
   const [prev] = s.id ? await tx.select().from(constructionSituations).where(and(eq(constructionSituations.id, s.id), eq(constructionSituations.projectId, P.id))).limit(1) : [];
   if (s.id && !prev) fail('Ситуацијата не постои.');
@@ -85,7 +85,7 @@ export const projectSituations = (tx: Tx, projectId: string) =>
 
 /** Legacy `csInv`: the situation's executed quantities as a Phase 3 invoice to the investor (32-a when set). */
 export async function invoiceSituation(tx: Tx, a: IndActor, id: string, date: string) {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const [s] = await tx.select().from(constructionSituations).where(and(eq(constructionSituations.id, id), eq(constructionSituations.firmId, a.firmId))).limit(1);
   if (!s) fail('Ситуацијата не постои.');
   if (s!.invoiceId) fail('Ситуацијата е веќе фактурирана.');
@@ -105,7 +105,7 @@ export async function invoiceSituation(tx: Tx, a: IndActor, id: string, date: st
 export interface DiaryInput { id?: string | null; projectId: string; date: string; weather?: string | null; temp?: string | null; works?: string | null; mat?: string | null; issues?: string | null; nadzor?: string | null; workers?: { emp: string; name: string; hrs: number; rate: number }[]; mach?: { name: string; hrs: number; rate: number }[] }
 
 export async function saveDiary(tx: Tx, a: IndActor, d: DiaryInput): Promise<string> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const P = await ownProject(tx, a.firmId, d.projectId);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date)) fail('Внесете датум.');
   const hr = firmConsConfig(f).hr;
