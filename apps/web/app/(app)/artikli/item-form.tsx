@@ -10,12 +10,15 @@ import { saveItem } from './actions';
 const TYPES: Record<ItemType, string> = { service: 'Услуга', goods: 'Стока (трговија)', material: 'Суровина / материјал', product: 'Готов производ' };
 const REV_K: Record<ItemType, string> = { service: '7400', goods: '7410', material: '7410', product: '7400' };
 
-export function ItemForm({ it, barcodes, supplierCodes, revAccounts }: {
+export function ItemForm({ it, barcodes, supplierCodes, revAccounts, revK: revK0, defType, back }: {
   it: Item | null; barcodes: string[]; supplierCodes: { code: string; partner: string | null }[]; revAccounts: [string, string][];
+  /** Revenue konto per type from the firm's posting scheme (legacy `REV_K` 3180 = `sch('revService' | 'revGoods' | 'revProduct')`). */
+  revK?: Record<ItemType, string>; defType?: ItemType; back?: string;
 }) {
   const [st, action, pending] = useActionState<ActionState, FormData>(saveItem, {});
-  const [type, setType] = useState<ItemType>(it?.type ?? 'service');
-  const [rev, setRev] = useState(it?.revenueAccount ?? REV_K[it?.type ?? 'service']);
+  const [type, setType] = useState<ItemType>(it?.type ?? defType ?? 'service');
+  const RK = revK0 ?? REV_K;
+  const [rev, setRev] = useState(it?.revenueAccount ?? RK[it?.type ?? defType ?? 'service']);
   const T = (k: keyof Item, l: string, o: { num?: boolean; ph?: string } = {}) => (
     <label className="f">{l}<input name={k} defaultValue={(it?.[k] as string | null) ?? ''} inputMode={o.num ? 'decimal' : undefined} placeholder={o.ph} /></label>
   );
@@ -30,7 +33,7 @@ export function ItemForm({ it, barcodes, supplierCodes, revAccounts }: {
         <label className="f wide">Назив<input name="name" defaultValue={it?.name ?? ''} required autoFocus /></label>
         <label className="chk"><input type="checkbox" name="madeInMk" defaultChecked={it?.madeInMk ?? false} /> Македонски производ</label>
         <label className="f">Вид
-          <select name="type" value={type} onChange={(e) => { const t = e.target.value as ItemType; setType(t); setRev(REV_K[t]); }}>
+          <select name="type" value={type} onChange={(e) => { const t = e.target.value as ItemType; setType(t); setRev(RK[t]); }}>
             {Object.entries(TYPES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
           </select>
         </label>
@@ -40,8 +43,9 @@ export function ItemForm({ it, barcodes, supplierCodes, revAccounts }: {
           <select name="vatRate" defaultValue={String(it?.vatRate ?? 18)}>{[18, 10, 5, 0].map((r) => <option key={r}>{r}</option>)}</select>
         </label>
         <label className="f">Конто за приход
-          <input name="revenueAccount" list="revK" value={rev} onChange={(e) => setRev(e.target.value)} />
-          <datalist id="revK">{revAccounts.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</datalist>
+          <select name="revenueAccount" value={rev} onChange={(e) => setRev(e.target.value)}>
+            {rev && !revAccounts.some(([k]) => k === rev) && <option value={rev}>{rev}</option>}
+            {revAccounts.map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</select>
         </label>
         {T('minStock', 'Минимална залиха', { num: true })}
         {T('weight', 'Тежина по единица (кг) – за товар на возило', { num: true })}
@@ -57,7 +61,7 @@ export function ItemForm({ it, barcodes, supplierCodes, revAccounts }: {
         <p className="note">Шифри кај добавувачи: {supplierCodes.map((s) => `${s.code}${s.partner ? ' (' + s.partner + ')' : ''}`).join(', ')}</p>
       )}
       <div className="row">
-        <Link className="btn" href="/artikli">Откажи</Link>
+        <input type="hidden" name="back" value={back ?? '/artikli'} /><Link className="btn" href={back ?? '/artikli'}>Откажи</Link>
         <button className="btn pri" disabled={pending}>Зачувај</button>
       </div>
     </form>

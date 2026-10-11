@@ -18,7 +18,7 @@ import {
 import { audit, type Tx } from './audit';
 import { assertOpenPeriod, postJournal, unpostSource } from './posting';
 import {
-  boms, firms, journals, levellingDocs, productionOrders, salesDaily, stockCounts, stockMoves, transfers,
+  boms, fileLinks, files, firms, journals, levellingDocs, productionOrders, salesDaily, stockCounts, stockMoves, transfers,
   type LevellingDocLine, type SalesDayRow, type SalesFiskInfo, type SalesGroupRow, type SalesItemLine, type StockCountLine,
   type TransferLine,
 } from './schema/index';
@@ -358,10 +358,16 @@ export interface SalesDayInput {
   /** Macedonian-product turnover per rate (КДФИ). */
   mk?: Record<string, { g: number; v: number }> | null;
   /** POS cart / goods to issue. `price` incl. VAT; `rate` defaults to the item's rate. */
-  lines?: readonly { itemId: string; qty: number; price: number; rate?: number | null }[];
+  lines?: readonly { itemId: string; qty: number; price: number; rate?: number | null; name?: string | null }[];
   /** Issue `lines` from stock (POS always; fiscal `trg` / plain reports when goods are chosen). */
   issue?: boolean;
   note?: string | null;
+  /** VAT per rate as read from the fiscal report (legacy `r.vat[L]` 11451); otherwise computed from the gross. */
+  vat?: Record<string, number> | null;
+  /** Fiscal report for a date + location that already has one: replace it (legacy fixed id `zf-{wh}-{date}` + force). */
+  replace?: boolean;
+  /** Uploaded scan of the report (legacy `attach` 11450), linked to the record. */
+  fileId?: string | null;
 }
 
 /** Revenue account of an item sold at retail (legacy: item `konto`, else `revRetail` for goods, else `REV_K[type]`). */
@@ -392,7 +398,9 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
   const fisk: SalesFiskInfo | null = kind === 'fisk' ? { ...(input.fisk ?? {}), ...(input.number ? { z: input.number } : {}) } : null;
   const sc = fisk?.sc;
   const nonVat = !L.settings.vatRegistered || !!fisk?.nonVat;
-  const cart: SalesItemLine[] = (input.lines ?? []).filter((l) => l.itemId && r4(l.qty) > 0).map((l) => {
+  const cart: SalesItemLine[] = (input.lines ?? []).filter((l) => (l.itemId || (kind === 'pos' && r2(l.price) < 0)) && r4(l.qty) > 0).map((l) => {
+    // POS discount line (legacy `posSell` wrapper 9940: „Попуст (…)“, qty 1 × −amount per VAT rate, no item)
+    if (!l.itemId) return { itemId: '', qty: r4(l.qty), price: r2(l.price), rate: nonVat ? 0 : Number(l.rate ?? 0), ...(l.name ? { name: l.name } : {}) };
     const it = L.ctx.items?.find((i) => i.id === l.itemId);
     if (!it) throw new StockDocError('Артиклот не постои во оваа фирма.');
     return { itemId: l.itemId, qty: r4(l.qty), price: r2(l.price), rate: nonVat ? 0 : Number(l.rate ?? it.rate ?? 18) };
@@ -412,13 +420,14 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
       .filter(([, g]) => r2(g))
       .map(([rate, g]) => {
         const r = nonVat ? 0 : Number(rate);
-        const base = r2(g / (1 + r / 100));
-        return { rate: r, konto: rev, base, vat: r2(g - base) };
+        const rv = input.vat?.[rate];
+        const vat = !r ? 0 : rv != null && Number.isFinite(rv) && rv > 0 ? r2(rv) : r2(g - g / (1 + r / 100));
+        return { rate: r, konto: fisk?.rev || rev, base: r2(g - vat), vat };
       });
     const sum = r2(groups.reduce((s, g) => s + g.base + g.vat, 0));
     total = input.total != null && Number.isFinite(input.total) ? r2(input.total) : sum;
     if (!total) throw new StockDocError('Внесете промет.');
-    if (nonVat && groups.length) groups = [{ rate: 0, konto: rev, base: total, vat: 0 }];
+    if (nonVat && groups.length) groups = [{ rate: 0, konto: fisk?.rev || rev, base: total, vat: 0 }];
   }
   const card = Math.min(total, Math.max(0, r2(input.card ?? 0)));
   const cardAccount = input.cardAccount?.trim() || L.settings.fiskOpt.cardK || null;
@@ -433,7 +442,17 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
       const [dup] = await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'pos'), eq(salesDaily.date, input.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`)).limit(1);
       if (dup) throw new StockDocError('За овој ден и објект веќе постои дневен промет од каса – дополнете го.');
     }
+    if (kind === 'fisk') {
+      // legacy 11414 / 11429: „⚠ За овој ден … веќе има промет во оваа каса“ — replace only when asked
+      const D = await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'fisk'), eq(salesDaily.date, input.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`));
+      if (D.length && !input.replace) throw new StockDocError(`За ${input.date.split('-').reverse().join('.')} во овој објект веќе има прокнижен фискален извештај – штиклирајте „замени го постојниот“ или изберете друг датум.`);
+      for (const x of D) await deleteSalesDay(tx, a, x.id);
+    }
     id = (await tx.insert(salesDaily).values({ ...head, firmId: a.firmId, createdBy: a.userId }).returning({ id: salesDaily.id }))[0]!.id;
+  }
+  if (input.fileId) {
+    const [f] = await tx.select({ id: files.id }).from(files).where(and(eq(files.id, input.fileId), eq(files.firmId, a.firmId))).limit(1);
+    if (f) await tx.insert(fileLinks).values({ fileId: f.id, entityType: 'sales_daily', entityId: id, role: 'source' }).onConflictDoNothing();
   }
   // revenue journal
   const posting = { ...L.settings.posting, firm: { ...L.settings.posting.firm } };
@@ -456,8 +475,8 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
   const moves: StockMove[] = [];
   if (issue)
     cart.forEach((l, ix) => {
-      const it = L.ctx.items!.find((i) => i.id === l.itemId)!;
-      if (!it.type || it.type === 'service') return;
+      const it = L.ctx.items!.find((i) => i.id === l.itemId);
+      if (!it || !it.type || it.type === 'service') return; // discount lines (legacy posSell wrapper 9940) have no item
       // FIX (Phase 10, legacy posSell 5845): a product with a BOM that is not on stock (a dish, a cocktail) issues its
       // BOM components instead of the product itself — the restaurant / POS discharges the raw materials.
       if (kind === 'pos' && it.type === 'product' && (it.bom ?? []).length) {

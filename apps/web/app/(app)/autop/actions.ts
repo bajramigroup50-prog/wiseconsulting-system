@@ -3,7 +3,10 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { AP_TYPE_KEYS } from '@wise/core/office/autop-view';
-import { audit, autopilotFindings, autopilotMessages, getOfficeProfile, patchOfficeProfile, runAutopilot, sendAutopilotMessage, type OfficeProfile } from '@wise/db';
+import { apClPeriodFor } from '@wise/core/office/ap-close';
+import { todaySkopje } from '@wise/core/office';
+import { audit, autopilotFindings, autopilotMessages, closeVatPeriod, firms, firmVatPeriodKind, getOfficeProfile, patchOfficeProfile, runAutopilot, sendAutopilotMessage, type OfficeProfile } from '@wise/db';
+import { vatSource } from '@/lib/vat-source';
 import { requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -160,6 +163,33 @@ export async function setAutoType(type: string, on: boolean): Promise<ActionStat
     revalidatePath('/autop');
     return { ok: on ? `✓ Автоматско праќање вклучено.${n ? ` 🤖 Испратени ${n} пораки.` : ''}` : 'Рачно праќање.' };
   } catch (e) { return officeError(e); }
+}
+
+/**
+ * Legacy `apClBookAll` („✅ Затвори ги означените (книжи ДДВ-04 + PDF)“): close the VAT period of every selected firm
+ * (one transaction per firm, `write` on each firm, audited by `closeVatPeriod`). The PDF is the ДДВ-04 print of the
+ * same firms („🖨 Печати ДДВ-04 (означени)“).
+ */
+export async function apCloseSelected(_p: ActionState, f: FormData): Promise<ActionState> {
+  const mode = fv(f, 'mode') ?? 'auto';
+  const ids = f.getAll('fid').map(String).filter(isUuid);
+  if (!ids.length) return { error: 'Нема означени фирми за затворање.' };
+  const td = todaySkopje();
+  const ok: string[] = [], bad: string[] = [];
+  for (const id of ids) {
+    try {
+      const u = await requireCan('write', id);
+      const [fr] = await db().select().from(firms).where(eq(firms.id, id)).limit(1);
+      if (!fr) continue;
+      const p = apClPeriodFor(mode, firmVatPeriodKind(fr), td);
+      if (!p) { bad.push(`${fr.name}: периодот не одговара`); continue; }
+      const r = await db().transaction((tx) => closeVatPeriod(tx, { firmId: id, period: p, userId: u.id, source: vatSource }));
+      ok.push(`${fr.name}${r.journal ? ` (налог ${r.journal.number})` : ''}`);
+    } catch (e) { bad.push(e instanceof Error ? e.message : String(e)); }
+  }
+  revalidatePath('/autop');
+  if (!ok.length && bad.length && bad.every((b) => /Немате/.test(b))) return { error: 'Немате право на книжење.' };
+  return { ok: `Затворени: ${ok.length}${ok.length ? ' – ' + ok.join(', ') : ''}.${bad.length ? ` Не се затворени: ${bad.join('; ')}` : ''}` };
 }
 
 /** Legacy `apFirmOpen` / `inspOpen` / `lrOpen`: select the firm and open its screen. */

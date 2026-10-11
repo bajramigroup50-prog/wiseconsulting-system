@@ -5,9 +5,9 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { LOAN_KONTO, nextLoanNo, type LoanDir } from '@wise/core/finance';
-import { audit, firms, loans, partners } from '@wise/db';
+import { audit, bankLines, fileLinks, files, firms, loans, partners, setLineKonto } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { isDate } from '@/lib/finance';
@@ -91,7 +91,7 @@ export async function createLoansAction(_p: ActionState, f: FormData): Promise<A
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'lnCreateSel', entityType: 'loan', data: { created: n } });
     });
     revalidatePath('/pozajmici');
-    return { ok: `📝 Креирани: ${n} договори за позајмица (непотпишани)${np ? ' · ' + np + ' без комитент – дополнете' : ''}.` };
+    return { ok: `📝 Креирани: ${n} договори за позајмица (непотпишани)${np ? ' · ' + np + ' без комитент – дополнете' : ''} → Финансово → Позајмици` };
   } catch (e) { return actionError(e); }
 }
 
@@ -110,4 +110,71 @@ export async function ignoreMoveAction(moveId: string, undo: boolean): Promise<A
     revalidatePath('/pozajmici');
     return { ok: undo ? 'Вратено во листата.' : 'Означено како враќање / не е позајмица.' };
   } catch (e) { return actionError(e); }
+}
+
+/** Legacy „🔧 Прекнижи на 1620/2620“ (`lnMisK` 16843–16856): statement lines that are loans, booked on other kontos. */
+export async function rebookLoansAction(): Promise<ActionState> {
+  try {
+    const { u, firm, year } = await firmAction('lnSave');
+    const D = await loanData(firm, year);
+    let n = 0;
+    await db().transaction(async (tx) => {
+      for (const m of D.misK) {
+        const lineId = m.id.replace(/^B:/, '').replace(/:x$/, '');
+        const [l] = await tx.select({ id: bankLines.id, partnerId: bankLines.partnerId }).from(bankLines).where(and(eq(bankLines.id, lineId), eq(bankLines.firmId, firm.id))).limit(1);
+        if (!l) continue;
+        await setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId, konto: LOAN_KONTO[m.dir], partnerId: l.partnerId, learn: false });
+        n++;
+      }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'lnMisK', entityType: 'bank_line', data: { n } });
+    });
+    revalidatePath('/pozajmici');
+    revalidatePath('/banka');
+    return { ok: n ? `✓ ${n} ставки од изводот прекнижени на конто 1620 / 2620 – договорите ги следат новите ставки.` : '✓ Нема позајмици без договор.' };
+  } catch (e) {
+    if (e instanceof Error && e.name === 'BankError') return { error: e.message };
+    return actionError(e);
+  }
+}
+
+/** Legacy ACT `lnLinkBank` 16747: link a disbursement to the latest contract of the same partner and direction. */
+export async function linkMoveAction(moveId: string): Promise<ActionState> {
+  try {
+    const { u, firm, year } = await firmAction('lnSave');
+    const D = await loanData(firm, year);
+    const m = D.flows.find((r) => r.id === moveId);
+    if (!m) return { error: 'Ставката не постои.' };
+    const C = D.loans.filter((l) => l.dir === m.dir && l.partnerId === m.partnerId).sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (!C) return { error: 'Нема договор за овој комитент – направете нов.' };
+    await db().transaction(async (tx) => {
+      await tx.update(loans).set({ moveIds: [...new Set([...C.moveIds, moveId])] }).where(eq(loans.id, C.id));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'lnLinkBank', entityType: 'loan', entityId: C.id, data: { moveId } });
+    });
+    revalidatePath('/pozajmici');
+    const diff = Math.abs(Number(C.amount) - m.amt) > 0.5;
+    return { ok: `Поврзано со договор ${C.number ?? ''}.${diff ? ' Износот на исплатата се разликува од договорот – проверете.' : ''}` };
+  } catch (e) { return actionError(e); }
+}
+
+/** Legacy ACT `lnAtt` 16755: attach the signed contract (sets „потпишан“). */
+export async function attachSignedAction(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('lnSave');
+    const id = String(f.get('id') ?? '');
+    const ids = f.getAll('fileIds').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    if (!ids.length) return { error: 'Прикачете го потпишаниот договор.' };
+    await db().transaction(async (tx) => {
+      const [l] = await tx.select({ id: loans.id }).from(loans).where(and(eq(loans.id, id), eq(loans.firmId, firm.id))).limit(1);
+      if (!l) throw new Error('Договорот не постои.');
+      const F = await tx.select({ id: files.id }).from(files).where(and(eq(files.firmId, firm.id), inArray(files.id, ids)));
+      for (const x of F) await tx.insert(fileLinks).values({ fileId: x.id, entityType: 'loan', entityId: id, role: 'signed' }).onConflictDoNothing();
+      await tx.update(loans).set({ signed: true }).where(eq(loans.id, id));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'lnAtt', entityType: 'loan', entityId: id, data: { files: F.length } });
+    });
+    revalidatePath('/pozajmici');
+    return { ok: 'Потпишаниот договор е прикачен.' };
+  } catch (e) {
+    if (e instanceof Error && e.message === 'Договорот не постои.') return { error: e.message };
+    return actionError(e);
+  }
 }

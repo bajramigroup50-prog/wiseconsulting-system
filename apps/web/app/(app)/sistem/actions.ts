@@ -38,6 +38,7 @@ export async function backupNowAction(): Promise<ActionState> {
 
 /** After uploading a backup file: open the restore confirmation for it. */
 export async function pickRestoreAction(_p: ActionState, form: FormData): Promise<ActionState> {
+  await requireCan('settings');
   const id = String(form.getAll('fileIds').at(-1) ?? '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Прикачете ја датотеката со копијата (JSON).' };
   redirect(`/sistem?r=${id}`);

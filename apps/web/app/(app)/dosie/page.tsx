@@ -11,6 +11,7 @@ import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
+import { SendExtras } from '@/components/send-extras';
 import { deleteContact, deleteDossierDoc, mailDossierDocs, saveContact, saveDeadline, saveDossierDoc, setDeadlineDone } from './actions';
 
 type SP = { q?: string; cat?: string; nov?: string; edit?: string; mail?: string; id?: string | string[] };
@@ -33,7 +34,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
   const missingFresh = DOS_FRESH.filter((c) => !byCat.has(c));
   // legacy: the newest of each kind is „најнова“, the others „постара верзија“; stale current-state extracts warn (3 / 6 months)
   const newest = new Map<string, string>();
-  for (const [c, L] of byCat) newest.set(c, [...L].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0]!.id);
+  for (const [c, L] of byCat) { const top = [...L].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0]; if (top) newest.set(c, top.id); }
   const addM = (d: string, m: number) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() + m); return x.toISOString().slice(0, 10); };
   const stale = DOS_FRESH.map((c) => docs.find((d) => d.id === newest.get(c))).filter((d): d is (typeof docs)[number] => !!d && td > addM(d.date ?? '1900-01-01', 3));
   const alerts = docs.filter((d) => { const e = expiry(d, td); return !!e && e.lvl !== 'good'; });
@@ -106,6 +107,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
                       <td>{ex ? ex.lvl === 'bad' ? <Pill c="bad">истечен {dmy(d.validTo)}</Pill> : ex.lvl === 'warn' ? <Pill c="warn">истекува за {ex.days} дена</Pill> : dmy(d.validTo) : <span className="note">—</span>}</td>
                       <td><FileChips files={F.get(d.id)} /></td>
                       <td style={{ whiteSpace: 'nowrap' }}>
+                        {F.get(d.id)?.[0] && <a className="btn sm" href={`/api/files/${F.get(d.id)![0]!.id}`} target="_blank" rel="noopener" title="Погледни го документот">👁</a>}
                         <a className="btn sm" href={`/dosie?mail=1&id=${d.id}`} title="Испрати по е-пошта">✉</a>
                         <a className="btn sm" href={`/dosie/wa?id=${d.id}`} title="WhatsApp / Viber">💬</a>
                         {write && <a className="btn sm" href={`/dosie?edit=${d.id}`} title="Промени">✎</a>}
@@ -187,9 +189,10 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
           <div className="form">
             <label className="f">До (е-пошта)<input name="to" type="email" required defaultValue={firm.email ?? ''} /></label>
             <label className="f">Наслов<input name="subject" placeholder={`Документи – ${firm.name}`} /></label>
-            <label className="f wide">Порака<input name="note" /></label>
+            <label className="f wide">Порака<textarea name="note" rows={3} defaultValue={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} /></label>
           </div>
-          <div className="row"><button className="btn">✉ Испрати</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
+          <div className="row"><button className="btn pri">✉ Испрати по е-пошта</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
+          <SendExtras selName="docId" zipHref="/dosie/zip" defaultBody={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} files={Object.fromEntries(docs.map((d) => [d.id, (F.get(d.id) ?? []).map((x) => ({ id: x.id, name: x.name }))]))} />
         </ActionForm>
       )}
     </>

@@ -6,14 +6,16 @@
  */
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
-  assignStatementNumbers, bankDupKey, counterparty, feeFix, fxToMkd, learnOsnov, learnRule, statementGaps, statementKey, transitCloseLines, transitResidue,
+  assignStatementNumbers, bankDupKey, counterparty, feeFix, fxRate, fxToMkd, learnOsnov, learnRule, statementGaps, statementKey, transitCloseLines, transitResidue,
   type StatementBalance,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
-import { assertOpenPeriod, postJournal, unpostSource } from '../posting';
+import { assertOpenPeriod, missingAccounts, postJournal, unpostSource } from '../posting';
+import { bankKontoName } from '@wise/core/bank/parity';
+import { accounts } from '../schema/index';
 import { loadLedgerLines } from '../ledger-queries';
 import { bankAccounts, bankLines, bankRules, bankStatements, partners, type BankLine, type BankStatement } from '../schema/index';
-import { BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, syncFirmBanks } from './context';
+import { BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, loadFxSources, syncFirmBanks } from './context';
 
 import { BANK_SOURCE_TYPE } from './open-items';
 import { assertStatementOpen, postStatement, postStatements } from './posting';
@@ -47,9 +49,11 @@ async function upsertRule(tx: Tx, firmId: string, kind: 'desc' | 'osnov', match:
  * Book a line directly on a konto (with an optional partner), clearing any document link. With `learn`, the
  * description rule (`learnRule`) and the payment-code rule (`learnOsnov`) are remembered for the next import.
  */
-export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string | null; lineId: string; konto: string; partnerId?: string | null; learn?: boolean }): Promise<void> {
+export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string | null; lineId: string; konto: string; partnerId?: string | null; learn?: boolean }): Promise<string[]> {
   if (!KONTO_RE.test(a.konto)) throw new BankError('Неважечко конто.');
   const { line, st } = await lineOf(tx, a.firmId, a.lineId);
+  // legacy `kontoOpts(…, k => !bankKontos().includes(k))`: a bank account's own konto is not a counter konto
+  if ((await loadBankAccounts(tx, a.firmId)).some((x) => x.konto === a.konto)) throw new BankError(`Конто ${a.konto} е конто на банкарска сметка – изберете спротивно конто.`);
   if (a.partnerId) {
     const [p] = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.id, a.partnerId), eq(partners.firmId, a.firmId))).limit(1);
     if (!p) throw new BankError('Комитентот не постои.');
@@ -75,6 +79,7 @@ export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string |
   }
   await postStatement(tx, st.id, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bankKonto', entityType: 'bank_line', entityId: line.id, data: { konto: a.konto, partnerId: a.partnerId ?? null, learned } });
+  return learned;
 }
 
 /** Set / change the partner of a line (or create the suggested partner). */
@@ -215,8 +220,13 @@ export async function addManualLine(tx: Tx, a: {
     const add = assignStatementNumbers(Object.fromEntries(S.filter((s) => s.number).map((s) => [statementKey(acct.id, s.date), s.number!])), acct.id, [a.date]);
     [st] = await tx.insert(bankStatements).values({ firmId: a.firmId, bankAccountId: acct.id, date: a.date, number: Object.values(add)[0] ?? null, format: 'manual', createdBy: a.userId }).returning();
   } else await assertStatementOpen(tx, st);
-  const amount = cents(a.amount);
   const amountCur = fx ? cents(a.amountCur ?? 0) : null;
+  // legacy `mbSave` 13280 → `fxItem`: an FX line entered in its currency gets the denar value by the statement rate
+  let amount = cents(a.amount);
+  if (fx && !amount && amountCur) {
+    const rate = st!.rate != null ? Number(st!.rate) : fxRate(acct.cur, a.date, await loadFxSources(tx, a.firmId));
+    if (rate) amount = fxToMkd(amountCur, rate);
+  }
   const [{ mx }] = (await tx.select({ mx: sql<number>`coalesce(max(${bankLines.lineNo}), 0)::int` }).from(bankLines).where(eq(bankLines.statementId, st!.id))) as [{ mx: number }];
   const row = { id: 'n', acct: acct.id, date: a.date, amount, desc: a.desc, ...(amountCur != null ? { amountCur } : {}) };
   const [l] = await tx.insert(bankLines).values({
@@ -328,13 +338,29 @@ export async function saveBankAccount(tx: Tx, a: { firmId: string; userId: strin
   if (!/^[A-Z]{3}$/.test(cur)) throw new BankError('Неважечка валута.');
   const data = { name: v.name.trim(), account: v.account?.trim() || null, iban: v.iban?.replace(/\s+/g, '').toUpperCase() || null, cur, konto: v.konto, nal: v.nal?.trim() || null };
   let id = v.id ?? null;
+  // legacy `addBankAcct` 7204: one konto per bank account
+  const [dupK] = await tx.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts)
+    .where(and(eq(bankAccounts.firmId, a.firmId), eq(bankAccounts.konto, v.konto))).limit(2);
+  if (dupK && dupK.id !== id) throw new BankError('Ова конто веќе се користи за друга сметка.');
+  // legacy 7203 / 4846: a konto that is not in the chart is created („Трансакциска сметка – банка“ / „Девизна сметка EUR – банка“)
+  if ((await missingAccounts(tx, a.firmId, [v.konto])).length) {
+    await tx.insert(accounts).values({ firmId: a.firmId, code: v.konto, name: bankKontoName(data.name, cur) })
+      .onConflictDoUpdate({ target: [accounts.firmId, accounts.code], targetWhere: sql`${accounts.firmId} is not null`, set: { hidden: false } });
+    await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'saveAcc', entityType: 'account', entityId: v.konto, data: { name: bankKontoName(data.name, cur), from: 'addBankAcct' } });
+  }
   if (id) {
     const [before] = await tx.select().from(bankAccounts).where(and(eq(bankAccounts.id, id), eq(bankAccounts.firmId, a.firmId))).limit(1);
     if (!before) throw new BankError('Сметката не постои.');
     const [{ n }] = (await tx.select({ n: sql<number>`count(*)::int` }).from(bankLines).where(eq(bankLines.bankAccountId, id))) as [{ n: number }];
-    if (n && (before.cur !== cur || before.konto !== v.konto)) throw new BankError('Сметката има ставки од изводи – валутата и контото не може да се менуваат.');
+    if (n && before.cur !== cur) throw new BankError('Сметката има ставки од изводи – валутата не може да се менува.');
     await tx.update(bankAccounts).set(data).where(eq(bankAccounts.id, id));
     await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'saveBankAcct', entityType: 'bank_account', entityId: id, data });
+    // legacy change listener 4846: a new konto re-books every statement of the account on it
+    if (n && before.konto !== v.konto) {
+      await syncFirmBanks(tx, a.firmId);
+      const St = await tx.select({ id: bankStatements.id }).from(bankStatements).where(eq(bankStatements.bankAccountId, id));
+      await postStatements(tx, St.map((s) => s.id), a.userId);
+    }
   } else {
     const [{ mx }] = (await tx.select({ mx: sql<number>`coalesce(max(${bankAccounts.sort}), 0)::int` }).from(bankAccounts).where(eq(bankAccounts.firmId, a.firmId))) as [{ mx: number }];
     const [r] = await tx.insert(bankAccounts).values({ firmId: a.firmId, ...data, sort: mx + 1 }).returning({ id: bankAccounts.id });

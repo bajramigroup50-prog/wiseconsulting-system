@@ -9,7 +9,7 @@ import { uploadFile } from '@/lib/upload';
 import { aiReadStatus, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
 
 export interface AiReadDoc extends AiReadState { name: string; fileId: string | null }
-type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom';
+type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom' | 'cmp' | 'imp' | 'scr' | 'ob' | 'rec';
 
 const pending = (d: { status: string }) => d.status === 'queued' || d.status === 'reading';
 
@@ -40,7 +40,7 @@ export function useAiRead(firmId: string) {
   const [uploading, setUploading] = useState(false);
 
   /** Upload files and start one read per file. */
-  const read = useCallback(async (kind: StartKind, fs: File[]) => {
+  const read = useCallback(async (kind: StartKind, fs: File[], group = false) => {
     fs = fs.filter((f) => /pdf|image\//i.test(f.type) || /\.(pdf|jpe?g|png|webp)$/i.test(f.name));
     if (!fs.length) { setMsg('Изберете слики (JPG/PNG) или PDF.'); return; }
     setUploading(true);
@@ -51,7 +51,7 @@ export function useAiRead(firmId: string) {
       if (r.ok) up.push({ id: r.id, name: f.name }); else err.push(`${f.name}: ${r.error}`);
     }
     if (up.length) {
-      const r = await startAiRead({ kind, fileIds: up.map((x) => x.id) });
+      const r = await startAiRead({ kind, fileIds: up.map((x) => x.id), ...(group ? { group: true } : {}) });
       if (r.error) err.push(r.error);
       const add: AiReadDoc[] = (r.ids ?? []).map((id, i) => ({ id, kind, status: 'queued', error: null, model: null, result: null, name: up[i]!.name, fileId: up[i]!.id }));
       setDocs((D) => [...D, ...add]);

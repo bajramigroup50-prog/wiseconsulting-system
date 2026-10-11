@@ -11,6 +11,7 @@ import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
+import { ExportBar, type Cell } from '@/components/parity-fin/export-bar';
 
 export default async function BkAdvPage() {
   const { firm, year } = await booksPage('bkAdv');
@@ -37,9 +38,20 @@ export default async function BkAdvPage() {
     </table></div>
   );
   const inL = left.filter((a) => a.type === 'invoice'), outL = left.filter((a) => a.type === 'purchase');
+  // Excel / CSV (hard rule): one sheet per table of the screen.
+  const H: Cell[] = ['Комитент', 'Вид', 'Платено/примено без фактура', 'Распоредено на отворени фактури', 'Вишок – нема фактура', 'Плаќања'];
+  const advRows = (L: AdvanceInfo[], kind: string): Cell[][] => L.map((a) => [pName.get(a.pid) ?? '—', kind, a.paid / 100, a.applied / 100, a.left / 100,
+    a.pays.map((b) => `${dmy(b.date)} ${fmt(Math.abs(b.amount) / 100)}`).join('; ')]);
+  const all: Cell[][] = [H, ...advRows(inL, 'Примено од купувач'), ...advRows(outL, 'Платено на добавувач'), ...advRows(A.filter((a) => !a.left), 'Распоредено во целост')];
+  const unlRows: Cell[][] = [['Датум', 'Комитент', 'Опис', 'Прилив', 'Одлив'],
+    ...unl.map((b) => [b.date, pName.get(b.partner ?? '') ?? b.name ?? '', b.desc ?? '', b.amount > 0 ? b.amount / 100 : '', b.amount < 0 ? -b.amount / 100 : ''])];
   return (
     <>
-      <Hd t="Плаќања без фактура" sub="уплати и исплати што не се поврзани со фактура"><Link className="btn" href="/banka">Изводи</Link></Hd>
+      <Hd t="Плаќања без фактура" sub="уплати и исплати што не се поврзани со фактура" excel={false}>
+        <ExportBar pdf={false} name={`Placanja_bez_faktura_${year}`} title={`Плаќања без фактура ${year}`} rows={all} sheets={[{ name: 'Без фактура', rows: all }, { name: 'Затвори рачно', rows: unlRows }]} />
+        <Link className="btn" href="/banka">Изводи</Link>{unl.length > 0 && <a className="btn pri" href="#bkUnl">Затвори рачно ({unl.length})</a>}
+      </Hd>
+      <div id="finArea">
       <p className="note">Овие плаќања се распоредуваат на најстарите отворени фактури на истиот комитент (само за преглед – врската се прави со „Прокнижи…“ кај ставката). Колоната „Вишок“ се плаќања за кои <b>нема фактура</b>. Отворените фактури се читаат од книжењата на 120–128 / 220–228 по број на документ.</p>
       <div className="card"><h2>Примени уплати од купувачи без фактура</h2>
         {inL.length ? <><div className="callout warn">Уплата без издадена фактура е <b>примен аванс</b> – за неа треба да се издаде авансна фактура (ДДВ обврската настанува со наплатата на авансот), или да се провери дали фактурата е заборавена.</div>{tb(inL, true)}</> : <div className="empty">Нема уплати без фактура.</div>}
@@ -49,14 +61,17 @@ export default async function BkAdvPage() {
       </div>
       {A.some((a) => !a.left) && <div className="card"><h2>Распоредени во целост</h2>{tb(A.filter((a) => !a.left), true)}</div>}
       {unl.length > 0 && (
-        <div className="card"><h2>Затвори рачно ({unl.length})</h2>
-          <div className="tw"><table className="dense"><thead><tr><th>Датум</th><th>Комитент</th><th>Опис</th><th className="n">Износ</th><th></th></tr></thead>
+        <div className="card" id="bkUnl"><h2>Затвори рачно ({unl.length})</h2>
+          <div className="tw"><table className="dense"><thead><tr><th>Датум</th><th>Комитент</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th className="noprint"></th></tr></thead>
             <tbody>{unl.map((b) => (
-              <tr key={b.id}><td>{dmy(b.date)}</td><td>{pName.get(b.partner ?? '') ?? ''}</td><td>{b.desc}</td><td className="n">{fmt(b.amount / 100)}</td>
-                <td><Link className="btn sm" href={`/banka?line=${b.id}`}>Поврзи со фактура</Link></td></tr>
+              <tr key={b.id}><td>{dmy(b.date)}</td><td>{pName.get(b.partner ?? '') ?? b.name ?? '—'}{!b.partner && <> <span className="pill warn">без комитент</span></>}</td>
+                <td style={{ maxWidth: 280 }}><small>{b.desc}</small></td>
+                <td className="n">{b.amount > 0 ? fmt(b.amount / 100) : ''}</td><td className="n">{b.amount < 0 ? fmt(-b.amount / 100) : ''}</td>
+                <td className="noprint"><Link className="btn sm" href={`/banka?line=${b.id}`}>Поврзи со фактура</Link></td></tr>
             ))}</tbody></table></div>
         </div>
       )}
+      </div>
     </>
   );
 }

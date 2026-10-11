@@ -53,6 +53,7 @@ export function statementFromRead(r: unknown): Statement | null {
     date: lines.map((l) => l.date).sort().pop()!, currency: String(R.currency || '').trim().toUpperCase(),
     opening: bal ? c(R.openingBalance) : null, closing: bal ? c(R.closingBalance) : null,
     debit: tot ? c(R.totalDebit) : null, credit: tot ? c(R.totalCredit) : null,
+    ...(rate > 0 ? { rate } : {}),
     lines,
   };
 }

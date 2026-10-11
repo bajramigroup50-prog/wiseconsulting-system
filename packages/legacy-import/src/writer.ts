@@ -21,7 +21,7 @@ import {
   accounts, appSettings, appointments, audit, bankAccounts, bankRules, bankLines, bankStatements, boms, cashRegisters, cashVouchers, codes,
   compensations, constructionDiary, constructionProjects, constructionSituations, depreciationRuns, dossierDocs, employees,
   fileLinks, files, firmDocs, firmNalogSettings, firms, fixedAssets, fleetVehicles, freightTours, fxRates, hotelReservations,
-  hotelRooms, hrDocs, inboxItems, invoiceAdvances, invoiceLines, invoices, itemBarcodes, items, journalLines, journals, legacyIdMap,
+  hotelRooms, hrDocs, inboxItems, invoiceAdvances, lawChanges, invoiceLines, invoices, itemBarcodes, items, journalLines, journals, legacyIdMap,
   levellingDocs, missingAccounts, partners, paymentOrders, payrollEmp, payrollLines, payrollRuns, postJournal, productionOrders,
   purchaseCosts, purchaseStockLines, purchaseVatGroups, purchases, recurringInvoices, rentRentals, salesDaily, serviceContracts,
   stockCounts, stockMoves, supplierCreditLines, supplierCredits, transfers, travelArrangements, travelBookings, updateJournal,
@@ -907,6 +907,21 @@ export async function importSettings(db: Tx, glob: Record<string, unknown>, o: I
       n++;
     }
     if (n) out.push(`Курсна листа: ${n} курсеви.`);
+    // Law changes the legacy robot stored (collection `applaw`, carried as `applaw: [docs]` in a full export).
+    let nl = 0;
+    for (const d of arr(glob['applaw'])) {
+      const L = obj(d), key = str(L.id), title = str(L.title);
+      if (!key || !title) continue;
+      const list = (v: unknown) => arr(v).map((x) => String(x)).filter(Boolean);
+      const r = await tx.insert(lawChanges).values({
+        key, inst: str(L.inst) || 'UJP', title, what: str(L.what) || null, who: str(L.who) || null, impact: list(L.impact),
+        date: isoDate(L.date) || null, from: isoDate(L.from) || null, to: isoDate(L.to) || null, urls: list(L.urls),
+        prog: str(L.prog) || null, verified: L.verified !== false, rule: L.rule && typeof L.rule === 'object' ? obj(L.rule) : null,
+        source: 'legacy', createdBy: o.userId,
+      }).onConflictDoNothing().returning({ id: lawChanges.id });
+      if (r.length) nl++;
+    }
+    if (nl) out.push(`Законски промени: ${nl} увезени.`);
     if (out.length) await audit(tx, { userId: o.userId, action: 'legacyImportSettings', data: { notes: out } });
   });
   return out;

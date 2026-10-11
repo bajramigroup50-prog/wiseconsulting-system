@@ -3,7 +3,7 @@
  * исплатница, Macedonian and foreign receipts) posted through `blgEntries`, and the cash book (благајнички дневник).
  */
 import Link from 'next/link';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { CASH_EXPENSE_CATEGORIES, cashExpenseAccount, FX_DEF, fxRate } from '@wise/core';
 import {
   cashBook, cashVouchers, effectiveChart, files, loadFxSources, loadRegisters, missingAccounts, nextVoucherNo,
@@ -12,7 +12,7 @@ import { booksPage, canDo, inYearOr, partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { BankForm } from '@/components/bank-form';
-import { DownloadCsv } from '@/components/download-csv';
+import { ExportBar, type Cell } from '@/components/parity-fin/export-bar';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -78,6 +78,9 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
       partner: '', note: '', liters: '',
     };
   }
+  // legacy `blgDup`: every saved voucher with a receipt number (live duplicate warning in the editor / batch)
+  const dups = write ? (await db().select({ id: cashVouchers.id, docNo: cashVouchers.docNo, date: cashVouchers.date, amt: cashVouchers.amt }).from(cashVouchers)
+    .where(and(eq(cashVouchers.firmId, firm.id), isNotNull(cashVouchers.docNo)))).map((x) => ({ ...x, amt: Number(x.amt) })) : [];
   let editor: React.ReactNode = null;
   if (init) {
     const [fx, missing, nn] = await Promise.all([
@@ -89,7 +92,7 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
       init.fx = String(fxRate(init.cur, init.date, fx) || '');
     }
     editor = <VoucherForm init={init} registers={R} partners={P} kontos={CAT_KONTA.filter((k) => !missing.includes(k))} fx={fx} ddv={firm.vatRegistered}
-      curs={CURS} firmId={firm.id} nextNo={Object.fromEntries(nn)} />;
+      curs={CURS} firmId={firm.id} nextNo={Object.fromEntries(nn)} dups={dups} kNames={Object.fromEntries(chart.map((a) => [a.code, a.name]))} />;
   }
 
   // bulk receipt scanning (legacy `blgScanFiles` / `blgBatchHTML`): only when no editor is open
@@ -97,20 +100,21 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
   if (write && !init) {
     const [fxS, missing] = await Promise.all([loadFxSources(db(), firm.id), missingAccounts(db(), firm.id, CAT_KONTA)]);
     scan = <ReceiptScan firmId={firm.id} registers={R} reg0={reg.id} kontos={CAT_KONTA.filter((k) => !missing.includes(k))} codes={chart.map((a) => a.code)}
-      fx={fxS} ddv={firm.vatRegistered} curs={CURS} />;
-  }
+      fx={fxS} ddv={firm.vatRegistered} curs={CURS} dups={dups} />;
+  } else if (!write) scan = <p className="note">Прикачувањето документи е достапно само за корисници со право на уредување.</p>;
 
   const closing = X.closing;
   return (
     <>
-      <Hd t="Благајна" sub={`${reg.name} · конто ${reg.konto} · ${reg.cur}`}>
+      <Hd t="Благајна" sub={`${reg.name} · конто ${reg.konto} · ${reg.cur}`} excel={false}>
         <Link className="btn" href={`/kkart?k=${reg.konto}`}>Картица {reg.konto}</Link>
         <Link className="btn" href={q({ set: sp.set ? undefined : '1' })}>⚙ Благајни</Link>
-        <DownloadCsv name={`Blagajna_${reg.konto}_${year}.csv`} label="Excel" rows={[
-          ['Датум', 'Налог', 'Број', 'Документ', 'Опис', 'Земја', 'Валута', 'Износ во валута', 'Уплата', 'Исплата', 'Салдо'],
-          ...X.rows.map((r) => [dmy(r.date), r.nalog ?? '', r.voucher?.number ?? '', r.doc, r.label, r.voucher?.country ?? '', r.voucher?.cur ?? '',
-            r.voucher && r.voucher.cur !== 'MKD' ? Number(r.voucher.amt) : '', r.debit, r.credit, r.balance]),
-        ]} />
+        {/* legacy ACT `blgXlsx` 7952: .xlsx with Курс and Салдо {cur}, file Blagajna_{konto}_{from}_{to} */}
+        <ExportBar name={`Blagajna_${reg.konto}_${from}_${to}`} pdf={false} csv={false} rows={[]} sheets={[{ name: 'Благајна', rows: [
+          ['Датум', 'Налог', 'Број', 'Документ', 'Опис', 'Земја', 'Валута', 'Износ во валута', 'Курс', 'Уплата', 'Исплата', 'Салдо', ...(fxR ? ['Салдо ' + reg.cur] : [])],
+          ...X.rows.map((r): Cell[] => [dmy(r.date), r.nalog ?? '', r.voucher?.number ?? '', r.doc, r.label, r.voucher?.country ?? '', r.voucher?.cur ?? '',
+            r.voucher ? Number(r.voucher.amt) : '', r.voucher ? Number(r.voucher.fx) : '', r.debit || 0, r.credit || 0, r.balance, ...(fxR ? [r.balanceCur] : [])]),
+        ] }]} />
         <Link className="btn" href={`/blagajna/dnevnik?reg=${reg.id}&from=${from}&to=${to}`} target="_blank">PDF дневник</Link>
         {write && <Link className="btn" href={q({ nov: 'in', edit: undefined })}>+ Уплатница</Link>}
         {write && <Link className="btn pri" href={q({ nov: 'out', edit: undefined })}>+ Исплатница / сметка</Link>}

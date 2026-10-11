@@ -16,7 +16,14 @@ export function fimpField(hd: unknown): string | null {
   const x = String(hd ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   if (!x) return null;
   const m = FIMP_MAP.find(([k]) => x === k) ?? FIMP_MAP.find(([k]) => x.startsWith(k));
-  return m ? m[1] : null;
+  if (m) return m[1];
+  // Headings legacy did not know („Тел.“, „Мобилен“, „Контакт телефон“, „Емаил“, „Е-mail“ with mixed letters, „Електронска пошта“ …).
+  const y = x.replace(/[.:\-_/()]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/(mail|маил|мејл|имејл|емаил|пошта)/.test(y)) return 'email';
+  if (/^(моб|mob|gsm)/.test(y) || /(мобилен|мобилни)/.test(y)) return 'phone2';
+  if (/(^|\s)(тел|tel|phone|телефон)/.test(y)) return 'phone';
+  if (/^(контакт лице|лице за контакт|одговорно лице|управител|contact)/.test(y)) return 'contact';
+  return null;
 }
 
 export type FimpRecord = Record<string, string | boolean>;

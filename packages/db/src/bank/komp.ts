@@ -8,6 +8,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { docKonto, kompEntries, kompNextNumber, kompTot, openAmount, type CompensationDoc, type DocType } from '@wise/core';
+import { kompKindError, kompResolveNumber } from '@wise/core/bank/fin-parity';
 import { audit, type Tx } from '../audit';
 import { assertOpenPeriod, postJournal, unpostSource } from '../posting';
 import { bankLines, compensations, journals, partners, type CompensationRowData } from '../schema/index';
@@ -55,6 +56,8 @@ export async function saveCompensation(tx: Tx, a: { firmId: string; userId: stri
   assertOpenPeriod(f, v.date);
   const P = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.firmId, a.firmId)));
   if (v.partnerIds.some((p) => !P.some((x) => x.id === p))) throw new BankError('Комитентот не постои.');
+  const ke = kompKindError(v.kind, v.partnerIds);
+  if (ke) throw new BankError(ke);
   const open = await kompOpenItems(tx, a.firmId, v.year, v.partnerIds, v.id);
   const rows: CompensationRowData[] = [];
   for (const o of open) {
@@ -70,7 +73,11 @@ export async function saveCompensation(tx: Tx, a: { firmId: string; userId: stri
   if (!t.rec || !t.pay) throw new BankError('Компензацијата мора да има и побарување и обврска.');
   if (cents(t.rec) !== cents(t.pay)) throw new BankError(`Побарувањата (${t.rec.toFixed(2)}) и обврските (${t.pay.toFixed(2)}) мора да бидат еднакви.`);
   let id = v.id ?? null;
-  let number = v.number?.trim() || '';
+  // legacy `kompSave` 8969: an empty number or one used by another compensation → next К-nnn/yyyy
+  const y = v.date.slice(0, 4);
+  const Nall = await tx.select({ id: compensations.id, n: compensations.number, date: compensations.date }).from(compensations).where(eq(compensations.firmId, a.firmId));
+  const taken = Nall.filter((x) => x.id !== id).map((x) => x.n);
+  let number = v.number?.trim() ? kompResolveNumber(v.number, taken, () => kompNextNumber(v.date, Nall.filter((x) => x.date.startsWith(y) && x.id !== id).map((x) => x.n))) : '';
   if (id) {
     const [b] = await tx.select().from(compensations).where(and(eq(compensations.id, id), eq(compensations.firmId, a.firmId))).limit(1);
     if (!b) throw new BankError('Компензацијата не постои.');

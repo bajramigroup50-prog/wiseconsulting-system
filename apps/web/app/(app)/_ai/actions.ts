@@ -4,18 +4,20 @@
  * flow of `skan`, for receipts, employee documents, bank statements, fiscal reports and BOM suggestions).
  * Office inbox classification starts from `klInbox/actions.ts` (the firm of the message, not the session firm).
  */
-import { inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiDocuments, audit } from '@wise/db';
+import { aiDocuments, audit, files } from '@wise/db';
 import { requireCan, requireUser } from '@/lib/auth';
 import { actionError, firmAction } from '@/lib/books';
 import { db } from '@/lib/db';
 import { AI_RESULT_KIND_ACTION, dispatchAiReads, isAiInputError, isAiResultKind, queueAiReads } from '@/lib/ai';
 
 const Start = z.object({
-  kind: z.enum(['blg', 'emp', 'bank', 'fisk', 'bom']),
+  kind: z.enum(['blg', 'emp', 'bank', 'fisk', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec']),
   fileIds: z.array(z.uuid()).max(100).default([]),
   productId: z.uuid().optional(),
+  /** Read all files together as ONE document (fiscal report photographed in several parts, legacy `fkTiles`). */
+  group: z.boolean().optional(),
 });
 
 /** Register uploaded files (or, for `bom`, the product) for reading; one job per row. */
@@ -24,9 +26,16 @@ export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?:
     const v = Start.parse(input);
     const { u, firm } = await firmAction(AI_RESULT_KIND_ACTION[v.kind]);
     if (v.kind === 'bom' ? !v.productId : !v.fileIds.length) return { error: v.kind === 'bom' ? 'Изберете производ.' : 'Изберете датотека.' };
+    const grouped = !!v.group && v.kind === 'fisk' && v.fileIds.length > 1;
+    if (grouped) {
+      // the extra files must belong to the firm as well (queueAiReads checks the first one)
+      const ok = await db().select({ id: files.id }).from(files).where(and(eq(files.firmId, firm.id), inArray(files.id, v.fileIds), eq(files.status, 'ready')));
+      if (ok.length !== new Set(v.fileIds).size) return { error: 'Датотеката не е пронајдена.' };
+    }
     const ids = await db().transaction(async (tx) => {
       const ids = await queueAiReads(tx, {
-        firmId: firm.id, userId: u.id, kind: v.kind, fileIds: v.kind === 'bom' ? null : v.fileIds, ...(v.kind === 'bom' ? { options: { productId: v.productId } } : {}),
+        firmId: firm.id, userId: u.id, kind: v.kind, fileIds: v.kind === 'bom' ? null : grouped ? v.fileIds.slice(0, 1) : v.fileIds,
+        ...(v.kind === 'bom' ? { options: { productId: v.productId } } : grouped ? { options: { extraFileIds: v.fileIds.slice(1) } } : {}),
       });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'aiRead', entityType: 'ai_document', data: { kind: v.kind, count: ids.length, ...(v.productId ? { productId: v.productId } : {}) } });
       return ids;

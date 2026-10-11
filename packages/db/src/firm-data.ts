@@ -89,6 +89,16 @@ export function firmTables(): FirmTable[] {
 const col = (t: FirmTable, name: string) => getTableConfig(t.table).columns.find((c) => c.name === name)!;
 
 /** Rows of one firm table (children through their parent's firm rows). */
+/**
+ * The firm tables that exist in this database: a table added to the schema waits for its migration (generated when the
+ * branch is merged), and a backup / count must not fail on it meanwhile.
+ */
+async function presentFirmTables(tx: Tx): Promise<FirmTable[]> {
+  const r = await tx.execute(sql`select tablename from pg_tables where schemaname = current_schema()`);
+  const names = new Set(((r as unknown as { rows?: { tablename: string }[] }).rows ?? (r as unknown as { tablename: string }[])).map((x) => x.tablename));
+  return firmTables().filter((t) => names.has(t.name));
+}
+
 async function rowsOf(tx: Tx, t: FirmTable, firmId: string): Promise<Record<string, unknown>[]> {
   if (t.mode === 'firm') return tx.select().from(t.table).where(eq(col(t, 'firm_id'), firmId)) as Promise<Record<string, unknown>[]>;
   const p = firmTables().find((x) => x.name === t.parent!.table)!;
@@ -107,7 +117,7 @@ export interface FirmBackup {
 /** Row counts per table for one firm (legacy „Оваа фирма – записи“). */
 export async function firmRecordCounts(tx: Tx, firmId: string): Promise<{ table: string; n: number }[]> {
   const out: { table: string; n: number }[] = [];
-  for (const t of firmTables()) {
+  for (const t of await presentFirmTables(tx)) {
     if (t.mode === 'firm') {
       const [r] = (await tx.select({ n: sql<number>`count(*)::int` }).from(t.table).where(eq(col(t, 'firm_id'), firmId))) as [{ n: number }];
       out.push({ table: t.name, n: r.n });
@@ -126,7 +136,7 @@ export async function exportFirm(tx: Tx, firmId: string): Promise<FirmBackup> {
   const [f] = await tx.select().from(firms).where(eq(firms.id, firmId)).limit(1);
   if (!f) throw new FirmDataError('Фирмата не постои.');
   const tables: FirmBackup['tables'] = {};
-  for (const t of firmTables()) {
+  for (const t of await presentFirmTables(tx)) {
     const R = await rowsOf(tx, t, firmId);
     if (R.length) tables[t.name] = R;
   }
@@ -161,7 +171,7 @@ const chunks = <T>(a: readonly T[], n: number): T[][] => Array.from({ length: Ma
  */
 export async function restoreFirm(tx: Tx, B: FirmBackup, a: { userId: string }): Promise<{ firmId: string; inserted: number; deleted: number; skipped: string[] }> {
   const firmId = String(B.firm.id);
-  const plan = firmTables();
+  const plan = await presentFirmTables(tx);
   const known = new Set(plan.map((t) => t.name));
   const skipped = Object.keys(B.tables).filter((k) => !known.has(k));
   const dateKeys = getTableConfig(firms).columns.filter((c) => c.columnType === 'PgTimestamp').map((c) => Object.entries(firms).find(([, v]) => v === c)?.[0] ?? c.name);

@@ -6,6 +6,7 @@ import { booksPage } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { PrintPage } from '@/components/print-page';
+import { FirmHead, Sig } from '@/app/print/firm-head';
 
 export default async function KompPrint({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
   const sp = await searchParams;
@@ -21,9 +22,7 @@ export default async function KompPrint({ searchParams }: { searchParams: Promis
   return (
     <PrintPage title={`Компензација ${k.number}`}>
       <div className="pdfdoc">
-        <div className="fh"><b>{firm.name}</b>{firm.address ? `, ${firm.address}` : ''}{firm.city ? `, ${firm.city}` : ''}</div>
-        <h1>ИЗЈАВА ЗА КОМПЕНЗАЦИЈА</h1>
-        <div>бр. {k.number} од {dmy(k.date)}</div>
+        <FirmHead firm={firm} title="ИЗЈАВА ЗА КОМПЕНЗАЦИЈА" sub={`бр. ${k.number} од ${dmy(k.date)}`} />
         <p>{k.kind === 'multi' ? 'Мултилатерална' : 'Билатерална'} компензација помеѓу <b>{firm.name}</b> (ЕДБ {firm.edb ?? ''}) и{' '}
           {ids.map((id, i) => <span key={id}>{i ? ', ' : ''}<b>{pm.get(id)?.name}</b>{pm.get(id)?.edb ? ` (ЕДБ ${pm.get(id)!.edb})` : ''}</span>)}.</p>
         <p>Учесниците се согласуваат меѓусебните побарувања и обврски да се пребијат (компензираат) до износ од <b>{fmt(rec)} ден.</b>, по следните документи:</p>
@@ -36,10 +35,7 @@ export default async function KompPrint({ searchParams }: { searchParams: Promis
         </table>
         {k.note && <p>{k.note}</p>}
         <p>По оваа компензација наведените износи се сметаат за платени. Изјавата е составена во онолку примероци колку што има учесници.</p>
-        <div className="row" style={{ justifyContent: 'space-between', marginTop: 40 }}>
-          <span>{firm.name}<br /><br />______________________</span>
-          <span>{ids.map((id) => pm.get(id)?.name).join(' / ')}<br /><br />______________________</span>
-        </div>
+        <Sig who={[`За ${firm.name}`, ...ids.map((id) => `За ${pm.get(id)?.name ?? ''}`)]} />
       </div>
     </PrintPage>
   );

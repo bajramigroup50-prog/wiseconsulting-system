@@ -145,10 +145,11 @@ describe('vehicles live (legacy pnDist / pnTrackSVG)', () => {
 
 describe('module views', () => {
   it('auto service and the new freight views are gated', () => {
-    expect(viewEnabled('servis', [], { hasFirm: true })).toBe(false);
-    expect(viewEnabled('delovi', ['auto'], { hasFirm: true })).toBe(true);
-    expect(viewEnabled('frGor', ['pn'], { hasFirm: true })).toBe(false);
-    expect(viewEnabled('frFak', ['frt'], { hasFirm: true })).toBe(true);
-    expect(viewEnabled('pnLive', ['pn'], { hasFirm: true })).toBe(true);
+    expect(viewEnabled('servis', [], { hasFirm: true, client: true })).toBe(false);
+    expect(viewEnabled('servis', [], { hasFirm: true })).toBe(true);
+    expect(viewEnabled('delovi', ['auto'], { hasFirm: true, client: true })).toBe(true);
+    expect(viewEnabled('frGor', ['pn'], { hasFirm: true, client: true })).toBe(false);
+    expect(viewEnabled('frFak', ['frt'], { hasFirm: true, client: true })).toBe(true);
+    expect(viewEnabled('pnLive', ['pn'], { hasFirm: true, client: true })).toBe(true);
   });
 });

@@ -69,3 +69,14 @@ export async function voidAction(orderId: string): Promise<FormState> {
 export async function readyAction(orderId: string, i: number): Promise<FormState> {
   return indRun('kjReady', P, async ({ tx, a }) => { await markLineReady(tx, a, orderId, i, nowLocal()); });
 }
+
+/** Legacy `#ro_w` „Келнер“ on the bill. */
+export async function waiterAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('roQ', P, async ({ tx, a }) => {
+    const table = str(f.get('table'));
+    const o = await openOrderOf(tx, a.firmId, table);
+    if (!o) return;
+    await saveOrder(tx, a, table, o.data.lines, str(f.get('waiter')), nowLocal());
+    return 'Зачувано.';
+  });
+}

@@ -33,7 +33,7 @@ export default async function OsnovanjePage({ searchParams }: { searchParams: Pr
               <button className="btn pri">Зачувај</button>
               {c && <RowAction className="btn" action={formationTask.bind(null, c.id)} label="+ Задача за терен" />}
               {c && !c.firmId && ['registered', 'submitted'].includes(c.status) && can(u.principal, 'firms') && (
-                <RowAction className="btn" action={createFirmFromFormation.bind(null, c.id)} label="➜ Внеси ја фирмата во програмата" confirm="Да се креира фирма од ова основање?" />
+                <RowAction className="btn" action={createFirmFromFormation.bind(null, c.id)} label="➜ Внеси ја фирмата во програмата за сметководство" confirm="Да се креира фирма од ова основање?" />
               )}
               <Link className="btn" href="/osnovanje">Затвори</Link>
             </div></div>
@@ -47,14 +47,14 @@ export default async function OsnovanjePage({ searchParams }: { searchParams: Pr
             ))}
             <label className="f">Управител<input name="manager" defaultValue={(c?.managers[0] as { name?: string } | undefined)?.name ?? ''} /></label>
           </div>
-          {cap && cap.eur > 0 && <p className="note">Основачки влог: {fmt(cap.eur)} EUR = {fmt(cap.mkd)} ден. (курс {Number(c!.eurRate)})</p>}
+          {cap && cap.eur > 0 && <p className="note">Основачки влог: {fmt(cap.eur)} EUR = {fmt(cap.mkd)} ден. (курс {Number(c?.eurRate ?? 0)})</p>}
           <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Основачи</h3>
-          <div className="tw"><table className="dense"><thead><tr><th>ФЛ/ПЛ</th><th>Име / назив</th><th>Презиме</th><th>ЕМБГ / ЕМБС</th><th>Државјанство</th><th>Удел %</th></tr></thead><tbody>
+          <div className="tw"><table className="dense"><thead><tr><th>ФЛ/ПЛ</th><th>Име / назив</th><th>Презиме</th><th>ЕМБГ / ЕМБС</th><th>Бр. на лична карта / пасош</th><th>Адреса на живеење / седиште</th><th>Државјанство</th><th>Удел %</th></tr></thead><tbody>
             {fo.map((p, i) => (
               <tr key={i}>
                 <td><select name={`fo${i}_kind`} defaultValue={p?.kind ?? 'ФЛ'}><option>ФЛ</option><option>ПЛ</option></select></td>
                 <td><input name={`fo${i}_name`} defaultValue={p?.name ?? ''} /></td><td><input name={`fo${i}_surname`} defaultValue={p?.surname ?? ''} /></td>
-                <td><input name={`fo${i}_embg`} defaultValue={p?.embg ?? ''} autoComplete="off" /></td><td><input name={`fo${i}_cit`} defaultValue={p?.cit ?? ''} placeholder="Македонско" /></td>
+                <td><input name={`fo${i}_embg`} defaultValue={p?.embg ?? ''} autoComplete="off" /></td><td><input name={`fo${i}_idNo`} defaultValue={p?.idNo ?? ''} autoComplete="off" style={{ width: 110 }} /></td><td><input name={`fo${i}_address`} defaultValue={p?.address ?? ''} /></td><td><input name={`fo${i}_cit`} defaultValue={p?.cit ?? ''} placeholder="Македонско" /></td>
                 <td><input name={`fo${i}_share`} defaultValue={p?.share ?? ''} style={{ width: 70 }} /></td>
               </tr>
             ))}

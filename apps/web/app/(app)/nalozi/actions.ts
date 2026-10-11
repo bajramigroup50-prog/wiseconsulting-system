@@ -3,7 +3,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { audit, deleteJournal, firms, isIsoDate, journals, postJournal, updateJournal } from '@wise/db';
+import { needsPartner } from '@wise/core';
+import { audit, bankAccounts, deleteJournal, firms, isIsoDate, journals, postJournal, resetJournalOverride, saveJournalOverride, syncFirmBanks, updateJournal } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 
@@ -59,6 +60,8 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
       number: v.number || (existing ? existing.number : null), periodFrom: v.periodFrom || null, periodTo: v.periodTo || null,
       lines: R.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note, doc: r.doc })),
       userId: u.id, auditAction: existing ? 'nalSave' : 'saveJ',
+      // opening balances may carry 12x/22x rows without a partner (saveOpening allows them)
+      requirePartner: !(existing && ['open', 'bbimp'].includes(existing.kind)),
       allowEmpty: empty,
       meta: { ...((existing?.meta as Record<string, unknown>) ?? {}), rows: empty ? R.map((r) => ({ account: r.account, partnerId: r.partnerId || null, note: r.note, doc: r.doc })) : undefined },
     };
@@ -117,4 +120,65 @@ export async function setLockDate(form: FormData): Promise<void> {
       entityType: 'firm', entityId: firm.id, data: { from: firm.lockDate, to: lockDate } });
   });
   revalidatePath('/', 'layout');
+}
+
+/* ---------------------------------------------------------------- finance parity: document journal corrections */
+
+const OvRowZ = z.object({
+  i: z.number().int().min(0).nullable(), account: z.string().trim().max(10), partnerId: z.string().trim().max(40).nullable(),
+  debit: z.coerce.number().finite(), credit: z.coerce.number().finite(), note: z.string().max(500), doc: z.string().max(100), del: z.boolean(),
+});
+
+/**
+ * Manual correction of a nalog created from a document (legacy `nalSave` → `nalSaveRows` 3580, needs `fix`):
+ * the line edits are stored as an override of the source document and re-applied on every re-post.
+ * New / changed lines on 120–128 / 220–228 need a partner (legacy 12457).
+ */
+export async function saveOverrideAction(journalId: string, rows: unknown): Promise<ActionState> {
+  let target = '';
+  try {
+    const R = z.array(OvRowZ).max(2000).safeParse(rows);
+    if (!R.success) return { error: 'Неважечки редови.' };
+    const { u, firm } = await firmAction('nalEdit');
+    const bad = R.data.find((r) => !r.del && (r.debit || r.credit) && !/^\d{3,8}$/.test(r.account));
+    if (bad) return { error: `Неважечко конто „${bad.account}“.` };
+    const np = R.data.find((r) => !r.del && (r.debit || r.credit) && needsPartner(r.account) && !r.partnerId);
+    if (np) return { error: `Новите ставки на конто ${[...new Set(R.data.filter((r) => !r.del && (r.debit || r.credit) && needsPartner(r.account) && !r.partnerId).map((r) => r.account))].join(', ')} бараат комитент – изберете го во колоната „Комитент“.` };
+    const res = await db().transaction((tx) => saveJournalOverride(tx, { firmId: firm.id, journalId, rows: R.data, userId: u.id }));
+    target = res.number;
+  } catch (e) { return actionError(e); }
+  revalidatePath('/nalozi');
+  redirect(`/nalozi?n=${encodeURIComponent(target)}`);
+}
+
+/** „↺ Врати како во документот“ — remove the correction (needs `fix`). */
+export async function resetOverrideAction(journalId: string): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('nalEdit');
+    await db().transaction((tx) => resetJournalOverride(tx, { firmId: firm.id, journalId, userId: u.id }));
+  } catch (e) { return actionError(e); }
+  revalidatePath('/nalozi');
+  return { ok: 'Налогот е вратен како во документот.' };
+}
+
+/**
+ * Legacy „🔒 Фиксирај броеви“ (`nalFixAll` 7335). Here every nalog number is stored when it is posted and never moves
+ * when an older document is entered later, so there is nothing left to fix.
+ */
+export async function nalFixAllAction(_p?: ActionState, _f?: FormData): Promise<ActionState> {
+  await firmAction('write');
+  return { ok: 'Сите броеви се веќе фиксирани.' };
+}
+
+/** Legacy „Шифри на налози“ per bank (`data-nb`, `saveNalCodes` 7183): nalog code of each bank account's statements. */
+export async function saveBankNalCodes(form: FormData): Promise<void> {
+  const { u, firm } = await firmAction('settings');
+  const set: Record<string, string | null> = {};
+  for (const [k, v] of form.entries()) if (k.startsWith('bc_')) set[k.slice(3)] = String(v).trim().slice(0, 12) || null;
+  await db().transaction(async (tx) => {
+    for (const [id, nal] of Object.entries(set)) await tx.update(bankAccounts).set({ nal }).where(and(eq(bankAccounts.id, id), eq(bankAccounts.firmId, firm.id)));
+    await syncFirmBanks(tx, firm.id);
+    await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveNalCodes', entityType: 'firm', entityId: firm.id, data: { banks: set } });
+  });
+  revalidatePath('/nalozi');
 }

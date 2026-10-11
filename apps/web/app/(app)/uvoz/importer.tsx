@@ -15,7 +15,24 @@ const DATE = new Set(['date', 'due', 'start', 'end']);
 const NEEDS_WH: ImpType[] = ['in', 'pop', 'nivel'];
 const NEEDS_DATE: ImpType[] = ['stock', 'in', 'pop', 'nivel'];
 
-export function Importer({ t, locs, date0, wh0 }: { t: ImpType; locs: { id: string; name: string; kind: string }[]; date0: string; wh0: string }) {
+/** Per-row checks shown in the preview (rows with an error are skipped by the server too). */
+function rowErr(t: ImpType, get: (k: string) => unknown, num: (k: string) => number | null): string {
+  if (t === 'in' || t === 'pop' || t === 'nivel') {
+    const id = [get('code'), get('barcode'), get('name')].some((x) => String(x ?? '').trim());
+    if (!id) return 'нема шифра / баркод / назив';
+    if (t === 'in' && !(num('qty') ?? 0)) return 'нема количина';
+    if (t === 'pop' && num('cnt') == null) return 'нема пописана количина';
+    if (t === 'nivel' && !((num('mpc') ?? 0) > 0)) return 'нема нова МПЦ';
+    if (t === 'in' && String(get('rate') ?? '').trim() !== '' && ![0, 5, 10, 18].includes(num('rate') ?? -1)) return 'ДДВ % мора да е 0, 5, 10 или 18';
+  }
+  return '';
+}
+
+export function Importer({ t, locs, date0, wh0, tpl }: {
+  t: ImpType; locs: { id: string; name: string; kind: string }[]; date0: string; wh0: string;
+  /** Own template (header + example row) instead of the generic one, e.g. the retail stock list. */
+  tpl?: { name: string; rows: (string | number)[][] };
+}) {
   const T = IMP_T[t];
   const [st, run, pending] = useActionState<ActionState, FormData>(importAction, {});
   const [rows, setRows] = useState<unknown[][] | null>(null);
@@ -41,6 +58,9 @@ export function Importer({ t, locs, date0, wh0 }: { t: ImpType; locs: { id: stri
   const hdr = rows?.[hi] ?? [];
   const data = (rows ?? []).slice(hi + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
   const cell = (v: unknown) => (v instanceof Date ? impDate(v) : String(v ?? ''));
+  const dec0 = detectDec(data);
+  const errs = data.map((r) => rowErr(t, (k) => (map[k] != null ? r[map[k]!] : ''), (k) => (map[k] != null && String(r[map[k]!] ?? '').trim() !== '' ? impNum(r[map[k]!], dec0) : null)));
+  const nErr = errs.filter(Boolean).length;
   const go = () => {
     const miss = impMissing(t, map);
     if (miss.length) { setErr('Поврзете ги задолжителните колони: ' + miss.join(', ')); return; }
@@ -60,7 +80,7 @@ export function Importer({ t, locs, date0, wh0 }: { t: ImpType; locs: { id: stri
     <>
       <div className="row" style={{ gap: 10, margin: '12px 0', flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="btn pri" style={{ fontSize: 15, padding: '10px 18px' }} onClick={() => inp.current?.click()}>📂 Избери Excel / CSV / XML датотека</button>
-        <button type="button" className="btn" onClick={() => downloadXlsx(`Obrazec_uvoz_${t}.xlsx`, [T.f.map((x) => x[1].replace('*', '')), [...IMP_EXAMPLE[t]]])}>⬇ Преземи образец за „{T.t}“</button>
+        <button type="button" className="btn" onClick={() => (tpl ? downloadXlsx(tpl.name, tpl.rows) : downloadXlsx(`Obrazec_uvoz_${t}.xlsx`, [T.f.map((x) => x[1].replace('*', '')), [...IMP_EXAMPLE[t]]]))}>⬇ Преземи образец за „{T.t}“</button>
         <input ref={inp} type="file" hidden accept=".xlsx,.xls,.csv,.txt,.xml" onChange={(e) => { void load(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
       {!rows && (
@@ -89,10 +109,11 @@ export function Importer({ t, locs, date0, wh0 }: { t: ImpType; locs: { id: stri
             </div>
           </div>
           <div className="card">
-            <div className="hd"><h2>Преглед (првите 8 редови)</h2></div>
+            <div className="hd"><h2>Преглед (првите 8 редови{nErr ? ' и редовите со грешка' : ''})</h2>{nErr ? <span className="pill bad">{nErr} редови со грешка – ќе се прескокнат</span> : <span className="pill good">сите редови се во ред</span>}</div>
             <div className="tw"><table className="dense">
-              <thead><tr>{T.f.filter(([k]) => map[k] != null).map(([k, n]) => <th key={k}>{n.replace('*', '')}</th>)}</tr></thead>
-              <tbody>{data.slice(0, 8).map((r, i) => <tr key={i}>{T.f.filter(([k]) => map[k] != null).map(([k]) => <td key={k}>{cell(r[map[k]!])}</td>)}</tr>)}</tbody>
+              <thead><tr><th>Ред</th>{T.f.filter(([k]) => map[k] != null).map(([k, n]) => <th key={k}>{n.replace('*', '')}</th>)}<th>Проверка</th></tr></thead>
+              <tbody>{data.map((r, i) => ({ r, i })).filter(({ i }) => i < 8 || errs[i]).slice(0, 60).map(({ r, i }) => <tr key={i}><td className="mini">{hi + 2 + i}</td>{T.f.filter(([k]) => map[k] != null).map(([k]) => <td key={k}>{cell(r[map[k]!])}</td>)}
+                <td>{errs[i] ? <span className="mini" style={{ color: 'var(--bad)' }}>{errs[i]}</span> : '✓'}</td></tr>)}</tbody>
             </table></div>
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10, gap: 8 }}>
               <button type="button" className="btn" onClick={() => { setRows(null); setFile(''); }}>Друга датотека</button>

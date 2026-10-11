@@ -27,8 +27,8 @@ export default async function ReconPage({ searchParams }: { searchParams: Promis
       </Hd>
       {p ? (
         <>
-          <p className="note">Прикачете ја картицата / ИОС што ја испратил <b>{p.name}</b> (Excel или CSV). Програмот ги споредува ставките со вашата картица (конта {s.kontos.join(', ') || '12/22'}, {dmy(s.from)} – {dmy(s.to)}) – по број на документ, износ и датум – и ги покажува разликите. Нивното „Должи“ е ваше „Побарува“ и обратно. За потврда на салдото користете „📄 Потврда на салдо“ во картицата.</p>
-          <ReconForm pid={p.id} k={s.kontos.join(',')} from={s.from} to={s.to} years={years} year={year} />
+          <p className="note">Прикачете ја картицата / ИОС што ја испратил <b>{p.name}</b> (Excel, CSV, PDF или слика). Програмот ги споредува ставките со вашата картица (конта {s.kontos.join(', ') || '12/22'}, {dmy(s.from)} – {dmy(s.to)}) – по број на документ, износ и датум – и ги покажува разликите. Нивното „Должи“ е ваше „Побарува“ и обратно. За потврда на салдото користете „📄 Потврда на салдо“ во картицата.</p>
+          <ReconForm pid={p.id} k={s.kontos.join(',')} from={s.from} to={s.to} years={years} year={year} firmId={firm.id} />
         </>
       ) : <div className="card empty">Изберете комитент во „Аналитички картици по комитент“.</div>}
     </>

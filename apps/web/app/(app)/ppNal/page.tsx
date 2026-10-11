@@ -8,7 +8,8 @@ import { and, desc, eq } from 'drizzle-orm';
 import {
   PP_NACIN, PP_SIF, PP_T, PP_TAX, ppIbanOn, ppNew, ppTaxNew, ppWarnings, ppAccTxt, type PaymentOrder, type PpKind,
 } from '@wise/core';
-import { orderSuggestions, payerOf, paymentOrders, vatDueEstimate } from '@wise/db';
+import { ppExportRows } from '@wise/core/bank/fin-parity';
+import { getOfficeProfile, orderSuggestions, payerOf, paymentOrders, vatDueEstimate } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -17,7 +18,9 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { PpSlip } from '@/components/pp-slip';
 import { RowAction } from '@/components/row-action';
-import { deletePpAction, savePpAction } from './actions';
+import { ExportBar } from '@/components/parity-fin/export-bar';
+import { deletePpAction, savePpAction, savePpCalAction } from './actions';
+import { PpTaxSelect, type PpTaxTpl } from './tax-select';
 
 type SP = { nov?: string; edit?: string; tax?: string; ref?: string };
 const KINDS: PpKind[] = ['pp30', 'pp50', 'pp10'];
@@ -28,12 +31,18 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   if (!firm) return <NoFirm t="Платни налози" />;
   if (u.role === 'klient') return <><Hd t="Платни налози" /><div className="empty">Нема пристап.</div></>;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
-  const [payer, list, sug] = await Promise.all([
+  const today = new Date().toISOString().slice(0, 10);
+  const [payer, list, sug, est, office] = await Promise.all([
     payerOf(db(), firm.id),
     db().select().from(paymentOrders).where(eq(paymentOrders.firmId, firm.id)).orderBy(desc(paymentOrders.date), desc(paymentOrders.createdAt)).limit(300),
     db().transaction((tx) => orderSuggestions(tx, firm.id, year)),
+    // ДДВ of the last finished VAT period (legacy 15772 `ddvFor(prevPeriod)`; filed figure when closed).
+    vatDueEstimate(db(), firm.id, today),
+    getOfficeProfile(db()),
   ]);
-  const today = new Date().toISOString().slice(0, 10);
+  const vat = est ? { label: est.period.replace('-Т', ' – квартал '), ref: est.period.replace('-Т', '-'), amount: est.amount > 0 ? est.amount : null } : undefined;
+  const taxDraft = (key: string) => ppTaxNew(key, today, payer, { muni: payer.muni, akont: Number((firm.settings as Record<string, unknown>).akontDD) || null, ...(vat ? { vat } : {}) });
+  const cal = ((office as Record<string, unknown>).ppCal ?? {}) as Record<string, { dx?: number; dy?: number }>;
 
   /* ---------- draft ---------- */
   let draft: PaymentOrder | null = null;
@@ -43,11 +52,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
     const [o] = await db().select().from(paymentOrders).where(and(eq(paymentOrders.id, sp.edit), eq(paymentOrders.firmId, firm.id))).limit(1);
     if (o) { draft = o.data as unknown as PaymentOrder; editId = o.id; refId = o.refId; }
   } else if (sp.tax && PP_TAX.some((t) => t[0] === sp.tax)) {
-    // ДДВ template: amount and period of the last finished VAT period (legacy 15772 `ddvFor(prevPeriod)`; filed figure when closed).
-    const isVat = PP_TAX.find((t) => t[0] === sp.tax)?.[4] === 'period';
-    const est = isVat ? await vatDueEstimate(db(), firm.id, today) : null;
-    const vat = est ? { label: est.period.replace('-Т', ' – квартал '), ref: est.period.replace('-Т', '-'), amount: est.amount > 0 ? est.amount : null } : undefined;
-    draft = ppTaxNew(sp.tax, today, payer, { muni: payer.muni, akont: Number((firm.settings as Record<string, unknown>).akontDD) || null, ...(vat ? { vat } : {}) });
+    draft = taxDraft(sp.tax);
   } else if (sp.ref) {
     const s = sug.find((x) => x.refId === sp.ref);
     if (s) {
@@ -57,6 +62,10 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
     }
   } else if (sp.nov && KINDS.includes(sp.nov as PpKind)) draft = ppNew(sp.nov as PpKind, today, payer);
   const W = draft ? ppWarnings(draft) : [];
+  const taxTpl: PpTaxTpl[] = PP_TAX.map((t) => { const d = taxDraft(t[0]); return { key: t[0], name: t[1], uplSm: d.uplSm ?? '', prihod: d.prihod ?? '', refDebit: d.refDebit ?? '', purpose: d.purpose ?? '', amount: d.amount ? String(d.amount) : '' }; });
+  const kc = draft ? cal[draft.kind] ?? {} : {};
+  // Legacy `ppSuggest` 15775: the VAT ПП50 on top, then unpaid supplier invoices by due date.
+  const vatSug = est && est.amount > 0 && vat ? { label: 'ДДВ за ' + vat.label, amount: est.amount } : null;
   const F = (k: keyof PaymentOrder, label: string, o: { type?: string; ml?: boolean; list?: string; mode?: 'numeric' | 'decimal' } = {}) => (
     o.ml
       ? <label className="f wide" key={k}>{label}<textarea name={k} rows={2} defaultValue={String(draft?.[k] ?? '')} style={{ width: '100%', font: 'inherit' }} /></label>
@@ -74,7 +83,8 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
           <Link className="btn" href="/ppNal?nov=pp10">+ ПП10 уплатница</Link>
           <span style={{ flex: 1 }} />
           {PP_TAX.map((t) => <Link key={t[0]} className="btn sm" href={`/ppNal?tax=${t[0]}`}>ПП50: {t[1]}</Link>)}
-        </div></div>
+        </div>
+        <p className="mini" style={{ margin: '6px 0 0' }}>⚠ Од <b>01.11.2026</b> плаќањата во земјата се само со <b>IBAN</b> (MK + 2 контролни + 15 цифри) – програмата го пресметува автоматски од сметката.</p></div>
       )}
 
       {draft && write && (
@@ -93,7 +103,6 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
             {editId && <input type="hidden" name="id" value={editId} />}
             {refId && <input type="hidden" name="refId" value={refId} />}
             <input type="hidden" name="kind" value={draft.kind} />
-            {draft.taxKey && <input type="hidden" name="taxKey" value={draft.taxKey} />}
             <div className="ctgrid">
               <div>
                 <div className="form">
@@ -109,7 +118,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                   {draft.kind !== 'pp10' && (
                     <label className="f">Начин<select name="nacin" defaultValue={draft.nacin}>{PP_NACIN.map(([c, t]) => <option key={c} value={c}>{t}</option>)}</select></label>
                   )}
-                  {draft.kind === 'pp50' && <>{F('uplSm', 'Уплатна сметка / сметка на буџетски корисник')}{F('prihod', 'Приходна шифра и програма')}{F('refDebit', 'Повикување на број (задолжување)')}</>}
+                  {draft.kind === 'pp50' && <><PpTaxSelect templates={taxTpl} value={draft.taxKey ?? ''} />{F('uplSm', 'Уплатна сметка / сметка на буџетски корисник')}{F('prihod', 'Приходна шифра и програма')}{F('refDebit', 'Повикување на број (задолжување)')}</>}
                   {draft.kind === 'pp30' && <>{F('refDebit', 'Повикување на број (задолжување)')}{F('refCredit', 'Повикување на број (одобрување)')}</>}
                   {draft.kind === 'pp10' && F('refCredit', 'Повикување на број (одобрување)')}
                   {F('place', 'Место')}
@@ -119,7 +128,8 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                 <datalist id="pp_sif">{PP_SIF.map(([c, t]) => <option key={c} value={c}>{t}</option>)}</datalist>
                 <label className="chk" style={{ marginTop: 6 }}><input type="checkbox" name="iban" defaultChecked={draft.iban ?? ppIbanOn(draft.date)} /> Сметките во IBAN формат (задолжително од 01.11.2026)</label>
                 {W.length > 0 && <div className="callout warn" style={{ marginTop: 8 }}>{W.map((w) => <div key={w}>{w}</div>)}</div>}
-                <p className="note">„Цел образец“ го црта налогот на бела хартија (А4, 3 налози). Пред прво користење прашајте ја банката дали прифаќа налог печатен на бела хартија. „Допечати“ печати само податоци врз купени обрасци. Распоредот е приближен – проверете со еден образец.</p>
+                <p className="note" style={{ margin: '6px 0' }}>За купени обрасци („Допечати“): ако текстот не паѓа точно во полињата, поместете го (во мм): десно + / лево −, долу + / горе −.</p>
+                <p className="note">„Цел образец“ го црта налогот на бела хартија (А4, 3 налози). Пред прво користење прашајте ја банката дали прифаќа налог печатен на бела хартија. „Допечати“ печати само податоци врз купени обрасци (ласерски за единечни листови; за самокопирни сетови – матричен печатач). Распоредот е приближен – проверете со еден образец и калибрирајте.</p>
               </div>
               <div className="pdfwrap" style={{ maxHeight: '72vh', overflow: 'auto', background: '#fff' }}>
                 <div style={{ transform: 'scale(.82)', transformOrigin: '0 0', width: '210mm' }}><PpSlip n={draft} /></div>
@@ -130,11 +140,24 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
         </div>
       )}
 
-      {write && sug.length > 0 && (
-        <div className="card"><h2>Предлог – неплатени влезни фактури ({sug.length})</h2>
+      {draft && write && (
+        <BankForm action={savePpCalAction.bind(null, draft.kind)} className="card row" style={{ gap: 10, alignItems: 'end' }}>
+          <b>📐 Калибрација за {PP_T[draft.kind]} (допечатување)</b>
+          <label className="f">Поместување десно (мм)<input name="dx" type="number" step="0.5" defaultValue={kc.dx ?? 0} style={{ width: 90 }} /></label>
+          <label className="f">Поместување долу (мм)<input name="dy" type="number" step="0.5" defaultValue={kc.dy ?? 0} style={{ width: 90 }} /></label>
+          <button className="btn sm">Зачувај калибрација</button>
+          <span className="note">Важи за сите фирми во канцеларијата (ист печатач).</span>
+        </BankForm>
+      )}
+
+      {write && !(sug.length > 0 || vatSug) && <div className="card"><h2>💡 Предлози за плаќање (автоматски)</h2><p className="note">Нема отворени обврски кон добавувачи ни ДДВ за плаќање.</p></div>}
+      {write && (sug.length > 0 || vatSug) && (
+        <div className="card"><h2>💡 Предлози за плаќање (автоматски) – неплатени влезни фактури ({sug.length})</h2>
           <div className="tw" style={{ maxHeight: 300 }}><table className="dense">
             <thead><tr><th>Добавувач · фактура · датум</th><th className="n">Отворено</th><th></th></tr></thead>
-            <tbody>{sug.map((s) => (
+            <tbody>{vatSug && (
+              <tr><td><b>{vatSug.label}</b> <span className="pill">ПП50</span></td><td className="n">{fmt(vatSug.amount)}</td><td><Link className="btn sm" href="/ppNal?tax=ddv">Направи налог</Link></td></tr>
+            )}{sug.map((s) => (
               <tr key={s.refId}><td>{s.label}{s.warn && <span className="pill warn"> {s.warn}</span>}</td><td className="n">{fmt(s.amount)}</td>
                 <td><Link className="btn sm" href={`/ppNal?ref=${encodeURIComponent(s.refId)}`}>ПП30</Link></td></tr>
             ))}</tbody>
@@ -146,8 +169,10 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
       <form className="card" action="/ppNal/print" target="_blank">
         <div className="hd"><h2>Зачувани налози ({list.length})</h2>
           <div className="row">
-            <select name="m" defaultValue="full" aria-label="Начин на печатење"><option value="full">Цел образец (А4)</option><option value="data">Допечати (А4 – 3)</option><option value="data1">Допечати (210×99)</option></select>
-            <button className="btn">🖨 Печати избрани</button>
+            <ExportBar pdf={false} name="Platni_nalozi" title="Платни налози" rows={ppExportRows(list.map((o) => ({ kind: o.kind, date: o.date, amount: o.amount, printedAt: o.printedAt, data: o.data as unknown as PaymentOrder })))} />
+            <button className="btn" name="m" value="full">🖨 Избраните – цел образец</button>
+            <button className="btn" name="m" value="data">🖨 Избраните – допечати</button>
+            <button className="btn" name="m" value="data1">🖨 Допечати (210×99)</button>
           </div></div>
         {list.length ? (
           <div className="tw"><table className="dense">
@@ -169,6 +194,10 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
           </table></div>
         ) : <p className="note">Нема зачувани налози.</p>}
       </form>
+      <div className="card">
+        <h2>🖨 Печатач за налози</h2>
+        <p className="note">За самокопирни (повеќеделни) обрасци ПП30/ПП50 потребен е <b>матричен (иглен) печатач</b> – на пр. Epson LQ-350 (за единечни налози) или Epson LQ-590II (полесно внесување на обрасците и подолг век). Ласерски / инкџет печатач може да печати само на единечни листови или „Цел образец“ на бела хартија (ако банката го прифаќа). По првото печатење проверете со вистински образец и подесете ја калибрацијата погоре.</p>
+      </div>
     </>
   );
 }

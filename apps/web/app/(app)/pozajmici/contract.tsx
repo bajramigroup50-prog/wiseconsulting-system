@@ -1,6 +1,7 @@
 /** Legacy `lnParty` 16705 + `lnDoc` 16708: the loan contract (same template for given and received loans — the parties swap). */
 import type { Firm, Loan, Partner } from '@wise/db';
 import { dmy, fmt } from '@/lib/fmt';
+import { amountInWords } from '@wise/core/sales/words';
 
 type Party = { name: string; addr: string; id: string; rep: string };
 
@@ -30,7 +31,7 @@ export function LoanContract({ l, firm, partner }: { l: Pick<Loan, 'dir' | 'part
       <p>1. {pp(A, 'Заемодавач')}</p>
       <p>2. {pp(B, 'Заемопримач')}</p>
       <C n={1} t="Предмет" />
-      <p>Заемодавачот му дава на Заемопримачот паричен заем (позајмица) во износ од {fmt(amt)} денари{l.purpose ? ', наменет за ' + l.purpose : ''}.</p>
+      <p>Заемодавачот му дава на Заемопримачот паричен заем (позајмица) во износ од {fmt(amt)} денари (со букви: {amountInWords(amt)}){l.purpose ? ', наменет за ' + l.purpose : ''}.</p>
       <C n={2} t="Исплата" />
       <p>Износот од член 1 се исплатува {l.cash ? 'во готово, со потврда за примени пари' : 'преку трансакциска сметка'} на ден {dmy(l.date)}.</p>
       <C n={3} t="Камата" />

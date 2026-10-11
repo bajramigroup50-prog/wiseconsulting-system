@@ -291,11 +291,11 @@ function DeleteFirm({ id, name, edb }: { id: string; name: string; edb: string |
   return (
     <form action={act} style={{ display: 'inline' }} onSubmit={(e) => {
       const ok1 = confirm(`Да се избрише фирмата „${name}“${edb ? ` (ЕДБ ${edb})` : ''} со СИТЕ документи, налози, изводи, залиха и плати?`);
-      const ok2 = ok1 && confirm(`⚠ ПОСЛЕДНА ПОТВРДА\n\nФирма: ${name}\n${edb ? `ЕДБ: ${edb}\n` : ''}\nФирмата се архивира (податоците остануваат и може да се врати од листата „Избришани фирми“).\n\nДа се избрише?`);
+      const ok2 = ok1 && confirm(`⚠ ПОСЛЕДНА ПОТВРДА\n\nФирма: ${name}\n${edb ? `ЕДБ: ${edb}\n` : ''}\nФирмата станува НЕАКТИВНА (податоците остануваат и може повторно да се активира од листата „Неактивни фирми“).\n\nДа се деактивира?`);
       if (!ok2) e.preventDefault();
     }}>
       <input type="hidden" name="id" value={id} />
-      <button className="btn danger" disabled={pending} title={st.error}>Избриши фирма</button>
+      <button className="btn danger" disabled={pending} title={st.error}>⏸ Деактивирај фирма</button>
       {st.error && <span className="note bad"> {st.error}</span>}
     </form>
   );

@@ -234,7 +234,7 @@ export async function cashBook(tx: Tx, firmId: string, reg: CashRegister, from: 
     if (fxR) sc = r2(sc + (ac ?? 0));
     return {
       date: l.date, nalog: l.number ?? null, journalId: l.journalId, voucher: v,
-      label: v ? v.merchant || v.note || (v.kind === 'in' ? 'Уплата' : '') : l.description || l.note || '',
+      label: v ? v.merchant || v.note || (v.kind === 'in' ? 'Уплата' : '') : [l.description, l.note].filter(Boolean).join(' · '), // legacy: label · note
       doc: v ? v.docNo || '' : l.doc || '', debit: l.debit, credit: l.credit, balance, amtCur: ac, balanceCur: fxR ? sc : null,
     };
   });

@@ -9,6 +9,7 @@ import { Pill } from '@/components/file-chips';
 import { Hd, dmy, dmyHm } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { SendExtras } from '@/components/send-extras';
 import { deletePackage, mailPackage, savePackage } from './actions';
 
 /** Generated reports a package can hold (print views with the server „⬇ PDF“ button). */
@@ -41,6 +42,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
   const age = sp.age === '6' ? 6 : 3;
   const year = td.slice(0, 4);
   const from = sp.from || `${year}-01-01`, to = sp.to || td;
+  const badPeriod = from > to;
   const preDos = new Set(pre ? pre.dos.map((c) => D.find((d) => d.category === c)?.id).filter((x): x is string => !!x) : []);
   const addM = (d: string, m: number) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() + m); return x.toISOString().slice(0, 10); };
   const oldFresh = D.filter((d) => preDos.has(d.id) && freshness(d, td) && td > addM(d.date ?? '1900-01-01', age));
@@ -61,6 +63,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
           <button className="btn sm">Примени</button>
         </div>
       </form>
+      {badPeriod && <div className="callout bad">Периодот не е точен.</div>}
       {oldFresh.length > 0 && <div className="callout warn">{oldFresh.map((d) => <span key={d.id}>{d.category} од {dmy(d.date)} е постара од {age} месеци – извадете нова и скенирајте ја во Документи на фирмата.<br /></span>)}</div>}
       <ActionForm action={savePackage}>
         <h2>Нов пакет</h2>
@@ -84,7 +87,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
           </tbody></table></div>
         ) : <p className="note">Досието е празно – прво додадете документи во <a href="/dosie">Досие</a>.</p>}
         <p className="note">Генерираните извештаи (ДДВ-04, биланс на состојба / успех, даночен биланс) се додаваат во зачуван пакет подолу: „+ извештај“ го отвора печатењето, а „⬇ PDF“ таму го додава PDF-от во пакетот.</p>
-        <div className="row"><button className="btn pri">Зачувај пакет</button></div>
+        <div className="row"><button className="btn pri">📦 Подготви пакет</button></div>
       </ActionForm>
 
       {P.map((p) => (
@@ -106,6 +109,8 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
             <input name="to" type="email" placeholder="е-пошта на примачот" required style={{ width: 240 }} />
             <input name="subject" placeholder={`${p.name} – ${firm.name}`} style={{ width: 240 }} />
             <button className="btn sm">✉ Испрати по е-пошта</button>
+            <textarea name="body" hidden defaultValue={p.coverNote ?? ''} />
+            <SendExtras selName="__none" files={{}} defaultBody={p.coverNote ?? ''} />
           </ActionForm>
         </div>
       ))}

@@ -83,13 +83,13 @@ export default async function RasNormPage({ searchParams }: { searchParams: Prom
           ))}{!plan.length && <tr><td colSpan={8} className="note">Нема суровини со залиха или набавки во периодот.</td></tr>}</tbody>
           <tfoot><tr><td colSpan={7}>Вкупно за раздолжување{mode === 'pct' && sales ? ` (${Math.round((T / sales) * 10000) / 100}% од продажба ${fmt(sales)})` : ''}</td><td className="n"><b>{fmt(T)}</b></td></tr></tfoot>
         </table></div>
-        <div className="row" style={{ marginTop: 8 }}><button className="btn">Пресметај</button></div>
+        <div className="row savebar" style={{ marginTop: 8 }}><button className="btn">Пресметај</button></div>
       </form>
       {write && (
         <ActionForm action={saveWriteoffAction} className="card" reset={false}>
           {[['mode', mode], ['from', from], ['to', to], ['wh', wh], ['pct', mode === 'pct' ? String(pct) : ''], ['productId', prodId], ['productQty', sp.pq ?? '']].map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
           {plan.filter((x) => x.q > 0).map((x) => <input key={x.itemId} type="hidden" name={'q_' + x.itemId} value={x.q} />)}
-          <div className="row" style={{ gap: 8 }}><button className="btn pri" disabled={!(T > 0)}>Раздолжи и прокнижи ({fmt(T)})</button><span className="note">Се прави еден документ со датум {dmy(to)}; може да се сторнира од листата подолу.</span></div>
+          <div className="row savebar" style={{ gap: 8 }}><button className="btn pri" disabled={!(T > 0)}>Раздолжи и прокнижи ({fmt(T)})</button><span className="note">Се прави еден документ со датум {dmy(to)}; може да се сторнира од листата подолу.</span></div>
         </ActionForm>
       )}
       {docs.length > 0 && (

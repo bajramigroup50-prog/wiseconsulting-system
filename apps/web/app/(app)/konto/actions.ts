@@ -9,6 +9,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { NEW_ACCOUNT_CODE_RE } from '@wise/core';
 import { accounts, audit, journalLines } from '@wise/db';
+import { missingVatAccounts } from '@/lib/parity-fin';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 
@@ -55,6 +56,48 @@ export async function deleteAccount(code: string): Promise<ActionState> {
   } catch (e) { return actionError(e); }
   revalidatePath('/konto');
   return { ok: 'Контото е избришано.' };
+}
+
+export async function addVatAccounts(): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const M = await missingVatAccounts(firm);
+    if (!M.length) return { ok: 'Сите ДДВ конта се во контниот план.' };
+    await db().transaction(async (tx) => {
+      for (const a of M) {
+        await tx.insert(accounts).values({ firmId: firm.id, code: a.code, name: a.name })
+          .onConflictDoUpdate({ target: [accounts.firmId, accounts.code], targetWhere: sql`${accounts.firmId} is not null`, set: { name: a.name, hidden: false } });
+      }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveAcc', entityType: 'account', entityId: M.map((a) => a.code).join(','), data: { vat: M } });
+    });
+    revalidatePath('/konto');
+    return { ok: `Додадени ${M.length} ДДВ конта.` };
+  } catch (e) { return actionError(e); }
+}
+
+/** Excel/CSV import of firm accounts (columns Конто, Назив): new analytic kontos or renamed ones. Needs `write`. */
+export async function importAccounts(rows: (string | number | null)[][]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const hi = rows.findIndex((r) => r.some((c) => /конто|konto|сметка/i.test(String(c ?? ''))));
+    const head = hi >= 0 ? rows[hi]!.map((c) => String(c ?? '').toLowerCase()) : [];
+    const cK = hi >= 0 ? head.findIndex((c) => /конто|konto|сметка/.test(c)) : 0;
+    const cN = hi >= 0 ? head.findIndex((c) => /назив|опис|name/.test(c)) : 1;
+    const L = rows.slice(hi + 1).map((r) => ({ code: String(r[cK] ?? '').replace(/\D/g, ''), name: String(r[cN < 0 ? 1 : cN] ?? '').trim() }))
+      .filter((r) => r.code && r.name);
+    const bad = L.find((r) => !NEW_ACCOUNT_CODE_RE.test(r.code));
+    if (bad) return { error: `Контото „${bad.code}“ не е валидно (3–8 цифри).` };
+    if (!L.length) return { error: 'Не се најдени редови со „Конто“ и „Назив“.' };
+    await db().transaction(async (tx) => {
+      for (const a of L) {
+        await tx.insert(accounts).values({ firmId: firm.id, code: a.code, name: a.name.slice(0, 300) })
+          .onConflictDoUpdate({ target: [accounts.firmId, accounts.code], targetWhere: sql`${accounts.firmId} is not null`, set: { name: a.name.slice(0, 300), hidden: false } });
+      }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'importAcc', entityType: 'account', data: { n: L.length } });
+    });
+    revalidatePath('/konto');
+    return { ok: `Увезени ${L.length} конта.` };
+  } catch (e) { return actionError(e); }
 }
 
 /** Drop the firm override of a built-in account (back to the standard name / visible again). */

@@ -76,6 +76,7 @@ export function itemOptions(L: LoadedStock, opts: { services?: boolean } = {}): 
       sp: Object.fromEntries(locs.map((w) => [w, retailPrice(it, w)])),
       have: Object.fromEntries(locs.map((w) => [w, stock(L.ctx, it.id, w).qty])),
       avg: stock(L.ctx, it.id).avg,
+      avgBy: Object.fromEntries(locs.map((w) => [w, stock(L.ctx, it.id, w).avg])),
     }))
     .sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, 'mk', { numeric: true }));
 }
