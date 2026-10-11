@@ -177,9 +177,11 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
               <option value="">— автоматски —</option>{AML_LEVELS.map((l: AmlLevel) => <option key={l} value={l}>{AML_LV[l][0]}</option>)}
             </select></label>
             <label className="f">Последна анализа<input name="lastReview" type="date" defaultValue={A.lastReview ?? ''} /></label>
-            <label className="chk"><input type="checkbox" name="reviewed" /> Анализата е направена денес</label>
+
           </div>
-          <div className="row"><button className="btn pri">Зачувај и пресметај ризик</button>
+          <div className="row savebar"><button className="btn pri">Зачувај и пресметај ризик</button>
+            <button className="btn" name="reviewed" value="on">✓ Анализата е обновена денес</button>
+            {(risk.level === 'high' || !!A.pep) && <button className="btn" name="mgrOk" value="on" title="Засилена анализа: потребно е одобрение од управителот">✓ Одобрение од управителот{A.mgrOk ? ` (${dmy(A.mgrOk)})` : ''}</button>}
             <a className="btn" href="/tpl">📄 Документи (Анализа на клиент, Изјава за ВС) – Шаблони</a></div>
         </ActionForm>
       ) : <div className="callout">Изберете фирма за анализа на клиентот.</div>}
@@ -187,7 +189,7 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
       <div className="card">
         <h2 style={{ fontSize: 15 }}>Преглед на клиенти</h2>
         <div className="tw"><table className="dense">
-          <thead><tr><th>Фирма</th><th>Ризик</th><th>Поени</th><th>Вистински сопственици</th><th>Последна</th><th>Следна</th></tr></thead>
+          <thead><tr><th>Фирма</th><th>Ризик</th><th>Поени</th><th>Вистински сопственици</th><th>Сигнали</th><th>Последна</th><th>Следна</th></tr></thead>
           <tbody>
             {F.map((f) => {
               const r = R.find((x) => x.firmId === f.id);
@@ -199,6 +201,7 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
                   <td>{lv ? <Pill c={AML_LV[lv][2]}>{AML_LV[lv][0]}</Pill> : <Pill c="warn">не е анализиран</Pill>}</td>
                   <td>{r?.score ?? ''}</td>
                   <td className="mini">{(d.bo ?? []).map((b) => `${b.name} ${maskEmbg(b.embg)}`).join('; ')}</td>
+                  <td className="mini">{[d.pep && 'PEP', d.hrc && 'високоризична земја', d.nonFace && 'без лично присуство', ...AML_IND.filter(([k]) => d.ind?.[k]).map(([, t]) => t)].filter(Boolean).join('; ') || '—'}</td>
                   <td>{dmy(r?.lastReview)}</td>
                   <td style={r?.nextReview && r.nextReview <= td ? { color: 'var(--bad)', fontWeight: 700 } : undefined}>{dmy(r?.nextReview)}</td>
                 </tr>

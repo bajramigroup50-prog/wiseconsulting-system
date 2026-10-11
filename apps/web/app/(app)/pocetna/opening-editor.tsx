@@ -234,7 +234,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="btn" onClick={() => setRows((R) => [...R, blank()])}>+ Ред</button>
         <button type="button" className="btn danger" disabled={busy} title="Ги брише сите ставки одеднаш" onClick={clearAll}>🗑 Избриши ги сите</button>
-        <button className="btn pri" disabled={pending || reading}>{full ? `Зачувај бруто биланс ${year}` : 'Зачувај почетна состојба'}</button>
+        <div className="savebar"><button className="btn pri" disabled={pending || reading}>{full ? `Зачувај бруто биланс ${year}` : 'Зачувај почетна состојба'}</button></div>
         <span className="note">
           {saved ? `${full ? 'Бруто билансот' : 'Почетната состојба'} за ${year} е зачувана (${saved} ставки). Со зачувување таа се заменува.`
             : `Сè уште нема ${full ? 'увезен бруто биланс' : 'почетна состојба'} за ${year}.`}

@@ -49,6 +49,8 @@ export interface AmlFile {
   lvOver?: AmlLevel | null;
   lastReview?: string | null;
   created?: string | null;
+  /** Legacy „✓ Одобрение од управителот“ (high risk / PEP): date of the management approval. */
+  mgrOk?: string | null;
 }
 
 /** Facts read from the books (legacy `amlAuto`). */

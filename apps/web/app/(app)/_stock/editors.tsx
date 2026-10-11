@@ -185,7 +185,7 @@ export function TransferEditor({ initial, items, locs, calcs = [], nextNo, round
       <p className="note">Магацинот се раздолжува по просечна набавна цена на денот; продавницата се задолжува по истата набавна вредност. Празна МПЦ = тековната цена во продавницата; внесената МПЦ станува нова цена на артиклот во продавницата.</p>
       <div className="row">
         <Link className="btn" href="/prenosi">Откажи</Link>
-        <button className="btn pri" disabled={pending}>Зачувај пренос</button>
+        <div className="savebar"><button className="btn pri" disabled={pending}>Зачувај пренос</button></div>
       </div>
     </form>
   );
@@ -238,7 +238,7 @@ export function LevellingEditor({ initial, items, locs }: { initial: LevellingDr
       </table></div>
       <div className="row">
         <Link className="btn" href="/nivel">Откажи</Link>
-        <button className="btn pri" disabled={pending}>Зачувај нивелација</button>
+        <div className="savebar"><button className="btn pri" disabled={pending}>Зачувај нивелација</button></div>
       </div>
     </form>
   );
@@ -295,7 +295,7 @@ export function CountEditor({ initial, items, locs, accounts }: { initial: Count
       <p className="note">{count ? 'Состојбата се пресметува на датумот на пописот; се зачувуваат само ставките со разлика. Кусокот се раздолжува по просечна набавна цена (Д конто за кусок / П залиха), вишокот се заведува по просечна цена (Д залиха / П конто за вишок).' : 'Отписот се раздолжува по просечна набавна цена: Д конто за отпис / П залиха.'}</p>
       <div className="row">
         <Link className="btn" href={'/m_izlez?t=' + d.kind}>Откажи</Link>
-        <button className="btn pri" disabled={pending}>Зачувај</button>
+        <div className="savebar"><button className="btn pri" disabled={pending}>Зачувај</button></div>
       </div>
     </form>
   );
@@ -346,7 +346,7 @@ export function PosCart({ items, locs, date, wh }: { items: ItemOpt[]; locs: Loc
       </table></div>
       <div className="row">
         <label className="f">Од тоа со картичка<input inputMode="decimal" value={card} onChange={(e) => setCard(e.target.value)} style={{ width: 120 }} /></label>
-        <button className="btn pri" disabled={pending || !cart.length}>Наплати и прокнижи</button>
+        <div className="savebar"><button className="btn pri" disabled={pending || !cart.length}>Наплати и прокнижи</button></div>
       </div>
     </form>
   );
@@ -431,7 +431,7 @@ export function FiskEditor({ initial, locs, schemes, nonVat, plan }: {
           <p className="note">FIFO/LIFO само избираат кои артикли се раздолжуваат; вредноста е секогаш по просечна набавна цена (една политика на вреднување).</p>
         </div>
       )}
-      <div className="row"><button className="btn pri" disabled={pending}>Прокнижи извештај</button></div>
+      <div className="row savebar"><button className="btn pri" disabled={pending}>Прокнижи извештај</button></div>
     </form>
   );
 }
@@ -509,7 +509,7 @@ export function BomEditor({ product, initial, items, labor0 }: { product: ItemOp
         {noMaterial && <div className="callout warn" style={{ width: '100%' }}>Во шифрарникот нема суровини (вид „Суровина / материјал“). Прво внесете ги – на пр. брашно, квасец, сол.</div>}
         <button type="button" className="btn" onClick={() => setLines((x) => [...x, { itemId: '', qty: '' }])}>+ Материјал</button>
         <label className="btn">Увоз од Excel (Шифра · Количина)<input type="file" hidden accept=".xlsx,.xls,.csv,.txt" onChange={(e) => { void imp(e.target.files?.[0]); e.target.value = ''; }} /></label>
-        <button className="btn pri" disabled={pending}>Зачувај норматив</button>
+        <div className="savebar"><button className="btn pri" disabled={pending}>Зачувај норматив</button></div>
       </div>
     </form>
   );

@@ -87,7 +87,7 @@ export function OrderEditor({ initial, items, partners }: { initial: OrderDraft;
           return { ...x, lines: [...x.lines, { itemId: it.id, name: it.name, unit: it.unit, qty: String(q), price: String(it.price), disc: pd ? String(pd) : '', rate: it.rate }] };
         })} />
       </div>
-      <div className="row" style={{ gap: 8 }}><span style={{ flex: 1 }} /><Link className="btn" href="/porachki">Затвори</Link><button className="btn pri" disabled={pending}>Зачувај</button></div>
+      <div className="row savebar" style={{ gap: 8 }}><span style={{ flex: 1 }} /><Link className="btn" href="/porachki">Затвори</Link><button className="btn pri" disabled={pending}>Зачувај</button></div>
     </form>
   );
 }
@@ -118,7 +118,7 @@ export function PoEditor({ initial, items, partners }: { initial: PoDraft; items
         ))}</tbody>
       </table>
       <Picker items={items.filter((i) => !i.service)} onPick={(it, q) => set({ lines: [...d.lines, { itemId: it.id, name: it.name, qty: String(q), price: it.last ?? 0 }] })} />
-      <div className="row" style={{ gap: 8, marginTop: 8 }}><span style={{ flex: 1 }} /><Link className="btn" href="/nabavki">← Листа</Link><button className="btn pri" disabled={pending}>Зачувај</button></div>
+      <div className="row savebar" style={{ gap: 8, marginTop: 8 }}><span style={{ flex: 1 }} /><Link className="btn" href="/nabavki">← Листа</Link><button className="btn pri" disabled={pending}>Зачувај</button></div>
       <p className="note">Нарачката до добавувач не се книжи. При прием на стоката внесете ја влезната фактура (Влез) и означете „Стоката е примена“.</p>
     </form>
   );

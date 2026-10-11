@@ -1,6 +1,6 @@
 'use server';
 import { revalidatePath } from 'next/cache';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { r2 } from '@wise/core';
 import { firstLastWorkingDay, isRecEvery, type RecItem } from '@wise/core/office';
 import { audit, issueDueRecurring, partners, recurringInvoices } from '@wise/db';
@@ -16,10 +16,12 @@ export async function saveRecurring(_p: ActionState, f: FormData): Promise<Actio
   try {
     const { u, firm } = await officeAction('office');
     const id = fv(f, 'id');
-    const partnerId = fv(f, 'partnerId');
-    if (!isUuid(partnerId)) return { error: 'Изберете купувач.' };
-    const [p] = await db().select({ id: partners.id }).from(partners).where(and(eq(partners.id, partnerId), eq(partners.firmId, firm.id))).limit(1);
-    if (!p) return { error: 'Купувачот не е од оваа фирма.' };
+    // legacy „👥 За повеќе комитенти“ (rbSave): the same definition for several customers, each with its own price
+    const bulk = f.getAll('bulkP').map(String).filter(isUuid);
+    const partnerId = bulk.length ? bulk[0]! : fv(f, 'partnerId');
+    if (!isUuid(partnerId)) return { error: 'Комитент, ставки и следна дата се задолжителни.' };
+    const PS = await db().select({ id: partners.id }).from(partners).where(and(inArray(partners.id, bulk.length ? bulk : [partnerId]), eq(partners.firmId, firm.id)));
+    if (PS.length !== (bulk.length || 1)) return { error: 'Купувачот не е од оваа фирма.' };
     const every = fv(f, 'every');
     if (!isRecEvery(every)) return { error: 'Изберете период.' };
     const dayS = fv(f, 'day') ?? '1';
@@ -30,7 +32,7 @@ export async function saveRecurring(_p: ActionState, f: FormData): Promise<Actio
       if (!name) continue;
       items.push({ name, qty: r2(Number(fv(f, `it${i}_qty`)?.replace(',', '.')) || 1), price: r2(Number(fv(f, `it${i}_price`)?.replace(',', '.')) || 0), vat: Number(fv(f, `it${i}_vat`)) || 0, unit: fv(f, `it${i}_unit`) ?? undefined });
     }
-    if (!items.length) return { error: 'Внесете барем една ставка.' };
+    if (!items.length) return { error: 'Комитент, ставки и следна дата се задолжителни.' };
     const next = fdate(f, 'next') ?? (day === 'L' ? firstLastWorkingDay(today()) : today());
     const v = {
       partnerId, every, day, next, end: fdate(f, 'end'), dueDays: Math.max(0, Math.round(Number(fv(f, 'dueDays')) || 0)), items,
@@ -42,12 +44,16 @@ export async function saveRecurring(_p: ActionState, f: FormData): Promise<Actio
         if (!r.length) throw new Error('Не постои.');
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'recSave', entityType: 'recurring_invoice', entityId: id, data: { next, every, day } });
       } else {
-        const [r] = await tx.insert(recurringInvoices).values({ ...v, firmId: firm.id, createdBy: u.id }).returning({ id: recurringInvoices.id });
-        await audit(tx, { userId: u.id, firmId: firm.id, action: 'recNew', entityType: 'recurring_invoice', entityId: r!.id, data: { next, every, day } });
+        for (const pid of bulk.length ? bulk : [partnerId]) {
+          const own = Number(String(f.get(`own_${pid}`) ?? '').replace(',', '.'));
+          const its = own > 0 ? items.map((x, k) => (k === 0 ? { ...x, price: r2(own) } : x)) : items;
+          const [r] = await tx.insert(recurringInvoices).values({ ...v, partnerId: pid, items: its, firmId: firm.id, createdBy: u.id }).returning({ id: recurringInvoices.id });
+          await audit(tx, { userId: u.id, firmId: firm.id, action: bulk.length ? 'rbSave' : 'recNew', entityType: 'recurring_invoice', entityId: r!.id, data: { next, every, day, own: own > 0 ? own : undefined } });
+        }
       }
     });
     revalidatePath('/periodicni');
-    return { ok: 'Зачувано.' };
+    return { ok: bulk.length ? `Зачувано за ${bulk.length} комитенти.` : 'Зачувано.' };
   } catch (e) { return officeError(e); }
 }
 
@@ -69,6 +75,6 @@ export async function runRecurring(): Promise<ActionState> {
     const { u, firm } = await officeAction('office');
     const r = await issueDueRecurring(db(), { firmId: firm.id, userId: u.id });
     revalidatePath('/periodicni');
-    return { ok: r.issued ? `Издадени ${r.issued} фактури (нацрт).` : 'Нема фактури за издавање денес.' };
+    return { ok: r.issued ? `Издадени ${r.issued} фактури (нацрт).` : 'Нема доспеани.' };
   } catch (e) { return officeError(e); }
 }

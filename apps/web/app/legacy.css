@@ -283,3 +283,7 @@ body.picking .mbar #nav,body.picking .topbar,body.picking #navMob{display:none!i
 @media print{.navbk{display:none}}
 .modtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
 @media print{.modtabs{display:none}}
+
+/* parity pass: long forms keep their save button in view (sticky at the bottom of the form) */
+.savebar{position:sticky;bottom:0;z-index:5;background:var(--panel);padding:8px 0;margin-top:8px;border-top:1px solid var(--line)}
+@media print{.savebar{display:none}}
