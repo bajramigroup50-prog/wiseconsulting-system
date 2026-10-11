@@ -259,8 +259,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       {review && (
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>Автоматско книжење – преглед ({review.length})</h2><Link className="btn" href={q({})}>Затвори</Link></div>
-          {review.length ? (
-            <BankForm action={applyMatchesAction}>
+          {/* the form stays mounted after „Прокнижи избраните“ so its result message is shown with the emptied review */}
+          <BankForm action={applyMatchesAction}>
+          {review.length ? (<>
               <div className="tw"><table className="dense">
                 <thead><tr><th></th><th>Датум</th><th>Опис</th><th className="n">Износ</th><th>Предлог</th><th>Комитент</th></tr></thead>
                 <tbody>{review.map((p) => (
@@ -275,8 +276,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                 ))}</tbody>
               </table></div>
               <div className="row"><span className="note">Редослед: POS картички, ДДВ, шифра на плаќање, девизни фактури, фактури по број / износ / збир, провизии, правила. Отштиклирајте ги погрешните.</span><span style={{ flex: 1 }} /><button className="btn pri">Прокнижи избраните</button></div>
-            </BankForm>
-          ) : <p className="note">Нема ставки за автоматско книжење – останатите прокнижете ги рачно (копче „Прокнижи…“).</p>}
+          </>) : <p className="note">Нема ставки за автоматско книжење – останатите прокнижете ги рачно (копче „Прокнижи…“).</p>}
+          </BankForm>
           <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
             {aiProps ? (aiProps.length ? (
               <BankForm action={applyBankClassifyAction}>
