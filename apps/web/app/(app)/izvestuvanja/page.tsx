@@ -12,7 +12,7 @@ import { autopilotFindings, autopilotRuns } from '@wise/db';
 import { db } from '@/lib/db';
 import { allowedFirms, officePage } from '@/lib/office';
 import { currentFirm } from '@/lib/context';
-import { AlSettings, AlVoiceButton } from '@/components/al-startup';
+import { AlSettings, AlVoiceButton } from '@/components/al-settings';
 import { FirmGo } from '@/components/firm-go';
 import { Hd, dmyHm } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
