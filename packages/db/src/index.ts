@@ -55,3 +55,4 @@ export * from './parity-stock';
 export * from './sales/partners-auto';
 export * from './sales/invoice-production';
 export * from './repost';
+export * from './firm-years';
