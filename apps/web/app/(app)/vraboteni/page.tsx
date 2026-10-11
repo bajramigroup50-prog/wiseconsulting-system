@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import { mkAccountValid, mpinEmpCodes, mpOpsName, payLeaveStats, stazFor } from '@wise/core';
-import { hrDocs, payrollEmp, payrollLines, payrollRuns } from '@wise/db';
+import { hrDocs, logPersonalDataAccess, payrollEmp, payrollLines, payrollRuns } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
@@ -29,6 +29,8 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
   const rows = all.filter((e) => (sp.all !== undefined || e.active) && (!q || `${e.no} ${e.name} ${e.embg} ${e.position}`.toLowerCase().includes(q)));
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const edit = sp.edit ? all.find((e) => e.id === sp.edit) : undefined;
+  // ЗЗЛП чл. 36: opening an employee's full personal file is logged (who / when / whose data)
+  if (edit) await db().transaction((tx) => logPersonalDataAccess(tx, { userId: u.id, firmId: firm.id, entityType: 'employee', entityId: edit.id, what: 'Досие на вработен (лични податоци)' }));
   const nextNo = String(Math.max(0, ...all.map((e) => parseInt(e.no ?? '') || 0)) + 1);
   const today = todayIso(), soon = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
 

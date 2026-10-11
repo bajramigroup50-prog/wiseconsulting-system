@@ -42,7 +42,9 @@ export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | '
   /** Partner from a ЦРМ „тековна состојба“ extract (legacy v404 `tkRead`, `FS_PROMPT`). */
   | 'tk'
   /** Filed annual account (БС / БУ) for years kept in another program (legacy `zmImport` PDF). */
-  | 'zm';
+  | 'zm'
+  /** Inspection record / decision → findings (compliance module, `KONTROLA_PROMPT`). */
+  | 'kontrola';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */

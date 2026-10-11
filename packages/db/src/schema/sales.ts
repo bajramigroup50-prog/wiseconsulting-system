@@ -55,6 +55,8 @@ export interface InvoiceData {
   grp1?: string; grp2?: string; costType?: string; placeFrom?: string; placeTo?: string; domestic?: string; repro?: string;
   parity?: string; pay1?: string; pay2?: string; pay3?: string; carrierId?: string; trailer?: string; loadDate?: string;
   unloadDate?: string; dAddr?: string; loadPlace?: string; vehicle?: string; driver?: string;
+  /** Cancelled (сторнирана) instead of deleted — retention lock, `deleteInvoice` (docs/legal/COMPLIANCE.md). `status` = status before. */
+  cancelled?: { at: string; by: string | null; reason: string; status: string };
   /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
   prodRun?: InvoiceProdState;
   /** Buyer as read from a scanned sales invoice (before a partner is chosen). */

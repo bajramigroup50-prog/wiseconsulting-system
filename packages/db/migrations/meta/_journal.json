@@ -155,6 +155,13 @@
       "when": 1791740021954,
       "tag": "0021_aml_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791742402472,
+      "tag": "0022_compliance",
+      "breakpoints": true
     }
   ]
 }

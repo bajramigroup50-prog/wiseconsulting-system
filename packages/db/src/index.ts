@@ -66,3 +66,4 @@ export * from './sales/invoice-production';
 export * from './repost';
 export * from './firm-years';
 export * from './ai-settings';
+export * from './compliance';

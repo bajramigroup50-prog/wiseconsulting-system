@@ -24,3 +24,4 @@ export * from './parity-industry';
 export * from './parity-finance';
 export * from './parity-retail';
 export * from './parity-firms';
+export * from './compliance';

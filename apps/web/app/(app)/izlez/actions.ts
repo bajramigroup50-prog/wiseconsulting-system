@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { isFuel } from '@wise/core/sales';
 import { z } from 'zod';
-import { aiDocuments, approveInvoice, audit, deleteInvoice, fileLinks, firms, items, markDraftSaved, saveInvoice } from '@wise/db';
+import { aiDocuments, approveInvoice, audit, deleteInvoice, fileLinks, firms, invoices, items, markDraftSaved, saveInvoice } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -95,10 +95,11 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
 export async function deleteInvoiceAction(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('del');
-    await db().transaction((tx) => deleteInvoice(tx, firm.id, id, actorOf(u)));
+    const r = await db().transaction((tx) => deleteInvoice(tx, firm.id, id, actorOf(u)));
+    revalidatePath('/', 'layout');
+    // retention lock: an issued invoice inside the series is cancelled (сторно) — it keeps its number
+    return { ok: r.cancelled ? 'Фактурата е издадена и не е последна по ред – сторнирана е (бројот се чува, книжењето е поништено).' : 'Документот е избришан.' };
   } catch (e) { return actionError(e); }
-  revalidatePath('/', 'layout');
-  return { ok: 'Документот е избришан.' };
 }
 
 /** Approve a client-submitted document and book it. */
@@ -164,11 +165,15 @@ export async function deleteInvoicesAction(ids: string[]): Promise<ActionState> 
     const { u, firm } = await firmAction('del');
     if (u.role !== 'admin') return { error: 'Бришење може само администраторот.' };
     const L = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 2000);
-    let n = 0;
-    for (const id of L) { try { await db().transaction((tx) => deleteInvoice(tx, firm.id, id, actorOf(u))); n++; } catch { /* locked / linked: skipped */ } }
-    await db().transaction((tx) => audit(tx, { userId: u.id, firmId: firm.id, action: 'bulkDelete', entityType: 'invoice', data: { text: `Масовно бришење (излез): ${n} од ${L.length}` } }));
+    let n = 0, c = 0;
+    // highest numbers first: each one is then the last of its series and is deleted, not cancelled (retention lock)
+    const ord = L.length ? await db().select({ id: invoices.id, date: invoices.date, number: invoices.number }).from(invoices).where(and(eq(invoices.firmId, firm.id), inArray(invoices.id, L))) : [];
+    const key = (x: { number: string }) => Number((/\d+/.exec(x.number) ?? ['0'])[0]);
+    ord.sort((a, b) => b.date.slice(0, 4).localeCompare(a.date.slice(0, 4)) || key(b) - key(a));
+    for (const { id } of ord) { try { const r = await db().transaction((tx) => deleteInvoice(tx, firm.id, id, actorOf(u))); if (r.cancelled) c++; else n++; } catch { /* locked / linked: skipped */ } }
+    await db().transaction((tx) => audit(tx, { userId: u.id, firmId: firm.id, action: 'bulkDelete', entityType: 'invoice', data: { text: `Масовно бришење (излез): ${n} избришани, ${c} сторнирани од ${L.length}` } }));
     revalidatePath('/', 'layout');
-    return { ok: 'Избришани ' + n + ' од ' + L.length + (n < L.length ? ' – останатите не може (заклучен период или поврзани документи).' : '.') };
+    return { ok: 'Избришани ' + n + (c ? `, сторнирани ${c} (издадени, не се последни по ред – бројот се чува)` : '') + ' од ' + L.length + (n + c < L.length ? ' – останатите не може (заклучен период или поврзани документи).' : '.') };
   } catch (e) { return actionError(e); }
 }
 

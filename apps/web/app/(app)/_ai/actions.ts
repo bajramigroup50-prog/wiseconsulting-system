@@ -18,6 +18,7 @@ const Start = z.object({
     'vreg',
     'rcdoc', 'rclic',
     'tk', 'zm',
+    'kontrola',
   ]),
   fileIds: z.array(z.uuid()).max(100).default([]),
   productId: z.uuid().optional(),

@@ -63,6 +63,8 @@ export const KL_SEC: readonly KlSection[] = [
   ['grdI', 'Градежништво – анализи', '📈', 'gradbaIzv', ['construct'], 'По објект и град, трошоци, наплата'],
   ['tura', 'Аранжмани и патници', '✈', 'tura', ['travel'], 'Патувања, пријави, уплати, договор за патување'],
   ['turI', 'Туристичка агенција – извештаи', '📈', 'turaIzv', ['travel'], 'Резултат по аранжман, ДДВ на маржа, аванси, поаѓања'],
+  // compliance module: the client sees only the inspections the office marked „видливо за клиентот“
+  ['kontroli', 'Инспекциски контроли и решенија', '🕵', 'kontroli', [], 'Записници, решенија, рокови и мерки – само ако канцеларијата го овозможи'],
 ];
 
 export const KL_BASEC: readonly string[] = ['docs', 'send', 'kdfi', 'metg'];
