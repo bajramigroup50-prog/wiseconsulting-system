@@ -31,7 +31,7 @@ export const NIV_TEMPLATE: readonly string[] = ['Шифра на произво�
 
 /** Legacy `nivImp`: the columns by header (шифра/баркод, нова, количина, стара; defaults 0–3), rows with a new price. */
 export function nivImport<I extends { id: string; code?: string | null; name: string; barcodes?: readonly string[] }>(A0: readonly (readonly unknown[])[], items: readonly I[]):
-  { rows: { item: I; nv: number; q: number; o: number }[]; miss: string[] } {
+  { rows: { item: I; nv: number; q: number; o: number }[]; miss: string[]; missRows: { code: string; nv: number; q: number; o: number }[] } {
   const A = A0.filter((r) => r && r.some((x) => String(x ?? '').trim()));
   const hi = A.findIndex((r) => r.some((x) => /шифра|code|šifra/i.test(String(x || ''))));
   const H = hi >= 0 ? A[hi]!.map((x) => String(x || '').toLowerCase()) : [];
@@ -45,12 +45,17 @@ export function nivImport<I extends { id: string; code?: string | null; name: st
   };
   const rows: { item: I; nv: number; q: number; o: number }[] = [];
   const miss: string[] = [];
+  const missRows: { code: string; nv: number; q: number; o: number }[] = [];
   for (const r of A.slice(hi + 1)) {
     const it = by(r[cC]);
     const nv = moNum(r[cN]);
-    if (!it) { if (String(r[cC] ?? '').trim()) miss.push(String(r[cC]).trim()); continue; }
+    if (!it) {
+      const c = String(r[cC] ?? '').trim();
+      if (c) { miss.push(c); missRows.push({ code: c, nv: moNum(r[cN]), q: moNum(r[cQ]), o: moNum(r[cO]) }); }
+      continue;
+    }
     if (!(nv > 0)) continue;
     rows.push({ item: it, nv, q: moNum(r[cQ]), o: moNum(r[cO]) });
   }
-  return { rows, miss };
+  return { rows, miss, missRows };
 }

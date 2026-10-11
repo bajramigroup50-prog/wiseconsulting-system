@@ -10,7 +10,7 @@ import * as Retail from '@wise/core/retail';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { downloadXlsx, readRows } from '../_retail/read-file';
-import { saveNivelAction } from './actions';
+import { createNivItemsAction, saveNivelAction } from './actions';
 
 export interface NivItem { id: string; code: string; name: string; unit: string; barcodes: string[]; have: Record<string, number>; sp: Record<string, number> }
 export interface NivDraft { id?: string; number?: string; date: string; wh: string; note: string; promoTo: string; prices: Record<string, string>; qty: Record<string, number>; old: Record<string, number> }
@@ -25,7 +25,11 @@ const iso = (v: string): string => {
   return Number.isNaN(new Date(x + 'T00:00:00').getTime()) ? '' : x;
 };
 
-export function NivelEditor({ initial, items, locs }: { initial: NivDraft; items: NivItem[]; locs: { id: string; name: string }[] }) {
+export function NivelEditor({ initial, items: items0, locs }: { initial: NivDraft; items: NivItem[]; locs: { id: string; name: string }[] }) {
+  const [extra, setExtra] = useState<NivItem[]>([]);
+  const items = useMemo(() => [...items0, ...extra], [items0, extra]);
+  const [missRows, setMissRows] = useState<{ code: string; nv: number; q: number; o: number }[]>([]);
+  const [mkBusy, setMkBusy] = useState(false);
   const [st, action, pending] = useActionState<ActionState, FormData>(saveNivelAction, {});
   const [d, setD] = useState(initial);
   const [dt, setDt] = useState(dmy(initial.date));
@@ -63,6 +67,7 @@ export function NivelEditor({ initial, items, locs }: { initial: NivDraft; items
       for (const x of r.rows) { P[x.item.id] = String(x.nv); if (x.q) Q[x.item.id] = x.q; if (x.o) O[x.item.id] = x.o; }
       set({ prices: P, qty: Q, old: O });
       setMiss(r.miss);
+      setMissRows(r.missRows);
       setMsg(`Увезени ${r.rows.length} артикли${r.miss.length ? ' · ' + r.miss.length + ' шифри не се пронајдени во шифрарникот' : ''}.`);
     } catch (e) { setMsg('Датотеката не може да се прочита: ' + (e instanceof Error ? e.message : String(e))); }
   };
@@ -72,16 +77,43 @@ export function NivelEditor({ initial, items, locs }: { initial: NivDraft; items
     set({ prices: { ...d.prices, [it.id]: d.prices[it.id] ?? '' } });
     setAdd('');
   };
+  const mk = async () => {
+    const M = [...new Map(missRows.map((r) => [r.code, r])).values()];
+    if (!M.length) return;
+    if (!window.confirm(`Да се креираат ${M.length} нови артикли со шифрите од Excel (назив „Артикл <шифра>“ – подоцна го менувате во Шифрарник)?`)) return;
+    setMkBusy(true);
+    try {
+      const r = await createNivItemsAction(d.wh, M.map((x) => ({ code: x.code, price: x.o || x.nv || 0 })));
+      if (r.error || !r.ids) { setMsg(r.error ?? 'Грешка.'); return; }
+      const N: NivItem[] = [];
+      const P = { ...d.prices }, Q = { ...d.qty }, O = { ...d.old };
+      for (const x of M) {
+        const id = r.ids[x.code];
+        if (!id) continue;
+        if (!items.some((i) => i.id === id)) N.push({ id, code: x.code, name: 'Артикл ' + x.code, unit: 'ком', barcodes: [], have: {}, sp: { [d.wh]: x.o || x.nv || 0 } });
+        if (x.nv > 0) P[id] = String(x.nv);
+        if (x.q) Q[id] = x.q;
+        if (x.o) O[id] = x.o;
+      }
+      setExtra((e) => [...e, ...N]);
+      set({ prices: P, qty: Q, old: O });
+      setMiss([]); setMissRows([]);
+      setMsg(r.ok ?? '');
+    } finally { setMkBusy(false); }
+  };
   const payload = {
     id: d.id ?? null, date: d.date, wh: d.wh, note: d.note, promoTo: d.promoTo || null,
     prices: Object.fromEntries(Object.entries(d.prices).filter(([, v]) => v !== '' && n(v) > 0).map(([k, v]) => [k, n(v)])),
     qty: d.qty, old: d.old,
   };
   return (
-    <form action={action}>
+    <form action={action} onSubmit={(e) => {
+      if (to && !iso(to)) { e.preventDefault(); setMsg('Датумот „Акција важи до“ не е точен (ДД.ММ.ГГГГ).'); return; }
+      if (pending) { e.preventDefault(); setMsg('Се зачувува… почекајте.'); }
+    }}>
       <input type="hidden" name="payload" value={JSON.stringify(payload)} />
       <div className="hd"><h1>Нивелација<span className="mk">промена на малопродажни цени</span></h1>
-        <div className="row"><Link className="btn" href="/nivel">Откажи</Link><button className="btn pri" disabled={pending}>Зачувај нивелација</button></div></div>
+        <div className="row"><Link className="btn" href="/nivel">Откажи</Link><button className="btn pri" disabled={pending}>{pending ? 'Се зачувува…' : 'Зачувај нивелација'}</button></div></div>
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
       <div className="card">
         {d.id && <div className="callout warn" style={{ marginBottom: 8 }}>✎ Корекција на нивелација <b>{d.number}</b> – по промената кликнете „Зачувај нивелација“. <Link className="btn sm" href="/nivel">Откажи корекција</Link></div>}
@@ -102,7 +134,7 @@ export function NivelEditor({ initial, items, locs }: { initial: NivDraft; items
           {!d.id && <label className="mini" style={{ marginLeft: 'auto' }}>Акција важи до (по избор)<input inputMode="numeric" placeholder="ДД.ММ.ГГГГ" value={to} style={{ width: 120, borderColor: to && !iso(to) ? 'var(--bad)' : undefined }}
             onChange={(e) => { const x = e.target.value.replace(/\D/g, ''); const v = /^\d+$/.test(e.target.value) && x.length === 8 ? `${x.slice(0, 2)}.${x.slice(2, 4)}.${x.slice(4)}` : e.target.value; setTo(v); set({ promoTo: iso(v) }); }} /></label>}
         </div>
-        {miss.length > 0 && <p className="note" style={{ color: 'var(--bad)' }}>Не се пронајдени во шифрарникот: {miss.slice(0, 30).join(', ')}{miss.length > 30 ? ' …' : ''} – додајте ги во Шифрарник → Производи и артикли и увезете повторно.</p>}
+        {miss.length > 0 && <p className="note" style={{ color: 'var(--bad)' }}>Не се пронајдени во шифрарникот: {miss.slice(0, 30).join(', ')}{miss.length > 30 ? ' …' : ''}  {missRows.length > 0 && <button type="button" className="btn sm" disabled={mkBusy} onClick={() => void mk()}>+ Креирај ги како нови артикли ({new Set(missRows.map((r) => r.code)).size})</button>}</p>}
         {!d.id && <p className="note">Со „Акција важи до“ програмата прави и втора нивелација на следниот ден со враќање на старата цена.</p>}
       </div>
       {msg && <div className="callout">{msg}</div>}

@@ -16,7 +16,7 @@ import {
 import { r2, r4 } from '@wise/core/stock/num';
 const fq = (x: number) => String(Math.round(x * 1000) / 1000).replace('.', ',');
 import { audit, type Tx } from './audit';
-import { coupons, firmDocs, firms, journalLines, journals, loyaltyCards, partners, salesDaily, storeOuts, type StoreOutLine } from './schema/index';
+import { coupons, firmDocs, firms, items, journalLines, journals, loyaltyCards, partners, salesDaily, storeOuts, type StoreOutLine } from './schema/index';
 import { assertOpenPeriod, postJournal } from './posting';
 import { StockDocError, ensurePosPartner, loadStockContext, removeSourceMoves, replaceSourceMoves, requireLocation, requireTracked, whId } from './stock-service';
 import { deleteSalesDay, posSell, retailDocNumber, saveSalesDay, type Actor } from './stock-docs';
@@ -256,6 +256,34 @@ export async function deleteStoreOut(tx: Tx, a: Actor, id: string): Promise<void
   if (row.salesDayId) await deleteSalesDay(tx, a, row.salesDayId);
   await tx.delete(storeOuts).where(eq(storeOuts.id, id));
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'moDel', entityType: 'store_out', entityId: id, data: { kind: row.kind, number: row.number, date: row.date } });
+}
+
+/* ================================================================== nivel: create the unknown codes of an import */
+
+/**
+ * Legacy `ACT.nivMk` (13221): the codes of a levelling import that are not in the codebook become goods
+ * „Артикл <шифра>“ (ком, VAT 18 % or 0 % outside VAT) with the store's retail price = the old price from the file (else
+ * the new one); an existing code is reused. Returns code → item id.
+ */
+export async function createLevellingItems(tx: Tx, a: Actor, x: { wh: string; rows: readonly { code: string; price: number }[] }): Promise<Record<string, string>> {
+  const L = await loadStockContext(tx, a.firmId);
+  const loc = requireLocation(L, x.wh);
+  const W = whId(loc);
+  const rate = L.settings.vatRegistered ? 18 : 0;
+  const out: Record<string, string> = {};
+  for (const r of x.rows) {
+    const code = String(r.code ?? '').trim();
+    if (!code || out[code]) continue;
+    const [ex] = await tx.select({ id: items.id }).from(items).where(and(eq(items.firmId, a.firmId), eq(items.code, code))).limit(1);
+    if (ex) { out[code] = ex.id; continue; }
+    const sp = r2(r.price || 0);
+    const [it] = await tx.insert(items).values({
+      firmId: a.firmId, code, name: 'Артикл ' + code, unit: 'ком', type: 'goods', vatRate: rate, price: String(r2(sp / (1 + rate / 100))), data: { sp: { [W]: sp } },
+    }).returning({ id: items.id });
+    out[code] = it!.id;
+  }
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'nivMk', entityType: 'item', data: { wh: W, codes: Object.keys(out) } });
+  return out;
 }
 
 export interface PosSaleResult { id: string; total: number; pay: number; disc: number; card?: { name: string; earn: number; red: number; points: number } }

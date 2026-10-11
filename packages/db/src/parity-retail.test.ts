@@ -13,7 +13,7 @@ import { seedReference } from './seed/reference';
 import { loadStockContext, replaceSourceMoves } from './stock-service';
 import type { Actor } from './stock-docs';
 import { saveCoupon, saveLoyaltyCard } from './retail';
-import { deleteStoreOut, posSaleWithLoyalty, postFiskRead, saveStoreOut } from './parity-retail';
+import { createLevellingItems, deleteStoreOut, posSaleWithLoyalty, postFiskRead, saveStoreOut } from './parity-retail';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -108,6 +108,16 @@ describe('retail stock-list import (m_lager)', () => {
     const L = await loadStockContext(db, firmId);
     expect(stock(L.ctx, it!.id, store).qty).toBe(12);
     expect(retailPrice(L.ctx.items!.find((x) => x.id === it!.id)!, store)).toBe(70);
+  });
+});
+
+describe('levelling import: create unknown codes (nivMk)', () => {
+  it('creates goods „Артикл <шифра>“ with the store price, reuses existing codes', async () => {
+    const store = (await db.insert(schema.codes).values({ firmId, cb: 'store', code: '08', name: 'Продавница 8' }).returning())[0]!.id;
+    const ids = await tx((t) => createLevellingItems(t, A, { wh: store, rows: [{ code: 'N1', price: 118 }, { code: '001', price: 50 }, { code: 'N1', price: 1 }] }));
+    expect(ids['001']).toBe(I['001']);
+    const [it] = await db.select().from(schema.items).where(eq(schema.items.id, ids['N1']!));
+    expect([it!.name, it!.unit, it!.vatRate, Number(it!.price), (it!.data as { sp: Record<string, number> }).sp[store]]).toEqual(['Артикл N1', 'ком', 18, 100, 118]);
   });
 });
 
