@@ -8,6 +8,7 @@ import {
   appointments, deleteDoc, firmApptConfig, invoiceAppointment, payApptAtTill, saveAppointment, saveDoc, saveIndustryConfig, setApptStatus, type ClientNote,
 } from '@wise/db';
 import { indRun, num, str, today } from '@/lib/industry';
+import { importClients } from '@wise/db';
 import { dispatchMail, queueMail, validAddresses } from '@/lib/mail';
 import type { FormState } from '@/components/bank-form';
 
@@ -66,4 +67,14 @@ export async function saveNoteAction(_p: FormState, f: FormData): Promise<FormSt
 }
 export async function deleteNoteAction(id: string): Promise<FormState> {
   return indRun('kcSave', P, async ({ tx, a }) => { await deleteDoc(tx, a, 'cnote', id); return 'Избришано.'; });
+}
+
+/** Clients / patients from Excel (partners matched by name / ЕДБ; birth date and note → client card). */
+export async function importClientsAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('apSaveB', ['/kartoni', '/termini', '/partneri'], async ({ tx, a }) => {
+    let rows: unknown = [];
+    try { rows = JSON.parse(String(f.get('rows') ?? '[]')); } catch { rows = []; }
+    const r = await importClients(tx, a, (Array.isArray(rows) ? rows : []).filter(Array.isArray) as (string | number | null)[][]);
+    return `Додадени ${r.added}, ажурирани ${r.updated}.${r.errors.length ? ' Грешки: ' + r.errors.slice(0, 5).join(' ') : ''}`;
+  });
 }

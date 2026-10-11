@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray } from 'drizzle-orm';
 import { r2 } from '@wise/core';
 import { firstLastWorkingDay, isRecEvery, type RecItem } from '@wise/core/office';
-import { audit, issueDueRecurring, partners, recurringInvoices } from '@wise/db';
+import { audit, importRecurring, issueDueRecurring, partners, recurringInvoices } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fdate, fv, isUuid, officeAction, officeError, today } from '@/lib/office';
@@ -76,5 +76,18 @@ export async function runRecurring(): Promise<ActionState> {
     const r = await issueDueRecurring(db(), { firmId: firm.id, userId: u.id });
     revalidatePath('/periodicni');
     return { ok: r.issued ? `Издадени ${r.issued} фактури (нацрт).` : 'Нема доспеани.' };
+  } catch (e) { return officeError(e); }
+}
+
+/** Recurring invoice definitions from Excel (one row = customer + one line; same customer / period rows merge). */
+export async function importRecurringAction(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await officeAction('office');
+    let rows: unknown = [];
+    try { rows = JSON.parse(String(f.get('rows') ?? '[]')); } catch { rows = []; }
+    const R = (Array.isArray(rows) ? rows : []).filter(Array.isArray) as (string | number | null)[][];
+    const r = await db().transaction((tx) => importRecurring(tx, { firmId: firm.id, userId: u.id, role: u.role }, R, today()));
+    revalidatePath('/periodicni');
+    return { ok: `Додадени ${r.added}, ажурирани ${r.updated}.${r.errors.length ? ' Грешки: ' + r.errors.slice(0, 5).join(' ') : ''}` };
   } catch (e) { return officeError(e); }
 }
