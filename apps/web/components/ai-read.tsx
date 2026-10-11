@@ -10,7 +10,8 @@ import { aiReadStatus, startAiRead, type AiReadState } from '@/app/(app)/_ai/act
 
 export interface AiReadDoc extends AiReadState { name: string; fileId: string | null }
 type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom' | 'cmp' | 'imp' | 'scr' | 'ob' | 'rec'
-  | 'vreg';
+  | 'vreg'
+  | 'rcdoc' | 'rclic';
 
 const pending = (d: { status: string }) => d.status === 'queued' || d.status === 'reading';
 

@@ -15,6 +15,7 @@ import { AI_RESULT_KIND_ACTION, dispatchAiReads, isAiInputError, isAiResultKind,
 const Start = z.object({
   kind: z.enum(['blg', 'emp', 'bank', 'fisk', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec',
     'vreg',
+    'rcdoc', 'rclic',
   ]),
   fileIds: z.array(z.uuid()).max(100).default([]),
   productId: z.uuid().optional(),

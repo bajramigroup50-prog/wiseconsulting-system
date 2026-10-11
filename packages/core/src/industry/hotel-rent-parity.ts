@@ -335,3 +335,45 @@ export function fleetImportRow(r: Record<string, string>) {
   for (const f of ['rDay', 'rWeek', 'rDep', 'rKm', 'rKmX'] as const) if (r[f] !== '' && r[f] != null) p[f] = hrImportNum(r[f]);
   return { plate, name: String(r.name ?? '').trim(), rClass: String(r.rClass ?? '').trim(), prices: p };
 }
+
+
+/* ---------------- rent-a-car: identity document / driving licence scan (legacy `RC_DOC_PROMPT`, `rcScanDoc` 11650) ---------------- */
+
+/** Legacy `RC_DOC_PROMPT` (verbatim). */
+export const RC_DOC_PROMPT = `You read an identity document photo/scan for a car-rental contract in North Macedonia. It can be a passport, a national ID card (front and/or back) or a driving licence; several images may be given (front/back, or passport + licence). Read the MRZ if present and cross-check it with the printed fields.
+Return ONLY JSON:
+{"docType":"passport|id|license","name":"Given names + Surname as printed (Latin or Cyrillic as printed)","birth":"YYYY-MM-DD","sex":"M|F|","nationality":"country name in Macedonian, e.g. Македонија, Албанија, Косово, Германија","embg":"personal number (ЕМБГ / Personal No.) or ''","docNo":"passport or ID number","docIssued":"YYYY-MM-DD or ''","docExp":"YYYY-MM-DD or ''","docIssuer":"issuing authority or ''","address":"address if printed (ID back) or ''",
+"lic":{"no":"driving licence number or ''","cat":"categories e.g. B, C1","issued":"YYYY-MM-DD (date of issue of category B if shown, else of the licence) or ''","exp":"YYYY-MM-DD or ''"}}
+Rules: dates as YYYY-MM-DD; MRZ dates are YYMMDD. If a field is not visible use ''. If only a driving licence is given, put docType "license" and fill lic plus name/birth.`;
+export const RC_DOC_PROMPT_LICENCE = RC_DOC_PROMPT + '\nThe user says this is a DRIVING LICENCE.';
+
+/** Legacy `rcIsoD`: `d.m.yyyy` / ISO → `YYYY-MM-DD`, else ''. */
+export const rcIsoDate = (v: unknown): string => {
+  const s = String(v ?? '').trim();
+  const m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/.exec(s);
+  return m ? `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}` : /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : '';
+};
+
+/**
+ * Legacy `rcScanDoc` apply: the fields read from a passport / ID card / driving licence (only non-empty values),
+ * and what was read for the status line („✓ Прочитано: …“).
+ */
+export function rcDocToDriver(r0: unknown, licence: boolean): { set: Record<string, string>; read: string[] } {
+  const r = ((Array.isArray(r0) ? r0[0] : r0) ?? {}) as Record<string, unknown>;
+  const L = (r.lic ?? {}) as Record<string, unknown>;
+  const set: Record<string, string> = {};
+  const read: string[] = [];
+  const put = (k: string, v: unknown) => { const s = String(v ?? '').trim(); if (s) set[k] = s; };
+  if (r.name) { put('name', r.name); read.push('име'); }
+  if (rcIsoDate(r.birth)) { set.birth = rcIsoDate(r.birth); read.push('датум на раѓање'); }
+  if (!licence && r.docType !== 'license') {
+    if (r.docNo) { put('doc', r.docNo); set.docType = r.docType === 'id' ? 'id' : 'passport'; read.push(set.docType === 'id' ? 'лична карта' : 'пасош'); }
+    if (rcIsoDate(r.docExp)) set.docExp = rcIsoDate(r.docExp);
+    put('docIss', r.docIssuer); put('nat', r.nationality); put('embg', r.embg); put('addr', r.address);
+  }
+  if (L.no) { put('lic', L.no); read.push('возачка'); }
+  put('licCat', L.cat);
+  if (rcIsoDate(L.issued)) set.licFrom = rcIsoDate(L.issued);
+  if (rcIsoDate(L.exp)) set.licExp = rcIsoDate(L.exp);
+  return { set, read };
+}
