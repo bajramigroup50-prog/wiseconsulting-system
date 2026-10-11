@@ -2,7 +2,7 @@
 /** Legacy rent-a-car ACT (9809, 11715) and fleet / settings (`rcFleetSave` 9840, `rcCfgSave` 9841). */
 import { redirect } from 'next/navigation';
 import {
-  cancelRental, handOut, importFleetFromAssets, invoiceRental, receiveDeposit, returnVehicle, saveIndustryConfig, saveRental, saveVehicle, settleDeposit,
+  cancelRental, handOut, importFleetFromAssets, importFleetPrices, invoiceRental, receiveDeposit, returnVehicle, saveIndustryConfig, saveRental, saveVehicle, settleDeposit,
 } from '@wise/db';
 import { indRun, nowLocal, num, nz, rows, str, today } from '@/lib/industry';
 import { markAiReadsSaved } from '@/lib/ai';
@@ -98,5 +98,14 @@ export async function saveRentConfigAction(_p: FormState, f: FormData): Promise<
       minAge: num(f.get('minAge')) ?? 0, minLic: num(f.get('minLic')) ?? 0, sPct: num(f.get('sPct')) ?? 0, sFrom: str(f.get('sFrom')) || '06-15', sTo: str(f.get('sTo')) || '09-15', terms: String(f.get('terms') ?? ''),
     });
     return 'Поставките се зачувани.';
+  });
+}
+
+/** Legacy dig bar `DIG.fleet` — rent prices of the fleet from Excel (plate, vehicle, class, prices, deposit, km). */
+export async function importFleetPricesAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('rcFleetSave', P, async ({ tx, a }) => {
+    let rows: unknown = [];
+    try { rows = JSON.parse(str(f.get('rows')) || '[]'); } catch { rows = []; }
+    return importFleetPrices(tx, a, (Array.isArray(rows) ? rows : []).filter(Array.isArray) as unknown[][]);
   });
 }
