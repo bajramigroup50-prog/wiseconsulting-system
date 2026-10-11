@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   if (!u) return new Response(null, { status: 401 });
   const b = (await req.json().catch(() => null)) as { msg?: unknown; stack?: unknown; src?: unknown; view?: unknown; digest?: unknown } | null;
   if (!b || typeof b.msg !== 'string') return new Response(null, { status: 400 });
-  const firm = await currentFirm(u).catch(() => null);
+  const firm = await currentFirm(u, { check: false }).catch(() => null);
   await recordError(db(), {
     msg: b.msg, stack: typeof b.stack === 'string' ? b.stack : null, src: typeof b.src === 'string' ? b.src : 'render',
     view: typeof b.view === 'string' ? b.view : null, digest: typeof b.digest === 'string' ? b.digest : null,

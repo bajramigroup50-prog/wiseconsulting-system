@@ -17,7 +17,7 @@ import {
 } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { LawHome } from './zakoni/law-home';
-import { currentFirm, currentYear, firmYearCallout } from '@/lib/context';
+import { calendarYear, currentFirm, currentYear, firmYearCallout, yearChosen } from '@/lib/context';
 import { acctMonths, cashKontos, stockSummary } from '@/lib/dash';
 import { db } from '@/lib/db';
 import { invoicesWithPayments, partnerNames, purchasesWithPayments } from '@/lib/firms-office';
@@ -31,6 +31,7 @@ import { AinbHeroChip } from '@/components/ainb';
 import { BarChart, HBars, LineChart, Spark } from '@/components/dash-charts';
 import { FirmGo } from '@/components/firm-go';
 import { FirmPicker } from '@/components/firm-picker';
+import { YearPicker } from '@/components/year-picker';
 import { PdfButton } from '@/components/pdf-button';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
 
@@ -73,11 +74,15 @@ function Tile({ lab, val, sub, sp, col, ic, tn }: { lab: string; val: string; su
 
 async function safe<T>(p: Promise<T>, d: T): Promise<T> { try { return await p; } catch { return d; } }
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ per?: string }> }) {
+export default async function Home({ searchParams }: { searchParams: Promise<{ per?: string; godina?: string }> }) {
   const u = await requireUser();
   if (u.role === 'klient') redirect('/klHome');
   if (u.role === 'teren') redirect('/mojzad');
-  const [f, year] = await Promise.all([currentFirm(u), currentYear()]);
+  const [f, year, chosen] = await Promise.all([currentFirm(u), currentYear(), yearChosen()]);
+  const sp = await searchParams;
+  // after the login: username + password → the YEAR (own screen, default the calendar year) → the firm list of that
+  // year → the firm. „Промени година“ (firm list, warning strip) comes back here.
+  if (!chosen || sp.godina != null) return <YearPicker year={year} calendar={calendarYear()} chosen={chosen} user={u.name} />;
   const td = today();
   // a firm outside the selected year (the layout shows „Фирмата не е активна во …“): the picker of that year instead of its dashboard
   if (!f || await firmYearCallout(f, year)) {
@@ -85,7 +90,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     const [P, O] = await Promise.all([pickerFirms(u), getOfficeProfile(db()).catch(() => ({ name: '' }))]);
     return <FirmPicker rows={P.rows} canNew={can(u.principal, 'newFirm')} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} year={year} />;
   }
-  const sp = await searchParams;
   const P = isDashPer(sp.per) ? sp.per : 'year';
   const rg = dashRange(year, P, td);
   const per = f.vatPeriod === 'month' ? 'month' : 'quarter';

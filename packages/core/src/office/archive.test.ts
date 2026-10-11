@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { archFileLabel, archFilter, archKinds, archXlsxRows, type ArchRow } from './archive';
+import { archFileLabel, archPreviewKind, archFilter, archKinds, archXlsxRows, type ArchRow } from './archive';
 
 const R: ArchRow[] = [
   { key: 'purchase:1', date: '2026-03-01', kind: 'Влезна фактура', no: '12', pn: 'Алфа', amt: '1180.00', files: [{ id: 'a', name: 'f12.pdf', mime: 'application/pdf' }] },
@@ -23,5 +23,13 @@ describe('archive (legacy archRows / arhiva)', () => {
   it('file labels', () => {
     expect(archFileLabel(R[0]!.files[0]!)).toBe('PDF · f12.pdf');
     expect(archFileLabel(R[1]!.files[0]!)).toBe('Слика · res.jpg');
+  });
+  it('preview kind: PDF / text in a frame, images inline, office files only open / download', () => {
+    expect(archPreviewKind('application/pdf')).toBe('frame');
+    expect(archPreviewKind('application/octet-stream', 'izvod.PDF')).toBe('frame');
+    expect(archPreviewKind('text/csv')).toBe('frame');
+    expect(archPreviewKind('image/jpeg')).toBe('img');
+    expect(archPreviewKind('image/tiff')).toBe('none');
+    expect(archPreviewKind('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x.xlsx')).toBe('none');
   });
 });

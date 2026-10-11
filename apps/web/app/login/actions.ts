@@ -32,7 +32,7 @@ export async function login(_prev: string, form: FormData): Promise<string> {
     }).where(eq(users.id, u.id));
     await audit(tx, { userId: u.id, action: 'login', data: res.rehash ? { rehashed: true } : undefined });
   });
-  await createSession(u.id, form.get('remember') === 'on');
+  await createSession(u.id);
   redirect(u.mustChangePassword ? '/lozinka' : '/');
 }
 
