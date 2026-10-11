@@ -18,8 +18,9 @@ import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { BankForm } from '@/components/bank-form';
 import { ExportBar } from '@/components/parity-fin/export-bar';
-import { deleteJournalAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
+import { deleteJournalAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
 import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
@@ -232,7 +233,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       </Hd>
       {dups.length > 0 && (
         <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <span><b>Дупликати:</b> {dups.reduce((s, d) => s + d.n - 1, 0)} влезни фактури се внесени двапати (ист број и датум: {[...new Set(dups.map((d) => d.number))].slice(0, 5).join(', ')}).</span>
+          <span><b>Дупликати:</b> {dups.reduce((s, d) => s + d.n - 1, 0)} влезни фактури се внесени двапати (ист број и датум: {[...new Set(dups.map((d) => d.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната, а старите се бришат заедно со налогот.</span>
           <Link className="btn danger" href="/vlez">Прегледај ги во „Влезни фактури“</Link>
         </div>
       )}
@@ -240,7 +241,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         <div className="hd">
           <h2>Преглед на финансови налози за книжење</h2>
           <div className="row">
-            {settingsOk && <Link className="btn sm" href={sp.cfg !== undefined ? '/nalozi' : '/nalozi?cfg'}>Нумерирање и шифри…</Link>}
+            {settingsOk && <Link className="btn sm" href={sp.cfg !== undefined ? '/nalozi' : '/nalozi?cfg'}>Шифри на налози…</Link>}
+            {write && <BankForm action={nalFixAllAction} className="row"><button className="btn sm" title="Броевите на налозите повеќе не се менуваат ако подоцна се внесе документ со постар датум">🔒 Фиксирај броеви</button></BankForm>}
             {firm.lockDate && <span className="pill">🔒 заклучено до {dmy(firm.lockDate)}</span>}
           </div>
         </div>
@@ -262,7 +264,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             {banks.length > 0 && (
               <form action={saveBankNalCodes} className="row" style={{ gap: '8px 16px', marginBottom: 10, flexWrap: 'wrap', alignItems: 'end' }}>
                 {banks.map((b) => <label className="mini" key={b.id}>изводи {b.name} <input name={'bc_' + b.id} defaultValue={b.nal ?? ''} placeholder={bankNalCode(b.id, S.banks)} style={{ width: 70 }} /></label>)}
-                <button className="btn sm pri">Зачувај шифри на изводи</button>
+                <button className="btn sm pri">Зачувај шифри</button>
               </form>
             )}
           </>

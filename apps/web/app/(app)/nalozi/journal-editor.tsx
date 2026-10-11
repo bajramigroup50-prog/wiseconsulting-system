@@ -107,7 +107,7 @@ export function JournalEditor({ initial, chart, partners, numbers, schemes = [] 
             <input inputMode="decimal" value={schAmt} onChange={(e) => setSchAmt(e.target.value)} placeholder="износ" style={{ width: 120, textAlign: 'right' }} />
             <button type="button" className="btn pri" onClick={() => {
               const c = schemes[sch]; const a = Number(schAmt.replace(',', '.'));
-              if (!c || !(a > 0)) return;
+              if (!c || !(a > 0)) { window.alert('Изберете шема и внесете износ.'); return; }
               const R = applyCustomScheme(c, a).map((r) => ({ ...blank(r.account), debit: r.debit ? String(r.debit) : '', credit: r.credit ? String(r.credit) : '', note: r.note }));
               set({ rows: R, description: j.description || c.name });
             }}>Пополни</button>

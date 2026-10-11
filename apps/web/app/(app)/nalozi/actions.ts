@@ -143,7 +143,7 @@ export async function saveOverrideAction(journalId: string, rows: unknown): Prom
     const bad = R.data.find((r) => !r.del && (r.debit || r.credit) && !/^\d{3,8}$/.test(r.account));
     if (bad) return { error: `Неважечко конто „${bad.account}“.` };
     const np = R.data.find((r) => !r.del && (r.debit || r.credit) && needsPartner(r.account) && !r.partnerId);
-    if (np) return { error: `Конто ${np.account} бара комитент.` };
+    if (np) return { error: `Новите ставки на конто ${[...new Set(R.data.filter((r) => !r.del && (r.debit || r.credit) && needsPartner(r.account) && !r.partnerId).map((r) => r.account))].join(', ')} бараат комитент – изберете го во колоната „Комитент“.` };
     const res = await db().transaction((tx) => saveJournalOverride(tx, { firmId: firm.id, journalId, rows: R.data, userId: u.id }));
     target = res.number;
   } catch (e) { return actionError(e); }
@@ -159,6 +159,15 @@ export async function resetOverrideAction(journalId: string): Promise<ActionStat
   } catch (e) { return actionError(e); }
   revalidatePath('/nalozi');
   return { ok: 'Налогот е вратен како во документот.' };
+}
+
+/**
+ * Legacy „🔒 Фиксирај броеви“ (`nalFixAll` 7335). Here every nalog number is stored when it is posted and never moves
+ * when an older document is entered later, so there is nothing left to fix.
+ */
+export async function nalFixAllAction(_p?: ActionState, _f?: FormData): Promise<ActionState> {
+  await firmAction('write');
+  return { ok: 'Сите броеви се веќе фиксирани.' };
 }
 
 /** Legacy „Шифри на налози“ per bank (`data-nb`, `saveNalCodes` 7183): nalog code of each bank account's statements. */
