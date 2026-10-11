@@ -23,6 +23,8 @@ export interface ArchRow {
   archId?: string;
   /** Journal number of the document (legacy `nalogMap`). */
   nalog?: string;
+  /** Server addition: a file attached to nothing (`file:<id>` row) — may be deleted or moved to another firm. */
+  loose?: boolean;
 }
 
 export interface ArchFilter { q?: string; kind?: string; from?: string; to?: string; year?: number }
@@ -57,4 +59,9 @@ export function archXlsxRows(R: readonly ArchRow[]): (string | number)[][] {
 }
 
 /** Label of a file button (legacy: PDF / Слика / Датотека · first 26 characters). */
+/** How the in-page viewer shows a file: PDF / text in a frame, images inline, anything else only open / download. */
+export const archPreviewKind = (mime: string, name = ''): 'frame' | 'img' | 'none' =>
+  /^image\//.test(mime) && !/tiff/.test(mime) ? 'img'
+    : /pdf|^text\/|^application\/(xml|json)$/.test(mime) || /\.(pdf|txt|csv|xml)$/i.test(name) ? 'frame' : 'none';
+
 export const archFileLabel = (f: ArchFile) => `${/pdf/.test(f.mime) ? 'PDF' : /image/.test(f.mime) ? 'Слика' : 'Датотека'} · ${f.name.slice(0, 26)}`;

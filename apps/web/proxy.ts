@@ -9,17 +9,29 @@ import { and, eq, gt } from 'drizzle-orm';
 import { getDb, sessions, users } from '@wise/db';
 import { firmKlientViews, klientViews } from './lib/kl-views';
 import { PREVIEW_COOKIE, isGuardRole, previewVerdict, publicPath, routeVerdict } from './lib/route-guard';
+import { FIRM_MISMATCH_HEADER, staleTab } from './lib/firm-guard';
 
 const SESSION_COOKIE = 'wc_sess';
 const FIRM_COOKIE = 'wc_fid';
+const ABSOLUTE_MS = 8 * 36e5; // = lib/auth.ts
 
 export async function proxy(req: NextRequest) {
+  const res = await route(req);
+  // tab / window guard signal: a mutation from a page of another firm / year → that tab shows „освежете ја страницата“
+  // (the refusal itself is in `currentFirm` / `currentYear`)
+  const stale = staleTab(req.method, (h) => req.headers.get(h), (c) => req.cookies.get(c)?.value);
+  if (stale) res.headers.set(FIRM_MISMATCH_HEADER, stale);
+  return res;
+}
+
+async function route(req: NextRequest): Promise<NextResponse> {
   const p = req.nextUrl.pathname;
   if (publicPath(p)) return NextResponse.next();
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return NextResponse.next();
   const [u] = await getDb().select({ id: users.id, role: users.role }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
-    .where(and(eq(sessions.id, createHash('sha256').update(token).digest('hex')), gt(sessions.expiresAt, new Date()), eq(users.active, true))).limit(1);
+    .where(and(eq(sessions.id, createHash('sha256').update(token).digest('hex')), gt(sessions.expiresAt, new Date()),
+      gt(sessions.createdAt, new Date(Date.now() - ABSOLUTE_MS)), eq(users.active, true))).limit(1);
   if (!u) return NextResponse.next();
   if (!isGuardRole(u.role)) {
     // legacy `S.asClient`: an office user previewing the client portal of the current firm sees only its sections

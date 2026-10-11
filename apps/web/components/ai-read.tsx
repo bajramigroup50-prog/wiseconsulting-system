@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { AI_ERR_FREE, aiErrCodeOf } from '@wise/core/ai/errors';
 import { uploadFile } from '@/lib/upload';
+import { UploadTarget } from '@/components/firm-guard';
 import { aiReadStatus, retryAiRead, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
 
 export interface AiReadDoc extends AiReadState { name: string; fileId: string | null }
@@ -85,6 +86,7 @@ export function AiDrop({ onFiles, label, disabled, multiple = true, small, text 
   const [on, setOn] = useState(false);
   return (
     <>
+      <UploadTarget compact={small} />
       <label className={'drop' + (small ? ' drop-sm' : '') + (on ? ' on' : '')} style={{ display: 'block', cursor: disabled ? 'progress' : 'pointer' }}
         onDragOver={(e) => { e.preventDefault(); setOn(true); }} onDragLeave={() => setOn(false)}
         onDrop={(e) => { e.preventDefault(); setOn(false); if (!disabled) onFiles([...e.dataTransfer.files]); }}

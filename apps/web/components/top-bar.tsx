@@ -9,6 +9,7 @@ import { useState, useTransition } from 'react';
 import { ROLES, type Role } from '@wise/core';
 import { alBellState } from '@wise/core/firms/picker';
 import { hrefFor, navFlat, type NavGroup } from '@/lib/nav';
+import { yearSwitchQuestion } from '@/lib/firm-guard';
 import { logout } from '@/app/login/actions';
 import { selectFirm, setYear } from '@/app/(app)/actions';
 import { Robot, RobotCss } from '@/app/(app)/zakoni/robot';
@@ -78,7 +79,13 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
       {!teren && <>
         <label htmlFor="yearSel" className="meta">Година</label>
         <select id="yearSel" style={{ width: 'auto' }} value={year}
-          onChange={(e) => start(() => setYear(Number(e.target.value)))}>
+          title="Работна година – промената се потврдува"
+          onChange={(e) => {
+            // never silently (a year chosen by accident sent the entries into the wrong year): confirm first
+            const v = Number(e.target.value);
+            if (v === year || !window.confirm(yearSwitchQuestion(v))) { e.target.value = String(year); return; }
+            start(() => setYear(v));
+          }}>
           {years.map((v) => <option key={v}>{v}</option>)}
         </select>
       </>}

@@ -12,9 +12,10 @@ export function LoginForm() {
       <label className="f">Лозинка
         <input name="password" type="password" required autoComplete="current-password" />
       </label>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
-        <input type="checkbox" name="remember" style={{ width: 'auto' }} /> Запамети ме на овој уред (30 дена)
-      </label>
+      <p className="note" style={{ margin: 0, fontSize: 12 }}>
+        Од безбедносни причини најавата завршува кога ќе се затвори програмата / прелистувачот, по 60 минути без активност
+        и најдоцна по 8 часа.
+      </p>
       <div className="note" style={{ color: 'var(--bad)', minHeight: 18 }} role="alert">{err}</div>
       <button className="btn pri" type="submit" disabled={pending} style={{ width: '100%', justifyContent: 'center' }}>
         Најави се

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 import { fmt, dmy } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
+import { UploadTarget } from '@/components/firm-guard';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
 import { previewImportAction, saveImportAction, type PreviewResult } from './actions';
 
@@ -104,6 +105,8 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
   return (
     <div>
       <h2>Увоз на извод од е-банкарство</h2>
+      {/* where the statements go — always in view (statements imported into the wrong firm) */}
+      <UploadTarget />
       <p className="note">Секој формат што го нуди банката: <b>XML</b> (Халк, ISO camt.053), <b>MT940</b>, <b>Комерцијална .300</b>, <b>Excel</b>, <b>CSV/TXT</b>,
         а и <b>PDF извод или слика / скен</b> – се чита автоматски со AI (10–60 секунди).
         Најцелосен е XML од е-банкарството (комитент, цел на дознака, шифра, денарска противвредност, салда).

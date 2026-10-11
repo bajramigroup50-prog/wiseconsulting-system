@@ -6,7 +6,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ticked = (g: string) => [...document.querySelectorAll<HTMLInputElement>(`input[data-sel-g="${g}"]:checked`)].map((x) => x.value);
+export const ticked = (g: string) => [...document.querySelectorAll<HTMLInputElement>(`input[data-sel-g="${g}"]:checked`)].map((x) => x.value);
 
 export function SelAll({ group = 'r' }: { group?: string }) {
   return <input type="checkbox" aria-label="Избери ги сите" title="Избери ги сите" onChange={(e) => {
