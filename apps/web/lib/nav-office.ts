@@ -9,7 +9,7 @@ import type { NavGroup, NavItem } from './nav-data';
 const ADD: [string, string | null, NavItem[]][] = [
   ['Канцеларија', null, [['autop', '🤖 Автопилот']]],
   ['Канцеларија', 'osnovanje', [['tpl', '📄 Шаблони'], ['aml', '🛡 Спречување перење пари (УФР)'], ['zzlp', '🔐 Заштита на лични податоци (ЗЗЛП)']]],
-  ['Фирми', 'zatvoranje', [['insp', '🕵 Подготвеност за инспекција']]],
+  ['Фирми', 'zatvoranje', [['insp', '🕵 Подготвеност за инспекција'], ['zakon', '⚖ Законска усогласеност'], ['kontroli', '📑 Контроли и решенија (анализа)']]],
 ];
 
 export function addOfficeNav(nav: readonly NavGroup[]): readonly NavGroup[] {

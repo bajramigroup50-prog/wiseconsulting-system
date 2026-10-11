@@ -17,6 +17,7 @@ export const AI_RESULT_KIND_ACTION = { blg: 'blgSave', emp: 'write', bank: 'writ
   vreg: 'cvSave',
   rcdoc: 'rcSaveB', rclic: 'rcSaveB',
   tk: 'write', zm: 'write',
+  kontrola: 'office',
 } as const;
 export type AiResultKind = keyof typeof AI_RESULT_KIND_ACTION;
 export const isAiResultKind = (k: unknown): k is AiResultKind => typeof k === 'string' && k in AI_RESULT_KIND_ACTION;

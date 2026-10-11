@@ -15,6 +15,8 @@ import {
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
 import { checkCredit, invoiceTotals, nextDocNumber, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
+import { blockingIssues, deletionVerdict, invoiceLegalIssues, isLastInSeries, numberGapWarning } from '@wise/core/compliance';
+import { todaySkopje } from '@wise/core/office/dates';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource, type PostLineInput } from '../posting';
 import {
@@ -241,6 +243,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   if (input.id && !existing) throw new DocumentError('Документот не постои.');
   if (existing && existing.kind !== input.kind) throw new DocumentError('Видот на документот не може да се менува.');
   if (existing && existing.status === 'posted' && pendingFor(actor)) throw new DocumentError('Прокнижен документ не може да се менува од порталот.');
+  if (existing && isCancelled(existing)) throw new DocumentError(CANCELLED_MSG);
   const kind = input.kind;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new DocumentError('Неважечки датум.');
   if (!input.partnerId) throw new DocumentError('Изберете купувач.');
@@ -285,6 +288,10 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     renumbered = !!number;
     number = nextDocNumber(used, yearOf(input.date));
     if (renumbered) warnings.push(`Бројот ${input.number} веќе постои – доделен е следниот: ${number}.`);
+  } else if ((kind === 'invoice' || kind === 'credit') && number !== existing?.number) {
+    // ЗДДВ чл. 53 ст. 10 т. 1 + professional standard: a typed number must not skip the sequence (docs/legal/COMPLIANCE.md)
+    const gw = numberGapWarning(used.map((u) => ({ number: u, date: input.date })), number, input.date);
+    if (gw) warnings.push(`⚖ ${gw}`);
   }
 
   // Credit note against its invoice (legacy crCheck).
@@ -353,6 +360,12 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
 
   if (status === 'posted') warnings.push(...(await postInvoice(tx, f, inv, actor.userId)));
   else await unpostInvoice(tx, firmId, inv, actor.userId);
+  // mandatory elements (ЗДДВ чл. 53): the document is saved, but printing as final and e-mailing are blocked until fixed
+  const blk = blockingIssues(invoiceLegalIssues({
+    kind, number, date: inv.date, pdate: inv.pdate, art32, export: isExport, advance: inv.advance, note: inv.note, ref: kind === 'credit' ? { number: '', date: '' } : null,
+    firm: f, partner: p, lines, today: todaySkopje(),
+  }));
+  if (blk.length) warnings.push(`⚖ Фактурата не ги содржи сите задолжителни елементи (ЗДДВ чл. 53) – не може да се испрати додека не се дополни: ${blk.map((i) => i.text).join(' ')}`);
 
   if (inv.fromDocId && kind === 'invoice') {
     await tx.update(invoices).set({ invoicedId: inv.id }).where(and(eq(invoices.id, inv.fromDocId), eq(invoices.firmId, firmId)));
@@ -370,6 +383,7 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
   const f = await loadFirmForUpdate(tx, firmId);
   const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
   if (!inv) throw new DocumentError('Документот не постои.');
+  if (isCancelled(inv)) throw new DocumentError(CANCELLED_MSG);
   if (inv.status !== 'pending' && !(inv.status === 'draft' && inv.kind === 'invoice')) throw new DocumentError('Документот не чека одобрување.');
   let [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
   const plan = ((u!.data ?? {}) as InvoiceData).prodRun;
@@ -384,8 +398,19 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
   return w;
 }
 
-/** Delete a document with its journals and stock moves (legacy `delDoc`, guards of `delOk`). */
-export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: DocActor): Promise<void> {
+/** Marker of a cancelled (сторнирана) invoice: kept with its number and lines, status `draft`, no journal, no stock. */
+export const isCancelled = (i: Pick<Invoice, 'data'>): boolean => !!((i.data ?? {}) as InvoiceData).cancelled;
+const CANCELLED_MSG = 'Фактурата е сторнирана – се чува со својот број и не може да се менува (ЗДП чл. 48). Издадете нова фактура.';
+
+/**
+ * Delete a document with its journals and stock moves (legacy `delDoc`, guards of `delOk`).
+ *
+ * Retention lock (docs/legal/COMPLIANCE.md § Чување): an issued invoice / credit note that is NOT the last number of
+ * its kind and year is not deleted but cancelled (сторно): the row, its number and lines stay, the journal and the
+ * stock moves are reversed, `data.cancelled` records who / when / why, and the audit row is `cancelDoc`.
+ * Drafts, client entries awaiting approval, proformas, dispatch notes and the last number are deleted as before.
+ */
+export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: DocActor, reason?: string): Promise<{ cancelled: boolean }> {
   await loadFirmForUpdate(tx, firmId);
   const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firmId))).for('update').limit(1);
   if (!inv) throw new DocumentError('Документот не постои.');
@@ -399,12 +424,28 @@ export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: D
   }
   const [ad] = await tx.select({ id: invoiceAdvances.invoiceId }).from(invoiceAdvances).where(eq(invoiceAdvances.advanceId, id)).limit(1);
   if (ad) throw new DocumentError('Авансот е одбиен во друга фактура – прво отстранете го од неа.');
+  const others = await usedNumbers(tx, firmId, inv.kind, inv.date, inv.id);
+  const v = deletionVerdict({
+    kind: 'invoice', date: inv.date, status: inv.status, nonTax: inv.kind === 'proforma' || inv.kind === 'dispatch', cancelled: isCancelled(inv),
+    lastInSeries: isLastInSeries(others.map((n) => ({ number: n, date: inv.date })), inv.number, inv.date), today: todaySkopje(),
+  });
+  if (v.action === 'block') throw new DocumentError(v.reason);
+  if (v.action === 'cancel') {
+    await unpostInvoice(tx, firmId, inv, actor.userId);
+    await removeInvoiceProduction(tx, firmId, ((inv.data ?? {}) as InvoiceData).prodRun, actor);
+    await tx.update(invoices).set({ invoicedId: null }).where(eq(invoices.invoicedId, id));
+    const data: InvoiceData = { ...((inv.data ?? {}) as InvoiceData), prodRun: undefined, cancelled: { at: new Date().toISOString(), by: actor.userId, reason: reason?.trim() || 'Сторно наместо бришење', status: inv.status } };
+    await tx.update(invoices).set({ status: 'draft', data, updatedBy: actor.userId }).where(eq(invoices.id, id));
+    await audit(tx, { userId: actor.userId, firmId, action: 'cancelDoc', entityType: 'invoice', entityId: id, data: { kind: inv.kind, number: inv.number, date: inv.date, total: inv.total, reason: v.reason } });
+    return { cancelled: true };
+  }
   await unpostInvoice(tx, firmId, inv, actor.userId);
   await removeInvoiceProduction(tx, firmId, ((inv.data ?? {}) as InvoiceData).prodRun, actor);
   await tx.update(invoices).set({ invoicedId: null }).where(eq(invoices.invoicedId, id));
   await tx.update(invoices).set({ fromDocId: null }).where(eq(invoices.fromDocId, id));
   await tx.delete(invoices).where(eq(invoices.id, id));
   await audit(tx, { userId: actor.userId, firmId, action: 'delDoc', entityType: 'invoice', entityId: id, data: { kind: inv.kind, number: inv.number, date: inv.date } });
+  return { cancelled: false };
 }
 
 /** Re-post a booked document with the current schemes (legacy `schRepost`: `save('invoices', {...i, lines: invoiceEntries(i)})`). */

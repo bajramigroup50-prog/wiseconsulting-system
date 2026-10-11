@@ -221,8 +221,11 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     if (!m) return { paid: 0, rest: Number(i.total), due: Number(i.total) };
     return { paid: Math.round((m.paid / fx) * 100) / 100, rest: Math.round((m.remaining / fx) * 100) / 100, due: Math.round((m.total / fx) * 100) / 100 };
   };
-  const T = list.reduce((t, { i }) => ({ b: t.b + Number(i.base), v: t.v + Number(i.vat), t: t.t + Number(i.total), pd: t.pd + (payCols ? payOf(i).paid : 0), r: t.r + (payCols ? payOf(i).rest : 0) }), { b: 0, v: 0, t: 0, pd: 0, r: 0 });
+  // cancelled (сторнирани) invoices keep their number in the list but count for nothing (retention lock)
+  const isCanc = (i: Invoice) => !!(i.data as { cancelled?: unknown } | null)?.cancelled;
+  const T = list.filter(({ i }) => !isCanc(i)).reduce((t, { i }) => ({ b: t.b + Number(i.base), v: t.v + Number(i.vat), t: t.t + Number(i.total), pd: t.pd + (payCols ? payOf(i).paid : 0), r: t.r + (payCols ? payOf(i).rest : 0) }), { b: 0, v: 0, t: 0, pd: 0, r: 0 });
   const st = (i: Invoice) => {
+    if (isCanc(i)) return <span className="pill bad" title="Издадена па сторнирана – бројот се чува, нема книжење">✗ Сторнирана</span>;
     if (i.status === 'pending') return <span className="pill warn" title="Внесено од клиентот – не е прокнижено">⏳ чека одобрување</span>;
     if (kind === 'credit') return <><span className="pill info">кон ф-ра {refNo.get(i.refInvoiceId ?? '')?.n ?? '—'}</span> {i.creditKind === 'ret' ? <span className="pill warn">↩ Повратница (стока на залиха)</span> : i.creditKind === 'gross' ? <span className="pill">Бруто износ</span> : <span className="pill">По ставки</span>}</>;
     if (kind === 'invoice') { const pm = payOf(i); return <><PayPill paid={pm.paid} total={pm.due} />{i.fromDocId ? <> <span className="pill info">од {refNo.get(i.fromDocId)?.k === 'dispatch' ? 'испратница' : 'профактура'} {refNo.get(i.fromDocId)?.n}</span></> : null}</>; }

@@ -18,6 +18,7 @@ import { fiskAfterRead, fiskApplySimple, fiskFinish, fiskReadTotal } from '@wise
 import { RC_DOC_PROMPT, RC_DOC_PROMPT_LICENCE, VREG_PROMPT } from '@wise/core/industry';
 import { FS_PROMPT } from '@wise/core/firms/resh';
 import { ZM_PROMPT } from '@wise/core/yearend/zm-import';
+import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
 import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
@@ -31,6 +32,7 @@ export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', '
   'rcdoc', 'rclic',
   'tk',
   'zm',
+  'kontrola',
 ]);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
@@ -94,6 +96,11 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     case 'rclic': {
       // legacy `rcScanDoc` (rent-a-car customer: passport / ID card / driving licence → contract form)
       const r = await read(doc.kind === 'rclic' ? RC_DOC_PROMPT_LICENCE : RC_DOC_PROMPT, 'default');
+      return { result: r.data, model: r.model };
+    }
+    case 'kontrola': {
+      // compliance: the inspection record / decision → structured findings (the office reviews them before use)
+      const r = await readContent<unknown>({ ...base, prompt: KONTROLA_PROMPT, tier: 'complex', maxTokens: 12000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'zm': {

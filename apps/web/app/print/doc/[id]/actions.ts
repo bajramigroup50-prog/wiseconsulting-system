@@ -4,7 +4,7 @@
  * renders this document with the print template, stores the PDF and sends it through the office mailer (`mail_log`).
  */
 import { and, eq, isNull, or } from 'drizzle-orm';
-import { audit, INVOICE_MAIL_JOB, invoices, partners } from '@wise/db';
+import { audit, INVOICE_MAIL_JOB, invoiceLegalCheck, invoices, partners } from '@wise/db';
 import { requireCan } from '@/lib/auth';
 import { actionError, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -25,6 +25,11 @@ export async function sendInvoiceMail(invoiceId: string, _p: ActionState, f: For
     if (!inv) return { error: 'Документот не постои.' };
     const u = await requireCan('sendMailGo', inv.firmId);
     if (!['invoice', 'credit', 'proforma'].includes(inv.kind) || !(inv.status === 'posted' || (inv.kind === 'proforma' && inv.status !== 'pending'))) return { error: 'Овој документ не може да се испрати по е-пошта.' };
+    // ЗДДВ чл. 53: an invoice without its mandatory elements (or a cancelled one) is not sent
+    if (inv.kind !== 'proforma') {
+      const blk = ((await invoiceLegalCheck(db(), inv.id)) ?? []).filter((i) => i.sev === 'block');
+      if (blk.length) return { error: `Фактурата не може да се испрати: ${blk.map((i) => i.text).join(' ')}` };
+    }
     const to = splitAddresses(String(f.get('to') ?? ''));
     if (!validAddresses(to)) return { error: 'Внесете валидна е-пошта.' };
     const subject = String(f.get('subject') ?? '').trim().slice(0, 300);

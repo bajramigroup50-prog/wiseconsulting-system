@@ -10,7 +10,7 @@ import { PodLink } from '@/components/pod-link';
 import { can, firmAllowed } from '@wise/core';
 import { DT, invoiceMailText, invoicePdfName, invoicePrintHtml } from '@wise/core/sales';
 import { WaPanel } from './wa-panel';
-import { loadInvoicePrintData } from '@wise/db';
+import { invoiceLegalCheck, loadInvoicePrintData } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { InvoiceMailForm } from './mail-form';
@@ -30,8 +30,12 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
   const d = await loadInvoicePrintData(db(), id, sp.k);
   if (!d || !firmAllowed(u.principal, d.invoice.firmId)) notFound();
   const { input, invoice: doc, firm, partner } = d;
+  // ЗДДВ чл. 53: a document without the mandatory elements (or a cancelled one) is marked on the paper and not e-mailed
+  const legal = (await invoiceLegalCheck(db(), id)) ?? [];
+  const cancelled = legal.some((i) => i.code === 'cancelled');
+  const blocked = (input.kind === 'invoice' || input.kind === 'credit') && legal.some((i) => i.sev === 'block');
   // proformas are never booked (status draft) but are e-mailed like legacy
-  const mailable = MAILABLE.includes(input.kind) && (doc.status === 'posted' || (doc.kind === 'proforma' && doc.status !== 'pending')) && can(u.principal, 'write', doc.firmId);
+  const mailable = !blocked && MAILABLE.includes(input.kind) && (doc.status === 'posted' || (doc.kind === 'proforma' && doc.status !== 'pending')) && can(u.principal, 'write', doc.firmId);
   let mail: React.ReactNode = null;
   if (mailable) {
     const t = invoiceMailText({ kind: doc.kind, number: doc.number, date: doc.date, due: doc.due, total: Number(doc.total), currency: doc.currency, firm });
@@ -49,6 +53,11 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
   }
   return (
     <>
+      {blocked && <div style={{ border: '2px solid #b00', color: '#b00', padding: '6px 10px', margin: '0 0 8px', fontWeight: 700, textAlign: 'center' }}>
+        {cancelled ? 'СТОРНИРАНА ФАКТУРА – НЕ ВАЖИ' : 'НЕКОМПЛЕТНА ФАКТУРА – НЕ Е ЗА ИЗДАВАЊЕ'}
+        {!cancelled && <div className="noprint" style={{ fontWeight: 400, textAlign: 'left', marginTop: 4 }}>Недостасуваат задолжителни елементи (ЗДДВ чл. 53 ст. 10): {legal.filter((i) => i.sev === 'block').map((i) => i.text).join(' ')} Дополнете ги податоците (фирма / купувач / ставки) и отворете ја повторно.</div>}
+      </div>}
+      {!blocked && legal.length > 0 && <div className="callout warn noprint" style={{ margin: '0 0 8px' }}>⚖ {legal.map((i) => i.text).join(' ')}</div>}
       {mail}
       {doc.kind === 'invoice' && <PodLink firmId={doc.firmId} invoiceId={doc.id} />}
       <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: invoicePrintHtml(input) }} />
