@@ -53,8 +53,8 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('module toggle', () => {
-  it('services refuse a switched-off module', async () => {
-    const e = await err(tx((t) => saveRoom(t, A, { no: '101', price: 3150 })));
+  it('services refuse a switched-off module to client users (the office works every module, legacy viewOn)', async () => {
+    const e = await err(tx((t) => saveRoom(t, { ...A, role: 'klient' }, { no: '101', price: 3150 })));
     expect(e).toBeInstanceOf(IndustryError);
     await tx((t) => saveFirmModules(t, A, ['hotel', 'rent', 'tour', 'cons', 'appt', 'rest', 'pn', 'frt']));
   });

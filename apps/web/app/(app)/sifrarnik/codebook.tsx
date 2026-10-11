@@ -17,6 +17,8 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteCodeAction, saveCodeAction, seedCitiesAction, seedPaySifAction } from './actions';
+import { ImportButton, type ImpField } from '@/components/doc-tools';
+import { importCodebookAction } from '../_stock/parity-actions';
 
 export interface CbSearch { nov?: string; edit?: string }
 
@@ -49,6 +51,7 @@ export async function CodebookPage({ k, searchParams }: { k: CbKey; searchParams
       <Hd t={D.t} sub={global ? 'шифрарник · заеднички за сите фирми' : 'шифрарник'}>
         {k === 'cenovnik' && <a className="btn" href="/print/cenovnik" target="_blank" rel="noopener">PDF ценовник</a>}
         <Link className="btn" href="/sifrarnik">← Шифрарник</Link>
+        {canNew && <ImportButton action={importCodebookAction.bind(null, k)} fields={impFields(k)} name={`Sifrarnik_${k}`} confirmText={`Да се увезат {n} редови од „{file}“ во „${D.t}“? Иста шифра = измена.`} />}
         {canNew && <Link className="btn pri" href={`${href}?nov`}>+ Додај</Link>}
       </Hd>
 
@@ -101,6 +104,12 @@ export async function CodebookPage({ k, searchParams }: { k: CbKey; searchParams
       ) : (!draft && <div className="card empty">Шифрарникот е празен. Додадете со „+ Додај“.</div>)}
     </>
   );
+}
+
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Import columns of a codebook: header = the field label (first word) or the field key. */
+function impFields(k: CbKey): ImpField[] {
+  return CB[k].f.map(([f, l, type]) => ({ key: f, label: l, re: `^(${esc(l.toLowerCase().split(/[ (]/)[0]!)}|${f.toLowerCase()})`, num: type === 'num', req: f === 'name' }));
 }
 
 /** Legacy `paySifInfo` 6258: the effective payroll codes (standard `PSIF0` overridden by the firm's rows). */

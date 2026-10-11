@@ -882,6 +882,19 @@ export function fxRate(cur: string, date: string, sources: { firm?: FxRateRow[];
 }
 
 /**
+ * Legacy `fxSrc` (6498): where the rate shown under the „Курс“ field comes from — „фирма“ (firm currency
+ * codebook), „курсна листа dd.mm.yyyy“ (newest office rate on or before `date`) or „стандарден dd.mm.yyyy“.
+ */
+export function fxRateSource(cur: string, date: string, sources: { firm?: FxRateRow[]; office?: FxRateRow[] } = {}): string {
+  const c = String(cur || '').toUpperCase();
+  if (!c || c === 'MKD') return '';
+  if ((sources.firm || []).some((x) => String(x.cur).toUpperCase() === c && +x.rate)) return 'фирма';
+  const d2 = (d: string) => d.slice(0, 10).split('-').reverse().join('.');
+  const g = (sources.office || []).filter((x) => String(x.cur).toUpperCase() === c && x.date && x.date <= date).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  return g ? 'курсна листа ' + d2(g.date!) : 'стандарден ' + d2(FX_DATE0);
+}
+
+/**
  * Legacy `fxItem` (4816): MKD amount of a foreign-currency line — the bank's denar counter-value when
  * printed, else `amountCur × rate`. Cents in, cents out.
  */

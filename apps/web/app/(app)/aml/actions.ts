@@ -32,6 +32,7 @@ export async function saveAml(_p: ActionState, f: FormData): Promise<ActionState
     const td = today();
     const [old] = await db().select({ data: amlRecords.data }).from(amlRecords).where(eq(amlRecords.firmId, firm.id)).limit(1);
     A.created = (old?.data as AmlFile | undefined)?.created ?? td;
+    A.mgrOk = f.get('mgrOk') === 'on' ? td : (old?.data as AmlFile | undefined)?.mgrOk ?? null;
     const X = await amlAutoFor(firm, Number(td.slice(0, 4)));
     const r = amlRisk(A, X, { eurRate: X.eurRate, today: td, nkd: X.nkd });
     const next = amlNextReview(A, r.level, td);

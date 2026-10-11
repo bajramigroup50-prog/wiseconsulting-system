@@ -31,7 +31,7 @@ export interface TravelStopEdits {
 
 /** The stops an office save writes: stored stops (or none for a new order) with the editor's changes applied. */
 export async function editedTravelStops(tx: Tx, firmId: string, id: string | null, e: TravelStopEdits): Promise<TravelStop[]> {
-  await loadIndustryFirm(tx, firmId, MOD);
+  await loadIndustryFirm(tx, firmId);
   let S: TravelStop[] = [];
   if (id) {
     const [x] = await tx.select().from(travelOrders).where(and(eq(travelOrders.id, id), eq(travelOrders.firmId, firmId))).limit(1);
@@ -88,7 +88,7 @@ export async function saveTravelLoading(tx: Tx, user: { id: string; role?: strin
 
 /** Legacy `pnSvcDone`: service / tyres done at `km` — last service km, and the odometer when higher. */
 export async function travelServiceDone(tx: Tx, a: IndActor, vehicleId: string, t: 'oil' | 'tyre', km: number, date: string): Promise<void> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   if (!(km > 0)) fail('Внесете километража.');
   const [v] = await tx.select().from(fleetVehicles).where(and(eq(fleetVehicles.id, vehicleId), eq(fleetVehicles.firmId, a.firmId))).limit(1);
   if (!v) fail('Возилото не постои.');
@@ -151,7 +151,7 @@ const xNum = (v: string): string | null => { const s = String(v ?? '').trim().re
  * (only the non-empty cells), a new plate is added. Returns [added, updated].
  */
 export async function importTravelVehicles(tx: Tx, a: IndActor, rows: readonly (readonly string[])[]): Promise<[number, number]> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const H = (rows[0] ?? []).map((x) => String(x ?? '').trim().toLowerCase());
   const col = (name: string, i: number) => { const j = H.indexOf(name.toLowerCase()); return j >= 0 ? j : i; };
   const C = TRAVEL_VEHICLE_COLUMNS.map((c, i) => col(c, i));

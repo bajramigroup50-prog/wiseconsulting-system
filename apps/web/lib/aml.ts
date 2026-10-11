@@ -3,9 +3,24 @@ import 'server-only';
 import { r2 } from '@wise/core';
 import { apCashLimit, nkdRisky, type AmlAuto } from '@wise/core/office';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { employees, getOfficeProfile, loadLedgerLines, type Firm } from '@wise/db';
+import { appSettings, employees, getOfficeProfile, loadLedgerLines, type Firm } from '@wise/db';
 import { db } from './db';
 import type { FirmOfficeSettings } from './office';
+
+/** Office AML settings (legacy `kdOff.aml`): officer, deputy, user with access, trainings, annual control. */
+export interface AmlOffice { officer?: string; offUid?: string; deputy?: string; tr?: { date: string; topic: string; who?: string }[]; ctl?: string }
+export const AML_KEY = 'aml';
+
+export async function amlOffice(): Promise<AmlOffice> {
+  const [r] = await db().select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, AML_KEY)).limit(1);
+  return (r?.v ?? {}) as AmlOffice;
+}
+
+/** Legacy `amlOn`: the owner (administrator) or the user named as AML officer. */
+export async function amlAllowed(u: { id: string; role: string }): Promise<boolean> {
+  if (u.role === 'admin') return true;
+  return (await amlOffice()).offUid === u.id;
+}
 
 export async function amlAutoFor(firm: Firm, year: number): Promise<AmlAuto & { eurRate: number; nkd: string }> {
   const O = await getOfficeProfile(db());

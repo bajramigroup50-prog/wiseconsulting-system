@@ -1,7 +1,7 @@
 /** Legacy `VIEWS.pocetna` 6319 (final chain → 13245) — Финансово › Почетна состојба. */
 import Link from 'next/link';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { effectiveChart, journalLines, journals } from '@wise/db';
+import { bankAccounts, effectiveChart, journalLines, journals } from '@wise/db';
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
@@ -28,8 +28,9 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
   const names = new Map(chart.map((a) => [a.code, a.name]));
   const rows: ORow[] = lines.map((l) => ({
     account: l.account, name: names.get(l.account) ?? '', partnerId: l.partnerId ?? '', partnerName: '', partnerCode: '',
-    debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '',
+    debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '',
   }));
+  const banks = await db().select({ konto: bankAccounts.konto }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id), close = canDo(u, 'close', firm.id);
 
   return (
@@ -39,6 +40,8 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
           ? <RowAction className="btn" action={transferFromPrevYear} label={`Пренос од ${year - 1}`} confirm={`Да се пренесат салдата од ${year - 1}? Постојната почетна состојба за ${year} ќе се замени.`} />
           : <Link className="btn" href="/mbyllja" title={`Изберете ја ${year - 1} горе и затворете ја на екранот „Затворање“ (данок од ДБ), па направете пренос`}>Затвори ја {year - 1} →</Link>)}
         {ex && <Link className="btn" href={`/nalozi?n=${encodeURIComponent(ex.number)}`}>Налог {ex.number}</Link>}
+        {/* legacy `openPdf` 7333: „НАЛОГ ЗА ПОЧЕТНА СОСТОЈБА“ */}
+        {ex ? <a className="btn" href={`/print/nalog?n=${encodeURIComponent(ex.number)}&t=${encodeURIComponent(full ? `БРУТО БИЛАНС ${year}` : `НАЛОГ ЗА ПОЧЕТНА СОСТОЈБА на ден ${ex.date.split('-').reverse().join('.')}`)}`} target="_blank" rel="noopener">PDF</a> : <button className="btn" disabled>PDF</button>}
         {ex && del && <RowAction className="btn danger" action={deleteOpening.bind(null, full)} label="🗑 Избриши" confirm={`Да се избрише ${full ? 'увезениот бруто биланс' : 'почетната состојба'} за ${year}?`} />}
       </Hd>
       <div className="card" style={{ padding: '10px 14px', ...(full ? { border: '2px solid var(--accent)' } : {}) }}>
@@ -55,7 +58,7 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
       {!full && <div className="callout">За фирма што доаѓа од друг сметководител: внесете ги салдата од нивниот завршен бруто биланс (или биланс на состојба) на денот од кој почнувате. Побарувањата од купувачи (12..) и обврските кон добавувачи (22..) внесете ги по партнер, за да работи аналитиката и затворањето со изводи. Залихата по артикли внесете ја со приемница во „Залиха“ со датумот на почетната состојба.</div>}
       {write
         ? <OpeningEditor key={`${full}-${year}-${ex?.updatedAt?.toISOString() ?? ''}`} year={year} full={full} initialDate={ex?.date ?? `${year}-01-01`} initialRows={rows}
-            chart={chart.map((a) => [a.code, a.name])} partners={P} saved={lines.length} />
+            chart={chart.map((a) => [a.code, a.name])} partners={P} saved={lines.length} firmId={firm.id} bankKontos={banks.map((b) => b.konto)} isAdmin={u.role === 'admin'} canDelete={del} />
         : <div className="card empty">Немате дозвола за внес. {ex ? `Зачувани се ${lines.length} ставки.` : ''}</div>}
     </>
   );

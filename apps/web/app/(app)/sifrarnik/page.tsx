@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 
 /** Sub-screens that live elsewhere in the new app. */
-const HREF: Record<string, string> = { uslugiS: '/artikli', banke: '/banka' };
+const HREF: Record<string, string> = { banke: '/banka' };
 
 export default async function SifrarnikPage() {
   const { firm } = await booksPage('sifrarnik');

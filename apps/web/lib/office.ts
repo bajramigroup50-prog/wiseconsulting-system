@@ -26,7 +26,7 @@ export async function officePage(view: string, opts: { perm?: string } = {}): Pr
   const u = await requireUser();
   if (!viewAllowed(u.role, view)) notFound();
   const firm = await currentFirm(u);
-  if (u.role === 'klient' && firm && !klAllowedViews((firm.settings as { kl?: KlConfig }).kl).includes(view)) notFound();
+  if (u.role === 'klient' && firm && !klAllowedViews((firm.settings as { kl?: KlConfig }).kl, firm.mods).includes(view)) notFound();
   if (opts.perm && !can(u.principal, opts.perm, firm?.id ?? null)) notFound();
   return { u, firm };
 }

@@ -26,7 +26,7 @@ const fail = (m: string): never => { throw new IndustryError(m); };
  * caller opens it in the invoice editor for review (edit / e-mail / PDF there).
  */
 export async function invoiceFreightToursParity(tx: Tx, a: IndActor, ids: readonly string[], date: string, fx: (cur: string, d: string) => number) {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   if (!ids.length) fail('Изберете тури.');
   const T = await tx.select().from(freightTours).where(and(eq(freightTours.firmId, a.firmId), inArray(freightTours.id, [...ids]), isNull(freightTours.invoiceId))).for('update');
   const plates = new Map((await tx.select({ id: fleetVehicles.id, plate: fleetVehicles.plate }).from(fleetVehicles).where(eq(fleetVehicles.firmId, a.firmId))).map((v) => [v.id, v.plate]));
@@ -46,7 +46,7 @@ export async function invoiceFreightToursParity(tx: Tx, a: IndActor, ids: readon
 
 /** Legacy `frQuickSave` (vehicle / trailer): a fleet vehicle with the plate (legacy wrote an `assets` row in ОС → Регистар). */
 export async function quickFreightVehicle(tx: Tx, a: IndActor, o: { trailer: boolean; plate: string; name: string }): Promise<{ id: string; plate: string; name: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const plate = o.plate.trim().toUpperCase();
   const all = await tx.select({ plate: fleetVehicles.plate }).from(fleetVehicles).where(eq(fleetVehicles.firmId, a.firmId));
   const e = frQuickVehicleError(plate, all.map((x) => x.plate));
@@ -59,7 +59,7 @@ export async function quickFreightVehicle(tx: Tx, a: IndActor, o: { trailer: boo
 
 /** Legacy `frQuickSave` (driver): an active employee „Возач“ with the next number, started today. */
 export async function quickFreightDriver(tx: Tx, a: IndActor, o: { name: string; embg: string; license: string; start: string }): Promise<{ id: string; name: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const name = o.name.trim(), embg = o.embg.trim();
   const E = await tx.select({ no: employees.no, embg: employees.embg }).from(employees).where(eq(employees.firmId, a.firmId));
   const e = frQuickDriverError(name, embg, E.map((x) => x.embg));
@@ -81,7 +81,7 @@ async function ownRefs(tx: Tx, firmId: string) {
 
 /** Legacy `ACT.frDocSave`: the vehicle / driver must exist in the firm, `validTo` ≥ `validFrom`. */
 export async function saveFreightDocParity(tx: Tx, a: IndActor, id: string | null, d: FrDocLike): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const e = frDocError(d);
   if (e) fail(e);
   const { V, D } = await ownRefs(tx, a.firmId);
@@ -97,7 +97,7 @@ export async function saveFreightDocParity(tx: Tx, a: IndActor, id: string | nul
 }
 
 export async function deleteFreightDocParity(tx: Tx, a: IndActor, id: string): Promise<void> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const [r] = await tx.delete(firmDocs).where(and(eq(firmDocs.id, id), eq(firmDocs.firmId, a.firmId), eq(firmDocs.type, 'frdoc'))).returning({ id: firmDocs.id });
   if (!r) fail('Записот не постои.');
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'frDocDel', entityType: 'firm_doc', entityId: id });
@@ -105,7 +105,7 @@ export async function deleteFreightDocParity(tx: Tx, a: IndActor, id: string): P
 
 /** Excel import of licences / documents (template `FR_DOC_IMPORT_HEAD`); all rows or none. */
 export async function importFreightDocs(tx: Tx, a: IndActor, rows: readonly (readonly string[])[]): Promise<number> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const { V, D } = await ownRefs(tx, a.firmId);
   const r = frDocImport(rows, V, D.map((x) => ({ id: x.id, name: x.name })), { veh: FR_DOC_VEHICLE, drv: FR_DOC_DRIVER });
   if (r.errors.length) fail(r.errors.slice(0, 5).join(' ') + (r.errors.length > 5 ? ` (+${r.errors.length - 5})` : ''));
@@ -120,7 +120,7 @@ export async function importFreightDocs(tx: Tx, a: IndActor, rows: readonly (rea
 
 /** Legacy `ACT.frCfgSave`: per-diem amounts per country (`settings.industry.frt.rates`). */
 export async function saveFreightRatesParity(tx: Tx, a: IndActor, entries: readonly (readonly [string, string])[]): Promise<void> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = frParseRates(entries);
   if ('error' in r) return fail(r.error);
   const cur = ((((f.settings ?? {}) as Record<string, unknown>).industry ?? {}) as Record<string, Record<string, unknown>>).frt ?? {};

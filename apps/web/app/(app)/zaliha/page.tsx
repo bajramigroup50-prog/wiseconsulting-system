@@ -16,8 +16,9 @@ import { dmy, fmt, fq } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { DownloadCsv } from '@/components/download-csv';
 import { ActionForm, PrintButton } from '@/components/stock-ui';
+import { ExportButtons, ServerPdfButton } from '@/components/doc-tools';
+import { PrintHead, PrintSig } from '@/components/print-head';
 import { deleteMoveAction, saveMoveAction } from '../_retail/actions';
 
 const TYPES: Record<string, string> = { goods: 'Стока', material: 'Суровина / материјал', product: 'Готов производ' };
@@ -54,10 +55,12 @@ export default async function ZalihaPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <Hd t="Приемници и издатници" sub="залиха по објекти">
+      <Hd exp={false} t="Приемници и издатници" sub="залиха по објекти">
         {write && <><Link className="btn" href={'/zaliha' + qs({ nov: 'in' })}>+ Приемница</Link><Link className="btn" href={'/zaliha' + qs({ nov: 'use' })}>+ Издатница</Link><Link className="btn" href={'/zaliha' + qs({ nov: 'tr' })}>+ Преносница</Link></>}
-        <DownloadCsv name={`Zaliha_${today}.csv`} label="CSV" rows={[['Артикл', 'Вид', 'Количина', 'Ед. мерка', 'Просечна цена', 'Вредност'], ...rows.map((r) => [r.it.name ?? '', TYPES[String(r.it.type)] ?? '', r.s.qty, r.it.unit ?? '', r.s.avg, r.s.value])]} />
-        <PrintButton label="PDF состојба" className="btn" />
+        <ExportButtons name={`Zaliha_${today}`} rows={[['Артикл', 'Вид', 'Количина', 'Ед. мерка', 'Просечна цена', 'Вредност'], ...rows.map((r) => [r.it.name ?? '', TYPES[String(r.it.type)] ?? '', r.s.qty, r.it.unit ?? '', r.s.avg, r.s.value])]} />
+        <ServerPdfButton title="Состојба на залиха" className="btn" />
+        <PrintButton label="Печати состојба" className="btn" />
+        <Link className="btn" href={`/print/kartice?v=zaliha&from=${year}-01-01&to=${year}-12-31${wh ? '&wh=' + wh : ''}`} target="_blank">PDF сите картици</Link>
       </Hd>
       <form className="card"><div className="row">
         <label className="f">Прикажи залиха за<select name="wh" defaultValue={wh}><option value="">сите објекти</option>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
@@ -86,7 +89,8 @@ export default async function ZalihaPage({ searchParams }: { searchParams: Promi
           <div className="row"><Link className="btn" href={'/zaliha' + qs({})}>Откажи</Link><button className="btn pri">Зачувај</button></div>
         </ActionForm>
       )}
-      <div className="printarea">
+      <div className="printarea" id="rpt">
+        <PrintHead firm={firm} title="СОСТОЈБА НА ЗАЛИХА" sub={'на ден ' + dmy(today) + (wh ? ' · ' + L.locName(wh) : '')} />
         {rows.length ? (
           <div className="tw"><table>
             <thead><tr><th>Артикл</th><th>Вид</th><th className="n">Количина</th><th>Ед. мерка</th><th className="n">Просечна цена</th><th className="n">Вредност</th><th>Минимум</th><th className="noprint" /></tr></thead>
@@ -94,12 +98,13 @@ export default async function ZalihaPage({ searchParams }: { searchParams: Promi
               <tr key={it.id}>
                 <td>{it.name}</td><td><span className="pill">{TYPES[String(it.type)]}</span></td><td className="n">{fq(s.qty)}</td><td>{it.unit}</td><td className="n">{fmt(s.avg)}</td><td className="n">{fmt(s.value)}</td>
                 <td>{Number(it.min) ? (s.qty < Number(it.min) ? <span className="pill bad">под минимум</span> : <span className="pill good">во ред</span>) : null}</td>
-                <td className="noprint"><Link className="btn sm" href={'/zaliha' + qs({ card: it.id })}>Картица</Link></td>
+                <td className="noprint" style={{ whiteSpace: 'nowrap' }}><Link className="btn sm" href={'/zaliha' + qs({ card: it.id })}>Картица</Link> <Link className="btn sm" href={`/print/kartice?v=zaliha&i=${it.id}&from=${year}-01-01&to=${year}-12-31${wh ? '&wh=' + wh : ''}`} target="_blank">PDF</Link></td>
               </tr>
             ))}</tbody>
             <tfoot><tr><td colSpan={5}>Вкупна вредност на залихата</td><td className="n">{fmt(total)}</td><td colSpan={2} /></tr></tfoot>
           </table></div>
         ) : <div className="card empty">Нема артикли со залиха. Во „Артикли“ изберете вид стока, материјал или производ.</div>}
+        <PrintSig />
       </div>
       {sel && (
         <div className="card"><h2>Картица: {sel.name}</h2>

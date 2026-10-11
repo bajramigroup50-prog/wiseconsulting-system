@@ -26,6 +26,7 @@ export async function saveTemplate(_p: ActionState, f: FormData): Promise<Action
     if (!fileId) return { error: 'Прикачете .docx датотека.' };
     const [file] = await db().select().from(files).where(and(eq(files.id, fileId), eq(files.status, 'ready'))).limit(1);
     if (!file || file.firmId) return { error: 'Датотеката не е пронајдена.' };
+    if (file.size > 2_500_000) return { error: 'Датотеката е преголема (над 2,5 MB). Намалете ги сликите.' };
     let vars: string[];
     try { vars = scanDocx(await getObjectBytes(file.bucketKey)); } catch { return { error: 'Датотеката не е валиден Word (.docx) документ.' }; }
     await db().transaction(async (tx) => {
@@ -36,7 +37,7 @@ export async function saveTemplate(_p: ActionState, f: FormData): Promise<Action
       await audit(tx, { userId: u.id, action: 'tplSave', entityType: 'word_template', entityId: t!.id, data: { name, kind, version: v + 1, vars: vars.length } });
     });
     revalidatePath('/tpl');
-    return { ok: `Шаблонот е зачуван (${vars.length} полиња).` };
+    return { ok: `✓ Шаблонот е прикачен и активен (${vars.length} полиња).` };
   } catch (e) { return officeError(e); }
 }
 
@@ -45,6 +46,9 @@ export async function setTemplateActive(id: string, active: boolean): Promise<Ac
   try {
     const u = await requireCan('office');
     await db().transaction(async (tx) => {
+      // one active own template per built-in document (free documents may have several)
+      const [t] = await tx.select({ kind: wordTemplates.kind }).from(wordTemplates).where(eq(wordTemplates.id, id)).limit(1);
+      if (active && t && t.kind !== 'free') await tx.update(wordTemplates).set({ active: false }).where(eq(wordTemplates.kind, t.kind));
       await tx.update(wordTemplates).set({ active }).where(eq(wordTemplates.id, id));
       await audit(tx, { userId: u.id, action: 'tplOff', entityType: 'word_template', entityId: id, data: { active } });
     });
@@ -63,5 +67,18 @@ export async function deleteTemplate(id: string): Promise<ActionState> {
     });
     revalidatePath('/tpl');
     return { ok: 'Избришано.' };
+  } catch (e) { return officeError(e); }
+}
+
+/** Legacy `tplOff` on a built-in document („↺ Вграден“): the program's own document again; uploads stay in „Верзии“. */
+export async function useBuiltin(kind: string): Promise<ActionState> {
+  try {
+    const u = await requireCan('settings');
+    await db().transaction(async (tx) => {
+      await tx.update(wordTemplates).set({ active: false }).where(eq(wordTemplates.kind, kind));
+      await audit(tx, { userId: u.id, action: 'tplOff', entityType: 'word_template', entityId: kind, data: { builtin: true } });
+    });
+    revalidatePath('/tpl');
+    return { ok: '✓ Се користи вградениот документ. Вашиот шаблон е зачуван во „Верзии“.' };
   } catch (e) { return officeError(e); }
 }

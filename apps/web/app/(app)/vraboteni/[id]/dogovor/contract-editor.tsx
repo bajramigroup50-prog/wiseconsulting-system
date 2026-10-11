@@ -34,7 +34,7 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
         <div className="card">
           <div className="form">
             <label className="f wide">Вид на договор<select value={c.type} disabled={!canWrite} onChange={(ev) => set('type', ev.target.value as HrContract['type'])}>{HR_CT_TYPES.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
-            {F('no', 'Деловоден број (празно = следен)')}
+            {F('no', 'Број на договор (празно = следен деловоден број)')}
             {F('signDate', 'Датум на склучување', 'date')}
             {F('place', 'Место')}
             {F('start', 'Почеток на работа', 'date')}
@@ -42,7 +42,7 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
             {fixed && F('end', 'Важи до', 'date')}
             {fixed && F('reason', 'Причина за определено време')}
             {F('position', 'Работно место')}
-            <label className="f wide">Опис на работите<textarea rows={3} value={c.duties} disabled={!canWrite} onChange={(ev) => set('duties', ev.target.value)} style={{ width: '100%', font: 'inherit' }} /></label>
+            <label className="f wide">Опис на работи (опционално)<textarea rows={3} value={c.duties} disabled={!canWrite} onChange={(ev) => set('duties', ev.target.value)} style={{ width: '100%', font: 'inherit' }} /></label>
             {F('workPlace', 'Место на работа')}
             {F('hours', 'Часови неделно', 'number')}
             {F('probation', 'Пробна работа (месеци)', 'number')}
@@ -81,7 +81,7 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
             <label className="f">Датум<input type="date" value={x.date} onChange={(ev) => setX({ ...x, date: ev.target.value })} /></label>
             {x.kind === 'ext' && <>
               <label className="f">Траење<select value="" onChange={(ev) => ev.target.value && setX({ ...x, end: hrAddMonthsEnd(addDay(fixedEnd), ev.target.value) })}><option value="">рачно (датум)</option>{HR_DURS.map((n) => <option key={n} value={n}>{n} {n === 1 ? 'месец' : 'месеци'}</option>)}</select></label>
-              <label className="f">Нов датум „до“<input type="date" value={x.end ?? ''} onChange={(ev) => setX({ ...x, end: ev.target.value })} /></label>
+              <label className="f">Ново „важи до“<input type="date" value={x.end ?? ''} onChange={(ev) => setX({ ...x, end: ev.target.value })} /></label>
               <label className="f wide">Причина<input value={x.reason ?? ''} onChange={(ev) => setX({ ...x, reason: ev.target.value })} /></label>
             </>}
           </div>

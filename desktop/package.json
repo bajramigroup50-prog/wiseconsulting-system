@@ -1,0 +1,33 @@
+{
+  "name": "wise-desktop",
+  "productName": "WISE CONSULTING",
+  "version": "1.0.1",
+  "description": "WISE CONSULTING – десктоп апликација (app.wiseconsulting.com.mk)",
+  "author": "WISE CONSULTING",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "38.2.2",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "mk.com.wiseconsulting.app",
+    "productName": "WISE CONSULTING",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "package.json", "build/icon.ico", "build/icon.png"],
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WISE CONSULTING",
+      "artifactName": "WISE-Setup-${version}.exe"
+    }
+  }
+}

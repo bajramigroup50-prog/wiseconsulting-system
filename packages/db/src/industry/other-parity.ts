@@ -72,7 +72,7 @@ export async function entityFiles(tx: Tx, entityType: string, ids: readonly stri
 
 /** Excel import of projects (legacy master data; upsert by code — the BOQ of an existing project is kept). */
 export async function importProjects(tx: Tx, a: IndActor, rows: OxCell[][]): Promise<OxImportResult> {
-  await loadIndustryFirm(tx, a.firmId, 'cons');
+  await loadIndustryFirm(tx, a.firmId, 'cons', a);
   const M = oxRows(rows, CONS_PROJECT_IMPORT);
   const r: OxImportResult = { added: 0, updated: 0, errors: M.errors };
   for (const x of M.rows) {
@@ -92,7 +92,7 @@ export async function importProjects(tx: Tx, a: IndActor, rows: OxCell[][]): Pro
 
 /** Excel import of BOQ lines into a project (legacy `boqPaste` from a file): appended after the existing lines. */
 export async function importBoq(tx: Tx, a: IndActor, projectId: string, rows: OxCell[][]): Promise<OxImportResult> {
-  await loadIndustryFirm(tx, a.firmId, 'cons');
+  await loadIndustryFirm(tx, a.firmId, 'cons', a);
   const [P] = await tx.select().from(constructionProjects).where(and(eq(constructionProjects.id, projectId), eq(constructionProjects.firmId, a.firmId))).limit(1);
   if (!P) fail('Објектот не постои.');
   const M = oxRows(rows, CONS_BOQ_IMPORT);
@@ -104,7 +104,7 @@ export async function importBoq(tx: Tx, a: IndActor, projectId: string, rows: Ox
 
 /** Project photos (legacy `cp_ph`) and diary photos (legacy `cd_ph`) are `file_links`. */
 export async function addConstructionPhotos(tx: Tx, a: IndActor, kind: 'project' | 'diary', id: string, fileIds: readonly string[]): Promise<number> {
-  await loadIndustryFirm(tx, a.firmId, 'cons');
+  await loadIndustryFirm(tx, a.firmId, 'cons', a);
   const tbl = kind === 'project' ? constructionProjects : constructionDiary;
   const [x] = await tx.select({ id: tbl.id }).from(tbl).where(and(eq(tbl.id, id), eq(tbl.firmId, a.firmId))).limit(1);
   if (!x) fail('Записот не постои.');
@@ -115,7 +115,7 @@ export async function addConstructionPhotos(tx: Tx, a: IndActor, kind: 'project'
 
 /** Excel import of arrangements (upsert by code; costs and bookings stay). */
 export async function importArrangements(tx: Tx, a: IndActor, rows: OxCell[][]): Promise<OxImportResult> {
-  await loadIndustryFirm(tx, a.firmId, 'tour');
+  await loadIndustryFirm(tx, a.firmId, 'tour', a);
   const M = oxRows(rows, TRAVEL_ARR_IMPORT);
   const r: OxImportResult = { added: 0, updated: 0, errors: M.errors };
   const nz = (v?: string) => (v ? oxNum(v) : null);
@@ -141,7 +141,7 @@ export interface ClientNoteInput { id?: string | null; partnerId: string; date: 
 
 /** Legacy `kcSave`: a note on the client card (module `appt`), with attachments (legacy `kn_f`). */
 export async function saveClientNote(tx: Tx, a: IndActor, x: ClientNoteInput): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, 'appt');
+  await loadIndustryFirm(tx, a.firmId, 'appt', a);
   if (!x.text.trim() && !x.title.trim()) fail('Внесете текст.');
   const [p] = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.id, x.partnerId), eq(partners.firmId, a.firmId))).limit(1);
   if (!p) fail('Клиентот не постои.');
@@ -157,7 +157,7 @@ export async function saveClientNote(tx: Tx, a: IndActor, x: ClientNoteInput): P
 }
 
 export async function deleteClientNote(tx: Tx, a: IndActor, id: string): Promise<void> {
-  await loadIndustryFirm(tx, a.firmId, 'appt');
+  await loadIndustryFirm(tx, a.firmId, 'appt', a);
   const [d] = await tx.delete(firmDocs).where(and(eq(firmDocs.id, id), eq(firmDocs.firmId, a.firmId), eq(firmDocs.type, 'cnote'))).returning({ id: firmDocs.id });
   if (!d) fail('Белешката не постои.');
   await tx.delete(fileLinks).where(and(eq(fileLinks.entityType, 'client_note'), eq(fileLinks.entityId, id)));
@@ -166,7 +166,7 @@ export async function deleteClientNote(tx: Tx, a: IndActor, id: string): Promise
 
 /** Excel import of clients / patients (partners): matched by ЕДБ or name, empty contact fields filled in. */
 export async function importClients(tx: Tx, a: IndActor, rows: OxCell[][]): Promise<OxImportResult> {
-  await loadIndustryFirm(tx, a.firmId, 'appt');
+  await loadIndustryFirm(tx, a.firmId, 'appt', a);
   const M = oxRows(rows, CLIENT_IMPORT);
   const r: OxImportResult = { added: 0, updated: 0, errors: M.errors };
   for (const x of M.rows) {
@@ -192,7 +192,7 @@ export async function importClients(tx: Tx, a: IndActor, rows: OxCell[][]): Prom
 /* ================================================================== recurring invoices */
 
 /** Periodic invoices are the `recur` module (legacy MODS 10208): refuse when it is off. */
-export const assertRecurModule = (tx: Tx, firmId: string) => loadIndustryFirm(tx, firmId, 'recur');
+export const assertRecurModule = (tx: Tx, a: IndActor) => loadIndustryFirm(tx, a.firmId, 'recur', a);
 
 type RecItemRow = { itemId?: string | null; name: string; qty: number; price: number; vat: number; unit?: string };
 
@@ -201,7 +201,7 @@ type RecItemRow = { itemId?: string | null; name: string; qty: number; price: nu
  * row adds an item line.
  */
 export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], today: string): Promise<OxImportResult> {
-  await assertRecurModule(tx, a.firmId);
+  await assertRecurModule(tx, a);
   const M = oxRows(rows, REC_IMPORT);
   const r: OxImportResult = { added: 0, updated: 0, errors: M.errors };
   const G = new Map<string, { row: string; partner: string; edb: string; every: RecEvery; day: string; next: string; end: string; due: number; note: string; mail: boolean; items: RecItemRow[] }>();
@@ -235,7 +235,7 @@ export interface RecBulkInput { partnerIds: string[]; name: string; price: numbe
 
 /** Legacy `rbSave`: one monthly definition per chosen partner (own price or the common one). */
 export async function recBulkCreate(tx: Tx, a: IndActor, x: RecBulkInput): Promise<number> {
-  await assertRecurModule(tx, a.firmId);
+  await assertRecurModule(tx, a);
   if (!x.partnerIds.length) fail('Изберете комитенти.');
   const name = x.name.trim() || fail('Внесете услуга.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x.next)) fail('Внесете дата на првата фактура.');
@@ -258,7 +258,7 @@ export async function recBulkCreate(tx: Tx, a: IndActor, x: RecBulkInput): Promi
 
 /** Legacy `recItem` (13585): the standard item that fills every new definition. */
 export async function saveRecDefaultItem(tx: Tx, a: IndActor, itemId: string | null): Promise<void> {
-  await assertRecurModule(tx, a.firmId);
+  await assertRecurModule(tx, a);
   if (itemId) {
     const [it] = await tx.select({ id: items.id }).from(items).where(and(eq(items.id, itemId), eq(items.firmId, a.firmId))).limit(1);
     if (!it) fail('Артиклот не постои.');
@@ -303,7 +303,7 @@ export async function accFeePlan(tx: Tx, office: Firm, firmIds: readonly string[
 
 /** Legacy `kdRecSync`: create / update the recurring invoices of the plan (last working day of the month). */
 export async function accFeeSync(tx: Tx, a: IndActor, office: Firm, firmIds: readonly string[] | null, today: string): Promise<number> {
-  await assertRecurModule(tx, a.firmId);
+  await assertRecurModule(tx, a);
   if (office.id !== a.firmId || !(office.settings as { officeFirm?: boolean }).officeFirm) fail('Ова не е фирмата на канцеларијата.');
   const plan = await accFeePlan(tx, office, firmIds);
   const recItem = String((office.settings as { recItem?: string }).recItem ?? '');

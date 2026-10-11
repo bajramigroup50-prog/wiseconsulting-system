@@ -8,9 +8,10 @@ import { addFinanceNav } from './nav-finance';
 import { addLegacyImportNav } from './nav-legacy-import';
 import { addRetailNav } from './nav-retail';
 import { addFirmsNav } from './nav-firms';
+import { addDejnostiNav } from './nav-dejnosti';
 
 /** Legacy `NAV` plus the items legacy added at runtime (per-phase files). */
-export const NAV = addFirmsNav(addRetailNav(addLegacyImportNav(addFinanceNav(addTransportNav(addIndustryNav(addLawNav(addOfficeNav(NAV_DATA))))))));
+export const NAV = addDejnostiNav(addFirmsNav(addRetailNav(addLegacyImportNav(addFinanceNav(addTransportNav(addIndustryNav(addLawNav(addOfficeNav(NAV_DATA)))))))));
 export type { NavGroup, NavItem };
 
 /** Legacy `NAV_SHORT` / `NAV_MINI` (group label abbreviations). */

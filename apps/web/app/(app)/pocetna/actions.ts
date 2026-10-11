@@ -8,8 +8,9 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { ACCOUNT_CODE_RE, digitsOnly, lineTotals, matchPartner, NEW_ACCOUNT_CODE_RE, normalizeName } from '@wise/core';
+import { obBankRows } from '@wise/core/finpar-ob';
 import {
-  accounts, afterImportedTbDeleted, audit, isIsoDate, openNextYear, partners, PostingError, postJournal, unpostSource, type Tx,
+  accounts, afterImportedTbDeleted, audit, bankAccounts, isIsoDate, openNextYear, partners, PostingError, postJournal, saveBankAccount, unpostSource, type Tx,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -20,6 +21,7 @@ const Row = z.object({
   account: z.string().trim().max(10), name: z.string().trim().max(300).optional().default(''),
   partnerId: z.string().max(40).optional().default(''), partnerName: z.string().trim().max(300).optional().default(''),
   partnerCode: z.string().trim().max(40).optional().default(''), debit: amount, credit: amount,
+  note: z.string().trim().max(300).optional().default(''),
 });
 const Input = z.object({ full: z.boolean(), date: z.string(), rows: z.array(Row).max(20000) });
 
@@ -95,14 +97,56 @@ export async function saveOpening(_prev: ActionState, form: FormData): Promise<A
       const res = await postJournal(tx, {
         firmId: firm.id, date, kind: v.full ? 'bbimp' : 'open', ...openingSource(year, v.full),
         description: v.full ? `Бруто биланс ${year} (увоз за завршна сметка)` : `Почетна состојба ${year}`,
-        lines: rows.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null })),
+        lines: rows.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note || null })),
         userId: u.id, requirePartner: false, auditAction: 'saveOpen',
       });
+      // legacy `obAddBanks` 12222 (after saveOpen 12229): 100x / 103x rows become the firm's bank accounts (103x → EUR)
+      let nb = 0;
+      if (!v.full) {
+        const have = await tx.select({ konto: bankAccounts.konto }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
+        for (const r of obBankRows(rows, have.map((h) => h.konto))) {
+          await saveBankAccount(tx, { firmId: firm.id, userId: u.id, input: { name: r.name || 'Сметка ' + r.account, cur: /^103/.test(r.account) ? 'EUR' : 'MKD', konto: r.account } });
+          nb++;
+        }
+      }
       msg = `${v.full ? 'Бруто билансот' : 'Почетната состојба'} за ${year} е зачувана (налог ${res.number}, ${rows.length} ставки)`
-        + (np ? `; креирани ${np} нови партнери` : '') + (na ? `; додадени ${na} нови конта` : '') + '.';
+        + (np ? `; креирани ${np} нови партнери` : '') + (na ? `; додадени ${na} нови конта` : '') + (nb ? `; внесени ${nb} банкарски сметки кај фирмата` : '') + '.';
     });
     revalidatePath('/pocetna');
     return { ok: msg };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * Legacy `ACT.obMkP` 12215 („+ Внеси ги сите како комитенти сега“): create the partners named in the read rows now
+ * (same matching / ЕДБ rule as on save). Returns name → partner id for the editor.
+ */
+export async function makeOpeningPartnersAction(rows: { partnerName: string; partnerCode: string }[]): Promise<ActionState & { map?: Record<string, string>; n?: number }> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const R = rows.slice(0, 20000).map((r) => ({ account: '', name: '', partnerId: '', partnerName: String(r.partnerName ?? '').trim().slice(0, 300), partnerCode: String(r.partnerCode ?? '').trim().slice(0, 40), debit: 1, credit: 0, note: '' }))
+      .filter((r) => r.partnerName);
+    const n = await db().transaction((tx) => ensurePartners(tx, firm.id, u.id, R));
+    revalidatePath('/pocetna');
+    return { ok: n ? `Внесени се ${n} нови комитенти и се поврзани со ставките.` : 'Сите партнери се поврзани.', n, map: Object.fromEntries(R.map((r) => [r.partnerName, r.partnerId])) };
+  } catch (e) { return actionError(e); }
+}
+
+/** Legacy `ACT.obBanks` 12227 („+ Внеси ги како сметки на фирмата“): 100x / 103x rows → bank accounts of the firm now. */
+export async function addOpeningBanksAction(rows: { account: string; name: string }[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    let n = 0;
+    await db().transaction(async (tx) => {
+      const have = await tx.select({ konto: bankAccounts.konto }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
+      for (const r of obBankRows(rows.map((x) => ({ account: String(x.account), name: String(x.name ?? '') })), have.map((h) => h.konto))) {
+        await saveBankAccount(tx, { firmId: firm.id, userId: u.id, input: { name: r.name || 'Сметка ' + r.account, cur: /^103/.test(r.account) ? 'EUR' : 'MKD', konto: r.account } });
+        n++;
+      }
+    });
+    revalidatePath('/pocetna');
+    revalidatePath('/banka');
+    return { ok: n ? `Внесени се ${n} банкарски сметки кај фирмата (за изводите).` : 'Нема нови сметки.' };
   } catch (e) { return actionError(e); }
 }
 

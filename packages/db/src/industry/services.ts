@@ -52,7 +52,7 @@ export async function deleteDoc(tx: Tx, a: IndActor, type: IndustryDocType, id: 
 /* ================================================================== restaurant */
 
 export async function saveTable(tx: Tx, a: IndActor, id: string | null, t: RestaurantTable): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, 'rest');
+  await loadIndustryFirm(tx, a.firmId, 'rest', a);
   const no = t.no.trim() || fail('Внесете број.');
   const T = await listDocs<RestaurantTable>(tx, a.firmId, 'rtable');
   if (T.some((x) => x.id !== id && x.data.no === no)) fail('Масата постои.');
@@ -66,7 +66,7 @@ export async function openOrderOf(tx: Tx, firmId: string, tableId: string) {
 
 /** Save the open bill's lines (legacy `roSave`); a bill with no lines is not created. */
 export async function saveOrder(tx: Tx, a: IndActor, tableId: string, lines: OrderLine[], waiter: string, now: string): Promise<string | null> {
-  await loadIndustryFirm(tx, a.firmId, 'rest');
+  await loadIndustryFirm(tx, a.firmId, 'rest', a);
   const o = await openOrderOf(tx, a.firmId, tableId);
   if (!o && !lines.length) return null;
   const old = o?.data.lines ?? [];
@@ -84,7 +84,7 @@ export async function markLineReady(tx: Tx, a: IndActor, orderId: string, i: num
 
 /** FIX 10.4 item 10: pay = POS sale (Phase 7) + bill closed, in one transaction. `wh` = store / warehouse id or null. */
 export async function payOrder(tx: Tx, a: IndActor, orderId: string, o2: { date: string; wh?: string | null; card?: number | null; now: string }): Promise<{ salesDayId: string; total: number }> {
-  await loadIndustryFirm(tx, a.firmId, 'rest');
+  await loadIndustryFirm(tx, a.firmId, 'rest', a);
   const o = await getDoc<RestaurantOrder>(tx, a.firmId, 'rord', orderId);
   if (o.status !== 'open') fail('Сметката е веќе затворена.');
   if (!o.data.lines.length) fail('Сметката е празна.');
@@ -115,7 +115,7 @@ async function ownAppt(tx: Tx, firmId: string, id: string): Promise<AppointmentR
 
 /** Legacy `apSaveB`: client required (a new name creates the client card), resource required; returns the clash, if any. */
 export async function saveAppointment(tx: Tx, a: IndActor, x: ApptInput): Promise<{ id: string; clash: string | null }> {
-  await loadIndustryFirm(tx, a.firmId, 'appt');
+  await loadIndustryFirm(tx, a.firmId, 'appt', a);
   const prev = x.id ? await ownAppt(tx, a.firmId, x.id) : null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date) || !/^\d{1,2}:\d{2}$/.test(x.time)) fail('Внесете датум и час.');
   if (!x.res) fail('Изберете кај кого.');
@@ -142,7 +142,7 @@ export async function saveAppointment(tx: Tx, a: IndActor, x: ApptInput): Promis
 }
 
 export async function setApptStatus(tx: Tx, a: IndActor, id: string, status: AppointmentRow['status'] | 'reminded'): Promise<AppointmentRow> {
-  await loadIndustryFirm(tx, a.firmId, 'appt');
+  await loadIndustryFirm(tx, a.firmId, 'appt', a);
   const r = await ownAppt(tx, a.firmId, id);
   if (status === 'reminded') await tx.update(appointments).set({ remindAt: new Date() }).where(eq(appointments.id, id));
   else await tx.update(appointments).set({ status }).where(eq(appointments.id, id));
@@ -158,7 +158,7 @@ async function apptLine(tx: Tx, f: Firm, r: AppointmentRow) {
 
 /** Legacy `apKasa`: the service is sold at the till (Phase 7 POS day); the appointment is done. */
 export async function payApptAtTill(tx: Tx, a: IndActor, id: string, date: string, wh?: string | null): Promise<string> {
-  const f = await loadIndustryFirm(tx, a.firmId, 'appt');
+  const f = await loadIndustryFirm(tx, a.firmId, 'appt', a);
   const r = await ownAppt(tx, a.firmId, id);
   if (!(n(r.price) > 0)) fail('Терминот нема цена.');
   if (r.invoiceId || r.salesDayId) fail('Терминот е веќе наплатен.');
@@ -172,7 +172,7 @@ export async function payApptAtTill(tx: Tx, a: IndActor, id: string, date: strin
 
 /** Legacy `apInv`: invoice of the appointment (gross price → net at the service's rate). */
 export async function invoiceAppointment(tx: Tx, a: IndActor, id: string, date: string) {
-  const f = await loadIndustryFirm(tx, a.firmId, 'appt');
+  const f = await loadIndustryFirm(tx, a.firmId, 'appt', a);
   const r = await ownAppt(tx, a.firmId, id);
   if (!(n(r.price) > 0)) fail('Терминот нема цена.');
   if (r.invoiceId || r.salesDayId) fail('Терминот е веќе наплатен.');

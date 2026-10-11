@@ -7,7 +7,7 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
-import { calculationRows, type PurchaseLike } from '@wise/core';
+import { calculationRows, transferBookTotals, type PurchaseLike } from '@wise/core';
 import { journals, partners, purchaseCosts, purchases, purchaseStockLines, transfers } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -17,6 +17,10 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deletePurchaseAction } from '../vlez/actions';
+import { KsAll, KsBar } from '../_stock/kalk-sel';
+import { Retail } from '@wise/core';
+import { like } from 'drizzle-orm';
+import { items } from '@wise/db';
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 export type KalkSP = { wh?: string; q?: string };
@@ -47,6 +51,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
     db().select().from(transfers).where(and(eq(transfers.firmId, firm.id), gte(transfers.date, `${year}-01-01`), lte(transfers.date, `${year}-12-31`))).orderBy(desc(transfers.date)),
   ]);
   const NM = new Map(J.map((j) => [j.s, j.n]));
+  const noName = (await db().select({ code: items.code, name: items.name }).from(items).where(and(eq(items.firmId, firm.id), like(items.name, 'Артикл %')))).filter((i) => Retail.isNoNameItem(i)).length;
   const ctxItems = { items: L.ctx.items ?? [] };
   const rows = P.map(({ p, pn }) => {
     const P1: PurchaseLike = {
@@ -70,6 +75,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
         <Link className="btn" href="/kalkCalc">Калкулатор</Link>
         {write && <Link className="btn pri" href={newHref}>+ Нова калкулација</Link>}
       </Hd>
+      {noName > 0 && <div className="callout warn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       <form className="card"><div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
         <label className="mini">Објект (магацин / продавница / маркет) <select name="wh" defaultValue={wh} style={{ width: 'auto' }}>
           <option value="">{md === 'store' ? 'сите продавници' : 'сите магацини'}</option>
@@ -85,10 +91,13 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
         <div className="tile"><span>Продажна вредност со ДДВ</span><b>{fmt(T('sp'))}</b></div>
       </div>
       {rows.length ? (
+        <>
+        <KsBar admin={u.role === 'admin' && del} warehouse={md === 'warehouse'} />
         <div className="tw"><table>
-          <thead><tr><th>Датум</th><th>Калк. бр.</th><th>Фактура</th><th>Добавувач</th><th>Вид</th><th>Објект</th><th className="n">Ставки</th><th className="n">Набавна вредност</th><th className="n">Девизен износ</th><th className="n">Разлика</th><th className="n">Продажна со ДДВ</th><th>Налог</th><th /></tr></thead>
+          <thead><tr><th className="noprint" style={{ width: 28 }}><KsAll /></th><th>Датум</th><th>Калк. бр.</th><th>Фактура</th><th>Добавувач</th><th>Вид</th><th>Објект</th><th className="n">Ставки</th><th className="n">Набавна вредност</th><th className="n">Девизен износ</th><th className="n">Разлика</th><th className="n">Продажна со ДДВ</th><th>Налог</th><th /></tr></thead>
           <tbody>{rows.map(({ p, pn, n, nab, sp: spv, mg, fa }) => (
             <tr key={p.id}>
+              <td className="noprint"><input type="checkbox" name="ks" value={p.id} data-wh={p.warehouseId ?? 'main'} /></td>
               <td>{dmy(p.date)}</td><td><b>{p.calcNo || '—'}</b></td><td>{p.number}</td><td>{pn ?? p.supplierName}{p.status === 'pending' && <> <span className="pill warn">чека одобрување</span></>}</td>
               <td>{p.imp ? <span className="pill info">У</span> : 'Д'}</td><td>{L.locName(p.warehouseId)}</td><td className="n">{n}</td><td className="n">{fmt(nab)}</td>
               <td className="n">{p.imp ? `${fmt(fa)} ${p.currency}` : ''}</td><td className="n">{fmt(mg)}</td><td className="n">{fmt(spv)}</td>
@@ -97,13 +106,14 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
                 <Link className="btn sm" href={`/vlez?edit=${p.id}`}>Отвори</Link>
                 <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калк. PDF</Link>
                 <Link className="btn sm" href={`/print/kalk/${p.id}?t=plt`} target="_blank">ПЛТ</Link>
-                {md === 'warehouse' && write && <Link className="btn sm pri" href="/prenosi?nov" title="Пренеси ја стоката од оваа калкулација во продавница">→ Продавница</Link>}
+                {md === 'warehouse' && write && <Link className="btn sm pri" href={`/prenosi?calc=${p.id}`} title="Пренеси ја стоката од оваа калкулација во продавница">→ Продавница</Link>}
                 {del && <RowAction action={deletePurchaseAction.bind(null, p.id)} label="🗑" title="Избриши ја калкулацијата/фактурата заедно со налогот" confirm={`Да се избрише влезната фактура бр. ${p.number || p.calcNo || ''} од ${dmy(p.date)}? Ќе се избрише и налогот и приемот на залиха.`} />}
               </td>
             </tr>
           ))}</tbody>
-          <tfoot><tr><td colSpan={7}>Вкупно</td><td className="n">{fmt(T('nab'))}</td><td className="n">{Object.entries(fxBy).map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td className="n">{fmt(T('mg'))}</td><td className="n">{fmt(T('sp'))}</td><td colSpan={2} /></tr></tfoot>
+          <tfoot><tr><td colSpan={8}>Вкупно</td><td className="n">{fmt(T('nab'))}</td><td className="n">{Object.entries(fxBy).map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td className="n">{fmt(T('mg'))}</td><td className="n">{fmt(T('sp'))}</td><td colSpan={2} /></tr></tfoot>
         </table></div>
+        </>
       ) : <div className="card empty">Нема {md === 'store' ? 'директни приеми од добавувачи' : 'влезни калкулации'}{wh ? ' за ' + L.locName(wh) : ''} во {year}. Внесете ја фактурата во <Link href="/vlez">Влез</Link> или кликнете „+ Нова калкулација“.</div>}
       <div className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -112,8 +122,12 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
         </div>
         {TRs.length ? (
           <div className="tw"><table>
-            <thead><tr><th>Датум</th><th>Бр.</th><th>Од</th><th>Во</th><th className="n">Ставки</th><th /></tr></thead>
-            <tbody>{TRs.map((x) => <tr key={x.id}><td>{dmy(x.date)}</td><td><b>{x.number}</b></td><td>{L.locName(x.fromLocationId)}</td><td>{L.locName(x.toLocationId)}</td><td className="n">{x.lines.length}</td><td><Link className="btn sm" href={`/prenosi?view=${x.id}`}>Преносница</Link></td></tr>)}</tbody>
+            <thead><tr><th>Датум</th><th>Бр.</th><th>Од магацин</th><th>Во продавница</th><th className="n">Ставки</th><th className="n">Набавна вредност</th><th className="n">Разлика</th><th className="n">Продажна со ДДВ</th><th className="noprint" /></tr></thead>
+            <tbody>{TRs.map((x) => {
+              const t = transferBookTotals(L.ctx, { id: x.id, number: x.number, date: x.date, from: x.fromLocationId ?? 'main', to: x.toLocationId ?? 'main', lines: x.lines.map((l) => ({ item: l.itemId, qty: l.qty, nabU: l.nabU ?? 0, sp: l.sp ?? null })) });
+              return <tr key={x.id}><td>{dmy(x.date)}</td><td><b>{x.number}</b></td><td>{L.locName(x.fromLocationId)}</td><td>{L.locName(x.toLocationId)}</td><td className="n">{x.lines.length}</td><td className="n">{fmt(t.nab)}</td><td className="n">{fmt(t.marg)}</td><td className="n">{fmt(t.sp)}</td>
+                <td className="row noprint" style={{ gap: 4, flexWrap: 'nowrap' }}><Link className="btn sm" href={`/print/prenos/${x.id}`} target="_blank">Преносница</Link><Link className="btn sm" href={`/print/prenos/${x.id}?t=plt`} target="_blank">ПЛТ</Link></td></tr>;
+            })}</tbody>
           </table></div>
         ) : <p className="note">{md === 'store' ? 'Нема преноси од магацин во продавница.' : 'Нема излез кон продавница.'}</p>}
       </div>

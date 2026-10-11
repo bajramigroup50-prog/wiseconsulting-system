@@ -10,13 +10,14 @@ import { calcLines } from './vat';
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
 describe('module toggles (FIX 10.4 item 9)', () => {
-  it('gates module views for office users too, not only clients', () => {
-    expect(viewEnabled('hotel', [], { hasFirm: true })).toBe(false);
-    expect(viewEnabled('hotel', ['hotel'], { hasFirm: true })).toBe(true);
-    expect(viewEnabled('gradbaIzv', ['hotel'], { hasFirm: true })).toBe(false);
-    expect(viewEnabled('mojpn', ['pn'], { hasFirm: true })).toBe(true);
-    expect(viewEnabled('nalozi', [], { hasFirm: true })).toBe(true);
-    expect(viewEnabled('hotel', [], { hasFirm: false })).toBe(true);
+  it('office users see every module (legacy viewOn / DEJ_V); clients only their firm modules', () => {
+    expect(viewEnabled('hotel', [], { hasFirm: true })).toBe(true);
+    expect(viewEnabled('hotel', [], { hasFirm: true, client: true })).toBe(false);
+    expect(viewEnabled('hotel', ['hotel'], { hasFirm: true, client: true })).toBe(true);
+    expect(viewEnabled('gradbaIzv', ['hotel'], { hasFirm: true, client: true })).toBe(false);
+    expect(viewEnabled('mojpn', ['pn'], { hasFirm: true, client: true })).toBe(true);
+    expect(viewEnabled('nalozi', [], { hasFirm: true, client: true })).toBe(true);
+    expect(viewEnabled('hotel', [], { hasFirm: false, client: true })).toBe(true);
   });
   it('production planning stays visible to the office, not to clients', () => {
     expect(viewEnabled('mrp', [], { hasFirm: true })).toBe(true);

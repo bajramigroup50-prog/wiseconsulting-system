@@ -1,9 +1,14 @@
-/** Page header — legacy `title(t, sub, actions)`. */
-export function Hd({ t, sub, children }: { t: string; sub?: string; children?: React.ReactNode }) {
+import { ScreenExport } from './screen-export';
+
+/**
+ * Page header — legacy `title(t, sub, actions)`. Every screen gets „⬇ PDF“ / „⬇ Excel“ of what it shows
+ * (`ScreenExport`); pass `exp={false}` where that makes no sense (forms only, no firm selected).
+ */
+export function Hd({ t, sub, children, exp = true, excel = true }: { t: string; sub?: string; children?: React.ReactNode; exp?: boolean; /** false where the screen has its own legacy Excel export */ excel?: boolean }) {
   return (
     <div className="hd">
       <h1>{t}{sub && <span className="mk">{sub}</span>}</h1>
-      <div className="row">{children}</div>
+      <div className="row">{children}{exp && <ScreenExport title={t} sub={sub} excel={excel} />}</div>
     </div>
   );
 }

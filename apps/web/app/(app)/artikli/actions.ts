@@ -7,6 +7,7 @@ import { audit, itemBarcodes, items, ITEM_TYPES } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { nextCode } from '@/lib/codes';
 import { db } from '@/lib/db';
+import { itemUsage } from '@/lib/sales-parity';
 
 const opt = z.string().trim().max(500).transform((s) => s || null);
 const num = z.string().trim().transform((s) => s.replace(/\s/g, '').replace(',', '.'))
@@ -68,13 +69,16 @@ export async function saveItem(_prev: ActionState, form: FormData): Promise<Acti
     return actionError(e);
   }
   revalidatePath('/artikli');
-  redirect('/artikli');
+  revalidatePath('/uslugiS');
+  redirect(form.get('back') === '/uslugiS' ? '/uslugiS' : '/artikli');
 }
 
 /** Delete an item (`del`). Items referenced by documents are protected by foreign keys (later phases). */
 export async function deleteItem(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('del');
+    const n = (await itemUsage(firm.id)).get(id) ?? 0;
+    if (n) return { error: `Не може да се избрише – се користи во ${n} документи.` };
     await db().transaction(async (tx) => {
       const [it] = await tx.delete(items).where(and(eq(items.id, id), eq(items.firmId, firm.id))).returning();
       if (it) await audit(tx, { userId: u.id, firmId: firm.id, action: 'delS', entityType: 'item', entityId: id, data: { name: it.name, code: it.code } });
@@ -82,4 +86,41 @@ export async function deleteItem(id: string): Promise<ActionState> {
   } catch (e) { return actionError(e); }
   revalidatePath('/artikli');
   return { ok: 'Избришано.' };
+}
+
+/** Legacy `actS` (7406): an item used in documents is made inactive instead of deleted. */
+export async function setItemActive(id: string, active: boolean): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    await db().transaction(async (tx) => {
+      await tx.update(items).set({ active }).where(and(eq(items.id, id), eq(items.firmId, firm.id)));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'actS', entityType: 'item', entityId: id, data: { active } });
+    });
+  } catch (e) { return actionError(e); }
+  revalidatePath('/artikli');
+  return { ok: active ? 'Активиран.' : 'Означен како неактивен – нема да се нуди во изборот.' };
+}
+
+/** Legacy `slDel` (16942) for items: unused items are deleted, used ones skipped. */
+export async function deleteItemsAction(ids: string[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('del');
+    if (u.role !== 'admin') return { error: 'Бришење може само администраторот.' };
+    const use = await itemUsage(firm.id);
+    const L = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    const free = L.filter((x) => !use.get(x));
+    if (!free.length) return { error: 'Сите избрани се користат во документи – не може да се избришат.' };
+    let n = 0;
+    for (const id of free) {
+      try {
+        await db().transaction(async (tx) => {
+          await tx.delete(items).where(and(eq(items.id, id), eq(items.firmId, firm.id)));
+        });
+        n++;
+      } catch { /* referenced elsewhere */ }
+    }
+    await db().transaction((tx) => audit(tx, { userId: u.id, firmId: firm.id, action: 'slDel', entityType: 'item', data: { text: 'Масовно бришење (items): ' + n } }));
+    revalidatePath('/artikli');
+    return { ok: 'Избришани ' + n + ' од ' + L.length + '.' + (L.length - n ? ' ' + (L.length - n) + ' се користат во документи и не се избришани.' : '') };
+  } catch (e) { return actionError(e); }
 }

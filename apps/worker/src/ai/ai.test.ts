@@ -146,6 +146,6 @@ describe('ai.read-document job', () => {
     expect((api.calls[0]!.messages[0]!.content as Anthropic.ContentBlockParam[])[0]!.type).toBe('image');
     expect(JSON.stringify(api.calls[0]!.messages[0]!.content)).toContain('ISSUED BY the company \\"Наша фирма\\"');
     const [d] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id));
-    expect(d!.drafts[0]).toMatchObject({ status: 'check', draft: { number: '33/2026', items: [{ price: 1000, konto: '7400' }] } });
+    expect(d!.drafts[0]).toMatchObject({ status: 'ok', msg: 'нов купувач: Нов купувач', draft: { number: '33/2026', items: [{ price: 1000, konto: '7400' }] } });
   });
 });

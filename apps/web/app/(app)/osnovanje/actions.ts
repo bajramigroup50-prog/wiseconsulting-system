@@ -21,7 +21,7 @@ export async function saveFormation(_p: ActionState, f: FormData): Promise<Actio
     const founders: Founder[] = [];
     for (let i = 0; i < 3; i++) {
       const n = fv(f, `fo${i}_name`);
-      if (n) founders.push({ kind: fv(f, `fo${i}_kind`) === 'ПЛ' ? 'ПЛ' : 'ФЛ', name: n, surname: fv(f, `fo${i}_surname`) ?? undefined, embg: fv(f, `fo${i}_embg`) ?? undefined, share: fnum(f, `fo${i}_share`), cit: fv(f, `fo${i}_cit`) ?? undefined });
+      if (n) founders.push({ kind: fv(f, `fo${i}_kind`) === 'ПЛ' ? 'ПЛ' : 'ФЛ', name: n, surname: fv(f, `fo${i}_surname`) ?? undefined, embg: fv(f, `fo${i}_embg`) ?? undefined, idNo: fv(f, `fo${i}_idNo`) ?? undefined, address: fv(f, `fo${i}_address`) ?? undefined, share: fnum(f, `fo${i}_share`), cit: fv(f, `fo${i}_cit`) ?? undefined });
     }
     if (founders.length && !sharesOk(founders)) return { error: 'Уделите на основачите мора да се вкупно 100%.' };
     const manager = fv(f, 'manager');

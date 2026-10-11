@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { can, EF_STATUS_KEYS } from './status';
 import { audit, firms } from '@wise/db';
 import { actionError, type ActionState } from '@/lib/books';
-import { requireUser } from '@/lib/auth';
+import { requireCan, requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { isDate } from '@/lib/finance';
 
@@ -13,7 +13,7 @@ const CERT = ['', 'token', 'p12', 'none'];
 
 export async function saveEfAction(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const u = await requireUser();
+    const u = await requireCan('office');
     const ids = f.getAll('fid').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
     let n = 0;
     await db().transaction(async (tx) => {

@@ -3,8 +3,11 @@
 import { useActionState } from 'react';
 import type { ActionState } from '@/lib/books';
 
-/** Print only the `.printarea` part of the page with the browser's print-to-PDF (legacy `pdfOut` → print view). */
-export function PrintButton({ label = 'PDF / Печати', className = 'btn pri' }: { label?: string; className?: string }) {
+/**
+ * Print only the `.printarea` part of the page with the browser's print dialog (legacy `pdfOut` → print view). The
+ * server PDF of the same `.printarea` is the „⬇ PDF“ of the page header (`ScreenExport`).
+ */
+export function PrintButton({ label = '🖨 Печати', className = 'btn pri' }: { label?: string; className?: string }) {
   return (
     <button type="button" className={className} onClick={() => {
       document.body.classList.add('printing');

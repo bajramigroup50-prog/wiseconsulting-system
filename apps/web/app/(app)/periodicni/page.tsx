@@ -17,7 +17,7 @@ import { deleteRecurring, runRecurring, saveRecurring } from './actions';
 
 const total = (items: { qty: number; price: number; vat: number }[]) => r2(items.reduce((a, l) => a + l.qty * l.price * (1 + l.vat / 100), 0));
 
-export default async function PeriodicniPage({ searchParams }: { searchParams: Promise<{ id?: string; nov?: string }> }) {
+export default async function PeriodicniPage({ searchParams }: { searchParams: Promise<{ id?: string; nov?: string; bulk?: string }> }) {
   const sp = await searchParams;
   const { firm } = await officePage('periodicni', { perm: 'office' });
   if (!firm) return <NoFirm t="🔁 Периодични фактури" />;
@@ -35,20 +35,21 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
     <>
       <Hd t="🔁 Периодични фактури" sub={`${firm.name} · ${L.length} дефиниции · ${due.length} за издавање`}>
         <Link className="btn pri" href="/periodicni?nov">+ Нова</Link>
-        <RowAction className="btn" action={runRecurring} label="▶ Издај ги достасаните" />
+        <Link className="btn" href="/periodicni?nov&bulk">👥 За повеќе комитенти</Link>
+        <RowAction className="btn" action={runRecurring} label={`🧾 Издади доспеани (${due.length})`} />
       </Hd>
       {(sp.nov !== undefined || e) && (
         <ActionForm action={saveRecurring} reset={false}>
-          <h2>{e ? 'Измена' : 'Нова периодична фактура'}</h2>
+          <h2>{e ? 'Измена' : sp.bulk !== undefined ? '🔁 Месечна фактура за повеќе комитенти' : 'Нова периодична фактура'}</h2>
           {e && <input type="hidden" name="id" value={e.id} />}
           <div className="form">
-            <label className="f">Купувач<select name="partnerId" defaultValue={e?.partnerId ?? ''} required><option value="" disabled>— изберете —</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            {sp.bulk === undefined && <label className="f">Купувач<select name="partnerId" defaultValue={e?.partnerId ?? ''} required><option value="" disabled>— изберете —</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
             <label className="f">Период<select name="every" defaultValue={e?.every ?? 'month'}>{(Object.keys(REC_EVERY) as RecEvery[]).map((k) => <option key={k} value={k}>{REC_EVERY_LBL[k]}</option>)}</select></label>
             <label className="f">Ден во месецот<select name="day" defaultValue={e?.day ?? '1'}>{Array.from({ length: 31 }, (_, i) => <option key={i} value={String(i + 1)}>{i + 1}</option>)}<option value="L">последен работен ден</option></select></label>
-            <label className="f">Следно издавање<input name="next" type="date" defaultValue={e?.next ?? ''} /></label>
-            <label className="f">До (крај)<input name="end" type="date" defaultValue={e?.end ?? ''} /></label>
+            <label className="f">{e ? 'Следна фактура на' : 'Прва фактура на'}<input name="next" type="date" defaultValue={e?.next ?? ''} /></label>
+            <label className="f">Заклучно со<input name="end" type="date" defaultValue={e?.end ?? ''} /></label>
             <label className="f">Рок за плаќање (дена)<input name="dueDays" type="number" min={0} defaultValue={e?.dueDays ?? 15} /></label>
-            <label className="f wide">Белешка на фактурата<input name="note" defaultValue={e?.note ?? 'Фактура за {месец}'} /></label>
+            <label className="f wide">Опис на фактурата (може {'{месец}'})<input name="note" defaultValue={e?.note ?? 'Фактура за {месец}'} /></label>
             <label className="chk"><input type="checkbox" name="active" defaultChecked={e?.active ?? true} /> Активна</label>
             <label className="chk"><input type="checkbox" name="mail" defaultChecked={e?.mail ?? false} /> Прати по е-пошта</label>
           </div>
@@ -61,12 +62,18 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
               </tr>
             ))}
           </tbody></table>
-          <div className="row"><button className="btn pri">Зачувај</button><Link className="btn" href="/periodicni">Затвори</Link></div>
+          {sp.bulk !== undefined && !e && (
+            <div className="tw" style={{ maxHeight: 320, overflow: 'auto', marginTop: 8 }}><table className="dense">
+              <thead><tr><th></th><th>Комитент</th><th className="n">Своја цена</th></tr></thead>
+              <tbody>{P.map((p) => <tr key={p.id}><td><input type="checkbox" name="bulkP" value={p.id} /></td><td>{p.name}</td><td className="n"><input name={`own_${p.id}`} inputMode="decimal" placeholder="од ставката" style={{ width: 110 }} /></td></tr>)}</tbody>
+            </table></div>
+          )}
+          <div className="row savebar"><button className="btn pri">Зачувај</button><Link className="btn" href="/periodicni">Затвори</Link></div>
         </ActionForm>
       )}
       {L.length ? (
         <div className="tw"><table className="dense">
-          <thead><tr><th>Купувач</th><th>Период</th><th>Ден</th><th>Следна</th><th className="n">Износ</th><th>Последна</th><th>Статус</th><th></th></tr></thead>
+          <thead><tr><th>Купувач</th><th>Период</th><th>Ден</th><th>Следна</th><th className="n">Износ</th><th>Последна издадена</th><th>Статус</th><th></th></tr></thead>
           <tbody>{L.map(({ r, partner }) => (
             <tr key={r.id} style={r.active ? undefined : { opacity: 0.55 }}>
               <td><b>{partner}</b><div className="mini" style={{ display: 'block' }}>{r.items.map((i) => i.name).join(', ')}</div></td>

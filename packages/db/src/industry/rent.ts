@@ -102,7 +102,7 @@ export const vehicleRates = (v: Pick<FleetVehicle, 'rDay' | 'rWeek' | 'rKm' | 'r
 
 /** Legacy `rcSaveB`: vehicle, driver name, dates, vehicle free (legacy `rcClash`). */
 export async function saveRental(tx: Tx, a: IndActor, r: RentalInput): Promise<{ id: string; number: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const prev = r.id ? await own(tx, a.firmId, r.id) : null;
   if (prev?.invoiceId) fail('Договорот е фактуриран.');
   const v = await vehicle(tx, a.firmId, r.vehicleId);
@@ -137,7 +137,7 @@ export async function saveRental(tx: Tx, a: IndActor, r: RentalInput): Promise<{
 export type RentHandoverIn = RentHandover & { photos?: string[]; sig?: string | null };
 
 export async function handOut(tx: Tx, a: IndActor, id: string, out: RentHandoverIn, now: string, today: string): Promise<{ ageWarning: string | null }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'resv') fail('Возилото е веќе предадено.');
   const P = handoverProblems(r.driver, out, today);
@@ -151,7 +151,7 @@ export async function handOut(tx: Tx, a: IndActor, id: string, out: RentHandover
 
 /** Legacy `rcRet`: km / fuel at return, vehicle odometer updated; returns the amount due. */
 export async function returnVehicle(tx: Tx, a: IndActor, id: string, ret: RentHandoverIn, now: string): Promise<number> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'out') fail('Возилото не е кај клиент.');
   if (ret.km === '' || ret.km == null || ret.fuel === '' || ret.fuel == null) fail('Внесете км и гориво при враќањето.');
@@ -178,7 +178,7 @@ async function driverPartner(tx: Tx, a: IndActor, r: RentRental) {
 
 /** Legacy `rcInv`: invoice of a returned vehicle (rent + extra km / fuel / extras). */
 export async function invoiceRental(tx: Tx, a: IndActor, id: string, date: string): Promise<{ id: string; number: string; warnings: string[] }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'ret') fail('Фактура се издава по враќањето на возилото.');
   if (r.invoiceId) fail('Договорот е веќе фактуриран.');
@@ -197,7 +197,7 @@ export async function invoiceRental(tx: Tx, a: IndActor, id: string, date: strin
 
 /** Legacy `rcDepIn`: deposit received — cash receipt D register / P deposits konto (with the driver as partner). */
 export async function receiveDeposit(tx: Tx, a: IndActor, id: string, date: string): Promise<string> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (!(n(r.deposit) > 0)) fail('Договорот нема кауција.');
   if (r.depositVoucherId) fail('Кауцијата е веќе примена.');
@@ -214,7 +214,7 @@ export async function receiveDeposit(tx: Tx, a: IndActor, id: string, date: stri
  * `keep` must not exceed the deposit; keeping requires the invoice.
  */
 export async function settleDeposit(tx: Tx, a: IndActor, id: string, keep: number, date: string): Promise<{ kept: number; back: number }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (!r.depositVoucherId) fail('Кауцијата не е примена.');
   if (r.depositClosed) fail('Кауцијата е веќе порамнета.');

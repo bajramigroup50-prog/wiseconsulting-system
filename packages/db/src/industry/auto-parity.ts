@@ -10,7 +10,7 @@ import { customerVehicles } from '../schema/index';
 import { findOrCreatePartner, IndustryError, loadIndustryFirm, type IndActor } from './context';
 
 export async function importCustomerVehicles(tx: Tx, a: IndActor, aoa: readonly (readonly unknown[])[]): Promise<{ added: number; skipped: string[] }> {
-  await loadIndustryFirm(tx, a.firmId, 'auto');
+  await loadIndustryFirm(tx, a.firmId, 'auto', a);
   const ex = await tx.select({ plate: customerVehicles.plate, vin: customerVehicles.vin }).from(customerVehicles).where(eq(customerVehicles.firmId, a.firmId));
   let plan: ReturnType<typeof vehicleImportPlan>;
   try { plan = vehicleImportPlan(aoa, ex); } catch (e) { throw new IndustryError(e instanceof Error ? e.message : String(e)); }

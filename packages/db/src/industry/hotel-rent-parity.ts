@@ -25,7 +25,7 @@ const summary = (n: number, skip: string[], what: string) =>
 
 /** Legacy `digApply` `hroom`: new rooms only (an existing number is skipped). */
 export async function importHotelRooms(tx: Tx, a: IndActor, aoa: unknown[][]): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, 'hotel');
+  await loadIndustryFirm(tx, a.firmId, 'hotel', a);
   const R = parse(aoa, HOTEL_ROOM_IMPORT);
   const have = new Set((await tx.select({ no: hotelRooms.no }).from(hotelRooms).where(eq(hotelRooms.firmId, a.firmId))).map((x) => x.no));
   let n = 0;
@@ -44,7 +44,7 @@ export async function importHotelRooms(tx: Tx, a: IndActor, aoa: unknown[][]): P
 
 /** Legacy `digApply` `hres`: room by number / type, skipped when the room is taken in the period. */
 export async function importHotelReservations(tx: Tx, a: IndActor, aoa: unknown[][]): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, 'hotel');
+  await loadIndustryFirm(tx, a.firmId, 'hotel', a);
   const R = parse(aoa, HOTEL_RES_IMPORT);
   const rooms = await tx.select().from(hotelRooms).where(and(eq(hotelRooms.firmId, a.firmId), eq(hotelRooms.active, true)));
   const live = await tx.select({ roomId: hotelReservations.roomId, from: hotelReservations.from, to: hotelReservations.to }).from(hotelReservations)
@@ -69,7 +69,7 @@ export async function importHotelReservations(tx: Tx, a: IndActor, aoa: unknown[
  * here an unknown plate becomes a new fleet vehicle (master-data import), marked for rent.
  */
 export async function importFleetPrices(tx: Tx, a: IndActor, aoa: unknown[][]): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, 'rent');
+  await loadIndustryFirm(tx, a.firmId, 'rent', a);
   const R = parse(aoa, FLEET_PRICE_IMPORT);
   const V = await tx.select().from(fleetVehicles).where(eq(fleetVehicles.firmId, a.firmId));
   const norm = (p: string) => p.replace(/[\s-]+/g, '').toUpperCase();
@@ -98,7 +98,7 @@ export async function importFleetPrices(tx: Tx, a: IndActor, aoa: unknown[][]): 
 
 /** Rentals with calculation and revenue (`rcCalc` + `rcRev`) for the `rentIzv` tabs. */
 export async function rentReportRows(tx: Tx, firmId: string): Promise<RentReportRow[]> {
-  const f = await loadIndustryFirm(tx, firmId, 'rent');
+  const f = await loadIndustryFirm(tx, firmId);
   const C = firmRentConfig(f);
   const R = await tx.select().from(rentRentals).where(and(eq(rentRentals.firmId, firmId), ne(rentRentals.status, 'cancel')));
   const V = await tx.select().from(fleetVehicles).where(eq(fleetVehicles.firmId, firmId));

@@ -11,7 +11,7 @@ import { aggregatedLines } from '@/lib/ledger-agg';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 
-type SP = { k?: string; from?: string; to?: string; close?: string; q?: string };
+type SP = { k?: string; from?: string; to?: string; close?: string; q?: string; p?: string; wh?: string };
 const F = ['od', 'op', 'td', 'tp', 'vd', 'vp'] as const;
 
 export default async function BbPartPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -21,9 +21,11 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
   if (!/^\d{1,10}$/.test(sp.k ?? '')) notFound();
   const k = sp.k!;
   const from = inYearOr(sp.from, year, `${year}-01-01`), to = inYearOr(sp.to, year, `${year}-12-31`);
-  const [lines, chart, P] = await Promise.all([aggregatedLines(firm.id, from, to), effectiveChart(db(), firm.id), partnerOptions(firm.id)]);
+  const [lines, chart, P] = await Promise.all([aggregatedLines(firm.id, from, to, sp.wh), effectiveChart(db(), firm.id), partnerOptions(firm.id)]);
   const pname = new Map(P.map((p) => [p.id, p.name]));
-  const all = trialBalance(lines, { level: 'a', from, to, withClose: sp.close === '1', byPartnerOf: k, partnerName: (id) => pname.get(id) }).rows;
+  // legacy `bbRows('a',…,S.bbP,k)`: the partner filter of the trial balance carries over
+  const pf = sp.p && pname.has(sp.p) ? sp.p : null;
+  const all = trialBalance(lines, { level: 'a', from, to, withClose: sp.close === '1', partnerId: pf, byPartnerOf: k, partnerName: (id) => pname.get(id) }).rows;
   const q = (sp.q ?? '').trim();
   const L = q ? all.filter((p) => srchMatch(p.name, q)) : all;
   const sum = (f: (typeof F)[number]) => all.reduce((s, r) => s + (+r[f] || 0), 0);
@@ -32,7 +34,7 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
     <>
       <Hd t={`${k} ${chart.find((a) => a.code === k)?.name ?? ''} – по комитенти`} sub={`${dmy(from)} – ${dmy(to)}`}>
         <Link className="btn" href={back}>← Бруто биланс</Link>
-        <Link className="btn" href={`/kkart?k=${k}&from=${from}&to=${to}`}>Картица за целото конто</Link>
+        <Link className="btn" href={`/kkart?k=${k}&from=${from}&to=${to}&back=bbPart`}>Картица за целото конто</Link>
       </Hd>
       <form className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center' }}>
         <input type="hidden" name="k" value={k} /><input type="hidden" name="from" value={from} /><input type="hidden" name="to" value={to} />
@@ -45,7 +47,7 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
         <thead><tr><th>Комитент</th><th className="n">Поч. Д</th><th className="n">Поч. П</th><th className="n">Промет Д</th><th className="n">Промет П</th><th className="n">Вкупно Д</th><th className="n">Вкупно П</th><th className="n">Салдо Д</th><th className="n">Салдо П</th></tr></thead>
         <tbody>{L.length ? L.map((p) => (
           <tr key={p.k || '-'}>
-            <td><Link href={`/kkart?k=${k}&from=${from}&to=${to}&p=${p.k || 'none'}`}><b>{p.name}</b></Link></td>
+            <td><Link href={`/kkart?k=${k}&from=${from}&to=${to}&p=${p.k || "none"}&back=bbPart`}><b>{p.name}</b></Link></td>
             {F.map((f) => <td key={f} className="n">{p[f] ? fmt(p[f]) : ''}</td>)}
             <td className="n">{p.s > 0 ? fmt(p.s) : ''}</td><td className="n">{p.s < 0 ? fmt(-p.s) : ''}</td>
           </tr>

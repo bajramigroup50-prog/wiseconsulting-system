@@ -35,7 +35,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return new Response(xml, {
     headers: {
       'content-type': 'application/xml; charset=utf-8',
-      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent((inv.kind === 'credit' ? 'CreditNote_' : 'Invoice_') + inv.number.replace(/[^\w-]+/g, '_') + '.xml')}`,
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent('eFaktura_' + inv.number.replace(/[^\p{L}\p{N}]+/gu, '_') + '.xml')}`,
     },
   });
 }

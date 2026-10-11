@@ -20,7 +20,7 @@ import { dispatchMail, queueMail, validAddresses } from '@/lib/mail';
 import { renderPdf } from '@/lib/jobs';
 import { dataUri } from '@/lib/print-pdf';
 import { getObjectBytes } from '@/lib/storage';
-import { requireUser } from '@/lib/auth';
+import { requireCan, requireUser } from '@/lib/auth';
 import { storeImageDataUrl } from '@/lib/data-url-file';
 import { bankError } from '@/lib/bank';
 import { db } from '@/lib/db';
@@ -151,7 +151,8 @@ export async function travelMailAction(id: string, which: number | 'all'): Promi
  */
 export async function travelEventAction(_p: FormState, f: FormData): Promise<FormState> {
   try {
-    const u = await requireUser();
+    const u0 = await requireUser();
+    const u = await requireCan(u0.role === 'teren' ? 'teren' : 'write');
     const id = str(f.get('id'));
     const [o] = await db().select({ firmId: travelOrders.firmId, assigneeId: travelOrders.assigneeId }).from(travelOrders).where(eq(travelOrders.id, id)).limit(1);
     if (!o) return { error: 'Патниот налог не постои.' };

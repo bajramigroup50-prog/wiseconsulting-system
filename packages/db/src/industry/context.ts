@@ -50,9 +50,13 @@ export function assertModule(f: Pick<Firm, 'mods'>, k: string): void {
   if (!moduleOn(f.mods, k)) throw new IndustryError('Модулот не е вклучен за оваа фирма (Фирми → Модули по дејност).');
 }
 
-export async function loadIndustryFirm(tx: Tx, firmId: string, module?: string): Promise<Firm> {
+/**
+ * Legacy `viewOn`: the office sees and works every module in „Дејности“ (overview / analysis); only client users are
+ * limited to the modules switched on for their firm.
+ */
+export async function loadIndustryFirm(tx: Tx, firmId: string, module?: string, a?: Pick<DocActor, 'role'>): Promise<Firm> {
   const f = await loadFirmForUpdate(tx, firmId);
-  if (module) assertModule(f, module);
+  if (module && (!a || a.role === 'klient')) assertModule(f, module);
   return f;
 }
 

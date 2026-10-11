@@ -70,15 +70,23 @@ function DD({ items, view }: { items: readonly NavItem[]; view: string }) {
 
 function Sub({ label, items, view }: { label: string; items: readonly NavItem[]; view: string }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<React.CSSProperties>({});
+  const btn = useRef<HTMLButtonElement>(null);
+  // Desktop: the flyout is `position:fixed` (legacy CSS parks it at left:-9999px) — place it next to the button, as legacy `navDD` did.
+  const place = () => {
+    const b = btn.current?.getBoundingClientRect();
+    if (!b || window.innerWidth <= 700) return setPos({});
+    const w = 260, left = b.right + w > window.innerWidth ? Math.max(8, b.left - w) : b.right;
+    setPos({ left, top: Math.max(8, Math.min(b.top, window.innerHeight - 80)), minWidth: w });
+  };
   return (
     <div className={'dsub' + (open ? ' open' : '')}>
-      <button role="menuitem" aria-haspopup="true" className={items.some(([id]) => id === view) ? 'subcur' : ''} onClick={() => setOpen(!open)}>
+      <button ref={btn} role="menuitem" aria-haspopup="true" aria-expanded={open} className={items.some(([id]) => id === view) ? 'subcur' : ''}
+        onClick={(e) => { e.stopPropagation(); if (!open) place(); setOpen(!open); }}>
         {label}<i aria-hidden="true">▸</i>
       </button>
-      <div className="fly" role="menu">
-        {items.map(([id, t], i) => (
-          <Go key={i} id={id} current={view === id}>{t}</Go>
-        ))}
+      <div className="fly" role="menu" style={open ? pos : undefined}>
+        {items.map((x, i) => (x[0] === '-' ? <hr className="ddsep" key={i} /> : <Go key={i} id={x[0]} current={view === x[0]}>{x[1]}</Go>))}
       </div>
     </div>
   );

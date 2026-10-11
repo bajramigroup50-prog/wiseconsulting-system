@@ -17,7 +17,7 @@ import { pbBuild, type PbMode } from './data';
 
 export async function confirmBatch(month: string, mode: PbMode, firmIds: string[]): Promise<ActionState> {
   if (!isMonth(month)) return { error: 'Неважечки месец.' };
-  const u = await requireUser();
+  const u = await requireCan('write');
   let ok = 0;
   const skip: string[] = [];
   for (const id of firmIds.filter(isUuid).slice(0, 1000)) {

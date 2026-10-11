@@ -14,7 +14,7 @@ export async function savePackage(_p: ActionState, f: FormData): Promise<ActionS
     const name = fv(f, 'name');
     if (!name) return { error: 'Внесете назив на пакетот.' };
     const ids = f.getAll('dossierId').map(String).filter(isUuid);
-    if (!ids.length) return { error: 'Изберете барем еден документ.' };
+    // legacy allows a package of generated reports only (they are added below the saved package)
     const D = await db().select({ id: dossierDocs.id, title: dossierDocs.title, category: dossierDocs.category, number: dossierDocs.number })
       .from(dossierDocs).where(and(eq(dossierDocs.firmId, firm.id), inArray(dossierDocs.id, ids)));
     const items = ids.map((id) => D.find((d) => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d)
