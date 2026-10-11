@@ -6,8 +6,7 @@
  * The context is built from plain inputs (ledger lines of the year without the closing journal, account names,
  * purchases with their VAT groups, assets, VAT periods, bank withdrawals, stock-count losses) by the DB layer.
  *
- * Not ported: `p_lnfree` and `l_lnint` (v541) read the loan contracts of `VIEWS.pozajmici`, which is not in the
- * rebuild yet; they are listed in `LR_RULES_PENDING` and switch on when loans exist.
+ * `p_lnfree` and `l_lnint` (v541) read the loan contracts (`VIEWS.pozajmici`, `lnState`): `LrInput.loans`.
  */
 import { r2 } from '../money';
 import { dmy, fmtMk as fmt, ymAdd } from '../office/dates';
@@ -62,6 +61,8 @@ export interface LrInput {
   cashAccounts: readonly string[];
   /** Pre-close profit (legacy `statements().profit`), null when it cannot be computed. */
   profit: number | null;
+  /** Loan contracts with their open balance (legacy `lnState`); `legal` = the other party is a legal entity (`lrPartnerLegal`). */
+  loans?: readonly { dir: 'given' | 'received'; rate: number; bal: number; legal: boolean }[];
 }
 
 export interface LrCtx extends LrInput {
@@ -234,6 +235,16 @@ export const LR_RULES: readonly LrRule[] = [
     return { s: ye ? 'warn' : 'bad', txt: `Отворени дадени заеми ${fmt(tot)} ден.: ${out.slice(0, 4).map((x) => x.n + ' ' + fmt(x.b)).join('; ')}`, amt: r2(tot * 0.1), how: `Ако не се вратат до 31.12.${c.year}: ${fmt(tot)} се додава во даночната основа × 10% = ${fmt(r2(tot * 0.1))} ден.`, fix: ye ? 'Наплатете ги заемите до 31.12.' : 'Вклучете ги во ДБ.' };
   } },
   /* v541 (spliced before p_short) */
+  { id: 'p_lnfree', law: 'zdd', art: 'чл. 9 т. 7', t: 'Бескаматна позајмица на сопственик / физичко лице', run: (c) => {
+    const R = (c.loans ?? []).filter((l) => l.dir === 'given' && !(+l.rate > 0) && l.bal > 0.5 && !l.legal);
+    if (!R.length) return null;
+    return { s: 'warn', txt: `${R.length} бескаматни дадени позајмици кон физички лица (${fmt(r2(R.reduce((s, l) => s + l.bal, 0)))} ден.)`, how: 'Ако примачот е сопственик / поврзано лице – непресметаната камата по пазарна стапка може да се смета за скриена распределба на добивка.', fix: 'Договорете камата или вратете ги позајмиците до крајот на годината.' };
+  } },
+  { id: 'l_lnint', law: 'zdld', art: 'данок 10% на камата', t: 'Камата на примена позајмица од физичко лице', run: (c) => {
+    const R = (c.loans ?? []).filter((l) => l.dir === 'received' && +l.rate > 0 && !l.legal);
+    if (!R.length) return null;
+    return { s: 'warn', txt: `${R.length} примени позајмици од физички лица со камата`, how: 'При исплата на каматата фирмата задржува персонален данок 10% и поднесува е-ППД.', fix: 'Пресметајте го данокот при секоја исплата на камата.' };
+  } },
   { id: 'l_cash', law: 'zdld', art: 'неоправдана готовина', t: 'Подигната готовина од сметка што останува неоправдана (благајна / аконтации)', run: (c) => {
     const K = new Set(c.cashAccounts);
     const wd = c.cashWithdrawals;
@@ -281,11 +292,8 @@ export const LR_RULES: readonly LrRule[] = [
   } },
 ];
 
-/** v541 rules that need the loan contracts (`pozajmici`), not ported yet. */
-export const LR_RULES_PENDING: readonly Pick<LrRule, 'id' | 'law' | 'art' | 't'>[] = [
-  { id: 'p_lnfree', law: 'zdd', art: 'чл. 9 т. 7', t: 'Бескаматна позајмица на сопственик / физичко лице' },
-  { id: 'l_lnint', law: 'zdld', art: 'данок 10% на камата', t: 'Камата на примена позајмица од физичко лице' },
-];
+/** Rules not checked yet (none: the loan rules read `LrInput.loans`). Kept for the screen's note. */
+export const LR_RULES_PENDING: readonly Pick<LrRule, 'id' | 'law' | 'art' | 't'>[] = [];
 
 export interface LrFinding extends LrRes { r: LrRule }
 export interface LrResult { R: LrFinding[]; exp: number; bad: number; warn: number }

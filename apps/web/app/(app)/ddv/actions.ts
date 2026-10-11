@@ -5,7 +5,8 @@
  */
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
-import { isAccountCode, validateVatAccountSettings, type VatAccountMap } from '@wise/core';
+import { DDV04_FIELDS, isAccountCode, validateVatAccountSettings, type VatAccountMap } from '@wise/core';
+import { patchFirmSettings } from '@/lib/firms-office';
 import {
   appSettings, audit, closeVatPeriod, firms, missingAccounts, normalizeVatPeriod, reopenVatPeriod, saveVatCorrections, SCHEMES_SETTINGS_KEY,
 } from '@wise/db';
@@ -27,7 +28,7 @@ export async function closeVatPeriodAction(period: string): Promise<ActionState>
     const { u, firm } = await firmAction('write');
     const r = await db().transaction((tx) => closeVatPeriod(tx, { firmId: firm.id, period: p, userId: u.id, source: vatSource }));
     done();
-    return { ok: r.journal ? `Периодот е затворен, налог ${r.journal.number}.` : 'Периодот е затворен (нема салдо на ДДВ контата).' };
+    return { ok: r.journal ? `ДДВ-04 е книжена во налог. Периодот е затворен, налог ${r.journal.number}.` : 'Периодот е затворен (нема салдо на ДДВ контата).' };
   } catch (e) { return asError(e); }
 }
 
@@ -42,7 +43,7 @@ export async function reopenVatPeriodAction(period: string): Promise<ActionState
     const { u, firm } = await firmAction('close');
     await db().transaction((tx) => reopenVatPeriod(tx, { firmId: firm.id, period: p, userId: u.id }));
     done();
-    return { ok: 'Периодот е отворен.' };
+    return { ok: 'Книжењето на ДДВ е избришано. Периодот е отворен.' };
   } catch (e) { return asError(e); }
 }
 
@@ -121,4 +122,18 @@ export async function saveVatAccountsAction(_prev: ActionState, form: FormData):
     done();
     return { ok: all ? 'Контата за ДДВ се зачувани за сите фирми.' : 'Контата за ДДВ се зачувани за фирмата.' };
   } catch (e) { return asError(e); }
+}
+
+/** Legacy `dtSaveCols` 16822: the inspector table's columns are remembered per firm (`firm.dtCols`). */
+export async function saveDtColsAction(cols: string[]): Promise<{ ok?: string; error?: string }> {
+  const ok = new Set(DDV04_FIELDS.map(([k]) => k));
+  const C = (Array.isArray(cols) ? cols : []).filter((k) => ok.has(k));
+  if (!C.length) return { error: 'Изберете колони.' };
+  const { u, firm } = await firmAction('write');
+  await db().transaction(async (tx) => {
+    await patchFirmSettings(tx, firm.id, { dtCols: C });
+    await audit(tx, { userId: u.id, firmId: firm.id, action: 'dtSaveCols', entityType: 'firm', entityId: firm.id, data: { cols: C } });
+  });
+  revalidatePath('/ddv');
+  return { ok: 'Колоните се запомнети.' };
 }

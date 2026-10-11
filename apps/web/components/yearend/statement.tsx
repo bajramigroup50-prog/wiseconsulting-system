@@ -4,6 +4,7 @@
  */
 import Link from 'next/link';
 import { fmt } from '@/lib/fmt';
+import { canDo } from '@/lib/books';
 import { phaseDone, yePage } from '@/lib/yearend';
 import { NoFirm } from '@/components/no-firm';
 import { DownloadCsv } from '@/components/download-csv';
@@ -11,6 +12,7 @@ import { RowAction } from '@/components/row-action';
 import { ActionForm } from './action-form';
 import { NotClosedNote, ZsHead } from './ph-bar';
 import { clearZsMan, saveZsMan } from '@/app/(app)/zsProc/actions';
+import { ZmImport } from './zm-import';
 
 const isFormula = (f: string) => /^[PN]?:?[\d+\-\s]+$/.test(String(f || '').trim()) && !!String(f || '').trim();
 
@@ -20,6 +22,7 @@ export async function StatementPage({ rep, edit }: { rep: 'bs' | 'bu'; edit: boo
   const c = await yePage(view);
   if (!c) return <NoFirm t={t} />;
   const { L, year } = c;
+  const canWrite = canDo(c.u, 'write', c.firm.id);
   const C = L.Y.co.zs;
   const P = L.prev;
   const R = L.rules.filter((x) => x.r === rep);
@@ -54,6 +57,7 @@ export async function StatementPage({ rep, edit }: { rep: 'bs' | 'bu'; edit: boo
         {edit ? <Link className="btn" href={`/${view}`}>Затвори рачен внес</Link> : <Link className="btn" href={`/${view}?edit=1`}>✎ Рачни износи</Link>}
       </ZsHead>
       <NotClosedNote closed={L.Y.closed} year={year} />
+      {!edit && canWrite && <ZmImport year={year} />}
       {manual > 0 && !edit && <div className="callout warn">{manual} АОП позиции се со рачни износи (од друга програма или увезен XML) – тие имаат предност пред пресметаните од книжењата.</div>}
       {C.rounded && <div className="callout">Заокружување на АОП без дени: разлика од {C.rounded.d} ден. е додадена на АОП {C.rounded.aop} за да Актива = Пасива.</div>}
       {edit ? (
@@ -62,6 +66,9 @@ export async function StatementPage({ rep, edit }: { rep: 'bs' | 'bu'; edit: boo
           {table}
         </ActionForm>
       ) : table}
+      {rep === 'bs' && !edit && (Math.abs((C.V.bs063 || 0) - (C.V.bs111 || 0)) < 1
+        ? <p><span className="pill good">Актива = Пасива</span></p>
+        : <p><span className="pill bad">Разлика {fmt(Math.round((C.V.bs063 || 0) - (C.V.bs111 || 0)))}</span></p>)}
       {!edit && manual > 0 && <div className="row"><RowAction className="btn sm ghost" label="Отстрани ги рачните износи" confirm="Да се отстранат сите рачни износи од овој биланс?"
         action={clearZsMan.bind(null, rep)} /></div>}
     </>

@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     year, current: L.Y.co.zs, previous: L.prev, rules: L.rules, de38: de, f35, f35Raw: L.statement?.f35Raw ?? null,
     embs: firm.embs ?? '', period: L.statement?.crmPeriod ?? 1,
   }, { prev: q.get('prev') === '1', zeros: q.get('zeros') === '1' });
-  const name = `GodisnaSmetka_${(firm.embs ?? '').replace(/\D/g, '') || 'firma'}_${year}.xml`;
+  // Legacy `crmXmlDl` 11066: GS_<year>_<ЕМБС>.xml
+  const name = `GS_${year}_${(firm.embs ?? '').replace(/\D/g, '') || 'firma'}.xml`;
   return new NextResponse(xml, { headers: { 'content-type': 'application/xml; charset=utf-8', 'content-disposition': `attachment; filename="${name}"` } });
 }

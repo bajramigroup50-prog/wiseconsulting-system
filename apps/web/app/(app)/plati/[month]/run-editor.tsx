@@ -13,6 +13,7 @@ import {
 } from '@wise/core/payroll';
 import { fmt, fq } from '@/lib/fmt';
 import { deleteRunAction, lockRunAction, mailSlipsAction, saveRunAction, unpostRunAction } from '../actions';
+import { saveEmployeesOe } from '../oe-actions';
 
 export interface EditorEmployee {
   id: string; no: string; name: string; embg: string; netBase: number; coef: number; start?: string; end?: string; stazPrev?: string; stazY?: string;
@@ -34,6 +35,12 @@ interface Props {
   firmEmail: string;
   canWrite: boolean;
   canDel: boolean;
+  /** Last „Плата од Excel“ import of this draft month (legacy `S.draft.fromXlsx` + `S.plxWarn`). */
+  importNote?: { file: string; warn: string[] } | null;
+  /** Legacy `payRateWarn` 14407: no confirmed 2027 contribution rates yet. */
+  rateWarn?: { law: string | null } | null;
+  /** Preselected employee (legacy `payOpenFound`). */
+  initialEmp?: string;
 }
 
 type LineEd = { ix: number | null; code: string; type: string; hours: string; amt: string; pct: string; cat: PayCat };
@@ -46,7 +53,9 @@ export function RunEditor(p: Props) {
   const [params, setParams] = useState<PayParams>(p.run.params);
   const [emps, setEmps] = useState<PayEmp[]>(p.run.emps);
   const [dirty, setDirty] = useState(false);
-  const [sel, setSel] = useState(p.run.emps.length ? 0 : -1);
+  const [sel, setSel] = useState(() => { const i = p.initialEmp ? p.run.emps.findIndex((x) => x.empId === p.initialEmp) : -1; return i >= 0 ? i : p.run.emps.length ? 0 : -1; });
+  const [done, setDone] = useState<{ number?: string } | null>(null);
+  const [di, setDi] = useState(0);
   const [open, setOpen] = useState(-1);
   const [lineSel, setLineSel] = useState(-1);
   const [lineEd, setLineEd] = useState<LineEd | null>(null);
@@ -77,16 +86,33 @@ export function RunEditor(p: Props) {
     if (r) setMsg(r);
     if (r && !r.error) router.refresh();
   });
-  const save = (post: boolean) => run(async () => {
-    const r = await saveRunAction({ month: M, runId: p.run.id, params, emps, post });
-    if (!r.error) setDirty(false);
-    return r;
-  });
+  const save = (post: boolean) => {
+    if (post && p.rateWarn && !window.confirm(`🤖 За ${M} во програмата нема потврдени стапки на придонеси за 2027 (намалените 19,9% / 0,1% важеа до декември 2026).\n\nДали ги проверивте стапките во „Параметри по периоди“?`)) return;
+    run(async () => {
+      const r = await saveRunAction({ month: M, runId: p.run.id, params, emps, post });
+      if (!r.error) { setDirty(false); if (post) { setDone({ number: r.number }); setDi(Math.max(0, sel)); } }
+      return r;
+    });
+  };
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'F4') { ev.preventDefault(); if (!lock && emps.length) save(true); }
-      else if (ev.key === 'Escape') { if (lineEd) setLineEd(null); else if (open >= 0) setOpen(-1); }
+      if (ev.key === 'F4') { ev.preventDefault(); if (!lock && emps.length) save(true); return; }
+      if (ev.key === 'Escape') { if (lineEd) setLineEd(null); else if (open >= 0) setOpen(-1); return; }
+      // Legacy 6286–6294: list keys, ignored while typing.
+      const t = ev.target as HTMLElement | null;
+      if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (lineEd) return;
+      if (open < 0) {
+        if (ev.key === 'Insert' && !ro) { ev.preventDefault(); setAddOpen(true); }
+        else if (ev.key === 'Enter' && sel >= 0) { ev.preventDefault(); setOpen(sel); setLineSel(-1); }
+        else if (ev.key === 'ArrowDown' && idx.length) { ev.preventDefault(); const k = idx.indexOf(sel); setSel(idx[Math.min(idx.length - 1, k + 1)]!); }
+        else if (ev.key === 'ArrowUp' && idx.length) { ev.preventDefault(); const k = idx.indexOf(sel); setSel(idx[Math.max(0, k - 1)]!); }
+      } else {
+        const n = emps[open]?.lines?.length ?? 0;
+        if (ev.key === 'ArrowDown' && n) { ev.preventDefault(); setLineSel(Math.min(n - 1, lineSel + 1)); }
+        else if (ev.key === 'ArrowUp' && n) { ev.preventDefault(); setLineSel(Math.max(0, lineSel - 1)); }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -126,6 +152,15 @@ export function RunEditor(p: Props) {
       )}
       {p.mpinDiff.length > 0 && <div className="callout warn">Параметрите на месецот се разликуваат од официјалните на УЈП за {mm}: {p.mpinDiff.join('; ')}. МПИН пријавата може да биде одбиена.</div>}
 
+      {p.rateWarn && (
+        <div className="callout warn" id="payRateW">🤖 <b>Внимание за плата {mm}:</b> намалените стапки ПИО 19,9% / вработување 0,1% важеа за јул–дек 2026 (Сл. весник 148/2026). За 2027 во програмата сè уште нема нови параметри{p.rateWarn.law ? <> – роботот најде: <b>{p.rateWarn.law}</b></> : ' и роботот сè уште нема најдено нова одлука'}. Проверете ги стапките пред пресметка:{' '}
+          <Link className="btn sm" href="/plati/parametri">Параметри по периоди</Link> <Link className="btn sm" href="/zakoni">⚖️ Законски промени</Link></div>
+      )}
+      {p.importNote && p.run.status === 'draft' && p.importNote.warn.length > 0 && (
+        <div className="callout warn" id="plx_warn"><b>Увоз од „{p.importNote.file}“ – проверете:</b><ul style={{ margin: '4px 0 0' }}>{p.importNote.warn.slice(0, 15).map((w, i) => <li key={i}>{w}</li>)}{p.importNote.warn.length > 15 && <li>…</li>}</ul></div>
+      )}
+      {done && emps.length > 0 && <DonePanel M={M} mm={mm} emps={emps} calcs={calcs} i={Math.min(di, emps.length - 1)} setI={setDi} number={done.number ?? p.journalNumber}
+        onMail={() => { setDone(null); setMailOpen(true); }} onClose={() => setDone(null)} />}
       {mailOpen && <MailPanel p={p} onDone={(r) => { setMsg(r); if (!r.error) setMailOpen(false); }} />}
 
       <div className="card"><div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -164,7 +199,7 @@ export function RunEditor(p: Props) {
                 <td>{x.name}{x.adv ? <> <span className="pill info">аванс</span></> : null}{x.noTax ? <> <span className="pill">без данок</span></> : null}{x.inout && x.inout !== 'full' ? <> <span className="pill warn">{x.inout === 'in' ? 'пријава' : 'одјава'} {x.ioDate?.split('-').reverse().join('.')}</span></> : null}</td>
                 {k ? <>
                   <td className="n">{fmt(k.T.gross + k.T.dopl)}</td><td className="n">{fmt(payBaseSum(k))}</td><td className="n">{fmt(k.T.contr + k.T.dopl)}</td>
-                  <td className="n">{fmt(k.T.tax)}</td><td className="n">{fmt(k.T.net)}</td><td className="n">{fq(k.rows.reduce((a, r) => a + (r.hr || 0), 0))}</td>
+                  <td className="n">{fmt(k.T.tax)}</td><td className="n">{fmt(k.T.net)}</td><td className="n" title={(() => { const ex = k.rows.filter((r) => HT_ADD(r.type)).reduce((a, r) => a + (r.hr || 0), 0); const all = k.rows.reduce((a, r) => a + (r.hr || 0), 0); return `${fq(all - ex)} ч по фонд + ${fq(ex)} ч дополнителни (недела, празник, прекувремено)`; })()}>{fq(k.rows.reduce((a, r) => a + (r.hr || 0), 0))}</td>
                 </> : <td colSpan={6} className="note">неважечки параметри</td>}
                 <td>{ml ? <span className={'pill ' + (ml.status === 'sent' ? 'good' : ml.status === 'failed' ? 'bad' : 'warn')} title={(ml.error ?? '') + ' ' + ml.to + ' · ' + ml.at}>{ml.status === 'sent' ? '✓ испратено' : ml.status === 'failed' ? 'неуспешно' : 'во ред'}</span> : empOf(x.empId)?.email ? '' : <span className="mini">нема е-пошта</span>}</td>
               </tr>
@@ -336,7 +371,8 @@ function LineDialog({ ed, psif, setEd, onOk }: { ed: LineEd; psif: PsifCode[]; s
 }
 
 function MailPanel({ p, onDone }: { p: Props; onDone: (r: { ok?: string; error?: string }) => void }) {
-  const [mode, setMode] = useState<'one' | 'each' | 'grp'>('each');
+  const [mode, setMode] = useState<'one' | 'each' | 'grp'>('one');
+  const [oeEd, setOeEd] = useState(false);
   const [to, setTo] = useState(p.firmEmail);
   const [by, setBy] = useState<'oe' | 'city'>('oe');
   const [pending, start] = useTransition();
@@ -353,15 +389,104 @@ function MailPanel({ p, onDone }: { p: Props; onDone: (r: { ok?: string; error?:
       <label className="chk"><input type="radio" checked={mode === 'one'} onChange={() => setMode('one')} /> Сите пресметки во една порака на адреса: <input value={to} onChange={(x) => setTo(x.target.value)} placeholder="sopstvenik@firma.mk" style={{ width: 240, marginLeft: 6 }} /></label>
       <label className="chk"><input type="radio" checked={mode === 'grp'} onChange={() => setMode('grp')} /> <b>По пункт / град</b>, групирано по <select value={by} onChange={(x) => setBy(x.target.value as 'oe' | 'city')} style={{ width: 'auto', marginLeft: 4 }}><option value="oe">Организациона единица (ОЕ / пункт)</option><option value="city">Град</option></select></label>
       {mode === 'grp' && (
-        <table className="dense"><thead><tr><th>{by === 'city' ? 'Град' : 'Пункт / ОЕ'}</th><th>Е-пошта на пунктот</th></tr></thead>
-          <tbody>{groups.map((k) => <tr key={k}><td>{k}</td><td><input value={gv(k)} onChange={(x) => setG({ ...G, [`${by}:${k}`]: x.target.value })} placeholder="punkt@firma.mk" style={{ width: 220 }} /></td></tr>)}</tbody></table>
+        <>
+          <table className="dense"><thead><tr><th>{by === 'city' ? 'Град' : 'Пункт / ОЕ'}</th><th className="n">Вработени</th><th>Е-пошта на пунктот</th></tr></thead>
+            <tbody>{groups.map((k) => {
+              const L = p.run.emps.filter((x) => (String(E.get(x.empId)?.[by] ?? '').trim() || `(без ${by === 'city' ? 'град' : 'ОЕ'})`) === k);
+              return <tr key={k}><td><b>{k}</b><div className="mini">{L.map((x) => x.name).join(', ')}</div></td><td className="n">{L.length}</td><td><input value={gv(k)} onChange={(x) => setG({ ...G, [`${by}:${k}`]: x.target.value })} placeholder="punkt@firma.mk" style={{ width: 220 }} /></td></tr>;
+            })}</tbody></table>
+          {by === 'oe' && p.canWrite && <button type="button" className="btn sm" onClick={() => setOeEd(!oeEd)}>✎ Распореди ги вработените по единици</button>}
+          {oeEd && <OeEditor employees={p.employees.filter((x) => p.run.emps.some((r) => r.empId === x.id))} onDone={(r) => { onDone(r); setOeEd(false); }} />}
+        </>
       )}
-      <p className="mini" style={{ margin: 0 }}>Пресметката се испраќа во самата порака (HTML). Пораките се праќаат преку серверот за е-пошта и се евидентираат; статусот се гледа во колоната „Е-пошта“.</p>
+      <p className="mini" style={{ margin: 0 }}>Пресметките се праќаат како PDF во прилог (Presmetki_{p.run.month}.pdf / Presmetka_{p.run.month}_име.pdf). Пораките се праќаат преку серверот за е-пошта и се евидентираат; статусот се гледа во колоната „Е-пошта“.</p>
       <div className="row"><button className="btn pri" disabled={pending} onClick={() => {
         const groupsIn = Object.fromEntries(groups.map((k) => [k, gv(k)]).filter(([, v]) => v));
         if (!window.confirm(mode === 'each' ? `Да се испрати пресметката на секој од ${withMail.length} вработени?` : mode === 'one' ? `Да се испратат сите ${p.run.emps.length} пресметки на ${to}?` : `Да се испратат пресметките на ${Object.keys(groupsIn).length} групи?`)) return;
         start(async () => onDone(await mailSlipsAction({ runId: p.run.id, mode, to, groupBy: by, groups: groupsIn })));
       }}>✉ Испрати</button></div>
+    </div>
+  );
+}
+
+/** Legacy `pdOeEd` 14886: assign employees to units, then „💾 Зачувај“. */
+function OeEditor({ employees, onDone }: { employees: EditorEmployee[]; onDone: (r: { ok?: string; error?: string }) => void }) {
+  const [V, setV] = useState<Record<string, string>>(() => Object.fromEntries(employees.map((e) => [e.id, e.oe ?? ''])));
+  const [on, setOn] = useState<Record<string, boolean>>({});
+  const [q, setQ] = useState('');
+  const [unit, setUnit] = useState('');
+  const [pending, start] = useTransition();
+  const L = employees.filter((e) => !q || `${e.name} ${e.position}`.toLowerCase().includes(q.toLowerCase()));
+  const units = [...new Set(Object.values(V).filter(Boolean))].sort();
+  return (
+    <div className="card" style={{ marginTop: 6 }}>
+      <div className="callout">Означете ги вработените, впишете единица и „Постави за означените“ – или внесете ја кај секој посебно. Потоа „💾 Зачувај“.</div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        <input placeholder="🔍 барај вработен…" value={q} onChange={(x) => setQ(x.target.value)} style={{ width: 180 }} />
+        <input list="oeList" placeholder="Подружница / единица" value={unit} onChange={(x) => setUnit(x.target.value)} style={{ width: 200 }} />
+        <datalist id="oeList">{units.map((u) => <option key={u} value={u} />)}</datalist>
+        <button type="button" className="btn sm" onClick={() => setV({ ...V, ...Object.fromEntries(Object.keys(on).filter((k) => on[k]).map((k) => [k, unit.trim()])) })}>Постави за означените</button>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn sm pri" disabled={pending} onClick={() => {
+          const ch = employees.filter((e) => (V[e.id] ?? '') !== (e.oe ?? '')).map((e) => ({ id: e.id, oe: V[e.id] ?? '' }));
+          if (!ch.length) { onDone({ ok: 'Нема промени.' }); return; }
+          start(async () => onDone(await saveEmployeesOe(ch)));
+        }}>💾 Зачувај</button>
+        <button type="button" className="btn sm" onClick={() => onDone({})}>Откажи</button>
+      </div>
+      <table className="dense"><thead><tr><th><input type="checkbox" checked={L.length > 0 && L.every((e) => on[e.id])} onChange={(x) => setOn({ ...on, ...Object.fromEntries(L.map((e) => [e.id, x.target.checked])) })} /></th><th>Вработен</th><th>Работно место</th><th>Подружница / единица</th></tr></thead>
+        <tbody>{L.map((e) => (
+          <tr key={e.id}><td><input type="checkbox" checked={!!on[e.id]} onChange={(x) => setOn({ ...on, [e.id]: x.target.checked })} /></td><td>{e.name}</td><td>{e.position}</td>
+            <td><input list="oeList" value={V[e.id] ?? ''} onChange={(x) => setV({ ...V, [e.id]: x.target.value })} style={{ width: 200 }} /></td></tr>
+        ))}</tbody></table>
+    </div>
+  );
+}
+
+/** Legacy `payDoneModal` 8258 / 14822: after „Пресметка (F4)“ — browse the payslips, print / PDF / send all. */
+function DonePanel({ M, mm, emps, calcs, i, setI, number, onMail, onClose }: {
+  M: string; mm: string; emps: PayEmp[]; calcs: (ReturnType<typeof empCalc> | null)[]; i: number; setI: (i: number) => void;
+  number: string | null; onMail: () => void; onClose: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const e = emps[i]!;
+  const T = calcs.reduce((s, c) => { if (c) { s.net += c.T.net; s.ct += c.T.contr + c.T.dopl + c.T.tax; } return s; }, { net: 0, ct: 0 });
+  const find = (v: string) => {
+    const x = v.trim().toLowerCase();
+    if (!x) return;
+    const tests: ((m: PayEmp) => boolean)[] = [
+      (m) => `${m.no} ${m.name}`.toLowerCase().startsWith(x) || m.name.toLowerCase().startsWith(x),
+      (m) => m.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(x)),
+      (m) => `${m.no} ${m.name}`.toLowerCase().includes(x),
+    ];
+    for (const t of tests) { const k = emps.findIndex(t); if (k >= 0) { setI(k); return; } }
+  };
+  const slip = `/plati/${M}/pecati?d=slip&e=${encodeURIComponent(e.empId)}`;
+  return (
+    <div className="card" style={{ border: '2px solid var(--good)' }}>
+      <div className="hd"><h2>✓ Пресметка на плата {mm} – прокнижена</h2><button className="btn sm" onClick={onClose}>✕</button></div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="btn sm" disabled={i <= 0} onClick={() => setI(i - 1)}>◀ Претходен</button>
+        <input placeholder="🔎 Барај по име или број" value={q} onChange={(x) => { setQ(x.target.value); find(x.target.value); }} style={{ width: 190 }} />
+        <select value={i} onChange={(x) => setI(+x.target.value)} style={{ width: 'auto' }}>{emps.map((m, k) => <option key={k} value={k}>{m.no} {m.name}</option>)}</select>
+        <button className="btn sm" disabled={i >= emps.length - 1} onClick={() => setI(i + 1)}>Следен ▶</button>
+        <span className="mini">{i + 1} / {emps.length}</span>
+        <a className="btn sm pri" href={slip} target="_blank" rel="noopener">PDF (овој)</a>
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+        <b>Сите {emps.length}:</b>
+        <a className="btn sm" href={`/plati/${M}/pecati?d=slips`} target="_blank" rel="noopener">🖨 Печати сите</a>
+        <a className="btn sm" href={`/plati/${M}/pecati?d=slips`} target="_blank" rel="noopener" title="Отворете и притиснете „⬇ PDF“">⬇ PDF сите</a>
+        <button className="btn sm" onClick={onMail}>✉ Испрати сите</button>
+      </div>
+      <iframe title="Пресметка" src={slip} style={{ width: '100%', height: 420, border: '1px solid var(--line)', marginTop: 8, background: '#fff' }} />
+      <div className="mini" style={{ border: '1px dashed var(--line)', padding: 6, marginTop: 8 }}>🔒 Само за канцеларијата (не е дел од пресметката што се печати/праќа до вработените): вкупно {emps.length} вработени · нето за исплата {fmt(T.net)} ден. · придонеси и данок {fmt(T.ct)} ден.{number ? ` · налог бр. ${number}` : ''}</div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+        <Link className="btn sm" href="/nalozi">Отвори налог</Link>
+        <a className="btn sm" href={`/plati/${M}/pecati?d=rec`} target="_blank" rel="noopener">PDF рекапитулар</a>
+        <a className="btn sm" href={`/plati/${M}/mpin`}>МПИН (.txt за УЈП)</a>
+        <a className="btn sm" href={`/plati/${M}/nalozi`}>Налози за плаќање</a>
+      </div>
     </div>
   );
 }

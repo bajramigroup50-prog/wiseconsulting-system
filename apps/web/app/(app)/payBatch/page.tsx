@@ -3,7 +3,6 @@
  * for all others without changes the month is prepared as a preview (per employee: hours, gross, net) and posted only
  * after „✅ Потврди и прокнижи“; firms that bring payroll from Excel are not touched; MPIN for all firms in one zip.
  */
-import Link from 'next/link';
 import { can } from '@wise/core';
 import { allowedFirms, officePage } from '@/lib/office';
 import { notFound } from 'next/navigation';
@@ -12,6 +11,7 @@ import { RowAction } from '@/components/row-action';
 import { MK_MONTHS } from '@/lib/payroll/html';
 import { deleteBatchRun, setPayManual } from './actions';
 import { ConfirmForm } from './confirm-form';
+import { PickFirm } from '../lawrep/pick-firm';
 import { PB_ST, pbScan, pbTot, type PbSt } from './data';
 
 const f0 = (n: number) => Math.round(n || 0).toLocaleString('mk-MK');
@@ -64,17 +64,17 @@ export default async function PayBatchPage({ searchParams }: { searchParams: Pro
                         <td style={{ minWidth: 180 }}><b>{r.f.name}</b>
                           {r.preview && r.params && (
                             <details><summary className="mini">👁 Преглед по вработени</summary>
-                              <table className="dense"><thead><tr><th>Вработен</th><th className="n">Основна нето</th><th className="n">Бруто</th><th className="n">Нето за исплата</th><th>Ставки</th></tr></thead>
-                                <tbody>{r.preview.map((e, i) => { const t = pbTot([e], r.params!); return <tr key={i}><td>{e.name}</td><td className="n">{f0(Number(e.netBase))}</td><td className="n">{f0(t.g)}</td><td className="n"><b>{f0(t.n)}</b></td><td className="mini">{(e.lines ?? []).map((l) => l.type + (l.hours ? ' ' + l.hours + 'ч' : '')).join(' · ')}</td></tr>; })}</tbody></table>
+                              <table className="dense"><thead><tr><th>Вработен</th><th className="n">Часови</th><th className="n">Основна нето</th><th className="n">Бруто</th><th className="n">Нето за исплата</th><th>Ставки</th></tr></thead>
+                                <tbody>{r.preview.map((e, i) => { const t = pbTot([e], r.params!); return <tr key={i}><td>{e.name}</td><td className="n">{f0(t.h)}</td><td className="n">{f0(Number(e.netBase))}</td><td className="n">{f0(t.g)}</td><td className="n"><b>{f0(t.n)}</b></td><td className="mini">{(e.lines ?? []).map((l) => l.type + (l.hours ? ' ' + l.hours + 'ч' : '')).join(' · ')}</td></tr>; })}</tbody></table>
                             </details>
                           )}
                         </td>
                         <td>{r.st === 'ready' ? <label className="chk" style={{ margin: 0 }}><input type="checkbox" name="fid" value={r.f.id} defaultChecked /> <span className={`pill ${c}`}>{n}</span></label> : <span className={`pill ${c}`}>{n}</span>}</td>
                         <td className="n">{r.tot ? r.tot.k : r.act || ''}</td><td className="n">{r.tot ? f0(r.tot.g) : ''}</td><td className="n">{r.tot ? f0(r.tot.n) : ''}</td>
                         <td className="mini">{r.st === 'notes' ? r.notes.map((x, i) => <div key={i}>• {x.type}{x.empName ? ' – ' + x.empName : ''}{x.text ? ': ' + x.text : ''}</div>)
-                          : r.st === 'excel' ? 'Платата се носи од Excel – секој месец рачно.' : r.st === 'auto' ? 'Подготвена автоматски – проверете ја и испратете ги пресметките.' : r.st === 'lock' ? 'Отклучете го периодот кај „Фирми“.' : ''}</td>
+                          : r.st === 'excel' ? 'Платата се носи од Excel – секој месец рачно.' : r.st === 'auto' ? `Подготвена автоматски${r.autoAt ? ' ' + r.autoAt : ''} – проверете ја и испратете ги пресметките.${r.mpinSaved ? ' 📂 МПИН зачуван во Архивата.' : ''}` : r.st === 'done' && r.mpinSaved ? '📂 МПИН зачуван во Архивата.' : r.st === 'lock' ? 'Отклучете го периодот кај „Фирми“.' : ''}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>
-                          <Link className="btn sm" href={`/plati${r.st === 'auto' || r.st === 'done' ? '/' + m : ''}`} title="Изберете ја фирмата со ⇄ Промени фирма">Отвори</Link>
+                          <PickFirm id={r.f.id} to={r.st === 'auto' || r.st === 'done' ? `/plati/${m}` : '/payPredlog'} label="Отвори" />
                           {(r.st === 'auto' || r.st === 'done') && <> <a className="btn sm ghost" href={`/payBatch/mpin?m=${m}&f=${r.f.id}`}>⬇ МПИН</a></>}
                           {del && <> <RowAction className="btn sm ghost danger" action={deleteBatchRun.bind(null, r.f.id, m)} label="🗑" title="Избриши ја пресметката (пр. за увоз од Excel)" confirm={`Да се избрише пресметката за ${m} на ${r.f.name} (заедно со налогот)?\n\nПотоа можете да ја увезете од Excel.`} /></>}
                           {r.st === 'ready' && <> <RowAction className="btn sm ghost" action={setPayManual.bind(null, r.f.id, true)} label="📥 Excel" title="Оваа фирма секој месец од Excel – не автоматски" /></>}

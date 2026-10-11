@@ -6,7 +6,7 @@ import 'server-only';
  */
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { empCalc, payCopyPrev, payDraft, payNotesOpen, type PayEmp, type PayParams } from '@wise/core';
-import { loadRun, payrollNotes, payrollRuns, type Firm, type Tx } from '@wise/db';
+import { loadRun, payrollExports, payrollNotes, payrollRuns, type Firm, type Tx } from '@wise/db';
 import { db } from '@/lib/db';
 import { coreEmp, firmEmployees, payCtx } from '@/lib/payroll/server';
 
@@ -17,11 +17,11 @@ export const PB_ST: Record<PbSt, [string, string]> = {
   excel: ['📥 Секој месец од Excel', 'warn'], lock: ['🔒 Периодот е заклучен', 'warn'], noemp: ['— Нема вработени', ''],
 };
 
-export interface PbTot { g: number; n: number; k: number }
+export interface PbTot { g: number; n: number; k: number; h: number }
 export const pbTot = (emps: readonly PayEmp[], P: PayParams): PbTot => {
-  let g = 0, n = 0;
-  for (const e of emps) { try { const c = empCalc(e, P); g += c.T.gross + (c.T.dopl || 0); n += c.T.net; } catch { /* incomplete employee */ } }
-  return { g, n, k: emps.length };
+  let g = 0, n = 0, h = 0;
+  for (const e of emps) { try { const c = empCalc(e, P); g += c.T.gross + (c.T.dopl || 0); n += c.T.net; h += c.rows.reduce((s, r) => s + (r.hr || 0), 0); } catch { /* incomplete employee */ } }
+  return { g, n, k: emps.length, h };
 };
 
 /** Legacy `pbBuild` (without saving). Null when there is nobody to pay. */
@@ -33,12 +33,15 @@ export async function pbBuild(tx: Tx, firm: Firm, month: string, mode: PbMode): 
   if (mode === 'prev') {
     const [p] = await tx.select({ id: payrollRuns.id }).from(payrollRuns).where(and(eq(payrollRuns.firmId, firm.id), lt(payrollRuns.month, month))).orderBy(desc(payrollRuns.month)).limit(1);
     const prev = p ? await loadRun(tx, firm.id, { id: p.id }) : null;
-    if (prev?.emps.length) emps = payCopyPrev(month, prev.emps, d.params);
+    if (prev?.emps.length) emps = payCopyPrev(month, prev.emps, d.params, [], ['sin']); // FIX(D11): legacy pbBuild copies only `sin` lines
   }
   return emps.length ? { params: d.params, emps } : null;
 }
 
-export interface PbRow { f: Firm; st: PbSt; notes: { type: string; empName: string | null; text: string | null }[]; act: number; tot: PbTot | null; source?: string; locked?: boolean; preview?: PayEmp[]; params?: PayParams }
+export interface PbRow {
+  f: Firm; st: PbSt; notes: { type: string; empName: string | null; text: string | null }[]; act: number; tot: PbTot | null; source?: string; locked?: boolean;
+  preview?: PayEmp[]; params?: PayParams; autoAt?: string; mpinSaved?: boolean;
+}
 
 /** Legacy `pbStatus` for every firm (+ the preview of the ready ones). */
 export async function pbScan(F: readonly Firm[], month: string, mode: PbMode): Promise<PbRow[]> {
@@ -48,6 +51,8 @@ export async function pbScan(F: readonly Firm[], month: string, mode: PbMode): P
     db().select().from(payrollRuns).where(and(inArray(payrollRuns.firmId, ids), eq(payrollRuns.month, month))),
     db().select().from(payrollNotes).where(and(inArray(payrollNotes.firmId, ids), eq(payrollNotes.done, false))),
   ]);
+  const exp = runs.length ? await db().select({ runId: payrollExports.runId }).from(payrollExports).where(and(inArray(payrollExports.runId, runs.map((r) => r.id)), eq(payrollExports.kind, 'mpin-txt'))) : [];
+  const dmy = (d: Date) => d.toLocaleDateString('de-DE', { timeZone: 'Europe/Skopje', day: '2-digit', month: '2-digit', year: 'numeric' });
   const ms = month + '-01', me = month + '-31';
   const out: PbRow[] = [];
   for (const f of F) {
@@ -57,7 +62,11 @@ export async function pbScan(F: readonly Firm[], month: string, mode: PbMode): P
     const act = E.filter((e) => e.active && (!e.start || e.start <= me) && (!e.end || e.end >= ms)).length;
     if (run) {
       const R = await loadRun(db(), f.id, { id: run.id });
-      out.push({ f, st: run.source.startsWith('auto') ? 'auto' : 'done', notes: N, act, tot: R ? pbTot(R.emps, R.params) : null, source: run.source, locked: run.locked });
+      // Legacy 15327: 👁 preview also for automatic / calculated months, from the stored run.
+      out.push({
+        f, st: run.source.startsWith('auto') ? 'auto' : 'done', notes: N, act, tot: R ? pbTot(R.emps, R.params) : null, source: run.source, locked: run.locked,
+        ...(R ? { preview: R.emps, params: R.params } : {}), autoAt: dmy(run.createdAt), mpinSaved: exp.some((x) => x.runId === run.id),
+      });
       continue;
     }
     if (N.length) { out.push({ f, st: 'notes', notes: N, act, tot: null }); continue; }

@@ -18,7 +18,9 @@ export default async function ZsBelPage() {
   const c = await yePage('zsBel');
   if (!c) return <NoFirm t="Објаснувачки белешки" />;
   const { L, firm, year } = c;
-  const notes = belResolve(belFirm(firm), year, L.Y.co.zs.V, L.prev.V, L.statement?.notes, L.prevStatement?.notes);
+  // Legacy 10924: previous-year amounts from the archived notes (`belSnap[Y−1]`, „📦 Зачувај белешки“) when present.
+  const snap = ((firm.settings ?? {}) as { belSnap?: Record<string, Record<string, number>> }).belSnap?.[String(year - 1)];
+  const notes = belResolve(belFirm(firm), year, L.Y.co.zs.V, snap ?? L.prev.V, L.statement?.notes, L.prevStatement?.notes);
   return (
     <>
       <ZsHead id="zsBel" t="Објаснувачки белешки" year={year} ent={L.ent} done={phaseDone(L)}>

@@ -136,3 +136,9 @@ export function mpinParamDiff(month: string, params: Partial<PayParams> | null |
     .filter((k) => Math.abs((+(P[k] as number) || 0) - (+(O[k] as number) || 0)) > 1e-9)
     .map((k) => `${N[k]}: ${P[k] ?? '—'} → ${O[k]}`);
 }
+
+/** Legacy `payRateWarn` 14407: a month from 2027 with no parameter row from 2027 (statutory or the firm's own). */
+export function payRateWarnNeeded(month: string, overrides: readonly PayParamRow[] = []): boolean {
+  if (!month || month < '2027-01') return false;
+  return ![...PAY_DEF, ...overrides].some((r) => String(r.from || '') >= '2027-01');
+}

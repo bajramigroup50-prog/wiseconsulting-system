@@ -132,4 +132,9 @@ describe('payCopyPrev (FIX #14)', () => {
     expect(b!.lines!.find((l) => l.type === PAY_REGULAR)!.hours).toBe(76);
     expect(b!.inout).toBeUndefined();
   });
+  it('payBatch copies only sin lines (legacy pbBuild 15283)', () => {
+    const prev: PayEmp[] = [{ empId: 'a', name: 'A', netBase: 30000, lines: [{ type: PAY_REGULAR, hours: 160, cat: 'reg' }, { type: 'Прекувремена работа', hours: 5, pct: 135 }, { type: 'Награда / бонус', amt: 500, cat: 'kor' }, { type: 'Синдикална членарина', amt: 200, cat: 'sin' }] }];
+    const [a] = payCopyPrev('2026-05', prev, resolvePayParams({ hours: 168 }, '2026-05'), [], ['sin']);
+    expect(a!.lines!.map((l) => l.type)).toEqual([PAY_REGULAR, PAY_HOLIDAY, 'Синдикална членарина']);
+  });
 });

@@ -34,7 +34,10 @@ export function NotesCard({ notes, month, open, employees, canWrite, canDel }: {
     <div className="card" id="pn_card" style={open ? { border: '2px solid var(--bad)' } : undefined}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>🔔 Известувања за промени кај платите {O.length ? <span className="pill bad">{O.length} отворени за {mo(month)}</span> : <span className="pill good">нема отворени</span>}</h2>
-        {canWrite && <button className="btn sm pri" type="button" onClick={() => setEd({ month, type: 'Промена на плата / коефициент' })}>+ Ново известување</button>}
+        <span className="row" style={{ gap: 6 }}>
+          <a className="btn sm" href="/payBatch" title="Плати за сите фирми (legacy pnCard)">👥 Сите фирми</a>
+          {canWrite && <button className="btn sm pri" type="button" onClick={() => setEd({ month, type: 'Промена на плата / коефициент' })}>+ Ново известување</button>}
+        </span>
       </div>
       {ed && (
         <form action={action} style={{ marginTop: 8 }}>

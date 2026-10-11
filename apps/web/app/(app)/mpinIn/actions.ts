@@ -158,6 +158,8 @@ export async function deleteMpinMonth(firmId: string, month: string): Promise<Ac
   try {
     if (!isUuid(firmId) || !mpinPeriodOk(month)) return { error: 'Неважечки податоци.' };
     const u = await requireCan('del', firmId);
+    // Legacy `mpinAdm()`: only the administrator deletes an accepted MPIN (for a correction).
+    if (u.role !== 'admin') return { error: 'Бришењето е дозволено само за администраторот.' };
     const r = await db().transaction((tx) => deleteMpinAck(tx, { firmId, month, userId: u.id }));
     revalidatePath('/mpinIn');
     revalidatePath('/plati');

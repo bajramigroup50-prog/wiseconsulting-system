@@ -7,9 +7,10 @@
 import { and, between, eq, inArray, lt, ne } from 'drizzle-orm';
 import { lrCheck, lrCtx, lrPartnerLegal, lrVatPeriods, type LrInput, type LrResult } from '@wise/core/law';
 import { simpleStatements, yeBalancesFromLines } from '@wise/core/yearend';
+import { loanFlows, loanKontoDir, loanMovesFromLedger, loanState } from '@wise/core/finance';
 import type { Tx } from './audit';
 import { effectiveChart, loadLedgerLines } from './ledger-queries';
-import { bankLines, employees, firms, fixedAssets, partners, purchases, purchaseVatGroups, stockMoves, vatPeriods, type Firm } from './schema/index';
+import { bankLines, employees, firms, fixedAssets, loans, partners, purchases, purchaseVatGroups, stockMoves, vatPeriods, type Firm } from './schema/index';
 import { computeVatPeriod } from './vat-service';
 import { defaultVatSource } from './vat-source';
 
@@ -75,7 +76,30 @@ export async function loadLawReviewInput(tx: Tx, firm: Firm, year: number, today
     cashWithdrawals: Math.round(bank.filter((b) => b.konto && cashAccounts.includes(b.konto)).reduce((s, b) => s + Math.abs(Number(b.amount)), 0) * 100) / 100,
     cashAccounts,
     profit,
+    loans: await loanRows(tx, firm, L0, P, Object.fromEntries(chart.map((c) => [c.code, c.name])), today),
   };
+}
+
+/** Loan contracts with the open balance (legacy `lnState`: repayments from the ledger, oldest contract first). */
+/** Loan contracts and the ledger's loan moves of the year → `loanState` (shared with the inspection readiness). */
+export async function loanStateOf(tx: Tx, firm: Pick<Firm, 'id' | 'settings'>, L0: Awaited<ReturnType<typeof loadLedgerLines>>, names: Record<string, string>, today: string) {
+  const C = await tx.select().from(loans).where(eq(loans.firmId, firm.id));
+  const kName = (k: string) => names[k] ?? '';
+  const lines = L0.filter((l) => l.kind !== 'close' && /^[012]/.test(l.account) && loanKontoDir(l.account, kName(l.account)))
+    .map((l, i) => ({ ...l, id: `${l.journalId ?? 'j'}:${l.lineNo ?? i}` }));
+  const flows = loanFlows(loanMovesFromLedger(lines, kName));
+  const ignored = new Set(((firm.settings ?? {}) as { lnIgnore?: string[] }).lnIgnore ?? []);
+  return loanState(C.map((l) => ({ ...l, partnerId: l.partnerId, amount: Number(l.amount), rate: Number(l.rate), moveIds: l.moveIds, hasFile: false })), flows, today, ignored);
+}
+
+async function loanRows(tx: Tx, firm: Firm, L0: Awaited<ReturnType<typeof loadLedgerLines>>, P: { id: string; name: string; data: unknown }[], names: Record<string, string>, today: string) {
+  const st = await loanStateOf(tx, firm, L0, names, today);
+  if (!st.rows.length) return [];
+  const pp = new Map(P.map((p) => [p.id, p]));
+  return st.rows.map((r) => {
+    const p = r.l.partnerId ? pp.get(r.l.partnerId) : undefined;
+    return { dir: r.l.dir as 'given' | 'received', rate: Number(r.l.rate) || 0, bal: r.bal, legal: lrPartnerLegal(p?.name ?? '', (p?.data ?? {}) as Record<string, unknown>) };
+  });
 }
 
 /** Run the review for one firm (legacy `lrCheck(f, S.year)`). */

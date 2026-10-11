@@ -11,12 +11,14 @@ import { payCtx, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { DiEditor } from './di-editor';
+import { hrOfficeLocked } from '@/lib/hr-lock';
 
 export default async function MerkiPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { u, firm } = await payPage('vraboteni');
   if (!firm) return <NoFirm t="Мерки и престанок" />;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  if (await hrOfficeLocked(firm, u)) return <><Hd t="Мерки и престанок" /><div className="callout bad">🔒 Само сопственикот.</div></>;
   const [e] = await db().select().from(employees).where(and(eq(employees.id, id), eq(employees.firmId, firm.id))).limit(1);
   if (!e) notFound();
   const today = new Date().toISOString().slice(0, 10);

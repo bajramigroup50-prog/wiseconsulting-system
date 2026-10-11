@@ -56,7 +56,7 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
           <div className="row" style={{ gap: 6, marginTop: 6 }}>
             <button className="btn sm" type="button" disabled={!canWrite || !c.net} onClick={() => set('gross', g4n(+c.net * (+c.hours < 40 ? +c.hours / 40 : 1), params, +params.exempt))}>Бруто од нето ({fmt(g4n(+c.net || 0, params, +params.exempt))})</button>
           </div>
-          {W.length > 0 && <div className="callout warn" style={{ marginTop: 8 }}>{W.map((w) => <div key={w}>{w}</div>)}</div>}
+          {W.length > 0 ? <div className="callout warn" style={{ marginTop: 8 }}>{W.map((w) => <div key={w}>{w}</div>)}</div> : <div className="callout good" style={{ marginTop: 8 }}>Договорот ги содржи задолжителните елементи.</div>}
           {canWrite && <div className="row" style={{ marginTop: 8 }}>
             <button className="btn pri" disabled={pending} onClick={() => start(async () => {
               const r = await saveContractAction(employee.id, c);

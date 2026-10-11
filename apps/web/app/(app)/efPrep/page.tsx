@@ -68,6 +68,7 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
           ))}
         </div>
       )}
+      {!run && <div className="empty">Притиснете „🔍 Провери ги сите фирми“.</div>}
       <ActionForm action={saveEfAction} reset={false} className="card tw">
         <table className="dense">
           <thead><tr><th>Фирма</th><th>ДДВ</th>{run && <><th className="n">Фактури {year}</th><th className="n">Купувачи</th><th>Купувачи со грешки</th></>}<th>EUJP-ID</th><th>Сертификат</th><th>Статус</th></tr></thead>
@@ -99,6 +100,7 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
             ];
           })}</tbody>
         </table>
+        {run && <p className="note">Проверени купувачи: само тие на кои им е издадена фактура во {year}. Странските купувачи немаат македонски ЕДБ – нив занемарете ги. Проверено: {new Date().toLocaleString('mk-MK', { timeZone: 'Europe/Skopje' })}.</p>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn pri">Зачувај</button></div>
       </ActionForm>
     </>

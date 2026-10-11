@@ -6,7 +6,7 @@ import { GoButton } from './go-button';
 
 /** Statement / return screens per entity (legacy `ENT_V` applied to the phase bar). */
 const STATEMENTS: Record<YeEntity, string[]> = {
-  co: ['zs_bs', 'zs_bu', 'zs_de', 'zs_sp'],
+  co: ['zs_bs', 'zs_bu', 'zs_de', 'zs_sp', 'zs_skr'],
   tp: ['zs_bs', 'zs_bu', 'zs_de', 'zs_sp', 'zsTP'],
   sd: ['zsTP'],
   npo: ['zsNPO'],
@@ -20,12 +20,15 @@ const phases = (ent: YeEntity): [string, string, string[]][] => [
   ['stm', '4. Биланси и обрасци', STATEMENTS[ent]],
   ['zsBel', '5. Белешки', ['zsBel']],
   ['zsXml', '6. XML и поднесување', ['zsXml']],
-  ['prenos', '7. Нова година', ['prenos']],
+  ['zsDos', '7. Досие', ['zsDos']],
+  ['prenos', '8. Нова година', ['prenos']],
+  ...(ent === 'co' || ent === 'tp' ? [['zs_aop', '⚙ Алатки', ['zs_aop', 'zs_pr', 'vjetore', 'zsRok']] as [string, string, string[]]] : [['zsRok', '⚙ Алатки', ['zsRok']] as [string, string, string[]]]),
 ];
 
 const SUBN: Record<string, string> = {
   zs_db: 'ДБ (данок на добивка)', zs_vp: 'ДБ-ВП (данок на вкупен приход)', zs_bs: 'Биланс на состојба', zs_bu: 'Биланс на успех',
   zs_de: 'Образец 38 – државна евиденција', zs_sp: 'Образец 35 – приходи по дејности', zsTP: 'Образец Б и ДЛД-ДБ', zsNPO: 'Годишна сметка – НПО',
+  zs_skr: 'Скратен биланс на успех', zs_aop: 'АОП', zs_pr: 'Правила за завршна пресметка', zsRok: 'Што, каде и кога', vjetore: 'Годишна сметка (стар XML)',
 };
 
 export function PhBar({ cur, ent, done }: { cur: string; ent: YeEntity; done: Record<string, boolean> }) {

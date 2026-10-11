@@ -31,7 +31,7 @@ export default async function DdvKnigiPage({ searchParams }: { searchParams: Pro
     <>
       <Hd t="Книги за ДДВ" sub={`${bookTitle(t)} · ${dmy(B.from)} – ${dmy(B.to)}`}>
         <DownloadXlsx name={file + '.xlsx'} sheets={[{ name: t === 'out' ? 'Излезни' : 'Влезни', rows }]} label="Excel" />
-        <DownloadCsv name={file + '.csv'} rows={rows} label="CSV" />
+        <DownloadCsv name={`${t === 'out' ? 'Kniga_izlezni_' : 'Kniga_vlezni_'}${B.from}_${B.to}.csv`} rows={rows} label="Excel (CSV)" />
         <a className="btn pri" href={`/print/ddvKnigi?t=${t}&sel=${sel}`} target="_blank" rel="noreferrer">PDF</a>
       </Hd>
       <div className="card">

@@ -4,6 +4,7 @@ import { fmt, fq } from '@/lib/fmt';
 import { firmEmployees, payPage, yearRuns } from '@/lib/payroll/server';
 import { m4Rows } from '@/lib/payroll/slip';
 import { DownloadCsv } from '@/components/download-csv';
+import { XlsxButton } from '@/components/vp-tools';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 
@@ -15,11 +16,15 @@ export default async function PayM4Page() {
   const per = (o: (typeof R)[number]) => `${o.months[0]!.slice(5)}–${o.months.at(-1)!.slice(5)}/${year}`;
   const csv: (string | number)[][] = [['Шифра', 'Име и презиме', 'ЕМБГ', 'Период', 'Месеци', 'Часови', 'Бруто плата', 'Основица за придонеси', 'ПИО'],
     ...R.map((o) => [o.no, o.name, o.embg, per(o), o.months.length, o.hours, o.gross, o.base, o.pio])];
+  // Legacy `m4Xlsx` 7142: period split into „Од месец“ / „До месец“ (YYYY-MM).
+  const xl: (string | number)[][] = [['Шифра', 'Име и презиме', 'ЕМБГ', 'Од месец', 'До месец', 'Месеци', 'Часови', 'Бруто плата', 'Основица за придонеси', 'ПИО'],
+    ...R.map((o) => [o.no, o.name, o.embg, o.months[0]!, o.months.at(-1)!, o.months.length, o.hours, o.gross, o.base, o.pio])];
   return (
     <>
       <Hd t="М4 образец" sub={'годишни податоци за стаж и плата – ' + year}>
         <Link className="btn" href="/plati">← Пресметка на плата</Link>
-        {R.length > 0 && <DownloadCsv name={`M4_${year}.csv`} rows={csv} />}
+        {R.length > 0 && <XlsxButton name={`M4_${year}.xlsx`} label="Excel" sheets={[{ name: `М4 ${year}`, rows: xl }]} />}
+        {R.length > 0 && <DownloadCsv name={`M4_${year}.csv`} rows={csv} label="CSV" />}
       </Hd>
       <p className="note">Податоци по осигуреник за годината: месеци и часови на осигурување, бруто плата и основица за придонеси, ПИО придонес. Служат за пополнување/проверка на М4 кон Фондот за ПИО (пријавата се поднесува електронски според важечките упатства на ПИОМ/УЈП).</p>
       {R.length ? (

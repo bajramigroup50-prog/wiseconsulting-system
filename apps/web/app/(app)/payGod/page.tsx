@@ -4,6 +4,7 @@ import { fmt, fq } from '@/lib/fmt';
 import { payPage, yearRuns } from '@/lib/payroll/server';
 import { yearRows } from '@/lib/payroll/slip';
 import { DownloadCsv } from '@/components/download-csv';
+import { XlsxButton } from '@/components/vp-tools';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 
@@ -25,7 +26,8 @@ export default async function PayGodPage({ searchParams }: { searchParams: Promi
     <>
       <Hd t="Годишен извештај за плати" sub={String(year)}>
         <Link className="btn" href="/plati">← Пресметка на плата</Link>
-        {rows.length > 0 && <DownloadCsv name={`Godisen_izvestaj_plati_${year}.csv`} rows={csv} />}
+        {rows.length > 0 && <XlsxButton name={`Godisen_izvestaj_plati_${year}.xlsx`} label="Excel" sheets={[{ name: `Плати ${year}`, rows: csv }]} />}
+        {rows.length > 0 && <DownloadCsv name={`Godisen_izvestaj_plati_${year}.csv`} rows={csv} label="CSV" />}
       </Hd>
       <div className="row" style={{ gap: 6, marginBottom: 8 }}>{(Object.keys(LAB) as K[]).map((k) => <Link key={k} className={'btn sm' + (K === k ? ' pri' : '')} href={`/payGod?k=${k}`}>{LAB[k]}</Link>)}</div>
       {rows.length ? (

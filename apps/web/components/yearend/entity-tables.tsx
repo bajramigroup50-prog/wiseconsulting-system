@@ -50,37 +50,52 @@ export function TpTables({ T, firm, year, print }: { T: TpResult; firm: Firm; ye
   );
 }
 
-function NpoTable({ R, V, year }: { R: typeof NPO_PR; V: Record<string, number>; year: number }) {
+/** Legacy `npoTable(R, V, P)` 10462: with the previous year's column when `P` is given. */
+export function NpoTable({ R, V, P, year }: { R: typeof NPO_PR; V: Record<string, number>; P?: Record<string, number> | null; year: number }) {
+  const cols = P ? 4 : 3;
   return (
     <div className="tw"><table className="dense">
-      <thead><tr><th style={{ width: 60 }}>АОП</th><th>Позиција</th><th className="n">{year}</th></tr></thead>
+      <thead><tr><th style={{ width: 60 }}>АОП</th><th>Позиција</th><th className="n">{year}</th>{P && <th className="n">{year - 1}</th>}</tr></thead>
       <tbody>{R.map((row) => row.length === 3
-        ? <tr className="sub" key={row[0]}><td colSpan={3}><b>{row[2]}</b></td></tr>
-        : <tr key={row[0]} className={!row[3] || /^[IVX]+\.|ВКУПН/.test(row[2]) ? 'tot' : ''}><td className="num" style={{ textAlign: 'left' }}>{row[1]}</td><td>{row[2]}</td><td className="n">{fmt(V[row[0]] || 0)}</td></tr>)}
+        ? <tr className="sub" key={row[0]}><td colSpan={cols}><b>{row[2]}</b></td></tr>
+        : <tr key={row[0]} className={!row[3] || /^[IVX]+\.|ВКУПН/.test(row[2]) ? 'tot' : ''}><td className="num" style={{ textAlign: 'left' }}>{row[1]}</td><td>{row[2]}</td><td className="n">{fmt(V[row[0]] || 0)}</td>{P && <td className="n">{fmt(P[row[0]] || 0)}</td>}</tr>)}
       </tbody>
     </table></div>
   );
 }
 
-export function NpoTables({ N, firm, year, print }: { N: NpoResult; firm: Firm; year: number; print?: boolean }) {
+/** ДБ-НП/ВП table (legacy tab `db` 10468): rows 01–04 when given, then 05–08. */
+export function NpoDbTable({ N, rows }: { N: NpoResult; rows?: [string, string, number][] }) {
   const d = N.dbnp;
+  return (
+    <>
+      <div className="tw"><table className="dense">
+        <thead><tr><th>Ред</th><th>Опис</th><th className="n">Износ</th></tr></thead>
+        <tbody>
+          {(rows ?? []).map(([no, n, v]) => <tr key={no}><td>{no}</td><td>{n}</td><td className="n">{fmt(v)}</td></tr>)}
+          <tr className="tot"><td>05</td><td>Вкупен приход од стопанска дејност{rows ? ' (01 до 04)' : ''}</td><td className="n">{fmt(d.econ)}</td></tr>
+          <tr><td>06</td><td>Намалување на приходот за 1.000.000 денари</td><td className="n">{fmt(d.red)}</td></tr>
+          <tr className="tot"><td>07</td><td>Даночна основа (05 − 06)</td><td className="n">{fmt(d.base)}</td></tr>
+          <tr className="tot"><td>08</td><td>Годишен данок (07 × 1%)</td><td className="n">{fmt(d.tax)}</td></tr>
+        </tbody>
+      </table></div>
+      <p className="note">{d.econ > 1_000_000 ? <>⚠ Приходот од стопанска дејност е над 1.000.000 денари – <b>ДБ-НП/ВП се поднесува до УЈП (е-Даноци) до крајот на февруари</b>, данокот се плаќа во рок од 30 дена.</> : '✓ Приходот од стопанска дејност не е над 1.000.000 денари – нема обврска за ДБ-НП/ВП.'} Членарините, донациите, грантовите и подароците не се оданочуваат.</p>
+    </>
+  );
+}
+
+export function NpoTables({ N, firm, year, print, P, dbRows }: { N: NpoResult; firm: Firm; year: number; print?: boolean; P?: Record<string, number> | null; dbRows?: [string, string, number][] }) {
   return (
     <>
       {print && <div className="ph"><div><div className="pt">Годишна сметка – непрофитна организација</div><div className="ps">за {year} година</div></div><div className="pm">{firm.name}<br />ЕМБС {firm.embs}</div></div>}
       <h2>Биланс на приходи и расходи</h2>
-      <NpoTable R={NPO_PR} V={N.V} year={year} />
+      <NpoTable R={NPO_PR} V={N.V} P={P} year={year} />
       <p className="note">Контрола: 239 = {fmt(N.V['239'])} · 252 = {fmt(N.V['252'])} {Math.abs((N.V['239'] || 0) - (N.V['252'] || 0)) < 0.01 ? <span className="pill good">се совпаѓаат</span> : <span className="pill bad">разлика</span>}</p>
       <h2>Биланс на состојба</h2>
-      <NpoTable R={NPO_BS} V={N.V} year={year} />
+      <NpoTable R={NPO_BS} V={N.V} P={P} year={year} />
       <p className="note">{Math.abs((N.V['042'] || 0) - (N.V['069'] || 0)) < 0.01 ? <span className="pill good">Актива = Пасива</span> : <span className="pill bad">Актива {fmt(N.V['042'])} ≠ Пасива {fmt(N.V['069'])}</span>}{N.closed ? '' : ' · годината не е затворена: тековниот вишок е прикажан во 067 (недостигот во 037).'}</p>
       <h2>ДБ-НП/ВП – данок на приходи од стопанска дејност</h2>
-      <div className="tw"><table className="dense"><tbody>
-        <tr className="tot"><td>05</td><td>Вкупен приход од стопанска дејност</td><td className="n">{fmt(d.econ)}</td></tr>
-        <tr><td>06</td><td>Намалување на приходот за 1.000.000 денари</td><td className="n">{fmt(d.red)}</td></tr>
-        <tr className="tot"><td>07</td><td>Даночна основа (05 − 06)</td><td className="n">{fmt(d.base)}</td></tr>
-        <tr className="tot"><td>08</td><td>Годишен данок (07 × 1%)</td><td className="n">{fmt(d.tax)}</td></tr>
-      </tbody></table></div>
-      <p className="note">{d.econ > 1_000_000 ? '⚠ Приходот од стопанска дејност е над 1.000.000 денари – ДБ-НП/ВП се поднесува до УЈП (е-Даноци) до крајот на февруари.' : '✓ Приходот од стопанска дејност не е над 1.000.000 денари – нема обврска за ДБ-НП/ВП.'} Членарините, донациите, грантовите и подароците не се оданочуваат.</p>
+      <NpoDbTable N={N} rows={dbRows} />
       {N.un.length > 0 && !print && <div className="callout warn">Конта со салдо што не се распоредени во образците: {N.un.map((x) => `${x.k} (${fmt(x.s)})`).join(', ')}</div>}
     </>
   );

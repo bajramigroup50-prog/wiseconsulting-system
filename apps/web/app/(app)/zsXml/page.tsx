@@ -3,10 +3,11 @@
  * "XML и поднесување": checks, XML download, import of an accepted XML, submission status.
  * FIX(P8 #14): the import records what it replaced and "remove imported amounts" restores it (hand-typed amounts
  * are no longer wiped). FIX(P8 #10/#11): the old `<GodisnaSmetka>` XML (`vjetore`/`gsXml`) and the old statistics
- * list are not ported — the ЦРМ XML is the only export.
+ * list are dropped deliberately — the ЦРМ XML is the only export.
  */
 import Link from 'next/link';
 import { crmRules } from '@wise/core';
+import { ConfirmLink } from '@/components/yearend/confirm-link';
 import { forms3538 } from '@wise/db';
 import { dmy } from '@/lib/fmt';
 import { accountNames, phaseDone, yePage } from '@/lib/yearend';
@@ -28,9 +29,11 @@ export default async function ZsXmlPage() {
   const leOk = /^((0[4-9][0-9]{6})|([4-9][0-9]{6}))$/.test(le);
   const miss35 = f35.filter((r) => !r.aop);
   const st = L.statement;
+  // Legacy `crmXmlDl` 11066: hard ЦРМ rule errors → confirm before the download.
+  const ask = errs.length ? `Има ${errs.length} наоди од контролите на ЦРМ (${errs.slice(0, 3).map((r) => String(r[1] ?? r[0])).join('; ')}${errs.length > 3 ? ' …' : ''}) – ЦРМ може да ја одбие сметката. Сепак да се преземе XML?` : undefined;
   const blocked = findings.open.length > 0;
   const checks: [boolean, React.ReactNode][] = [
-    [!blocked, blocked ? <>{findings.open.length} неразрешени наоди во <Link href="/zsKontrola">Контрола</Link> – XML не се издава</> : 'Контролата е чиста'],
+    [!blocked, blocked ? <>Не може „XML за ЦРМ“: {findings.open.length} неосредени наоди во документите ({findings.open.slice(0, 2).map((x) => x.area).join(', ')}…). Средете ги или означете „проверено“ – <Link href="/zsKontrola">Контрола</Link></> : 'Контролата е чиста'],
     [leOk, leOk ? `ЕМБС ${le}` : <>ЕМБС не е валиден (7 или 8 цифри) – <Link href="/firmi">Фирми</Link></>],
     [!errs.length, errs.length ? <>{errs.length} правила на ЦРМ не се исполнети – <Link href="/zsKontrola">Контрола</Link></> : 'Правилата на ЦРМ се исполнети'],
     [!miss35.length, miss35.length ? <>Образец 35: {miss35.length} дејности без АОП – <Link href="/zs_sp">Образец 35</Link></> : 'Образец 35 е комплетен'],
@@ -43,9 +46,13 @@ export default async function ZsXmlPage() {
         <div className="card"><h2>Проверка пред поднесување</h2>
           <ul className="steps">{checks.map(([ok, t], i) => <li key={i}>{ok ? <span className="pill good">✓</span> : <span className="pill warn">!</span>} <span>{t}</span></li>)}</ul>
           <div className="row" style={{ marginTop: 10 }}>
-            {blocked ? <button className="btn pri" disabled>⬇ XML за ЦРМ</button> : <a className="btn pri" href="/zsXml/download">⬇ XML за ЦРМ</a>}
-            {!blocked && <a className="btn" href="/zsXml/download?prev=1">⬇ XML со претходна година</a>}
+            {blocked ? <button className="btn pri" disabled>⬇ XML за ЦРМ</button> : <ConfirmLink className="btn pri" href="/zsXml/download" confirm={ask}>⬇ XML за ЦРМ</ConfirmLink>}
+            {!blocked && <ConfirmLink className="btn" href="/zsXml/download?prev=1" confirm={ask}>⬇ XML со претходна година</ConfirmLink>}
           </div>
+          {errs.length > 0 && (
+            <table className="dense" style={{ marginTop: 8 }}><thead><tr><th>Правило на ЦРМ</th><th></th></tr></thead>
+              <tbody>{errs.map((r, i) => <tr key={i}><td>{String(r[1] ?? r[0])}</td><td><span className="pill bad">✕</span></td></tr>)}</tbody></table>
+          )}
           <p className="note">XML-от се прикачува на e-submit.crm.com.mk (Годишна сметка, операција 450, обрасци 35–38). Рок: електронски до 15 март.</p>
         </div>
         <div className="card"><h2>Статус на годишната сметка</h2>

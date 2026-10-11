@@ -26,7 +26,11 @@ import { DownloadCsv } from '@/components/download-csv';
 import { Ddv04Form, fi } from './ddv04-form';
 import { CorrectionsForm, VatAccountsForm } from './forms';
 import { DownloadXlsx } from './download-xlsx';
-import { closeVatPeriodAction, reopenVatPeriodAction, setVatPeriodKindAction } from './actions';
+import { closeVatPeriodAction, reopenVatPeriodAction, saveDtColsAction, setVatPeriodKindAction } from './actions';
+import { inspCols, inspTables, inspYears } from '@/lib/vat-insp';
+import { PeriodKind } from './period-kind';
+import { TarifiView } from './tarifi-view';
+import { ddvEvidenceRows } from '@wise/core/vat/evidence';
 
 type SP = { p?: string; view?: string; tab?: string; y?: string | string[]; mode?: string; c?: string | string[] };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -56,8 +60,8 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
   const sp = await searchParams;
   const { u, firm, year } = await booksPage('ddv');
   if (!firm) return <NoFirm t="ДДВ-04" />;
-  if (sp.tab === 'insp') return <Inspector firm={firm} year={year} sp={sp} />;
-  if (sp.tab === 'tarifi') return <Tarifi firm={firm} u={u} />;
+  if (sp.tab === 'insp') return <Inspector firm={firm} year={year} sp={sp} u={u} />;
+  if (sp.tab === 'tarifi') return <TarifiView firm={firm} u={u} back={{ href: '/ddv', label: '← ДДВ-04' }} />;
 
   const kind = firmVatPeriodKind(firm);
   const ov = await vatYearOverview(db(), firm, year, vatSource);
@@ -88,18 +92,12 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
   }
   const d31 = Math.round(C.close.diff) - ((F['31'] ?? 0) + (F['30'] ?? 0));
   const tot = (k: string) => P.filter((p) => p.kind === kind).reduce((s, p) => s + (p.fields[k] ?? 0), 0);
+  const evid = ddvEvidenceRows(ov.data.docs, cur.from, cur.to, { partners: ov.data.partners });
 
   return (
     <>
       <Hd t="ДДВ-04" sub="даночна пријава за ДДВ">
-        {firm.vatRegistered && (
-          <form action={setVatPeriodKindAction} className="row" style={{ gap: 4 }}>
-            <select name="vatPeriod" defaultValue={kind} style={{ width: 'auto' }} disabled={!write} title="Даночен период на фирмата (над 25 мил. ден. промет = месечен)">
-              <option value="quarter">Тримесечно</option><option value="month">Месечно</option>
-            </select>
-            {write && <button className="btn sm">Смени</button>}
-          </form>
-        )}
+        {firm.vatRegistered && <PeriodKind kind={kind} firmName={firm.name} write={write} action={setVatPeriodKindAction} />}
         <form className="row" style={{ gap: 4 }}>
           {showForm && <input type="hidden" name="view" value="form" />}
           <select name="p" defaultValue={sel} style={{ width: 'auto' }}>
@@ -107,7 +105,11 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
           </select>
           <button className="btn sm">Отвори</button>
         </form>
-        <DownloadCsv name={`DDV-04_${sel}.csv`} label="CSV" rows={[['Поле', 'Опис', 'Износ (ден.)'], ...DDV04_FIELDS.map(([k, t]) => [k, t, F[k] ?? 0])]} />
+        <DownloadCsv name={`DDV-04_${sel}.csv`} label="CSV ДДВ-04" rows={[['Поле', 'Опис', 'Износ (ден.)'], ...DDV04_FIELDS.map(([k, t]) => [k, t, F[k] ?? 0])]} />
+        {/* Legacy `ddvCsv` 7263: the period's documents per rate group (VAT evidence). */}
+        <DownloadCsv name={`DDV_evidencija_${sel}.csv`} label="Excel (CSV)" rows={evid} />
+        <DownloadXlsx name={`DDV_evidencija_${sel}.xlsx`} label="Excel" sheets={[{ name: 'ДДВ евиденција', rows: evid }]} />
+        <a className="btn" href={`/print/ddvKniga?p=${encodeURIComponent(sel)}`} target="_blank" rel="noreferrer">PDF книга на фактури</a>
         <Link className="btn" href={`/ddvKnigi?sel=${kind === 'month' ? sel.slice(5) : 'Q' + sel.slice(-1)}`}>Книги за ДДВ</Link>
         <Link className="btn" href={qs({ view: showForm ? '' : 'form' })}>{showForm ? 'Табела' : 'Образец'}</Link>
         <a className="btn pri" href={`/print/ddv04?p=${encodeURIComponent(sel)}`} target="_blank" rel="noreferrer">PDF образец ДДВ-04</a>
@@ -162,7 +164,7 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
                     confirm={`Периодот ${vatPeriodLabel(sel)} да се отвори? Налогот за затворање на ДДВ ќе се избрише и документите од периодот повторно ќе може да се менуваат.`} />}
                 </>
               ) : write && (
-                <RowAction className="btn pri" label="Потврди и затвори период" action={closeVatPeriodAction.bind(null, sel)}
+                <RowAction className="btn pri" label="Потврди и книжи во налог" title="Затвори го периодот и книжи го ДДВ-04 во налог" action={closeVatPeriodAction.bind(null, sel)}
                   confirm={`Да се затвори ДДВ периодот ${vatPeriodLabel(sel)}? Ќе се книжи налог за затворање на ДДВ контата и документите од периодот ќе се заклучат.`} />
               )}
             </div>
@@ -214,27 +216,16 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
 
 /* ---------------- Табела за инспектор (legacy `VIEWS.ddvTab` 16812) ---------------- */
 
-async function Inspector({ firm, year, sp }: { firm: Firm; year: number; sp: SP }) {
+async function Inspector({ firm, year, sp, u }: { firm: Firm; year: number; sp: SP; u: SessionUser }) {
   const y0 = new Date().getFullYear();
   const avail = [...new Set([year, ...Array.from({ length: 8 }, (_, i) => y0 - i)])].sort((a, b) => b - a);
-  const YS = [...new Set(list(sp.y).map(Number).filter((y) => Number.isInteger(y) && y > 2000 && y < 2100))].sort((a, b) => a - b);
-  if (!YS.length) YS.push(year);
+  const YS = inspYears(sp.y, year);
   const mode = sp.mode === 'per' ? 'per' : 'month';
   const allK = DDV04_FIELDS.map(([k]) => k);
-  const picked = list(sp.c).filter((k) => allK.includes(k));
-  const cols = picked.length ? allK.filter((k) => picked.includes(k)) : DT_DEF;
-  const ctx = await loadVatPostingContext(db(), firm);
-  const tables = await Promise.all(YS.map(async (y) => {
-    if (mode === 'per') {
-      const ov = await vatYearOverview(db(), firm, y, vatSource);
-      return { y, rows: ov.periods.map((p) => ({ l: periodShortLabel(p.period), F: p.fields })) };
-    }
-    const data = await vatSource.load(db(), firm, `${y}-01-01`, `${y}-12-31`, ctx);
-    return { y, rows: Array.from({ length: 12 }, (_, i) => {
-      const p = `${y}-${String(i + 1).padStart(2, '0')}`;
-      return { l: periodShortLabel(p), F: ddv04FromResult(ddvFor(data.docs, p, 'month', ctx, { travel: data.travel })) };
-    }) };
-  }));
+  const cols = inspCols(firm, sp.c);
+  const tables = await inspTables(firm, YS, mode);
+  const q = (o: { y?: number[]; c?: string[] }) => '/ddv?' + new URLSearchParams([['tab', 'insp'], ['mode', mode], ...(o.y ?? YS).map((y) => ['y', String(y)]), ...(o.c ?? cols).map((c) => ['c', c])]).toString();
+  const printQs = new URLSearchParams([['mode', mode], ...YS.map((y) => ['y', String(y)]), ...cols.map((c) => ['c', c])]).toString();
   const sum = (R: { F: Record<string, number> }[], k: string) => R.reduce((s, r) => s + (r.F[k] ?? 0), 0);
   const head = ['Период', ...cols.map((k) => `${DT_SH[k] ?? k} (поле ${k})`)];
   const fileBase = `DDV_tabela_${(firm.name ?? '').replace(/[^\p{L}\p{N}]+/gu, '_')}_${YS.join('-')}`;
@@ -244,6 +235,8 @@ async function Inspector({ firm, year, sp }: { firm: Firm; year: number; sp: SP 
         <Link className="btn" href="/ddv">← ДДВ-04</Link>
         <DownloadXlsx name={fileBase + '.xlsx'} sheets={tables.map((t) => ({ name: String(t.y), rows: [head, ...t.rows.map((r) => [r.l, ...cols.map((k) => r.F[k] ?? 0)]), ['Вкупно ' + t.y, ...cols.map((k) => sum(t.rows, k))]] }))} />
         <DownloadCsv name={fileBase + '.csv'} rows={[['Година', ...head], ...tables.flatMap((t) => t.rows.map((r) => [t.y, r.l, ...cols.map((k) => r.F[k] ?? 0)]))]} />
+        <a className="btn pri" href={`/print/ddvTab?${printQs}`} target="_blank" rel="noreferrer">🖨 PDF</a>
+        <Link className="btn" href="/paket" title="Табелата по месеци е во извештаите на пакетот (📦 УЈП – еден клик)">📦 Во пакет за УЈП</Link>
       </Hd>
       <form className="card">
         <div className="row" style={{ gap: '6px 14px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -255,11 +248,17 @@ async function Inspector({ firm, year, sp }: { firm: Firm; year: number; sp: SP 
             <label className="chk" style={{ margin: 0 }}><input type="radio" name="mode" value="per" defaultChecked={mode === 'per'} /> по даночни периоди (како пријавени)</label>
           </span>
           <button className="btn sm pri">Прикажи</button>
+          <Link className="btn sm" href={q({ y: [0, 1, 2, 3, 4].map((i) => y0 - i).sort((a, b) => a - b) })}>последни 5</Link>
         </div>
         <details style={{ marginTop: 8 }}>
           <summary className="mini"><b>Колони (полиња од ДДВ-04)</b> – {cols.length} избрани · изберете ги точно колоните што ги бара инспекторот</summary>
           <div className="row" style={{ gap: '4px 12px', flexWrap: 'wrap', marginTop: 6 }}>
             {DDV04_FIELDS.map(([k, t]) => <label key={k} className="chk" style={{ margin: 0, fontSize: 12 }} title={t}><input type="checkbox" name="c" value={k} defaultChecked={cols.includes(k)} /> {k} {DT_SH[k] ?? ''}</label>)}
+          </div>
+          <div className="row" style={{ gap: 6, marginTop: 6 }}>
+            <Link className="btn sm" href={q({ c: DT_DEF })}>Стандардни</Link>
+            <Link className="btn sm" href={q({ c: allK })}>Сите 31</Link>
+            {canDo(u, 'write', firm.id) && <RowAction className="btn sm" action={saveDtColsAction.bind(null, cols)} label="💾 Запомни ги колоните за фирмата" />}
           </div>
         </details>
       </form>
@@ -278,26 +277,4 @@ async function Inspector({ firm, year, sp }: { firm: Firm; year: number; sp: SP 
   );
 }
 
-/* ---------------- Даночни тарифи (legacy `VIEWS.tarifi` 12844) ---------------- */
 
-async function Tarifi({ firm, u }: { firm: Firm; u: SessionUser }) {
-  const ctx = await loadVatPostingContext(db(), firm);
-  const chart = await effectiveChart(db(), firm.id);
-  const names = Object.fromEntries(chart.map((a) => [a.code, a.name]));
-  const values: Record<string, string> = {};
-  for (const r of [18, 10, 5]) {
-    values['o' + r] = vatAccount(ctx, 'out', r) ?? '';
-    values['i' + r] = vatAccount(ctx, 'in', r) ?? '';
-    values['m' + r] = vatAccount(ctx, 'imp', r) ?? '';
-  }
-  for (const k of ['r32out', 'r32in', 'ddvPay', 'ddvClaim']) values[k] = schemeValue(ctx, k);
-  const can = canDo(u, 'settings', firm.id);
-  return (
-    <>
-      <Hd t="Даночни тарифи" sub="ДДВ – конта"><Link className="btn" href="/ddv">← ДДВ-04</Link></Hd>
-      {!can && <div className="callout">Само преглед – за промена е потребна дозвола „поставки“.</div>}
-      <VatAccountsForm values={values} names={names} firmName={firm.name} canGlobal={u.role === 'admin'}
-        options={chart.filter((a) => /^(13|23)/.test(a.code)).map((a) => [a.code, a.name])} />
-    </>
-  );
-}
