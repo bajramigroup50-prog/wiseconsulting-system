@@ -148,6 +148,13 @@
       "when": 1791682937703,
       "tag": "0020_journal_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791740021954,
+      "tag": "0021_aml_retention",
+      "breakpoints": true
     }
   ]
 }
