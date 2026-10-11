@@ -6,6 +6,7 @@
  * `per` → `vatPeriod`, `lock` → `lockDate`); every other legacy field is stored under its legacy key in
  * `firms.settings`, so the importer, invoice print, payroll and VAT readers find them where legacy had them.
  */
+import { fyCheck } from './years';
 
 /** Editor tabs (legacy `FTABS`). */
 export const FIRM_TABS = [['osn', 'Основни податоци'], ['dop', 'Дополнителни податоци'], ['pl', 'Податоци за плата'], ['ef', 'е-Фактура']] as const;
@@ -16,7 +17,7 @@ export const FIRM_TEXT_KEYS = [
   // Основни податоци
   'fax', 'phone2', 'bank', 'realBank', 'bank2', 'regNo', 'bankName', 'bankName2', 'bankEdb', 'bankAcc', 'depositor',
   'opstina', 'opstina2', 'payCode', 'opstinaOther', 'contact', 'signer', 'signerRole', 'kontoPlan', 'repro',
-  'gdvpYear', 'curYear', 'parent', 'invStyle', 'invColor', 'legalFoot', 'short', 'accFrom',
+  'gdvpYear', 'curYear', 'fromYear', 'toYear', 'parent', 'invStyle', 'invColor', 'legalFoot', 'short', 'accFrom',
   // Дополнителни податоци
   'retailCode', 'serial', 'instTo', 'debitAcct', 'payForm', 'contribForm', 'payslip', 'accReg', 'vatInKonto',
   'dc_name', 'dc_edb', 'dc_first', 'dc_last', 'dc_street', 'dc_no', 'dc_phone', 'dc_mob', 'dc_city',
@@ -66,6 +67,11 @@ const ymd = /^\d{4}-\d{2}-\d{2}$/;
 /** Merge the editor values into `firms.settings` (legacy `firmFormVals`), with the legacy checks. */
 export function firmSettingsFrom(i: FirmFormInput): FirmFormResult {
   const s: Record<string, unknown> = { ...i.settings };
+  // working years (`years.ts`): „Активна од година“ / „До година (затворена)“
+  const fyErr = fyCheck(i.text.fromYear, i.text.toYear);
+  if (fyErr) return { ok: false, error: fyErr };
+  const ty = (i.text.toYear ?? '').trim();
+  if (ty !== String(i.settings.toYear ?? '')) delete s.toYearAuto;
   for (const k of FIRM_TEXT_KEYS) {
     if (k === 'accFrom' && !i.withFee) continue;
     const v = (i.text[k] ?? '').trim();
