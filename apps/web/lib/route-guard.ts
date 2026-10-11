@@ -23,7 +23,7 @@ export function publicPath(p: string): boolean {
 }
 
 /** API endpoints every signed-in role may call (each checks the file's / current firm's access itself). */
-const SHARED_API = ['/api/files', '/api/pdf', '/api/errors'];
+const SHARED_API = ['/api/files', '/api/pdf', '/api/errors', '/api/firm-now'];
 
 const TEREN_VIEWS = ['mojzad', 'mojpn', 'lozinka', 'izlezF'];
 

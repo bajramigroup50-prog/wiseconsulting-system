@@ -3,7 +3,8 @@ import { eq, sql } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { journals } from '@wise/db';
 import { requireUser } from '@/lib/auth';
-import { currentFirm, currentYear, firmYearCallout } from '@/lib/context';
+import { calendarYear, currentFirm, currentYear, firmYearCallout } from '@/lib/context';
+import { yearOffNote } from '@/lib/firm-guard';
 import { db } from '@/lib/db';
 import { navFor } from '@/lib/nav';
 import { filterNavByModules } from '@/lib/nav-industry';
@@ -13,6 +14,7 @@ import { PREVIEW_COOKIE } from '@/lib/route-guard';
 import { klPrevOff } from './klPortal/actions';
 import { AinbPanel } from '@/components/ainb';
 import { AlStartup } from '@/components/al-startup';
+import { FirmGuard } from '@/components/firm-guard';
 import { Nav } from '@/components/nav';
 import { NavBack } from '@/components/nav-back';
 import { TopBar } from '@/components/top-bar';
@@ -33,7 +35,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // the selected firm does not work in the selected year (`@wise/core/firms/years`) — said, never shown silently
     firm ? firmYearCallout(firm, year).catch(() => null) : Promise.resolve(null),
   ]);
+  const cal = calendarYear();
   return (
+    // tab / window guard: this page's firm + year go with every post; another tab's switch shows „освежете“
+    <FirmGuard firm={firm && { id: firm.id, name: firm.name }} year={year}>
     <div className="app">
       <header className="mbar">
         <div className="brand" title="WISE CONSULTING"><i aria-hidden="true">W</i><span>WISE CONSULTING</span></div>
@@ -52,6 +57,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             lockDate: firm.lockDate,
           }}
         />
+        {year !== cal && u.role !== 'teren' && (
+          // the working year is not the calendar year: said on every screen (a year chosen by accident is noticed)
+          <div className="year-off" role="status" id="yearOff" style={{
+            background: '#fef0c7', color: '#7a2e0e', borderBottom: '2px solid #f79009', padding: '6px 16px', fontWeight: 700,
+            display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
+          }}>
+            <span>📅 ⚠ {yearOffNote(year, cal)}.</span>
+            {office && <a className="btn sm" href="/?godina=1">Промени година</a>}
+          </div>
+        )}
         <div className="sheet" id="main">
           {u.mustChangePassword && (
             <div className="callout warn">Мора да ја промените привремената лозинка. <a href="/lozinka">Промени лозинка</a></div>
@@ -77,5 +92,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {office && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
       {office && <AlStartup />}
     </div>
+    </FirmGuard>
   );
 }
