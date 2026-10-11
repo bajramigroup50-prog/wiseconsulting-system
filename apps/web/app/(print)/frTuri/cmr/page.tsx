@@ -1,7 +1,11 @@
-/** Legacy `ACT.frCmr` (14557): CMR — меѓународен товарен лист (international consignment note) of a freight tour. */
+/**
+ * Legacy `ACT.frCmr` (14557): CMR — меѓународен товарен лист (international consignment note) of a freight tour, with
+ * the carrier's stamp in box 23 (legacy `f.stamp` → `firm.settings.stamp`, a `files.id` or URL).
+ */
 import { notFound } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { frCountryName } from '@wise/core/industry';
+import { invoicePrintImg } from '@wise/core/sales';
 import { fleetVehicles, freightTours, partners } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
@@ -20,6 +24,7 @@ export default async function Cmr({ searchParams }: { searchParams: Promise<{ id
   const g = await industryPage('frTuri', 'CMR');
   if (g.blocked || !id) notFound();
   const f = g.firm;
+  const stamp = String(((f.settings ?? {}) as Record<string, unknown>).stamp ?? '').trim();
   const [t] = await db().select().from(freightTours).where(and(eq(freightTours.id, id), eq(freightTours.firmId, f.id))).limit(1);
   if (!t) notFound();
   const [[v], [p]] = await Promise.all([
@@ -50,7 +55,7 @@ export default async function Cmr({ searchParams }: { searchParams: Promise<{ id
       </tbody></table>
       <table className="cmr" style={{ marginTop: -1 }}><tbody><tr>
         <B n={22} lab="Потпис и печат на испраќачот / Signature and stamp of the sender" style={{ height: 120, width: '33%' }} />
-        <B n={23} lab="Потпис и печат на превозникот / Signature and stamp of the carrier" style={{ width: '33%' }} />
+        <B n={23} lab="Потпис и печат на превозникот / Signature and stamp of the carrier" style={{ width: '33%' }}>{stamp && <img src={invoicePrintImg(stamp)} alt="" style={{ maxHeight: 60 }} />}</B>
         <B n={24} lab="Стоката е примена – место, датум, потпис и печат / Goods received" style={{ width: '34%' }}>{t.unloadDate ? dmy(t.unloadDate) : ''}</B>
       </tr></tbody></table>
     </>

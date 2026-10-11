@@ -1,139 +1,127 @@
 /**
- * Legacy `VIEWS.frTuri` 14479 / `frEditor` 14703 — превоз за трети лица: tours (CMR data, countries crossed, per diems
- * abroad, tolls, fuel), result per tour, one Phase 3 invoice for several tours of a client (in the tours' currency).
+ * Legacy `VIEWS.frTuri` 14479 / `frEditor` 14503 (+ quick-add patch 14703) — 🚛 Тури – превоз за трети лица: tours with
+ * client, route, vehicle / driver, price (currency + MKD), costs (`frCost`: card fuel + tolls + per diems + other),
+ * difference and status; expiring-licence callout; filters; pick tours of one client → one invoice; Excel (`frTXlsx`,
+ * the legacy 23 columns) and PDF of the list. `?id=` opens the editor (`?dn=1` = straight to the borders table).
  */
 import Link from 'next/link';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { fxRate } from '@wise/core';
-import { FR_COUNTRIES, FR_REDUCTIONS, FR_STATUS, frCountryName, frPerDiems, nextModuleNumber, tourFuel } from '@wise/core/industry';
-import { fuelImports, fuelRowsOf, fxLookup } from '@/lib/fuel';
-import { employees, fleetVehicles, freightTours, industryConfigOf, invoices, loadFxSources } from '@wise/db';
+import { and, eq, sql } from 'drizzle-orm';
+import {
+  FR_FILTERS, FR_STATUS, FR_XLSX_HEAD, frCanPick, frDmy, frExpiredFor, frExpiring, frFilterTours, frNextNo, frXlsxRow, isMonth, monthOptions, type FrStatus,
+} from '@wise/core/industry';
+import { freightTours, invoices } from '@wise/db';
 import { partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, fq } from '@/lib/fmt';
+import { freightContext } from '@/lib/freight';
 import { industryPage, today } from '@/lib/industry';
-import { BankForm } from '@/components/bank-form';
+import { FreightEditor, FreightPickForm, type FrEditorTour } from '@/components/freight-ui';
+import { ExportXlsx, ListPdf, type Cell } from '@/components/list-tools';
 import { Hd } from '@/components/hd';
-import { RowAction } from '@/components/row-action';
-import { deleteFreightAction, invoiceFreightAction, saveFreightAction } from '../pnalozi/actions';
 
-export default async function FrTuri({ searchParams }: { searchParams: Promise<{ id?: string; st?: string }> }) {
+const s = (x: unknown) => (x == null ? '' : String(x));
+
+export default async function FrTuri({ searchParams }: { searchParams: Promise<{ id?: string; st?: string; mo?: string; p?: string; dn?: string }> }) {
   const sp = await searchParams;
-  const g = await industryPage('frTuri', 'Превоз за трети лица');
+  const g = await industryPage('frTuri', 'Тури – превоз за трети лица');
   if (g.blocked) return g.blocked;
   const { firm, write, year } = g;
-  const [P, V, Dr, fx] = await Promise.all([
+  const td = today();
+  const [P, X, invs] = await Promise.all([
     partnerOptions(firm.id),
-    db().select().from(fleetVehicles).where(eq(fleetVehicles.firmId, firm.id)).orderBy(asc(fleetVehicles.plate)),
-    db().select({ id: employees.id, name: employees.name }).from(employees).where(eq(employees.firmId, firm.id)).orderBy(asc(employees.name)),
-    loadFxSources(db(), firm.id),
+    freightContext(firm),
+    db().select({ id: invoices.id, n: invoices.number }).from(invoices).where(and(eq(invoices.firmId, firm.id), sql`${invoices.data}->'source'->>'type' = 'freight_tour'`)),
   ]);
-  const rates = (industryConfigOf<{ rates: Record<string, [number, string]> }>(firm, 'frt').rates ?? {}) as Record<string, [number, string]>;
-  const dn = (t: { red: number; segs: { c: string; in: string; out: string; units?: number | string | null }[]; date: string }) => frPerDiems(t, (c, d) => (c === 'MKD' ? 1 : fxRate(c, d, fx)), rates);
+  const invNo = new Map(invs.map((x) => [x.id, x.n]));
+  const pname = (id: string | null | undefined) => (id ? P.find((p) => p.id === id)?.name ?? '' : '');
 
+  /* ---------------- editor ---------------- */
   if (sp.id) {
-    const all = await db().select({ n: freightTours.number }).from(freightTours).where(eq(freightTours.firmId, firm.id));
+    const all = await db().select({ number: freightTours.number, date: freightTours.date }).from(freightTours).where(eq(freightTours.firmId, firm.id));
     const [t0] = sp.id === 'new' ? [] : await db().select().from(freightTours).where(and(eq(freightTours.id, sp.id), eq(freightTours.firmId, firm.id))).limit(1);
-    const t = t0 ?? { id: '', number: nextModuleNumber('Т-', all.map((x) => x.n).filter((n) => n.endsWith('/' + year)), year), date: today(), status: 'plan' as const, partnerId: null, orderNo: '', km: null, vehicleId: null, trailer: '', driverId: null, driver2Id: null,
-      loadPlace: '', loadC: 'MK', sender: '', unloadDate: null, unloadPlace: '', unloadC: '', consignee: '', retDate: null, goods: '', packages: '', kg: null, m3: null, adr: '', docsAtt: '', price: null, cur: 'EUR', fx: null, vat: 'intl' as const, red: 100, tolls: null, tollCur: 'EUR', otherCost: null, note: '', segs: [], invoiceId: null };
-    const d = dn(t);
-    const fuelRows = t.id ? fuelRowsOf(await fuelImports(firm.id)) : [];
-    const fxL = await fxLookup(firm.id);
-    const v = (x: unknown) => (x == null ? '' : String(x));
-    const ctry = <>{FR_COUNTRIES.map((c) => <option key={c[0]} value={c[0]}>{c[1]}</option>)}</>;
+    const segs = (t0?.segs ?? []).map((x) => ({ c: s(x.c), in: s(x.in), out: s(x.out), units: s(x.units) }));
+    if (sp.dn && !segs.length) segs.push({ c: '', in: '', out: '', units: '' });
+    const t: FrEditorTour = t0 ? {
+      id: t0.id, number: t0.number, date: t0.date, status: t0.status, partnerId: s(t0.partnerId), orderNo: s(t0.orderNo), km: s(t0.km), vehicleId: s(t0.vehicleId), trailer: s(t0.trailer),
+      driverId: s(t0.driverId), driver2Id: s(t0.driver2Id), loadPlace: s(t0.loadPlace), loadC: s(t0.loadC), sender: s(t0.sender), unloadDate: s(t0.unloadDate), unloadPlace: s(t0.unloadPlace),
+      unloadC: s(t0.unloadC), consignee: s(t0.consignee), retDate: s(t0.retDate), goods: s(t0.goods), packages: s(t0.packages), kg: s(t0.kg), m3: s(t0.m3), adr: s(t0.adr), docsAtt: s(t0.docsAtt),
+      price: s(t0.price), cur: t0.cur, fx: s(t0.fx), vat: t0.vat, red: String(t0.red), tolls: s(t0.tolls), tollCur: s(t0.tollCur) || 'EUR', otherCost: s(t0.otherCost), note: s(t0.note), segs,
+      invoiceId: t0.invoiceId, invNumber: t0.invoiceId ? invNo.get(t0.invoiceId) ?? null : null,
+    } : {
+      // Legacy `ACT.frNew`: number, today, planned, EUR, international, full per diem, loading in MK.
+      id: '', number: frNextNo(all, td), date: td, status: 'plan', partnerId: '', orderNo: '', km: '', vehicleId: '', trailer: '', driverId: '', driver2Id: '', loadPlace: '', loadC: 'MK', sender: '',
+      unloadDate: '', unloadPlace: '', unloadC: '', consignee: '', retDate: '', goods: '', packages: '', kg: '', m3: '', adr: '', docsAtt: '', price: '', cur: 'EUR', fx: '', vat: 'intl', red: '100',
+      tolls: '', tollCur: 'EUR', otherCost: '', note: '', segs, invoiceId: null, invNumber: null,
+    };
+    // FX table for the live notes: every rate the tour's dates can need, plus the latest rate as a fallback.
+    const curs = new Set(['EUR', 'USD', 'CHF', 'GBP', ...Object.values(X.rates).map((r) => r[1])]);
+    const dates = new Set([t.date, t.unloadDate, ...segs.flatMap((x) => [x.in.slice(0, 10), x.out.slice(0, 10)])].filter(Boolean));
+    const fxTable: Record<string, number> = {};
+    for (const c of curs) { fxTable[`${c}|*`] = X.fx(c, td); for (const d of dates) fxTable[`${c}|${d}`] = X.fx(c, d); }
+    const fu = t0 ? X.fuel(t0) : { mkd: 0, l: 0 };
+    const bad = t0 ? frExpiredFor(t0, X.docs.map((d) => ({ ...d.data })), td).map((d) => `${d.kind} (${dmy(d.validTo)})`) : [];
+    const active = (e: { id: string; active: boolean }) => e.active || e.id === t.driverId || e.id === t.driver2Id;
     return (
-      <>
-        <Hd t={t.id ? `Тура ${t.number}` : 'Нова тура'} sub={FR_STATUS[t.status][0]}><Link className="btn" href="/frTuri">← Тури</Link>{t.id && <Link className="btn" href={`/frTuri/cmr?id=${t.id}`} target="_blank">📄 CMR</Link>}</Hd>
-        <BankForm action={saveFreightAction}>
-          <input type="hidden" name="id" value={t.id} />
-          <div className="card"><div className="form">
-            <label className="f">Број (CMR)<input name="number" defaultValue={t.number} /></label>
-            <label className="f">Датум<input name="date" type="date" defaultValue={t.date} /></label>
-            <label className="f">Статус<select name="status" defaultValue={t.status}>{Object.entries(FR_STATUS).filter(([k]) => k !== 'inv' || t.invoiceId).map(([k, s]) => <option key={k} value={k}>{s[0]}</option>)}</select></label>
-            <label className="f">Клиент (налогодавач)<select name="partner" defaultValue={t.partnerId ?? ''}><option value="">—</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-            <label className="f">Нарачка бр.<input name="orderNo" defaultValue={v(t.orderNo)} /></label>
-            <label className="f">Км<input name="km" type="number" defaultValue={v(t.km)} /></label>
-            <label className="f">Возило<select name="veh" defaultValue={t.vehicleId ?? ''}><option value="">—</option>{V.filter((x) => !x.trailer).map((x) => <option key={x.id} value={x.id}>{x.plate}</option>)}</select></label>
-            <label className="f">Приколка<input name="trailer" defaultValue={v(t.trailer)} list="fr_tr" /></label>
-            <datalist id="fr_tr">{V.filter((x) => x.trailer).map((x) => <option key={x.id} value={x.plate} />)}</datalist>
-            <label className="f">Возач<select name="drv" defaultValue={t.driverId ?? ''}><option value="">—</option>{Dr.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-            <label className="f">Втор возач<select name="drv2" defaultValue={t.driver2Id ?? ''}><option value="">—</option>{Dr.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-            <label className="f">Место на товарење<input name="loadPlace" defaultValue={v(t.loadPlace)} /></label>
-            <label className="f">Држава<select name="loadC" defaultValue={v(t.loadC)}><option value="MK">Македонија</option>{ctry}</select></label>
-            <label className="f">Испраќач<input name="sender" defaultValue={v(t.sender)} /></label>
-            <label className="f">Датум на истовар<input name="unloadDate" type="date" defaultValue={v(t.unloadDate)} /></label>
-            <label className="f">Место на истовар<input name="unloadPlace" defaultValue={v(t.unloadPlace)} /></label>
-            <label className="f">Држава<select name="unloadC" defaultValue={v(t.unloadC)}><option value="">—</option><option value="MK">Македонија</option>{ctry}</select></label>
-            <label className="f">Примач<input name="consignee" defaultValue={v(t.consignee)} /></label>
-            <label className="f">Враќање во база<input name="retDate" type="date" defaultValue={v(t.retDate)} /></label>
-            <label className="f">Стока<input name="goods" defaultValue={v(t.goods)} /></label>
-            <label className="f">Пакети<input name="packages" defaultValue={v(t.packages)} /></label>
-            <label className="f">Кг<input name="kg" type="number" step="any" defaultValue={v(t.kg)} /></label>
-            <label className="f">м³<input name="m3" type="number" step="any" defaultValue={v(t.m3)} /></label>
-            <label className="f">ADR<input name="adr" defaultValue={v(t.adr)} /></label>
-            <label className="f">Цена<input name="price" type="number" step="any" defaultValue={v(t.price)} /></label>
-            <label className="f">Валута<input name="cur" defaultValue={t.cur} style={{ width: 70 }} /></label>
-            <label className="f">Курс<input name="fx" type="number" step="any" defaultValue={v(t.fx)} placeholder="од курсната листа" /></label>
-            <label className="f">ДДВ<select name="vat" defaultValue={t.vat}><option value="intl">меѓународен превоз (0%)</option><option value="dom">домашен превоз (18%)</option></select></label>
-            <label className="f">Патарини<input name="tolls" type="number" step="any" defaultValue={v(t.tolls)} /></label>
-            <label className="f">Валута патарини<input name="tollCur" defaultValue={v(t.tollCur)} style={{ width: 70 }} /></label>
-            <label className="f">Други трошоци (ден.)<input name="otherCost" type="number" step="any" defaultValue={v(t.otherCost)} /></label>
-            <label className="f">Дневници<select name="red" defaultValue={String(t.red)}>{FR_REDUCTIONS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
-            <label className="f wide">Забелешка<input name="note" defaultValue={v(t.note)} /></label>
-          </div></div>
-          <div className="card"><h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Држави (влез / излез) – дневници во странство</h2>
-            <table className="dense"><thead><tr><th>Држава</th><th>Влез</th><th>Излез</th><th className="n">Дневници (рачно)</th><th className="n">Автоматски</th><th className="n">Износ</th><th className="n">ден.</th></tr></thead>
-              <tbody>{[...t.segs, ...Array(3).fill({ c: '', in: '', out: '', units: '' })].map((s, i) => { const r = d.rows.find((x) => x.c === s.c && x.in === s.in); return (
-                <tr key={i}><td><select name={`g.c.${i}`} defaultValue={s.c}><option value="">—</option>{ctry}</select></td><td><input name={`g.in.${i}`} type="datetime-local" defaultValue={s.in} /></td><td><input name={`g.out.${i}`} type="datetime-local" defaultValue={s.out} /></td>
-                  <td className="n"><input name={`g.units.${i}`} type="number" step="0.5" defaultValue={s.units ?? ''} style={{ width: 70 }} /></td><td className="n">{r?.auto ?? ''}</td><td className="n">{r ? `${fmt(r.v)} ${r.cur}` : ''}</td><td className="n">{r ? fmt(r.m) : ''}</td></tr>); })}</tbody>
-              <tfoot><tr><td colSpan={5}>Вкупно {d.totH ? `${d.totH} ч → ${d.totU} дневници` : ''}{d.miss.length ? ` · нема курс за ${d.miss.join(', ')}` : ''}</td><td className="n">{Object.entries(d.by).map(([c, x]) => `${fmt(x)} ${c}`).join(' + ')}</td><td className="n"><b>{fmt(d.mkd)}</b></td></tr></tfoot></table>
-            <p className="note">Времето се брои од преминот на македонската граница до враќањето: за секои 24 ч = 1 дневница, остаток над 12 ч = 1, од 8 до 12 ч = ½; се дели по држави според времето поминато во секоја.</p>
-          </div>
-          {t.id && (() => {
-            // Legacy `frCost` / `frTourFuel` (14473): fuel from the card statements, per diems, tolls, other costs → result.
-            const fu = tourFuel(fuelRows, V.find((x) => x.id === t.vehicleId)?.plate, t, fxL);
-            const tolls = Math.round(Number(t.tolls ?? 0) * (t.tollCur && t.tollCur !== 'MKD' ? fxL(t.tollCur, t.date) : 1) * 100) / 100;
-            const oth = Number(t.otherCost ?? 0);
-            const rev = Math.round(Number(t.price ?? 0) * (t.cur && t.cur !== 'MKD' ? Number(t.fx) || fxL(t.cur, t.unloadDate || t.date) : 1) * 100) / 100;
-            const cost = Math.round((fu.mkd + d.mkd + tolls + oth) * 100) / 100;
-            return (
-              <div className="card"><h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Резултат на турата (ден.)</h2>
-                <table className="dense" style={{ maxWidth: 420 }}><tbody>
-                  <tr><td>Приход (цена)</td><td className="n">{fmt(rev)}</td></tr>
-                  <tr><td>Гориво од картички ({fu.n} точења, {fu.l} л)</td><td className="n">{fmt(fu.mkd)}</td></tr>
-                  <tr><td>Дневници</td><td className="n">{fmt(d.mkd)}</td></tr><tr><td>Патарини</td><td className="n">{fmt(tolls)}</td></tr><tr><td>Други трошоци</td><td className="n">{fmt(oth)}</td></tr>
-                  <tr><td><b>Резултат</b></td><td className="n"><b>{fmt(Math.round((rev - cost) * 100) / 100)}</b></td></tr>
-                </tbody></table>
-                <p className="note">Горивото се зема од <Link href="/frGor">⛽ Картички за гориво</Link> – истата регистрација во периодот на турата.</p>
-              </div>
-            );
-          })()}
-          {write && !t.invoiceId && <div className="row"><span style={{ flex: 1 }} />{t.id && <RowAction className="btn ghost" action={deleteFreightAction.bind(null, t.id)} confirm={`Да се избрише турата ${t.number}?`} label="Избриши" />}<button className="btn pri">Зачувај</button></div>}
-          {t.invoiceId && <p className="note">Турата е фактурирана – цената, валутата, ДДВ и клиентот не се менуваат тука.</p>}
-        </BankForm>
-      </>
+      <FreightEditor t={t} partners={P.map((p) => ({ id: p.id, name: p.name }))}
+        vehicles={X.V.filter((v) => !v.trailer).map((v) => ({ id: v.id, label: `${v.plate} ${v.name ?? ''}`.trim() }))}
+        trailers={X.V.filter((v) => v.trailer).map((v) => ({ plate: v.plate, name: v.name ?? '' }))}
+        drivers={X.E.filter(active).map((e) => ({ id: e.id, name: e.name }))} rates={X.rates} fxTable={fxTable} fuel={{ mkd: fu.mkd, l: fu.l }} bad={bad}
+        write={write} canDel={g.del} focusSeg={!!sp.dn} />
     );
   }
 
-  const L = await db().select().from(freightTours).where(and(eq(freightTours.firmId, firm.id), sql`extract(year from ${freightTours.date}) = ${year}`, sp.st ? eq(freightTours.status, sp.st as 'plan') : undefined)).orderBy(desc(freightTours.date));
-  const inv = new Map((await db().select({ id: invoices.id, n: invoices.number }).from(invoices).where(eq(invoices.firmId, firm.id))).map((x) => [x.id, x.n]));
+  /* ---------------- list ---------------- */
+  const F = { st: sp.st || 'open', mo: isMonth(sp.mo) ? sp.mo : '', p: sp.p || '' };
+  const Y = await db().select().from(freightTours).where(and(eq(freightTours.firmId, firm.id), sql`extract(year from ${freightTours.date}) = ${year}`));
+  const L = frFilterTours(Y, F).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number)));
+  const ex = frExpiring(X.docs.map((d) => d.data), td);
+  let sRev = 0, sCost = 0;
+  const R = L.map((t) => { const e = X.econ(t); sRev += e.rev; sCost += e.cost.total; return { t, ...e }; });
+  const xlsx: Cell[][] = [[...FR_XLSX_HEAD], ...[...Y].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((t) => {
+    const e = X.econ(t);
+    return frXlsxRow(t, { partner: pname(t.partnerId), plate: X.plate(t.vehicleId), driver: X.driver(t.driverId), rev: e.rev, cost: e.cost, invNumber: t.invoiceId ? invNo.get(t.invoiceId) ?? '' : '' });
+  })];
+  const filters = (
+    <form className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <select name="st" defaultValue={F.st} style={{ width: 'auto' }}>{FR_FILTERS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
+      <select name="mo" defaultValue={F.mo} style={{ width: 'auto' }}><option value="">— сите месеци —</option>{monthOptions(F.mo || td.slice(0, 7), year).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+      <select name="p" defaultValue={F.p} className="wide" style={{ width: 'auto', maxWidth: 280 }}><option value="">— сите клиенти —</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      <button className="btn">Филтрирај</button>
+    </form>
+  );
   return (
     <>
-      <Hd t="Превоз за трети лица – тури" sub={String(year)}>
-        <Link className="btn" href="/frDnev">🧾 Дневници</Link><Link className="btn" href="/frDok">📄 Лиценци и документи</Link>
+      <Hd t="🚛 Тури – превоз за трети лица" sub={`${L.length} тури`}>
+        <Link className="btn" href="/frDok">📋 Лиценци</Link><Link className="btn" href="/frDnev">🌍 Дневници</Link><Link className="btn" href="/frGor">⛽ Картички</Link>
+        <ExportXlsx name={`Turi_${year}.xlsx`} sheets={[{ name: 'Тури', rows: xlsx }]} />
+        <ListPdf target="frTuriList" title={`Тури – превоз за трети лица ${year}`} landscape />
         {write && <Link className="btn pri" href="/frTuri?id=new">+ Нова тура</Link>}
       </Hd>
-      <div className="row" style={{ gap: 6, marginBottom: 8 }}><Link className={`btn sm ${!sp.st ? 'pri' : ''}`} href="/frTuri">Сите</Link>{Object.entries(FR_STATUS).map(([k, s]) => <Link key={k} className={`btn sm ${sp.st === k ? 'pri' : ''}`} href={`/frTuri?st=${k}`}>{s[0]}</Link>)}</div>
-      <BankForm action={invoiceFreightAction}>
-        <div className="tw"><table><thead><tr><th /><th>Тура</th><th>Датум</th><th>Клиент</th><th>Релација</th><th>Возило</th><th className="n">Цена</th><th className="n">Дневници ден.</th><th>Статус</th><th /></tr></thead>
-          <tbody>{L.map((t) => { const s = FR_STATUS[t.status]; const vv = V.find((x) => x.id === t.vehicleId); return (
-            <tr key={t.id}><td>{!t.invoiceId && t.partnerId && <input type="checkbox" name="sel" value={t.id} style={{ width: 'auto' }} />}</td><td><b>{t.number}</b></td><td>{dmy(t.date)}</td><td>{P.find((p) => p.id === t.partnerId)?.name}</td>
-              <td className="mini">{t.loadPlace} ({t.loadC}) → {t.unloadPlace} ({t.unloadC ? frCountryName(t.unloadC) : ''})</td><td>{vv?.plate}{t.trailer ? '/' + t.trailer : ''}</td>
-              <td className="n">{t.price ? `${fmt(t.price)} ${t.cur}` : ''}</td><td className="n">{fmt(dn(t).mkd)}</td><td><span className={`pill ${s[1]}`}>{s[0]}</span>{t.invoiceId && <span className="mini"> {inv.get(t.invoiceId)}</span>}</td>
-              <td><Link className="btn sm" href={`/frTuri?id=${t.id}`}>Отвори</Link></td></tr>); })}
-            {!L.length && <tr><td colSpan={10} className="note">Нема тури.</td></tr>}</tbody></table></div>
-        {write && L.some((t) => !t.invoiceId) && <div className="row" style={{ marginTop: 8 }}><span style={{ flex: 1 }} /><button className="btn pri">🧾 Фактура од избраните тури</button></div>}
-      </BankForm>
+      {ex.length > 0 && <div className="callout warn">📋 <b>{ex.length}</b> лиценци/документи истекуваат или се истечени: {ex.slice(0, 4).map((x) => `${X.docLabel(x.d)} – ${x.d.kind} ${frDmy(x.d.validTo)}`).join(' · ')} <Link className="btn sm" href="/frDok">Види</Link></div>}
+      <FreightPickForm write={write} filters={filters}>
+        {L.length ? <div id="frTuriList">
+          <div className="tw"><table><thead><tr><th /><th>Тура</th><th>Клиент</th><th>Релација</th><th>Возило / возач</th><th className="n">Км</th><th className="n">Цена</th><th className="n">Трошоци</th><th className="n">Разлика</th><th>Статус</th></tr></thead>
+            <tbody>{R.map(({ t, rev, cost, diff }) => {
+              const st = FR_STATUS[(t.status || 'plan') as FrStatus] ?? FR_STATUS.plan;
+              return (
+                <tr key={t.id}>
+                  <td>{write && frCanPick(t) && <input type="checkbox" name="sel" value={t.id} aria-label="Избери" style={{ width: 'auto' }} />}</td>
+                  <td><Link href={`/frTuri?id=${t.id}`}><b>{t.number}</b></Link><br /><small className="note">{dmy(t.date)}</small></td>
+                  <td>{pname(t.partnerId) || '—'}{t.orderNo && <><br /><small className="note">нар. {t.orderNo}</small></>}</td>
+                  <td>{t.loadPlace} <small className="note">{t.loadC}</small> → {t.unloadPlace} <small className="note">{t.unloadC}</small></td>
+                  <td>{X.plate(t.vehicleId)}{t.trailer ? ' / ' + t.trailer : ''}<br /><small className="note">{X.driver(t.driverId)}</small></td>
+                  <td className="n">{t.km ? fq(t.km) : ''}</td>
+                  <td className="n">{t.cur && t.cur !== 'MKD' ? <>{fmt(t.price)} {t.cur}<br /><small className="note">{fmt(rev)} ден.</small></> : fmt(rev)}</td>
+                  <td className="n">{fmt(cost.total)}</td>
+                  <td className="n" style={diff < 0 ? { color: 'var(--bad)' } : undefined}>{fmt(diff)}</td>
+                  <td><span className={`pill ${st[1]}`}>{st[0]}</span>{t.invoiceId && <><br /><small className="note">ф-ра {invNo.get(t.invoiceId) ?? ''}</small></>}</td>
+                </tr>
+              );
+            })}</tbody>
+            <tfoot><tr><th colSpan={6}>Вкупно</th><th className="n">{fmt(sRev)}</th><th className="n">{fmt(sCost)}</th><th className="n">{fmt(sRev - sCost)}</th><th /></tr></tfoot></table></div>
+          <p className="note">Трошоци = гориво од картичките (иста регистрација, во периодот на турата) + патарини + дневници + други трошоци. Износите во девизи се по курс на НБРМ.</p>
+        </div> : <div className="empty">Нема тури. Кликнете „+ Нова тура“.</div>}
+      </FreightPickForm>
     </>
   );
 }
