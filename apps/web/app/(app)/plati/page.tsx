@@ -53,7 +53,8 @@ export default async function PlatiPage({ searchParams }: { searchParams: Promis
         <Link className="btn" href="/vraboteni">Матични податоци за вработени</Link>
         <Link className="btn" href="/plati/parametri">Параметри по периоди</Link>
         <Link className="btn" href="/payGod">Годишен извештај</Link>
-        <Link className="btn" href="/cb_paysif">Дефинирани ставки</Link>
+        <Link className="btn" href="/cb_paysif" title="Дефинирани ставки на платата – Измени шифри">Дефинирани ставки</Link>
+        <Link className="btn ghost" href="/cb_paysif">Измени шифри</Link>
       </Hd>
       {write && <PayXlsxBox next={next < today ? today : next} />}
       <form className="row" style={{ gap: 8, margin: '8px 0' }}>
