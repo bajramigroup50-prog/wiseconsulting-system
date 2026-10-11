@@ -11,7 +11,7 @@
 import { removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
-  cogsAccount, invoiceEntries, needsPartner, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
+  cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
 import { checkCredit, invoiceTotals, nextDocNumber, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
@@ -199,9 +199,12 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
     }, ctx));
     // Legacy `stornoOn` / `stF` (3444): credit notes are booked with minus on the original side (red storno) unless the
     // firm chose „на обратната страна“ (`settings.crMode = 'flip'`). Balances are the same; only the turnovers differ.
-    if (inv.kind === 'credit' && ((f.settings ?? {}) as { crMode?: string }).crMode !== 'flip') {
+    const storno = ((f.settings ?? {}) as { crMode?: string }).crMode !== 'flip';
+    if (inv.kind === 'credit' && storno) {
       for (const l of lines) { const dr = l.debit, cr = l.credit; l.debit = cr ? -cr : 0; l.credit = dr ? -dr : 0; }
     }
+    // legacy `vbLines` 3451: the off-balance VAT bases of the invoice (Д 994… / П 999…) at the end of the journal
+    lines.push(...vbLines(invoiceVatBases({ items: toItems(L, fx), art32: inv.art32, credit: inv.kind === 'credit', advance: inv.advance, advances: adv }, ctx), ctx, storno));
     // Advance lines (2220) are partner accounts too: book them on the buyer (legacy posted them without a partner).
     for (const l of lines) if (!l.partnerId && needsPartner(l.account) && inv.partnerId) l.partnerId = inv.partnerId;
     if (inv.currency !== 'MKD') {

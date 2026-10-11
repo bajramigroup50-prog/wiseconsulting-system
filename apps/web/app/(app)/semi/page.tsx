@@ -16,7 +16,7 @@ import { RowAction } from '@/components/row-action';
 import { journalCards } from '@wise/core/sch-journals';
 import { resetSchemesAction, saveSchemesAction } from './actions';
 import { SchJournals } from './journals-ui';
-import { SCH_FLAGS, SCH_UI, VAT_RATES } from './schema';
+import { SCH_FLAGS, SCH_UI, VAT_RATES, VB_TYPES } from './schema';
 
 const DEF = { ...SCH0, ...SCH_EXTRA } as Record<string, string | boolean>;
 
@@ -67,6 +67,10 @@ export default async function SemiPage() {
               {VAT_RATES.map((r) => <tr key={r}><td><b>{r}%</b></td><td>{kin('VI' + r, vatAccount(ctx, 'in', r) ?? '')}</td><td>{kin('VM' + r, vatAccount(ctx, 'imp', r) ?? '')}</td><td>{kin('VO' + r, vatAccount(ctx, 'out', r) ?? '')}</td></tr>)}
               <tr><td><b>0%</b></td><td colSpan={3} className="note">без ДДВ – се книжи по шемите „без ДДВ / ослободена“</td></tr>
             </tbody></table>
+          <div className="hd" style={{ margin: '14px 0 4px' }}><b>Основици за ДДВ пријава (вонбилансно, класа 99)</b></div>
+          <p className="note" style={{ margin: '0 0 8px' }}>На крајот на секој налог (излезни, влезни, увоз, каса) автоматски се книжат основиците по стапки: Д 994… / П 999…. Со „-“ се исклучува книжењето за таа стапка. Служат за контролата „ДДВ-04 ↔ основици во налозите“ во ДДВ-04.</p>
+          <table><thead><tr><th>Стапка</th>{VB_TYPES.map(([t, n]) => <th key={t} colSpan={2}>{n} – Д / П</th>)}</tr></thead>
+            <tbody>{VAT_RATES.map((r) => <tr key={r}><td><b>{r}%</b></td>{VB_TYPES.map(([t]) => ['d', 'p'].map((s) => <td key={t + s}>{kin('s_vb' + t + r + s, val('vb' + t + r + s), typeof DEF['vb' + t + r + s] === 'string' ? DEF['vb' + t + r + s] as string : '')}</td>))}</tr>)}</tbody></table>
         </div>
         <details className="card" style={{ marginTop: 14 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Сите поставки по групи (истите конта, во листа) и опции</summary>
         {SCH_UI.map(([t, d, F]) => (

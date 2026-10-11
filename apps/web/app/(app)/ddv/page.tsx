@@ -5,9 +5,9 @@
  * `?tab=tarifi` VAT kontos (legacy `tarifi` 12844).
  */
 import Link from 'next/link';
-import { eq, asc } from 'drizzle-orm';
+import { and, eq, asc, gte, like, lte } from 'drizzle-orm';
 import {
-  DDV04_FIELDS, ddv04FromResult, ddvFor, periodDue, periodOf, perRange, schemeValue, vatAccount, VAT_REGISTRATION_LIMIT,
+  DDV04_FIELDS, ddv04FromResult, ddvFor, periodDue, periodOf, perRange, schemeValue, vatAccount, VAT_REGISTRATION_LIMIT, vbControl,
 } from '@wise/core';
 import {
   computeVatPeriod, effectiveChart, firmVatPeriodKind, fixtureVatSource, journalLines, journals, loadVatPostingContext,
@@ -91,6 +91,12 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
     closeLines = L.map((l) => ({ account: l.account, note: l.note ?? '', debit: Number(l.debit), credit: Number(l.credit) }));
   }
   const d31 = Math.round(C.close.diff) - ((F['31'] ?? 0) + (F['30'] ?? 0));
+  // legacy `vbCheckHTML` 3532: ДДВ-04 against the bases booked on 994… (the `vbLines` of the period's journals)
+  const VB = await db().select({ account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, note: journalLines.note })
+    .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .where(and(eq(journals.firmId, firm.id), gte(journals.date, cur.from), lte(journals.date, cur.to), like(journalLines.account, '994%')));
+  const vbc = vbControl(VB.map((l) => ({ account: l.account, debit: Number(l.debit), credit: Number(l.credit), note: l.note })), C.ctx, F,
+    Object.fromEntries(Object.entries(C.result.in).map(([r, x]) => [r, x.b])));
   const tot = (k: string) => P.filter((p) => p.kind === kind).reduce((s, p) => s + (p.fields[k] ?? 0), 0);
   const evid = ddvEvidenceRows(ov.data.docs, cur.from, cur.to, { partners: ov.data.partners });
 
@@ -151,6 +157,14 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
         <div className="callout warn">Документите за периодот се променети по поднесувањето: сега пресметаниот ДДВ-04 дава поле 31 = {fi(live['31'])} ден. (поднесено {fi(F['31'])}). Прикажана е поднесената пријава.</div>
       )}
 
+      {vbc && firm.vatRegistered && (
+        <div className="card"><div className="hd" style={{ margin: '0 0 6px' }}><b>Контрола: ДДВ-04 ↔ основици во налозите (994/999)</b><span className={`pill ${vbc.ok ? 'good' : 'bad'}`}>{vbc.ok ? 'се совпаѓа' : 'разлика'}</span></div>
+          <div className="tw"><table><thead><tr><th>Поле</th><th>Опис</th><th className="n">ДДВ-04</th><th className="n">Книжено на 994…</th><th className="n">Разлика</th></tr></thead>
+            <tbody>{vbc.rows.map((x) => { const d = x.f - x.v; return (
+              <tr key={x.k} className={x.sub ? 'note' : undefined}><td>{x.k}</td><td>{x.sub ? <>&nbsp;&nbsp;&nbsp;{x.t}</> : x.t}</td><td className="n">{fi(x.f)}</td><td className="n">{fi(x.v)}</td><td className="n" style={Math.abs(d) > 2 ? { color: 'var(--bad)' } : undefined}>{Math.abs(d) > 2 ? fi(d) : '–'}</td></tr>
+            ); })}</tbody></table></div>
+        </div>
+      )}
       {(closeLines.length > 0 || closed) && firm.vatRegistered && (
         <div className="card">
           <div className="hd" style={{ margin: '0 0 6px', gap: 8, flexWrap: 'wrap' }}>

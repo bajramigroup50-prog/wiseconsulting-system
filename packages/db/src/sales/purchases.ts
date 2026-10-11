@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  calculationRows, finalizeStockLines, purchaseEntries, PostingError as CorePostingError, r2, retailPrice, roundPurchase, stockAt,
+  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, retailPrice, roundPurchase, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
@@ -141,6 +141,8 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
     if (e instanceof CorePostingError) throw new DocumentError(e.message);
     throw e;
   }
+  // legacy `vbLines` 3451: the off-balance VAT bases of every Влез document (Д 994… / П 999…)
+  lines = [...lines, ...vbLines(purchaseVatBases({ groups: G.map((g) => ({ konto: g.account, rate: g.rate, base: n(g.base), vat: n(g.vat) })), costs, imp: pur.imp, art32: pur.art32 }), ctx)];
   await postJournal(tx, {
     firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId,
     description: 'Влезна ф-ра ' + (pur.number || '') + (pur.supplierName ? ' · ' + pur.supplierName : ''),

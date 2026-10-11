@@ -11,7 +11,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
 import {
   bomCycle, cogsAccount, dailySalesTotals, fiskEntries, levellingEntries, levellingLines, levellingReversal, nextYearNumber, postIn,
-  postOut, postTransfer, priceAt, productionNeeds, reaverage, runProduction, schemeValue, stockAt, transferShortages,
+  postOut, postTransfer, priceAt, productionNeeds, reaverage, runProduction, salesVatBases, schemeValue, stockAt, transferShortages, vbLines,
   type FiscalSchemeKey, type JournalLine, type LevellingDoc, type ProductionRecord, type SalesDoc, type StockContext, type StockItem,
   type StockMove,
 } from '@wise/core';
@@ -462,7 +462,8 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
     id, date: input.date, wh: W, total, groups, card, cardKonto: cardAccount ?? undefined,
     fisk: fisk?.sc ? { sc: sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
   };
-  const J: JournalLine[] = fiskEntries(doc, posting);
+  // legacy `vbLines` 3451 (Каса): the off-balance VAT bases of the day's sales (Д 994… / П 999…)
+  const J: JournalLine[] = [...fiskEntries(doc, posting), ...vbLines(salesVatBases(groups), posting)];
   const zLabel = kind === 'pos' ? 'Каса' : `Дн. фин. изв.${input.number ? ' Z бр. ' + input.number : ''}`;
   await postJournal(tx, {
     firmId: a.firmId, date: input.date, kind: 'kasa', sourceType: 'sales_daily', sourceId: id, userId: a.userId,

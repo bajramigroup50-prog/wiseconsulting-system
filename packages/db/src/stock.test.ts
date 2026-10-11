@@ -210,8 +210,11 @@ describe('daily sales (kasa / fiskPer)', () => {
     expect(b.total).toBe(868);
     const j = await journal('sales_daily', a.id);
     expect(j!.kind).toBe('kasa');
-    expect(sum(j!.lines, 1)).toBe(868);
-    expect(sum(j!.lines, 2)).toBe(868);
+    // legacy vbLines: the off-balance VAT bases (994… / 999…) close the journal; the money lines without them
+    const money = j!.lines.filter((l) => !String(l[0]).startsWith('99'));
+    expect(sum(money, 1)).toBe(868);
+    expect(sum(money, 2)).toBe(868);
+    expect(j!.lines.filter((l) => String(l[0]) === '994018').length).toBe(1);
     expect(j!.lines.filter((l) => l[0] === '1200001')).toEqual([['1200001', 100, 0]]);
     expect(j!.lines.find((l) => l[0] === '741118')).toEqual(['741118', 0, 200]);
     const [card] = await db.select().from(schema.journalLines).where(and(eq(schema.journalLines.journalId, j!.id), eq(schema.journalLines.account, '1200001')));
@@ -231,8 +234,9 @@ describe('daily sales (kasa / fiskPer)', () => {
   it('fiscal report, scheme trg with goods issued; usl issues nothing; trgNoVat books 6694 / 6630', async () => {
     const r = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-03-06', wh: s1, number: '15', gross: { 18: 236 }, card: 36, fisk: { sc: 'trg' }, issue: true, lines: [{ itemId: I['001']!, qty: 2, price: 118 }] }));
     const j = await journal('sales_daily', r.id);
-    expect(sum(j!.lines, 1)).toBe(236);
-    expect(sum(j!.lines, 2)).toBe(236);
+    expect(sum(j!.lines.filter((l) => !String(l[0]).startsWith('99')), 1)).toBe(236);
+    expect(sum(j!.lines.filter((l) => !String(l[0]).startsWith('99')), 2)).toBe(236);
+    expect(j!.lines.filter((l) => String(l[0]).startsWith('99'))).toEqual([['994018', 200, 0], ['999018', 0, 200]]);
     expect((await journal('stock:sales_daily', r.id))!.lines).toEqual([['7010', 120, 0], ['6600', 0, 120]]);
     const L = await ctx();
     const sales = await loadStockSales(db, firmId);
@@ -242,7 +246,7 @@ describe('daily sales (kasa / fiskPer)', () => {
     await tx((t) => deleteSalesDay(t, A, r.id));
     const u = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-03-06', wh: s1, number: '16', gross: { 18: 118 }, fisk: { sc: 'usl' }, issue: true, lines: [{ itemId: I['001']!, qty: 1, price: 118 }] }));
     expect(await journal('stock:sales_daily', u.id)).toBeNull();
-    expect((await journal('sales_daily', u.id))!.lines).toEqual([['1009', 118, 0], ['230018', 0, 18], ['7414', 0, 100]]);
+    expect((await journal('sales_daily', u.id))!.lines).toEqual([['1009', 118, 0], ['230018', 0, 18], ['7414', 0, 100], ['994018', 100, 0], ['999018', 0, 100]]);
     await tx((t) => deleteSalesDay(t, A, u.id));
     const n = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-03-07', wh: s1, number: '17', gross: { 18: 500 }, fisk: { sc: 'trgNoVat' } }));
     const nj = await journal('sales_daily', n.id);
