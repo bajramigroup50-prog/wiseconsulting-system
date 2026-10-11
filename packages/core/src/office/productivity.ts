@@ -46,7 +46,7 @@ export const WORK_VERB_LBL: Record<WorkVerb, string> = { c: 'Креирано', 
 const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['izlez', 'c', 'saveInv ordInv invProd recNew recImport recRun rbSave sendMailGo'],
   ['izlez', 'u', 'editInv recSave recItem'],
-  ['izlez', 'd', 'delDoc bulkDelete recX'],
+  ['izlez', 'd', 'delDoc bulkDelete recX cancelDoc'],
   ['vlez', 'c', 'savePur createMissingItems'],
   ['vlez', 'u', 'editPur ksMerge purNoDed scrSave'],
   ['vlez', 'd', 'delPur scrDel'],
@@ -76,8 +76,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct'],
   ['firmi', 'd', 'delFirm delS slDel delAcc cbDelRow fxDel rmBankAcct'],
   ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend lnAtt'],
-  ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave'],
-  ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear'],
+  ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave fileMove'],
+  ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear fileDelete'],
   ['ai', 'c', 'aiRead aiClassify scanStart scanDeep scanRetry scanIntoDraft fsRead mpinRead mpinReread pnScan lawAsk inspCodesScan'],
   ['ai', 'd', 'scanCancel scanRemove'],
   ['zatvoranje', 'c', 'carryOver closeYear saveOpen crmXmlImport zmImport zpArch zyAdd zyGen zyToPkg'],
@@ -89,6 +89,10 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'c', 'tNew ncNew ncTask kdUpSigned kdRepMail klAddRec klAutoUser klMsg klNotePdf alMail apSendOne amlGo amlRepNew amlTrAdd opLog paSend lrPdf inspAtt inspCodeAdd zzIzjUp'],
   ['kanc', 'u', 'tSave tSt ncSave kdSaveB kdCliSign kdOffSign kdEnd kdToDos kdRecSync klAppr klRej klPwReset klRenameNum ainbDone irGo irArch alAck alUnack apRun apSkip amlSave amlRepSt amlCtl dlSave dlDone fcSave formSaveEmbg inspNa inspOk zzSave zzClose zzSigned zzIzjSign'],
   ['kanc', 'd', 'tDel kdDel fcDel lawDel inspCodeRm'],
+  // AML / УФР, inspections (kontroli), data protection (ROPA, data-subject requests)
+  ['kanc', 'c', 'amlUfrNew amlScan kontrolaNew kontrolaFindingNew kontrolaActionNew kontrolaAiApply kontrolaDraft dsrNew ropaSeed'],
+  ['kanc', 'u', 'amlDecide amlUfrSave amlUfrSubmit kontrolaEdit kontrolaRecalc kontrolaFindingEdit kontrolaActionEdit kontrolaActionDone ropaSave dsrClose'],
+  ['kanc', 'd', 'amlPurge kontrolaDel kontrolaFindingDel kontrolaActionDel'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
@@ -98,7 +102,9 @@ const NOISE = new Set((
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
   + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify offFirmSet amlOffSet mpinTplImport '
-  + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct'
+  + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch viewPersonal '
+  // literals picked up from `action:` keys that are not audit actions (status words of other objects)
+  + 'na photo mail cancel reminded dep deliv approve pct posted mrp recv action pos'
 ).split(' '));
 
 /**
