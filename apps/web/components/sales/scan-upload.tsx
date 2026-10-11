@@ -52,7 +52,8 @@ export function ScanUpload({ firmId, opts, label, small, autoOpen, batchView }: 
           stop = true;
           clearInterval(t);
           setWait(null);
-          setMsg(S.map((d) => '„' + wait.name + '“: ' + scanErrText(d.error)));
+          // legacy `scanFile` 4661: the file stays attached to the read document; the amounts are entered by hand
+          setMsg([...S.map((d) => '„' + wait.name + '“: ' + scanErrText(d.error)), 'Документот е прикачен, но не е прочитан автоматски. Внесете ги износите рачно.']);
           router.refresh();
         }
       } catch { /* keep polling */ }
