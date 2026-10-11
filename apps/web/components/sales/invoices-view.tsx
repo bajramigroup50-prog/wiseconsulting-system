@@ -9,6 +9,7 @@ import {
   aiDocuments, boms, codes, employees, firmPostingContext, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
 import { schemeValue } from '@wise/core';
+import { calcInvoiceDraft } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -32,7 +33,7 @@ export function PayPill({ paid, total }: { paid: number; total: number }) {
   return st === 'paid' ? <span className="pill good">платена</span> : st === 'part' ? <span className="pill warn">делумно</span> : <span className="pill">отворена</span>;
 }
 
-export type SP = { nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
+export type SP = { calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
 
 const INTRO: Record<DtKey, string> = {
   credit: 'Книжно одобрение (рабат, поврат, корекција на цена) кон купувач. Се книжи како сторно на фактурата (1200, приход и ДДВ со минус – или на обратна страна, според поставката подолу) и го намалува долгот по фактурата. Повратница: стоката се враќа на залиха.',
@@ -67,7 +68,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const dflt = today.startsWith(String(year)) ? today : `${year}-12-31`;
 
   /* ---------------- editor ---------------- */
-  if (write && (sp.nov !== undefined || sp.edit || sp.from || sp.cr || sp.scan)) {
+  if (write && (sp.nov !== undefined || sp.edit || sp.from || sp.cr || sp.scan || (sp.calc && kind === 'invoice'))) {
     const ctx = await firmPostingContext(db(), firm);
     const revDefault = schemeValue(ctx, 'revDefault');
     const used = async (k: DocKind, d: string) => (await db().select({ n: invoices.number }).from(invoices)
@@ -101,6 +102,13 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         data: { dAddr: src.data.dAddr ?? '', loadPlace: src.data.loadPlace ?? '', vehicle: src.data.vehicle ?? '', driver: src.data.driver ?? '', ...(src.kind === 'dispatch' ? { dispNo: src.number } : {}) } };
       init.number = nextDocNumber(await used('invoice', dflt), year);
       sub = 'од ' + (src.kind === 'dispatch' ? 'испратница ' : 'профактура ') + src.number;
+    } else if (sp.calc && kind === 'invoice') {
+      // legacy `ksInv` 17298 (kalkG / kalkM „📄 Копирање на калкулацијата во излез“)
+      const C = await calcInvoiceDraft(db(), firm.id, sp.calc.split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 50));
+      if (!C.lines.length) return <NoFirm t="Нема ставки." />;
+      init = { ...init, warehouseId: C.warehouseId ?? '', note: C.note, lines: C.lines.map((l) => ({ ...blankLine(l.account), itemId: l.itemId, name: l.name, unit: l.unit, qty: s(l.qty), price: s(l.price), rate: s(l.rate) })) };
+      sub = 'од калкулација ' + C.numbers.join(', ');
+      scanInfo = `Излезната фактура е подготвена со ${C.lines.length} ставки – изберете купувач и зачувајте.`;
     } else if (sp.cr) {
       const r = await loadFull(sp.cr);
       if (!r) return <NoFirm t="Документот не постои" />;

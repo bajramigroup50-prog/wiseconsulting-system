@@ -37,7 +37,8 @@ components with the wholesale views and are audited in `stock-production.md`; on
 | 📷 scan / 📎 PDF, „🔍 Прочитај“ | `fkRead`, FISK_PROMPT | ok | worker `fisk` read; FK_SIMPLE second read when the total is 0 (worker) |
 | status after read incl. „(втор обид)“ / failure hint | 13042 | fixed | |
 | „📝 Што е прочитано од сликата (за проверка)“ with text + second read, device, period, total | 13043 | fixed | |
-| „✎ Внеси рачно (само вкупно)“ | `fkManual` 13048 modal | diff | full manual form (all VAT rates, card, Z, period, goods plan) — superset of the legacy modal |
+| „✎ Внеси рачно (само вкупно)“ | `fkManual` 13048 modal: Вкупен промет, Од / До (ДД.ММ.ГГГГ), Од картичка, Даночна група (Г-ставка без ДДВ / А / Б / В / Г), Апарат, „не е ДДВ обврзник“ → result card | fixed | `FiskManual` + `fkManualRead` / `fmDate` (core, tested); the detailed manual form (per rate, Z, goods plan) stays as a second button |
+| messages: zero turnover, „Нема ставки за излез.“, issue done, „Внесете износ до“, „Внесете фискален број.“, upload right | 12996, 11454, 13078, 11536, 4620 | fixed | |
 | „1. Промет“: rows per day / period, groups with VAT, cash, card, checks (`fkCheck`), pill | 11419 | fixed | `fkRows2`, `fkChecks2` (core, tested) |
 | device, EDB check against the firm | 11363 | fixed | `fkEdbOk` |
 | „не е ДДВ обврзник“, „Книжење по денови / вкупно за периодот“, „Датум на книжење“ (ДД.ММ.ГГГГ) | 11422–11424, 13110 | fixed | multi-day read posted at once (was: one day at a time) |
@@ -93,7 +94,8 @@ components with the wholesale views and are audited in `stock-production.md`; on
 | „Акција важи до“ (second levelling the next day) | 13196 | ok | |
 | correction banner „✎ Корекција на нивелација …“, Корекција / 🗑, note under the number | 17193 | fixed | |
 | list „Нивелации <год>“, PDF (НИВЕЛАЦИЈА бр., Изготвил / Одговорно лице) | 5150, `nivelHTML` | fixed | firm head, signatures, server PDF |
-| „+ Креирај ги како нови артикли“ for unknown import codes | `nivMk` | gap | create items from the codebook / import (`/uvoz` Артикли) — no quick-create here |
+| „+ Креирај ги како нови артикли“ for unknown import codes | `nivMk` 13221 | fixed | `createLevellingItems` (db, tested): „Артикл <шифра>“, ком, VAT 18 / 0 %, store price = old (else new) price |
+| saving / „Акција важи до“ messages | 17180 | fixed | |
 | „🧪 Пример фирма“ (admin demo) | `metgDemo` 13155 | diff | demo data generator not ported (production system) |
 
 ## КДФИ-01 (`kdfi`, 5099 + 13143)
@@ -128,13 +130,20 @@ components with the wholesale views and are audited in `stock-production.md`; on
 | View | Status | Note |
 |---|---|---|
 | kalkM (= `VIEWS.kalk` for stores) | ok | shared `KalkPage`; audited with kalkG in stock-production.md |
+| kalkG / kalkM „📄 Копирање на калкулацијата во излез“ (`ksInv`) | fixed | `/izlez?calc=<ids>`: invoice draft with the goods (`ksInvLines`, `calcInvoiceDraft`, tested) |
+| kalkG / kalkM „🔗 Спојување на селектираните“ (`ksMerge`) | fixed | `mergePurchases` (db, tested): one supplier / location, no imports; diff: merged and old deleted in one transaction, then opened for review (legacy opened a draft and deleted the old ones on save) |
+| kalkG / kalkM duplicate-calculations callout + „Избриши N дупликати“, PDF / photo drop zone | fixed | |
+| artQ „⇢ Спои ги сите групи“, „⇢ Спои ги сите над 90%“ | fixed | `artMergeAllAction` (legacy `artDupAll` / `artSimAll`) |
+| uvoz: itemised-invoice warning „→ Увези ја како … фактура со ставки“ | fixed | legacy wrapper 17311 |
+| lojalnost / m_akcii validation messages | fixed | legacy `lcSave` / `cpSave` / `akcSave` texts |
 | uvozMalo (`uvHub(m,'malo')`) | ok | shared `UvHub` |
 | masovnoM (AI batch reading of store purchases) | ok | shared `ScanCenter`; audited in sales-purchases.md |
 
 ## Counts
 
-Audited 18 views / ~150 elements; fixed 78; deliberate differences 6; remaining gaps 1 (`nivMk` quick-create of unknown
-import codes) + the admin demo-firm generator (not ported on purpose).
+Audited 20 views / ~170 elements; fixed 92; deliberate differences 7; remaining gaps: none in this area except the admin
+demo-firm generator (not ported on purpose). Auto-checker leftovers are helper-text noise (generic Word-template buttons
+„⬆ Прикачи .docx / 🕘 Верзии / 🧪 Проба“, batch AI-read toasts).
 
 New tables: `store_outs` in `packages/db/src/schema/parity-retail.ts`. **Migration to generate** (coordinator): create
 table `store_outs` (see the schema file; the DB test creates it with `create table if not exists` until then).

@@ -56,6 +56,10 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
     } catch { setErr('Датотеката не може да се прочита.'); }
   };
   const hdr = rows?.[hi] ?? [];
+  // legacy uvoz wrapper (17311): a purchases file with item lines (quantity, code + price) belongs to „Фактура со ставки“
+  const H = hdr.map((x) => String(x ?? ''));
+  const pxHint = t === 'purchases' && (H.some((x) => /количина|^кол\.?$|qty|sasia|kolicina|količina|quantity|^kom\.?$|^ком\.?$|pcs/i.test(x)) || (H.some((x) => /шифра|code|šifra/i.test(x)) && H.some((x) => /цена|price|cena|cijena/i.test(x))))
+    ? { dev: H.some((x) => /девиз|eur|usd|валута|foreign/i.test(x)) } : null;
   const data = (rows ?? []).slice(hi + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
   const cell = (v: unknown) => (v instanceof Date ? impDate(v) : String(v ?? ''));
   const dec0 = detectDec(data);
@@ -92,6 +96,10 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
       {err && <div className="callout bad">{err}</div>}
       {st.error && <div className="callout bad">{st.error}</div>}
       {st.ok && <div className={'callout ' + (st.ok.includes('прескокнати') ? 'warn' : 'good')}>{st.ok}</div>}
+      {rows && t === 'purchases' && pxHint && (
+        <div className="callout warn" style={{ fontSize: 14 }}>⚠ Оваа датотека е <b>фактура со ставки</b> (шифра, количина, цена по артикл) – не е листа на фактури. Не ја увезувајте тука.<br />
+          <a className="btn pri" style={{ marginTop: 6 }} href={pxHint.dev ? '/vlez?px=imp' : '/vlez?px'}>→ Увези ја како {pxHint.dev ? 'увозна (девизна)' : 'домашна'} фактура со ставки</a> <span className="mut">па изберете ја истата датотека</span></div>
+      )}
       {rows && (
         <>
           <div className="card">

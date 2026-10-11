@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { dfiControl, fkIssuePlan, schemeValue, stock, type FkMethod } from '@wise/core';
 import { fkRows, fiskAfterRead, fiskFinish } from '@wise/core/ai/fisk';
-import { FK_SC, fkChecks2, fkEdbOk, fkRows2, fkScDef, posSaldo } from '@wise/core/retail';
+import { FK_SC, fkChecks2, fkEdbOk, fkManualRead, fkRows2, fkScDef, posSaldo } from '@wise/core/retail';
 import { fiscalDevicesOf, journalLines, journals, loadLedgerLines, loadStockSales, salesDaily } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -31,11 +31,12 @@ import { FiskEditor } from '../_stock/editors';
 import { loadAiResult } from '@/lib/ai';
 import { FiskScan } from './fisk-scan';
 import { FiskReadPost, type PlanRow, type ReadRow } from './fisk-read';
+import { FiskManual } from './fisk-manual';
 import { devDelAction, devSaveAction, dfiOptAction, posFeeAction } from './actions';
 
 type SP = {
   ai?: string; tab?: string; d?: string; wh?: string; meth?: string; g18?: string; g10?: string; g5?: string; g0?: string; from?: string; to?: string;
-  nv?: string; sum?: string; sc?: string; man?: string; posted?: string; tot?: string; iss?: string; dev?: string;
+  nv?: string; sum?: string; sc?: string; man?: string; det?: string; mt?: string; mf?: string; md?: string; mc?: string; mg?: string; ma?: string; posted?: string; tot?: string; iss?: string; dev?: string;
 };
 
 const FK_BRANDS = ['Accent / Expert', 'David', 'Duna', 'Synergy', 'Daisy', 'Tremol', 'Datecs', 'Друго'];
@@ -187,9 +188,13 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
 
   // AI read of a fiscal report — all days at once (legacy fkRows2 / FiskReadPost)
   const aiDoc = write ? await loadAiResult(firm.id, sp.ai, 'fisk') : null;
+  // „✎ Внеси рачно (само вкупно)“ (legacy fkManual): the entered total is shown and posted like a read report
+  const mGroup = (['Г0', 'А', 'Б', 'В', 'Г'] as const).find((g) => g === sp.mg);
+  const manualIn = write && !aiDoc && Number(sp.mt) > 0 && sp.mf && sp.md && mGroup
+    ? { total: Number(sp.mt), from: sp.mf, to: sp.md, card: Number(sp.mc) || 0, group: mGroup, device: sp.ma ?? '' } : null;
   let read: React.ReactNode = null;
-  if (aiDoc) {
-    const R = fiskFinish(fiskAfterRead(aiDoc.result), today);
+  if (aiDoc || manualIn) {
+    const R = aiDoc ? fiskFinish(fiskAfterRead(aiDoc.result), today) : fkManualRead(manualIn!);
     let nonVat = sp.nv ? sp.nv === '1' : (R.nonVat ?? !vatReg);
     const sc = fkScDef(sp.sc, O.sc, nonVat);
     if (sc === 'trgNoVat') nonVat = true;
@@ -220,14 +225,14 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
     const tot = X.rows.reduce((a, r) => a + r.total, 0);
     read = (
       <>
-        <div className={`callout ${tot > 0 ? 'good' : 'warn'}`}>{tot > 0
+        <div className={`callout ${tot > 0 ? 'good' : 'warn'}`}>{manualIn ? <>✎ Внесено рачно: вкупен промет {fmt(tot)} ден. Проверете и прокнижете.</> : tot > 0
           ? <>✓ Прочитано{X0.daily ? `: ${X0.rows.length} дневни извештаи` : ''}{R.text2 ? ' (втор обид)' : ''}: вкупен промет {fmt(tot)} ден. Проверете ги износите.</>
           : <>⚠ Износот не можеше да се прочита од сликата. Сликајте го поблиску (само лентата, исправено, без сенка) или „✎ Внеси рачно (само вкупно)“.</>}
           {' '}<Link className="btn sm ghost" href="/fiskPer">✕ Почни одново</Link></div>
-        <details id="fkTxt" className="card" style={{ padding: '8px 12px' }}><summary className="mut" style={{ cursor: 'pointer' }}>📝 Што е прочитано од сликата (за проверка)</summary>
+        {aiDoc && <details id="fkTxt" className="card" style={{ padding: '8px 12px' }}><summary className="mut" style={{ cursor: 'pointer' }}>📝 Што е прочитано од сликата (за проверка)</summary>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: 320, overflow: 'auto' }}>{txt || '(програмата не врати текст)'}</pre>
-          <p className="note">Апарат: {R.device || '—'} · период: {R.from || '—'} – {R.to || '—'} · вкупно: {fmt(Number(R.totals?.total) || 0)}</p></details>
-        {tot > 0 && <FiskReadPost ai={aiDoc.id} from={pFrom} to={pTo} device={R.device ?? ''} edb={R.edb ?? ''} edbOk={fkEdbOk(firm.edb, R.edb)} G={X.G} Ls={Ls}
+          <p className="note">Апарат: {R.device || '—'} · период: {R.from || '—'} – {R.to || '—'} · вкупно: {fmt(Number(R.totals?.total) || 0)}</p></details>}
+        {tot > 0 && <FiskReadPost ai={aiDoc?.id ?? null} manual={manualIn} from={pFrom} to={pTo} device={R.device ?? ''} edb={R.edb ?? ''} edbOk={fkEdbOk(firm.edb, R.edb)} G={X.G} Ls={Ls}
           rows={rows} daily={X0.daily} dayCount={X0.rows.length} nonVat={nonVat} sum={sum} sc={sc} schemes={Object.entries(FK_SC).map(([k, v]) => [k, v[0]])}
           wh={wh} locs={locs} rev={rev} cashK={O.cashK || '1009'} cardK={O.cardK && O.cardK !== '1009' ? O.cardK : posK} existing={existing}
           meth={meth} plan={plan} planTarget={planTarget} planRest={planRest} hasGoods={hasGoods} />}
@@ -236,8 +241,9 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
   }
 
   // manual entry (legacy `fkManual` → here the full form with the goods-issue plan)
-  const manual = !aiDoc && (sp.man === '1' || ['g18', 'g10', 'g5', 'g0'].some((k) => sp[k as 'g18']));
+  const manual = !aiDoc && !manualIn && (sp.det === '1' || ['g18', 'g10', 'g5', 'g0'].some((k) => sp[k as 'g18']));
   let editor: React.ReactNode = null;
+  if (write && !aiDoc && !manualIn && sp.man === '1') editor = <FiskManual year={year} today={today} nonVat0={!vatReg} />;
   if (manual && write) {
     const wh = pickLoc(L, sp.wh) || O.wh || locs.find((l) => l.kind === 'store')?.id || 'main';
     const date = dateInYear(sp.d, year);
@@ -268,19 +274,23 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
         <div className="callout" id="posBox">💳 <b>POS терминал – конто {ps.k}</b>: картички од фискални извештаи <b>{fmt(ps.d)}</b> · примено од банка <b>{fmt(ps.p)}</b> · отворено <b>{fmt(ps.s)}</b>
           {ps.s > 0.009 && ps.p > 0 ? <> ({pct.toFixed(2)}%). Ако банката ги уплатила сите картички за периодот, разликата е провизија на банката.
             {write && <BankForm action={posFeeAction} className="row" style={{ gap: 6, alignItems: 'end', marginTop: 6 }} confirm="Да се прокнижи провизијата Д 4460 / П POS конто?">
+              <input type="hidden" name="max" value={ps.s.toFixed(2)} />
               <label className="mini">Износ<input name="amount" inputMode="decimal" defaultValue={ps.s.toFixed(2)} style={{ width: 110 }} /></label>
               <label className="mini">Датум<input name="date" type="date" defaultValue={ps.last || today} /></label>
               <button className="btn sm pri">Книжи провизија 4460</button></BankForm>}</>
             : ps.s > 0.009 ? ' – чека прилив од банката.' : ps.s < -0.009 ? ' – примено е повеќе отколку што има картички во фискалните извештаи: проверете дали се внесени сите извештаи.' : ' ✓ затворено.'}
         </div>
       ) : null}
-      {sp.posted && <div className="callout good">✓ Прокнижени {sp.posted} {sp.posted === '1' ? 'запис' : 'дневни прометa'} (вкупно {fmt(Number(sp.tot) || 0)}) во налогот „Каса“{vatReg ? ' и во ДДВ-04' : ''}.{Number(sp.iss) ? ` Излез на стока: ${sp.iss} ставки.` : ''} <Link className="btn sm" href="/nalozi">Налози →</Link></div>}
+      {sp.posted && <div className="callout good">✓ Прокнижени {sp.posted} {sp.posted === '1' ? 'запис' : 'дневни прометa'} (вкупно {fmt(Number(sp.tot) || 0)}) во налогот „Каса“{vatReg ? ' и во ДДВ-04' : ''}.{Number(sp.iss) ? ` Направен излез на ${sp.iss} ставки – залихата е раздолжена, трошокот (набавна вредност) е прокнижен.` : ''} <Link className="btn sm" href="/nalozi">Налози →</Link></div>}
       <div className="callout">За фирми без програма: го носат извештајот од фискалниот апарат за период (на пр. 01.01 – 31.03), дневни или само вкупно. Програмата го чита, го книжи прометот (со или без ДДВ) и, по желба, прави излез на стока од продавницата до истата вредност (FIFO / LIFO / пропорционално).</div>
-      {write && !aiDoc && (
+      {!write && <div className="callout warn">Прикачувањето документи е достапно само за корисници со право на уредување.</div>}
+      {write && !aiDoc && !manualIn && (
         <>
           <FiskScan firmId={firm.id} />
           <div className="row" style={{ gap: 8, margin: '0 0 8px' }}>
-            {manual ? <Link className="btn ghost" href="/fiskPer">✕ Почни одново</Link> : <Link className="btn" href="/fiskPer?man=1">✎ Внеси рачно (само вкупно)</Link>}
+            <Link className="btn" href="/fiskPer?man=1">✎ Внеси рачно (само вкупно)</Link>
+            <Link className="btn" href="/fiskPer?det=1">Детален рачен внес (по ДДВ стапки, Z бр.)</Link>
+            {(manual || sp.man === '1') && <Link className="btn ghost" href="/fiskPer">✕ Почни одново</Link>}
           </div>
         </>
       )}

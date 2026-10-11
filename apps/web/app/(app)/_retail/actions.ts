@@ -104,15 +104,19 @@ export async function replCfgAction(_p: ActionState, f: FormData): Promise<Actio
 /* ---------------- лојалност и купони ---------------- */
 
 export async function saveCardAction(_p: ActionState, f: FormData): Promise<ActionState> {
+  if (!s(f, 'number') || !s(f, 'name')) return { error: 'Внесете број и име.' };
   return done(await stockAction('lcSave', ['/lojalnost'], (tx, a) => saveLoyaltyCard(tx, a, {
     id: s(f, 'id') || null, number: s(f, 'number'), name: s(f, 'name'), phone: s(f, 'phone'), email: s(f, 'email'), discount: nOrNull(f, 'discount'), points: nOrNull(f, 'points'),
   })), '/lojalnost');
 }
 export async function saveCouponAction(_p: ActionState, f: FormData): Promise<ActionState> {
-  return done(await stockAction('cpSave', ['/lojalnost'], (tx, a) => saveCoupon(tx, a, {
+  if (!s(f, 'code') || !(numIn(s(f, 'value')) > 0)) return { error: 'Внесете код и вредност.' };
+  const stc = await stockAction('cpSave', ['/lojalnost'], (tx, a) => saveCoupon(tx, a, {
     id: s(f, 'id') || null, code: s(f, 'code'), kind: s(f, 'kind') === 'amt' ? 'amt' : 'pct', value: numIn(s(f, 'value')) || 0,
     validFrom: s(f, 'validFrom') || null, validTo: s(f, 'validTo') || null, maxUses: nOrNull(f, 'maxUses'), minTotal: nOrNull(f, 'minTotal'),
-  })), '/lojalnost?t=cp');
+  }));
+  if (stc.error && /постои/.test(stc.error)) return { error: 'Кодот постои.' };
+  return done(stc, '/lojalnost?t=cp');
 }
 export async function loyCfgAction(_p: ActionState, f: FormData): Promise<ActionState> {
   const loy = { per: numIn(s(f, 'per')) || 100, val: numIn(s(f, 'val')) || 1, min: numIn(s(f, 'min')) || 0 };
@@ -125,6 +129,10 @@ export async function loyCfgAction(_p: ActionState, f: FormData): Promise<Action
 export async function savePromoAction(_p: ActionState, f: FormData): Promise<ActionState> {
   const sel: Record<string, { price?: number | null; pct?: number | null }> = {};
   for (const id of fields(f, 's_')) if (f.get('s_' + id) === 'on') sel[id] = { price: nOrNull(f, 'n_' + id), pct: nOrNull(f, 'p_' + id) };
+  // legacy `akcSave` 7902 checks
+  if (!s(f, 'name')) return { error: 'Внесете назив на акцијата.' };
+  if (!s(f, 'from') || !s(f, 'to') || s(f, 'to') < s(f, 'from')) return { error: 'Проверете го периодот (Од / До).' };
+  if (!Object.keys(sel).length) return { error: 'Изберете артикли со нова (пониска) цена.' };
   return done(await stockAction('akcSave', ['/m_akcii'], (tx, a) => savePromotion(tx, a, {
     id: s(f, 'id') || null, name: s(f, 'name'), wh: s(f, 'wh'), from: s(f, 'from'), to: s(f, 'to'), pct: nOrNull(f, 'pct'), rnd: nOrNull(f, 'rnd'), sel,
   })), '/m_akcii');
@@ -273,7 +281,34 @@ export async function artAutoAction(_p: ActionState, f: FormData): Promise<Actio
     }
     return { u, n: nn, g, d };
   });
+  if (!st.error && !st.data!.u && !st.data!.n && !st.data!.g) return { ok: 'Нема што да се среди автоматски.' };
   return st.error ? st : { ok: `✓ Средено: ${st.data!.u} единици, ${st.data!.n} имиња, ${st.data!.g} артикли споени (${st.data!.d} записи префрлени).` };
+}
+
+/** Legacy `artDupAll` / `artSimAll` (11336): merge every duplicate group, or every similar pair ≥ 90 % (master: with code, then more moves). */
+export async function artMergeAllAction(kind: 'dup' | 'sim'): Promise<ActionState> {
+  const st = await stockAction('del', ['/artQ', '/artikli'], async (tx, a) => {
+    const S = await firmSettings(tx, a.firmId);
+    const rules = Retail.artRules(S.artAbbr as Record<string, string>, S.artUnits as Record<string, string>);
+    const { items: its, movesOf } = await loadArtItems(tx, a.firmId);
+    const R = Retail.artAnalyze(its, rules, { ignore: (S.artIgnore as string[]) ?? [] });
+    const groups = kind === 'dup' ? R.groups : R.sim.filter((x) => x.s >= 0.9).map((x) => [x.a, x.b]);
+    const gone = new Set<string>();
+    let g = 0, n = 0;
+    for (const grp of groups) {
+      const live = grp.filter((x) => !gone.has(x.id));
+      if (live.length < 2) continue;
+      const M = Retail.artPickMaster(live, movesOf);
+      const r = await mergeItems(tx, a, M.id, live.map((x) => x.id));
+      for (const x of live) if (x.id !== M.id) gone.add(x.id);
+      g += r.merged; n++;
+    }
+    return { g, n, empty: !groups.length };
+  });
+  if (st.error) return st;
+  const d = st.data!;
+  if (d.empty) return { error: kind === 'sim' ? 'Нема парови над 90%.' : 'Нема што да се среди.' };
+  return { ok: kind === 'sim' ? `Споени ${d.n} пара.` : `Споени ${d.g} артикли.` };
 }
 
 export async function artKontaAction(_p: ActionState, f: FormData): Promise<ActionState> {

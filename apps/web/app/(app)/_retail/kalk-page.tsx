@@ -18,6 +18,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deletePurchaseAction } from '../vlez/actions';
 import { KsAll, KsBar } from '../_stock/kalk-sel';
+import { ScanUpload } from '@/components/sales/scan-upload';
+import { deletePurchasesAction } from '../vlez/actions';
 import { Retail } from '@wise/core';
 import { like } from 'drizzle-orm';
 import { items } from '@wise/db';
@@ -68,6 +70,11 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
   for (const r of rows) if (r.p.imp) fxBy[r.p.currency] = r2((fxBy[r.p.currency] ?? 0) + r.fa);
   const TRs = TR.filter((x) => (md === 'store' ? (!wh || x.toLocationId === wh) && kindOf(x.toLocationId) === 'store' : (!wh || (x.fromLocationId ?? 'main') === wh) && kindOf(x.fromLocationId) === 'warehouse'));
   const newHref = '/vlez?nov';
+  // legacy `purDups` callout of the calculations list: same invoice number and date entered twice, the last saved stays
+  const nn = (x: string) => x.toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕј]/gi, '');
+  const DG = new Map<string, (typeof rows)[number]['p'][]>();
+  for (const { p } of rows) if (p.number) { const k = nn(p.number) + '|' + p.date; DG.set(k, [...(DG.get(k) ?? []), p]); }
+  const DUPS = [...DG.values()].filter((x) => x.length > 1).flatMap((x) => [...x].sort((a, b) => +b.updatedAt - +a.updatedAt).slice(1));
   return (
     <>
       <Hd t={t} sub={md === 'store' ? 'малопродажба' : 'магацин'}>
@@ -76,6 +83,10 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
         {write && <Link className="btn pri" href={newHref}>+ Нова калкулација</Link>}
       </Hd>
       {noName > 0 && <div className="callout warn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
+      {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null, ...(wh && wh !== 'main' ? { warehouseId: wh } : {}) }} small autoOpen={{ back: '/' + view }} batchView={md === 'store' ? '/masovnoM' : '/masovno'}
+        label={<><b>📷 Прочитај фактура од PDF</b> — повлечете една или повеќе фактури од добавувач (PDF, JPG, PNG, XML е-фактура) тука или кликнете; калкулацијата се пополнува автоматски.</>} />}
+      {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} калкулации се внесени двапати (иста фактура {[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
+        <RowAction className="btn danger" action={deletePurchasesAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="card"><div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
         <label className="mini">Објект (магацин / продавница / маркет) <select name="wh" defaultValue={wh} style={{ width: 'auto' }}>
           <option value="">{md === 'store' ? 'сите продавници' : 'сите магацини'}</option>
@@ -92,12 +103,12 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
       </div>
       {rows.length ? (
         <>
-        <KsBar admin={u.role === 'admin' && del} warehouse={md === 'warehouse'} />
+        <KsBar admin={u.role === 'admin' && del} warehouse={md === 'warehouse'} fix={canDo(u, 'fix', firm.id)} />
         <div className="tw"><table>
           <thead><tr><th className="noprint" style={{ width: 28 }}><KsAll /></th><th>Датум</th><th>Калк. бр.</th><th>Фактура</th><th>Добавувач</th><th>Вид</th><th>Објект</th><th className="n">Ставки</th><th className="n">Набавна вредност</th><th className="n">Девизен износ</th><th className="n">Разлика</th><th className="n">Продажна со ДДВ</th><th>Налог</th><th /></tr></thead>
           <tbody>{rows.map(({ p, pn, n, nab, sp: spv, mg, fa }) => (
             <tr key={p.id}>
-              <td className="noprint"><input type="checkbox" name="ks" value={p.id} data-wh={p.warehouseId ?? 'main'} /></td>
+              <td className="noprint"><input type="checkbox" name="ks" value={p.id} data-wh={p.warehouseId ?? 'main'} data-p={p.partnerId ?? p.supplierName ?? ''} data-imp={p.imp ? '1' : '0'} data-no={p.calcNo || p.number || ''} /></td>
               <td>{dmy(p.date)}</td><td><b>{p.calcNo || '—'}</b></td><td>{p.number}</td><td>{pn ?? p.supplierName}{p.status === 'pending' && <> <span className="pill warn">чека одобрување</span></>}</td>
               <td>{p.imp ? <span className="pill info">У</span> : 'Д'}</td><td>{L.locName(p.warehouseId)}</td><td className="n">{n}</td><td className="n">{fmt(nab)}</td>
               <td className="n">{p.imp ? `${fmt(fa)} ${p.currency}` : ''}</td><td className="n">{fmt(mg)}</td><td className="n">{fmt(spv)}</td>
@@ -114,7 +125,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
           <tfoot><tr><td colSpan={8}>Вкупно</td><td className="n">{fmt(T('nab'))}</td><td className="n">{Object.entries(fxBy).map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td className="n">{fmt(T('mg'))}</td><td className="n">{fmt(T('sp'))}</td><td colSpan={2} /></tr></tfoot>
         </table></div>
         </>
-      ) : <div className="card empty">Нема {md === 'store' ? 'директни приеми од добавувачи' : 'влезни калкулации'}{wh ? ' за ' + L.locName(wh) : ''} во {year}. Внесете ја фактурата во <Link href="/vlez">Влез</Link> или кликнете „+ Нова калкулација“.</div>}
+      ) : <div className="card empty">Нема {md === 'store' ? 'директни приеми од добавувачи' : 'влезни калкулации'}{wh ? ' за ' + L.locName(wh) : ''} во {year}. Прочитајте фактура од PDF погоре или кликнете „+ Нова калкулација“.</div>}
       <div className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <h2 style={{ margin: 0 }}>{md === 'store' ? `Приеми од магацин (преносници) ${year}` : `Излез од магацин – преносници во продавница ${year}`}</h2>

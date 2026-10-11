@@ -2,7 +2,7 @@
 /** Нивелација with imported quantities / old prices (legacy `saveNivel` after `nivImp`: `d.qty`, `d.old`). */
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { saveLevelling } from '@wise/db';
+import { createLevellingItems, saveLevelling } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { stockAction, todayIso } from '@/lib/stock';
 
@@ -12,6 +12,14 @@ const In = z.object({
   id: z.string().uuid().nullish(), date, wh: z.string().max(40).nullish(), note: z.string().max(500).nullish(), promoTo: date.nullish().or(z.literal('')),
   prices: nums, qty: nums.optional(), old: nums.optional(),
 });
+
+/** „+ Креирај ги како нови артикли“ (legacy `nivMk`): unknown import codes → items; returns code → id. */
+export async function createNivItemsAction(wh: string, rows: { code: string; price: number }[]): Promise<ActionState & { ids?: Record<string, string> }> {
+  const R = z.array(z.object({ code: z.string().min(1).max(60), price: z.number().finite().min(0) })).max(2000).safeParse(rows);
+  if (!R.success) return { error: 'Неважечки податоци.' };
+  const st = await stockAction('nivMk', ['/nivel', '/artikli'], (tx, a) => createLevellingItems(tx, a, { wh, rows: R.data }));
+  return st.error ? st : { ok: `${Object.keys(st.data!).length} нови артикли се креирани и додадени во нивелацијата.`, ids: st.data };
+}
 
 export async function saveNivelAction(_p: ActionState, form: FormData): Promise<ActionState> {
   let raw: unknown;
