@@ -1,6 +1,6 @@
 'use server';
 import { revalidatePath } from 'next/cache';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { entryStatusFor } from '@wise/core';
 import { DOS_CAT } from '@wise/core/office';
 import { audit, clientEntries, dossierDocs, fileLinks, files, firmContacts, firmDeadlines, OFFICE_FILE_ENTITY, OfficeError, textMailHtml } from '@wise/db';
@@ -19,7 +19,10 @@ export async function saveDossierDoc(_p: ActionState, f: FormData): Promise<Acti
     const category = fv(f, 'category') ?? '';
     if (!(DOS_CAT as readonly string[]).includes(category)) return { error: 'Изберете категорија.' };
     const v = { category, title: fv(f, 'title'), number: fv(f, 'number'), date: fdate(f, 'date'), validTo: fdate(f, 'validTo'), note: fv(f, 'note') };
+    // legacy „Датум на архивирање“ (`arcAt`, default today): kept as the document's archive timestamp (created_at)
+    const arc = fdate(f, 'arcAt');
     const ids = f.getAll('fileIds');
+    if (!fv(f, 'id') && !ids.length) return { error: 'Скенирајте или прикачете барем една датотека.' };
     const pending = entryStatusFor(u.principal) === 'pending';
     await db().transaction(async (tx) => {
       if (pending) {
@@ -29,12 +32,12 @@ export async function saveDossierDoc(_p: ActionState, f: FormData): Promise<Acti
       } else if (fv(f, 'id')) {
         // legacy `dosEditB` → `dosSave` on an existing document: fields change, new pages are added
         const id = fv(f, 'id')!;
-        const [d] = await tx.update(dossierDocs).set(v).where(and(eq(dossierDocs.id, id), eq(dossierDocs.firmId, firm.id))).returning({ id: dossierDocs.id });
+        const [d] = await tx.update(dossierDocs).set({ ...v, ...(arc ? { createdAt: sql`(${arc}::date + ${dossierDocs.createdAt}::time)` } : {}) }).where(and(eq(dossierDocs.id, id), eq(dossierDocs.firmId, firm.id))).returning({ id: dossierDocs.id });
         if (!d) throw new Error('Документот не постои.');
         const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.dossier, d.id);
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosEdit', entityType: 'dossier_doc', entityId: d.id, data: { ...v, files: n } });
       } else {
-        const [d] = await tx.insert(dossierDocs).values({ ...v, firmId: firm.id, createdBy: u.id }).returning({ id: dossierDocs.id });
+        const [d] = await tx.insert(dossierDocs).values({ ...v, firmId: firm.id, createdBy: u.id, ...(arc && arc !== new Date().toISOString().slice(0, 10) ? { createdAt: new Date(`${arc}T12:00:00Z`) } : {}) }).returning({ id: dossierDocs.id });
         const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.dossier, d!.id);
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosSave', entityType: 'dossier_doc', entityId: d!.id, data: { category, files: n } });
       }
@@ -65,6 +68,11 @@ export async function saveContact(_p: ActionState, f: FormData): Promise<ActionS
     const { u, firm } = await officeAction('office');
     const name = fv(f, 'name');
     if (!name) return { error: 'Внесете име.' };
+    const email = fv(f, 'email'), phone = fv(f, 'phone');
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Внесете валидна е-пошта.' };
+    if (phone && phone.replace(/\D/g, '').length < 8) return { error: 'Внесете валиден број.' };
+    const ex = await db().select({ email: firmContacts.email, phone: firmContacts.phone }).from(firmContacts).where(eq(firmContacts.firmId, firm.id));
+    if (ex.some((c) => (email && c.email === email) || (phone && c.phone === phone))) return { error: 'Веќе е зачувано.' };
     await db().transaction(async (tx) => {
       const [c] = await tx.insert(firmContacts).values({ firmId: firm.id, name, role: fv(f, 'role'), email: fv(f, 'email'), phone: fv(f, 'phone'), note: fv(f, 'note') }).returning({ id: firmContacts.id });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'fcSave', entityType: 'firm_contact', entityId: c!.id, data: { name } });

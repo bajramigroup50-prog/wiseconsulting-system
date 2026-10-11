@@ -107,10 +107,10 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
           <ActionForm action={mailPackage} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             <input type="hidden" name="id" value={p.id} />
             <input name="to" type="email" placeholder="е-пошта на примачот" required style={{ width: 240 }} />
-            <input name="subject" placeholder={`${p.name} – ${firm.name}`} style={{ width: 240 }} />
+            <input name="subject" defaultValue={`Доставување документација – ${firm.name}`} placeholder={`${p.name} – ${firm.name}`} style={{ width: 240 }} />
             <button className="btn sm">✉ Испрати по е-пошта</button>
             <textarea name="body" hidden defaultValue={p.coverNote ?? ''} />
-            <SendExtras selName="__none" files={{}} defaultBody={p.coverNote ?? ''} />
+            <SendExtras selName="__none" files={{}} defaultBody={p.coverNote ?? ''} attachHref={`/api/office/pkg/${p.id}`} />
           </ActionForm>
         </div>
       ))}

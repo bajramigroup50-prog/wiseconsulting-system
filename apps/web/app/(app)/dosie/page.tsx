@@ -71,6 +71,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
             <label className="f">Број<input name="number" defaultValue={editing?.number ?? ''} /></label>
             <label className="f">Датум<input name="date" type="date" defaultValue={editing?.date ?? td} /></label>
             <label className="f">Важи до<input name="validTo" type="date" defaultValue={editing?.validTo ?? ''} /></label>
+            <label className="f">Датум на архивирање<input name="arcAt" type="date" defaultValue={editing ? editing.createdAt.toISOString().slice(0, 10) : td} /></label>
             <label className="f wide">Белешка<input name="note" defaultValue={editing?.note ?? ''} /></label>
             <UploadField firmId={firm.id} capture accept="image/*,application/pdf" label={editing ? '📷 Додај страници' : '📷 Скенирај / прикачи страници'} />
           </div>

@@ -7,7 +7,7 @@
  */
 import { useRef, useState } from 'react';
 
-export function SendExtras({ files, selName, defaultBody, zipHref }: {
+export function SendExtras({ files, selName, defaultBody, zipHref, attachHref }: {
   /** checkbox value → its files */
   files: Record<string, { id: string; name: string }[]>;
   /** name of the checkboxes in the form (`sel`, `docId`, …) */
@@ -15,6 +15,8 @@ export function SendExtras({ files, selName, defaultBody, zipHref }: {
   defaultBody: string;
   /** ZIP of the selected documents (`?id=` appended per checkbox value), for computers without a share sheet */
   zipHref?: string;
+  /** One file with everything to attach (a package ZIP), when the form has no checkboxes. */
+  attachHref?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [phone, setPhone] = useState('');
@@ -34,6 +36,22 @@ export function SendExtras({ files, selName, defaultBody, zipHref }: {
     const u = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(val('to'))}&su=${encodeURIComponent(val('subject'))}&body=${encodeURIComponent(body)}`;
     window.open(u, '_blank', 'noopener');
     setMsg(F.length ? `Нацртот е отворен во Gmail – прикачете ги ${F.length} датотеки (⬇ Преземи).` : 'Нацртот е отворен во Gmail.');
+  }
+  /**
+   * Legacy „✉ Испрати по Gmail“ (`dosGmail`, which uploaded the files through the Gmail API): here Gmail compose opens
+   * with recipient, subject and text, and the ticked documents download as one ZIP to attach there.
+   */
+  function gmail() {
+    const F = pickedFiles();
+    if (!val('to')) { setMsg('Внесете е-пошта на примачот.'); return; }
+    draft();
+    if (F.length && zipHref) {
+      window.location.href = zipHref + (zipHref.includes('?') ? '&' : '?') + picked().map((k) => 'id=' + encodeURIComponent(k)).join('&');
+      setMsg(`Gmail е отворен – прикачете го преземениот ZIP (${F.length} документи) и испратете.`);
+    } else if (attachHref) {
+      window.location.href = attachHref;
+      setMsg("Gmail е отворен – прикачете го преземениот ZIP и испратете.");
+    }
   }
   async function share() {
     const F = pickedFiles();
@@ -59,6 +77,7 @@ export function SendExtras({ files, selName, defaultBody, zipHref }: {
   return (
     <div ref={ref} className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'end', marginTop: 6 }}>
       <button type="button" className="btn sm ghost" onClick={reset}>Врати го стандардниот текст</button>
+      <button type="button" className="btn" onClick={gmail} title="Gmail со примачот, предметот и текстот; документите се преземаат како ZIP за прилог">✉ Испрати по Gmail</button>
       <button type="button" className="btn" onClick={draft}>Само нацрт во Gmail</button>
       <button type="button" className="btn" onClick={() => void share()} style={{ borderColor: '#25D366' }}>📤 Сподели ги PDF-овите (WhatsApp, Viber…)</button>
       <label className="f" style={{ margin: 0 }}>Телефон на примачот (на пр. 070123456)<input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" style={{ width: 170 }} /></label>
