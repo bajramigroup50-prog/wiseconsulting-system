@@ -1,7 +1,7 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
-import { firmAllowed } from '@wise/core';
+import { can, firmAllowed } from '@wise/core';
 import { gdprDue, isGdprKind, ZZ_CHK } from '@wise/core/office';
 import { audit, gdprRecords, OFFICE_FILE_ENTITY, patchOfficeProfile } from '@wise/db';
 import { requireCan } from '@/lib/auth';
@@ -63,6 +63,8 @@ export async function saveZzChecklist(_p: ActionState, f: FormData): Promise<Act
 export async function zzSigned(firmId: string, signed: boolean): Promise<ActionState> {
   try {
     const u = await requireCan('office', firmId);
+    // legacy `zzSigned`: un-marking a signed DPA removes the record — only the responsible person (`del`)
+    if (!signed && !can(u.principal, 'del', firmId)) return { error: 'Само одговорното лице може да врати.' };
     await db().transaction(async (tx) => {
       const L = await tx.select({ id: gdprRecords.id, kind: gdprRecords.kind }).from(gdprRecords).where(eq(gdprRecords.firmId, firmId));
       const ids = L.filter((r) => r.kind === 'dpa').map((r) => r.id);

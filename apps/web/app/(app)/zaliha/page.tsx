@@ -23,7 +23,9 @@ import { deleteMoveAction, saveMoveAction } from '../_retail/actions';
 
 const TYPES: Record<string, string> = { goods: 'Стока', material: 'Суровина / материјал', product: 'Готов производ' };
 const KIND: Record<string, string> = { in: 'Приемница', use: 'Издатница (потрошувачка)', tr: 'Преносница (меѓу објекти)' };
-type SP = { wh?: string; card?: string; nov?: string };
+type SP = { wh?: string; card?: string; nov?: string; ok?: string };
+/** Legacy toasts after `mvSave`. */
+const MV_OK: Record<string, string> = { tr: 'Преносот е евидентиран.', in: 'Приемницата е евидентирана.', use: 'Издатницата е евидентирана и прокнижена.' };
 
 export default async function ZalihaPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -55,6 +57,7 @@ export default async function ZalihaPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
+      {sp.ok && MV_OK[sp.ok] && <div className="callout good" role="status">✓ {MV_OK[sp.ok]}</div>}
       <Hd exp={false} t="Приемници и издатници" sub="залиха по објекти">
         {write && <><Link className="btn" href={'/zaliha' + qs({ nov: 'in' })}>+ Приемница</Link><Link className="btn" href={'/zaliha' + qs({ nov: 'use' })}>+ Издатница</Link><Link className="btn" href={'/zaliha' + qs({ nov: 'tr' })}>+ Преносница</Link></>}
         <ExportButtons name={`Zaliha_${today}`} rows={[['Артикл', 'Вид', 'Количина', 'Ед. мерка', 'Просечна цена', 'Вредност'], ...rows.map((r) => [r.it.name ?? '', TYPES[String(r.it.type)] ?? '', r.s.qty, r.it.unit ?? '', r.s.avg, r.s.value])]} />

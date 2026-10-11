@@ -54,3 +54,38 @@ export function sharesOk(F: readonly Founder[]): boolean {
 
 /** Display name of a founder/manager (legacy `osnData.fio`). */
 export const personName = (p: Pick<Founder, 'kind' | 'name' | 'surname'>) => (p.kind === 'ПЛ' ? p.name : [p.name, p.surname].filter(Boolean).join(' '));
+
+/**
+ * Legacy `ncCheck` (15000): what is still missing in a formation case, shown above the form
+ * („Недостасува / проверете (n)“ or „✓ Сите основни податоци се внесени.“).
+ */
+export function ncCheck(n: { name?: string | null; form?: string | null; data: Record<string, string | undefined>; founders: readonly Record<string, unknown>[]; managers: readonly Record<string, unknown>[]; capEur?: number }): string[] {
+  const E: string[] = [];
+  const D = n.data;
+  if (!n.name) E.push('Назив');
+  if (!n.form) E.push('Правна форма');
+  if (!D.street || !D.city) E.push('Адреса на седиштето');
+  if (!D.nkd) E.push('Шифра на дејност');
+  const F = n.founders as unknown as Founder[];
+  if (!F.length) E.push('Барем еден основач');
+  F.forEach((f, i) => {
+    if (!(f.name && (f.surname || f.kind === 'ПЛ'))) E.push(`Основач ${i + 1}: име/назив`);
+    if (f.kind !== 'ПЛ' && !/^\d{13}$/.test(String(f.embg ?? ''))) E.push(`Основач ${i + 1}: ЕМБГ (13 цифри)`);
+    if (!f.address) E.push(`Основач ${i + 1}: адреса`);
+  });
+  if (n.form === 'ДООЕЛ' && F.length > 1) E.push('ДООЕЛ има само еден основач');
+  const sh = F.reduce((a, f) => a + (Number(f.share) || 0), 0);
+  if (F.length > 1 && Math.abs(sh - 100) > 0.01) E.push(`Уделите треба да се 100% (сега ${sh}%)`);
+  const M = n.managers as unknown as Founder[];
+  if (!M.length) E.push('Управител');
+  // the manager's ЕМБГ may come from the founder with the same name (legacy „= основачот“)
+  const nm = (p: Founder) => personName(p).trim().toLowerCase();
+  M.forEach((x, i) => {
+    const embg = /^\d{13}$/.test(String(x.embg ?? '')) || F.some((f) => f.kind !== 'ПЛ' && nm(f) === String(x.name ?? '').trim().toLowerCase() && /^\d{13}$/.test(String(f.embg ?? '')));
+    if (!x.name || !embg) E.push(`Управител ${i + 1}: име и ЕМБГ`);
+  });
+  const cap = n.capEur ?? (Number(D.capital) || 0);
+  if (['ДОО', 'ДООЕЛ'].includes(n.form ?? '') && cap && cap < 5000) E.push('Основачки влог под 5.000 € (проверете го важечкиот минимум)');
+  if (!cap && n.form !== 'ТП') E.push('Основачки влог');
+  return E;
+}

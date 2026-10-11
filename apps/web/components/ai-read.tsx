@@ -5,6 +5,7 @@
  * results and lets the user apply them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { uploadFile } from '@/lib/upload';
 import { aiReadStatus, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
 
@@ -93,16 +94,18 @@ export function AiDrop({ onFiles, label, disabled, multiple = true, small }: { o
 }
 
 /** One line per read that is not done yet (or failed). */
-export function AiReadList({ docs, msg }: { docs: AiReadDoc[]; msg?: string }) {
+export function AiReadList({ docs, msg, doneHint }: { docs: AiReadDoc[]; msg?: string; /** legacy „Прочитано: …“ callout once every read finished */ doneHint?: 'amounts' | 'data' }) {
   const L = docs.filter((d) => d.status !== 'done' && d.status !== 'saved');
-  if (!L.length && !msg) return null;
+  const done = doneHint && !docs.some(pending) ? docs.filter((d) => d.status === 'done' || d.status === 'saved') : [];
+  if (!L.length && !msg && !done.length) return null;
   return (
     <div>
       {L.map((d) => (
         <div key={d.id} className="mini">{d.name ? d.name + ': ' : ''}{d.status === 'error'
-          ? <span className="pill bad">{d.error || 'грешка'}</span>
+          ? <span className="pill bad">{isAiUnavailable(d.error) ? AI_UNAVAILABLE_MSG : d.error || 'грешка'}</span>
           : <span className="pill info">{d.status === 'reading' ? 'се чита…' : 'чека…'}</span>}</div>
       ))}
+      {done.length > 0 && <div className="callout good">{aiReadDoneMsg(done.map((d) => d.name || 'документ'), doneHint)}</div>}
       {msg && <div className="note">{msg}</div>}
     </div>
   );

@@ -19,7 +19,7 @@ import { PrintButton } from '@/components/stock-ui';
 import { cancelOrderAction, orderInvoiceAction } from '../_retail/actions';
 import { OrderEditor } from '../_retail/order-editors';
 
-type SP = { f?: string; id?: string; nov?: string; view?: string };
+type SP = { f?: string; id?: string; nov?: string; view?: string; saved?: string };
 const addDays = (d: string, n: number) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 export default async function PorachkiPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -63,6 +63,7 @@ export default async function PorachkiPage({ searchParams }: { searchParams: Pro
     const dl = edit ? Retail.orderRest(edit.lines, R.deliveries.get(edit.id) ?? {}) : [];
     return (
       <>
+        {sp.saved && <div className="callout good" role="status">✓ Нарачката е зачувана.</div>}
         <Hd t={edit ? 'Нарачка ' + edit.number : 'Нова нарачка'} sub={Retail.ORDER_STATES[st][0]}>
           <Link className="btn" href="/porachki">← Листа</Link>
           {edit && <Link className="btn" href={`/porachki?view=${edit.id}`}>🖨 Потврда на нарачка</Link>}

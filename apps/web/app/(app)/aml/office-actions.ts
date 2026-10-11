@@ -67,15 +67,15 @@ export async function amlRepNew(_p: ActionState, f: FormData): Promise<ActionSta
     const u = await requireCan('write');
     if (u.role === 'klient') return { error: 'Немате право.' };
     const text = fv(f, 'text');
-    if (!text) return { error: 'Опишете го сомневањето.' };
     const fid = fv(f, 'firmId');
+    if (!text || !fid) return { error: 'Изберете клиент и опишете го сомневањето.' };
     const [fr] = fid && isUuid(fid) ? await db().select({ id: firms.id, name: firms.name }).from(firms).where(eq(firms.id, fid)).limit(1) : [];
     await db().transaction(async (tx) => {
       const [r] = await tx.insert(amlReports).values({ firmId: fr?.id ?? null, firmName: fr?.name ?? '', text, createdBy: u.id, createdByName: u.name }).returning({ id: amlReports.id });
       await audit(tx, { userId: u.id, firmId: fr?.id ?? null, action: 'amlRepNew', entityType: 'aml_report', entityId: r!.id });
     });
     revalidatePath('/aml');
-    return { ok: 'Пријавата е испратена до овластеното лице.' };
+    return { ok: '✓ Внатрешната пријава е евидентирана.' };
   } catch (e) { return err(e); }
 }
 

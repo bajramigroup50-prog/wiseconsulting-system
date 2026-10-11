@@ -6,6 +6,7 @@
  * Without `ANTHROPIC_API_KEY` every call fails with `AiUnavailableError` (a clear Macedonian message, no retries).
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { AI_UNAVAILABLE_MSG } from '@wise/core/ai/messages';
 
 export type AiTier = 'quick' | 'default' | 'complex';
 
@@ -31,7 +32,7 @@ export function costUsd(model: string, u: AiUsage): number {
 }
 
 export class AiUnavailableError extends Error {
-  constructor(message = 'Автоматското читање не е достапно: на серверот не е поставен ANTHROPIC_API_KEY. Внесете ги податоците рачно или побарајте од администраторот да го постави клучот.') {
+  constructor(message = AI_UNAVAILABLE_MSG + ' (На серверот не е поставен ANTHROPIC_API_KEY – побарајте од администраторот да го постави клучот.)') {
     super(message);
     this.name = 'AiUnavailableError';
   }

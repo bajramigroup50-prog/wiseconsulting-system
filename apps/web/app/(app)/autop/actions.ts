@@ -26,7 +26,7 @@ export async function runNow(): Promise<ActionState> {
     const r = await runAutopilot(db(), { trigger: 'manual', userId: u.id });
     await dispatchMail(r.mailIds); // messages sent automatically (`apAuto`) by e-mail
     revalidatePath('/autop');
-    return { ok: `Проверени ${r.firms} фирми: ${r.findings} наоди (${r.newBad} нови проблеми), ${r.messages} нови пораки.` };
+    return { ok: `Проверени ${r.firms} фирми: ${r.findings} наоди (${r.newBad} нови проблеми), ${r.messages} нови пораки.${r.mailIds.length ? ` 🤖 Автопилот: автоматски испратени ${r.mailIds.length} пораки до клиенти.` : ""}` };
   } catch (e) { return officeError(e); }
 }
 

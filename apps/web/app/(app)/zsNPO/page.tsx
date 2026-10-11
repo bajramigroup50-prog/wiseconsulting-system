@@ -47,6 +47,7 @@ export default async function ZsNpoPage({ searchParams }: { searchParams: Promis
         <Link className="btn" href="/zsRok">📅 Каде и кога се поднесува</Link>
         {(T === 'pr' || T === 'bs') && <Link className="btn pri" href="/pecati/npo" target="_blank">🖨 PDF (образец)</Link>}
       </ZsHead>
+      {L.ent !== 'npo' && <div className="callout warn">Фирмата не е означена како непрофитна организација. Поставете го видот во „🧩 Модули по дејност“.</div>}
       <NotClosedNote closed={L.Y.closed} year={year} />
       <div className="ftabs" style={{ marginBottom: 10 }}>{TABS.map(([k, n]) => <Link key={k} className={`btn sm${k === T ? ' pri' : ''}`} href={`/zsNPO?t=${k}`}>{n}</Link>)}</div>
       {T === 'pr' && (

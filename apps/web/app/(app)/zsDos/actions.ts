@@ -143,7 +143,7 @@ export async function yearDocsToPackage(_p: ActionState, f: FormData): Promise<A
     });
     revalidatePath('/paket');
   } catch (e) { return officeError(e); }
-  redirect(id ? '/paket' : '/zsDos');
+  redirect(id ? '/paket?added=1' : '/zsDos');
 }
 
 /** `yearDocsToPackage` as the second submit button of the e-mail form (`formAction`); an error comes back as `?pkgErr=`. */

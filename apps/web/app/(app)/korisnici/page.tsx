@@ -68,7 +68,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <Hd t="Корисници и улоги" sub={`${UC.length} колеги · ${UK.length} компании`}>
         <Link className="btn pri" href="/korisnici?nov">+ Нов корисник</Link>
       </Hd>
-      {sp.saved && <div className="callout good" role="status">✓ Промените се зачувани.</div>}
+      {sp.saved && <div className="callout good" role="status">✓ Корисникот е зачуван.</div>}
       {showForm && (
         <UserForm
           user={editing ? { ...editing, firms: firmsOf(editing.id) } : null}
@@ -78,7 +78,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       )}
       <div className="card"><h2>👥 Колеги во канцеларијата</h2><div className="tw"><table>{uth}<tbody>
         {UC.length ? UC.map(urow) : <tr><td colSpan={8} className="mut">Нема колеги – кликнете „+ Нов корисник“.</td></tr>}
-      </tbody></table></div></div>
+      </tbody></table></div>{!office && <p className="note">„📄 Договор“: Означете ја фирмата на канцеларијата (Фирми → „фирма на канцеларијата“).</p>}</div>
       <div className="card"><h2>🏢 Компании (клиенти – портал)</h2><div className="tw"><table>{uthK}<tbody>
         {UK.length ? UK.map(urow) : <tr><td colSpan={7} className="mut">Нема клиенти со пристап.</td></tr>}
       </tbody></table></div></div>

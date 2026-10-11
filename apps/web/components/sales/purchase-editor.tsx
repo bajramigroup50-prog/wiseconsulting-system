@@ -16,6 +16,7 @@ import { fmt } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { addSupplierAction, createItemsAction, deletePurchaseAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
+import { AI_OPEN_FAILED_MSG, AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
 import { blankCost, COSTS, type EdPurchase, type EdStock } from './model';
 import { PX_DRAFT_KEY, type PxDraft } from './px-import';
@@ -267,7 +268,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
               void scanTaken(s.id);
               setToast('Податоците се прочитани од документот. Проверете ги и зачувајте.');
               setReading((R) => R.filter((r) => r.id !== s.id));
-            } else if (s.status === 'error') { setToast(s.error || 'Читањето не успеа. Обидете се повторно.'); setReading((R) => R.filter((r) => r.id !== s.id)); }
+            } else if (s.status === 'error') { setToast(isAiUnavailable(s.error) ? AI_UNAVAILABLE_MSG : s.error || 'Читањето не успеа. Обидете се повторно.'); setReading((R) => R.filter((r) => r.id !== s.id)); }
           }
         }
         if (imp.length) {
@@ -277,7 +278,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
             const ok = done.filter((s) => s.status === 'done').map((s) => s.result as ImpDoc);
             if (ok.length) mergeImp(ok);
             const err = done.filter((s) => s.status === 'error').length;
-            setToast(`Прочитани ${ok.length} документи за увоз${err ? `, ${err} не се прочитани` : ''}. Проверете ги полињата (Девизна, Зависни трошоци).`);
+            setToast(ok.length ? aiReadDoneMsg([`${ok.length} документи за увоз${err ? ` (${err} не се прочитани)` : ''}`]) : AI_OPEN_FAILED_MSG);
             setReading((R) => R.filter((r) => r.kind !== 'imp'));
           }
         }
@@ -287,7 +288,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   });
   const readFile = async (fileId: string) => {
     const r = await startScans({ fileIds: [fileId], kind: 'purchase', batchId: null, reread: true, inline: true, warehouseId: d.warehouseId, cash: d.cash });
-    if (r.error || !r.ids?.length) { setToast(r.error ?? (r.skipped ?? []).join(' ') ?? 'Читањето не може да започне.'); return; }
+    if (r.error || !r.ids?.length) { setToast(r.error ?? ((r.skipped ?? []).join(' ') || AI_OPEN_FAILED_MSG)); return; }
     setToast('Се чита документот… (10–60 секунди)');
     setReading((R) => [...R, { id: r.ids![0]!, t0: Date.now(), kind: 'pur' }]);
   };

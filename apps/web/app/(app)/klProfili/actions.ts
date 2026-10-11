@@ -12,7 +12,7 @@ import { allowedFirms } from '@/lib/office';
 export interface CredResult { error?: string; ok?: string; creds?: KlCred[] }
 
 const fail = (e: unknown): CredResult => {
-  if (e instanceof Forbidden) return { error: e.message };
+  if (e instanceof Forbidden) return { error: 'Само администраторот креира профили.' };
   if (e instanceof Error && /клиенти/.test(e.message)) return { error: e.message };
   throw e;
 };

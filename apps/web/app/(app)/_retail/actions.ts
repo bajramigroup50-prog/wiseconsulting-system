@@ -44,7 +44,7 @@ export async function saveMoveAction(_p: ActionState, f: FormData): Promise<Acti
   return done(await stockAction('saveMove', ['/zaliha'], (tx, a) => saveManualMove(tx, a, {
     kind, date: s(f, 'date'), itemId: s(f, 'itemId'), qty: numIn(s(f, 'qty')), wh: s(f, 'wh') || null, from: s(f, 'from') || null, to: s(f, 'to') || null,
     price: nOrNull(f, 'price'), account: s(f, 'account') || null, label: s(f, 'label') || null, partnerId: s(f, 'partnerId') || null,
-  })), '/zaliha');
+  })), `/zaliha?ok=${kind}`);
 }
 export async function deleteMoveAction(id: string): Promise<ActionState> {
   return stockAction('del', ['/zaliha'], (tx, a) => deleteManualMove(tx, a, id));
@@ -61,7 +61,7 @@ export async function saveOrderAction(_p: ActionState, f: FormData): Promise<Act
   const v = json(OrderIn, f);
   if (isErr(v)) return v;
   const st = await stockAction('ordSaveB', ['/porachki'], (tx, a) => saveCustomerOrder(tx, a, v));
-  return done(st, '/porachki' + (st.data ? '?id=' + st.data.id : ''));
+  return done(st, '/porachki' + (st.data ? '?saved=1&id=' + st.data.id : ''));
 }
 export async function cancelOrderAction(id: string): Promise<ActionState> {
   return stockAction('ordCancel', ['/porachki'], (tx, a) => cancelCustomerOrder(tx, a, id));
@@ -203,7 +203,9 @@ export async function artNamesImportAction(_p: ActionState, f: FormData): Promis
     const ch = v.rows.flatMap((r) => { const id = by.get(r.code.trim()); if (!id) { miss++; return []; } return r.name.trim() ? [{ id, name: r.name.trim() }] : []; });
     return renameItems(tx, a, ch, 'anImp', false);
   });
-  return st.error ? st : { ok: `${st.data} називи се сменети од Excel${miss ? ` (${miss} шифри не се пронајдени)` : ''}.` };
+  if (st.error) return st;
+  if (!st.data) return { error: `Нема називи за менување${miss ? ` (${miss} шифри не се пронајдени)` : ''}.` };
+  return { ok: `${st.data} називи се сменети од Excel${miss ? ` (${miss} шифри не се пронајдени)` : ''}.` };
 }
 
 export async function artMergeAction(_p: ActionState, f: FormData): Promise<ActionState> {

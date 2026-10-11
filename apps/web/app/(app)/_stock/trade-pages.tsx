@@ -151,6 +151,7 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
         </table>
         <PrintSig />
       </div>
+      {!T.rows.length && <div className="callout">Нема податоци за МЕТГ во оваа фирма.</div>}
     </>
   );
 }

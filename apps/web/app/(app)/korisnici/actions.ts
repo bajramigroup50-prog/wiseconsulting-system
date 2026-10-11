@@ -15,7 +15,7 @@ const MIN_PW = 10;
 
 const UserInput = z.object({
   name: z.string().trim().min(2, 'Внесете име и презиме.').max(200),
-  username: z.string().trim().toLowerCase().regex(/^[a-z0-9._@-]{1,60}$/, 'Корисничкото име: латиница, бројки и . _ - @'),
+  username: z.string().trim().toLowerCase().regex(/^[a-z0-9._@-]{3,60}$/, 'Корисничкото име: најмалку 3 знаци, латиница/бројки без празни места.'),
   email: z.string().trim().max(200).transform((s) => s || null),
   role: z.enum(ROLE_IDS),
   password: z.string(),
@@ -42,7 +42,12 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
 
   const [dupe] = await db().select({ id: users.id }).from(users)
     .where(and(eq(sql`lower(${users.username})`, v.username), id ? ne(users.id, id) : undefined)).limit(1);
-  if (dupe) return { error: 'Корисничкото име е зафатено.' };
+  if (dupe) return { error: 'Корисничкото име веќе постои.' };
+  // legacy `uSave`: the program must keep at least one active administrator
+  if (id && (v.role !== 'admin' || !v.active)) {
+    const [o] = await db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
+    if (!o?.n) return { error: 'Мора да остане барем еден активен администратор.' };
+  }
 
   await db().transaction(async (tx) => {
     const base = { name: v.name, username: v.username, email: v.email, role: v.role, active: v.active, allFirms: v.allFirms };
@@ -70,14 +75,17 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
   redirect('/korisnici?saved=1');
 }
 
-export async function deleteUser(id: string): Promise<void> {
+export async function deleteUser(id: string): Promise<FormState> {
   const me = await requireCan('uDel');
-  if (id === me.id) throw new Error('Не можете да се избришете себеси.');
+  if (id === me.id) return { error: 'Не можете да се избришете себеси.' };
+  const [o] = await db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
+  if (!o?.n) return { error: 'Мора да остане барем еден активен администратор.' };
   await db().transaction(async (tx) => {
     const [u] = await tx.delete(users).where(eq(users.id, id)).returning({ username: users.username });
     if (u) await audit(tx, { userId: me.id, action: 'uDel', entityType: 'user', entityId: id, data: { username: u.username } });
   });
   revalidatePath('/korisnici');
+  return {};
 }
 
 export async function changeMyPassword(_prev: FormState, form: FormData): Promise<FormState> {

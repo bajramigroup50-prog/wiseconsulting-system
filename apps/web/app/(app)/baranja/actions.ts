@@ -26,7 +26,7 @@ export async function saveTemplate(_p: ActionState, f: FormData): Promise<Action
     });
     revalidatePath('/baranja');
   } catch (e) { return officeError(e); }
-  redirect('/baranja');
+  redirect('/baranja?saved=1');
 }
 
 export async function deleteTemplate(id: string): Promise<ActionState> {

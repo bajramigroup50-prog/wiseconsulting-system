@@ -28,6 +28,17 @@ describe('own templates: picking and context (legacy tplActive / tplVars)', () =
   });
 });
 
+describe('ncCheck (legacy formation checklist)', async () => {
+  const { ncCheck } = await import('./formation');
+  it('lists what is missing and is empty when complete', () => {
+    expect(ncCheck({ name: '', form: 'ДООЕЛ', data: {}, founders: [], managers: [] })).toEqual(['Назив', 'Адреса на седиштето', 'Шифра на дејност', 'Барем еден основач', 'Управител', 'Основачки влог']);
+    const F = [{ kind: 'ФЛ', name: 'Ана', surname: 'Петрова', embg: '0101990450001', address: 'ул. 1', share: 100 }];
+    expect(ncCheck({ name: 'Алфа', form: 'ДООЕЛ', data: { street: 'Партизанска', city: 'Битола', nkd: '62.01' }, founders: F, managers: [{ name: 'Ана Петрова' }], capEur: 5000 })).toEqual([]);
+    expect(ncCheck({ name: 'Алфа', form: 'ДООЕЛ', data: { street: 'П', city: 'Б', nkd: '1' }, founders: [...F, { ...F[0], name: 'Б' }], managers: [{ name: 'Друг' }], capEur: 100 }))
+      .toEqual(['ДООЕЛ има само еден основач', 'Уделите треба да се 100% (сега 200%)', 'Управител 1: име и ЕМБГ', 'Основачки влог под 5.000 € (проверете го важечкиот минимум)']);
+  });
+});
+
 describe('docxToHtml (legacy tplHtml)', () => {
   it('parses XML with entities and self-closing tags', () => {
     const r = parseXml(`<?xml version="1.0"?><a x="1 &amp; 2"><b/><c>т&lt;т</c></a>`);

@@ -141,7 +141,7 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
           <p className="note" style={{ margin: 0 }}>Од книгите: промет {fmt(X.rev)} ден.; готовински ставки ≥ 1.000 €: {X.cash}{X.cash ? ` (најголема ${fmt(X.cashMax)})` : ''}; дејност {X.nkd || '—'}{X.nkdRisk ? ' (повисок ризик)' : ''}.</p>
           {risk.factors.length > 0 && <ul className="mini" style={{ margin: '4px 0' }}>{risk.factors.map(([t, w]) => <li key={t}>{t} (+{w})</li>)}</ul>}
 
-          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Застапник</h3>
+          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>1. Клиент и застапник</h3>
           <div className="form">
             <label className="f">Име и презиме<input name="rep_name" defaultValue={A.rep?.name ?? ''} /></label>
             <label className="f">ЕМБГ<input name="rep_embg" defaultValue={A.rep?.embg ?? ''} autoComplete="off" /></label>
@@ -150,7 +150,7 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
             <label className="chk"><input type="checkbox" name="rep_ver" defaultChecked={!!A.rep?.ver} /> Проверено со оригинален документ</label>
             <label className="chk"><input type="checkbox" name="nonFace" defaultChecked={!!A.nonFace} /> Без лично присуство</label>
           </div>
-          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Вистински сопственици (над 25%)</h3>
+          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>2. Вистински сопственици (над 25%)</h3>
           <div className="tw"><table className="dense"><thead><tr><th>Име / назив</th><th>ЕМБГ / ЕМБС</th><th>Државјанство</th><th>Удел %</th><th>ПЛ</th><th>PEP</th><th>Проверено во регистар</th></tr></thead><tbody>
             {bo.map((b, i) => (
               <tr key={i}>
@@ -161,6 +161,7 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
               </tr>
             ))}
           </tbody></table></div>
+          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>3. Цел, извор и засилена анализа</h3>
           <div className="form">
             <label className="f">Тековна состојба од ЦР од<input name="crDate" type="date" defaultValue={A.crDate ?? ''} /></label>
             <label className="chk"><input type="checkbox" name="pep" defaultChecked={!!A.pep} /> PEP / поврзано лице</label>
@@ -170,10 +171,11 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
             <label className="f wide">Извор на средства<input name="source" defaultValue={A.source ?? ''} /></label>
             <label className="f wide">Потекло на имотот (засилена анализа)<input name="wealth" defaultValue={A.wealth ?? ''} /></label>
           </div>
-          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Индикатори за сомнителност</h3>
+          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>4. Индикатори за сомнителност (листа на УФР за сметководители)</h3>
           <div style={{ display: 'grid', gap: 4 }}>
             {AML_IND.map(([k, t]) => <label key={k} className="chk"><input type="checkbox" name={`ind_${k}`} defaultChecked={!!A.ind?.[k]} /> {t}</label>)}
           </div>
+          <div className="callout warn" style={{ marginTop: 6 }}>Ако има сомневање: <b>внатрешна пријава</b> до овластеното лице (табот „Пријави“). <b>Клиентот не смее да се извести</b> за сомневањето или пријавата.</div>
           <div className="form">
             <label className="f">Рачна категорија<select name="lvOver" defaultValue={A.lvOver ?? ''}>
               <option value="">— автоматски —</option>{AML_LEVELS.map((l: AmlLevel) => <option key={l} value={l}>{AML_LV[l][0]}</option>)}

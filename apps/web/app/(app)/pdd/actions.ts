@@ -53,7 +53,7 @@ export async function savePddAction(v: PddInput): Promise<ActionState> {
     return actionError(e);
   }
   revalidatePath('/pdd');
-  redirect('/pdd');
+  redirect('/pdd?ok=1');
 }
 
 export async function deletePddAction(id: string): Promise<ActionState> {

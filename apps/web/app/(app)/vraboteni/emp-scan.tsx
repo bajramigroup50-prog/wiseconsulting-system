@@ -27,7 +27,7 @@ export function EmpScan({ firmId }: { firmId: string }) {
     <div className="card">
       <AiDrop small onFiles={(f) => { setRes({}); void ai.read('emp', f); }} disabled={ai.busy && !ai.docs.length}
         label={<><b>📄 Додај вработени од PDF</b> — договор за вработување, М1/М2 пријава или лична карта (PDF / слика). Се читаат автоматски, потоа ги потврдувате.</>} />
-      <AiReadList docs={ai.docs} msg={ai.msg} />
+      <AiReadList docs={ai.docs} msg={ai.msg} doneHint="data" />
       {res.error && <div className="callout bad" role="alert">{res.error}</div>}
       {res.ok && <div className="callout good" role="status">{res.ok}</div>}
       {done.length > 0 && (

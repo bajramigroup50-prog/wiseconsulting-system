@@ -25,7 +25,7 @@ const reqFirm = (f: Firm): ReqFirm => {
   };
 };
 
-export default async function BaranjaPage({ searchParams }: { searchParams: Promise<{ t?: string; src?: string; edit?: string }> }) {
+export default async function BaranjaPage({ searchParams }: { searchParams: Promise<{ t?: string; src?: string; edit?: string; saved?: string }> }) {
   const { u, firm } = await officePage('baranja');
   const sp = await searchParams;
   const U = await db().select().from(requestTemplates).orderBy(asc(requestTemplates.name));
@@ -61,6 +61,7 @@ export default async function BaranjaPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
+      {sp.saved && <div className="callout good" role="status">✓ Образецот е зачуван.</div>}
       <Hd t="Барања и обрасци" sub="се пополнуваат автоматски со податоците на фирмата">
         {office && <Link className="btn pri" href="/baranja?edit">+ Нов образец</Link>}
       </Hd>

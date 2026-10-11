@@ -26,7 +26,7 @@ export async function decideEntry(id: string, decision: 'approve' | 'reject', no
     await dispatchMail(r.mailIds); // the client is notified by e-mail (after COMMIT; `mail.flush` retries)
   } catch (e) { return officeError(e); }
   revalidatePath('/klInbox');
-  return { ok: decision === 'approve' ? 'Одобрено и прокнижено.' : 'Одбиено.' };
+  return { ok: decision === 'approve' ? 'Одобрено и прокнижено.' : 'Документот е одбиен; клиентот ќе ја види причината.' };
 }
 
 /**

@@ -71,7 +71,7 @@ export async function setTaskStatus(id: string, st: string, note = ''): Promise<
     await move(u, id, st, note);
   } catch (e) { return officeError(e); }
   revalidatePath('/kanc');
-  return { ok: 'Зачувано.' };
+  return { ok: st === 'done' ? 'Задачата е завршена.' : 'Зачувано.' };
 }
 
 /** Legacy `tDel`. */
@@ -113,7 +113,7 @@ export async function terenAction(id: string, op: 'take' | 'progress' | 'done' |
     return officeError(e);
   }
   revalidatePath('/mojzad');
-  return { ok: 'Зачувано.' };
+  return { ok: op === 'done' ? 'Задачата е завршена.' : 'Зачувано.' };
 }
 
 /** Field worker attaches scanned documents to the task (legacy `data-up` handler in `mojzad`). */

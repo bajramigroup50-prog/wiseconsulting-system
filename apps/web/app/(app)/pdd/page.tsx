@@ -18,7 +18,7 @@ import { RowAction } from '@/components/row-action';
 import { deletePddAction, savePddTypesAction } from './actions';
 import { PddEditor, type Person } from './editor';
 
-export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string }> }) {
+export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string; ok?: string }> }) {
   const sp = await searchParams;
   const { u, firm, year } = await booksPage('pdd');
   if (!firm) return <NoFirm t="Закупнина, бонуси и услуги" />;
@@ -53,6 +53,7 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
   const NM = new Map((await db().select({ sid: journals.sourceId, number: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'pdd')))).map((j) => [j.sid, j.number]));
   return (
     <>
+      {sp.ok && <div className="callout good" role="status">✓ Прокнижено како директен трошок.</div>}
       <Hd t="Закупнина, бонуси и услуги" sub={`автоматско книжење како директен трошок · ${year}`}>
         <Link className="btn" href={sp.types ? '/pdd' : '/pdd?types=1'}>Видови приход и конта</Link>
         {write && L.length > 0 && <Link className="btn" href="/pdd?ed=last">Нова од последната (иста закупнина)</Link>}

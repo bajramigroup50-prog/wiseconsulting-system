@@ -28,7 +28,7 @@ const PRE: Record<string, { n: string; rep: string[]; dos: string[] }> = {
   pay: { n: 'Плати', rep: [], dos: [] },
 };
 
-export default async function PaketPage({ searchParams }: { searchParams: Promise<{ pre?: string; age?: string; from?: string; to?: string }> }) {
+export default async function PaketPage({ searchParams }: { searchParams: Promise<{ pre?: string; age?: string; from?: string; to?: string; added?: string }> }) {
   const sp = await searchParams;
   const { firm } = await officePage('paket', { perm: 'office' });
   if (!firm) return <NoFirm t="📦 Пакет документи" />;
@@ -50,6 +50,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
   const order = (c: string) => (DOS_CAT as readonly string[]).indexOf(c);
   return (
     <>
+      {sp.added && <div className="callout good" role="status">✓ Избраните датотеки се додадени во пакетот за банка.</div>}
       <Hd t="Пакет документи за банка / институција" sub={`${firm.name} · ${year}`}><a className="btn" href="/dosie">Документи на фирмата</a></Hd>
       <form className="card">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>

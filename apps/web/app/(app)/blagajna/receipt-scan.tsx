@@ -89,7 +89,7 @@ export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, c
     <div className="card">
       <AiDrop onFiles={(f) => { setRes({}); void ai.read('blg', f); }} disabled={ai.busy && !ai.docs.length} small
         label={<><b>📷 Скенирај сметки</b> — повлечете слики (JPG/PNG) или PDF од фискалните / странските сметки тука или кликнете. Секоја се чита автоматски; потоа ги проверувате и зачувувате.</>} />
-      <AiReadList docs={ai.docs} msg={ai.msg} />
+      <AiReadList docs={ai.docs} msg={ai.msg} doneHint="amounts" />
       {res.error && <div className="callout bad" role="alert">{res.error}</div>}
       {res.ok && <div className="callout good" role="status">{res.ok}</div>}
       {rows.length > 0 && (

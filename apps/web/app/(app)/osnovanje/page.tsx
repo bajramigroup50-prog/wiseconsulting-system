@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { desc, eq } from 'drizzle-orm';
 import { can } from '@wise/core';
-import { capitalSum, LEGAL_FORMS, NC_CHECK, NC_ST, NC_STATUS, NF, personName, type CapItem, type Founder, type NcStatus } from '@wise/core/office';
+import { capitalSum, LEGAL_FORMS, NC_CHECK, ncCheck, NC_ST, NC_STATUS, NF, personName, type CapItem, type Founder, type NcStatus } from '@wise/core/office';
 import { formationCases, officeTasks } from '@wise/db';
 import { db } from '@/lib/db';
 import { officePage } from '@/lib/office';
@@ -42,6 +42,8 @@ export default async function OsnovanjePage({ searchParams }: { searchParams: Pr
               <Link className="btn" href="/osnovanje">Затвори</Link>
             </div></div>
           {c && <input type="hidden" name="id" value={c.id} />}
+          {c && (() => { const E = ncCheck({ ...c, capEur: cap?.eur || Number(c.data.capital) || 0 }); return E.length ? <div className="callout warn"><b>Недостасува / проверете ({E.length}):</b> {E.join(' · ')}</div> : <div className="callout good">✓ Сите основни податоци се внесени.</div>; })()}
+          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Податоци за друштвото</h3>
           <div className="form">
             <label className="f">Назив*<input name="name" defaultValue={c?.name ?? ''} required /></label>
             <label className="f">Правна форма<select name="form" defaultValue={c?.form ?? 'ДООЕЛ'}>{LEGAL_FORMS.map((x) => <option key={x}>{x}</option>)}</select></label>
@@ -63,7 +65,7 @@ export default async function OsnovanjePage({ searchParams }: { searchParams: Pr
               </tr>
             ))}
           </tbody></table></div>
-          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Проверка</h3>
+          <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Потребни документи</h3>
           {NC_CHECK.map((t, i) => <label key={t} className="chk" style={{ display: 'block' }}><input type="checkbox" name={`chk${i}`} defaultChecked={!!c?.checklist[t]} /> {t}</label>)}
           {tasks.length > 0 && <p className="note">Задачи: {tasks.map((t) => `${t.title} (${t.status})`).join(', ')}</p>}
           {c && <div className="row" style={{ flexWrap: 'wrap', gap: 4, margin: '6px 0' }}><OwnTplLinks src={`osn:${c.id}`} docs={OSN_DOCS.map((t) => ({ k: `d:${t}`, label: t }))} /></div>}

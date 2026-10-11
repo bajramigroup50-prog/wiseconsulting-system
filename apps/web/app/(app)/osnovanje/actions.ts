@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { isNcStatus, LEGAL_FORMS, NC_CHECK, NF, sharesOk, taskTransition, type Founder } from '@wise/core/office';
 import { audit, firms, formationCases, getOfficeProfile, officeTasks } from '@wise/db';
-import { requireCan } from '@/lib/auth';
+import { Forbidden, requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fnum, fv, isUuid, officeError } from '@/lib/office';
@@ -71,7 +71,8 @@ export async function formationTask(id: string): Promise<ActionState> {
 export async function createFirmFromFormation(id: string): Promise<ActionState> {
   try {
     if (!isUuid(id)) return { error: 'Не постои.' };
-    const u = await requireCan('firms');
+    let u;
+    try { u = await requireCan('firms'); } catch (e) { if (e instanceof Forbidden) return { error: 'Немате право да креирате фирми.' }; throw e; }
     const msg = await db().transaction(async (tx) => {
       const [c] = await tx.select().from(formationCases).where(eq(formationCases.id, id)).for('update');
       if (!c) return 'Не постои.';
