@@ -5,6 +5,7 @@ Real-browser checks of the screens against a running dev server:
 | File | What it proves |
 |---|---|
 | `nav-smoke.spec.ts` | Log in, create + open a firm, open every menu group and every submenu (flyouts must stay inside the window) and click through every item (~160 screens); fails on console / hydration errors, page errors, 5xx responses and the error boundary „Се појави грешка“. Firm editor: PNG upload to logo / signature / stamp and the file served back. |
+| `safety.spec.ts` | Login is the first screen → year screen → firm list; two tabs of different firms: the stale tab shows „освежете ја страницата“ and its save is refused (nothing in the other firm); top-bar year change needs a confirmation and shows the „Работите во …“ strip; a new browser context has no session. |
 | `flows.spec.ts` | Partner and item forms → invoice editor (18 % + 5 %) → print view → credit note → VAT book; bank statement (camt.053 XML) for a firm without a bank account → account opened → automatic booking review; opening balance from Excel in the editor → Бруто биланс totals. |
 
 The amounts per konto of the same workflows are asserted by the vitest suites (no browser):

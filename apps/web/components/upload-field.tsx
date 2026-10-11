@@ -8,6 +8,7 @@
  */
 import { useState } from 'react';
 import { uploadFile } from '@/lib/upload';
+import { UploadTarget } from '@/components/firm-guard';
 
 async function shrink(f: File): Promise<File> {
   if (!/^image\//.test(f.type) || f.type === 'image/gif') return f;
@@ -52,6 +53,7 @@ export function UploadField({ firmId, name = 'fileIds', label = '📎 Прика
           <input type="file" multiple hidden disabled={busy} accept={accept} onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
         </label>
       </div>
+      {firmId && <UploadTarget compact />}
       {busy && <span className="note"> Се прикачува…</span>}
       {items.length > 0 && (
         <ul className="note" style={{ margin: '6px 0 0' }}>

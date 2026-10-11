@@ -10,6 +10,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { uploadFile } from '@/lib/upload';
+import { UploadTarget } from '@/components/firm-guard';
 import { scanStatus, startScans } from '@/app/(app)/skan/actions';
 
 export interface ScanOpts { kind: 'purchase' | 'sale'; batchId: string | null; cash?: boolean; warehouseId?: string; costOnly?: boolean }
@@ -93,6 +94,7 @@ export function ScanUpload({ firmId, opts, label, small, autoOpen, batchView }: 
   void tick;
   return (
     <div>
+      <UploadTarget compact={small} />
       <label className={'drop' + (small ? ' drop-sm' : '') + (on ? ' on' : '')} onDragOver={(e) => { e.preventDefault(); setOn(true); }} onDragLeave={() => setOn(false)}
         onDrop={(e) => { e.preventDefault(); setOn(false); void run([...e.dataTransfer.files]); }} onClick={() => ref.current?.click()} style={{ display: 'block', cursor: busy ? 'progress' : 'pointer' }}>
         {label}

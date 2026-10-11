@@ -34,6 +34,17 @@ export async function login(page: Page) {
   await page.locator('input[name=password]').fill(ADMIN.pass);
   await page.getByRole('button', { name: 'Најави се' }).click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+  await chooseYear(page);
+}
+
+/** After the login the year screen comes first: continue in the preselected (calendar) year, or `year`. */
+export async function chooseYear(page: Page, year?: number) {
+  const yp = page.locator('#yearPicker');
+  await expect(yp.or(page.locator('#nav > .mg, h1:has-text("Изберете фирма")')).first()).toBeVisible();
+  if (!(await yp.count())) return;
+  if (year) await yp.getByRole('listitem').filter({ hasText: new RegExp(`^${year}`) }).click();
+  else await yp.getByRole('button', { name: /Продолжи во/ }).click();
+  await expect(yp).toHaveCount(0);
 }
 
 /** Creates a firm through the full firm form (VAT monthly) and opens it. Returns its name. */

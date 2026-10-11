@@ -6,12 +6,26 @@ import { redirect } from 'next/navigation';
 import { and, eq, gt, lt } from 'drizzle-orm';
 import { can, type Principal } from '@wise/core';
 import { sessions, userFirms, users, type User } from '@wise/db';
+import { FIRM_CHANGED_MSG, YEAR_CHANGED_MSG } from './firm-guard';
 import { db } from './db';
 
 export const SESSION_COOKIE = 'wc_sess';
-/** Legacy: 30 days with "remember me", otherwise half a day. */
-const LONG_MS = 30 * 864e5;
-const SHORT_MS = 0.5 * 864e5;
+/** Must match `FIRM_COOKIE` / `YEAR_COOKIE` in `lib/context.ts` (not imported: context imports this module). */
+const FIRM_COOKIE = 'wc_fid';
+const YEAR_COOKIE = 'wc_year';
+/**
+ * Session lifetime (safety: the app always starts at the login screen):
+ * - the cookie is a browser-session cookie (no Expires / Max-Age) — closing the browser / desktop app ends it;
+ * - idle timeout: the server-side expiry slides 60 minutes ahead of the last request;
+ * - absolute limit: 8 hours after the login, whatever the activity (a restored browser session cannot live on).
+ */
+export const IDLE_MS = 60 * 6e4;
+export const ABSOLUTE_MS = 8 * 36e5;
+/** The sliding expiry is written at most once per this interval (not on every request). */
+const TOUCH_MS = 5 * 6e4;
+
+/** New expiry after activity at `now` for a session created at `createdAt`. */
+export const slideExpiry = (createdAt: Date, now: number): Date => new Date(Math.min(createdAt.getTime() + ABSOLUTE_MS, now + IDLE_MS));
 
 const tokenId = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -19,9 +33,9 @@ export type SessionUser = Pick<User, 'id' | 'username' | 'name' | 'email' | 'rol
   principal: Principal;
 };
 
-export async function createSession(userId: string, remember: boolean): Promise<void> {
+export async function createSession(userId: string): Promise<void> {
   const token = randomBytes(32).toString('base64url');
-  const expiresAt = new Date(Date.now() + (remember ? LONG_MS : SHORT_MS));
+  const expiresAt = new Date(Date.now() + IDLE_MS);
   const h = await headers();
   await db().insert(sessions).values({
     id: tokenId(token),
@@ -30,13 +44,12 @@ export async function createSession(userId: string, remember: boolean): Promise<
     ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: h.get('user-agent')?.slice(0, 300) ?? null,
   });
-  (await cookies()).set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    ...(remember ? { expires: expiresAt } : {}),
-  });
+  const jar = await cookies();
+  // session cookie: no `expires` / `maxAge` — it ends with the browser
+  jar.set(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' });
+  // after the login the year and the firm are chosen again (year screen → firm list), never the last ones silently
+  jar.delete(FIRM_COOKIE);
+  jar.delete(YEAR_COOKIE);
 }
 
 export async function destroySession(): Promise<void> {
@@ -44,6 +57,8 @@ export async function destroySession(): Promise<void> {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) await db().delete(sessions).where(eq(sessions.id, tokenId(token)));
   jar.delete(SESSION_COOKIE);
+  jar.delete(FIRM_COOKIE);
+  jar.delete(YEAR_COOKIE);
 }
 
 export async function deleteExpiredSessions(): Promise<void> {
@@ -54,13 +69,20 @@ export async function deleteExpiredSessions(): Promise<void> {
 export const getUser = cache(async (): Promise<SessionUser | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
+  const id = tokenId(token);
   const [row] = await db()
-    .select({ u: users })
+    .select({ u: users, exp: sessions.expiresAt, created: sessions.createdAt })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
-    .where(and(eq(sessions.id, tokenId(token)), gt(sessions.expiresAt, new Date()), eq(users.active, true)))
+    .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date()), gt(sessions.createdAt, new Date(Date.now() - ABSOLUTE_MS)), eq(users.active, true)))
     .limit(1);
   if (!row) return null;
+  // idle timeout: activity pushes the expiry (throttled), never past the absolute limit
+  const now = Date.now();
+  const next = slideExpiry(row.created, now);
+  if (next.getTime() - row.exp.getTime() > TOUCH_MS) {
+    await db().update(sessions).set({ expiresAt: next }).where(eq(sessions.id, id)).catch(() => {});
+  }
   const u = row.u;
   const firmIds = u.allFirms || u.role === 'admin'
     ? ['*']
@@ -80,6 +102,19 @@ export async function requireUser(): Promise<SessionUser> {
 
 export class Forbidden extends Error {
   constructor(action: string) { super(`Немате дозвола за оваа активност (${action}).`); }
+}
+
+/**
+ * The page that sent the request was rendered for another firm than the current one (another tab / window switched
+ * firm) — the mutation is refused (`lib/firm-guard.ts`). A `Forbidden`, so every action's error handler shows it.
+ */
+export class FirmChanged extends Forbidden {
+  constructor() { super('firm'); this.name = 'FirmChanged'; this.message = FIRM_CHANGED_MSG; }
+}
+
+/** Same for the working year (another tab chose another year). */
+export class YearChanged extends Forbidden {
+  constructor() { super('year'); this.name = 'YearChanged'; this.message = YEAR_CHANGED_MSG; }
 }
 
 /** The guard used by every server action and route handler. */
