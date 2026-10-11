@@ -35,6 +35,8 @@ test('every menu item opens without errors', async ({ page }) => {
   const nGroups = await (await groupButtons(page)).count();
   expect(nGroups).toBeGreaterThan(5);
   const visited = new Set<string>();
+  const states = new Set<string>();
+  const stateKeys = new Set<string>();
 
   for (let g = 0; g < nGroups; g++) {
     const gName = (await (await groupButtons(page)).nth(g).innerText()).trim();
@@ -95,10 +97,32 @@ test('every menu item opens without errors', async ({ page }) => {
       visited.add(path);
       if (await page.getByText(ERROR_TEXT).count()) fail(`${gName} › ${t.label} (${path}): error boundary`);
       for (const e of w.take()) fail(`${gName} › ${t.label} (${path}): ${e}`);
+      // the screen's own states (+ Нов / ?edit / ?banks=1 …): links to the same path with a query, visited below
+      for (const h of await page.locator(`#main a[href^="${path}?"]`).evaluateAll((A) => A.map((a) => a.getAttribute('href') ?? ''))) {
+        if (/[?&](del|delete|dl|download|print|pdf|csv|xlsx)=/i.test(h)) continue;
+        // one link per pattern: `?edit=<id>` of the 30 cities is one state, not 30
+        const key = h.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, ':id').replace(/=\d+/g, '=:n');
+        if (!stateKeys.has(key)) { stateKeys.add(key); states.add(h); }
+      }
     }
     await page.keyboard.press('Escape');
   }
   console.log(`visited ${visited.size} screens`);
+
+  // second pass: every in-screen state link found above (new / edit forms, tabs, filters) — nested forms, function
+  // props to client components and similar render errors show up only there
+  const L = [...states].slice(0, Number(process.env.E2E_MAX_STATES ?? 400));
+  console.log(`visiting ${L.length} screen states`);
+  for (const h of L) {
+    console.log(`→ ${h}`);
+    try {
+      await page.goto(h);
+      await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    } catch (e) { fail(`${h}: ${String((e as Error).message).split(String.fromCharCode(10))[0]}`); continue; }
+    if (new URL(page.url()).pathname.startsWith('/login')) { fail(`${h}: logged out`); await login(page); await openFirm(page, firmName); continue; }
+    if (await page.getByText(ERROR_TEXT).count()) fail(`${h}: error boundary`);
+    for (const e of w.take()) fail(`${h}: ${e}`);
+  }
   expect(failures, failures.join('\n')).toEqual([]);
 });
 

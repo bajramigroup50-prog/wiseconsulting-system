@@ -16,7 +16,7 @@ const FIRM = `Е2Е ТЕК ТОК ${stamp} ДООЕЛ`;
 const CUST = `КУПУВАЧ ${stamp} ДООЕЛ`;
 const ITEM = `Консултантска услуга ${stamp}`;
 const year = new Date().getFullYear();
-const today = new Date().toISOString().slice(0, 10);
+const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Skopje' });
 let invoiceId = '';
 
 const editor = (page: Page) => page.locator('form:has(input[name=payload])');
