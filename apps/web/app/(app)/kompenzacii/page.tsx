@@ -55,7 +55,7 @@ export default async function KompenzaciiPage({ searchParams }: { searchParams: 
       <Hd t="Компензации" sub={`билатерални и мултилатерални · ${year}`}>
         {write && <Link className="btn pri" href="/kompenzacii?nov">+ Нова компензација</Link>}
       </Hd>
-      {saved && <div className="callout good">Компензацијата {saved.number} е зачувана и книжена. <Link href={`/kompenzacii/print?id=${saved.id}`} target="_blank">🖨 Изјава</Link></div>}
+      {saved && <div className="callout good">Компензацијата {saved.number} е зачувана и прокнижена; фактурите се затворени за {fmt(Number(saved.total))}. <Link href={`/kompenzacii/print?id=${saved.id}`} target="_blank">🖨 Изјава</Link></div>}
       {open && (
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>{edit ? 'Компензација ' + edit.number : 'Нова компензација'}</h2><Link className="btn" href="/kompenzacii">Откажи</Link></div>
@@ -63,7 +63,7 @@ export default async function KompenzaciiPage({ searchParams }: { searchParams: 
             <form className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
               {edit ? <input type="hidden" name="edit" value={edit.id} /> : <input type="hidden" name="nov" value="" />}
               <label className="f">Вид<select name="kind" defaultValue={kind}><option value="bi">Билатерална</option><option value="multi">Мултилатерална</option></select></label>
-              <label className="f" style={{ minWidth: 260 }}>Комитенти{kind === 'multi' ? ' (Ctrl за повеќе)' : ''}
+              <label className="f" style={{ minWidth: 260 }}>Додај комитент{kind === 'multi' ? ' (Ctrl за повеќе)' : ''}
                 <select name="p" multiple={kind === 'multi'} defaultValue={kind === 'multi' ? pids : pids[0] ?? ''} size={kind === 'multi' ? 6 : undefined}>
                   {kind !== 'multi' && <option value="">— изберете —</option>}
                   {P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -87,7 +87,8 @@ export default async function KompenzaciiPage({ searchParams }: { searchParams: 
                   <tbody>{rows.map((r, i) => (
                     <tr key={r.refId}><td>{pName.get(r.partnerId)}</td><td>{r.side === 'rec' ? 'Наше побарување' : 'Наша обврска'}</td><td>{r.docNo || <i className="mut">без број</i>}</td>
                       <td>{dmy(r.date)}</td><td>{r.konto}</td><td className="n">{fmt(r.open / 100)}</td>
-                      <td className="n"><input name={`amt:${r.refId}`} data-side={r.side} defaultValue={amt(r.refId, i)} inputMode="decimal" style={{ width: 120, textAlign: 'right' }} aria-label="Износ" /></td></tr>
+                      <td className="n"><input name={`amt:${r.refId}`} data-side={r.side} defaultValue={amt(r.refId, i)} inputMode="decimal" style={{ width: 120, textAlign: 'right' }} aria-label="Износ" />
+                        <input type="hidden" name={`side:${r.refId}`} value={r.side} /><input type="hidden" name={`open:${r.refId}`} value={r.open / 100} /><input type="hidden" name={`doc:${r.refId}`} value={r.docNo} /></td></tr>
                   ))}</tbody>
                   <KompTotals />
                 </table></div>
