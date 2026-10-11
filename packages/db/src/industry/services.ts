@@ -142,6 +142,7 @@ export async function saveAppointment(tx: Tx, a: IndActor, x: ApptInput): Promis
 }
 
 export async function setApptStatus(tx: Tx, a: IndActor, id: string, status: AppointmentRow['status'] | 'reminded'): Promise<AppointmentRow> {
+  await loadIndustryFirm(tx, a.firmId, 'appt');
   const r = await ownAppt(tx, a.firmId, id);
   if (status === 'reminded') await tx.update(appointments).set({ remindAt: new Date() }).where(eq(appointments.id, id));
   else await tx.update(appointments).set({ status }).where(eq(appointments.id, id));

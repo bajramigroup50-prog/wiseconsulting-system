@@ -124,6 +124,7 @@ export async function saveDiary(tx: Tx, a: IndActor, d: DiaryInput): Promise<str
 
 /** Legacy `pcLink`: tag purchases / cash payments as costs of the project (a document belongs to one project). */
 export async function linkCosts(tx: Tx, a: IndActor, projectId: string, refs: { type: 'purchase' | 'cash_voucher'; id: string }[], unlink = false): Promise<number> {
+  await loadIndustryFirm(tx, a.firmId, MOD);
   await ownProject(tx, a.firmId, projectId);
   let k = 0;
   for (const r of refs) {
