@@ -12,6 +12,10 @@
  * registration date (`regDate`) deliberately do not move the first year back (user decision 2026-10-11: earlier
  * years stay empty until the user fills them).
  *
+ * Years after the current calendar year (Skopje) stay empty until the user carries the balances there: a firm is
+ * listed in a future year only when it has data dated in that year or later (the „Почетна состојба“ `open-<Y>` posted
+ * by the year-end carry counts) or its explicit `fromYear` is that year (user decision 2026-10-11).
+ *
  * The SQL twin of `firmActiveIn` is `firmInYearSql` in `@wise/db` (same rule, used to filter lists in the database).
  */
 
@@ -57,19 +61,31 @@ export function firmFromYear(f: FirmYearSrc, firstDataYear?: number | null, fall
   return firstDataYear != null && Number.isFinite(firstDataYear) && firstDataYear < c ? firstDataYear : c;
 }
 
-/** Is the firm listed in `year`? */
-export function firmActiveIn(f: FirmYearSrc, year: number, firstDataYear?: number | null): boolean {
+/** Current calendar year in Skopje. */
+export const fyNow = (): number => fyOfDate(new Date())!;
+
+/** Future year (after `nowYear`) without a carry / data there yet, for a firm that started earlier. */
+function fyNotCarried(f: FirmYearSrc, year: number, from: number, lastDataYear: number | null | undefined, nowYear: number): boolean {
+  return year > nowYear && from < year && !(lastDataYear != null && lastDataYear >= year);
+}
+
+/** Is the firm listed in `year`? `lastDataYear` = year of its latest journal / invoice / purchase. */
+export function firmActiveIn(f: FirmYearSrc, year: number, firstDataYear?: number | null, lastDataYear?: number | null, nowYear = fyNow()): boolean {
   const to = firmToYear(f);
   if (to != null && year > to) return false;
-  return firmFromYear(f, firstDataYear, year) <= year;
+  const from = firmFromYear(f, firstDataYear, year);
+  return from <= year && !fyNotCarried(f, year, from, lastDataYear, nowYear);
 }
 
 /** Callout for a selected firm outside the selected year, or `null` when it works in that year. */
-export function firmYearNote(f: FirmYearSrc, year: number, firstDataYear?: number | null): string | null {
+export function firmYearNote(f: FirmYearSrc, year: number, firstDataYear?: number | null, lastDataYear?: number | null, nowYear = fyNow()): string | null {
   const to = firmToYear(f);
   if (to != null && year > to) return `Фирмата не е активна во ${year} – затворена е во ${to}.`;
   const from = firmFromYear(f, firstDataYear, year);
-  return from > year ? `Фирмата не е активна во ${year} – работи од ${from}.` : null;
+  if (from > year) return `Фирмата не е активна во ${year} – работи од ${from}.`;
+  if (fyNotCarried(f, year, from, lastDataYear, nowYear))
+    return `Фирмата сè уште нема пренос во ${year} – затворете ја ${year - 1} и пренесете ги салдата.`;
+  return null;
 }
 
 /** Settings after deactivation (legacy delFirm → archive): `toYear` = the current year unless one is already set. */

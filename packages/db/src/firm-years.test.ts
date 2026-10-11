@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { firmActiveIn } from '@wise/core/firms/years';
-import { firmFirstDataYear, firmFirstDataYears, firmInYearSql, firmListedIn } from './firm-years';
+import { firmFirstDataYear, firmFirstDataYears, firmInYearSql, firmLastDataYears, firmListedIn } from './firm-years';
 import * as schema from './schema/index';
 
 const db = drizzle(new PGlite(), { schema });
@@ -25,8 +25,11 @@ beforeAll(async () => {
   await add('Затворена 2024', { settings: { fromYear: '2020', toYear: '2024' } });
   await add('Архивирана', { active: false, settings: { fromYear: '2020' } });
   await add('Стара 2019', { createdAt: new Date('2019-05-01T10:00:00Z') });
+  await add('Пренесена 2027', {});
+  await add('Од 2027', { settings: { fromYear: '2027' } });
   await db.insert(schema.journals).values({ firmId: id['Со налози 2024']!, date: '2024-03-15', kind: 'manual', number: '1021' });
   await db.insert(schema.journals).values({ firmId: id['Со налози 2024']!, date: '2026-01-01', kind: 'open', number: '1' });
+  await db.insert(schema.journals).values({ firmId: id['Пренесена 2027']!, date: '2027-01-01', kind: 'open', number: 'open-2027' });
   await db.insert(schema.invoices).values({ firmId: id['Со фактура 2025']!, kind: 'invoice', date: '2025-02-01', number: '1' });
 }, 60_000);
 
@@ -40,8 +43,13 @@ describe('firm working years in SQL (picker / list filter)', () => {
     expect(await listed(2025)).toEqual(['Од 2023', 'Со налози 2024', 'Со фактура 2025', 'Стара 2019'].sort());
   });
   it('2026 lists every working firm, never the archived one', async () => {
-    expect(await listed(2026)).toEqual(['Нова 2026', 'Од 2023', 'Со налози 2024', 'Со фактура 2025', 'Стара 2019'].sort());
+    expect(await listed(2026)).toEqual(['Нова 2026', 'Од 2023', 'Пренесена 2027', 'Со налози 2024', 'Со фактура 2025', 'Стара 2019'].sort());
     expect(await listed(2022)).toEqual(['Затворена 2024', 'Стара 2019'].sort());
+  });
+  it('a future year (2027 while it is 2026) lists only firms carried there or starting there', async () => {
+    const r = (await db.select({ name: schema.firms.name }).from(schema.firms).where(and(firmInYearSql(2027, 2026)))).map((x) => x.name).sort();
+    expect(r).toEqual(['Од 2027', 'Пренесена 2027'].sort());
+    expect((await firmLastDataYears(db)).get(id['Пренесена 2027']!)).toBe(2027);
   });
   it('first data year and the core rule agree with SQL', async () => {
     expect(await firmFirstDataYear(db, id['Со налози 2024']!)).toBe(2024);
@@ -49,8 +57,9 @@ describe('firm working years in SQL (picker / list filter)', () => {
     expect(await firmFirstDataYear(db, id['Нова 2026']!)).toBeNull();
     const all = await db.select().from(schema.firms);
     for (const y of [2019, 2022, 2024, 2025, 2026, 2027]) {
-      const sqlIds = new Set((await db.select({ id: schema.firms.id }).from(schema.firms).where(and(firmInYearSql(y)))).map((r) => r.id));
-      for (const f of all) expect([f.name, y, sqlIds.has(f.id)]).toEqual([f.name, y, firmActiveIn(f, y, await firmFirstDataYear(db, f.id))]);
+      const sqlIds = new Set((await db.select({ id: schema.firms.id }).from(schema.firms).where(and(firmInYearSql(y, 2026)))).map((r) => r.id));
+      const last = await firmLastDataYears(db);
+      for (const f of all) expect([f.name, y, sqlIds.has(f.id)]).toEqual([f.name, y, firmActiveIn(f, y, await firmFirstDataYear(db, f.id), last.get(f.id), 2026)]);
     }
   });
   it('firmFirstDataYears: earliest year per firm over journals and invoices', async () => {

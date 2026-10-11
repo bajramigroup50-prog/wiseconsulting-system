@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { eq } from 'drizzle-orm';
 import { firmAllowed } from '@wise/core';
 import { firmActiveIn, firmYearNote } from '@wise/core/firms/years';
-import { firmFirstDataYear, firms, type Firm } from '@wise/db';
+import { firmFirstDataYear, firmLastDataYears, firms, type Firm } from '@wise/db';
 import { db } from './db';
 import type { SessionUser } from './auth';
 
@@ -36,5 +36,9 @@ export async function currentYear(): Promise<number> {
  */
 export async function firmYearCallout(firm: Pick<Firm, 'id' | 'settings' | 'createdAt'>, year: number): Promise<string | null> {
   if (firmActiveIn(firm, year)) return null;
-  return firmYearNote(firm, year, await firmFirstDataYear(db(), firm.id).catch(() => null));
+  const [first, last] = await Promise.all([
+    firmFirstDataYear(db(), firm.id).catch(() => null),
+    firmLastDataYears(db(), [firm.id]).then((m) => m.get(firm.id) ?? null).catch(() => null),
+  ]);
+  return firmYearNote(firm, year, first, last);
 }

@@ -9,7 +9,7 @@ import { asc, eq, ilike, inArray, or, sql, and } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { FR_F, frList, isFrFilter } from '@wise/core/firms/firmform';
 import { firmActiveIn, firmFromYear, firmToYear } from '@wise/core/firms/years';
-import { firmFirstDataYears, firmInYearSql, firms, userFirms } from '@wise/db';
+import { firmFirstDataYears, firmInYearSql, firmLastDataYears, firms, userFirms } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -39,6 +39,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const all = await db().select().from(firms).where(and(scoped, eq(firms.active, true), allYears ? undefined : firmInYearSql(year))).orderBy(asc(firms.name));
   const nOther = allYears ? 0 : ((await db().select({ n: sql<number>`count(*)::int` }).from(firms).where(and(scoped, eq(firms.active, true))))[0]?.n ?? 0) - all.length;
   const fdy = await firmFirstDataYears(db(), all.map((f) => f.id));
+  const ldy = allYears ? await firmLastDataYears(db(), all.map((f) => f.id)) : new Map<string, number>();
   const yrs = (f: typeof all[number]) => { const a = firmFromYear(f, fdy.get(f.id)), b = firmToYear(f); return `${a}–${b ?? ''}`; };
   const archived = admin && sp.arh !== undefined ? await db().select().from(firms).where(eq(firms.active, false)).orderBy(asc(firms.name)) : [];
   const nArch = admin ? (await db().select({ n: sql<number>`count(*)::int` }).from(firms).where(eq(firms.active, false)))[0]?.n ?? 0 : 0;
@@ -104,7 +105,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
                 {rows.map((f) => (
                   <tr key={f.id}>
                     <td>{f.code && <span className="mut">{f.code} · </span>}{f.name}{f.example && <> <span className="pill warn">пример</span></>}{f.id === cur?.id && <> <span className="pill good">тековна</span></>}
-                      {allYears && !firmActiveIn(f, year, fdy.get(f.id)) && <> <span className="pill warn">не е активна во {year}</span></>}</td>
+                      {allYears && !firmActiveIn(f, year, fdy.get(f.id), ldy.get(f.id)) && <> <span className="pill warn">не е активна во {year}</span></>}</td>
                     <td>{f.edb ?? ''}</td>
                     <td>{f.vatRegistered ? 'Да · ' + (f.vatPeriod === 'month' ? 'месечно' : 'тримесечно') : 'Не'}</td>
                     <td className="mut">{yrs(f)}</td>

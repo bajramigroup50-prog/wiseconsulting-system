@@ -6,10 +6,18 @@ import { firmActiveIn, firmFromYear, firmToYear, firmYearNote, fyCheck, fyOfDate
 const NEW = { settings: {}, createdAt: new Date('2026-10-11T08:00:00Z') };
 
 describe('firm working years (firmActiveIn)', () => {
+  it('a future year stays empty until the balances are carried there (or the firm starts in it)', () => {
+    expect(firmActiveIn(NEW, 2027, null, null, 2026)).toBe(false);
+    expect(firmActiveIn(NEW, 2027, null, 2026, 2026)).toBe(false);
+    expect(firmActiveIn(NEW, 2027, null, 2027, 2026)).toBe(true); // „Почетна состојба“ 01.01.2027 posted by the carry
+    expect(firmActiveIn({ settings: { fromYear: '2027' }, createdAt: NEW.createdAt }, 2027, null, null, 2026)).toBe(true);
+    expect(firmYearNote(NEW, 2027, null, null, 2026)).toBe('Фирмата сè уште нема пренос во 2027 – затворете ја 2026 и пренесете ги салдата.');
+    expect(firmYearNote(NEW, 2027, null, 2027, 2026)).toBeNull();
+  });
   it('a firm entered in 2026 without older data exists only from 2026', () => {
     expect(firmFromYear(NEW)).toBe(2026);
     expect(firmActiveIn(NEW, 2026)).toBe(true);
-    expect(firmActiveIn(NEW, 2027)).toBe(true);
+    expect(firmActiveIn(NEW, 2027, null, null, 2027)).toBe(true);
     expect(firmActiveIn(NEW, 2025)).toBe(false);
     expect(firmActiveIn(NEW, 2024)).toBe(false);
   });
