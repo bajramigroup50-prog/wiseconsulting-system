@@ -10,6 +10,7 @@ import {
   deleteWorkOrder, firmAutoConfig, invoiceWorkOrder, liveVehicles, markVehicleReminded, orderTrack, recordPosition, saveAutoConfig, saveCustomerVehicle,
   saveFirmModules, saveTravelOrder, saveVehicle, saveWorkOrder, stockOnHand, travelOrderEvent, IndustryError, type IndActor,
 } from './industry/index';
+import { approveInvoice } from './sales/invoices';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -84,9 +85,16 @@ describe('auto service', () => {
     expect(i!.data.source).toEqual({ type: 'work_order', id: wo });
     const L = await db.select().from(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, inv.id));
     expect(L.map((l) => [l.name, Number(l.qty), Number(l.disc)])).toEqual([['Филтер масло', 2, 10], ['Работа: Замена масло и филтри', 1, 0]]);
-    expect((await stockOnHand(db as never, A.firmId, [part])).get(part)).toBe(-1);
+    // legacy `woInv` → `bzInvDraft`: the invoice is a DRAFT — nothing booked, no part left stock, the order stays editable
+    expect(i!.status).toBe('draft');
+    expect((await stockOnHand(db as never, A.firmId, [part])).get(part)).toBe(1);
     const [w] = await db.select().from(schema.workOrders).where(eq(schema.workOrders.id, wo));
     expect([w!.status, w!.invoiceId]).toEqual(['done', inv.id]);
+    const again = await tx((t) => invoiceWorkOrder(t, A, wo, '2026-10-02', true));
+    expect(again.id).toBe(inv.id);
+    // the user confirms the draft in the invoice editor → booked, parts issued, the order is frozen
+    await tx((t) => approveInvoice(t, A.firmId, inv.id, A));
+    expect((await stockOnHand(db as never, A.firmId, [part])).get(part)).toBe(-1);
     expect((await err(tx((t) => saveWorkOrder(t, A, { id: wo, date: '2026-10-01', vehicleId: veh, partnerId: cust, parts: [], labour: [] })))).message).toMatch(/фактуриран/);
     expect((await err(tx((t) => deleteWorkOrder(t, A, wo)))).message).toMatch(/фактуриран/);
   });
