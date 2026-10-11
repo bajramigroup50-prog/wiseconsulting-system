@@ -154,7 +154,7 @@ export default async function Pnalozi({ searchParams }: { searchParams: Promise<
             {v?.capKg ? <label className="chk"><input type="checkbox" name="overOk" style={{ width: 'auto' }} /> Сепак зачувај (товар над носивоста)</label> : null}
             <Link className="btn" href="/pnalozi">Откажи</Link><button className="btn pri">Зачувај</button></div>}
         </BankForm>
-        {x && write && <TravelOrderFlow x={x} />}
+        {x && write && <TravelOrderFlow x={x} events={false} />}
         {x && write && <div className="row" style={{ gap: 8 }}><span style={{ flex: 1 }} />
           {(x.status === 'open' || del) && <RowAction className="btn ghost" style={{ color: 'var(--bad)' }} action={travelOrderStepAction.bind(null, x.id, 'del')} confirm={`Да се избрише патниот налог ${x.number}?`} label="🗑 Избриши" />}
         </div>}

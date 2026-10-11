@@ -8,12 +8,12 @@
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react';
 import type { FormState } from './bank-form';
 
-function getGeo(): Promise<{ lat: number; lon: number } | null> {
+function getGeo(): Promise<{ lat: number; lon: number; acc?: number } | null> {
   if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null);
   return new Promise((ok) => {
     const t = setTimeout(() => ok(null), 8000);
     navigator.geolocation.getCurrentPosition(
-      (p) => { clearTimeout(t); ok({ lat: +p.coords.latitude.toFixed(6), lon: +p.coords.longitude.toFixed(6) }); },
+      (p) => { clearTimeout(t); ok({ lat: +p.coords.latitude.toFixed(6), lon: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy) }); },
       () => { clearTimeout(t); ok(null); },
       { enableHighAccuracy: true, maximumAge: 30000, timeout: 7500 },
     );
@@ -21,8 +21,14 @@ function getGeo(): Promise<{ lat: number; lon: number } | null> {
 }
 
 /** A form whose submit first adds `lat` / `lon` (and nothing else changes for the server action). */
-export function DriverForm({ action, children, className, style }: {
+export function DriverForm({ action, children, className, style, confirmMsg, needOne, cashOpen }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>; children: React.ReactNode; className?: string; style?: React.CSSProperties;
+  /** Legacy `askConfirm` before sending (pnDep: not loaded goods, pnRet: open stops). */
+  confirmMsg?: string;
+  /** Legacy pnDeliv: when all these fields are empty ask „Нема име ниту потпис на примачот…“. */
+  needOne?: string[];
+  /** Legacy pnDeliv: debt of the invoice — cash above it (+0.5) asks for a confirmation. */
+  cashOpen?: number;
 }) {
   const [st, run, pending] = useActionState<FormState, FormData>(action, {});
   const [locating, start] = useTransition();
@@ -32,10 +38,15 @@ export function DriverForm({ action, children, className, style }: {
       onSubmit={(e) => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
+        if (confirmMsg && !window.confirm(confirmMsg)) return;
+        if (needOne?.length && needOne.every((k) => !String(fd.get(k) ?? '').trim()) && !window.confirm('Нема име ниту потпис на примачот. Сепак да се означи како испорачано?')) return;
+        const cash = Number(String(fd.get('cash') ?? '').replace(',', '.')) || 0;
+        if (cash < 0) { setNote('Износот не може да биде негативен.'); return; }
+        if (cash && cashOpen && cashOpen > 0 && cash > cashOpen + 0.5 && !window.confirm(`Наплатено (${cash}) е повеќе од долгот по фактурата (${cashOpen}). Точно?`)) return;
         setNote('Се зема GPS локацијата…');
         start(async () => {
           const g = await getGeo();
-          if (g) { fd.set('lat', String(g.lat)); fd.set('lon', String(g.lon)); }
+          if (g) { fd.set('lat', String(g.lat)); fd.set('lon', String(g.lon)); if (g.acc != null) fd.set('acc', String(g.acc)); }
           setNote(g ? '' : 'GPS не е достапен – забележано без локација.');
           start(() => run(fd));
         });
