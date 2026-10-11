@@ -13,7 +13,9 @@ import { Pill } from '@/components/file-chips';
 import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deleteRecurring, runRecurring, saveRecurring } from './actions';
+import { deleteRecurring, importRecurringAction, runRecurring, saveRecurring } from './actions';
+import { oxTemplate, REC_IMPORT } from '@wise/core/industry';
+import { XlsxImport } from '@/components/list-tools';
 
 const total = (items: { qty: number; price: number; vat: number }[]) => r2(items.reduce((a, l) => a + l.qty * l.price * (1 + l.vat / 100), 0));
 
@@ -38,6 +40,7 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
         <Link className="btn" href="/periodicni?nov&bulk">👥 За повеќе комитенти</Link>
         <RowAction className="btn" action={runRecurring} label={`🧾 Издади доспеани (${due.length})`} />
       </Hd>
+      <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importRecurringAction} template={oxTemplate(REC_IMPORT, [['Купувач ДОО', '4030000000000', 'месечно', '1', '01.11.2026', '', 15, 'Сметководствени услуги за {месец}', 'Сметководствени услуги', 1, 6000, 18, 'да']])} templateName="Periodicni_obrazec.xlsx" label="📥 Периодични од Excel" /></div>
       {(sp.nov !== undefined || e) && (
         <ActionForm action={saveRecurring} reset={false}>
           <h2>{e ? 'Измена' : sp.bulk !== undefined ? '🔁 Месечна фактура за повеќе комитенти' : 'Нова периодична фактура'}</h2>

@@ -1,50 +1,46 @@
-/** Legacy `VIEWS.frDok` 14603 → 14667 — лиценци и документи на возила и возачи, со истекувања (30 дена). */
+/**
+ * Legacy `VIEWS.frDok` 14603 + patch 14667 — 📋 Лиценци и документи (превоз): licences, CEMT permits, tachographs and
+ * drivers' documents with the 30-day expiry badge; one „+ Документ“ form with „За“ (vehicle / driver) switching the
+ * kinds and the list, hints when there are no vehicles / employees; Excel import with template.
+ */
 import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
-import { FR_DOC_DRIVER, FR_DOC_VEHICLE } from '@wise/core/industry';
+import { daysTo, FR_DOC_IMPORT_HEAD } from '@wise/core/industry';
 import { employees, fleetVehicles, listDocs, type FreightDoc } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
-import { industryPage } from '@/lib/industry';
-import { BankForm } from '@/components/bank-form';
+import { industryPage, today } from '@/lib/industry';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { deleteFreightDocAction, saveFreightDocAction } from '../pnalozi/actions';
+import { FrDocForm } from '@/components/freight-ui';
+import { XlsxImport } from '@/components/list-tools';
+import { frDocDeleteAction, frDocImportAction } from '../frTuri/actions';
 
-export default async function FrDok({ searchParams }: { searchParams: Promise<{ ed?: string; who?: string }> }) {
+export default async function FrDok({ searchParams }: { searchParams: Promise<{ ed?: string }> }) {
   const sp = await searchParams;
-  const g = await industryPage('frDok', 'Лиценци и документи');
+  const g = await industryPage('frDok', '📋 Лиценци и документи (превоз)');
   if (g.blocked) return g.blocked;
-  const V = await db().select({ id: fleetVehicles.id, n: fleetVehicles.plate }).from(fleetVehicles).where(eq(fleetVehicles.firmId, g.firm.id)).orderBy(asc(fleetVehicles.plate));
-  const Dr = await db().select({ id: employees.id, n: employees.name }).from(employees).where(eq(employees.firmId, g.firm.id)).orderBy(asc(employees.name));
-  const D = (await listDocs<FreightDoc>(db(), g.firm.id, 'frdoc')).sort((a, b) => String(a.data.validTo ?? '9').localeCompare(String(b.data.validTo ?? '9')));
-  const days = (d: string | null | undefined) => (d ? Math.round((Date.parse(d) - Date.now()) / 864e5) : null);
-  const E = sp.ed === 'new' ? { id: '', data: { who: (sp.who === 'drv' ? 'drv' : 'veh') as 'veh' | 'drv', ref: '', kind: '', no: '', validFrom: '', validTo: '', note: '' } } : D.find((x) => x.id === sp.ed);
-  const name = (x: FreightDoc) => (x.who === 'drv' ? Dr : V).find((y) => y.id === x.ref)?.n ?? '';
+  const T = today();
+  const V = await db().select({ id: fleetVehicles.id, plate: fleetVehicles.plate, name: fleetVehicles.name }).from(fleetVehicles).where(eq(fleetVehicles.firmId, g.firm.id)).orderBy(asc(fleetVehicles.plate));
+  const Dr = await db().select({ id: employees.id, name: employees.name }).from(employees).where(eq(employees.firmId, g.firm.id)).orderBy(asc(employees.name));
+  const D = (await listDocs<FreightDoc>(db(), g.firm.id, 'frdoc')).sort((a, b) => String(a.data.validTo || '9').localeCompare(String(b.data.validTo || '9')));
+  const E = sp.ed === 'new' ? { id: '', who: 'veh' as const, ref: '', kind: '', no: '', validFrom: '', validTo: '', note: '' }
+    : (() => { const x = D.find((y) => y.id === sp.ed); return x ? { id: x.id, who: x.data.who, ref: x.data.ref, kind: x.data.kind, no: x.data.no ?? '', validFrom: x.data.validFrom ?? '', validTo: x.data.validTo ?? '', note: x.data.note ?? '' } : null; })();
+  const who = (x: FreightDoc) => (x.who === 'drv' ? '👤 ' + (Dr.find((y) => y.id === x.ref)?.name ?? '?') : '🚛 ' + (V.find((y) => y.id === x.ref)?.plate ?? '?'));
+  const badge = (d: string | null | undefined) => { const n = daysTo(d, T); return n == null ? null : n < 0 ? <span className="pill bad">истечено</span> : n <= 30 ? <span className="pill warn">за {n} дена</span> : <span className="pill good">важи</span>; };
   return (
     <>
-      <Hd t="Лиценци и документи" sub="возила и возачи">
+      <Hd t="📋 Лиценци и документи (превоз)" sub={`${D.length} документи`}>
         <Link className="btn" href="/frTuri">🚛 Тури</Link>
-        {g.write && <><Link className="btn" href="/frDok?ed=new&who=veh">+ Документ за возило</Link><Link className="btn pri" href="/frDok?ed=new&who=drv">+ Документ за возач</Link></>}
+        {g.write && <Link className="btn pri" href="/frDok?ed=new">+ Документ</Link>}
       </Hd>
-      {E && g.write && <BankForm action={saveFreightDocAction} className="card">
-        <input type="hidden" name="id" value={E.id} /><input type="hidden" name="who" value={E.data.who} />
-        <div className="form">
-          <label className="f">{E.data.who === 'drv' ? 'Возач' : 'Возило'}<select name="ref" defaultValue={E.data.ref}><option value="">—</option>{(E.data.who === 'drv' ? Dr : V).map((x) => <option key={x.id} value={x.id}>{x.n}</option>)}</select></label>
-          <label className="f">Документ<select name="kind" defaultValue={E.data.kind}>{(E.data.who === 'drv' ? FR_DOC_DRIVER : FR_DOC_VEHICLE).map((k) => <option key={k}>{k}</option>)}</select></label>
-          <label className="f">Број<input name="no" defaultValue={E.data.no ?? ''} /></label>
-          <label className="f">Важи од<input name="validFrom" type="date" defaultValue={E.data.validFrom ?? ''} /></label>
-          <label className="f">Важи до<input name="validTo" type="date" defaultValue={E.data.validTo ?? ''} /></label>
-          <label className="f wide">Забелешка<input name="note" defaultValue={E.data.note ?? ''} /></label>
-        </div>
-        <div className="row" style={{ gap: 8 }}><span style={{ flex: 1 }} />{E.id && <RowAction className="btn ghost" action={deleteFreightDocAction.bind(null, E.id)} confirm="Да се избрише документот?" label="Избриши" />}<Link className="btn" href="/frDok">Откажи</Link><button className="btn pri">Зачувај</button></div>
-      </BankForm>}
-      <div className="tw"><table><thead><tr><th>За</th><th>Возило / возач</th><th>Документ</th><th>Број</th><th>Важи од</th><th>Важи до</th><th /></tr></thead>
-        <tbody>{D.map((x) => { const n = days(x.data.validTo); return (
-          <tr key={x.id}><td>{x.data.who === 'drv' ? 'возач' : 'возило'}</td><td><b>{name(x.data)}</b></td><td>{x.data.kind}</td><td>{x.data.no}</td><td>{dmy(x.data.validFrom)}</td>
-            <td>{x.data.validTo ? <span className={`pill ${n! < 0 ? 'bad' : n! <= 30 ? 'warn' : 'good'}`}>{dmy(x.data.validTo)}{n! < 0 ? ' истечено' : n! <= 30 ? ` за ${n} дена` : ''}</span> : ''}</td>
-            <td>{g.write && <Link className="btn sm" href={`/frDok?ed=${x.id}`}>Измени</Link>}</td></tr>); })}
-          {!D.length && <tr><td colSpan={7} className="note">Нема внесени документи.</td></tr>}</tbody></table></div>
+      {g.write && <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={frDocImportAction} template={[[...FR_DOC_IMPORT_HEAD], ['возило', 'SK-1234-AB', 'CEMT дозвола', '123/2026', '01.01.2026', '31.12.2026', ''], ['возач', 'Петар Петровски', 'Тахограф картичка', 'MK0001', '', '30.06.2027', '']]} templateName="Licenci_obrazec.xlsx" /></div>}
+      {E && g.write && <FrDocForm doc={E} vehicles={V.map((v) => ({ id: v.id, label: `${v.plate} ${v.name ?? ''}` }))} drivers={Dr.map((d) => ({ id: d.id, label: d.name }))} />}
+      {D.length ? <div className="tw"><table><thead><tr><th>За</th><th>Вид</th><th>Број</th><th>Важи до</th><th /><th /></tr></thead>
+        <tbody>{D.map((x) => (
+          <tr key={x.id}><td>{who(x.data)}</td><td>{x.data.kind}</td><td>{x.data.no}</td><td>{dmy(x.data.validTo)}</td><td>{badge(x.data.validTo)}</td>
+            <td>{g.write && <Link className="btn sm" href={`/frDok?ed=${x.id}`}>Измени</Link>}{g.del && <> <RowAction className="btn sm ghost danger" action={frDocDeleteAction.bind(null, x.id)} confirm="Да се избрише документот?" label="🗑" title="Избриши" /></>}</td></tr>))}</tbody></table></div>
+        : <div className="empty">Внесете ги лиценците, CEMT дозволите, тахографите и документите на возачите – програмата ќе ве предупреди 30 дена пред истекување.</div>}
     </>
   );
 }

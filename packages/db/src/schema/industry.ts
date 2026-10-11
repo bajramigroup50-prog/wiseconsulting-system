@@ -134,8 +134,10 @@ export const hotelReservations = pgTable('hotel_reservations', {
 export interface RentDriver {
   name: string; birth?: string; addr?: string; doc?: string; docType?: string; docExp?: string; docIss?: string; lic?: string; licFrom?: string;
   licExp?: string; licCat?: string; phone?: string; email?: string; nat?: string; embg?: string; emerg?: string;
+  /** Legacy 11685 / 11674: exit authorisation in the contract; copies of the scanned documents (`files.id`). */
+  auth?: boolean; scans?: string[];
 }
-export interface RentHandover { km?: number | string | null; fuel?: number | string | null; dmg?: string; at?: string | null }
+export interface RentHandover { km?: number | string | null; fuel?: number | string | null; dmg?: string; at?: string | null; /** Legacy `o.photos`, `o.sig` (`files.id`). */ photos?: string[]; sig?: string | null }
 
 /** Legacy `docs` type `rres`. `from` / `to` are local date-times `YYYY-MM-DDTHH:mm`. */
 export const rentRentals = pgTable('rent_rentals', {

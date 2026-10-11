@@ -34,7 +34,11 @@ export const aiUsage = pgTable('ai_usage', {
   refId: text('ref_id'),
 }, (t) => [index('ai_usage_firm_at_idx').on(t.firmId, t.at)]);
 
-export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | 'fisk' | 'classify' | 'bom' | 'cmp' | 'imp' | 'ob' | 'rec' | 'bankcls';
+export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | 'fisk' | 'classify' | 'bom' | 'cmp' | 'imp' | 'ob' | 'rec' | 'bankcls'
+  /** Auto service: vehicle registration certificate (legacy `DIG.vreg`). */
+  | 'vreg'
+  /** Rent-a-car: passport / ID card / driving licence of the customer (legacy `RC_DOC_PROMPT`). */
+  | 'rcdoc' | 'rclic';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */

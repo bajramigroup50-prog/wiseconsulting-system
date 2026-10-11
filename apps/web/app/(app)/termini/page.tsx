@@ -4,7 +4,7 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, ne } from 'drizzle-orm';
-import { addDays, APPT_STATUS, apptClash, apptSlots, mTime, tMin } from '@wise/core/industry';
+import { addDays, APPT_STATUS, apptClash, apptReminder, apptSlots, apptWaLink, mTime, tMin } from '@wise/core/industry';
 import { appointments, employees, firmApptConfig, invoices, items } from '@wise/db';
 import { partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -64,6 +64,7 @@ export default async function Termini({ searchParams }: { searchParams: Promise<
         {E.id && write && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span style={{ flex: 1 }} />
           {E.status !== 'cancel' && !E.invoiceId && !E.salesDayId && <RowAction className="btn ghost" action={apptStepAction.bind(null, E.id, 'cancel')} confirm="Да се откаже терминот?" label="Откажи термин" />}
           {(E.phone || E.email) && <RowAction className="btn" action={apptStepAction.bind(null, E.id, 'rem')} label={E.remindAt ? '🔔 Потсетник (повторно)' : '🔔 Потсетник'} />}
+          {E.phone && <><a className="btn" href={apptWaLink(E.phone, apptReminder(E, C.res.find((y) => y.id === E.res)?.name ?? '', firm))} target="_blank" rel="noopener noreferrer">WhatsApp</a><RowAction className="btn sm ghost" action={apptStepAction.bind(null, E.id, 'remwa')} label="✓ Потсетен (WhatsApp)" /></>}
           {Number(E.price) > 0 && !E.invoiceId && !E.salesDayId && <><RowAction className="btn" action={apptStepAction.bind(null, E.id, 'till')} label="💶 Наплати на каса" /><RowAction className="btn" action={apptStepAction.bind(null, E.id, 'inv')} label="🧾 Фактура" /></>}
           {inv && <span className="pill good">Фактура {inv}</span>}{E.salesDayId && <span className="pill good">наплатено на каса</span>}
         </div>}

@@ -1,14 +1,19 @@
-/** Legacy `VIEWS.hotelSoby` 9602 — Хотел – соби и цени + поставки (tourist tax, age limits, VAT, kontos, payer). */
+/**
+ * Legacy `VIEWS.hotelSoby` 9602 — Хотел – соби и цени + поставки (tourist tax, age limits, VAT, kontos, payer), with
+ * the dig bar of the view: rooms from Excel (`DIG.hroom`, with template), Excel export and PDF of the room list.
+ */
 import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
+import { HOTEL_ROOM_IMPORT, hrImportTemplate } from '@wise/core/industry';
 import { firmHotelConfig, hotelRooms } from '@wise/db';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { industryPage } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
+import { ExportXlsx, ListPdf, XlsxImport } from '@/components/list-tools';
 import { RowAction } from '@/components/row-action';
-import { cleanRoomAction, saveHotelConfigAction, saveRoomAction } from '../hotel/actions';
+import { cleanRoomAction, importRoomsAction, saveHotelConfigAction, saveRoomAction } from '../hotel/actions';
 
 export default async function HotelSoby({ searchParams }: { searchParams: Promise<{ ed?: string }> }) {
   const sp = await searchParams;
@@ -16,10 +21,15 @@ export default async function HotelSoby({ searchParams }: { searchParams: Promis
   if (g.blocked) return g.blocked;
   const R = await db().select().from(hotelRooms).where(eq(hotelRooms.firmId, g.firm.id)).orderBy(asc(hotelRooms.no));
   const H = firmHotelConfig(g.firm);
+  const st = (r: (typeof R)[number]) => (!r.active ? 'неактивна' : r.hk === 'dirty' ? 'за чистење' : 'подготвена');
+  const xl = [['Соба', 'Тип', 'Легла', 'Кат', 'Цена/ноќ', 'Статус'], ...R.map((r) => [r.no, r.kind ?? '', r.beds, r.floor ?? '', Number(r.price), st(r)])];
   const E = sp.ed === 'new' ? { id: '', no: '', kind: '', beds: 2, floor: '', price: '', active: true } : R.find((r) => r.id === sp.ed);
   return (
     <>
       <Hd t="Хотел – соби и цени" sub={`${R.length} соби`}>
+        {g.write && <XlsxImport action={importRoomsAction} label="📥 Соби од Excel" templateName="Sobi_obrazec.xlsx" template={hrImportTemplate(HOTEL_ROOM_IMPORT, ['101', 'Двокреветна', 2, '1', 3000])} />}
+        <ExportXlsx name="Hotel_sobi.xlsx" label="⬇ Извоз" rows={xl} />
+        <ListPdf target="#ht_rooms" title="Хотел – соби и цени" />
         <Link className="btn" href="/hotel">🏨 Рецепција</Link>
         {g.write && <Link className="btn pri" href="/hotelSoby?ed=new">+ Соба</Link>}
       </Hd>
@@ -38,7 +48,7 @@ export default async function HotelSoby({ searchParams }: { searchParams: Promis
           <div className="row" style={{ gap: 8, marginTop: 8 }}><span style={{ flex: 1 }} /><Link className="btn" href="/hotelSoby">Откажи</Link><button className="btn pri">Зачувај</button></div>
         </BankForm>
       )}
-      <div className="tw"><table><thead><tr><th>Соба</th><th>Тип</th><th className="n">Легла</th><th>Кат</th><th className="n">Цена/ноќ</th><th>Статус</th><th /></tr></thead>
+      <div className="tw" id="ht_rooms"><table><thead><tr><th>Соба</th><th>Тип</th><th className="n">Легла</th><th>Кат</th><th className="n">Цена/ноќ</th><th>Статус</th><th /></tr></thead>
         <tbody>{R.map((r) => (
           <tr key={r.id}><td><b>{r.no}</b></td><td>{r.kind}</td><td className="n">{r.beds}</td><td>{r.floor}</td><td className="n">{fmt(r.price)}</td>
             <td>{!r.active ? <span className="pill">неактивна</span> : r.hk === 'dirty' ? <span className="pill warn">за чистење</span> : <span className="pill good">подготвена</span>}</td>
@@ -55,7 +65,7 @@ export default async function HotelSoby({ searchParams }: { searchParams: Promis
           <label className="f">Конто обврска за такса<input name="taxK" defaultValue={H.taxK} /></label>
           <label className="f">Фактура за гости без фирма<select name="payer" defaultValue={H.payer}><option value="">на заеднички комитент „Гости – физички лица“</option><option value="guest">на посебен комитент за секој гостин</option></select></label>
         </div>
-        <p className="note">ДДВ: ноќевањето (и со појадок, полупансион, полн пансион) е со повластена стапка 5%; посебно наплатената храна и безалкохолни пијалаци 10%, алкохолот 18%. Таксата за привремен престој ја утврдува општината. Таксата не е приход: се книжи на обврска ({H.taxK}) и се уплатува на општината.</p>
+        <p className="note">ДДВ: ноќевањето (и со појадок, полупансион, полн пансион) е со повластена стапка 5%; посебно наплатената храна и безалкохолни пијалаци 10%, алкохолот 18%. Таксата за привремен престој (Закон за таксата за привремен престој) ја утврдува општината – проверете го износот и ослободувањата за децата во одлуката на вашата општина. Таксата не е приход: се книжи на обврска ({H.taxK || '2399'}) и се уплатува на општината.</p>
         {g.write && <div className="row"><span style={{ flex: 1 }} /><button className="btn pri">Зачувај поставки</button></div>}
       </BankForm>
     </>

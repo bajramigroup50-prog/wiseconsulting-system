@@ -15,6 +15,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import { bomMaterials } from '@wise/core/ai/bom';
 import { fiskAfterRead, fiskApplySimple, fiskFinish, fiskReadTotal } from '@wise/core/ai/fisk';
+import { RC_DOC_PROMPT, RC_DOC_PROMPT_LICENCE, VREG_PROMPT } from '@wise/core/industry';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
 import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
@@ -22,7 +23,10 @@ import { AiReadError, fileContent, loadFile, readContent } from './read-document
 import { readObject } from './storage';
 
 /** Kinds handled here (the others are purchase / sale drafts). */
-export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec', 'bankcls']);
+export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec', 'bankcls',
+  'vreg',
+  'rcdoc', 'rclic',
+]);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
@@ -79,6 +83,17 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = n
     }
     case 'classify': {
       const r = await read(CLASSIFY_PROMPT, 'default');
+      return { result: r.data, model: r.model };
+    }
+    case 'rcdoc':
+    case 'rclic': {
+      // legacy `rcScanDoc` (rent-a-car customer: passport / ID card / driving licence → contract form)
+      const r = await read(doc.kind === 'rclic' ? RC_DOC_PROMPT_LICENCE : RC_DOC_PROMPT, 'default');
+      return { result: r.data, model: r.model };
+    }
+    case 'vreg': {
+      // legacy DIG.vreg (сообраќајна дозвола → customer vehicle form)
+      const r = await read(VREG_PROMPT, 'default');
       return { result: r.data, model: r.model };
     }
     case 'fisk': {

@@ -12,7 +12,9 @@ import { industryPage, today } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { deleteNoteAction, saveNoteAction } from '../termini/actions';
+import { deleteNoteAction, importClientsAction, saveNoteAction } from '../termini/actions';
+import { CLIENT_IMPORT, oxTemplate } from '@wise/core/industry';
+import { XlsxImport } from '@/components/list-tools';
 
 export default async function Kartoni({ searchParams }: { searchParams: Promise<{ q?: string; p?: string; n?: string }> }) {
   const sp = await searchParams;
@@ -29,6 +31,7 @@ export default async function Kartoni({ searchParams }: { searchParams: Promise<
   return (
     <>
       <Hd t="Картони на клиенти / пациенти"><Link className="btn" href="/termini">📅 Термини</Link></Hd>
+      {write && <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importClientsAction} template={oxTemplate(CLIENT_IMPORT, [['Петар Петровски', '070 123 456', 'petar@example.com', 'ул. Партизанска 1', 'Скопје', '', '15.04.1985', '']])} templateName="Klienti_obrazec.xlsx" label="📥 Клиенти од Excel" /></div>}
       <div className="cols" style={{ gridTemplateColumns: '300px 1fr', alignItems: 'start' }}>
         <div className="card">
           <form action="/kartoni" className="row" style={{ marginBottom: 6, gap: 6 }}><input name="q" defaultValue={q} placeholder="🔍 Име, телефон…" /><button className="btn sm">Барај</button></form>

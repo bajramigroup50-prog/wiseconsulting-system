@@ -20,6 +20,7 @@ export * from './finance';
 export * from './legacy-import';
 export * from './retail';
 export * from './firmsoffice';
+export * from './parity-industry';
 export * from './parity-finance';
 export * from './parity-retail';
 export * from './parity-firms';

@@ -133,7 +133,10 @@ export async function saveRental(tx: Tx, a: IndActor, r: RentalInput): Promise<{
 }
 
 /** Legacy `rcOut` (+ 11718 checks): driver documents, phone, km/fuel at handover, minimum age warning. */
-export async function handOut(tx: Tx, a: IndActor, id: string, out: RentHandover, now: string, today: string): Promise<{ ageWarning: string | null }> {
+/** Handover data with the photos (`files.id`) and the customer's signature (`files.id`) — legacy `o.photos`, `o.sig`. */
+export type RentHandoverIn = RentHandover & { photos?: string[]; sig?: string | null };
+
+export async function handOut(tx: Tx, a: IndActor, id: string, out: RentHandoverIn, now: string, today: string): Promise<{ ageWarning: string | null }> {
   const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'resv') fail('Возилото е веќе предадено.');
@@ -147,7 +150,7 @@ export async function handOut(tx: Tx, a: IndActor, id: string, out: RentHandover
 }
 
 /** Legacy `rcRet`: km / fuel at return, vehicle odometer updated; returns the amount due. */
-export async function returnVehicle(tx: Tx, a: IndActor, id: string, ret: RentHandover, now: string): Promise<number> {
+export async function returnVehicle(tx: Tx, a: IndActor, id: string, ret: RentHandoverIn, now: string): Promise<number> {
   const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'out') fail('Возилото не е кај клиент.');

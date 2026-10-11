@@ -2,8 +2,8 @@
 /** Legacy hotel ACT (9575, 9613): reservations, check-in/out, invoice, rooms, settings. */
 import { redirect } from 'next/navigation';
 import {
-  checkIn, checkOut, invoiceReservation, issueReservationAdvance, markPaidAtTill, saveIndustryConfig, saveReservation, saveRoom, setReservationCharges,
-  setReservationStatus, setRoomClean,
+  checkIn, checkOut, importHotelReservations, importHotelRooms, invoiceReservation, issueReservationAdvance, markPaidAtTill, saveIndustryConfig, saveReservation, saveRoom,
+  setReservationCharges, setReservationStatus, setRoomClean,
 } from '@wise/db';
 import { indRun, isDate, num, nz, rows, str, today } from '@/lib/industry';
 import type { FormState } from '@/components/bank-form';
@@ -75,6 +75,21 @@ export async function saveHotelConfigAction(_p: FormState, f: FormData): Promise
     });
     return 'Поставките се зачувани.';
   });
+}
+
+/** Excel rows posted by `XlsxImport` (JSON array of arrays, header first). */
+const sheet = (f: FormData): unknown[][] => {
+  try { const v = JSON.parse(str(f.get('rows')) || '[]'); return Array.isArray(v) ? v.filter(Array.isArray) : []; } catch { return []; }
+};
+
+/** Legacy dig bar `DIG.hroom` — rooms from Excel (template: Број, Тип, Легла, Кат, Цена по ноќ). */
+export async function importRoomsAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('htRoomSave', P, async ({ tx, a }) => importHotelRooms(tx, a, sheet(f)));
+}
+
+/** Legacy dig bar `DIG.hres` — reservations from a Booking.com / Airbnb / Excel export. */
+export async function importReservationsAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('htSaveB', P, async ({ tx, a }) => importHotelReservations(tx, a, sheet(f)));
 }
 
 void isDate;

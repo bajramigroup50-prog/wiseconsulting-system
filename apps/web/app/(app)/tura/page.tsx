@@ -5,7 +5,11 @@
  */
 import Link from 'next/link';
 import { and, desc, eq } from 'drizzle-orm';
-import { ARRANGEMENT_STATUS, bookingPaid, bookingPax, bookingTotal, NATIONALITIES, TA_CATEGORIES } from '@wise/core/industry';
+import { ARRANGEMENT_STATUS, bookingPaid, bookingPax, bookingTotal, NATIONALITIES, passportWarn, rcDocToDriver, TA_CATEGORIES } from '@wise/core/industry';
+import { loadAiResult } from '@/lib/ai';
+import { RentDocScan } from '@/components/rent-doc-scan';
+import { XlsxImport } from '@/components/list-tools';
+import { oxTemplate, TRAVEL_ARR_IMPORT } from '@wise/core/industry';
 import { arrangementsWithResults, firmTravelConfig, invoices, partners, purchases, travelBookings } from '@wise/db';
 import { partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -14,9 +18,9 @@ import { industryPage, today } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { bookingPayAction, bookingStepAction, saveArrangementAction, saveBookingAction, saveTravelConfigAction } from './actions';
+import { bookingPayAction, bookingStepAction, importArrangementsAction, saveArrangementAction, saveBookingAction, saveTravelConfigAction } from './actions';
 
-type SP = { a?: string; b?: string; all?: string; cfg?: string };
+type SP = { a?: string; b?: string; all?: string; cfg?: string; scan?: string };
 
 export default async function TuraPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -40,16 +44,23 @@ export default async function TuraPage({ searchParams }: { searchParams: Promise
       const P = await partnerOptions(firm.id);
       const inv = b.invoiceId ? (await db().select({ n: invoices.number }).from(invoices).where(eq(invoices.id, b.invoiceId)))[0]?.n : null;
       const ro = !write || !!b.invoiceId;
+      // legacy `tb_scan`: a read passport adds a passenger (name, birth, nationality, number, validity)
+      const scan = sp.scan ? await loadAiResult(firm.id, sp.scan, 'rcdoc') : null;
+      const rd = scan ? rcDocToDriver(scan.result, false) : null;
+      const natCode = (s: string | undefined) => NATIONALITIES.find(([c, n]) => n === s || c === s)?.[0] ?? 'MK';
+      const scanPax = rd?.set.name ? { name: rd.set.name, birth: rd.set.birth ?? '', nat: natCode(rd.set.nat), doc: rd.set.doc ?? '', docExp: rd.set.docExp ?? '' } : null;
+      const scanNote = scan ? (scanPax ? '✓ Додаден патник од пасош. Проверете ги податоците и зачувајте.' : 'Не се прочита пасошот – сликајте ја страницата со фотографија, без одблесок.') : '';
       const tot = bookingTotal(b, A), paid = bookingPaid(b);
       bookingEd = (
         <div className="card" style={{ border: '2px solid var(--accent)' }}>
           <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>{b.id ? `Пријава ${b.number}` : 'Нова пријава'}</h2>
-            <div className="row" style={{ gap: 6 }}>{b.id && <Link className="btn sm" href={`/tura/dogovor?id=${b.id}`} target="_blank">🖨 Договор за патување</Link>}<Link className="btn sm" href={`/tura?a=${A.id}`}>Затвори</Link></div></div>
+            <div className="row" style={{ gap: 6 }}>{b.id && <><Link className="btn sm" style={{ fontWeight: 700 }} href={`/tura/dogovor?id=${b.id}`} target="_blank">🖨 Договор за патување</Link><Link className="btn sm" href={`/tura/vaucer?id=${b.id}`} target="_blank">🎫 Ваучер</Link></>}<Link className="btn sm" href={`/tura?a=${A.id}`}>Затвори</Link></div></div>
           <BankForm action={saveBookingAction}>
             <input type="hidden" name="id" value={b.id} /><input type="hidden" name="arr" value={A.id} />
+            <h3 className="fh">Носител на пријавата / нарачател</h3>
             <div className="form">
-              <label className="f">Носител<input name="cname" defaultValue={b.client.name} /></label>
-              <label className="f">Телефон<input name="cphone" defaultValue={b.client.phone ?? ''} /></label>
+              <label className="f wide">Име и презиме<input name="cname" defaultValue={b.client.name || scanPax?.name || ''} /></label>
+              <label className="f">📞 Телефон *<input name="cphone" defaultValue={b.client.phone ?? ''} style={{ fontWeight: 700 }} /></label>
               <label className="f">Е-пошта<input name="cemail" defaultValue={b.client.email ?? ''} /></label>
               <label className="f">Адреса<input name="caddr" defaultValue={b.client.addr ?? ''} /></label>
               <label className="f">Фактура на фирма<select name="partner" defaultValue={b.partnerId ?? ''}><option value="">— носителот —</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
@@ -57,16 +68,17 @@ export default async function TuraPage({ searchParams }: { searchParams: Promise
               <label className="f">Деца<input name="children" type="number" defaultValue={b.children} /></label>
               <label className="f">Доплата<input name="extra" type="number" step="any" defaultValue={b.extra ? Number(b.extra) : ''} /></label>
               <label className="f">Попуст<input name="disc" type="number" step="any" defaultValue={b.disc ? Number(b.disc) : ''} /></label>
-              <label className="f">Договорена вкупна цена<input name="priceTot" type="number" step="any" defaultValue={b.priceTot ? Number(b.priceTot) : ''} placeholder="од ценовникот" /></label>
-              <label className="f">Соба<input name="room" defaultValue={b.room ?? ''} /></label>
+              <label className="f">Вкупно рачно (ако е договорено)<input name="priceTot" type="number" step="any" defaultValue={b.priceTot ? Number(b.priceTot) : ''} placeholder="од ценовникот" /></label>
+              <label className="f wide">Соба / забелешка<input name="room" defaultValue={b.room ?? ''} /></label>
               <label className="f wide">Забелешка<input name="note" defaultValue={b.note ?? ''} /></label>
             </div>
-            <h3 className="fh" style={{ marginTop: 8 }}>Патници</h3>
+            <div className="hd" style={{ marginTop: 8 }}><h3 className="fh" style={{ margin: 0 }}>Патници ({b.pax.filter((p) => p.name).length})</h3>{write && <RentDocScan firmId={firm.id} variant="passport" />}</div>
+            {scanNote && <div className="callout">{scanNote}</div>}
             <table className="dense"><thead><tr><th>Име и презиме</th><th>Датум на раѓање</th><th>Државјанство</th><th>Пасош бр.</th><th>Важи до</th></tr></thead>
-              <tbody>{[...b.pax, ...Array(3).fill({ name: '' })].map((p, i) => (
+              <tbody>{[...(scanPax ? [scanPax] : []), ...b.pax, ...Array(3).fill({ name: '' })].map((p, i) => (
                 <tr key={i}><td><input name={`p.name.${i}`} defaultValue={p.name} /></td><td><input name={`p.birth.${i}`} type="date" defaultValue={p.birth ?? ''} /></td>
                   <td><select name={`p.nat.${i}`} defaultValue={p.nat ?? 'MK'}>{NATIONALITIES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></td>
-                  <td><input name={`p.doc.${i}`} defaultValue={p.doc ?? ''} /></td><td><input name={`p.docExp.${i}`} type="date" defaultValue={p.docExp ?? ''} /></td></tr>
+                  <td><input name={`p.doc.${i}`} defaultValue={p.doc ?? ''} /></td><td><input name={`p.docExp.${i}`} type="date" defaultValue={p.docExp ?? ''} />{p.name && passportWarn(p, A, today()) && <div className="mini" style={{ color: 'var(--bad)' }}>⚠ важи помалку од 3 месеци по враќањето</div>}</td></tr>
               ))}</tbody></table>
             {!ro && <div className="row" style={{ marginTop: 8 }}><span style={{ flex: 1 }} /><button className="btn pri">Зачувај пријава</button></div>}
           </BankForm>
@@ -151,6 +163,7 @@ export default async function TuraPage({ searchParams }: { searchParams: Promise
         <Link className="btn" href={sp.cfg ? '/tura' : '/tura?cfg=1'}>⚙ Поставки</Link>
         {write && <Link className="btn pri" href="/tura?a=new">+ Нов аранжман</Link>}
       </Hd>
+      {write && <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importArrangementsAction} template={oxTemplate(TRAVEL_ARR_IMPORT, [['', 'Летување Халкидики', 'Грција – Касандра', '01.07.2026', '08.07.2026', 'сопствен', 45, 21000, 14000, '', 'отворен', '', 'сместување 7 ноќи, превоз', 'патничко осигурување']])} templateName="Aranzmani_obrazec.xlsx" label="📥 Аранжмани од Excel" /></div>}
       <div className="row" style={{ marginBottom: 8 }}><Link className="mini" href={sp.all ? '/tura' : '/tura?all=1'}>{sp.all ? 'скриј ги реализираните / откажаните' : 'прикажи ги и реализираните / откажаните'}</Link></div>
       <div className="tw"><table><thead><tr><th>Шифра</th><th>Аранжман</th><th>Поаѓање – враќање</th><th>Вид</th><th className="n">Патници</th><th className="n">Промет</th><th className="n">Уплатено</th><th className="n">Трошоци</th><th className="n">Маржа</th><th>Статус</th><th /></tr></thead>
         <tbody>{list.map(({ A, R }) => { const s = ARRANGEMENT_STATUS[A.status]; return (

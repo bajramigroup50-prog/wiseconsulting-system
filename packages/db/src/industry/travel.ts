@@ -149,6 +149,7 @@ export async function addBookingPayment(tx: Tx, a: IndActor, id: string, p: { da
 }
 
 export async function removeBookingPayment(tx: Tx, a: IndActor, id: string, i: number): Promise<void> {
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const b = await ownBooking(tx, a.firmId, id);
   const p = b.pays[i] ?? fail('Уплатата не постои.');
   if (b.advanceSettled) fail('Авансот е пребиен со фактурата.');
@@ -200,6 +201,7 @@ export async function settleBookingAdvance(tx: Tx, a: IndActor, id: string, date
 }
 
 export async function cancelBooking(tx: Tx, a: IndActor, id: string): Promise<void> {
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const b = await ownBooking(tx, a.firmId, id);
   if (b.invoiceId) fail('Пријавата е фактурирана – откажете ја со одобрение.');
   await tx.update(travelBookings).set({ status: 'cancel' }).where(eq(travelBookings.id, id));

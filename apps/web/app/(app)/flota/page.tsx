@@ -2,12 +2,14 @@
 import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
 import { firmRentConfig, fleetVehicles } from '@wise/db';
+import { FLEET_PRICE_IMPORT, hrImportTemplate } from '@wise/core/industry';
+import { XlsxImport } from '@/components/list-tools';
 import { db } from '@/lib/db';
 import { industryPage } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { FleetSection } from '@/components/fleet';
 import { Hd } from '@/components/hd';
-import { saveRentConfigAction } from '../rent/actions';
+import { importFleetPricesAction, saveRentConfigAction } from '../rent/actions';
 
 export default async function Flota({ searchParams }: { searchParams: Promise<{ ed?: string }> }) {
   const sp = await searchParams;
@@ -18,6 +20,7 @@ export default async function Flota({ searchParams }: { searchParams: Promise<{ 
   return (
     <>
       <Hd t="Rent-a-car – флота и цени" sub={`${V.filter((v) => v.rent).length} возила за изнајмување`}><Link className="btn" href="/rent">🚗 Резервации</Link></Hd>
+      {g.write && <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importFleetPricesAction} template={hrImportTemplate(FLEET_PRICE_IMPORT, ['SK-1234-AB', 'Škoda Octavia', 'C', 2500, 2200, 15000, 300, 10])} templateName="Flota_ceni_obrazec.xlsx" label="📥 Цени од Excel" /></div>}
       <FleetSection V={V} ed={sp.ed} base="/flota" write={g.write} rent />
       <BankForm action={saveRentConfigAction} className="card">
         <h2 style={{ fontSize: 15, margin: '0 0 8px' }}>Поставки</h2>

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { and, eq, inArray } from 'drizzle-orm';
 import { periodsOfYear } from '@wise/core';
 import { addDays, bookingPaid, bookingTotal, dayDiff } from '@wise/core/industry';
-import { arrangementsWithResults, journals, travelMarginPeriod } from '@wise/db';
+import { arrangementsWithResults, journals, partners, travelBookings, travelMarginPeriod } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { industryPage, today } from '@/lib/industry';
@@ -47,11 +47,17 @@ export default async function TuraIzv({ searchParams }: { searchParams: Promise<
     } else {
       const sel = sp.p && P.includes(sp.p) ? sp.p : (X.find(([, x]) => x.L.length)?.[0] ?? P[0]!);
       const x = X.find(([p]) => p === sel)![1];
+      // legacy: the booking's holder, else the invoice partner
+      const iids = x.L.map((y) => y.invoice.id).filter((v): v is string => !!v);
+      const BK = iids.length ? await db().select({ inv: travelBookings.invoiceId, c: travelBookings.client }).from(travelBookings).where(and(eq(travelBookings.firmId, firm.id), inArray(travelBookings.invoiceId, iids))) : [];
+      const pids = x.L.map((y) => y.invoice.partner).filter((v): v is string => !!v);
+      const PN = pids.length ? await db().select({ id: partners.id, name: partners.name }).from(partners).where(inArray(partners.id, pids)) : [];
+      const who = (y: (typeof x.L)[number]) => (BK.find((b) => b.inv === y.invoice.id)?.c as { name?: string } | undefined)?.name || PN.find((p) => p.id === y.invoice.partner)?.name || '';
       body = <><div className="row" style={{ gap: 6, marginBottom: 8 }}>{P.map((p) => <Link key={p} className={`btn sm ${p === sel ? 'pri' : ''}`} href={`/turaIzv?t=evid&p=${encodeURIComponent(p)}`}>{p}</Link>)}</div>
-        <div className="tw"><table className="dense"><thead><tr><th>Р.бр</th><th>Датум</th><th>Фактура</th><th>Аранжман</th><th className="n">Плаќа патникот</th><th className="n">Претходни услуги</th><th className="n">Сопствени</th><th className="n">Разлика</th><th className="n">Основица</th><th className="n">ДДВ</th></tr></thead>
+        <div className="tw"><table className="dense"><thead><tr><th>Р.бр</th><th>Датум</th><th>Фактура</th><th>Патник / нарачател</th><th>Аранжман</th><th className="n">Плаќа патникот</th><th className="n">Претходни услуги</th><th className="n">Сопствени</th><th className="n">Разлика</th><th className="n">Основица</th><th className="n">ДДВ</th></tr></thead>
           <tbody>{x.L.map((y, i) => { const v = Math.round((y.mg * 18) / 118 * 100) / 100; const A = L.find((a) => a.A.id === y.arrangementId)?.A; return (
-            <tr key={i}><td>{i + 1}</td><td>{dmy(y.invoice.date)}</td><td>{y.invoice.number}{y.invoice.credit && <span className="pill warn"> одобрение</span>}</td><td>{A?.code ?? '—'}</td><td className="n">{fmt(y.g)}</td><td className="n">{fmt(y.cost)}</td><td className="n">{y.own ? fmt(y.own) : ''}</td><td className="n">{fmt(y.mg)}</td><td className="n">{fmt(y.mg - v)}</td><td className="n">{fmt(v)}</td></tr>); })}
-            {!x.L.length && <tr><td colSpan={10} className="note">Нема фактури по посебна постапка во периодот.</td></tr>}</tbody></table></div></>;
+            <tr key={i}><td>{i + 1}</td><td>{dmy(y.invoice.date)}</td><td>{y.invoice.number}{y.invoice.credit && <span className="pill warn"> одобрение</span>}</td><td>{who(y)}</td><td title={A?.name ?? ''}>{A?.code ?? '—'}</td><td className="n">{fmt(y.g)}</td><td className="n">{fmt(y.cost)}</td><td className="n">{y.own ? fmt(y.own) : ''}</td><td className="n">{fmt(y.mg)}</td><td className="n">{fmt(y.mg - v)}</td><td className="n">{fmt(v)}</td></tr>); })}
+            {!x.L.length && <tr><td colSpan={11} className="note">Нема фактури по посебна постапка во периодот.</td></tr>}</tbody></table></div></>;
     }
   } else if (T === 'adv') {
     const R = L.flatMap(({ A, B }) => B.filter((b) => b.status !== 'cancel' && !b.invoiceId && bookingPaid(b) > 0).map((b) => ({ A, b, p: bookingPaid(b), t: bookingTotal(b, A) })));

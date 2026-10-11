@@ -2,14 +2,25 @@
 /** Legacy rent-a-car ACT (9809, 11715) and fleet / settings (`rcFleetSave` 9840, `rcCfgSave` 9841). */
 import { redirect } from 'next/navigation';
 import {
-  cancelRental, handOut, importFleetFromAssets, invoiceRental, receiveDeposit, returnVehicle, saveIndustryConfig, saveRental, saveVehicle, settleDeposit,
+  cancelRental, handOut, importFleetFromAssets, importFleetPrices, invoiceRental, receiveDeposit, returnVehicle, saveIndustryConfig, saveRental, saveVehicle, settleDeposit,
 } from '@wise/db';
 import { indRun, nowLocal, num, nz, rows, str, today } from '@/lib/industry';
+import { markAiReadsSaved } from '@/lib/ai';
+import { storeImageDataUrl } from '@/lib/data-url-file';
 import type { FormState } from '@/components/bank-form';
 
 const P = ['/rent', '/flota', '/rentIzv', '/izlez', '/blagajna', '/pnalozi', '/frTuri'];
 
-const driverOf = (f: FormData) => Object.fromEntries(['name', 'birth', 'addr', 'doc', 'docType', 'docExp', 'lic', 'licFrom', 'licExp', 'licCat', 'phone', 'email', 'nat', 'embg', 'emerg'].map((k) => [k, str(f.get('d_' + k))])) as { name: string };
+const driverOf = (f: FormData) => ({
+  ...Object.fromEntries(['name', 'birth', 'addr', 'doc', 'docType', 'docExp', 'docIss', 'lic', 'licFrom', 'licExp', 'licCat', 'phone', 'email', 'nat', 'embg', 'emerg'].map((k) => [k, str(f.get('d_' + k))])),
+  // legacy 11685 / 11674: exit authorisation, copies of the scanned documents
+  auth: f.get('auth') === 'on',
+  scans: str(f.get('scans')).split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 20),
+}) as unknown as { name: string };
+const countriesOf = (f: FormData) => {
+  const c = [...new Set(f.getAll('ct').map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x)))];
+  return c.length ? (c.includes('MK') ? c : ['MK', ...c]) : str(f.get('countries')).split(/[,\s]+/).filter(Boolean).map((x) => x.toUpperCase());
+};
 
 export async function saveRentalAction(_p: FormState, f: FormData): Promise<FormState> {
   let id = '';
@@ -17,20 +28,28 @@ export async function saveRentalAction(_p: FormState, f: FormData): Promise<Form
     const x = await saveRental(tx, a, {
       id: str(f.get('id')) || null, vehicleId: str(f.get('veh')), from: str(f.get('from')), to: str(f.get('to')), driver: driverOf(f), driver2: str(f.get('driver2')),
       partnerId: str(f.get('partner')) || null, deposit: num(f.get('deposit')), note: str(f.get('note')), pDay: num(f.get('pDay')),
-      countries: str(f.get('countries')).split(/[,\s]+/).filter(Boolean).map((c) => c.toUpperCase()), green: f.get('green') === 'on',
+      countries: countriesOf(f), green: f.get('green') === 'on',
       extras: rows(f, 'x', ['name', 'qty', 'price'], (r) => !!r.name && nz(r.price) > 0).map((r) => ({ name: r.name!, qty: nz(r.qty!) || 1, price: nz(r.price!) })),
     });
     id = x.id;
+    if (str(f.get('scanRead'))) await markAiReadsSaved(tx, a.firmId, [str(f.get('scanRead'))]);
     return `Договорот ${x.number} е зачуван.`;
   });
-  if (r.error || str(f.get('id'))) return r;
+  if (r.error) return r;
+  // legacy `rcSavePdf` („💾 Зачувај и 🖨 договор“)
+  if (f.get('andPdf')) redirect(`/rent/dogovor?id=${id}`);
+  if (str(f.get('id'))) return r;
   redirect(`/rent?id=${id}`);
 }
 
 export async function handoverAction(_p: FormState, f: FormData): Promise<FormState> {
   const id = str(f.get('id')), kind = str(f.get('kind'));
-  return indRun(kind === 'out' ? 'rcOut' : 'rcRet', P, async ({ tx, a }) => {
-    const h = { km: num(f.get('km')), fuel: num(f.get('fuel')), dmg: str(f.get('dmg')) };
+  return indRun(kind === 'out' ? 'rcOut' : 'rcRet', P, async ({ tx, a, u }) => {
+    // legacy handover photos (`rh_*_ph`) and the customer's signature (`sg_rc_*`) → files
+    const photos: string[] = [];
+    for (const k of ['ph1', 'ph2', 'ph3']) { const fid = await storeImageDataUrl(tx, { firmId: a.firmId, userId: u.id, dataUrl: str(f.get(k)), name: `rent-${kind}-${id.slice(0, 8)}-${k}` }); if (fid) photos.push(fid); }
+    const sig = await storeImageDataUrl(tx, { firmId: a.firmId, userId: u.id, dataUrl: str(f.get('sig')), name: `rent-potpis-${kind}-${id.slice(0, 8)}` });
+    const h = { km: num(f.get('km')), fuel: str(f.get('fuel')) === '' ? null : num(f.get('fuel')), dmg: str(f.get('dmg')), photos, sig };
     if (kind === 'out') {
       const x = await handOut(tx, a, id, h, nowLocal(), today());
       return 'Возилото е предадено.' + (x.ageWarning ? ' ' + x.ageWarning : '');
@@ -79,5 +98,14 @@ export async function saveRentConfigAction(_p: FormState, f: FormData): Promise<
       minAge: num(f.get('minAge')) ?? 0, minLic: num(f.get('minLic')) ?? 0, sPct: num(f.get('sPct')) ?? 0, sFrom: str(f.get('sFrom')) || '06-15', sTo: str(f.get('sTo')) || '09-15', terms: String(f.get('terms') ?? ''),
     });
     return 'Поставките се зачувани.';
+  });
+}
+
+/** Legacy dig bar `DIG.fleet` — rent prices of the fleet from Excel (plate, vehicle, class, prices, deposit, km). */
+export async function importFleetPricesAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('rcFleetSave', P, async ({ tx, a }) => {
+    let rows: unknown = [];
+    try { rows = JSON.parse(str(f.get('rows')) || '[]'); } catch { rows = []; }
+    return importFleetPrices(tx, a, (Array.isArray(rows) ? rows : []).filter(Array.isArray) as unknown[][]);
   });
 }

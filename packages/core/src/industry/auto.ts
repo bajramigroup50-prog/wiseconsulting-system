@@ -19,9 +19,12 @@ export type WorkOrderStatus = 'open' | 'work' | 'done';
 /** Legacy `WO_ST` (+ `inv` when an invoice exists). */
 export const WO_STATUS = { open: ['примен', 'info'], work: ['во работа', 'warn'], done: ['завршен', 'good'], inv: ['фактуриран', 'good'] } as const;
 export type WoState = keyof typeof WO_STATUS;
-/** Legacy `woSt`: invoiced orders are `inv`, otherwise the stored status. */
-export const woState = (w: { status?: string | null; invoiceId?: string | null }): WoState =>
-  w.invoiceId ? 'inv' : (['open', 'work', 'done'].includes(String(w.status)) ? (w.status as WorkOrderStatus) : 'open');
+/**
+ * Legacy `woSt`: invoiced orders are `inv`, otherwise the stored status. Legacy linked the invoice only once the
+ * user saved the draft (`bzInvOf('woId')`), so an invoice that is still an unbooked `draft` does not count.
+ */
+export const woState = (w: { status?: string | null; invoiceId?: string | null; invoiceStatus?: string | null }): WoState =>
+  w.invoiceId && w.invoiceStatus !== 'draft' ? 'inv' : (['open', 'work', 'done'].includes(String(w.status)) ? (w.status as WorkOrderStatus) : 'open');
 
 export interface WoPart { itemId?: string | null; name: string; qty: number | string; price: number | string; disc?: number | string | null; rate: number | string }
 export interface WoLabour { itemId?: string | null; name: string; hrs: number | string; price: number | string; rate: number | string }
@@ -154,7 +157,7 @@ export function findPartItem<T extends PartItem & { stock?: number }>(items: rea
 /* ---------------- service reminders ---------------- */
 
 export interface ReminderVehicle { id: string; plate?: string | null; make?: string | null; model?: string | null; remindAt?: string | null }
-export interface ReminderOrder { vehicleId: string | null; date: string; km?: number | string | null; status?: string | null; invoiceId?: string | null; nextKm?: number | string | null; nextDate?: string | null; nextNote?: string | null }
+export interface ReminderOrder { vehicleId: string | null; date: string; km?: number | string | null; status?: string | null; invoiceId?: string | null; invoiceStatus?: string | null; nextKm?: number | string | null; nextDate?: string | null; nextNote?: string | null }
 
 /**
  * Legacy `potRows`: for each vehicle, the last non-`open` service; due 30 days before the next-service date (from the

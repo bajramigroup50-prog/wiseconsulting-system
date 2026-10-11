@@ -1,11 +1,11 @@
 /**
  * Legacy `VIEWS.potsetnici` 9735 — Потсетници за сервис: vehicles due within 30 days (by date or estimated km),
  * WhatsApp link, e-mail (queued through `mail_log`), „✓ Контактиран“ (hidden 30 days), new work order; service
- * settings (labour-hour price, standard intervals).
+ * settings (labour-hour price, standard intervals). Export (Excel / PDF) of the list.
  */
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
-import { reminderText, serviceReminders, waNumber } from '@wise/core/industry';
+import { reminderExportRows, reminderText, serviceReminders, waNumber } from '@wise/core/industry';
 import { firmAutoConfig, partners, workOrders } from '@wise/db';
 import { customerVehicleList } from '@/lib/auto';
 import { db } from '@/lib/db';
@@ -13,6 +13,7 @@ import { dmy } from '@/lib/fmt';
 import { industryPage, today } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
+import { ExportXlsx, ListPdf } from '@/components/list-tools';
 import { RowAction } from '@/components/row-action';
 import { reminderDoneAction, reminderMailAction, saveAutoConfigAction } from '../servis/actions';
 
@@ -31,8 +32,12 @@ export default async function Potsetnici() {
   const R = serviceReminders(V, W, A, today());
   return (
     <>
-      <Hd t="Потсетници за сервис" sub={`${R.length} возила`}><Link className="btn" href="/servis">🔧 Работни налози</Link></Hd>
-      <div className="tw"><table><thead><tr><th>Возило</th><th>Сопственик</th><th>Контакт</th><th>Последен сервис</th><th>Зошто</th><th /></tr></thead>
+      <Hd t="Потсетници за сервис" sub={`${R.length} возила`}>
+        <Link className="btn" href="/servis">🔧 Работни налози</Link>
+        <ExportXlsx name="Potsetnici_servis" rows={reminderExportRows(R, (x) => { const p = P.find((y) => y.id === x.v.partnerId); return { name: p?.name ?? '', phone: p?.phone ?? '', email: p?.email ?? '' }; })} />
+        <ListPdf target="pot_list" title="Потсетници за сервис" landscape />
+      </Hd>
+      <div className="tw" id="pot_list"><table><thead><tr><th>Возило</th><th>Сопственик</th><th>Контакт</th><th>Последен сервис</th><th>Зошто</th><th /></tr></thead>
         <tbody>{R.map((x) => {
           const p = P.find((y) => y.id === x.v.partnerId);
           const ph = waNumber(p?.phone);
