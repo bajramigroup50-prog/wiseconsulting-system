@@ -117,3 +117,38 @@ export function posSaldo(ledger: readonly { account: string; date: string; debit
   const d = r2(L.reduce((a, l) => a + num(l.debit), 0)), p = r2(L.reduce((a, l) => a + num(l.credit), 0));
   return { k, d, p, s: r2(d - p), last: L.filter((l) => num(l.credit)).map((l) => l.date).sort().pop() || '' };
 }
+
+/** Legacy `fmDate` (13047): „ДД.ММ.ГГГГ“, „ДДММГГГГ“, „Д.М.ГГ“, „ДД.ММ“ (business year), ISO → `YYYY-MM-DD`, else ''. */
+export function fmDate(v0: unknown, year: number | string): string {
+  let v = String(v0 ?? '').trim();
+  const d = v.replace(/\D/g, '');
+  if (/^\d{8}$/.test(v)) v = d.slice(0, 2) + '.' + d.slice(2, 4) + '.' + d.slice(4);
+  let m = v.match(/^(\d{1,2})[.\/\- ](\d{1,2})[.\/\- ](\d{2}|\d{4})$/);
+  if (m) {
+    const y = m[3]!.length === 2 ? '20' + m[3] : m[3]!;
+    const mo = +m[2]!, da = +m[1]!;
+    if (mo < 1 || mo > 12 || da < 1 || da > 31) return '';
+    const x = `${y}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+    return new Date(x + 'T00:00:00Z').getUTCDate() === da ? x : '';
+  }
+  m = v.match(/^(\d{1,2})[.\/\- ](\d{1,2})\.?$/);
+  if (m) return fmDate(m[1] + '.' + m[2] + '.' + year, year);
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+}
+
+export type FkGroup = 'Г0' | 'А' | 'Б' | 'В' | 'Г';
+
+/**
+ * Legacy `ACT.fkManual` (13048) „✎ Внеси рачно – фискален извештај“: one period total in a tax group (`Г0` = firm
+ * outside VAT, booked in group Г without VAT), card part ≤ total, the rest cash.
+ */
+export function fkManualRead(o: { total: number; from: string; to: string; card?: number; group: FkGroup; device?: string }): FiskRead & { manual: true } {
+  const tot = r2(o.total);
+  const card = r2(Math.min(tot, Math.max(0, num(o.card))));
+  const g0 = o.group === 'Г0';
+  const L = g0 ? 'Г' : o.group;
+  return {
+    from: o.from, to: o.to, device: (o.device ?? '').trim(), groups: { ...FISK_G0, ...(g0 ? { 'Г': 0 } : {}) }, days: [],
+    totals: { gross: { [L]: tot }, vat: {}, total: tot, cash: r2(tot - card), card, other: 0, storno: 0 }, ...(g0 ? { nonVat: true } : {}), manual: true,
+  };
+}

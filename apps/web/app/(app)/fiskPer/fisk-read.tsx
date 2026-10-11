@@ -28,7 +28,7 @@ const isoOf = (v: string): string => {
 };
 
 export function FiskReadPost(p: {
-  ai: string; from: string; to: string; device: string; edb: string; edbOk: boolean; G: Record<string, number>; Ls: string[];
+  ai?: string | null; manual?: { total: number; from: string; to: string; card?: number; group: 'Г0' | 'А' | 'Б' | 'В' | 'Г'; device?: string } | null; from: string; to: string; device: string; edb: string; edbOk: boolean; G: Record<string, number>; Ls: string[];
   rows: ReadRow[]; daily: boolean; dayCount: number; nonVat: boolean; sum: boolean; sc: 'trg' | 'usl' | 'trgNoVat'; schemes: [string, string][];
   wh: string; locs: { id: string; name: string; kind: string }[]; rev: string; cashK: string; cardK: string; existing: number;
   meth: 'fifo' | 'lifo' | 'prop'; plan: PlanRow[] | null; planTarget: number; planRest: number; hasGoods: boolean;
@@ -54,7 +54,7 @@ export function FiskReadPost(p: {
   const single = p.rows.length === 1;
   const iso = isoOf(date);
   const store = p.locs.find((l) => l.id === p.wh)?.kind === 'store';
-  const payload = { ai: p.ai, wh: p.wh, nonVat: p.nonVat, sum: p.sum, date: single ? iso || null : null, mg, sc: p.sc, rev, cashK, cardK, issue: issue && p.sc === 'trg' && !!p.plan?.length, meth: p.meth };
+  const payload = { ai: p.ai ?? null, manual: p.manual ?? null, wh: p.wh, nonVat: p.nonVat, sum: p.sum, date: single ? iso || null : null, mg, sc: p.sc, rev, cashK, cardK, issue: issue && p.sc === 'trg' && !!p.plan?.length, meth: p.meth };
   const planTot = (p.plan ?? []).reduce((a, l) => a + l.qty * l.price, 0);
   return (
     <form action={action} onSubmit={(e) => { if (!window.confirm(`Да се прокнижат ${p.rows.length} ${p.rows.length === 1 ? 'запис' : 'дневни прометa'} (вкупно ${fmt(T.t)} ден.${p.nonVat ? ', без ДДВ' : ''}) во „${p.locs.find((l) => l.id === p.wh)?.name ?? ''}“?`)) e.preventDefault(); }}>
@@ -118,6 +118,7 @@ export function FiskReadPost(p: {
                 <tbody>{(p.plan ?? []).map((l, i) => <tr key={i}><td>{dmy(l.date)}</td><td>{l.name} <span className="mini">{l.rate}%</span></td><td className="n">{fq(l.qty)} {l.unit}</td><td className="n">{fmt(l.price)}</td><td className="n">{fmt(l.qty * l.price)}</td></tr>)}</tbody>
               </table></div></details>
               <label className="chk" style={{ marginTop: 8 }}><input type="checkbox" checked={issue} onChange={(e) => setIssue(e.target.checked)} /> 📦 Направи излез на стока заедно со книжењето</label>
+              {issue && !p.plan?.length && <span className="pill warn">Нема ставки за излез.</span>}
             </>}
       </div>
       <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>

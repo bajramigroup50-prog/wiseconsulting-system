@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fkCheck, fkChecks2, fkEdbOk, fkGrossByRate, fkMetgDays, fkRows2, fkScDef, posSaldo } from './retail';
+import { fkCheck, fkChecks2, fkEdbOk, fkGrossByRate, fkManualRead, fkMetgDays, fkRows2, fkScDef, fmDate, posSaldo } from './retail';
 import { fkRows } from './ai/fisk';
 
 const T = '2026-04-10';
@@ -52,5 +52,20 @@ describe('fiscal report posting (legacy fkRows2 / fkCheck / fkMetgDays)', () => 
     expect(fkEdbOk('4030999123456', '1111111')).toBe(false);
     expect(posSaldo([{ account: '1200001', date: '2026-01-31', debit: 1000, credit: 0 }, { account: '1200001', date: '2026-02-03', debit: 0, credit: 985 }, { account: '1000', date: '2026-02-03', debit: 5, credit: 0 }], '1200001'))
       .toEqual({ k: '1200001', d: 1000, p: 985, s: 15, last: '2026-02-03' });
+  });
+});
+
+describe('manual fiscal entry (legacy fkManual / fmDate)', () => {
+  it('parses dates', () => {
+    expect([fmDate('01.03.2026', 2026), fmDate('01032026', 2026), fmDate('1.3.26', 2026), fmDate('31.3', 2026), fmDate('31.02.2026', 2026), fmDate('2026-03-01', 2026), fmDate('x', 2026)])
+      .toEqual(['2026-03-01', '2026-03-01', '2026-03-01', '2026-03-31', '', '2026-03-01', '']);
+  });
+  it('builds the read: group, card, cash; Г0 = without VAT', () => {
+    const R = fkManualRead({ total: 1180, from: '2026-01-01', to: '2026-03-31', card: 200, group: 'А', device: 'AC1' });
+    expect(R.totals).toEqual({ gross: { 'А': 1180 }, vat: {}, total: 1180, cash: 980, card: 200, other: 0, storno: 0 });
+    const X = fkRows2(R, { today: '2026-04-10' });
+    expect(X.rows[0]).toMatchObject({ date: '2026-03-31', total: 1180, vat: { 'А': 180 } });
+    const N = fkManualRead({ total: 500, from: '2026-01-01', to: '2026-01-31', card: 900, group: 'Г0' });
+    expect([N.nonVat, N.groups!['Г'], N.totals!.card]).toEqual([true, 0, 500]);
   });
 });

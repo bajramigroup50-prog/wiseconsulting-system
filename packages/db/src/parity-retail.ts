@@ -70,13 +70,14 @@ export async function postFiskRead(tx: Tx, a: Actor, x: FiskReadPostInput): Prom
   const L = await loadStockContext(tx, a.firmId);
   const loc = requireLocation(L, x.wh);
   const X = fkRows2(x.read, { nonVat: x.nonVat, sum: x.sum, date: x.date, today: x.today });
-  if (!X.rows.length || !X.rows.some((r) => r.total > 0)) throw new StockDocError('Нема промет за книжење.');
+  if (!X.rows.length || !X.rows.some((r) => r.total > 0)) throw new StockDocError('Прометот е 0,00 – нема што да се книжи. Прочитајте го извештајот повторно или внесете рачно.');
   const nonVat = x.sc === 'trgNoVat' ? true : x.nonVat;
   const rev = x.rev?.trim() || FK_SC[x.sc][1] || null;
   const cardK = x.cardK?.trim() || L.settings.fiskOpt.cardK || null;
   const cashK = x.cashK?.trim() || L.settings.fiskOpt.cashK || '1009';
   const meth = x.meth ?? 'fifo';
   const plan = x.issue && x.sc === 'trg' ? fkIssuePlan(L.ctx, X.rows.map((r) => ({ date: r.date, z: r.z, total: r.total, gross: r.gross })), X.G, whId(loc), meth, X.nonVat) : null;
+  if (plan && !plan.some((d) => d.lines.length)) throw new StockDocError('Нема ставки за излез.');
   const ids: string[] = [];
   let total = 0, issued = 0;
   for (const [i, r] of X.rows.entries()) {
