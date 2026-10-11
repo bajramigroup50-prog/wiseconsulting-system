@@ -60,12 +60,16 @@ export async function handoverAction(_p: FormState, f: FormData): Promise<FormSt
 }
 
 export async function rentalStepAction(id: string, step: 'inv' | 'dep' | 'cancel'): Promise<FormState> {
-  return indRun(step === 'inv' ? 'rcInv' : step === 'dep' ? 'rcDepIn' : 'rcCancel', P, async ({ tx, a }) => {
-    if (step === 'inv') { const x = await invoiceRental(tx, a, id, today()); return `Издадена е фактура ${x.number}.`; }
+  let inv = '';
+  const r = await indRun(step === 'inv' ? 'rcInv' : step === 'dep' ? 'rcDepIn' : 'rcCancel', P, async ({ tx, a }) => {
+    // legacy `rcInv` → `bzInvDraft`: the draft opens in the invoice editor
+    if (step === 'inv') { inv = (await invoiceRental(tx, a, id, today())).id; return 'Проверете ја фактурата и зачувајте. Потоа во договорот „Порамни кауција“.'; }
     if (step === 'dep') return `Кауцијата е примена (уплатница ${await receiveDeposit(tx, a, id, today())}).`;
     await cancelRental(tx, a, id);
     return 'Резервацијата е откажана.';
   });
+  if (r.error || !inv) return r;
+  redirect(`/izlez?edit=${inv}`);
 }
 
 export async function settleDepositAction(_p: FormState, f: FormData): Promise<FormState> {

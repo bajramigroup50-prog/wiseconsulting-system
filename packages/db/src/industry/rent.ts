@@ -176,18 +176,32 @@ async function driverPartner(tx: Tx, a: IndActor, r: RentRental) {
   return r.partnerId ?? findOrCreatePartner(tx, a.firmId, r.driver.name, { address: r.driver.addr, phone: r.driver.phone, email: r.driver.email });
 }
 
-/** Legacy `rcInv`: invoice of a returned vehicle (rent + extra km / fuel / extras). */
+/** Status of the contract's invoice (`draft` = legacy `bzInvDraft` not saved yet), null without an invoice. */
+async function rentInvoiceStatus(tx: Tx, invoiceId: string | null): Promise<string | null> {
+  if (!invoiceId) return null;
+  const [i] = await tx.select({ status: invoices.status }).from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+  return i?.status ?? null;
+}
+
+/**
+ * Legacy `rcInv` 9820 → `bzInvDraft`: a DRAFT invoice of a returned vehicle (rent + extra km / fuel / extras) that the
+ * user checks and saves in the invoice editor („Проверете ја фактурата и зачувајте. Потоа во договорот „Порамни
+ * кауција“.“). An existing draft of the contract is refreshed instead of a second one.
+ */
 export async function invoiceRental(tx: Tx, a: IndActor, id: string, date: string): Promise<{ id: string; number: string; warnings: string[] }> {
   const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'ret') fail('Фактура се издава по враќањето на возилото.');
-  if (r.invoiceId) fail('Договорот е веќе фактуриран.');
+  const prev = await rentInvoiceStatus(tx, r.invoiceId);
+  if (r.invoiceId && prev !== 'draft' && prev !== null) fail('Договорот е веќе фактуриран.');
   const cfg = firmRentConfig(f);
   const v = await vehicle(tx, a.firmId, r.vehicleId);
   const k = rcCalc(asRental(r), vehicleRates(v), cfg);
   const partnerId = await driverPartner(tx, a, r);
+  if (!partnerId) fail('Не може да се креира комитент.');
   const inv = await issueModuleInvoice(tx, a, {
-    partnerId, date, lines: rentalInvoiceLines({ ...asRental(r), plate: r.plate }, k, cfg),
+    id: prev === 'draft' ? r.invoiceId : null, draft: true,
+    partnerId: partnerId!, date, lines: rentalInvoiceLines({ ...asRental(r), plate: r.plate }, k, cfg),
     note: `Договор за изнајмување ${r.number} · ${r.driver.name}`, data: { source: { type: 'rent_rental', id: r.id } },
   });
   await tx.update(rentRentals).set({ invoiceId: inv.id, partnerId }).where(eq(rentRentals.id, id));
@@ -224,7 +238,8 @@ export async function settleDeposit(tx: Tx, a: IndActor, id: string, keep: numbe
   const back = Math.round((dep - kept) * 100) / 100;
   const pid = r.depositPartnerId ?? (await driverPartner(tx, a, r));
   if (kept) {
-    if (!r.invoiceId) fail('За задржување прво издадете фактура.');
+    // legacy: the draft invoice is not an issued one until saved
+    if (!r.invoiceId || (await rentInvoiceStatus(tx, r.invoiceId)) === 'draft') fail('За задржување прво издадете фактура.');
     const [inv] = await tx.select().from(invoices).where(eq(invoices.id, r.invoiceId!)).limit(1);
     if (!inv) fail('Фактурата не постои.');
     const ctx = await firmPostingContext(tx, f);

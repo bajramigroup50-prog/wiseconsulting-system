@@ -22,8 +22,8 @@ const fail = (m: string): never => { throw new IndustryError(m); };
 /**
  * Legacy `ACT.frInv` → one Phase 3 invoice for the selected tours (one client, one currency), legacy line / note texts,
  * `pdate` = the latest unloading date, `revService` konto. The tours become `inv` with the invoice id (legacy `saveInv`
- * patch). Legacy opened an unbooked draft for review; here the invoice is saved through the invoice service and the
- * caller opens it in the invoice editor for review (edit / e-mail / PDF there).
+ * patch). As legacy (`S.draft` → „Нацрт-фактура од N тури – проверете и зачувајте.“) the invoice is an unbooked DRAFT
+ * that the caller opens in the invoice editor; it is booked when the user saves it there.
  */
 export async function invoiceFreightToursParity(tx: Tx, a: IndActor, ids: readonly string[], date: string, fx: (cur: string, d: string) => number) {
   const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
@@ -35,7 +35,7 @@ export async function invoiceFreightToursParity(tx: Tx, a: IndActor, ids: readon
   const ctx = await firmPostingContext(tx, f);
   const rev = schemeValue(ctx, 'revService') || schemeValue(ctx, 'revDefault') || '7400';
   const inv = await saveInvoice(tx, a.firmId, {
-    kind: 'invoice', date, pdate: plan.pdate, partnerId: plan.partnerId, currency: plan.cur, fx: plan.cur === 'MKD' ? null : plan.fx, note: plan.note,
+    kind: 'invoice', draft: true, date, pdate: plan.pdate, partnerId: plan.partnerId, currency: plan.cur, fx: plan.cur === 'MKD' ? null : plan.fx, note: plan.note,
     data: { source: { type: 'freight_tour', id: T.map((t) => t.id).join(',') } },
     lines: plan.lines.map((l) => ({ ...l, account: rev })),
   }, a);

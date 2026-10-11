@@ -8,6 +8,7 @@ import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import { createDefaultRegisters } from './bank/cash';
 import { savePurchase } from './sales/purchases';
+import { approveInvoice } from './sales/invoices';
 import { saveBom } from './stock-docs';
 import { documentsVatSource } from './vat-source';
 import {
@@ -95,6 +96,11 @@ describe('rent-a-car', () => {
     expect(due).toBe(3 * 2360 + 100 * 10);
     const inv = await tx((t) => invoiceRental(t, A, r.id, '2026-07-04'));
     expect(Number((await invoice(inv.id)).total)).toBeCloseTo(due, 1);
+    // legacy bzInvDraft: a draft until the user saves it — keeping the deposit needs the issued invoice
+    expect((await invoice(inv.id)).status).toBe('draft');
+    expect((await err(tx((t) => settleDeposit(t, A, r.id, due, '2026-07-04')))).message).toMatch(/прво издадете фактура/);
+    expect((await tx((t) => invoiceRental(t, A, r.id, '2026-07-04'))).id).toBe(inv.id);
+    await tx((t) => approveInvoice(t, A.firmId, inv.id, A));
     const s = await tx((t) => settleDeposit(t, A, r.id, due, '2026-07-04'));
     expect(s).toEqual({ kept: due, back: 10000 - due });
     const J = (await journal('rent_deposit', r.id))!;

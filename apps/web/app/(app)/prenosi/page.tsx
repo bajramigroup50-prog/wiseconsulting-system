@@ -64,6 +64,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
     const dflt = today.startsWith(String(year)) ? today : `${year}-12-31`;
     let initial;
     let info = '';
+    let ok = '';
     if (edit) {
       initial = { id: edit.id, number: edit.number, date: edit.date, from: edit.fromLocationId ?? 'main', to: edit.toLocationId ?? 'main', note: edit.note ?? '', lines: edit.lines.map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' })) };
     } else {
@@ -77,6 +78,11 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
       const date = last ? (last.slice(0, 4) === today.slice(0, 4) && last < today ? today : last) : dflt;
       const lines = transferFromCalc(L.ctx, cs.filter((x) => x.wh === from).flatMap((x) => x.lines), from, to, date).map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' }));
       if (c && !lines.some((l) => Number(l.qty) > 0)) info = `Нема залиха од оваа калкулација во ${L.locName(from)}. Стоката е веќе пренесена или издадена/продадена.`;
+      // legacy `ksPren` 17294–17297: checks and the toast of the transfer prepared from the selected calculations
+      else if (cs.length && !stores.length) info = 'Немате продавница – додајте ја во Шифрарник → Продавници.';
+      else if (cs.length && new Set(cs.map((x) => x.wh ?? 'main')).size > 1) info = 'Селектираните калкулации се од различни објекти (' + [...new Set(cs.map((x) => L.locName(x.wh ?? 'main')))].join(', ') + ') – изберете од еден магацин.';
+      else if (cs.length && stores.some((s) => s.id === from)) info = 'Калкулацијата е веќе во продавница – пренос се прави од магацин.';
+      else if (cs.length) ok = 'Преносницата е подготвена од ' + cs.length + ' калкулации – изберете продавница и продажни цени, па зачувајте.';
       initial = { date, from, to, note: cs.length ? 'Од калкулација ' + cs.map((x) => x.label.split(' · ')[0]).join(', ') : '', lines };
     }
     const nextNo = nextYearNumber(list.map((x) => ({ number: x.number, date: x.date })), (initial.date ?? dflt).slice(0, 4), 4);
@@ -84,6 +90,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
     editor = (
       <>
         {info && <div className="callout warn">{info}</div>}
+        {ok && <div className="callout good">{ok}</div>}
         <TransferEditor items={itemOptions(L)} locs={locs} calcs={calcs} nextNo={nextNo} round={round} initial={initial} />
       </>
     );

@@ -86,6 +86,8 @@ export async function assertPartner(tx: Tx, firmId: string, id: string | null | 
 export async function issueModuleInvoice(tx: Tx, a: IndActor, o: {
   id?: string | null; partnerId: string; date: string; lines: readonly ModuleInvoiceLine[]; note?: string; data?: InvoiceData;
   art32?: boolean; advance?: boolean; advances?: InvoiceInput['advances']; currency?: string; fx?: number | null;
+  /** Legacy `bzInvDraft`: an unbooked draft the user checks and saves in the invoice editor. */
+  draft?: boolean;
 }): Promise<{ id: string; number: string; warnings: string[] }> {
   const f = await loadFirmForUpdate(tx, a.firmId);
   const ctx = await firmPostingContext(tx, f);
@@ -97,6 +99,7 @@ export async function issueModuleInvoice(tx: Tx, a: IndActor, o: {
   const r = await saveInvoice(tx, a.firmId, {
     id: o.id ?? null, kind: 'invoice', date: o.date, partnerId: o.partnerId, lines, note: o.note ?? null, data: o.data ?? {},
     art32: !!o.art32, advance: !!o.advance, advances: o.advances ?? [], currency: o.currency ?? 'MKD', fx: o.fx ?? null,
+    ...(o.draft ? { draft: true } : {}),
   }, a);
   return { id: r.id, number: r.number, warnings: r.warnings };
 }

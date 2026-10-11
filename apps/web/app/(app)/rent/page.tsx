@@ -53,7 +53,7 @@ export default async function RentPage({ searchParams }: { searchParams: Promise
     const d = { ...E.driver, ...(rd?.set ?? {}) } as RentRental['driver'];
     const k = v ? rcCalc(E, vehicleRates(v), C) : null;
     const P = await partnerOptions(firm.id);
-    const inv = E.invoiceId ? (await db().select({ n: invoices.number, t: invoices.total }).from(invoices).where(eq(invoices.id, E.invoiceId)))[0] : null;
+    const inv = E.invoiceId ? (await db().select({ n: invoices.number, t: invoices.total, st: invoices.status }).from(invoices).where(eq(invoices.id, E.invoiceId)))[0] : null;
     const others = E.vehicleId ? await db().select().from(rentRentals).where(and(eq(rentRentals.firmId, firm.id), eq(rentRentals.vehicleId, E.vehicleId), ne(rentRentals.status, 'cancel'))) : [];
     const clash = others.find((o) => o.id !== E.id && !o.invoiceId && rentalsOverlap(E, o));
     const W = rentWarnings({ ...E, driver: d }, v ?? null, C, clash ? { number: clash.number, driverName: clash.driver.name } : null);
@@ -168,7 +168,7 @@ export default async function RentPage({ searchParams }: { searchParams: Promise
             <span style={{ flex: 1 }} />
             {Number(E.deposit) > 0 && !E.depositVoucherId && E.status !== 'cancel' && <RowAction className="btn" action={rentalStepAction.bind(null, E.id, 'dep')} confirm={`Уплатница за кауција ${fmt(E.deposit)} ден. (Должи благајна / Побарува ${C.depK})?`} label="💰 Прими кауција" />}
             {E.status === 'ret' && !E.invoiceId && <RowAction className="btn pri" action={rentalStepAction.bind(null, E.id, 'inv')} label="🧾 Фактура" />}
-            {inv && <span className="pill good">Фактура {inv.n}</span>}
+            {inv && (inv.st === 'draft' ? <Link className="btn" href={`/izlez?edit=${E.invoiceId}`}>🧾 Нацрт-фактура {inv.n} – провери и зачувај</Link> : <span className="pill good">Фактура {inv.n}</span>)}
           </div>
         )}
         {E.id && write && E.depositVoucherId && !E.depositClosed && E.status !== 'resv' && (
