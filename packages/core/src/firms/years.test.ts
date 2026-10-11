@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { firmSettingsFrom } from './firmform';
+import { fimpParse, fimpToFirm } from './firmimp';
 import { firmActiveIn, firmFromYear, firmToYear, firmYearNote, fyCheck, fyOfDate, fyOnDeactivate, fyOnRestore, fyParse } from './years';
 
 const NEW = { settings: {}, createdAt: new Date('2026-10-11T08:00:00Z') };
@@ -52,6 +53,13 @@ describe('firm working years (firmActiveIn)', () => {
     expect(fyOnRestore(d)).toEqual({ a: 1 });
     expect(fyOnDeactivate({ toYear: '2024' }, 2026)).toEqual({ toYear: '2024' });
     expect(fyOnRestore({ toYear: '2024' })).toEqual({ toYear: '2024' });
+  });
+  it('Excel import: „Година“ is curYear and fromYear', () => {
+    const P = fimpParse([['Име на фирма', 'Година'], ['АЛФА ДООЕЛ', 2024], ['БЕТА ДОО', ''], ['ГАМА', 'тековна']]);
+    if ('error' in P) throw new Error(P.error);
+    expect(fimpToFirm(P.L[0]!).settings).toMatchObject({ curYear: '2024', fromYear: '2024' });
+    expect(fimpToFirm(P.L[1]!).settings.fromYear).toBeUndefined();
+    expect(fimpToFirm(P.L[2]!).settings).toEqual({ curYear: 'тековна' });
   });
   it('form check and save', () => {
     expect(fyCheck('2024', '2023')).toMatch(/не може/);

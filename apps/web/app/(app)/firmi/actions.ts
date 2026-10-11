@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { FIRM_VAT_RATES, firmSettingsFrom, unlockTo } from '@wise/core/firms/firmform';
+import { fyOnDeactivate, fyOnRestore } from '@wise/core/firms/years';
+import { todaySkopje } from '@wise/core/office';
 import { audit, firms, type NewFirm } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
@@ -95,9 +97,12 @@ export async function deleteFirm(_p: FirmFormState, form: FormData): Promise<Fir
   const u = await requireCan('delFirm', id);
   if (u.role !== 'admin') return { error: 'Бришење на фирма може само администраторот.' };
   await db().transaction(async (tx) => {
-    const [f] = await tx.update(firms).set({ active: false }).where(eq(firms.id, id)).returning({ name: firms.name, edb: firms.edb });
-    if (!f) throw new Error('Фирмата не постои.');
-    await audit(tx, { userId: u.id, firmId: id, action: 'delFirm', entityType: 'firm', entityId: id, data: { name: f.name, edb: f.edb } });
+    const [b] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, id)).for('update');
+    if (!b) throw new Error('Фирмата не постои.');
+    // a deactivated firm stops at the current year (`toYear`, unless one is already set) — earlier years keep it
+    const settings = fyOnDeactivate((b.settings ?? {}) as Record<string, unknown>, Number(todaySkopje().slice(0, 4)));
+    const [f] = await tx.update(firms).set({ active: false, settings }).where(eq(firms.id, id)).returning({ name: firms.name, edb: firms.edb });
+    await audit(tx, { userId: u.id, firmId: id, action: 'delFirm', entityType: 'firm', entityId: id, data: { name: f!.name, edb: f!.edb, toYear: settings.toYear } });
   });
   const jar = await cookies();
   if (jar.get(FIRM_COOKIE)?.value === id) jar.delete(FIRM_COOKIE);
@@ -110,8 +115,12 @@ export async function restoreFirm(form: FormData): Promise<void> {
   const u = await requireCan('delFirm', id);
   if (u.role !== 'admin') return;
   await db().transaction(async (tx) => {
-    await tx.update(firms).set({ active: true }).where(eq(firms.id, id));
-    await audit(tx, { userId: u.id, firmId: id, action: 'restoreFirm', entityType: 'firm', entityId: id, data: {} });
+    const [b] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, id)).for('update');
+    if (!b) return;
+    // the automatic `toYear` of the deactivation goes away again; a typed one stays
+    const settings = fyOnRestore((b.settings ?? {}) as Record<string, unknown>);
+    await tx.update(firms).set({ active: true, settings }).where(eq(firms.id, id));
+    await audit(tx, { userId: u.id, firmId: id, action: 'restoreFirm', entityType: 'firm', entityId: id, data: { toYear: settings.toYear ?? null } });
   });
   revalidatePath('/firmi');
 }

@@ -17,8 +17,10 @@ import { saveFirm, deleteFirm, type FirmFormState } from './actions';
 
 type S = Record<string, unknown>;
 
-export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh }: {
+export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYearDef }: {
   firm: Firm | null; withFee: boolean; feeNote: string; canDelete: boolean; canResh: boolean;
+  /** First working year computed when „Активна од година“ is empty (creation year / earliest data). */
+  fromYearDef: number;
 }) {
   const [st, action, pending] = useActionState<FirmFormState, FormData>(saveFirm, {});
   const [tab, setTab] = useState<FirmTab>('osn');
@@ -161,6 +163,9 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh }: {
           <I k="gdvpYear" l="Година од која плаќа ГДВП" max={4} />
           <I k="curYear" l="Тековна година" def={String(new Date().getFullYear())} max={4} />
           <I k="parent" l="Фирма родител (од минатата година)" />
+          <I k="fromYear" l="Активна од година" ph={`${fromYearDef} (автоматски)`} max={4} />
+          <I k="toYear" l="До година (затворена)" ph="работи" max={4} />
+          <p className="note" style={{ margin: '0 0 8px' }}>Фирмата се гледа во листите само во годините од „Активна од година“ до „До година“. Празно „Активна од“ = годината на внесување (или првата година со налози).</p>
           <label className="fl"><span>Заклучен период до</span><input name="lockDate" type="date" defaultValue={d?.lockDate ?? ''} /></label>
         </fieldset>
         <label className="chk"><input type="checkbox" name="transport" defaultChecked={s.transport === true} /> Распоред на транспортни трошоци по количини</label>

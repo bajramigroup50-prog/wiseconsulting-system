@@ -2,6 +2,8 @@
  * Firm import from Excel (legacy `FIMP_MAP` / `fimpField` / `fimpRead` / `fimpFind` 8843–8848): columns are recognised
  * by their heading; existing firms (same ЕДБ, ЕМБС or name) only get their empty fields filled.
  */
+import { fyParse } from './years';
+
 export const FIMP_MAP: readonly (readonly [string, string])[] = [
   ['име на фирма', 'name'], ['назив', 'name'], ['година', 'curYear'], ['родител', 'parent'], ['дополн', 'bank2'], ['доп. жиро', 'bank2'], ['реална', 'realBank'],
   ['жиро с-ка на', 'bankAcc'], ['жиро сметка', 'bank'], ['жиро', 'bank'], ['правна форма', 'lf'], ['дејност', 'activity'], ['ф/стд', 'ftype'], ['заклуч', 'closedFlag'],
@@ -126,6 +128,9 @@ export function fimpToFirm(f: FimpRecord): FimpFirm {
     if (COLS.has(k) || v === '' || v == null) continue;
     settings[k === 'bank' ? 'bankAccount' : k] = String(v).slice(0, 300);
   }
+  // „Година“ (legacy „Тековна година“) is also the first working year of the firm (`years.ts`: listed from that year)
+  const gy = /(?:^|\D)((?:19|20)\d{2})(?:\D|$)/.exec(String(f.curYear ?? ''))?.[1];
+  if (gy && fyParse(gy) != null) { settings.curYear = gy; settings.fromYear = gy; }
   return {
     cols: {
       name: String(f.name).trim().slice(0, 300), code: s('code'), legalForm: fimpLegalForm(f.lf), edb: e.length === 13 ? e : s('edb'),
