@@ -122,7 +122,7 @@ export function FiskReadPost(p: {
       </div>
       <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
         {bad > 0 && <label className="chk" style={{ margin: 0 }}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> ги проверив разликите</label>}
-        <button className="btn pri" disabled={pending || (bad > 0 && !ok) || (single && !iso)}>✓ Прокнижи го прометот</button>
+        <div className="savebar"><button className="btn pri" disabled={pending || (bad > 0 && !ok) || (single && !iso)}>✓ Прокнижи го прометот</button></div>
       </div>
     </form>
   );

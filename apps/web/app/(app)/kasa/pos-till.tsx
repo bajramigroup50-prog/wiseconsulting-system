@@ -126,7 +126,7 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
         </div>
         <div className="row">
           <label className="f">Од тоа со картичка<input inputMode="decimal" value={payCard} onChange={(e) => setPayCard(e.target.value)} style={{ width: 120 }} /></label>
-          <button className="btn pri" disabled={pending || (!!cp && 'err' in cp)}>Евидентирај продажба</button>
+          <div className="savebar"><button className="btn pri" disabled={pending || (!!cp && 'err' in cp)}>Евидентирај продажба</button></div>
           <button type="button" className="btn" onClick={inp}>Преземи сметка за апаратот</button>
         </div>
       </> : <div className="empty">Додадете артикли во сметката.</div>}

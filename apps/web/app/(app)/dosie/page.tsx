@@ -33,7 +33,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
   const missingFresh = DOS_FRESH.filter((c) => !byCat.has(c));
   // legacy: the newest of each kind is „најнова“, the others „постара верзија“; stale current-state extracts warn (3 / 6 months)
   const newest = new Map<string, string>();
-  for (const [c, L] of byCat) newest.set(c, [...L].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0]!.id);
+  for (const [c, L] of byCat) { const top = [...L].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0]; if (top) newest.set(c, top.id); }
   const addM = (d: string, m: number) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() + m); return x.toISOString().slice(0, 10); };
   const stale = DOS_FRESH.map((c) => docs.find((d) => d.id === newest.get(c))).filter((d): d is (typeof docs)[number] => !!d && td > addM(d.date ?? '1900-01-01', 3));
   const alerts = docs.filter((d) => { const e = expiry(d, td); return !!e && e.lvl !== 'good'; });

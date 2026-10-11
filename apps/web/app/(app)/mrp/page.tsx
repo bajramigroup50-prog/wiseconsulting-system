@@ -67,7 +67,7 @@ export default async function MrpPage({ searchParams }: { searchParams: Promise<
             </tr>
           ))}{!prods.length && <tr><td colSpan={5} className="note">Нема производи.</td></tr>}</tbody>
         </table></div>
-        <div className="row" style={{ marginTop: 6 }}><button className="btn">Пресметај</button><span className="note">Предлогот = отворени нарачки од купувачи − залиха. Изменете го планот по потреба.</span></div>
+        <div className="row savebar" style={{ marginTop: 6 }}><button className="btn">Пресметај</button><span className="note">Предлогот = отворени нарачки од купувачи − залиха. Изменете го планот по потреба.</span></div>
       </form>
       <ActionForm action={createMrp} className="card" reset={false}>
         <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>2. Потребни материјали</h2>{write && short.length > 0 && <button className="btn pri">Креирај нарачки до добавувачи за недостигот ({short.length})</button>}</div>

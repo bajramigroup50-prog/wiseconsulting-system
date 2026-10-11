@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { ScanPurchaseDraft, ScanSaleDraft } from '@wise/core/sales';
 import { aiDocuments, audit, ensurePartner, fileAlreadyUsed, fileLinks, files, markDraftSaved, saveInvoice, savePurchase, type PurchaseInput } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
+import { requireCan } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
 import { actorOf } from '@/lib/sales';
@@ -82,6 +83,7 @@ export async function removeScan(id: string): Promise<ActionState> {
 
 /** A reviewed purchase draft as service input (used by batch save). */
 export async function draftToPurchase(d: ScanPurchaseDraft, fileId: string | null): Promise<PurchaseInput> {
+  await requireCan('write');
   return {
     number: d.number, date: d.date, docDate: d.docDate || null, due: d.due || null, partnerId: d.partnerId || null,
     supplierName: d.supplierName, supplierEdb: d.supplierEdb, ptype: d.ptype, art32: d.art32, cash: d.cash, warehouseId: d.warehouseId,
