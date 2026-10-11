@@ -273,7 +273,34 @@ export async function artAutoAction(_p: ActionState, f: FormData): Promise<Actio
     }
     return { u, n: nn, g, d };
   });
+  if (!st.error && !st.data!.u && !st.data!.n && !st.data!.g) return { ok: 'Нема што да се среди автоматски.' };
   return st.error ? st : { ok: `✓ Средено: ${st.data!.u} единици, ${st.data!.n} имиња, ${st.data!.g} артикли споени (${st.data!.d} записи префрлени).` };
+}
+
+/** Legacy `artDupAll` / `artSimAll` (11336): merge every duplicate group, or every similar pair ≥ 90 % (master: with code, then more moves). */
+export async function artMergeAllAction(kind: 'dup' | 'sim'): Promise<ActionState> {
+  const st = await stockAction('del', ['/artQ', '/artikli'], async (tx, a) => {
+    const S = await firmSettings(tx, a.firmId);
+    const rules = Retail.artRules(S.artAbbr as Record<string, string>, S.artUnits as Record<string, string>);
+    const { items: its, movesOf } = await loadArtItems(tx, a.firmId);
+    const R = Retail.artAnalyze(its, rules, { ignore: (S.artIgnore as string[]) ?? [] });
+    const groups = kind === 'dup' ? R.groups : R.sim.filter((x) => x.s >= 0.9).map((x) => [x.a, x.b]);
+    const gone = new Set<string>();
+    let g = 0, n = 0;
+    for (const grp of groups) {
+      const live = grp.filter((x) => !gone.has(x.id));
+      if (live.length < 2) continue;
+      const M = Retail.artPickMaster(live, movesOf);
+      const r = await mergeItems(tx, a, M.id, live.map((x) => x.id));
+      for (const x of live) if (x.id !== M.id) gone.add(x.id);
+      g += r.merged; n++;
+    }
+    return { g, n, empty: !groups.length };
+  });
+  if (st.error) return st;
+  const d = st.data!;
+  if (d.empty) return { error: kind === 'sim' ? 'Нема парови над 90%.' : 'Нема што да се среди.' };
+  return { ok: kind === 'sim' ? `Споени ${d.n} пара.` : `Споени ${d.g} артикли.` };
 }
 
 export async function artKontaAction(_p: ActionState, f: FormData): Promise<ActionState> {

@@ -14,6 +14,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { ActionForm } from '@/components/action-form';
+import { artMergeAllAction } from '../_retail/actions';
 import { artAbbrAction, artAutoAction, artFmtAction, artIgnoreAction, artMergeAction, artUnitsAction } from '../_retail/actions';
 
 type SP = { t?: string; code?: string; pref?: string; prev?: string };
@@ -60,6 +61,8 @@ export default async function ArtQPage({ searchParams }: { searchParams: Promise
       </div></form>
       <div className="row" style={{ gap: 6, margin: "6px 0 10px" }}>{tabs.map(([k, n]) => <Link key={k} className={`btn sm ${k === T ? "pri" : ""}`} href={href({ t: k, prev: undefined })}>{n}</Link>)}</div>
 
+      {adm && T === 'dup' && R.groups.length > 0 && <div className="row" style={{ margin: '-6px 0 10px' }}><RowAction className="btn sm" action={artMergeAllAction.bind(null, 'dup')} label="⇢ Спои ги сите групи" confirm={`Да се спојат сите ${R.groups.length} групи дупликати (главен: со шифра / со повеќе движења)?`} /></div>}
+      {adm && T === 'sim' && R.sim.length > 0 && <div className="row" style={{ margin: '-6px 0 10px' }}><RowAction className="btn sm" action={artMergeAllAction.bind(null, 'sim')} label="⇢ Спои ги сите над 90%" confirm={`Да се спојат ${R.sim.filter((x) => x.s >= 0.9).length} пара слични артикли (над 90%)?`} /></div>}
       {T === 'dup' && (R.groups.length ? R.groups.map((g, gi) => {
         const mi = Math.max(0, g.findIndex((i) => String(i.code ?? '').trim()));
         return (
