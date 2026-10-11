@@ -38,7 +38,7 @@ describe('firm data plan', () => {
   it('finds firm and child tables from the schema, parents before children', () => {
     const P = firmTables().map((t) => t.name);
     for (const n of ['partners', 'invoices', 'invoice_lines', 'journals', 'journal_lines', 'files', 'file_links', 'codes']) expect(P).toContain(n);
-    for (const n of ['audit_log', 'user_firms', 'firms', 'users', 'word_templates']) expect(P).not.toContain(n);
+    for (const n of ['audit_log', 'user_firms', 'firms', 'users', 'word_templates', 'aml_records', 'aml_reports']) expect(P).not.toContain(n);
     expect(P.indexOf('partners')).toBeLessThan(P.indexOf('invoices'));
     expect(P.indexOf('invoices')).toBeLessThan(P.indexOf('invoice_lines'));
     expect(P.indexOf('journals')).toBeLessThan(P.indexOf('journal_lines'));

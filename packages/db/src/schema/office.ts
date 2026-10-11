@@ -204,7 +204,8 @@ export const docPackages = pgTable('doc_packages', {
 
 /** Legacy `appaml/{fid}` (15869): the client's KYC file and current risk level. */
 export const amlRecords = pgTable('aml_records', {
-  firmId: uuid('firm_id').primaryKey().references(() => firms.id, { onDelete: 'cascade' }),
+  /** `restrict`: the AML file outlives the firm row (10-year retention, чл. 62 ЗСППФТ) — firms are only archived. */
+  firmId: uuid('firm_id').primaryKey().references(() => firms.id, { onDelete: 'restrict' }),
   /** `AmlFile` (beneficial owners, representative, PEP, indicators, …). */
   data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
   level: text('level').notNull().default('high'),

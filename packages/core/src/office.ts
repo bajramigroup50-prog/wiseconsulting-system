@@ -12,3 +12,4 @@ export * from './office/autopilot';
 export * from './office/inspection';
 export * from './office/own-tpl';
 export * from './office/docx-html';
+export * from './office/aml-ufr';
