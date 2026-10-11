@@ -119,8 +119,9 @@ export function yePayrollFromLedger(
  * employees, and the number of active employees (bu257 when there were no runs).
  */
 export interface YePayrollSource {
-  runs(firmId: string, year: number): Promise<ZsPayrollRun[]>;
-  activeEmployees(firmId: string, year: number): Promise<number>;
+  /** `db` = the caller's transaction / connection (opaque here), so the read joins the year-end transaction. */
+  runs(firmId: string, year: number, db?: unknown): Promise<ZsPayrollRun[]>;
+  activeEmployees(firmId: string, year: number, db?: unknown): Promise<number>;
 }
 
 /**
