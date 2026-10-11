@@ -2,7 +2,7 @@
 /** Legacy travel-agency ACT (11928, 11987): arrangements, bookings, payments, invoices, advance offset, margin VAT. */
 import { redirect } from 'next/navigation';
 import {
-  addBookingPayment, cancelBooking, invoiceBooking, postTravelVat, removeBookingPayment, saveArrangement, saveBooking, saveIndustryConfig, settleBookingAdvance,
+  addBookingPayment, cancelBooking, importArrangements, invoiceBooking, postTravelVat, removeBookingPayment, saveArrangement, saveBooking, saveIndustryConfig, settleBookingAdvance,
 } from '@wise/db';
 import { indRun, isDate, num, nz, rows, str, today } from '@/lib/industry';
 import type { FormState } from '@/components/bank-form';
@@ -74,5 +74,15 @@ export async function saveTravelConfigAction(_p: FormState, f: FormData): Promis
       agg: str(f.get('agg')) === 'arr' ? 'arr' : 'period', lic: str(f.get('lic')), guar: str(f.get('guar')), terms: String(f.get('terms') ?? ''),
     });
     return 'Поставките се зачувани.';
+  });
+}
+
+/** Arrangements from Excel (upsert by code; costs and bookings stay). */
+export async function importArrangementsAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('taSave', P, async ({ tx, a }) => {
+    let rows0: unknown = [];
+    try { rows0 = JSON.parse(str(f.get('rows')) || '[]'); } catch { rows0 = []; }
+    const r = await importArrangements(tx, a, (Array.isArray(rows0) ? rows0 : []).filter(Array.isArray) as (string | number | null)[][]);
+    return `Додадени ${r.added}, ажурирани ${r.updated}.${r.errors.length ? ' Грешки: ' + r.errors.slice(0, 5).join(' ') : ''}`;
   });
 }
