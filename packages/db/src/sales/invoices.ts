@@ -8,7 +8,7 @@
  * Journals: (`invoice`, id) kind `izlez` (credit notes `odobr`) for the sale itself; stock moves through Phase 7
  * `replaceSourceMoves` (sources `invoice` / `dispatch`) with their stock journal `stock:invoice` / `stock:dispatch`, kind `zaliha`.
  */
-import { removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
+import { invoiceProdPlan, removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
   cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
@@ -342,12 +342,14 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   // production from the invoice: the old orders go, the new ones are made before the invoice issues the product
   const prevProd = ((existing?.data ?? {}) as InvoiceData).prodRun;
   if (prevProd?.orders?.length) await removeInvoiceProduction(tx, firmId, prevProd, actor);
+  // Every line marked „🏭 производство“ comes in `production.lines` (the older invoice-level „Производство = Да“ sent
+  // the same shape with `data.prod = 'Д'`); an invoice without produced lines keeps no plan.
   const P = input.production;
-  if (kind === 'invoice' && input.data?.prod === 'Д' && P && P.lines.length) {
+  if (kind === 'invoice' && P && P.lines.length && input.data?.prod !== 'Н') {
     let st: InvoiceProdState;
     if (status === 'posted') { const r = await runInvoiceProduction(tx, f, inv, P, actor); st = r.state; warnings.push(...r.warnings); }
-    else st = { wh: P.wh ?? null, extra: r2(n(P.extra)), saveBom: !!P.saveBom, mat: 0, orders: [], lines: P.lines.map((l) => ({ ...l, qty: n(l.qty), materials: l.materials.map((m) => ({ itemId: m.itemId, qty: n(m.qty) })) })) };
-    const data: InvoiceData = { ...(inv.data ?? {}), prodRun: st, ...(st.orders.length ? { prodCost: r2(st.mat + st.extra).toFixed(2) } : {}) };
+    else st = invoiceProdPlan(P);
+    const data: InvoiceData = { ...(inv.data ?? {}), prod: 'Д', prodRun: st, ...(st.orders.length ? { prodCost: r2(st.mat + st.extra).toFixed(2) } : {}) };
     [inv] = await tx.update(invoices).set({ data }).where(eq(invoices.id, inv.id)).returning() as [Invoice];
   }
 
@@ -374,8 +376,10 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
   let [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
   const plan = ((u!.data ?? {}) as InvoiceData).prodRun;
   const pw: string[] = [];
-  if (u!.kind === 'invoice' && (u!.data as InvoiceData).prod === 'Д' && plan?.lines.length && !plan.orders.length) {
-    const r = await runInvoiceProduction(tx, f, u!, { wh: plan.wh, extra: plan.extra, saveBom: plan.saveBom, lines: plan.lines }, actor);
+  if (u!.kind === 'invoice' && (u!.data as InvoiceData).prod !== 'Н' && plan?.lines.length && !plan.orders.length) {
+    // per-line plans carry their own extra costs; `plan.extra` includes them, the rest is shared (older invoice-level plan)
+    const shared = r2(n(plan.extra) - plan.lines.reduce((a, l) => a + n(l.extra), 0));
+    const r = await runInvoiceProduction(tx, f, u!, { wh: plan.wh, extra: shared, saveBom: plan.saveBom, lines: plan.lines }, actor);
     pw.push(...r.warnings);
     [u] = await tx.update(invoices).set({ data: { ...(u!.data ?? {}), prodRun: r.state, prodCost: r2(r.state.mat + r.state.extra).toFixed(2) } }).where(eq(invoices.id, id)).returning();
   }

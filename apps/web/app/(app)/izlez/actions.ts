@@ -6,7 +6,7 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { isFuel } from '@wise/core/sales';
 import { z } from 'zod';
 import { aiDocuments, approveInvoice, audit, deleteInvoice, fileLinks, firms, items, markDraftSaved, saveInvoice } from '@wise/db';
@@ -14,6 +14,7 @@ import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
 import { scanEditorHref, scanQueue } from '@/lib/scan-queue';
+import { nextCode } from '@/lib/codes';
 
 const str = z.union([z.string(), z.number()]).transform((v) => String(v).trim().replace(',', '.'));
 const date = z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Неважечки датум.');
@@ -31,7 +32,11 @@ const Payload = z.object({
   scanDocId: z.string().max(40).optional(), scanIndex: z.number().int().min(0).optional(), back: z.string().max(200).optional(),
   production: z.object({
     wh: z.string().max(40).nullable(), extra: str, saveBom: z.boolean(),
-    lines: z.array(z.object({ lineNo: z.number().int().min(0), productId: z.uuid(), qty: str, materials: z.array(z.object({ itemId: z.uuid(), qty: str })).max(200) })).max(200),
+    // one entry per line marked „🏭 производство“, with its own materials warehouse, extra costs and „зачувај како норматив“
+    lines: z.array(z.object({
+      lineNo: z.number().int().min(0), productId: z.uuid(), qty: str, materials: z.array(z.object({ itemId: z.uuid(), qty: str })).max(200),
+      wh: z.string().max(40).nullable().optional(), extra: str.optional(), saveBom: z.boolean().optional(),
+    })).max(200),
   }).nullable().optional(),
 });
 
@@ -49,7 +54,10 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
       const r = await saveInvoice(tx, firm.id, {
         ...v, lines: v.lines.map((l) => ({ ...l, itemId: l.itemId || null })), partnerId: v.partnerId || null, warehouseId: v.warehouseId || null,
         refInvoiceId: v.refInvoiceId || null, fromDocId: v.fromDocId || null, scanned: !!v.scanDocId,
-        production: v.production ? { ...v.production, wh: v.production.wh || null } : null,
+        production: v.production ? {
+          ...v.production, wh: v.production.wh || null,
+          lines: v.production.lines.map((l) => ({ ...l, ...(l.wh !== undefined ? { wh: l.wh || null } : {}), ...(l.extra !== undefined ? { extra: l.extra || '0' } : {}) })),
+        } : null,
         advances: v.advances.filter((a) => Number(a.amount) > 0),
         data: v.data,
       }, actorOf(u));
@@ -161,6 +169,40 @@ export async function deleteInvoicesAction(ids: string[]): Promise<ActionState> 
     await db().transaction((tx) => audit(tx, { userId: u.id, firmId: firm.id, action: 'bulkDelete', entityType: 'invoice', data: { text: `Масовно бришење (излез): ${n} од ${L.length}` } }));
     revalidatePath('/', 'layout');
     return { ok: 'Избришани ' + n + ' од ' + L.length + (n < L.length ? ' – останатите не може (заклучен период или поврзани документи).' : '.') };
+  } catch (e) { return actionError(e); }
+}
+
+const NewProduct = z.object({
+  name: z.string().trim().min(1, 'Внесете назив на производот.').max(500), unit: z.string().trim().max(20),
+  rate: z.coerce.number().refine((r) => [18, 10, 5, 0].includes(r), 'ДДВ стапка: 18, 10, 5 или 0.'), price: str,
+});
+
+/**
+ * „+ Креирај производ“ on an invoice line marked „🏭 производство“ that is still free text: the finished-product
+ * article (type product, the line's name / unit / VAT / price) is made without leaving the invoice. An existing
+ * product with the same name is reused. Guarded by `write`, audited like a new item (`newS`).
+ */
+export async function createProductAction(input: z.input<typeof NewProduct>): Promise<ActionState & { item?: { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> } }> {
+  try {
+    const p = NewProduct.safeParse(input);
+    if (!p.success) return { error: p.error.issues[0]?.message ?? 'Неважечки податоци.' };
+    const v = p.data;
+    const { u, firm } = await firmAction('write');
+    const it = await db().transaction(async (tx) => {
+      const [same] = await tx.select().from(items).where(and(eq(items.firmId, firm.id), eq(items.type, 'product'), sql`lower(${items.name}) = lower(${v.name})`)).limit(1);
+      if (same) return { row: same, created: false };
+      const code = nextCode((await tx.select({ c: items.code }).from(items).where(eq(items.firmId, firm.id))).map((r) => r.c));
+      const price = Number(v.price) > 0 ? String(Math.round(Number(v.price) * 1e4) / 1e4) : null;
+      const [row] = await tx.insert(items).values({ firmId: firm.id, code, name: v.name, type: 'product', unit: v.unit || 'ком', vatRate: v.rate, price }).returning();
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'newS', entityType: 'item', entityId: row!.id, data: { name: v.name, code, type: 'product', from: 'invoice' } });
+      return { row: row!, created: true };
+    });
+    revalidatePath('/artikli');
+    const r = it.row;
+    return {
+      ok: it.created ? `Креиран е производот „${r.name}“ (шифра ${r.code ?? ''}).` : `Производот „${r.name}“ веќе постои – поврзан е.`,
+      item: { id: r.id, code: r.code, name: r.name, unit: r.unit, price: Number(r.price ?? 0), rate: r.vatRate, type: r.type, account: r.revenueAccount, barcodes: [], sp: {} },
+    };
   } catch (e) { return actionError(e); }
 }
 

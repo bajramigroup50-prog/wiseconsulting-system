@@ -127,5 +127,111 @@ describe('flow 8 — industry', () => {
     const [bom] = await pg.select().from(schema.boms).where(eq(schema.boms.productId, table));
     expect(bom!.lines).toEqual([{ itemId: wood, qty: 2 }]);
     expect((await journalBy('invoice', id))!['1200']).toBe(11800);
+    oldInvoice = id;
+  });
+
+  const qty = async (item: string) => r2((await pg.select().from(schema.stockMoves).where(eq(schema.stockMoves.itemId, item))).reduce((s, m) => s + Number(m.qty), 0));
+  const orders = async () => pg.select().from(schema.productionOrders).where(eq(schema.productionOrders.firmId, firmId));
+  let oldInvoice = '', mixed = '';
+
+  it('per-line 🏭: a mixed invoice (service + goods from stock + produced product) — orders, stock and journals', async () => {
+    const [w0, c0, t0, o0] = [await qty(wood), await qty(coffee), await qty(table), (await orders()).length];
+    const r = await act(saveInvoiceAction({}, form({ payload: JSON.stringify(payload({
+      data: { prod: 'Д' },
+      lines: [
+        { itemId: '', code: '', name: 'Монтажа', unit: 'усл.', qty: '1', price: '1000', disc: '0', rate: '18', account: '' },
+        { itemId: coffee, code: '300', name: 'Кафе 1кг', unit: 'ком', qty: '1', price: '1000', disc: '0', rate: '18', account: '' },
+        { itemId: '', code: '', name: '', unit: 'ком', qty: '1', price: '', disc: '', rate: '18', account: '' }, // empty row: dropped
+        { itemId: table, code: '200', name: 'Маса', unit: 'ком', qty: '2', price: '5000', disc: '0', rate: '18', account: '' },
+      ],
+      production: { wh: null, extra: '0', saveBom: false, lines: [{ lineNo: 2, productId: table, qty: '2', wh: null, extra: '50', saveBom: false, materials: [{ itemId: wood, qty: '4' }] }] },
+    })) })));
+    expect(r).toMatchObject({ redirect: expect.stringMatching(/^\/izlez\?saved=/) });
+    mixed = new URLSearchParams((r as { redirect: string }).redirect.split('?')[1]).get('saved')!;
+    const I = await inv(mixed);
+    const D = I.data as { prodCost?: string; prod?: string; prodRun?: { extra: number; lines: { extra?: number; wh?: string | null }[]; orders: { id: string; lineNo: number; mat: number; lab: number }[] } };
+    expect(D.prod).toBe('Д');
+    expect(D.prodCost).toBe('450.00'); // 4 × 100 materials + 50 labour of this line
+    expect(D.prodRun!.lines[0]).toMatchObject({ extra: 50, wh: null });
+    expect(D.prodRun!.orders).toHaveLength(1);
+    expect(D.prodRun!.orders[0]).toMatchObject({ lineNo: 2, mat: 400, lab: 50 });
+    // stock: materials out, product in and sold, goods sold from stock, the service has no stock
+    expect(await qty(wood)).toBe(r2(w0 - 4));
+    expect(await qty(table)).toBe(t0);
+    expect(await qty(coffee)).toBe(r2(c0 - 1));
+    expect((await orders()).length).toBe(o0 + 1);
+    const [po] = (await orders()).filter((o) => o.id === D.prodRun!.orders[0]!.id);
+    expect(po).toMatchObject({ date: I.date, note: `Фактура ${I.number}` });
+    expect(Number(po!.mat)).toBe(400);
+    expect(Number(po!.lab)).toBe(50);
+    // production journal: the product received at 450 (materials 400 + labour 50) and the WIP cleared
+    const J = await journalBy('stock:production', po!.id);
+    expect(J).not.toBeNull();
+    expect(Object.values(J!).reduce((a, v) => r2(a + v), 0)).toBe(0);
+    expect(Object.values(J!).filter((v) => v > 0).reduce((a, v) => r2(a + v), 0)).toBeGreaterThanOrEqual(450);
+    // invoice: 7000 + 5000×2 + … base 12000, VAT 2160 → 1200 = 14160
+    expect((await journalBy('invoice', mixed))!['1200']).toBe(14160);
+    // the product issued by the invoice at its production cost (450 for 2 pcs)
+    const outMoves = await pg.select().from(schema.stockMoves).where(and(eq(schema.stockMoves.sourceId, mixed), eq(schema.stockMoves.itemId, table)));
+    expect(outMoves.reduce((a, m) => r2(a + Number(m.value)), 0)).toBe(-450);
+  });
+
+  it('per-line 🏭: re-saving replaces the production order; deleting the invoice removes it', async () => {
+    const before = (await inv(mixed)).data as { prodRun: { orders: { id: string }[] } };
+    const oldId = before.prodRun.orders[0]!.id;
+    const I0 = await inv(mixed);
+    const r = await act(saveInvoiceAction({}, form({ payload: JSON.stringify(payload({
+      id: mixed, number: I0.number, data: { prod: 'Д' },
+      lines: [{ itemId: table, code: '200', name: 'Маса', unit: 'ком', qty: '1', price: '5000', disc: '0', rate: '18', account: '' }],
+      production: { wh: null, extra: '0', saveBom: true, lines: [{ lineNo: 0, productId: table, qty: '1', wh: null, extra: '0', saveBom: true, materials: [{ itemId: wood, qty: '1' }] }] },
+    })) })));
+    expect(r).toMatchObject({ redirect: expect.stringMatching(/^\/izlez\?saved=/) });
+    const D = (await inv(mixed)).data as { prodCost: string; prodRun: { orders: { id: string }[] } };
+    expect(D.prodRun.orders).toHaveLength(1);
+    expect(D.prodRun.orders[0]!.id).not.toBe(oldId);
+    expect((await orders()).some((o) => o.id === oldId)).toBe(false);
+    expect(D.prodCost).toBe('100.00');
+    const [bom] = await pg.select().from(schema.boms).where(eq(schema.boms.productId, table));
+    expect(bom!.lines).toEqual([{ itemId: wood, qty: 1 }]); // „зачувај како норматив“ of the line
+    const { deleteInvoiceAction } = await import('@/app/(app)/izlez/actions');
+    const w0 = await qty(wood);
+    expect((await deleteInvoiceAction(mixed)).error).toBeUndefined();
+    expect((await orders()).some((o) => o.id === D.prodRun.orders[0]!.id)).toBe(false);
+    expect(await qty(wood)).toBe(r2(w0 + 1));
+  });
+
+  it('backward compatibility: an invoice saved with the invoice-level flag re-saves through the per-line payload', async () => {
+    const I0 = await inv(oldInvoice);
+    const D0 = I0.data as { prodRun: { extra: number; orders: { id: string; lab: number }[] } };
+    expect(D0.prodRun.extra).toBe(100);
+    expect(D0.prodRun.orders[0]!.lab).toBe(100); // read back by the editor as the line's own extra cost
+    const r = await act(saveInvoiceAction({}, form({ payload: JSON.stringify(payload({
+      id: oldInvoice, number: I0.number, data: { prod: 'Д' },
+      lines: [{ itemId: table, code: '200', name: 'Маса', unit: 'ком', qty: '2', price: '5000', disc: '0', rate: '18', account: '' }],
+      production: { wh: null, extra: '0', saveBom: false, lines: [{ lineNo: 0, productId: table, qty: '2', wh: null, extra: '100', saveBom: false, materials: [{ itemId: wood, qty: '4' }] }] },
+    })) })));
+    expect(r).toMatchObject({ redirect: expect.stringMatching(/^\/izlez\?saved=/) });
+    const D = (await inv(oldInvoice)).data as { prodCost: string; prodRun: { orders: { id: string }[] } };
+    expect(D.prodCost).toBe('500.00'); // same cost as before
+    expect(D.prodRun.orders).toHaveLength(1);
+    expect(D.prodRun.orders[0]!.id).not.toBe(D0.prodRun.orders[0]!.id);
+    // without production lines the plan is dropped and the old order removed
+    const r2_ = await act(saveInvoiceAction({}, form({ payload: JSON.stringify(payload({
+      id: oldInvoice, number: I0.number, data: { prod: 'Н' }, production: null,
+      lines: [{ itemId: coffee, code: '300', name: 'Кафе 1кг', unit: 'ком', qty: '1', price: '1000', disc: '0', rate: '18', account: '' }],
+    })) })));
+    expect(r2_).toMatchObject({ redirect: expect.stringMatching(/^\/izlez\?saved=/) });
+    expect((await orders()).some((o) => o.id === D.prodRun.orders[0]!.id)).toBe(false);
+  });
+
+  it('„+ Креирај производ“ makes the finished-product article from a free-text line (reused by name)', async () => {
+    const { createProductAction } = await import('@/app/(app)/izlez/actions');
+    const a = await createProductAction({ name: 'Полица по мерка', unit: 'ком', rate: 18, price: '2500' });
+    expect(a.error).toBeUndefined();
+    expect(a.item).toMatchObject({ name: 'Полица по мерка', type: 'product', unit: 'ком', rate: 18, price: 2500 });
+    const b = await createProductAction({ name: 'полица по мерка', unit: 'ком', rate: 18, price: '0' });
+    expect(b.item!.id).toBe(a.item!.id);
+    const au = await pg.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityId, a.item!.id), eq(schema.auditLog.action, 'newS')));
+    expect(au).toHaveLength(1);
   });
 });

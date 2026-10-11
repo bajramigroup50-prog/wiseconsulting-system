@@ -36,10 +36,15 @@ export type InvoiceKind = 'invoice' | 'credit' | 'proforma' | 'dispatch';
 /* ---------------- Outgoing documents ---------------- */
 
 /** Header fields without their own column (legacy `data-if` fields of `invHeader`, 4077–4139). */
-/** State of the production made from a sales invoice: the plan (materials per produced line) and the orders made. */
+/**
+ * State of the production made from a sales invoice: the plan (materials per produced line) and the orders made.
+ * Lines marked „🏭 производство“ each carry their own materials warehouse, extra costs and „зачувај како норматив“;
+ * older runs (invoice-level „Производство = Да“) only have `wh` / `extra` / `saveBom` on the invoice. `extra` = all
+ * extra costs of the invoice (the per-line ones added up).
+ */
 export interface InvoiceProdState {
   wh: string | null; extra: number; saveBom: boolean; mat: number;
-  lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[] }[];
+  lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[]; wh?: string | null; extra?: number | null; saveBom?: boolean }[];
   orders: { id: string; number: string; productId: string; lineNo: number; mat: number; lab: number }[];
 }
 

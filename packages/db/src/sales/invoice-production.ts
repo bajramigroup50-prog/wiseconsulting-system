@@ -18,17 +18,34 @@ import { deleteProductionOrder, saveBom } from '../stock-docs';
 import { DocumentError, type DocActor } from './context';
 
 export interface InvoiceProductionInput {
-  /** Materials warehouse (null = main). */
+  /** Materials warehouse (null = main) — the default of the lines without their own (older invoice-level run). */
   wh?: string | null;
-  /** Extra production costs (labour, energy…) added to the product cost. */
+  /** Extra production costs of the whole invoice (older run), split over the lines by materials value. */
   extra?: number | string | null;
-  /** Save the chosen materials as the product's normativ. */
+  /** Save the chosen materials as the product's normativ (default of the lines without their own flag). */
   saveBom?: boolean;
-  lines: { lineNo: number; productId: string; qty: number | string; materials: { itemId: string; qty: number | string }[] }[];
+  /**
+   * The lines marked „🏭 производство“. Per line: its own materials warehouse (`wh`, null = main), extra costs
+   * (`extra`, added to that line's product only) and `saveBom`.
+   */
+  lines: { lineNo: number; productId: string; qty: number | string; materials: { itemId: string; qty: number | string }[]; wh?: string | null; extra?: number | string | null; saveBom?: boolean }[];
 }
 
 const num = (v: unknown) => Number(v) || 0;
 const r2 = (x: number) => Math.round(x * 100) / 100;
+
+/**
+ * The plan stored in `invoices.data.prodRun` (before the orders are made): the per-line fields are kept as given, so
+ * an older invoice-level plan stays one. `extra` = invoice-level + the lines' own extra costs.
+ */
+export function invoiceProdPlan(input: InvoiceProductionInput, wh: string | null = input.wh ?? null): InvoiceProdState {
+  const lines = input.lines.map((l) => ({
+    lineNo: l.lineNo, productId: l.productId, qty: num(l.qty), materials: l.materials.map((m) => ({ itemId: m.itemId, qty: num(m.qty) })),
+    ...(l.wh !== undefined ? { wh: l.wh || null } : {}), ...(l.extra != null ? { extra: r2(num(l.extra)) } : {}), ...(l.saveBom !== undefined ? { saveBom: !!l.saveBom } : {}),
+  }));
+  const extra = r2(num(input.extra) + lines.reduce((a, l) => a + num(l.extra), 0));
+  return { wh, extra, saveBom: !!input.saveBom, lines, orders: [], mat: 0 };
+}
 
 /** Remove the production orders made by an invoice (edit / delete / un-post). Locked periods are refused. */
 export async function removeInvoiceProduction(tx: Tx, firmId: string, prod: InvoiceProdState | null | undefined, actor: DocActor): Promise<void> {
@@ -46,10 +63,11 @@ export async function runInvoiceProduction(tx: Tx, f: Firm, inv: Invoice, input:
   const L = await loadStockContext(tx, f.id);
   assertOpenPeriod(L.firm, inv.date);
   const loc = requireLocation(L, input.wh ?? null);
-  const W = whId(loc), outWh = whId(inv.warehouseId);
+  const outWh = whId(inv.warehouseId);
+  const lineLoc = (l: InvoiceProductionInput['lines'][number]) => (l.wh !== undefined ? requireLocation(L, l.wh || null) : loc);
   const lines = input.lines.filter((l) => l.productId && num(l.qty) > 0 && l.materials.some((m) => m.itemId && num(m.qty) > 0));
   const warnings: string[] = [];
-  const state: InvoiceProdState = { wh: loc, extra: r2(num(input.extra)), saveBom: !!input.saveBom, lines: input.lines.map((l) => ({ ...l, qty: num(l.qty), materials: l.materials.map((m) => ({ itemId: m.itemId, qty: num(m.qty) })) })), orders: [], mat: 0 };
+  const state = invoiceProdPlan(input, loc);
   if (!lines.length) return { state, warnings };
   const prodOf = (id: string): StockItem => {
     const p = L.ctx.items?.find((i) => i.id === id);
@@ -61,21 +79,24 @@ export async function runInvoiceProduction(tx: Tx, f: Firm, inv: Invoice, input:
     if (!it || it.type === 'service') throw new DocumentError('Репроматеријалите мора да бидат артикли на залиха.');
     if (m.itemId === l.productId) throw new DocumentError('Производот не може да биде и репроматеријал.');
   }
-  // materials value per line at the current average (for the split of the extra costs)
-  const P = lines.map((l) => ({ l, p: { ...prodOf(l.productId), bom: perUnitBom(l.materials.map((m) => ({ itemId: m.itemId, qty: num(m.qty) })), num(l.qty)), labor: 0 } as StockItem }));
-  const vals = P.map(({ l, p }) => productionNeeds(L.ctx, p, num(l.qty), W).mat);
-  const ex = splitExtra(num(input.extra), vals);
+  // materials value per line at the current average (for the split of the invoice-level extra costs of an older run)
+  const P = lines.map((l) => ({ l, loc: lineLoc(l), p: { ...prodOf(l.productId), bom: perUnitBom(l.materials.map((m) => ({ itemId: m.itemId, qty: num(m.qty) })), num(l.qty)), labor: 0 } as StockItem }));
+  const vals = P.map(({ l, p, loc: lc }) => productionNeeds(L.ctx, p, num(l.qty), whId(lc)).mat);
+  const shared = splitExtra(num(input.extra), vals);
+  // the line's own extra costs go to its product only
+  const ex = P.map(({ l }, k) => r2(num(l.extra) + (shared[k] ?? 0)));
   let ctx: StockContext = L.ctx;
   const nums = await tx.select({ number: productionOrders.number, date: productionOrders.date }).from(productionOrders).where(eq(productionOrders.firmId, f.id));
-  for (const [k, { l, p }] of P.entries()) {
+  for (const [k, { l, p, loc: lc }] of P.entries()) {
     const q = num(l.qty);
+    const W = whId(lc);
     const need = productionNeeds(ctx, p, q, W);
-    for (const x of need.lines.filter((y) => y.short)) warnings.push(`Недостига репроматеријал „${x.item.name}“ во ${L.locName(loc)}: потребно ${x.need}, на залиха ${x.have}.`);
+    for (const x of need.lines.filter((y) => y.short)) warnings.push(`Недостига репроматеријал „${x.item.name}“ во ${L.locName(lc)}: потребно ${x.need}, на залиха ${x.have}.`);
     const number = nextYearNumber(nums, inv.date.slice(0, 4));
     nums.push({ number, date: inv.date });
     const prod = { ...p, labor: q ? (ex[k] ?? 0) / q : 0 } as StockItem;
     const [row] = await tx.insert(productionOrders).values({
-      firmId: f.id, number, date: inv.date, productId: p.id, qty: q.toFixed(4), locationId: loc,
+      firmId: f.id, number, date: inv.date, productId: p.id, qty: q.toFixed(4), locationId: lc,
       bom: (p.bom ?? []).map((b) => ({ itemId: b.item, qty: Number(b.qty) })), note: `Фактура ${inv.number}`, createdBy: actor.userId,
     }).returning({ id: productionOrders.id });
     const id = row!.id;
@@ -87,7 +108,7 @@ export async function runInvoiceProduction(tx: Tx, f: Firm, inv: Invoice, input:
     ctx = { ...ctx, moves: [...ctx.moves, ...moves] };
     state.orders.push({ id, number, productId: p.id, lineNo: l.lineNo, mat: r.record.mat, lab: r.record.lab });
     state.mat = r2(state.mat + r.record.mat);
-    if (input.saveBom && p.type === 'product') {
+    if ((l.saveBom ?? input.saveBom) && p.type === 'product') {
       await saveBom(tx, { firmId: f.id, userId: actor.userId }, { productId: p.id, labor: num(L.ctx.items?.find((i) => i.id === p.id)?.labor), lines: (p.bom ?? []).map((b) => ({ itemId: b.item, qty: Number(b.qty) })) });
     }
   }

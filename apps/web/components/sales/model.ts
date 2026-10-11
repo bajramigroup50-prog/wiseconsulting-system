@@ -1,7 +1,16 @@
 /** Editor models shared by the server pages and the client editors (plain JSON). */
 import type { DocKind } from '@wise/core/sales';
 
-export interface EdLine { itemId: string; code: string; name: string; unit: string; qty: string; price: string; disc: string; rate: string; account: string }
+export interface EdLine {
+  itemId: string; code: string; name: string; unit: string; qty: string; price: string; disc: string; rate: string; account: string;
+  /** „🏭 производство“ marker of a sales invoice line (editor only; sent as `production.lines`, not as a line column). */
+  prod?: EdLineProd;
+}
+/**
+ * Production of one invoice line: materials warehouse ('' = main), materials (from the normativ or picked from stock),
+ * extra costs (labour, energy…), „зачувај како норматив“. `fromBom` = the materials follow the normativ × quantity.
+ */
+export interface EdLineProd { wh: string; extra: string; saveBom: boolean; materials: { itemId: string; qty: string }[]; fromBom: boolean; open: boolean }
 export interface EdInvoice {
   id: string | null; kind: DocKind; number: string; date: string; pdate: string; due: string; partnerId: string; warehouseId: string;
   art32: boolean; advance: boolean; export: boolean; svc: boolean; currency: string; fx: string;
