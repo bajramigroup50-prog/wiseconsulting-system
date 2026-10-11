@@ -11,6 +11,7 @@ import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
+import { SendExtras } from '@/components/send-extras';
 import { deleteContact, deleteDossierDoc, mailDossierDocs, saveContact, saveDeadline, saveDossierDoc, setDeadlineDone } from './actions';
 
 type SP = { q?: string; cat?: string; nov?: string; edit?: string; mail?: string; id?: string | string[] };
@@ -188,9 +189,10 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
           <div className="form">
             <label className="f">До (е-пошта)<input name="to" type="email" required defaultValue={firm.email ?? ''} /></label>
             <label className="f">Наслов<input name="subject" placeholder={`Документи – ${firm.name}`} /></label>
-            <label className="f wide">Порака<input name="note" /></label>
+            <label className="f wide">Порака<textarea name="note" rows={3} defaultValue={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} /></label>
           </div>
-          <div className="row"><button className="btn">✉ Испрати</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
+          <div className="row"><button className="btn pri">✉ Испрати по е-пошта</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
+          <SendExtras selName="docId" zipHref="/dosie/zip" defaultBody={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} files={Object.fromEntries(docs.map((d) => [d.id, (F.get(d.id) ?? []).map((x) => ({ id: x.id, name: x.name }))]))} />
         </ActionForm>
       )}
     </>

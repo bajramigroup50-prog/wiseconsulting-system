@@ -13,6 +13,7 @@ import { fileLinks, files, firmEntity, YE_DOSSIER_ENTITY } from '@wise/db';
 import { booksPage } from '@/lib/books';
 import { db } from '@/lib/db';
 import { ActionForm } from '@/components/action-form';
+import { SendExtras } from '@/components/send-extras';
 import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -52,7 +53,8 @@ export default async function ZsDosPage({ searchParams }: { searchParams: Promis
             <label className="f wide">Порака<textarea name="body" rows={3} defaultValue={'Почитувани,\n\nВо прилог Ви ги доставуваме документите од годишната сметка.'} /></label>
           </div>
           <p className="mini" style={{ margin: 0 }}>Штиклирајте ги датотеките подолу (☑), па „Испрати“.</p>
-          <div className="row"><button className="btn pri">✉ Испрати</button>{office && <button className="btn" formAction={yearDocsToPackageForm} formNoValidate title="Штиклираните датотеки во нов „Пакет за банка“">📦 Во пакет за банка</button>}</div>
+          <div className="row"><button className="btn pri">✉ Испрати по е-пошта</button>{office && <button className="btn" formAction={yearDocsToPackageForm} formNoValidate title="Штиклираните датотеки во нов „Пакет за банка“">📦 Во пакет за банка</button>}</div>
+          <SendExtras selName="sel" defaultBody={'Почитувани,\n\nВо прилог Ви ги доставуваме документите од годишната сметка.'} files={Object.fromEntries(L.map((o) => [o.id, [{ id: o.id, name: o.name }]]))} />
           {yrs.map((y) => {
             const F = byY.get(y) ?? [];
             if (!F.length) return null;
