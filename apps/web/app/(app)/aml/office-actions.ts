@@ -64,8 +64,8 @@ export async function amlCtl(): Promise<ActionState> {
 /** Legacy `amlRepNew`: anyone in the office may report; only the owner and the officer see the list. */
 export async function amlRepNew(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const u = await requireUser();
-    if (u.role === 'klient' || u.role === 'view') return { error: 'Немате право.' };
+    const u = await requireCan('write');
+    if (u.role === 'klient') return { error: 'Немате право.' };
     const text = fv(f, 'text');
     if (!text) return { error: 'Опишете го сомневањето.' };
     const fid = fv(f, 'firmId');
