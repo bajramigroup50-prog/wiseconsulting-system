@@ -468,7 +468,9 @@ function present(el, idx) {
 }
 
 /* global server index: where else does a label live? (feature moved to another page) */
-const GLOBAL_FILES = [...walk(path.join(WEB, 'app')), ...walk(path.join(WEB, 'components')), ...walk(path.join(WEB, 'lib')), ...walk(CORE)].filter((f) => !EXCLUDE_IMPORT.test(f));
+// service messages (validation errors, notices) of packages/db and the worker reach the screen through the actions
+const GLOBAL_FILES = [...walk(path.join(WEB, 'app')), ...walk(path.join(WEB, 'components')), ...walk(path.join(WEB, 'lib')), ...walk(CORE),
+  ...walk(path.join(ROOT, 'packages/db/src')), ...walk(path.join(ROOT, 'apps/worker/src'))].filter((f) => !EXCLUDE_IMPORT.test(f));
 function foundElsewhere(el) {
   // stricter than the per-route check: exact normalised text, or fuzzy only for labels of 3+ words
   for (const f of GLOBAL_FILES) {
@@ -688,7 +690,7 @@ for (const f of ALL) {
 /* ───────────────────────── report ───────────────────────── */
 const LIMITATIONS = `- **Static text matching, not behaviour.** A label counts as present when its normalised text (lower-case, no emoji/punctuation, \`\${…}\` → \`*\`) occurs in the route's files or anything they import (apps/web transitively, \`@wise/core/<sub>\` two levels; \`lib/nav*.ts\` excluded because it lists every menu label), or when ≥ 80 % of its words (5-letter stems) appear on one source line, or when one wording variant matches (text without "(…)" hints / shortcut keys, or one side of " / ", " – ", " · "). A present label does not prove the feature works.
 - **Legacy extraction** reads every \`VIEWS.<id>=\` / \`VIEWS['id']=\` / \`[ids].forEach(v=>VIEWS[v]=…)\` / \`CONST.forEach(([id])=>VIEWS[id]=…)\` definition, keeps the LAST one plus the earlier ones it wraps (\`const _x=VIEWS.id … _x(m)\`), and follows helper calls and \`data-act\`/\`data-go\` handlers two levels deep. Helpers used by > 12 views or called > 40 times are treated as generic and skipped; per-view maps (\`LAGER={g_lager:{…},m_lager:{…}}\`) are cut to the view's own entry. Some helper text that legacy shows only in a branch (admin-only, demo firm, offline) is still counted.
-- **Moved vs missing.** A label not in the route but found verbatim in another server file is listed as _moved / elsewhere_ and not counted as missing. It may still be a real gap if legacy showed it on this screen.
+- **Moved vs missing.** A label not in the route but found verbatim in another server file (apps/web, packages/core, and the service messages of packages/db and apps/worker) is listed as _moved / elsewhere_ and not counted as missing. It may still be a real gap if legacy showed it on this screen.
 - **Messages** (toasts, callouts, empty-state texts) are the noisiest kind: the server validates with \`required\` inputs / different wording, and runtime-only browser messages (library loading, Firestore, "не е достапно во овој приказ") are filtered out. Treat message gaps as hints.
 - Generic dialog buttons (Откажи, Затвори, Излез, Зачувај, Избриши, Измени, Отвори, keyboard-shortcut variants) are ignored.
 - **Server-side "present" can be over-generous** because shared components (sales editors, stock editors) carry the labels of several views.
