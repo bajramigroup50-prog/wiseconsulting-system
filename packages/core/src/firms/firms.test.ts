@@ -210,3 +210,42 @@ describe('fimpField: headings legacy did not know', async () => {
     expect(fimpField('Е-пошта')).toBe('email');
   });
 });
+
+describe('firm import: VAT columns (headings, values, re-import updates)', async () => {
+  const { fimpField, fimpVatFlag, fimpVatPeriod, fimpPatch } = await import('./firmimp');
+  it('recognises VAT headings of other programs', () => {
+    for (const h of ['ДДВ', 'ДДВ обврзник', 'Регистриран за ДДВ', 'ДДВ (да/не)', 'Обврзник за ДДВ', 'VAT']) expect(fimpField(h)).toBe('ddvTxt');
+    for (const h of ['Период ДДВ', 'ДДВ период', 'Даночен период', 'Месечно/Тромесечно', 'Тромесечно / месечно', 'Период на ДДВ', 'ДДВ период (месечно/тромесечно)']) expect(fimpField(h)).toBe('perTxt');
+    expect(fimpField('Даночен број')).toBe('bankEdb');
+    expect(fimpField('Регистарски број')).toBe('regNo');
+    expect(fimpField('ЕДБ')).toBe('edb');
+  });
+  it('reads flag and period values', () => {
+    for (const v of ['да', 'Да', 'x', 'X', 'х', '1', 'yes', 'ДДВ обврзник', 'обврзник', 'месечно']) expect(fimpVatFlag(v)).toBe(true);
+    for (const v of ['не', 'Не', 'no', '0', 'необврзник', 'не е обврзник']) expect(fimpVatFlag(v)).toBe(false);
+    expect(fimpVatFlag('')).toBeNull();
+    for (const v of ['месечен', 'Месечно', 'month', 'M']) expect(fimpVatPeriod(v)).toBe('month');
+    for (const v of ['тромесечен', 'Тромесечно', 'квартален', 'Квартално', 'quarter', '3']) expect(fimpVatPeriod(v)).toBe('quarter');
+    expect(fimpVatPeriod('да')).toBeNull();
+  });
+  it('parses rows and implies a VAT payer from the period', () => {
+    const P = fimpParse([['Назив', 'Регистриран за ДДВ', 'Даночен период'], ['А', 'x', 'месечен'], ['Б', 'не', ''], ['В', '', 'квартален'], ['Г', '', '']]);
+    if ('error' in P) throw new Error(P.error);
+    expect(P.L.map((f) => [f.ddv, f.per])).toEqual([[true, 'month'], [false, undefined], [true, 'quarter'], [undefined, undefined]]);
+    const Q = fimpParse([['Назив', 'ДДВ'], ['А', 'месечно']]);
+    if ('error' in Q) throw new Error(Q.error);
+    expect(Q.L[0]).toMatchObject({ ddv: true, per: 'month' });
+  });
+  it('re-import updates VAT status and period, fills only empty other fields', () => {
+    const cur = { name: 'А', phone: '02 111', email: null, vatRegistered: false, vatPeriod: 'quarter' };
+    const P = fimpParse([['Назив', 'Телефон', 'Е-пошта', 'ДДВ обврзник', 'Период ДДВ'], ['А', '070 222', 'a@b.mk', 'да', 'месечно']]);
+    if ('error' in P) throw new Error(P.error);
+    expect(fimpPatch(cur, fimpToFirm(P.L[0]!).cols)).toEqual({ email: 'a@b.mk', vatRegistered: true, vatPeriod: 'month' });
+    const same = fimpParse([['Назив', 'ДДВ', 'Период ДДВ'], ['А', 'не', 'тромесечно']]);
+    if ('error' in same) throw new Error(same.error);
+    expect(fimpPatch(cur, fimpToFirm(same.L[0]!).cols)).toEqual({});
+    const none = fimpParse([['Назив'], ['А']]);
+    if ('error' in none) throw new Error(none.error);
+    expect(fimpPatch(cur, fimpToFirm(none.L[0]!).cols)).toEqual({});
+  });
+});

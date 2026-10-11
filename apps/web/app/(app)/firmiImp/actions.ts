@@ -1,14 +1,14 @@
 'use server';
 /**
  * Legacy `fimpRead` / `fimpGo` (ACT_NEED `firms`): read the Excel on the server, preview, then import. Existing firms
- * (same ЕДБ / ЕМБС / name) only get their empty fields filled; new firms belong to the importing user. With „profiles“
+ * (same ЕДБ / ЕМБС / name) get their empty fields filled and the VAT status/period updated when the file states them; new firms belong to the importing user. With „profiles“
  * every new firm also gets a client-portal profile (legacy `klAutoUser`, needs `users`).
  */
 import { revalidatePath } from 'next/cache';
 import { eq, sql } from 'drizzle-orm';
 import * as XLSX from 'xlsx';
 import { can } from '@wise/core';
-import { fimpFind, fimpParse, fimpToFirm, type FimpRecord } from '@wise/core/firms/firmimp';
+import { fimpFind, fimpParse, fimpPatch, fimpToFirm, type FimpRecord } from '@wise/core/firms/firmimp';
 import type { KlCred } from '@wise/core/firms/klprofili';
 import { audit, firms } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
@@ -55,8 +55,7 @@ export async function importFirms(recs: FimpRecord[], opts: { ddv: boolean; prof
       const { cols, settings } = fimpToFirm(rec);
       const cur = fimpFind(rec, ex);
       if (cur) {
-        const patch: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(cols)) if (v != null && v !== '' && ((cur as Record<string, unknown>)[k] == null || (cur as Record<string, unknown>)[k] === '')) patch[k] = v;
+        const patch = fimpPatch(cur as Record<string, unknown>, cols);
         const cs = (cur.settings ?? {}) as Record<string, unknown>;
         const sp = Object.fromEntries(Object.entries(settings).filter(([k]) => cs[k] == null || cs[k] === ''));
         if (!Object.keys(patch).length && !Object.keys(sp).length) continue;

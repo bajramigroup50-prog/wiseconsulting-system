@@ -15,6 +15,8 @@ export const FIMP_MAP: readonly (readonly [string, string])[] = [
 export function fimpField(hd: unknown): string | null {
   const x = String(hd ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   if (!x) return null;
+  const vat = fimpVatField(x);
+  if (vat) return vat;
   const m = FIMP_MAP.find(([k]) => x === k) ?? FIMP_MAP.find(([k]) => x.startsWith(k));
   if (m) return m[1];
   // Headings legacy did not know („Тел.“, „Мобилен“, „Контакт телефон“, „Емаил“, „Е-mail“ with mixed letters, „Електронска пошта“ …).
@@ -23,6 +25,37 @@ export function fimpField(hd: unknown): string | null {
   if (/^(моб|mob|gsm)/.test(y) || /(мобилен|мобилни)/.test(y)) return 'phone2';
   if (/(^|\s)(тел|tel|phone|телефон)/.test(y)) return 'phone';
   if (/^(контакт лице|лице за контакт|одговорно лице|управител|contact)/.test(y)) return 'contact';
+  return null;
+}
+
+/**
+ * VAT headings of other programs, checked before the legacy map (where „Регистриран…“ would hit „рег“ and „Даночен период“
+ * would hit „даночен“): „ДДВ“, „ДДВ обврзник“, „Регистриран за ДДВ“, „Период ДДВ“, „Даночен период“, „Месечно/Тромесечно“ …
+ */
+function fimpVatField(x: string): 'perTxt' | 'ddvTxt' | null {
+  const y = x.replace(/[.:\-_/()]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/(^|\s)(период|periud|period)/.test(y) && /(ддв|даноч|vat|tvsh|пдв)/.test(y)) return 'perTxt';
+  if (/^(месеч|тромесеч|квартал)/.test(y)) return 'perTxt';
+  if (/(^|\s)(ддв|vat|tvsh|пдв)(\s|$)/.test(y) || /^ддв/.test(y)) return 'ddvTxt';
+  return null;
+}
+
+/** VAT period text → code: месечен/месечно/1/month → month, тромесечен/квартален/3/quarter → quarter. */
+export function fimpVatPeriod(v: unknown): 'month' | 'quarter' | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (/тромес|три мес|квартал|quarter|^q|^3$|tremuj/.test(s)) return 'quarter';
+  if (/месеч|мјесеч|month|mujor|^m$|^1$|^12$/.test(s)) return 'month';
+  return null;
+}
+
+/** VAT flag text → boolean: да/x/1/yes/обврзник → true, не/0/no/неопврзник → false, empty/unknown → null. */
+export function fimpVatFlag(v: unknown): boolean | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (/^(не|no|n|0|false|нема|ne|jo)(\s|$|[.,;!])/.test(s) || /^не\s*обврз|^необврз|^нерег/.test(s)) return false;
+  if (/^(д|да|y|yes|1|true|x|х|✓|✔|po|обврз|регистр)/.test(s)) return true;
+  if (fimpVatPeriod(s)) return true;
   return null;
 }
 
@@ -42,8 +75,9 @@ export function fimpParse(rows: readonly (readonly unknown[])[]): { cols: string
     H.forEach((k, i) => { if (!k) return; const v = String(r[i] ?? '').trim(); if (v && f[k] == null) f[k] = v; });
     if (!f.name) continue;
     for (const k of ['edb', 'embs', 'bank', 'bank2', 'realBank', 'bankAcc', 'bankEdb']) if (f[k]) f[k] = String(f[k]).replace(/\s/g, '');
-    if (f.ddvTxt != null) { f.ddv = /^(д|да|y|yes|1|true)/i.test(String(f.ddvTxt)); delete f.ddvTxt; }
-    if (f.perTxt != null) { f.per = /мес|month/i.test(String(f.perTxt)) ? 'month' : 'quarter'; delete f.perTxt; }
+    // A „ДДВ“ column may hold the period itself („месечно“); a period column implies a VAT payer.
+    if (f.ddvTxt != null) { const b = fimpVatFlag(f.ddvTxt); const p = fimpVatPeriod(f.ddvTxt); if (b != null) f.ddv = b; if (p && f.perTxt == null) f.per = p; delete f.ddvTxt; }
+    if (f.perTxt != null) { const p = fimpVatPeriod(f.perTxt); if (p) { f.per = p; if (f.ddv == null) f.ddv = true; } else if (fimpVatFlag(f.perTxt) === false && f.ddv == null) f.ddv = false; delete f.perTxt; }
     L.push(f);
   }
   if (!L.length) return { error: 'Нема фирми во датотеката.' };
@@ -104,3 +138,17 @@ export function fimpToFirm(f: FimpRecord): FimpFirm {
 
 /** Template headings for the "⬇ Excel образец" download. */
 export const FIMP_TEMPLATE = ['Шифра', 'Име на фирма', 'Правна форма', 'ЕДБ', 'Матичен број', 'Адреса', 'Град', 'Телефон', 'Е-пошта', 'Дејност', 'Жиро сметка', 'Банка', 'Лице за контакт', 'ДДВ (да/не)', 'ДДВ период (месечно/тромесечно)'];
+
+/**
+ * Re-import of an existing firm: empty columns are filled (legacy), and the VAT status / period are UPDATED whenever
+ * the file states them, because these columns are never empty on the firm and the file is the newer source.
+ */
+export function fimpPatch(cur: Record<string, unknown>, cols: FimpFirm['cols']): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(cols)) {
+    if (v == null || v === '') continue;
+    if (k === 'vatRegistered' || k === 'vatPeriod') { if (cur[k] !== v) patch[k] = v; continue; }
+    if (cur[k] == null || cur[k] === '') patch[k] = v;
+  }
+  return patch;
+}
