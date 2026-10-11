@@ -53,7 +53,8 @@ export function XlsxImport({ action, template, templateName, label = '📥 Ув�
   template: string[][];
   templateName: string;
   label?: string;
-  confirm?: (n: number) => string;
+  /** Confirmation text; `{n}` is replaced by the number of rows (a string: server components cannot pass functions). */
+  confirm?: string;
 }) {
   const [res, setRes] = useState<ImportResult | null>(null);
   const [pending, start] = useTransition();
@@ -74,7 +75,7 @@ export function XlsxImport({ action, template, templateName, label = '📥 Ув�
             return typeof x === 'number' && Number.isInteger(x) ? x.toLocaleString('fullwide', { useGrouping: false }) : String(v ?? '').trim();
           })).filter((r) => r.some((c) => c !== ''));
           if (rows.length < 2) { setRes({ error: 'Датотеката нема редови за увоз.' }); return; }
-          if (confirm && !window.confirm(confirm(rows.length - 1))) return;
+          if (confirm && !window.confirm(confirm.replace('{n}', String(rows.length - 1)))) return;
           start(async () => setRes(await action(rows.slice(0, 5001))));
         } catch { setRes({ error: 'Датотеката не може да се прочита.' }); }
       }} /></label>

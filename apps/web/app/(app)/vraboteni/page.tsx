@@ -56,7 +56,7 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
         <Link className="btn" href="/plati">Пресметка на плата</Link>
         <Link className="btn" href="/dogovori">Евиденција на договори</Link>
         <XlsxButton name="Vraboteni.xlsx" label="⬇ Excel" sheets={[{ name: 'Вработени', rows: xl }]} />
-        {write && sp.nov === undefined && !edit && <XlsxImport action={importEmployeesXlsx} template={EMP_TEMPLATE.map((r) => r.map(String))} templateName="Vraboteni.xlsx" label="Увоз од Excel" confirm={(n) => `Да се увезат ${n} вработени?`} />}
+        {write && sp.nov === undefined && !edit && <XlsxImport action={importEmployeesXlsx} template={EMP_TEMPLATE.map((r) => r.map(String))} templateName="Vraboteni.xlsx" label="Увоз од Excel" confirm="Да се увезат {n} вработени?" />}
       </Hd>
       {write && sp.nov === undefined && !edit && <EmpScan firmId={firm.id} />}
       {(sp.nov !== undefined || edit) && write && <EmployeeForm e={edit ?? null} nextNo={nextNo} positions={[...new Set(all.map((e) => e.position).filter((x): x is string => !!x))]} />}

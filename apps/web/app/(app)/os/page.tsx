@@ -68,7 +68,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
         <Link className="btn" href="/pecati/os" target="_blank">🖨 PDF регистар</Link>
         {all.length > 0 && <Link className="btn" href="/os/etiketi" target="_blank">🏷 Етикети за сите (PDF)</Link>}
         <XlsxButton name={`Osnovni_sredstva_${year}.xlsx`} label="⬇ Excel" sheets={[{ name: 'Основни средства', rows: xl }]} />
-        {write && <XlsxImport action={importAssets} template={[[...OS_XLSX_HEAD]]} templateName="Osnovni_sredstva_obrazec.xlsx" confirm={(n) => `Да се увезат ${n} основни средства?`} />}
+        {write && <XlsxImport action={importAssets} template={[[...OS_XLSX_HEAD]]} templateName="Osnovni_sredstva_obrazec.xlsx" confirm="Да се увезат {n} основни средства?" />}
         {write && d.total > 0 && <RowAction className="btn pri" action={runDepAction} label={dep ? 'Пресметај амортизација повторно' : `Пресметај амортизација ${year}`}
           confirm={`Да се прокнижи амортизацијата за ${year}: ${fmt(d.total)} ден. на 31.12.${year}?`} />}
         {del && dep && <RowAction className="btn danger" action={undoDepAction} label="🗑 Налог за амортизација" confirm={`Да се избрише налогот за амортизација ${dep.number}?`} />}
