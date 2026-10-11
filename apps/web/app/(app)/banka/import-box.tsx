@@ -130,8 +130,9 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
         onDragLeave={(e) => { e.currentTarget.style.borderColor = ''; }}
         onDrop={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = ''; if (!pending) preview(Array.from(e.dataTransfer.files)); }}>
         Повлечете го изводот тука (PDF, слика, XML, MT940, Excel), или кликнете за да го изберете<br />
-        <small>PDF и слики се читаат автоматски со AI · оригиналот се чува прикачен на изводот за евиденција</small>
+        <small>PDF и слики се читаат автоматски со AI (PDF со текст и без AI) · оригиналот се чува прикачен на изводот за евиденција</small>
       </div>
+      <p className="mini" style={{ margin: '4px 0 0' }}>Excel/CSV со непознати колони или без AI: <a href="/konvertor?t=bank" target="_blank" rel="noreferrer">🔄 Конвертор на датотеки</a> → Excel за увоз.</p>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
       {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}
         {/колоните|форматот не е препознаен/.test(prev?.error ?? '') && files.length > 0 && <> <button type="button" className="btn sm pri" disabled={pending} onClick={() => preview(files, true)}>Прочитај го автоматски (AI)</button></>}</div>}

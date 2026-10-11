@@ -8,7 +8,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import {
-  audit, BACKUP_FILE_PREFIX, exportFirm, FirmDataError, files, firms, parseFirmBackup, PRE_RESTORE_PREFIX, restoreFirm,
+  audit, BACKUP_FILE_PREFIX, exportFirm, FirmDataError, files, firms, parseFirmBackup, PRE_RESTORE_PREFIX, restoreFirm, setAiEnabled,
 } from '@wise/db';
 import { Forbidden, requireCan, requireUser } from '@/lib/auth';
 import { actionError, type ActionState } from '@/lib/books';
@@ -18,6 +18,20 @@ import { getObjectBytes } from '@/lib/storage';
 import { backupName, fileRow, putBackup } from '@/lib/sysdata';
 
 const err = (e: unknown): ActionState => (e instanceof FirmDataError ? { error: e.message } : actionError(e));
+
+/** „AI читање: вклучено / исклучено“ (office-wide, administrator). Off: uploads keep working, files are read without AI. */
+export async function setAiEnabledAction(on: boolean): Promise<ActionState> {
+  try {
+    const u = await requireUser();
+    if (u.role !== 'admin') throw new Forbidden('aiSwitch');
+    await db().transaction(async (tx) => {
+      await setAiEnabled(tx, on, u.id);
+      await audit(tx, { userId: u.id, firmId: null, action: 'aiSwitch', entityType: 'app_settings', data: { enabled: on } });
+    });
+    revalidatePath('/sistem');
+    return { ok: on ? 'AI читањето е вклучено.' : 'AI читањето е исклучено – датотеките се читаат без AI (Excel/CSV/XML и PDF со текст).' };
+  } catch (e) { return err(e); }
+}
 
 export async function backupNowAction(): Promise<ActionState> {
   try {

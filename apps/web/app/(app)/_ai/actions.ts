@@ -4,7 +4,8 @@
  * flow of `skan`, for receipts, employee documents, bank statements, fiscal reports and BOM suggestions).
  * Office inbox classification starts from `klInbox/actions.ts` (the firm of the message, not the session firm).
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { aiErrCodeOf, aiErrText, type AiErrCode } from '@wise/core/ai/errors';
 import { z } from 'zod';
 import { aiDocuments, audit, files } from '@wise/db';
 import { requireCan, requireUser } from '@/lib/auth';
@@ -53,7 +54,11 @@ export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?:
   }
 }
 
-export interface AiReadState { id: string; kind: string; status: string; error: string | null; model: string | null; result: unknown }
+export interface AiReadState {
+  id: string; kind: string; status: string; error: string | null; model: string | null; result: unknown;
+  /** Kind of failure (credit, auth, rate, overloaded, timeout, nokey, off, noai, other) — the list offers the free import paths. */
+  errCode?: AiErrCode | null;
+}
 
 /** Current state of reads (only rows of firms the user may read them for). */
 export async function aiReadStatus(ids: string[]): Promise<AiReadState[]> {
@@ -65,7 +70,26 @@ export async function aiReadStatus(ids: string[]): Promise<AiReadState[]> {
   for (const d of D) {
     if (!isAiResultKind(d.kind)) continue;
     try { await requireCan(AI_RESULT_KIND_ACTION[d.kind], d.firmId); } catch { continue; }
-    out.push({ id: d.id, kind: d.kind, status: d.status, error: d.error, model: d.model, result: d.status === 'done' || d.status === 'saved' ? d.result : null });
+    const ec = (d.options as { errCode?: unknown }).errCode;
+    out.push({
+      id: d.id, kind: d.kind, status: d.status, error: d.error ? aiErrText(d.error, ec) : d.error, model: d.model,
+      result: d.status === 'done' || d.status === 'saved' ? d.result : null, errCode: d.status === 'error' ? aiErrCodeOf(d.error, ec) : null,
+    });
   }
   return out;
+}
+
+/** „↻ Повторно“ on a failed read: queued again, AI is tried even after a recent credit / key failure. */
+export async function retryAiRead(id: string): Promise<{ error?: string }> {
+  try {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Неважечки податоци.' };
+    const u = await requireUser();
+    const [d] = await db().select().from(aiDocuments).where(eq(aiDocuments.id, id)).limit(1);
+    if (!d || !isAiResultKind(d.kind) || d.status !== 'error') return { error: 'Читањето не е пронајдено.' };
+    await requireCan(AI_RESULT_KIND_ACTION[d.kind], d.firmId);
+    await db().update(aiDocuments).set({ status: 'queued', error: null, options: sql`(${aiDocuments.options} - 'errCode' - 'errDetail' - 'cancelled') || '{"retry":true}'::jsonb` }).where(eq(aiDocuments.id, id));
+    await audit(db(), { userId: u.id, firmId: d.firmId, action: 'aiRead', entityType: 'ai_document', entityId: id, data: { retry: true } });
+    await dispatchAiReads([id]);
+    return {};
+  } catch (e) { return { error: actionError(e).error }; }
 }

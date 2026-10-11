@@ -21,6 +21,7 @@ export function ImportBox({ canProfiles }: { canProfiles: boolean }) {
         <p className="note" style={{ margin: '0 0 10px' }}>Изберете Excel со листа на фирми (на пр. извоз од друга програма). Колоните се препознаваат по насловот: Име на фирма, Година, Жиро сметка, Дејност, Матичен број, Даночен, Адреса, Банка, Општина, Лице за контакт… Пред увозот се прикажува листа за проверка.</p>
         <div className="row" style={{ gap: 8 }}>
           <a className="btn" href="/firmiImp/obrazec">⬇ Excel образец</a>
+          <a className="btn ghost" href="/konvertor?t=firms" target="_blank" rel="noreferrer">🔄 Конвертор (друг формат)</a>
           <label className="btn pri">{pending ? 'Се чита…' : 'Избери Excel датотека'}<input type="file" accept=".xlsx,.xls,.csv" hidden disabled={pending} onChange={(e) => {
             const fl = e.target.files?.[0]; e.target.value = '';
             if (!fl) return;

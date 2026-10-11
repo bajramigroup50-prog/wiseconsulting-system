@@ -18,7 +18,7 @@ export function BomAi({ firmId, productId }: { firmId: string; productId: string
   return (
     <>
       <button className="btn" type="button" disabled={ai.busy} onClick={() => void ai.suggest(productId)}>{ai.busy ? '⏳ AI предлага…' : '🤖 AI предлог за норматив'}</button>
-      <AiReadList docs={ai.docs} msg={ai.msg} />
+      <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
     </>
   );
 }

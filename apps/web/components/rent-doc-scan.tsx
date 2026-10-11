@@ -35,7 +35,7 @@ export function RentDocScan({ firmId, variant = 'rent' }: { firmId: string; vari
         <div className="card" style={{ flexBasis: '100%' }}>
           <AiDrop small multiple onFiles={(f) => void ai.read(kind, f.slice(0, 4))} disabled={ai.busy}
             label={<><b>Изберете или фотографирајте {kind === 'rclic' ? 'возачка дозвола' : 'пасош / лична карта'}</b> — слика (JPG/PNG), фотографија од телефон или PDF.</>} />
-          <AiReadList docs={ai.docs} msg={ai.msg} />
+          <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
         </div>
       )}
     </div>

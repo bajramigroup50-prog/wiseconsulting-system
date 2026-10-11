@@ -132,9 +132,10 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
           <div className="row" style={{ gap: 6, marginTop: 6 }}>
             <button type="button" className="btn sm ghost" onClick={() => xlsxDownload('Pocetna_sostojba_obrazec.xlsx', [{ name: 'Бруто биланс', rows: TEMPLATE }])}>⬇ Excel образец</button>
             <button type="button" className="btn sm ghost" onClick={() => xlsxDownload(`Pocetna_sostojba_${year}.xlsx`, [{ name: 'Почетна состојба', rows: [TEMPLATE[0]!, ...rows.filter((r) => r.account).map((r) => [r.account, names.get(r.account) ?? r.name, partners.find((p) => p.id === r.partnerId)?.name ?? r.partnerName, partners.find((p) => p.id === r.partnerId)?.code ?? r.partnerCode, n(r.debit), n(r.credit)])] }])}>⬇ Excel (ставките)</button>
+            <a className="btn sm ghost" href="/konvertor?t=ob" target="_blank" rel="noreferrer">🔄 Конвертор (друг формат)</a>
           </div>
           <div className="note">{msg}</div>
-          <AiReadList docs={ai.docs} msg={ai.msg} />
+          <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
         </div>
         <div className="form">
           <label className="f">{full ? 'Датум на книжење' : 'Датум на почетната состојба'}

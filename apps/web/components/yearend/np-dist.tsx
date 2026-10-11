@@ -64,7 +64,7 @@ export function NpDist({ firmId, g, list, ti, names, turnover }: { firmId: strin
         {list.length > 1 && <div className="mini">Ставки без партнер: {list.map((x, i) => <a key={x.id} className={`pill ${i === ti ? 'info' : ''}`} href={`/zsKontrola?np=${g}&ti=${i}`}>{x.account} · {f2(x.amt)}</a>)}</div>}
       </div>
       <div style={{ display: 'block', margin: '8px 0', padding: '8px 10px', border: '1px dashed var(--line)', borderRadius: 8 }}><b>📥 Пополни од аналитика</b> <span style={{ fontSize: 12.5, opacity: 0.85 }}>– Excel / CSV / PDF од стариот програм (аналитичка картица по купувачи, ИОС листа или аналитички бруто биланс): се земаат редовите на конто {T.account} со партнер и салдо.</span> <label className="btn sm" style={{ marginLeft: 6 }}>Избери датотека<input type="file" accept=".pdf,.xlsx,.xls,.csv,image/*" hidden disabled={ai.busy} onChange={(e) => { const x = e.target.files?.[0]; e.target.value = ''; if (x) void npImport(x); }} /></label> <span className="mini">{npMsg}</span>
-        <AiReadList docs={ai.docs} msg={ai.msg} />
+        <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
       </div>
       <datalist id="npPL">{names.map((n) => <option key={n} value={n} />)}</datalist>
       <div className="tw"><table className="dense">

@@ -80,7 +80,7 @@ export async function retryScan(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('scan');
     await db().transaction(async (tx) => {
-      await tx.update(aiDocuments).set({ status: 'queued', error: null, options: sql`${aiDocuments.options} - 'cancelled'` }).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id)));
+      await tx.update(aiDocuments).set({ status: 'queued', error: null, options: sql`(${aiDocuments.options} - 'cancelled' - 'errCode' - 'errDetail') || '{"retry":true}'::jsonb` }).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id)));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanRetry', entityType: 'ai_document', entityId: id });
     });
     await enqueue(AI_READ_DOCUMENT, { docId: id });

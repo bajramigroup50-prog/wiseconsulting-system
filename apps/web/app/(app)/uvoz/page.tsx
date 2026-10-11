@@ -26,7 +26,7 @@ export default async function UvozPage({ searchParams }: { searchParams: Promise
   const q = (x: string) => `/uvoz?t=${x}${sp.wh ? '&wh=' + sp.wh : ''}${back ? '&back=' + back : ''}`;
   return (
     <>
-      <Hd t="Увоз од Excel / CSV / XML" sub="масовно внесување податоци" />
+      <Hd t="Увоз од Excel / CSV / XML" sub="масовно внесување податоци"><Link className="btn sm ghost" href={`/konvertor?t=imp:${t}`}>🔄 Друг формат? Конвертор на датотеки</Link></Hd>
       {back && <Link className="btn sm" href={'/' + back} style={{ margin: '4px 0 8px' }}>← назад кон {back === 'uvozMalo' ? 'Малопродажба' : 'Материјално'} · увоз</Link>}
       <div className="card">
         <div className="dfilter">{[...MAIN, ...(MAIN.includes(t) ? [] : [t])].map((k) => <Link key={k} className={`chip ${t === k ? 'on' : ''}`} href={q(k)}>{IMP_T[k].t}</Link>)}</div>
