@@ -6,6 +6,7 @@
  * to the PDF it e-mails, so the e-mailed PDF and this view never differ. `?mail=1` opens the e-mail form.
  */
 import { notFound } from 'next/navigation';
+import { PodLink } from '@/components/pod-link';
 import { can, firmAllowed } from '@wise/core';
 import { DT, invoiceMailText, invoicePdfName, invoicePrintHtml } from '@wise/core/sales';
 import { WaPanel } from './wa-panel';
@@ -49,6 +50,7 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
   return (
     <>
       {mail}
+      {doc.kind === 'invoice' && <PodLink firmId={doc.firmId} invoiceId={doc.id} />}
       <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: invoicePrintHtml(input) }} />
     </>
   );
