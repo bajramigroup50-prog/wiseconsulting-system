@@ -13,7 +13,9 @@ import { ActionForm } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { journalCards } from '@wise/core/sch-journals';
 import { resetSchemesAction, saveSchemesAction } from './actions';
+import { SchJournals } from './journals-ui';
 import { SCH_FLAGS, SCH_UI, VAT_RATES } from './schema';
 
 const DEF = { ...SCH0, ...SCH_EXTRA } as Record<string, string | boolean>;
@@ -22,14 +24,20 @@ export default async function SemiPage() {
   const { u, firm } = await booksPage('semi');
   if (!firm) return <NoFirm t="Шеми за автоматско книжење" />;
   const [[g], chart] = await Promise.all([db().select().from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1), effectiveChart(db(), firm.id)]);
-  const G = (g?.value ?? {}) as { custom?: CustomScheme[]; updated?: string; by?: string };
+  const G = (g?.value ?? {}) as { custom?: CustomScheme[]; updated?: string; by?: string; hidden?: string[]; names?: Record<string, string> };
   const ctx = vatPostingContext(firm, g?.value ?? null);
   const nm = new Map(chart.map((a) => [a.code, a.name]));
   const val = (k: string) => { const v = schemeRaw(ctx, k); return typeof v === 'string' ? v : ''; };
   const ed = canDo(u, 'schSaveAll', firm.id);
+  // legacy schEx: the scheme values the example journals show (VAT kontos per rate included)
+  const jv = (k: string) => { const m = k.match(/^V([IMO])(\d+)$/); return m ? vatAccount(ctx, m[1] === 'I' ? 'in' : m[1] === 'M' ? 'imp' : 'out', +m[2]!) ?? '' : val(k); };
+  const cards = journalCards(jv, (k) => schemeRaw(ctx, k) === true);
+  const jKeys = [...new Set(cards.flatMap((c) => c.rows.map((r) => r.key).filter((x): x is string => !!x)))];
+  const jVals = Object.fromEntries(jKeys.map((k) => [k, jv(k)]));
+  const jDefs = Object.fromEntries(jKeys.map((k) => [k, typeof DEF[k] === 'string' ? DEF[k] as string : '']));
   const kin = (name: string, v: string, def?: string) => (
     <label className="f" key={name}>
-      <input name={name} list="kpl" defaultValue={v} style={{ width: 130 }} disabled={!ed} placeholder={def} />
+      <input name={name} data-sch={name.startsWith('s_') ? name.slice(2) : name} list="kpl" defaultValue={v} style={{ width: 130 }} disabled={!ed} placeholder={def} />
       <small className="note">{v === '-' ? 'не се користи' : v ? nm.get(v) ?? '⚠ контото не постои во контниот план' : ''}</small>
     </label>
   );
@@ -50,6 +58,7 @@ export default async function SemiPage() {
             <input type="checkbox" name={'s_' + k} value="1" defaultChecked={schemeRaw(ctx, k) === true} style={{ width: 'auto' }} disabled={!ed} /> {t}
           </label>
         ))}
+        <SchJournals cards={cards} vals={jVals} defs={jDefs} names={G.names ?? {}} hidden={G.hidden ?? []} ed={ed} />
         <div className="card">
           <div className="hd" style={{ margin: '0 0 4px' }}><b>ДДВ и приходи по стапки – автоматски</b></div>
           <p className="note" style={{ margin: '0 0 8px' }}>Програмата ја дели секоја фактура по стапките на ставките (18%, 10%, 5%) и секој ДДВ оди на своето конто. ДДВ платен на царина (ЕЦД) кај увозни фактури оди на посебните конта за увоз.</p>
@@ -59,6 +68,7 @@ export default async function SemiPage() {
               <tr><td><b>0%</b></td><td colSpan={3} className="note">без ДДВ – се книжи по шемите „без ДДВ / ослободена“</td></tr>
             </tbody></table>
         </div>
+        <details className="card" style={{ marginTop: 14 }}><summary style={{ cursor: 'pointer', fontWeight: 600 }}>Сите поставки по групи (истите конта, во листа) и опции</summary>
         {SCH_UI.map(([t, d, F]) => (
           <div className="card" key={t}>
             <h2 style={{ margin: 0 }}>{t}</h2>
@@ -68,6 +78,7 @@ export default async function SemiPage() {
             ))}</div>
           </div>
         ))}
+        </details>
         <h2 style={{ margin: '22px 0 4px' }}>Мои шеми (нови)</h2>
         <p className="note" style={{ margin: '0 0 8px' }}>Свои шеми за книжења што се повторуваат (закуп, телефон, провизии, аконтации, дивиденда…). Секој ред: конто, страна (Д/П) и процент од износот; Д% мора да е еднакво на П%. Нова шема: пополнете ја последната картичка.</p>
         <div className="schg">{custom.map((c, ci) => (
