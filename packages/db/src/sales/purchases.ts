@@ -392,3 +392,10 @@ export async function setPurchaseNoDed(tx: Tx, firmId: string, id: string, noDed
   await audit(tx, { userId: actor.userId, firmId, action: 'purNoDed', entityType: 'purchase', entityId: id, data: { number: pur.number, noDed } });
   return true;
 }
+
+/** Re-post a booked purchase with the current schemes (legacy `schRepost`: `purchaseEntries(purRound(p))`). */
+export async function repostPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1], id: string, userId: string | null): Promise<void> {
+  const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
+  if (!pur || pur.status !== 'posted') return;
+  await postPurchase(tx, f, pur, userId);
+}

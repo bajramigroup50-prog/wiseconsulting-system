@@ -628,3 +628,29 @@ export async function runStockReaverage(tx: Tx, a: Actor): Promise<{ changed: nu
 
 /** Is an item stock-tracked (not a service)? */
 export const isTracked = (it: Pick<StockItem, 'type'>): boolean => !!it.type && it.type !== 'service';
+
+/**
+ * Re-post the revenue journal of a stored daily turnover with the current schemes (legacy `schRepost` over
+ * `S.data.sales`); the stored VAT groups and the goods issue stay as they are.
+ */
+export async function repostSalesDay(tx: Tx, a: Actor, id: string): Promise<void> {
+  const [d] = await tx.select().from(salesDaily).where(and(eq(salesDaily.id, id), eq(salesDaily.firmId, a.firmId))).limit(1);
+  if (!d || d.pending) return;
+  const L = await loadStockContext(tx, a.firmId);
+  assertOpenPeriod(L.firm, d.date);
+  const fisk = d.fisk ?? null;
+  const total = Number(d.total), card = Number(d.card);
+  const posting = { ...L.settings.posting, firm: { ...L.settings.posting.firm } };
+  const posK = posting.firm.posK || schemeValue(posting, 'posCard');
+  if (card > 0 && /^12/.test(d.cardAccount || posK)) posting.firm.posPartnerId = await ensurePosPartner(tx, a.firmId, a.userId);
+  const doc: SalesDoc = {
+    id, date: d.date, wh: whId(d.locationId), total, groups: d.groups, card, cardKonto: d.cardAccount ?? undefined,
+    fisk: fisk?.sc ? { sc: fisk.sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
+  };
+  const zLabel = d.kind === 'pos' ? 'Каса' : `Дн. фин. изв.${d.number ? ' Z бр. ' + d.number : ''}`;
+  await postJournal(tx, {
+    firmId: a.firmId, date: d.date, kind: 'kasa', sourceType: 'sales_daily', sourceId: id, userId: a.userId, auditAction: 'schRepost',
+    description: `${zLabel} ${d.date.split('-').reverse().join('.')} · ${L.locName(d.locationId)}`,
+    lines: fiskEntries(doc, posting).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: d.locationId })),
+  });
+}

@@ -10,7 +10,7 @@
  * Errors (no API key, unreadable file, refusal) are stored on the row for the review UI; the job does not throw, so
  * pg-boss does not retry and spend tokens again.
  */
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { fixRates, scanResultConsistent, scanInvoices, ublToScan, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
@@ -32,6 +32,8 @@ const has = (r: ScanResult | null) => !!r && scanInvoices(r).some((x) => (x.line
 export async function runReadDocument(db: Tx, docId: string, log: (m: string) => void = () => {}, store: ObjectStore = s3Store): Promise<void> {
   const [doc] = await db.select().from(aiDocuments).where(eq(aiDocuments.id, docId)).limit(1);
   if (!doc || !['queued', 'error', 'reading'].includes(doc.status)) return;
+  // legacy „Откажи читање“ (`outCancel`): a cancelled read is not started, and a running one does not overwrite it
+  if ((doc.options as { cancelled?: boolean }).cancelled) return;
   const [f] = await db.select().from(firms).where(eq(firms.id, doc.firmId)).limit(1);
   if (!f) return;
   await db.update(aiDocuments).set({ status: 'reading', error: null }).where(eq(aiDocuments.id, docId));
@@ -39,7 +41,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     if (RESULT_KINDS.has(doc.kind)) {
       if (!aiConfigured()) throw new AiUnavailableError();
       const { result, model } = await readResultKind(db, doc, f);
-      await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(eq(aiDocuments.id, docId));
+      await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
       log(`${docId}: ${doc.kind} read via ${model}`);
       return;
     }
@@ -57,7 +59,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
           const [c] = await db.insert(aiDocuments).values({ firmId: f.id, fileId, kind: doc.kind, batchId: doc.batchId, createdBy: doc.createdBy, options: { ...doc.options, split: true, parentId: doc.id } }).returning({ id: aiDocuments.id });
           ids.push(c!.id);
         }
-        await db.update(aiDocuments).set({ status: 'done', drafts: [], result: { split: ids }, batchId: null, options: { ...doc.options, inline: true } }).where(eq(aiDocuments.id, docId));
+        await db.update(aiDocuments).set({ status: 'done', drafts: [], result: { split: ids }, batchId: null, options: { ...doc.options, inline: true } }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
         log(`${docId}: split into ${ids.length} invoices`);
         for (const id of ids) await runReadDocument(db, id, log, store);
         return;
@@ -96,11 +98,11 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     if (!result || !scanInvoices(result).length) throw new Error('Документот не е прочитан јасно. Пробајте појасна слика.');
     const opts = doc.options as { cash?: boolean; warehouseId?: string | null; costOnly?: boolean };
     const drafts = doc.kind === 'sale' ? await saleDrafts(db, f, result) : await purchaseDrafts(db, f, result, opts);
-    await db.update(aiDocuments).set({ status: 'done', result, drafts, model }).where(eq(aiDocuments.id, docId));
+    await db.update(aiDocuments).set({ status: 'done', result, drafts, model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
     log(`${docId}: ${drafts.length} draft(s) via ${model}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await db.update(aiDocuments).set({ status: 'error', error: msg }).where(eq(aiDocuments.id, docId));
+    await db.update(aiDocuments).set({ status: 'error', error: msg }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
     log(`${docId}: ${msg}`);
   }
 }

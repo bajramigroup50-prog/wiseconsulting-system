@@ -13,6 +13,7 @@ import {
   SCHEMES_SETTINGS_KEY,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions, yearRange } from '@/lib/books';
+import { RepostCallout } from '@/components/repost-callout';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
@@ -237,6 +238,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <Link className="btn danger" href="/vlez">Прегледај ги во „Влезни фактури“</Link>
         </div>
       )}
+      <RepostCallout u={u} firmId={firm.id} year={year} />
       <div className="card">
         <div className="hd">
           <h2>Преглед на финансови налози за книжење</h2>

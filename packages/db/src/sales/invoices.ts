@@ -403,3 +403,10 @@ export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: D
   await tx.delete(invoices).where(eq(invoices.id, id));
   await audit(tx, { userId: actor.userId, firmId, action: 'delDoc', entityType: 'invoice', entityId: id, data: { kind: inv.kind, number: inv.number, date: inv.date } });
 }
+
+/** Re-post a booked document with the current schemes (legacy `schRepost`: `save('invoices', {...i, lines: invoiceEntries(i)})`). */
+export async function repostInvoice(tx: Tx, f: Firm, id: string, userId: string | null): Promise<void> {
+  const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, f.id))).limit(1);
+  if (!inv || inv.status !== 'posted') return;
+  await postInvoice(tx, f, inv, userId);
+}

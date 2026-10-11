@@ -55,11 +55,32 @@ export async function startScans(input: z.input<typeof Start>): Promise<ActionSt
   } catch (e) { return actionError(e); }
 }
 
+/**
+ * Legacy „Откажи читање“ (`outCancel`): the documents still waiting / being read in this list stop — they are marked
+ * as cancelled (the worker skips them and a read in progress does not overwrite the mark); „↻ Повторно“ reads them again.
+ */
+export async function cancelScans(kind: 'sale' | 'purchase', batchId: string | null): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('scan');
+    const n = await db().transaction(async (tx) => {
+      const R = await tx.update(aiDocuments).set({ status: 'error', error: 'Читањето е откажано.', options: sql`${aiDocuments.options} || '{"cancelled":true}'::jsonb` })
+        .where(and(eq(aiDocuments.firmId, firm.id), inArray(aiDocuments.status, ['queued', 'reading']), batchId ? eq(aiDocuments.batchId, batchId) : and(eq(aiDocuments.kind, kind), sql`${aiDocuments.batchId} is null`)))
+        .returning({ id: aiDocuments.id });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanCancel', entityType: 'ai_document', data: { kind, batchId, n: R.length } });
+      return R.length;
+    });
+    revalidatePath('/skan');
+    revalidatePath('/masovno');
+    revalidatePath('/masovnoM');
+    return { ok: `Откажано читање на ${n} документи.` };
+  } catch (e) { return actionError(e); }
+}
+
 export async function retryScan(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('scan');
     await db().transaction(async (tx) => {
-      await tx.update(aiDocuments).set({ status: 'queued', error: null }).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id)));
+      await tx.update(aiDocuments).set({ status: 'queued', error: null, options: sql`${aiDocuments.options} - 'cancelled'` }).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id)));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanRetry', entityType: 'ai_document', entityId: id });
     });
     await enqueue(AI_READ_DOCUMENT, { docId: id });

@@ -87,3 +87,23 @@ export async function resetSchemesAction(): Promise<ActionState> {
     return { ok: 'Вратени се стандардните конта.' };
   } catch (e) { return actionError(e); }
 }
+
+/** Legacy `custDel` („Избриши шема“): remove one of the user's own schemes (office-wide). */
+export async function deleteCustomSchemeAction(id: string): Promise<ActionState> {
+  try {
+    const { u } = await firmAction('schSaveAll');
+    let name = '';
+    await db().transaction(async (tx) => {
+      const [row] = await tx.select().from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);
+      const G = (row?.value ?? {}) as { custom?: CustomScheme[] } & Record<string, unknown>;
+      const c = (G.custom ?? []).find((x) => x.id === id);
+      if (!c) throw new Error('Шемата не постои.');
+      name = c.name;
+      const value = { ...G, custom: (G.custom ?? []).filter((x) => x.id !== id), updated: new Date().toISOString(), by: u.name };
+      await tx.update(appSettings).set({ value, updatedBy: u.id }).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY));
+      await audit(tx, { userId: u.id, firmId: null, action: 'custDel', entityType: 'appSettings', entityId: SCHEMES_SETTINGS_KEY, data: { id, name } });
+    });
+    revalidatePath('/semi');
+    return { ok: `Шемата „${name}“ е избришана.` };
+  } catch (e) { return e instanceof Error && e.message === 'Шемата не постои.' ? { error: e.message } : actionError(e); }
+}

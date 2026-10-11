@@ -26,6 +26,7 @@ import { BulkBar, SelAll, SelBox } from './bulk-select';
 import { ensureScanBuyer } from '@/app/(app)/skan/actions';
 import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-editor';
 import { blankLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
+import { RepostCallout } from '@/components/repost-callout';
 
 /** Legacy `payPill` (3723). */
 export function PayPill({ paid, total }: { paid: number; total: number }) {
@@ -281,6 +282,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
 
 Важи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />}<Link className="btn sm" href="/zakoni">⚖️ Извор</Link></span></div>}
       <p className="note">{INTRO[dt]}</p>
+      <RepostCallout u={u} firmId={firm.id} year={year} />
       {kind === 'credit' && <form action={saveCrMode} className="card row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px' }}>
         <b style={{ fontSize: 13 }}>Книжење на одобренија и повратници:</b>
         <label className="chk"><input type="radio" name="crMode" value="minus" defaultChecked={crMode !== 'flip'} disabled={!settingsOk} /> со минус на истата страна (црвено сторно)</label>
