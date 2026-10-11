@@ -29,7 +29,7 @@ export async function effectiveChart(db: Tx, firmId: string | null): Promise<Cha
 export async function loadLedgerLines(db: Tx, firmId: string, from: string, to: string): Promise<LedgerLine[]> {
   const rows = await db.select({
     account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, partnerId: journalLines.partnerId,
-    note: journalLines.note, doc: journalLines.doc, lineNo: journalLines.lineNo,
+    note: journalLines.note, doc: journalLines.doc, lineNo: journalLines.lineNo, locationId: journalLines.locationId,
     date: journals.date, kind: journals.kind, journalId: journals.id, number: journals.number, description: journals.description,
     sourceType: journals.sourceType,
   }).from(journalLines)

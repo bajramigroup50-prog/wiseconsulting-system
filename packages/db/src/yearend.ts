@@ -13,16 +13,17 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
+  carryCandidateAccounts, carryEvidence, carryOneLine, carryPlan, type CarryEvidence, type CarryKey, type CarryOpenLine, type CarryPlan,
   clearCrmImport, crmImportPatch, deAuto, depEntries, depFor, deVals, f35Rows, parseCrmXml, r2, obRebuild, yeClosePlan, yeComputeYear,
-  yeEntityOf, yeInputsFromLedger, yeManualOnly, yeMergePayroll, yeOpenPlan, yePayrollFromLedger, zcFindings, zcOpen, zsRules,
+  yeEntityOf, yeInputsFromLedger, yeManualOnly, yeMergePayroll, yePayrollFromLedger, zcFindings, zcOpen, zsRules,
   type CrmFirmState, type CrmImportUndo, type DepRow, type LedgerLine, type ObRebuildRow, type YeEntity, type YeLedgerInputs,
   type YePayrollSource, type YeYear, type YeYearSettings, type ZcFinding, type ZcInput, type ZsResult, type ZsRule,
 } from '@wise/core';
 import { audit, type Tx } from './audit';
 import { loadLedgerLines } from './ledger-queries';
-import { PostingError, postJournal, unpostSource } from './posting';
+import { missingAccounts, PostingError, postJournal, unpostSource } from './posting';
 import {
-  annualStatements, bankAccounts, bankLines, clientEntries, codes, depreciationRuns, firms, fixedAssets, invoices, items, journals, partners,
+  annualStatements, bankAccounts, bankLines, clientEntries, codes, depreciationRuns, firms, fixedAssets, invoices, items, journalLines, journals, partners,
   purchases, stockMoves, yearClosings,
   type AnnualStatement, type Firm, type FixedAsset, type Journal, type YearClosing,
 } from './schema/index';
@@ -274,7 +275,6 @@ export async function closeYear(tx: Tx, a: YeActionInput) {
   if (L.closing?.imported) {
     throw new PostingError('locked', `Затворањето за ${a.year} е од увезен бруто биланс по затворање – за повторна пресметка избришете го увозот во „Почетна состојба“.`);
   }
-  if (L.openJournal) throw new PostingError('locked', `Почетната состојба за ${a.year + 1} е веќе пренесена – прво поништете ја, па затворете повторно.`);
   assertGate((await yearFindings(tx, L, a.today)).open, 'Годината не може да се затвори');
   const plan = yeClosePlan({
     year: a.year, ent: L.ent, inputs: L.inputs, settings: L.settings, rules: L.rules, accounts: (settingsOf(L.firm).accounts as Record<string, unknown>) ?? null,
@@ -292,7 +292,21 @@ export async function closeYear(tx: Tx, a: YeActionInput) {
     db: { taxSource: plan.taxSource, V: db.V, base: db.base, tax: db.tax, ak: db.ak, diff: db.diff, vp: plan.before.vp.tax, dld: plan.before.tp?.tax ?? null, npo: plan.before.npo?.tax ?? null },
     closedAt: new Date(), closedBy: a.userId,
   });
-  return { journal: j, plan };
+  // The user closes the year → the next year's opening is carried in the same action (no background job). When an
+  // opening already existed (re-close after unlock) it MUST follow the new close, so a failure rolls everything back;
+  // a first carry that fails (e.g. a konto missing from the chart, locked new year) keeps the close and reports why.
+  let carry: Awaited<ReturnType<typeof openNextYear>> | null = null;
+  let carryError: string | null = null;
+  if (L.openJournal) carry = await openNextYear(tx, a);
+  else {
+    try {
+      carry = await tx.transaction((sp) => openNextYear(sp as unknown as Tx, a));
+    } catch (e) {
+      if (!(e instanceof PostingError)) throw e;
+      carryError = e.message;
+    }
+  }
+  return { journal: j, plan, carry, carryError };
 }
 
 /**
@@ -309,20 +323,115 @@ export async function undoClose(tx: Tx, a: Omit<YeActionInput, 'today'>) {
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'undoClose', entityType: 'year', entityId: String(a.year) });
 }
 
-/** Carry the closed year into the next year's opening balance (legacy `openYear` 6744 / `doTransfer` 7325, now gated). */
+/* ------------------------------------------------------------------ */
+/* Carry-over into the next year (Пренос на салда)                     */
+/* ------------------------------------------------------------------ */
+
+const carryByDoc = (f: Pick<Firm, 'settings'>): boolean => settingsOf(f).carryByDoc === true;
+
+/**
+ * The carry-over plan of a loaded year (`@wise/core` `carryPlan`): every konto, every partner on any partner-bearing
+ * konto, the location, optionally the open document on 12x/22x (firm setting `carryByDoc`); accounts missing from the
+ * chart fall back to their synthetic account; inactive partners are flagged.
+ */
+export async function carryPlanFor(tx: Tx, L: LoadedYear): Promise<CarryPlan> {
+  const missing = await missingAccounts(tx, L.firm.id, carryCandidateAccounts(L.lines));
+  const pids = [...new Set(L.lines.map((l) => l.partnerId).filter((x): x is string => !!x))];
+  const inactive = pids.length
+    ? (await tx.select({ id: partners.id }).from(partners)
+      .where(and(eq(partners.firmId, L.firm.id), inArray(partners.id, pids), eq(partners.active, false)))).map((r) => r.id)
+    : [];
+  return carryPlan(L.lines, { byDoc: carryByDoc(L.firm), missingAccounts: missing, inactivePartners: inactive });
+}
+
+async function openLinesOf(tx: Tx, journalId: string): Promise<CarryOpenLine[]> {
+  const rows = await tx.select({
+    account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, partnerId: journalLines.partnerId,
+    doc: journalLines.doc, locationId: journalLines.locationId,
+  }).from(journalLines).where(eq(journalLines.journalId, journalId)).orderBy(asc(journalLines.lineNo));
+  return rows.map((r) => ({ ...r, debit: Number(r.debit), credit: Number(r.credit) }));
+}
+
+export interface CarryState {
+  L: LoadedYear;
+  plan: CarryPlan;
+  evidence: CarryEvidence;
+  /** the next year is in the locked period */
+  lockedNext: boolean;
+  byDoc: boolean;
+}
+
+/** Evidence of the carry-over of `year` into `year + 1`: closing balances vs the posted opening journal. */
+export async function carryState(tx: Tx, firmId: string, year: number, loaded?: LoadedYear): Promise<CarryState> {
+  const L = loaded ?? (await loadYear(tx, firmId, year));
+  const plan = await carryPlanFor(tx, L);
+  const actual = L.openJournal ? await openLinesOf(tx, L.openJournal.id) : [];
+  const lockedNext = !!L.firm.lockDate && L.firm.lockDate >= `${year + 1}-01-01`;
+  return { L, plan, evidence: carryEvidence(plan, actual, { opened: !!L.openJournal, lockedNext }), lockedNext, byDoc: carryByDoc(L.firm) };
+}
+
+const postOpening = (tx: Tx, a: Omit<YeActionInput, 'today'>, lines: readonly CarryOpenLine[], auditAction: string) => postJournal(tx, {
+  firmId: a.firmId, date: `${a.year + 1}-01-01`, kind: 'open', sourceType: YE_SOURCE.open.type, sourceId: YE_SOURCE.open.id(a.year + 1),
+  description: `Почетна состојба ${a.year + 1}`, userId: a.userId, requirePartner: false, auditAction, meta: { carriedFrom: a.year },
+  lines: lines.map((l) => ({
+    account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, doc: l.doc ?? null, locationId: l.locationId ?? null,
+  })),
+});
+
+/**
+ * Carry the closed year into the next year's opening balance (legacy `openYear` 6744 / `doTransfer` 7325, now gated).
+ * Idempotent: `open-<Y+1>` is replaced in place (same id and number), never duplicated; audited (`carryOver`).
+ */
 export async function openNextYear(tx: Tx, a: YeActionInput) {
   const L = await loadYear(tx, a.firmId, a.year);
   if (!L.closeJournal) throw new PostingError('locked', `Прво затворете ја ${a.year} (налог за затворање на сметките).`);
   assertGate((await yearFindings(tx, L, a.today)).open, 'Почетната состојба не може да се пренесе');
-  const lines = yeOpenPlan(L.inputs);
-  if (!lines.length) throw new PostingError('empty', `Нема салда за пренос од ${a.year}.`);
-  const j = await postJournal(tx, {
-    firmId: a.firmId, date: `${a.year + 1}-01-01`, kind: 'open', sourceType: YE_SOURCE.open.type, sourceId: YE_SOURCE.open.id(a.year + 1),
-    description: `Почетна состојба ${a.year + 1}`, userId: a.userId, requirePartner: false, auditAction: 'doTransfer',
-    lines: lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partner ?? null })),
-  });
+  const plan = await carryPlanFor(tx, L);
+  if (plan.blocked.length) {
+    throw new PostingError('unknown_account', `Контата ${plan.blocked.join(', ')} имаат салдо, а не постојат во контниот план (ниту нивната синтетика) – отворете ги во „Контен план“, па пренесете повторно.`);
+  }
+  if (!plan.lines.length) throw new PostingError('empty', `Нема салда за пренос од ${a.year}.`);
+  const replaced = !!L.openJournal;
+  const j = await postOpening(tx, a, plan.lines, 'doTransfer');
   await upsertClosing(tx, a.firmId, a.year, { status: L.locked ? 'locked' : 'carried', openJournalId: j.id, openedAt: new Date(), openedBy: a.userId });
-  return { journal: j, lines: lines.length };
+  await audit(tx, {
+    userId: a.userId, firmId: a.firmId, action: 'carryOver', entityType: 'year', entityId: String(a.year),
+    data: { to: a.year + 1, journalId: j.id, number: j.number, replaced, lines: plan.lines.length, debit: plan.debit, credit: plan.credit, byDoc: carryByDoc(L.firm) },
+  });
+  return { journal: j, lines: plan.lines.length, debit: plan.debit, credit: plan.credit, replaced };
+}
+
+/**
+ * Carry ONE missing row into the existing opening (e.g. a partner that sits on the konto without partner, an analytic
+ * konto carried on its synthetic one): the opening stays balanced (`carryOneLine`); audited (`carryRow`).
+ */
+export async function carryOneRow(tx: Tx, a: YeActionInput & { key: CarryKey }) {
+  const L = await loadYear(tx, a.firmId, a.year);
+  if (!L.closeJournal) throw new PostingError('locked', `Прво затворете ја ${a.year}.`);
+  if (!L.openJournal) throw new PostingError('not_found', `Почетната состојба за ${a.year + 1} не е пренесена – користете „Пренеси ги салдата“.`);
+  assertGate((await yearFindings(tx, L, a.today)).open, 'Почетната состојба не може да се менува');
+  const plan = await carryPlanFor(tx, L);
+  const r = carryOneLine(plan, await openLinesOf(tx, L.openJournal.id), a.key);
+  if ('error' in r) throw new PostingError('not_found', r.error);
+  const j = await postOpening(tx, a, r.lines, 'carryRow');
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'carryRow', entityType: 'year', entityId: String(a.year), data: { to: a.year + 1, journalId: j.id, key: a.key } });
+  return { journal: j };
+}
+
+/**
+ * The previous year of a selected year: it has postings but is not closed / not carried into this year. The
+ * dashboard, „Пренос“ and „Почетна состојба“ show a callout instead of silently empty data.
+ */
+export async function prevYearCarry(tx: Tx, firmId: string, year: number): Promise<{ prevHasData: boolean; prevClosed: boolean; opened: boolean }> {
+  const p = year - 1;
+  const [prev, close, open] = await Promise.all([
+    tx.select({ id: journals.id }).from(journals)
+      .where(and(eq(journals.firmId, firmId), sql`${journals.date} between ${p + '-01-01'} and ${p + '-12-31'}`)).limit(1),
+    closeJournalOf(tx, firmId, p),
+    tx.select({ id: journals.id }).from(journals)
+      .where(and(eq(journals.firmId, firmId), eq(journals.kind, 'open'), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`)).limit(1),
+  ]);
+  return { prevHasData: prev.length > 0, prevClosed: !!close, opened: open.length > 0 };
 }
 
 /** Undo the carry-forward (delete `open-<Y+1>`). */
