@@ -91,7 +91,7 @@ export async function createLoansAction(_p: ActionState, f: FormData): Promise<A
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'lnCreateSel', entityType: 'loan', data: { created: n } });
     });
     revalidatePath('/pozajmici');
-    return { ok: `📝 Креирани: ${n} договори за позајмица (непотпишани)${np ? ' · ' + np + ' без комитент – дополнете' : ''}.` };
+    return { ok: `📝 Креирани: ${n} договори за позајмица (непотпишани)${np ? ' · ' + np + ' без комитент – дополнете' : ''} → Финансово → Позајмици` };
   } catch (e) { return actionError(e); }
 }
 
@@ -130,7 +130,7 @@ export async function rebookLoansAction(): Promise<ActionState> {
     });
     revalidatePath('/pozajmici');
     revalidatePath('/banka');
-    return { ok: `Прекнижани ${n} ставки на 1620 / 2620.` };
+    return { ok: n ? `✓ ${n} ставки од изводот прекнижени на конто 1620 / 2620 – договорите ги следат новите ставки.` : '✓ Нема позајмици без договор.' };
   } catch (e) {
     if (e instanceof Error && e.name === 'BankError') return { error: e.message };
     return actionError(e);

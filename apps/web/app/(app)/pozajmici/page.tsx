@@ -49,9 +49,10 @@ export default async function PozajmiciPage({ searchParams }: { searchParams: Pr
         <Hd t={(ex ? 'Договор за позајмица ' : 'Нов договор за позајмица ') + (E.number ?? '')} sub={E.dir === 'given' ? '📤 фирмата дава позајмица' : '📥 фирмата прима позајмица'}>
           <Link className="btn" href="/pozajmici">← Листа</Link>
           {ex && <a className="btn" href={`/print/fin/pozajmica?id=${ex.id}`} target="_blank" rel="noopener">PDF</a>}
-          {ex && <a className="btn" href={`/pozajmici/word?id=${ex.id}`}>Word</a>}
+          {ex && <a className="btn" href={`/pozajmici/word?id=${ex.id}`} title="Се прави Word документ…">Word</a>}
         </Hd>
-        {ex && (
+        {ex && !write && <p className="note">Прикачувањето документи е достапно само за корисници со право на уредување.</p>}
+        {ex && write && (
           <ActionForm action={attachSignedAction} reset={false}>
             <input type="hidden" name="id" value={ex.id} />
             <div className="row" style={{ gap: 8, alignItems: 'end' }}>
@@ -118,8 +119,13 @@ export default async function PozajmiciPage({ searchParams }: { searchParams: Pr
           {write && <RowAction className="btn pri" label="🔧 Прекнижи на 1620/2620" action={rebookLoansAction} confirm={`Да се прекнижат ${D.misK.length} ставки од изводите на 1620 (дадени) / 2620 (примени) позајмици?`} />}
         </div>
       )}
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, margin: '4px 0', flexWrap: 'wrap' }}>
+        <span className="mini">🤖 Програмот ги наоѓа позајмиците (изводи, налози, благајна) – договор се креира само за тие што ќе ги означите</span>
+        {D.unlinked.length ? <a className="btn sm" href="#lnUnl">🔄 Провери и креирај</a> : <span className="pill good">✓ Нема позајмици без договор.</span>}
+      </div>
       {D.unlinked.length > 0 && (
         <ActionForm action={createLoansAction} reset={false} style={{ borderColor: 'var(--bad)' }}>
+          <span id="lnUnl" />
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h2 style={{ margin: '0 0 6px' }}>⛔ Позајмици без договор (изводи, налози, благајна)</h2>
             <span className="row" style={{ gap: 6 }}>{write && <SelectAll name="mv" />}{write && <button className="btn sm pri">📝 Креирај договори за означените</button>}</span>
