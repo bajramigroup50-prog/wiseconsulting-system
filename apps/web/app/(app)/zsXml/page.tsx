@@ -33,7 +33,7 @@ export default async function ZsXmlPage() {
   const ask = errs.length ? `Има ${errs.length} наоди од контролите на ЦРМ (${errs.slice(0, 3).map((r) => String(r[1] ?? r[0])).join('; ')}${errs.length > 3 ? ' …' : ''}) – ЦРМ може да ја одбие сметката. Сепак да се преземе XML?` : undefined;
   const blocked = findings.open.length > 0;
   const checks: [boolean, React.ReactNode][] = [
-    [!blocked, blocked ? <>{findings.open.length} неразрешени наоди во <Link href="/zsKontrola">Контрола</Link> – XML не се издава</> : 'Контролата е чиста'],
+    [!blocked, blocked ? <>Не може „XML за ЦРМ“: {findings.open.length} неосредени наоди во документите ({findings.open.slice(0, 2).map((x) => x.area).join(', ')}…). Средете ги или означете „проверено“ – <Link href="/zsKontrola">Контрола</Link></> : 'Контролата е чиста'],
     [leOk, leOk ? `ЕМБС ${le}` : <>ЕМБС не е валиден (7 или 8 цифри) – <Link href="/firmi">Фирми</Link></>],
     [!errs.length, errs.length ? <>{errs.length} правила на ЦРМ не се исполнети – <Link href="/zsKontrola">Контрола</Link></> : 'Правилата на ЦРМ се исполнети'],
     [!miss35.length, miss35.length ? <>Образец 35: {miss35.length} дејности без АОП – <Link href="/zs_sp">Образец 35</Link></> : 'Образец 35 е комплетен'],
