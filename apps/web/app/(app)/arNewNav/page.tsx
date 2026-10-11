@@ -38,7 +38,7 @@ export default async function ArNewPage() {
             <label className="f">Датум<input name="date" type="date" /></label>
             <label className="f">Важи до<input name="validTo" type="date" /></label>
             <label className="f wide">Белешка<input name="note" /></label>
-            <UploadField firmId={firm.id} capture accept="image/*,application/pdf" label="📷 Скенирај / прикачи страници" />
+            <UploadField firmId={firm.id} capture accept="image/*,application/pdf" label="📎 Прикачи датотеки (PDF, слики)" />
           </div>
           <div className="row"><button className="btn pri">Зачувај</button></div>
         </ActionForm>

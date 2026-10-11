@@ -46,15 +46,15 @@ export default async function KlInboxPage({ searchParams }: { searchParams: Prom
         <p className="note" style={{ margin: '0 0 8px' }}>Овие документи <b>не се прокнижени</b>: не влегуваат во налози, ДДВ и залиха додека не ги одобрите.</p>
         {pend.length ? (
           <div className="tw"><table className="dense">
-            <thead><tr><th>Внесено</th><th>Од</th><th>Фирма</th><th>Вид</th><th>Број</th><th>Датум</th><th>Комитент</th><th className="n">Износ</th><th>Прилог</th><th></th></tr></thead>
+            <thead><tr><th>Внесено</th><th>Од</th><th>Фирма</th><th>Вид</th><th>Број</th><th>Датум</th><th>Комитент / објект</th><th className="n">Износ</th><th>Прилог</th><th></th></tr></thead>
             <tbody>
               {pend.map(({ e, by }) => {
-                const d = e.data as { number?: string; date?: string; partnerName?: string; total?: number; category?: string; title?: string };
+                const d = e.data as { number?: string; date?: string; partnerName?: string; total?: number; category?: string; title?: string; locationName?: string; object?: string };
                 return (
                   <tr key={e.id}>
                     <td>{dmyHm(e.submittedAt)}</td><td>{by}</td><td>{fname(e.firmId)}</td>
                     <td>{CLIENT_ENTRY_KINDS[e.kind as keyof typeof CLIENT_ENTRY_KINDS] ?? e.kind}</td>
-                    <td>{d.number ?? d.title ?? d.category}</td><td>{dmy(d.date)}</td><td>{d.partnerName}</td>
+                    <td>{d.number ?? d.title ?? d.category}</td><td>{dmy(d.date)}</td><td>{[d.partnerName, d.locationName ?? d.object].filter(Boolean).join(' · ')}</td>
                     <td className="n">{d.total != null ? fmt(d.total) : ''}</td><td><FileChips files={PF.get(e.id)} /></td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <RowAction className="btn sm pri" action={decideEntry.bind(null, e.id, 'approve', undefined)} label="✓ Одобри" />{' '}

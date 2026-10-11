@@ -109,7 +109,7 @@ export default async function SistemPage({ searchParams }: { searchParams: Promi
                 {rest.target !== firm.id && <> <b>Копијата е од друга фирма</b>{rest.exists ? ' – ќе се врати таа фирма, не тековната.' : ' која не постои – ќе биде создадена.'}</>}</div>
               <p className="mini">{rest.counts.map(([k, n]) => `${k}: ${n}`).join(' · ')}</p>
               <div className="row" style={{ gap: 8, marginTop: 8 }}><span style={{ flex: 1 }} />
-                <RowAction action={restoreAction.bind(null, rest.id)} label="↺ Врати ја фирмата" className="btn danger" confirm={`Да се врати „${rest.name}“ на состојбата од копијата? Ова не може да се поништи (освен со новата копија).`} />
+                <RowAction action={restoreAction.bind(null, rest.id)} label="↺ Врати ја избраната фирма" className="btn danger" confirm={`Да се врати „${rest.name}“ на состојбата од копијата? Ова не може да се поништи (освен со новата копија).`} />
               </div>
             </div>
           ))}

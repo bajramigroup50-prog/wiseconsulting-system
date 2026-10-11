@@ -1,6 +1,6 @@
 /** Legacy `VIEWS.povratDob` 8777 → 16233 — Повратници и одобренија од добавувачи. */
 import Link from 'next/link';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import {
   firmPostingContext, journals, partners, purchases, purchaseStockLines, purchaseVatGroups, supplierCreditLines, supplierCredits,
@@ -44,11 +44,17 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
       db().select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, ids)),
       db().select().from(purchaseVatGroups).where(inArray(purchaseVatGroups.purchaseId, ids)),
     ]) : [[], []];
+    // legacy `scrPurQty`: quantities already returned to the supplier on other returns against the same purchase
+    const BK = ids.length ? await db().select({ pur: supplierCredits.refPurchaseId, itemId: supplierCreditLines.itemId, qty: supplierCreditLines.qty })
+      .from(supplierCreditLines).innerJoin(supplierCredits, eq(supplierCredits.id, supplierCreditLines.creditId))
+      .where(and(eq(supplierCredits.firmId, firm.id), eq(supplierCredits.kind, 'ret'), inArray(supplierCredits.refPurchaseId, ids), init.id ? ne(supplierCredits.id, init.id) : undefined)) : [];
+    const back = (pur: string) => { const o: Record<string, number> = {}; for (const b of BK) if (b.pur === pur && b.itemId) o[b.itemId] = (o[b.itemId] ?? 0) + Number(b.qty); return o; };
     const purs: ScrPurchase[] = PU.map((x) => ({
       id: x.id, number: x.number, date: x.date, partnerId: x.partnerId, total: Number(x.total), warehouseId: x.warehouseId,
       supKonto: x.imp ? x.supplierAccount || schemeValue(ctx, 'supplierFx') : schemeValue(ctx, 'supplier'),
       stock: ST.filter((s) => s.purchaseId === x.id).map((s) => ({ itemId: s.itemId, qty: Number(s.qty), value: Number(s.value) })),
       groups: G.filter((g) => g.purchaseId === x.id).map((g) => ({ account: g.account, rate: g.rate, base: Number(g.base) })),
+      back: back(x.id),
     }));
     const [P, I, Lc, A] = await Promise.all([partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id), accountOptions(firm.id, (k) => /^[34675]/.test(k))]);
     // legacy `scrFromScan` (16213): the read document prefills the editor

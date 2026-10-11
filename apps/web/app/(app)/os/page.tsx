@@ -124,7 +124,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
                 </ActionForm>
                 <ActionForm action={addAssetFiles} submit="Прикачи слики" className="card">
                   <input type="hidden" name="id" value={a.id} /><input type="hidden" name="kind" value="photo" />
-                  <UploadField firmId={firm.id} label="📷 Фотографирај / 🖼 Прикачи слики" accept="image/*" capture />
+                  <UploadField firmId={firm.id} camLabel="📷 Фотографирај" label="🖼 Прикачи слики" accept="image/*" capture />
                 </ActionForm>
               </div>
             )}

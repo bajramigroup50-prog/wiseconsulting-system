@@ -29,8 +29,8 @@ export default async function KlSendPage() {
         <h2>Фотографирај или прикачи – оди во канцеларијата</h2>
         <div className="form">
           <label className="f">Наслов<input name="subject" placeholder="на пр. Фактури за септември" /></label>
-          <label className="f wide">Порака<textarea name="note" rows={2} placeholder="Што праќате / што ви треба од канцеларијата" /></label>
-          <UploadField firmId={firm.id} capture accept="image/*,application/pdf,.xml,.xlsx,.xls,.csv,.sta,.300" label="📷 Сликај / прикачи (фактура, извод, договор…)" />
+          <label className="f wide">Порака / опис<textarea name="note" rows={2} placeholder="на пр. Фактура од Макпетрол за гориво, извод од 15.10…" /></label>
+          <UploadField firmId={firm.id} capture accept="image/*,application/pdf,.xml,.xlsx,.xls,.csv,.sta,.300" camLabel="📷 Фотографирај" label="📎 Прикачи (фактура, извод, договор…)" />
         </div>
         <div className="row"><button className="btn pri">Испрати</button></div>
       </ActionForm>
@@ -50,7 +50,7 @@ export default async function KlSendPage() {
           <label className="f">Вкупно со ДДВ<input name="total" inputMode="decimal" required /></label>
           <label className="f">од тоа ДДВ<input name="vat" inputMode="decimal" /></label>
           <label className="f wide">Белешка<input name="note" /></label>
-          <UploadField firmId={firm.id} capture accept="image/*,application/pdf" label="📷 Слика од документот" />
+          <UploadField firmId={firm.id} capture accept="image/*,application/pdf" camLabel="📷 Слика од документот" label="📎 Прикачи" />
         </div>
         <div className="row"><button className="btn pri">Внеси</button></div>
       </ActionForm>

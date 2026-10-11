@@ -1,7 +1,7 @@
 'use client';
 import { useState, useTransition } from 'react';
 import { dmy, fmt } from '@/lib/fmt';
-import { savePartnerEmailAction, sendConfirmationsAction } from '../potvrdi-actions';
+import { archiveConfirmationsAction, savePartnerEmailAction, sendConfirmationsAction } from '../potvrdi-actions';
 
 export function PotvrdiList({ to, rows, write }: { to: string; write: boolean; rows: { pid: string; name: string; code: string; email: string; R: { s: string; v: number }[]; last: string }[] }) {
   const [sel, setSel] = useState<Set<string>>(new Set(rows.map((r) => r.pid)));
@@ -39,6 +39,7 @@ export function PotvrdiList({ to, rows, write }: { to: string; write: boolean; r
       {msg.error && <div className="callout bad" role="alert">{msg.error}</div>}
       <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
         <a className="btn" href={`/print/fin/potvrda?all=1&to=${to}&ids=${[...sel].join(',')}`} target="_blank" rel="noopener">🖨 PDF на избраните ({n})</a>
+        {write && <button type="button" className="btn" disabled={pending || !n} onClick={() => start(async () => setMsg(await archiveConfirmationsAction({ to, ids: [...sel] })))}>📁 Само подготви и архивирај ({n})</button>}
         {write && <button type="button" className="btn pri" disabled={pending || !ne} onClick={() => {
           if (!window.confirm(`Да се испратат потврди на салдо на ${dmy(to)} на сите избрани комитенти со е-пошта (${ne})?`)) return;
           start(async () => setMsg(await sendConfirmationsAction({ to, ids: [...sel].filter((id) => mail[id]), card })));

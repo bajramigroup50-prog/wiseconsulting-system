@@ -39,7 +39,7 @@ export default async function GreskiPage({ searchParams }: { searchParams: Promi
       {missing && <div className="callout warn">Табелата на регистарот сè уште не е создадена – потребна е миграција на базата.</div>}
       {L.length ? (
         <div className="tw"><table className="dense">
-          <thead><tr><th>Кога</th><th>Корисник</th><th>Фирма</th><th>Екран</th><th>Грешка</th><th className="n">Пати</th><th></th></tr></thead>
+          <thead><tr><th>Кога</th><th>Корисник</th><th>Фирма</th><th>Екран</th><th>Грешка</th><th>Верз.</th><th className="n">Пати</th><th></th></tr></thead>
           <tbody>{L.map((e) => (
             <tr key={e.id}>
               <td>{dmyHm(e.lastAt)}{e.count > 1 && <><br /><small className="mut">прва: {dmyHm(e.at)}</small></>}</td>
@@ -47,6 +47,7 @@ export default async function GreskiPage({ searchParams }: { searchParams: Promi
               <td>{e.firmName ?? ''}</td>
               <td>{e.view ?? ''}<br /><small className="mut">{e.src}</small></td>
               <td style={{ maxWidth: 420 }}><b>{e.msg}</b>{(e.stack || e.digest) && <details><summary className="mini">детали</summary><pre style={{ whiteSpace: 'pre-wrap', fontSize: 10.5, maxHeight: 160, overflow: 'auto' }}>{e.digest ? `digest: ${e.digest}\n` : ''}{e.stack}</pre></details>}</td>
+              <td className="mini">{e.ver ?? ''}</td>
               <td className="n">{e.count}</td>
               <td>{e.fixed ? <span className="pill good">решено</span> : <RowAction action={fixErrorAction.bind(null, e.id)} label="✓ Решено" className="btn sm" />}</td>
             </tr>

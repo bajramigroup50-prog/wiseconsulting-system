@@ -2,13 +2,16 @@
 /**
  * „📨 Потврди на салдо – сите“ (legacy v434 13834–13854, `paRun`): balance confirmations to every selected partner by
  * e-mail with the confirmation PDF (and optionally the partner's card) attached; e-mail addresses edited in the list are
- * saved on the partner. Archiving into the dossier is handled with the reconciliation archive (other module).
+ * saved on the partner. „📁 Само подготви и архивирај“ (legacy `paArch` → `potArchive`) files each confirmation as a PDF in
+ * the firm dossier („Усогласување со комитенти (ИОС)“) without sending it.
  */
 import { revalidatePath } from 'next/cache';
 import { createElement, Fragment } from 'react';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { audit, partners, textMailHtml } from '@wise/db';
+import { audit, dossierDocs, OFFICE_FILE_ENTITY, partners, textMailHtml } from '@wise/db';
+import { PDFDOC_CSS } from '@wise/core/print-css';
+import { renderPdf } from '@/lib/jobs';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -73,6 +76,49 @@ export async function sendConfirmationsAction(input: z.input<typeof SendIn>): Pr
     await dispatchPdfMail(jobs);
     revalidatePath('/kartici/potvrdi');
     return { ok: `✓ Испратени: ${jobs.length}${skip.length ? ` · без е-пошта (не се испратени): ${skip.join(', ')}` : ''}.` };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Неважечки податоци.' };
+    return actionError(e);
+  }
+}
+
+const ArchIn = z.object({ to: z.string().regex(/^d{4}-d{2}-d{2}$/), ids: z.array(z.uuid()).max(2000) });
+
+/** Legacy `paArch` / `potArchive`: the confirmations of the selected partners as PDFs in „Документи на фирмата“. */
+export async function archiveConfirmationsAction(input: z.input<typeof ArchIn>): Promise<ActionState> {
+  try {
+    const v = ArchIn.parse(input);
+    const { u, firm, year } = await firmAction('write');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { list } = await confirmationList(firm.id, year, v.to);
+    const want = new Set(v.ids);
+    const L = list.filter((x) => want.has(x.pid) && x.p);
+    if (!L.length) return { error: 'Изберете барем еден комитент.' };
+    const today = new Date().toISOString().slice(0, 10);
+    let ok = 0;
+    const err: string[] = [];
+    for (const x of L) {
+      const html = renderToStaticMarkup(createElement('div', { className: 'pdfdoc' }, createElement(PotvrdaDoc, { firm, p: x.p!, R: x.R, to: v.to, today })));
+      const id = await db().transaction(async (tx) => {
+        const [d] = await tx.insert(dossierDocs).values({
+          firmId: firm.id, category: 'Усогласување со комитенти (ИОС)', title: `Потврда на салдо – ${x.name} на ${dmy(v.to)}`, date: v.to, partnerName: x.name,
+          note: x.nz.map((r) => r.s + ': ' + fmt(r.v)).join(' · ') || null, createdBy: u.id,
+        }).returning({ id: dossierDocs.id });
+        await audit(tx, { userId: u.id, firmId: firm.id, action: 'paArch', entityType: 'dossier_doc', entityId: d!.id, data: { partner: x.name, to: v.to } });
+        return d!.id;
+      });
+      try {
+        await renderPdf({ html, css: PDFDOC_CSS, title: pdfFileTitle('Potvrda_saldo', x.name), firmId: firm.id, userId: u.id, link: { entityType: OFFICE_FILE_ENTITY.dossier, entityId: id } });
+        ok++;
+      } catch {
+        await db().transaction(async (tx) => { await tx.delete(dossierDocs).where(eq(dossierDocs.id, id)); });
+        err.push(x.name);
+      }
+    }
+    revalidatePath('/kartici/potvrdi');
+    revalidatePath('/dosie');
+    return err.length && !ok ? { error: 'Серверот за PDF е недостапен – користете „Печати“.' }
+      : { ok: `✓ Подготвени и архивирани: ${ok}${err.length ? ` · грешки: ${err.join(', ')}` : ''} · сите се зачувани во „Документи на фирмата“.` };
   } catch (e) {
     if (e instanceof z.ZodError) return { error: 'Неважечки податоци.' };
     return actionError(e);

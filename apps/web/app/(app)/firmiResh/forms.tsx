@@ -11,7 +11,7 @@ export function StartForm() {
     <form className="card" action={run}>
       {st.error && <div className="callout bad">{st.error}</div>}
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <UploadField firmId={null} capture accept=".pdf,image/*" label="📷 Скенирај / 📎 прикачи PDF или слики" />
+        <UploadField firmId={null} capture accept=".pdf,image/*" label="📎 Прикачи датотеки (PDF, слики)" />
         <button className="btn pri" disabled={busy}>{busy ? 'Се праќа…' : '🔍 Прочитај го решението'}</button>
       </div>
       <p className="note" style={{ margin: '6px 0 0' }}>Секоја страна се додава посебно; по внесувањето страните се зачувуваат во досието на новата фирма. Без AI – пополнете ги полињата подолу рачно.</p>

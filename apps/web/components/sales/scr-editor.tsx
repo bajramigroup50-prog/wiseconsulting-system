@@ -8,7 +8,7 @@ import { saveScrAction } from '@/app/(app)/povratDob/actions';
 
 export interface ScrRow { itemId: string; name: string; qty: string; price: string; rate: string; account: string }
 export interface EdScr { id: string | null; kind: 'ret' | 'disc'; number: string; date: string; supNo: string; partnerId: string; refPurchaseId: string; warehouseId: string; note: string; rows: ScrRow[] }
-export interface ScrPurchase { id: string; number: string; date: string; partnerId: string | null; total: number; warehouseId: string | null; /** Supplier konto of the purchase (import → supplierFx). */ supKonto: string; stock: { itemId: string; qty: number; value: number }[]; groups: { account: string; rate: number; base: number }[] }
+export interface ScrPurchase { id: string; number: string; date: string; partnerId: string | null; total: number; warehouseId: string | null; /** Supplier konto of the purchase (import → supplierFx). */ supKonto: string; stock: { itemId: string; qty: number; value: number }[]; groups: { account: string; rate: number; base: number }[]; /** Already returned on other returns, per item. */ back?: Record<string, number> }
 
 export function ScrEditor(p: {
   initial: EdScr; partners: { id: string; code: string | null; name: string }[]; items: { id: string; name: string; code: string | null; rate: number; type: string }[];
@@ -28,6 +28,14 @@ export function ScrEditor(p: {
       return { itemId: s.itemId, name: it?.name ?? '', qty: String(s.qty), price: String(Math.round((s.value / s.qty) * 1e4) / 1e4), rate: String(it?.rate ?? 18), account: '' };
     }) };
     return { ...e, partnerId: pur.partnerId ?? e.partnerId, rows: pur.groups.filter((g) => g.base).map((g) => ({ itemId: '', name: 'Попуст / одобрение кон ф-ра ' + pur.number, qty: '1', price: '0', rate: String(g.rate), account: g.account })) };
+  };
+  const retRef = E.kind === 'ret' && !!E.refPurchaseId;
+  /** Legacy `scrPurQty`: received on the purchase / returned on other returns. */
+  const purQty = (itemId: string) => {
+    const pur = p.purchases.find((x) => x.id === E.refPurchaseId);
+    if (!pur || !itemId) return null;
+    const got = pur.stock.filter((s) => s.itemId === itemId).reduce((a, s) => a + s.qty, 0), bk = pur.back?.[itemId] ?? 0;
+    return { got, back: bk, rest: Math.round((got - bk) * 1e4) / 1e4 };
   };
   const calc = E.rows.reduce((t, r) => { const b = Math.round((Number(r.qty) || 0) * (Number(r.price) || 0)); const v = p.ddv && Number(r.rate) ? Math.round((b * Number(r.rate)) / 100) : 0; return { b: t.b + b, v: t.v + v }; }, { b: 0, v: 0 });
   return (
@@ -50,21 +58,22 @@ export function ScrEditor(p: {
         <label className="f wide">Забелешка<input value={E.note} placeholder="причина: оштетена стока, рекламација, количински рабат…" onChange={(e) => set({ note: e.target.value })} /></label>
       </div>{E.refPurchaseId && <div className="row" style={{ marginTop: 8 }}><button type="button" className="btn" onClick={() => setE((o) => fill(o))}>⤵ Пополни ги ставките од влезната фактура</button></div>}</div>
       <datalist id="sc_il">{its.map((it) => <option key={it.id} value={it.name}>{it.code ?? ''}</option>)}</datalist>
-      <div className="tw"><table className="dense"><thead><tr><th>Артикл / опис</th><th className="n">Количина</th><th className="n">Цена без ДДВ</th><th className="n">ДДВ %</th><th>Конто (П)</th><th className="n">Основа</th><th className="n">ДДВ</th><th /></tr></thead><tbody>
+      <div className="tw"><table className="dense"><thead><tr><th>Артикл / опис</th><th className="n">Количина</th>{retRef && <th className="n">Примено / вратено</th>}<th className="n">Цена без ДДВ</th><th className="n">ДДВ %</th><th>Конто (П)</th><th className="n">Основа</th><th className="n">ДДВ</th><th /></tr></thead><tbody>
         {E.rows.map((r, i) => {
           const b = Math.round((Number(r.qty) || 0) * (Number(r.price) || 0)), v = p.ddv && Number(r.rate) ? Math.round((b * Number(r.rate)) / 100) : 0;
           return <tr key={i}>
             <td><input value={r.name} list={E.kind === 'ret' ? 'sc_il' : undefined} style={{ width: 240 }} onChange={(e) => { const it = its.find((x) => x.name === e.target.value); setR(i, { name: e.target.value, itemId: it?.id ?? '', ...(it ? { rate: String(it.rate) } : {}) }); }} />
               {E.kind === 'ret' && !r.itemId && r.name && <div className="mini" style={{ color: 'var(--bad)' }}>не е артикл од шифрарникот</div>}</td>
             <td className="n"><input type="number" step="any" value={r.qty} style={{ width: 80, textAlign: 'right' }} onChange={(e) => setR(i, { qty: e.target.value })} /></td>
+            {retRef && (() => { const q = purQty(r.itemId); return <td className="n mini">{q ? `${q.got} / ${q.back}` : ''}{q && (Number(r.qty) || 0) > q.rest + 1e-9 && <div style={{ color: 'var(--bad)' }}>повеќе од примено</div>}</td>; })()}
             <td className="n"><input type="number" step="any" value={r.price} style={{ width: 100, textAlign: 'right' }} onChange={(e) => setR(i, { price: e.target.value })} /></td>
             <td className="n"><select value={r.rate} style={{ width: 'auto' }} onChange={(e) => setR(i, { rate: e.target.value })}>{['18', '10', '5', '0'].map((x) => <option key={x}>{x}</option>)}</select></td>
             <td><select value={r.account} style={{ width: 200 }} onChange={(e) => setR(i, { account: e.target.value })}><option value="">{E.kind === 'ret' ? '(залиха – автоматски)' : '— избери —'}</option>{p.accounts.map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</select></td>
             <td className="n">{fmt(b)}</td><td className="n">{fmt(v)}</td>
             <td><button type="button" className="btn sm ghost" onClick={() => set({ rows: E.rows.filter((_, k) => k !== i) })}>✕</button></td></tr>;
         })}
-        {!E.rows.length && <tr><td colSpan={8} className="note">Изберете влезна фактура и „Пополни ги ставките“, или додадете ред.</td></tr>}
-      </tbody><tfoot><tr><td colSpan={5}>Вкупно{p.ddv ? '' : ' (фирмата не е ДДВ обврзник – ДДВ не се одбива)'}</td><td className="n">{fmt(calc.b)}</td><td className="n">{fmt(calc.v)}</td><td className="n"><b>{fmt(calc.b + calc.v)}</b></td></tr></tfoot></table></div>
+        {!E.rows.length && <tr><td colSpan={retRef ? 9 : 8} className="note">Изберете влезна фактура и „Пополни ги ставките“, или додадете ред.</td></tr>}
+      </tbody><tfoot><tr><td colSpan={retRef ? 6 : 5}>Вкупно{p.ddv ? '' : ' (фирмата не е ДДВ обврзник – ДДВ не се одбива)'}</td><td className="n">{fmt(calc.b)}</td><td className="n">{fmt(calc.v)}</td><td className="n"><b>{fmt(calc.b + calc.v)}</b></td></tr></tfoot></table></div>
       <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
         <button type="button" className="btn" onClick={() => set({ rows: [...E.rows, { itemId: '', name: '', qty: '1', price: '0', rate: '18', account: '' }] })}>+ Ред</button><span style={{ flex: 1 }} />
         <Link className="btn" href="/povratDob">Откажи</Link><button className="btn pri" disabled={pending}>Зачувај и книжи</button></div>

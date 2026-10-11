@@ -2,7 +2,9 @@
 /**
  * File picker inside a form: uploads each file to MinIO right away (hash → presigned PUT → confirm, with
  * duplicate detection) and keeps the resulting ids in hidden `name` inputs for the server action.
- * Images are shrunk to 1800 px JPEG first (legacy `dosCompress` / `upFiles`).
+ * Images are shrunk to 1800 px JPEG first (legacy `dosCompress` / `upFiles`). With `capture` a separate
+ * „📷 Скенирај со камера“ button opens the back camera (legacy `ds_cam`: `accept="image/*" capture="environment"`), so
+ * the file button still lets the user pick PDFs on a phone.
  */
 import { useState } from 'react';
 import { uploadFile } from '@/lib/upload';
@@ -21,8 +23,8 @@ async function shrink(f: File): Promise<File> {
   } catch { return f; }
 }
 
-export function UploadField({ firmId, name = 'fileIds', label = '📎 Прикачи датотеки', accept, capture }: {
-  firmId: string | null; name?: string; label?: string; accept?: string; capture?: boolean;
+export function UploadField({ firmId, name = 'fileIds', label = '📎 Прикачи датотеки', accept, capture, camLabel = '📷 Скенирај со камера' }: {
+  firmId: string | null; name?: string; label?: string; accept?: string; capture?: boolean; camLabel?: string;
 }) {
   const [items, setItems] = useState<{ id?: string; name: string; msg: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -38,11 +40,18 @@ export function UploadField({ firmId, name = 'fileIds', label = '📎 Прика
   }
   return (
     <div className="f wide">
-      <label className="btn" style={{ cursor: busy ? 'wait' : 'pointer', width: 'fit-content' }}>
-        {label}
-        <input type="file" multiple hidden disabled={busy} accept={accept} {...(capture ? { capture: 'environment' as const } : {})}
-          onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
-      </label>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {capture && (
+          <label className="btn pri" style={{ cursor: busy ? 'wait' : 'pointer', width: 'fit-content' }}>
+            {camLabel}
+            <input type="file" multiple hidden disabled={busy} accept="image/*" capture="environment" onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
+          </label>
+        )}
+        <label className="btn" style={{ cursor: busy ? 'wait' : 'pointer', width: 'fit-content' }}>
+          {label}
+          <input type="file" multiple hidden disabled={busy} accept={accept} onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
+        </label>
+      </div>
       {busy && <span className="note"> Се прикачува…</span>}
       {items.length > 0 && (
         <ul className="note" style={{ margin: '6px 0 0' }}>

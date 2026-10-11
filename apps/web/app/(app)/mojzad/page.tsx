@@ -43,7 +43,7 @@ export default async function MojzadPage() {
           </div>
           <ActionForm action={attachTaskFiles} className="">
             <input type="hidden" name="id" value={t.id} />
-            <UploadField firmId={null} capture accept="image/*,application/pdf" label="📷 Скенирај / прикачи" />
+            <UploadField firmId={null} capture accept="image/*,application/pdf" label="📎 Прикачи" />
             <label className="f">Примено (опис)<input name="received" placeholder="на пр. Решение бр. …" /></label>
             <button className="btn sm">Зачувај прикачени</button>
           </ActionForm>
