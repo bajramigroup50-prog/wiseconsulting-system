@@ -68,6 +68,7 @@ export default async function EfPrepPage({ searchParams }: { searchParams: Promi
           ))}
         </div>
       )}
+      {!run && <div className="empty">Притиснете „🔍 Провери ги сите фирми“.</div>}
       <ActionForm action={saveEfAction} reset={false} className="card tw">
         <table className="dense">
           <thead><tr><th>Фирма</th><th>ДДВ</th>{run && <><th className="n">Фактури {year}</th><th className="n">Купувачи</th><th>Купувачи со грешки</th></>}<th>EUJP-ID</th><th>Сертификат</th><th>Статус</th></tr></thead>

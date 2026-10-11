@@ -21,7 +21,7 @@ export async function confirmBatch(month: string, mode: PbMode, firmIds: string[
   const u = await requireCan('write');
   let ok = 0;
   const skip: string[] = [];
-  let rateMiss = 0;
+  let rateMiss = 0, notesMiss = 0;
   for (const id of firmIds.filter(isUuid).slice(0, 1000)) {
     try {
       if (!can(u.principal, 'savePay2', id)) { skip.push(id); continue; }
@@ -30,7 +30,7 @@ export async function confirmBatch(month: string, mode: PbMode, firmIds: string[
         if (!f || (f.settings as { payManual?: boolean }).payManual) return false;
         const [ex] = await tx.select({ id: payrollRuns.id }).from(payrollRuns).where(and(eq(payrollRuns.firmId, id), eq(payrollRuns.month, month))).limit(1);
         if (ex) return false;
-        if (payNotesOpen(await tx.select().from(payrollNotes).where(and(eq(payrollNotes.firmId, id), eq(payrollNotes.done, false))), month).length) return false;
+        if (payNotesOpen(await tx.select().from(payrollNotes).where(and(eq(payrollNotes.firmId, id), eq(payrollNotes.done, false))), month).length) { notesMiss++; return false; }
         // Legacy `pbGo` + `payRateWarn` (15301): no automatic payroll from 2027 until the new rates are confirmed.
         if (payRateWarnNeeded(month, await loadPayOverrides(tx, id))) { rateMiss++; return false; }
         const d = await pbBuild(tx, f, month, mode === 'cal' ? 'cal' : 'prev');
@@ -49,7 +49,7 @@ export async function confirmBatch(month: string, mode: PbMode, firmIds: string[
   revalidatePath('/payBatch');
   revalidatePath('/plati');
   if (rateMiss && !ok) return { error: `За ${month} прво проверете ги стапките во „Параметри по периоди“.` };
-  return { ok: `✓ Прокнижени: ${ok}${skip.length ? ' · прескокнати: ' + skip.length : ''}${rateMiss ? ` (${rateMiss} без потврдени стапки за 2027 – „Параметри по периоди“)` : ''}` };
+  return { ok: `✓ Прокнижени: ${ok}${skip.length ? ' · прескокнати: ' + skip.length : ''}${rateMiss ? ` (${rateMiss} без потврдени стапки за 2027 – „Параметри по периоди“)` : ''}${notesMiss ? ' · Некои фирми имаат отворени известувања – тие се прескокнуваат.' : ''}` };
 }
 
 /** Legacy `pbDel` (`del`): remove the month's run (and its journal), e.g. to import it from Excel. */

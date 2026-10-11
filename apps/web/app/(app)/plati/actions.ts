@@ -126,6 +126,7 @@ export async function recalcAllAction(year: number): Promise<ActionState> {
     }
   } catch (e) { return payError(e); }
   rev();
+  if (!n) return { error: 'Нема отклучени месеци.' };
   return { ok: `Пресметани и прокнижени повторно: ${n} месеци.` };
 }
 

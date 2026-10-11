@@ -28,7 +28,7 @@ export async function closeVatPeriodAction(period: string): Promise<ActionState>
     const { u, firm } = await firmAction('write');
     const r = await db().transaction((tx) => closeVatPeriod(tx, { firmId: firm.id, period: p, userId: u.id, source: vatSource }));
     done();
-    return { ok: r.journal ? `Периодот е затворен, налог ${r.journal.number}.` : 'Периодот е затворен (нема салдо на ДДВ контата).' };
+    return { ok: r.journal ? `ДДВ-04 е книжена во налог. Периодот е затворен, налог ${r.journal.number}.` : 'Периодот е затворен (нема салдо на ДДВ контата).' };
   } catch (e) { return asError(e); }
 }
 
@@ -43,7 +43,7 @@ export async function reopenVatPeriodAction(period: string): Promise<ActionState
     const { u, firm } = await firmAction('close');
     await db().transaction((tx) => reopenVatPeriod(tx, { firmId: firm.id, period: p, userId: u.id }));
     done();
-    return { ok: 'Периодот е отворен.' };
+    return { ok: 'Книжењето на ДДВ е избришано. Периодот е отворен.' };
   } catch (e) { return asError(e); }
 }
 

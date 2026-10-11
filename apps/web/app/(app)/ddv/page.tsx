@@ -164,7 +164,7 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
                     confirm={`Периодот ${vatPeriodLabel(sel)} да се отвори? Налогот за затворање на ДДВ ќе се избрише и документите од периодот повторно ќе може да се менуваат.`} />}
                 </>
               ) : write && (
-                <RowAction className="btn pri" label="Потврди и затвори период" action={closeVatPeriodAction.bind(null, sel)}
+                <RowAction className="btn pri" label="Потврди и книжи во налог" title="Затвори го периодот и книжи го ДДВ-04 во налог" action={closeVatPeriodAction.bind(null, sel)}
                   confirm={`Да се затвори ДДВ периодот ${vatPeriodLabel(sel)}? Ќе се книжи налог за затворање на ДДВ контата и документите од периодот ќе се заклучат.`} />
               )}
             </div>
