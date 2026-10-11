@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 /**
@@ -64,4 +64,14 @@ export async function getObjectBytes(key: string): Promise<Uint8Array> {
 /** Write an object (server side) — generated documents (Phase 9). */
 export async function putObjectBytes(key: string, body: Uint8Array, mime: string): Promise<void> {
   await s3().internal.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: mime, ContentLength: body.byteLength }));
+}
+
+/** Remove a stored object (server side) after its `files` row is gone; best effort — a leftover object is harmless. */
+export async function deleteObject(key: string): Promise<boolean> {
+  try {
+    await s3().internal.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }

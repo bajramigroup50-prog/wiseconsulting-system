@@ -5,7 +5,8 @@ const APP_URL = 'https://app.wiseconsulting.com.mk';
 const APP_HOST = new URL(APP_URL).host;
 const sameApp = (url) => { try { const h = new URL(url).host; return h === APP_HOST || h.endsWith('.' + APP_HOST); } catch { return false; } };
 
-if (!app.requestSingleInstanceLock()) app.quit();
+const primary = app.requestSingleInstanceLock();
+if (!primary) app.quit();
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -51,5 +52,22 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 ]));
 
 app.on('second-instance', () => { const [w] = BrowserWindow.getAllWindows(); if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
-app.whenReady().then(createWindow);
+/**
+ * Safety: the app always starts at the login screen (then year → firm). The server's cookies (session, firm, year) are
+ * deleted when the app starts and again when it quits, so neither a crash nor a restored session skips the login.
+ */
+const clearAppCookies = () => session.defaultSession.clearStorageData({ storages: ['cookies'] })
+  .then(() => session.defaultSession.cookies.flushStore()).catch(() => {});
+
+// a second instance only hands over to the running one: it must not touch the shared cookies
+if (primary) app.whenReady().then(clearAppCookies).then(createWindow);
 app.on('window-all-closed', () => app.quit());
+let cleared = false;
+app.on('before-quit', (e) => {
+  if (cleared || !primary) return;
+  e.preventDefault();
+  cleared = true;
+  const done = () => app.quit();
+  clearAppCookies().then(done, done);
+  setTimeout(done, 3000); // never hang on quit
+});

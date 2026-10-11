@@ -32,16 +32,35 @@ export const dbModule = { db: () => pg };
 
 /* ---------- request context ---------- */
 export const jar = new Map<string, string>();
+/** Options of the last `set` per cookie (`maxAge`, `expires`, `secure`…) — the session-cookie tests read them. */
+export const cookieOpts = new Map<string, Record<string, unknown>>();
+/** Extra request headers (none by default — e.g. the tab guard's `x-wise-firm` / `x-wise-year` + `cookie`). */
+export const reqHeaders = new Map<string, string>();
+/** The raw `Cookie:` header of the jar as it is now (what the browser sends with the request). */
+export const cookieHeader = () => [...jar].map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('; ');
+/**
+ * A request sent by a page rendered for this firm / year (the headers `components/firm-guard.tsx` adds), with the
+ * cookies the browser has right now. `pageFor(null)` clears it (a request without the headers).
+ */
+export function pageFor(p: { firm?: string | null; year?: number } | null) {
+  reqHeaders.clear();
+  if (!p) return;
+  if (p.firm) reqHeaders.set('x-wise-firm', p.firm);
+  if (p.year) reqHeaders.set('x-wise-year', String(p.year));
+  reqHeaders.set('cookie', cookieHeader());
+}
 const cookieStore = {
   get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)! } : undefined),
   getAll: () => [...jar].map(([name, value]) => ({ name, value })),
   has: (name: string) => jar.has(name),
-  set: (a: string | { name: string; value: string }, v?: string) => { if (typeof a === 'string') jar.set(a, String(v ?? '')); else jar.set(a.name, a.value); },
-  delete: (name: string | { name: string }) => { jar.delete(typeof name === 'string' ? name : name.name); },
+  set: (a: string | { name: string; value: string }, v?: string, o?: Record<string, unknown>) => {
+    if (typeof a === 'string') { jar.set(a, String(v ?? '')); cookieOpts.set(a, o ?? {}); } else { jar.set(a.name, a.value); cookieOpts.set(a.name, { ...a }); }
+  },
+  delete: (name: string | { name: string }) => { const n = typeof name === 'string' ? name : name.name; jar.delete(n); cookieOpts.delete(n); },
 };
 export const headersModule = {
   cookies: async () => cookieStore,
-  headers: async () => new Headers({ 'user-agent': 'vitest', 'x-forwarded-for': '127.0.0.1' }),
+  headers: async () => new Headers({ 'user-agent': 'vitest', 'x-forwarded-for': '127.0.0.1', ...Object.fromEntries(reqHeaders) }),
   draftMode: async () => ({ isEnabled: false }),
 };
 export const revalidated: string[] = [];

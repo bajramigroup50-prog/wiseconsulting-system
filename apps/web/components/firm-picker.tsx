@@ -12,7 +12,7 @@ import {
   FP_AZ, FP_FILTERS, FP_FILTER_TITLE, FP_VIEWS, fpApply, fpDdvDue, fpDdvNo, fpExportRows, fpGroupKey, fpPerson, fpPhone, fpPrevMonth, fpShort,
   type FpFilter, type FpFirm, type FpSort, type FpView,
 } from '@wise/core/firms/picker';
-import { selectFirm, setYear } from '@/app/(app)/actions';
+import { selectFirm } from '@/app/(app)/actions';
 import { logout } from '@/app/login/actions';
 import { PdfButton } from './pdf-button';
 
@@ -79,11 +79,11 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
       <div className="fp2-top">
         <h1>Изберете фирма <span className="note" style={{ fontSize: 14, fontWeight: 400 }}>· {F0.length} фирми{year ? ` во ${year}` : ''}</span></h1>
         {year != null && (
-          <label className="mini" title="Се прикажуваат само фирмите што работат во избраната година">Година{' '}
-            <select style={{ width: 'auto' }} value={year} onChange={(e) => { const v = Number(e.target.value); start(() => setYear(v)); }}>
-              {Array.from({ length: Math.max(year, new Date().getFullYear()) + 2 - Math.min(2012, year) }, (_, i) => Math.max(year, new Date().getFullYear()) + 1 - i).map((v) => <option key={v}>{v}</option>)}
-            </select>
-          </label>
+          // the year is chosen on its own screen (never by an accidental select change): shown here with „Промени година“
+          <span className="mini" title="Се прикажуваат само фирмите што работат во избраната година">
+            Година <b id="fpYear" style={{ fontSize: 16 }}>{year}</b>{' '}
+            <Link className="btn sm" href="/?godina=1">📅 Промени година</Link>
+          </span>
         )}
         <div className="fp2-vw">{FP_VIEWS.map(([key, t]) => <button key={key} type="button" className={view === key ? 'on' : ''} onClick={() => { setView(key); setLim(60); setK(0); try { localStorage.setItem(LS.view, key); } catch { /* ignore */ } }}>{t}</button>)}</div>
         {canNew && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
