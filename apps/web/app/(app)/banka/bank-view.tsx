@@ -158,7 +158,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       )}
       {unl.length > 0 && (
         <div className="callout" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span>🧾 <b>{unl.length}</b> плаќања на купувачи / добавувачи не се поврзани со фактура (аванси или фактура што недостасува).</span><span style={{ flex: 1 }} />
+          <span>🧾 <b>{unl.length}</b> плаќања се евидентирани на комитент, но не се поврзани со фактура (аванс или непознат број).</span><span style={{ flex: 1 }} />
           <Link className="btn" href="/bkAdv">Прикажи и затвори рачно</Link>
         </div>
       )}
@@ -416,7 +416,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
           <label className="f wide">Опис (празно = „Уплата“ / „Плаќање“)<input name="desc" /></label>
           <label className="f">Конто (празно = за книжење)<input name="konto" list="bkK2" /></label>
           <label className="f">Комитент{partnerSelect('partner')}</label>
-          <div className="row"><button className="btn pri">Додај</button></div>
+          <div className="row"><button className="btn pri">Зачувај ставка</button></div>
         </BankForm>
       )}
 

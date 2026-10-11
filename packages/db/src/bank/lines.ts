@@ -341,7 +341,7 @@ export async function saveBankAccount(tx: Tx, a: { firmId: string; userId: strin
   // legacy `addBankAcct` 7204: one konto per bank account
   const [dupK] = await tx.select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts)
     .where(and(eq(bankAccounts.firmId, a.firmId), eq(bankAccounts.konto, v.konto))).limit(2);
-  if (dupK && dupK.id !== id) throw new BankError(`Ова конто веќе се користи за друга сметка („${dupK.name}“).`);
+  if (dupK && dupK.id !== id) throw new BankError('Ова конто веќе се користи за друга сметка.');
   // legacy 7203 / 4846: a konto that is not in the chart is created („Трансакциска сметка – банка“ / „Девизна сметка EUR – банка“)
   if ((await missingAccounts(tx, a.firmId, [v.konto])).length) {
     await tx.insert(accounts).values({ firmId: a.firmId, code: v.konto, name: bankKontoName(data.name, cur) })

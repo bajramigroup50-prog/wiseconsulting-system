@@ -179,7 +179,7 @@ export async function setPartnerAction(_p: FormState, form: FormData): Promise<F
 }
 
 export async function unlinkLineAction(lineId: string): Promise<FormState> {
-  return bankRun('unlinkBank', P, ({ tx, u, firm }) => unlinkLine(tx, { firmId: firm.id, userId: u.id, lineId }).then(() => 'Врската е отстранета.'));
+  return bankRun('unlinkBank', P, ({ tx, u, firm }) => unlinkLine(tx, { firmId: firm.id, userId: u.id, lineId }).then(() => 'Поврзувањето е отстрането. Изберете ново.'));
 }
 export async function flipLineAction(lineId: string): Promise<FormState> {
   return bankRun('flipBank', P, ({ tx, u, firm }) => flipLine(tx, { firmId: firm.id, userId: u.id, lineId }).then(() => 'Насоката е променета.'));
@@ -212,7 +212,7 @@ export async function updateStatementAction(_p: FormState, form: FormData): Prom
 }
 
 export async function numberStatementsAction(): Promise<FormState> {
-  return bankRun('numIzv', P, async ({ tx, u, firm, year }) => `Нумерирани ${await numberStatements(tx, { firmId: firm.id, userId: u.id, year })} изводи.`);
+  return bankRun('numIzv', P, async ({ tx, u, firm, year }) => { const n = await numberStatements(tx, { firmId: firm.id, userId: u.id, year }); return n ? `Нумерирани ${n} изводи. Изводите се нумерирани по датум. Бројот може да го промените рачно.` : 'Сите изводи имаат број.'; });
 }
 
 /**
@@ -268,6 +268,7 @@ export async function closeTransitAction(konto: string, date: string): Promise<F
 
 export async function saveBankAccountAction(_p: FormState, form: FormData): Promise<FormState> {
   return bankRun('addBankAcct', [...P, '/bankFmt'], async ({ tx, u, firm }) => {
+    const isNew = !str(form.get('id'));
     await saveBankAccount(tx, {
       firmId: firm.id, userId: u.id,
       input: {
@@ -275,7 +276,7 @@ export async function saveBankAccountAction(_p: FormState, form: FormData): Prom
         cur: str(form.get('cur')) || 'MKD', konto: str(form.get('konto')).split(/\s/)[0]!, nal: str(form.get('nal')) || null,
       },
     });
-    return 'Сметката е зачувана.';
+    return isNew ? `Сметката е додадена. Изводите од оваа банка ќе се книжат на ${str(form.get('konto')).split(/\s/)[0]}.` : 'Сметката е зачувана.';
   });
 }
 /* ---------------- finance parity ---------------- */
@@ -320,7 +321,7 @@ export async function bulkDeleteLinesAction(_p: FormState, form: FormData): Prom
 
 /** Legacy ACT `izvFill` 12400: fill empty statement numbers by neighbour (previous + 1). */
 export async function izvFillAction(): Promise<FormState> {
-  return bankRun('write', P, async ({ tx, u, firm, year }) => `Пополнети ${await fillStatementNumbers(tx, { firmId: firm.id, userId: u.id, year })} броеви на изводи.`);
+  return bankRun('write', P, async ({ tx, u, firm, year }) => { const n = await fillStatementNumbers(tx, { firmId: firm.id, userId: u.id, year }); return n ? `Пополнети ${n} броеви на изводи.` : 'Сите изводи имаат број.'; });
 }
 
 /** Legacy ACT `posFee` 13078: „Книжи провизија 4460“ (amount in denars, date). */
