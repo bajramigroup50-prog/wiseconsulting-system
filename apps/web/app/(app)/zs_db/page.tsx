@@ -1,7 +1,7 @@
 /**
  * Legacy `ZS_VIEW_DB` 10866 (+ ACT `dbSave`/`dbPdf`/`dbPrev` 10875–10877) — phase 2 "Даночен биланс": ДБ, УЈП 6-2020.
  * FIX(P8 #13): legacy wrote `dbAdj` to the firm directly from `onchange` and swallowed errors; inputs are saved by a
- * guarded, audited action. FIX(P8 #6): one `dbSave`/`dbPdf` (the duplicates at 7717/7718 are not ported).
+ * guarded, audited action. FIX(P8 #6): one `dbSave`/`dbPdf` (the duplicates at 7717/7718 are dropped deliberately).
  */
 import Link from 'next/link';
 import { DB_F } from '@wise/core';

@@ -37,7 +37,7 @@ export function AssetForm({ a, presets, kontos, suppliers, nextInv }: {
         </label>
         <label className="f">Конто (група)<select name="konto" value={konto} onChange={(e) => setKonto(e.target.value)}>{K.map((k) => <option key={k.code} value={k.code}>{k.code} {k.name}</option>)}</select></label>
         <label className="f">Стапка на амортизација %<input name="rate" type="number" step="any" value={rate} onChange={(e) => setRate(e.target.value)} required /></label>
-        <label className="f">Датум на набавка<input name="date" type="date" defaultValue={a?.date ?? ''} required /></label>
+        <label className="f">Датум на ставање во употреба<input name="date" type="date" defaultValue={a?.date ?? ''} required /></label>
         <label className="f">Набавна вредност<input name="cost" type="number" step="0.01" defaultValue={a ? Number(a.cost) : ''} required /></label>
         <label className="f">Добавувач<input name="supplier" list="osSup" defaultValue={a?.supplier ?? ''} /><datalist id="osSup">{suppliers.map((s) => <option key={s} value={s} />)}</datalist></label>
         <label className="f">Фактура за набавка<input name="invDoc" defaultValue={a?.invDoc ?? ''} /></label>

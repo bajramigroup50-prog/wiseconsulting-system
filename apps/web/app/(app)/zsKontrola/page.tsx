@@ -78,7 +78,7 @@ export default async function ZsKontrolaPage() {
       </Step>
       {(L.ent === 'co' || L.ent === 'tp') && (
         <div className="card" style={{ borderColor: errs.length ? 'var(--bad)' : 'var(--good)' }}>
-          <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>7. Правила на ЦРМ (е-годишна сметка)</h2>
+          <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>7. Логички и математички контроли на ЦРМ (правила 2000–2712)</h2>
             <div className="row">{errs.length ? <span className="pill bad">{errs.length} грешки</span> : <span className="pill good">✓ сите правила</span>}<Link className="btn sm" href="/zsXml">XML за ЦРМ →</Link></div></div>
           {rules.length ? (
             <div className="tw"><table className="dense"><thead><tr><th style={{ width: 90 }}>Правило</th><th>Услов</th></tr></thead><tbody>

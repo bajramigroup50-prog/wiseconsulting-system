@@ -3,7 +3,7 @@
  * "XML и поднесување": checks, XML download, import of an accepted XML, submission status.
  * FIX(P8 #14): the import records what it replaced and "remove imported amounts" restores it (hand-typed amounts
  * are no longer wiped). FIX(P8 #10/#11): the old `<GodisnaSmetka>` XML (`vjetore`/`gsXml`) and the old statistics
- * list are not ported — the ЦРМ XML is the only export.
+ * list are dropped deliberately — the ЦРМ XML is the only export.
  */
 import Link from 'next/link';
 import { crmRules } from '@wise/core';

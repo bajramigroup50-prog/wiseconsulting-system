@@ -105,7 +105,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
               </tbody></table>
               <div style={{ textAlign: 'center' }}><Qr text={osQrText(a)} size="150px" /><div className="mini">скенирајте го QR кодот во полето за пребарување</div></div>
             </div>
-            <h2 style={{ fontSize: 15 }}>Документи</h2>
+            <h2 style={{ fontSize: 15 }}>Документи за средството</h2>
             {(D.docs ?? []).length ? (
               <table className="dense"><thead><tr><th>Вид</th><th>Опис / број</th><th>Важи до</th><th>Датотеки</th><th /></tr></thead>
                 <tbody>{(D.docs ?? []).map((x) => <tr key={x.fileId}><td>{x.type}</td><td>{x.title ?? ''}</td><td>{x.validTo ? dmy(x.validTo) : ''}</td><td><a className="btn sm ghost" href={`/api/files/${x.fileId}`} target="_blank" rel="noopener">📎</a></td>
@@ -136,6 +136,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
           <form className="row" style={{ gap: 8 }}><input name="q" defaultValue={sp.q ?? ''} placeholder="Инв. број, баркод, сериски, таблица, назив, локација… (или скенирај QR)" style={{ minWidth: 320 }} /><button className="btn">Барај</button></form>
           <div>
             Амортизација {year}: <b>{fmt(d.total)}</b> ден.
+            {!d.total && <span className="note"> · Нема амортизација за оваа година.</span>}
             {dep ? <> · прокнижена (налог <Link href={`/nalozi?n=${encodeURIComponent(dep.number)}`}>{dep.number}</Link>){Math.abs(postedTotal - d.total) >= 0.01 && <span className="pill warn"> регистарот е менуван – пресметајте повторно</span>}</> : d.total > 0 ? <span className="pill warn"> не е прокнижена</span> : null}
           </div>
         </div>
@@ -167,7 +168,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
           })}</tbody>
           <tfoot><tr><td colSpan={5}>Вкупно</td><td className="n">{fmt(A.reduce((s, a) => s + Number(a.cost), 0))}</td><td /><td className="n">{fmt(A.reduce((s, a) => s + (by.get(a.id)?.year ?? 0), 0))}</td><td className="n">{fmt(A.reduce((s, a) => s + (by.get(a.id)?.acc ?? 0), 0))}</td><td className="n">{fmt(A.reduce((s, a) => s + Number(a.cost) - (by.get(a.id)?.acc ?? 0), 0))}</td><td /></tr></tfoot>
         </table></div>
-      ) : <div className="card empty">{q ? 'Нема средства за пребарувањето.' : 'Нема внесени основни средства.'}</div>}
+      ) : <div className="card empty">{q ? 'Нема средства за пребарувањето.' : 'Регистарот на основни средства е празен.'}</div>}
     </>
   );
 }

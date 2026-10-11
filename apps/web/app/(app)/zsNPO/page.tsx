@@ -4,10 +4,14 @@
  * previous year) / ДБ-НП/ВП (rows 01–08) / Мала НПО (книга на приходи и расходи, книга за благајна, изјава за ЦРМ) /
  * Сметковен план и затворање. The close is the common year close (`/mbyllja`, NPO scheme).
  * FIX(P8 #12): the screen is shown by entity type (`yeEntityOf`), not by "the chart contains 730".
- * Gap: installing the three-digit NPO chart + posting schemes (`npoPlan`) is not ported (the company chart is mapped).
+ * „Примени сметковен план и шеми за НПО“ (`npoPlan`) adds the three-digit NPO chart and schemes.
  */
 import Link from 'next/link';
 import { NPO_BS, NPO_PR } from '@wise/core';
+import { NPO_ACC } from '@wise/core/yearend/npo';
+import { canDo } from '@/lib/books';
+import { RowAction } from '@/components/row-action';
+import { npoPlanAction } from './actions';
 import { cashBook, npoDbRows, npoIncomeBook, npoSmall } from '@wise/core/yearend/books';
 import { loadYear } from '@wise/db';
 import { db } from '@/lib/db';
@@ -32,6 +36,7 @@ export default async function ZsNpoPage({ searchParams }: { searchParams: Promis
   const T: Tab = (TABS.some(([k]) => k === sp.t) ? sp.t : 'pr') as Tab;
   const P = T === 'pr' || T === 'bs' ? (await loadYear(db(), firm.id, year - 1).catch(() => null))?.Y.npo?.V ?? null : null;
   const co = L.Y.npoChart !== 'npo';
+  const canSet = canDo(c.u, 'settings', firm.id);
   const small = npoSmall(N.inc, N.V['042'] || 0, EUR);
   const names = T === 'small' ? await accountNames(firm.id) : {};
   const IB = T === 'small' ? npoIncomeBook(L.lines, names) : [];
@@ -93,7 +98,10 @@ export default async function ZsNpoPage({ searchParams }: { searchParams: Promis
         <>
           <div className="card"><h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Контен план</h2>
             <p style={{ margin: '0 0 8px' }}>{co ? <>✓ Се користи <b>вашиот контен план</b> (истите конта како кај фирмите, вклучително 715 приходи од услуги на здружение, 767/7690 донации и членарини, 443 донации, 296/298, 815, 826) – контата автоматски се распоредуваат во позициите на билансите за НПО.</> : 'Се користи трицифрениот сметковен план за НПО.'}</p>
-            <p className="note" style={{ margin: 0 }}>Сметковен план и биланси според Правилникот за сметковниот план и билансите на непрофитните организации (Сл. весник 117/05, 11/06). Трицифрените конта на НПО се додаваат во „Контен план“ (Шифрарник), а шемите за книжење во „Шеми за книжење“.</p>
+            <p className="note" style={{ margin: '0 0 8px' }}><b>Опционално:</b> Сметковен план и биланси според Правилникот за сметковниот план и билансите на непрофитните организации (Сл. весник 117/05, 11/06). „Примени“ ги додава трицифрените конта на НПО во контниот план на фирмата и ги поставува шемите за автоматско книжење (купувачи 120, добавувачи 220, благајна 101, приходи 710/715, плати 460/28…). Банковната сметка во изводите поставете ја на 100.</p>
+            {!co && <span className="pill good">Применет</span>}{' '}
+            {canSet && <RowAction className={`btn${co ? ' pri' : ''}`} action={npoPlanAction} label={co ? 'Примени сметковен план и шеми за НПО' : 'Примени повторно'}
+              confirm={`Да се додадат контата на НПО (${NPO_ACC.length}) во контниот план на фирмата и да се постават шемите за книжење за НПО? Постојните книжења не се менуваат.`} />}
           </div>
           <div className="card"><h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Затворање на годината {year} (НПО)</h2>
             <p className="note" style={{ margin: '0 0 8px' }}>Расходите (класа 4) и приходите (класа 7) се пренесуваат на 800; данокот од стопанска дејност (ако има) на 810; нетовишокот на {co ? '951' : '970'}, а недостигот на {co ? '961' : '092'}. Шемата е стандардна пракса – проверете ја распределбата на вишокот со одлука на органот на организацијата.</p>
