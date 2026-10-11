@@ -16,7 +16,7 @@ import { fmt } from '@/lib/fmt';
 import { addOpeningBanksAction, deleteOpening, makeOpeningPartnersAction, saveOpening } from './actions';
 import { useRouter } from 'next/navigation';
 
-export interface ORow { account: string; name: string; partnerId: string; partnerName: string; partnerCode: string; debit: string; credit: string; note?: string }
+export interface ORow { account: string; name: string; partnerId: string; partnerName: string; partnerCode: string; debit: string; credit: string; note?: string; doc?: string | null; locationId?: string | null }
 const blank = (): ORow => ({ account: '', name: '', partnerId: '', partnerName: '', partnerCode: '', debit: '', credit: '' });
 /** Template of the Excel import (the headings `parseOpeningSheet` recognises). */
 const TEMPLATE = [['Конто', 'Назив на конто', 'Комитент', 'Шифра на комитент / ЕДБ', 'Салдо должи', 'Салдо побарува'],

@@ -78,3 +78,23 @@ flat-10 % stopgap is gone); the root `@wise/core` names are the engine versions.
 - Done in Phase 8: print layouts (`zsOffHTML`, `zsCrmHTML`, `dbFormHTML`, `vpFormHTML` as HTML print views),
   explanatory notes, `obRebuild`, gating of close / open / lock and a permission-gated undo. Still open: `tpBookHTML`
   (sole-trader books), the dossier (`zsDos`), the AOP rule editor (`zs_aop`/`zs_pr`), `zs_skr`, `zsRok`.
+
+## Year transfer — `carry.ts` (Пренос на салда)
+
+Legacy `openYear` 6744 carried classes 0, 1, 2, 3, 6, 9 with only 12x/22x split by partner. `carryPlan` keeps that
+and extends it (FIX carry-1):
+
+| Rule | Now |
+|---|---|
+| Classes | 0, 1, 2, 3, 6, 9 carried; 4, 5, 7, 8 never (4/7 → 8000, 8 → 951/961); 951 → 950, 961 → 960 |
+| Level | every analytic konto; per partner on EVERY konto that has partner lines (13x, 16x, 23x–26x, loans 033/160–163/260–263/285, advances 2270…), the partner-less remainder on the konto; location (`locationId`) kept |
+| Open items | optional per document (`doc`) on 12x/22x — firm setting `carryByDoc` (toggle on /prenos) |
+| Chart | an analytic konto missing from the chart falls back to its nearest existing parent (reason shown); none → blocked |
+| Money | sums in integer cents |
+
+`carryEvidence` compares the plan with the posted `open-<Y+1>` row by row (✓ / ⚠ + reason: class not carried, zero
+balance, konto missing, inactive partner, rounding, changed after carry, opening missing / locked) and the totals
+(closing = opening, debit = credit, assets 0/1/3/6 = liabilities 2/9). `carryOneLine` moves one missing row into the
+opening against its fallback line so the journal stays balanced. DB: `closeYear` carries in the same user action
+(savepoint on the first carry; a re-close after unlock always updates the opening), `openNextYear` (idempotent,
+audit `carryOver`), `carryOneRow`, `carryState`, `prevYearCarry`.

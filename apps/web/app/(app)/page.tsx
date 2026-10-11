@@ -32,6 +32,7 @@ import { BarChart, HBars, LineChart, Spark } from '@/components/dash-charts';
 import { FirmGo } from '@/components/firm-go';
 import { FirmPicker } from '@/components/firm-picker';
 import { PdfButton } from '@/components/pdf-button';
+import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
 
 const ICO: Record<string, string> = {
   inv: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 13h7 M9 17h5', scan: 'M4 8V5a1 1 0 0 1 1-1h3 M16 4h3a1 1 0 0 1 1 1v3 M20 16v3a1 1 0 0 1-1 1h-3 M8 20H5a1 1 0 0 1-1-1v-3 M4 12h16',
@@ -187,6 +188,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   return (
     <>
       <LawHome userId={u.id} role={u.role} />
+      <PrevYearCallout firmId={f.id} year={year} />
       {recDue.length > 0 && (
         <div className="callout warn" id="recDueAll">🔁 <b>Месечни фактури за издавање</b> во {recDue.length} фирми:{' '}
           {recDue.map((r) => {

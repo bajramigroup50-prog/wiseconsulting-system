@@ -80,7 +80,7 @@ describe('phase gate, close, open, lock', () => {
     expect(after.Y.closed).toBe(true);
     expect(after.Y.co.zs.V.bu252).toBe(2_900);
     expect(after.Y.co.zs.V.bs077).toBe(before.Y.co.zs.V.bs077);
-    expect(after.closing).toMatchObject({ status: 'closed', tax: '2900.00', entity: 'co', imported: false });
+    expect(after.closing).toMatchObject({ status: 'carried', tax: '2900.00', entity: 'co', imported: false });
     expect((after.closing!.db as { taxSource: string }).taxSource).toBe('db');
     const audit = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.firmId, firmId), eq(schema.auditLog.action, 'closeYear')));
     expect(audit).toHaveLength(1);
@@ -93,7 +93,7 @@ describe('phase gate, close, open, lock', () => {
     expect(r.journal.replaced).toBe(true);
   });
 
-  it('opens 2027 (951 → 950, customer per partner); undo close is refused while the opening exists', async () => {
+  it('opens 2027 (951 → 950, customer per partner); undo close is refused while the opening exists; re-close updates it', async () => {
     const o = await db.transaction((tx) => openNextYear(tx, { firmId, year: 2026, ...act }));
     expect(o.journal.number).toBe('0');
     const L = await loadLedgerLines(db, firmId, '2027-01-01', '2027-12-31');
@@ -102,7 +102,8 @@ describe('phase gate, close, open, lock', () => {
     expect(tb.rows.find((x) => x.k === '950')!.s).toBe(-26_000);
     expect(L.find((l) => l.account === '1200')!.partnerId).toBe(cust);
     expect((await err(db.transaction((tx) => undoClose(tx, { firmId, year: 2026, userId: null })))).message).toMatch(/прво поништете/);
-    expect((await err(db.transaction((tx) => closeYear(tx, { firmId, year: 2026, ...act })))).message).toMatch(/пренесена/);
+    const re = await db.transaction((tx) => closeYear(tx, { firmId, year: 2026, ...act })); // re-close follows into the opening
+    expect(re.carry?.replaced).toBe(true);
   });
 
   it('locks the year with an audit row; the close cannot be undone in a locked year; admin unlock', async () => {

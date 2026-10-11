@@ -38,6 +38,8 @@ export interface LedgerLine {
   note?: string | null;
   doc?: string | null;
   lineNo?: number;
+  /** location / object dimension (carried into the next year's opening) */
+  locationId?: string | null;
 }
 
 /**

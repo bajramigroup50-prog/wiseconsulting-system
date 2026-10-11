@@ -25,6 +25,7 @@ export * from './yearend/notes';
 export * from './yearend/rebuild';
 export * from './yearend/inputs';
 export * from './yearend/year';
+export * from './yearend/carry';
 
 /** Entity type (legacy `ENT`): company, sole trader, self-employed, non-profit. */
 export type YeEntity = 'co' | 'tp' | 'sd' | 'npo';
