@@ -285,18 +285,27 @@ function ImgField({ k, t, v, firmId }: { k: string; t: string; v: string; firmId
   );
 }
 
-/** Legacy `delFirm` (final patch 12794): admin only, two confirmations. */
-function DeleteFirm({ id, name, edb }: { id: string; name: string; edb: string | null }) {
+/**
+ * Legacy `delFirm` (final patch 12794): admin only, two confirmations. It sits inside the firm form, so it is a submit
+ * button with its own `formAction` (a nested <form> is invalid HTML and broke hydration); the firm form carries `id`.
+ */
+function DeleteFirm({ name, edb }: { id: string; name: string; edb: string | null }) {
   const [st, act, pending] = useActionState<FirmFormState, FormData>(deleteFirm, {});
   return (
-    <form action={act} style={{ display: 'inline' }} onSubmit={(e) => {
-      const ok1 = confirm(`Да се избрише фирмата „${name}“${edb ? ` (ЕДБ ${edb})` : ''} со СИТЕ документи, налози, изводи, залиха и плати?`);
-      const ok2 = ok1 && confirm(`⚠ ПОСЛЕДНА ПОТВРДА\n\nФирма: ${name}\n${edb ? `ЕДБ: ${edb}\n` : ''}\nФирмата станува НЕАКТИВНА (податоците остануваат и може повторно да се активира од листата „Неактивни фирми“).\n\nДа се деактивира?`);
-      if (!ok2) e.preventDefault();
-    }}>
-      <input type="hidden" name="id" value={id} />
-      <button className="btn danger" disabled={pending} title={st.error}>⏸ Деактивирај фирма</button>
+    <>
+      <button className="btn danger" formAction={act} formNoValidate disabled={pending} title={st.error} onClick={(e) => {
+        const ok1 = confirm(`Да се избрише фирмата „${name}“${edb ? ` (ЕДБ ${edb})` : ''} со СИТЕ документи, налози, изводи, залиха и плати?`);
+        const ok2 = ok1 && confirm(`⚠ ПОСЛЕДНА ПОТВРДА
+
+Фирма: ${name}
+${edb ? `ЕДБ: ${edb}
+` : ''}
+Фирмата станува НЕАКТИВНА (податоците остануваат и може повторно да се активира од листата „Неактивни фирми“).
+
+Да се деактивира?`);
+        if (!ok2) e.preventDefault();
+      }}>⏸ Деактивирај фирма</button>
       {st.error && <span className="note bad"> {st.error}</span>}
-    </form>
+    </>
   );
 }
