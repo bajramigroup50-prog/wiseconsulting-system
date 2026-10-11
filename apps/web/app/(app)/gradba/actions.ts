@@ -2,7 +2,7 @@
 /** Legacy construction ACT (10089): project + BOQ, situations, invoice, diary, cost links, settings. */
 import { redirect } from 'next/navigation';
 import { parseBoqPaste } from '@wise/core/industry';
-import { invoiceSituation, linkCosts, saveDiary, saveIndustryConfig, saveProject, saveSituation } from '@wise/db';
+import { addConstructionPhotos, importBoq, importProjects, invoiceSituation, linkCosts, saveDiary, saveIndustryConfig, saveProject, saveSituation } from '@wise/db';
 import { indRun, num, nz, rows, str, today } from '@/lib/industry';
 import type { FormState } from '@/components/bank-form';
 
@@ -64,5 +64,30 @@ export async function saveConsConfigAction(_p: FormState, f: FormData): Promise<
   return indRun('consCfgSave', P, async ({ tx, a }) => {
     await saveIndustryConfig(tx, a, 'cons', { hr: num(f.get('hr')) ?? 0, revK: str(f.get('revK')), rate: Number(f.get('rate')) || 18 });
     return 'Зачувано.';
+  });
+}
+
+/** Excel rows posted by `XlsxImport` (JSON array of arrays, header first). */
+const sheetRows = (f: FormData): (string | number | null)[][] => {
+  try { const v = JSON.parse(str(f.get('rows')) || '[]'); return Array.isArray(v) ? v.filter(Array.isArray) : []; } catch { return []; }
+};
+const resultText = (r: { added: number; updated: number; errors: string[] }) =>
+  `Додадени ${r.added}, ажурирани ${r.updated}.${r.errors.length ? ' Грешки: ' + r.errors.slice(0, 5).join(' ') + (r.errors.length > 5 ? ` (+${r.errors.length - 5})` : '') : ''}`;
+
+/** Projects from Excel (template = the project form fields; investor by name / ЕДБ). */
+export async function importProjectsAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('cpSaveB', P, async ({ tx, a }) => resultText(await importProjects(tx, a, sheetRows(f))));
+}
+
+/** BOQ (предмер) positions of a project from Excel — appended to the project's BOQ (`id` = project). */
+export async function importBoqAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('cpSaveB', P, async ({ tx, a }) => resultText(await importBoq(tx, a, str(f.get('id')), sheetRows(f))));
+}
+
+/** Legacy `cp_ph` („📷 Додај фотографии“ of the project). */
+export async function addProjectPhotosAction(_p: FormState, f: FormData): Promise<FormState> {
+  return indRun('cpSaveB', P, async ({ tx, a }) => {
+    const n = await addConstructionPhotos(tx, a, 'project', str(f.get('id')), f.getAll('fileIds').map(String));
+    return n ? `Додадени ${n} фотографии на објектот.` : 'Изберете фотографии.';
   });
 }

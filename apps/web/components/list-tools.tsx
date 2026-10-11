@@ -59,8 +59,10 @@ export function ListPdf({ target, title, landscape, label = '⬇ PDF', className
  * Excel / CSV import: „⬇ Образец“ downloads the template (header row + optional sample rows); choosing a file reads
  * the first sheet and posts `rows` (JSON array of arrays, header first) plus `name` to `action`.
  */
-export function XlsxImport({ action, template, templateName, label = '📥 Увоз од Excel', note }: {
+export function XlsxImport({ action, template, templateName, label = '📥 Увоз од Excel', note, fields }: {
   action: (prev: FormState, fd: FormData) => Promise<FormState>; template: Cell[][]; templateName: string; label?: string; note?: string;
+  /** Extra form fields sent with the rows (e.g. the id of the document the rows belong to). */
+  fields?: Record<string, string>;
 }) {
   const [st, run, pending] = useActionState<FormState, FormData>(action, {});
   const [err, setErr] = useState('');
@@ -77,6 +79,7 @@ export function XlsxImport({ action, template, templateName, label = '📥 Ув�
       if (aoa.length > 5001) { setErr('Премногу редови (најмногу 5000) – поделете ја датотеката.'); return; }
       const fd = new FormData();
       fd.set('name', f.name);
+      for (const [k, v] of Object.entries(fields ?? {})) fd.set(k, v);
       fd.set('rows', JSON.stringify(aoa.map((r) => r.map((x) => String(x ?? '').trim()))));
       run(fd);
     } catch { setErr('Датотеката не може да се прочита (Excel .xlsx/.xls или CSV).'); }

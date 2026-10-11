@@ -16,7 +16,11 @@ import { industryPage, today } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { invoiceSituationAction, linkCostsAction, saveConsConfigAction, saveDiaryAction, saveProjectAction, saveSituationAction } from './actions';
+import { addProjectPhotosAction, importBoqAction, importProjectsAction, invoiceSituationAction, linkCostsAction, saveConsConfigAction, saveDiaryAction, saveProjectAction, saveSituationAction } from './actions';
+import { CONS_BOQ_IMPORT, CONS_PROJECT_IMPORT, oxTemplate } from '@wise/core/industry';
+import { entityFiles } from '@wise/db';
+import { XlsxImport } from '@/components/list-tools';
+import { UploadField } from '@/components/upload-field';
 
 type SP = { p?: string; t?: string; s?: string; d?: string };
 const TABS = [['boq', '📐 Предмер и договор'], ['sit', '🧾 Ситуации'], ['cost', '💰 Трошоци и резултат'], ['dn', '📓 Градежен дневник']] as const;
@@ -172,6 +176,8 @@ export default async function GradbaPage({ searchParams }: { searchParams: Promi
     return (
       <>
         <Hd t={P ? `${P.code} · ${P.name}` : 'Нов објект'}><Link className="btn" href="/gradba">← Објекти</Link></Hd>
+        {P && T === 'boq' && <ProjectPhotos firmId={firm.id} id={P.id} write={write} />}
+        {P && T === 'boq' && write && <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importBoqAction} fields={{ id: P.id }} template={oxTemplate(CONS_BOQ_IMPORT, [['1.1', 'Ископ на земја', 'м³', 120, 450]])} templateName="Predmer_obrazec.xlsx" label="📥 Предмер од Excel" /></div>}
         {P && <div className="row" style={{ gap: 6, marginBottom: 8 }}>{TABS.map(([k, n]) => <Link key={k} className={`btn ${T === k ? 'pri' : ''}`} href={href({ t: k })}>{n}</Link>)}</div>}
         {body}
       </>
@@ -186,7 +192,8 @@ export default async function GradbaPage({ searchParams }: { searchParams: Promi
   })));
   return (
     <>
-      <Hd t="Градежништво – објекти" sub={`${all.length} објекти`}>{write && <Link className="btn pri" href="/gradba?p=new">+ Нов објект / проект</Link>}</Hd>
+      <Hd t="Градежништво – објекти" sub={`${all.length} објекти`}><Link className="btn" href="/gradbaIzv">📈 Анализи</Link>{write && <Link className="btn pri" href="/gradba?p=new">+ Нов објект / проект</Link>}</Hd>
+      {write && <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importProjectsAction} template={oxTemplate(CONS_PROJECT_IMPORT, [['', 'Станбена зграда Центар', 'ул. Македонија 1, КП 1234', 'Скопје', 'Инвеститор ДООЕЛ', '4030000000000', '12/2026', '01.03.2026', '15.03.2026', '31.12.2026', 'Надзор ДОО', 'Инж. Петров', 'да']])} templateName="Objekti_obrazec.xlsx" label="📥 Објекти од Excel" /></div>}
       <div className="tw"><table><thead><tr><th>Шифра</th><th>Објект</th><th>Инвеститор</th><th className="n">Договорено (предмер)</th><th className="n">Изведено</th><th className="n">Фактурирано</th><th className="n">Трошоци</th><th className="n">Резултат</th><th>Статус</th><th /></tr></thead>
         <tbody>{R.map(({ P, cc, k }) => (
           <tr key={P.id}><td>{P.code}</td><td><b>{P.name}</b><div className="mini">{P.site}</div></td><td>{inv.get(P.investorId)}</td><td className="n">{fmt(boqValue(P.boq))}</td><td className="n">{fmt(cc.cum)} <span className="mini">{cc.pct}%</span></td>
@@ -208,3 +215,16 @@ export default async function GradbaPage({ searchParams }: { searchParams: Promi
 }
 
 void and;
+
+/** Legacy `cp_ph` — photos of the project (`file_links` role photo) with „📷 Додај фотографии“. */
+async function ProjectPhotos({ firmId, id, write }: { firmId: string; id: string; write: boolean }) {
+  const F = await db().transaction((tx) => entityFiles(tx, 'construction_project', [id]));
+  return (
+    <div className="card"><span className="mini">Фотографии</span>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {F.filter((x) => x.mime.startsWith('image/')).map((x) => <a key={x.id} href={`/api/files/${x.id}`} target="_blank" rel="noopener noreferrer"><img src={`/api/files/${x.id}`} alt={x.name} style={{ height: 64, borderRadius: 6 }} /></a>)}
+        {write && <BankForm action={addProjectPhotosAction} className="row" style={{ gap: 6, alignItems: 'center' }}><input type="hidden" name="id" value={id} /><UploadField firmId={firmId} label="📷 Додај фотографии" accept="image/*" capture /><button className="btn sm">Зачувај</button></BankForm>}
+      </div>
+    </div>
+  );
+}
