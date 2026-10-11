@@ -57,7 +57,7 @@ export async function StatementPage({ rep, edit }: { rep: 'bs' | 'bu'; edit: boo
         {edit ? <Link className="btn" href={`/${view}`}>Затвори рачен внес</Link> : <Link className="btn" href={`/${view}?edit=1`}>✎ Рачни износи</Link>}
       </ZsHead>
       <NotClosedNote closed={L.Y.closed} year={year} />
-      {!edit && canWrite && <ZmImport year={year} />}
+      {!edit && canWrite && <ZmImport year={year} firmId={c.firm.id} />}
       {manual > 0 && !edit && <div className="callout warn">{manual} АОП позиции се со рачни износи (од друга програма или увезен XML) – тие имаат предност пред пресметаните од книжењата.</div>}
       {C.rounded && <div className="callout">Заокружување на АОП без дени: разлика од {C.rounded.d} ден. е додадена на АОП {C.rounded.aop} за да Актива = Пасива.</div>}
       {edit ? (

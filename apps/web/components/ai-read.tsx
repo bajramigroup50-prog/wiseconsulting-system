@@ -12,7 +12,7 @@ export interface AiReadDoc extends AiReadState { name: string; fileId: string | 
 type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom' | 'cmp' | 'imp' | 'scr' | 'ob' | 'rec'
   | 'vreg'
   | 'rcdoc' | 'rclic'
-  | 'tk';
+  | 'tk' | 'zm';
 
 const pending = (d: { status: string }) => d.status === 'queued' || d.status === 'reading';
 

@@ -62,7 +62,7 @@ export default async function ZsKontrolaPage({ searchParams }: { searchParams: P
       <ZsHead id="zsKontrola" t="Контрола на завршна сметка" year={year} ent={L.ent} done={phaseDone(L)} />
       <NotClosedNote closed={L.Y.closed} year={year} />
       {NP && (NP.list.length
-        ? <NpDist key={NP.list[ti]!.id} g={g!} list={NP.list} ti={ti} names={NP.names} turnover={NP.turnover} />
+        ? <NpDist key={NP.list[ti]!.id} firmId={firm.id} g={g!} list={NP.list} ti={ti} names={NP.names} turnover={NP.turnover} />
         : <div className="callout warn">Нема ставки без партнер на конто {g}.. во налозите за {year}. (Ако салдото доаѓа од фактури/изводи, отворете ја картицата.)</div>)}
       <FindingsCard all={findings.all} open={findings.open} ack={L.statement?.ack ?? {}} canAck={canDo(u, 'settings', firm.id) || canFix} canDist={canFix} />
       <Step n={1} t="Бруто билансот е изедначен" b={Math.abs(K.TD - K.TP) < 0.01}>

@@ -16,7 +16,7 @@ const Start = z.object({
   kind: z.enum(['blg', 'emp', 'bank', 'fisk', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec',
     'vreg',
     'rcdoc', 'rclic',
-    'tk',
+    'tk', 'zm',
   ]),
   fileIds: z.array(z.uuid()).max(100).default([]),
   productId: z.uuid().optional(),

@@ -4,7 +4,8 @@
  * change and its `audit` row in one transaction; postings go through the `@wise/db` year-end service.
  */
 import { revalidatePath } from 'next/cache';
-import { zmCsvGrid, zmParse, zmSplit } from '@wise/core/yearend/zm-import';
+import { zmCsvGrid, zmFromAi, zmParse, zmSplit } from '@wise/core/yearend/zm-import';
+import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { prClean } from '@wise/core/yearend/tools';
 import type { ZsRule } from '@wise/core/yearend/aop';
 import { patchFirmSettings } from '@/lib/firms-office';
@@ -322,12 +323,18 @@ export async function setStatementStatus(status: 'draft' | 'ready' | 'submitted'
 /* ---------------- import of a filed annual account (legacy zmImport 10953) ---------------- */
 
 /** Excel (all sheets, first column = sheet name) or CSV text → manual AOP amounts for Y (current) and Y−1 (previous). */
-export async function importZsAopAction(input: { csv?: string; grid?: unknown[][] }): Promise<ActionState> {
+export async function importZsAopAction(input: { csv?: string; grid?: unknown[][]; aiId?: string }): Promise<ActionState> {
   try {
     const { u, firm, year } = await firmAction('write');
+    // PDF / image: the AI read (kind `zm`, legacy prompt) started by the screen
+    const ai = typeof input?.aiId === 'string' ? await loadAiResult(firm.id, input.aiId, 'zm') : null;
+    if (input?.aiId && !ai) return { error: 'Читањето не е завршено.' };
+    const zai = ai ? zmFromAi(ai.result) : null;
     const grid = typeof input?.csv === 'string' ? zmCsvGrid(input.csv.slice(0, 5_000_000)) : Array.isArray(input?.grid) ? input.grid.slice(0, 20000).filter(Array.isArray) as unknown[][] : [];
-    const rows = zmParse(grid);
+    const rows = zai ? zai.rows : zmParse(grid);
     if (!rows.length) return { error: 'Не се најдени АОП редови.' };
+    // legacy: a document of another year is not imported into the selected one
+    if (zai?.year && zai.year !== year) return { error: `⚠ Документот е за ${zai.year}, а е избрана ${year} година – сменете ја годината горе и увезете повторно.` };
     const { cur, prev } = zmSplit(rows);
     const L = await db().transaction(async (tx) => {
       const merge = async (y: number, M: Record<string, number>) => {
@@ -337,6 +344,7 @@ export async function importZsAopAction(input: { csv?: string; grid?: unknown[][
       };
       await merge(year, cur);
       await merge(year - 1, prev);
+      if (ai) await markAiReadsSaved(tx, firm.id, [ai.id]);
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'zmImport', entityType: 'annualStatement', entityId: String(year), data: { cur: Object.keys(cur).length, prev: Object.keys(prev).length } });
       return loadYear(tx, firm.id, year);
     });

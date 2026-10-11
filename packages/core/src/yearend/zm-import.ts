@@ -66,3 +66,15 @@ export const ZM_TEMPLATE: readonly (readonly string[])[] = [
   ['Биланс на успех'],
   ['', '201', 'I. Приходи од работењето', '', ''],
 ];
+
+/** Legacy `zmImport` 10960 prompt (verbatim): a filed annual account (PDF / image) read by AI. */
+export const ZM_PROMPT = 'This is a filed annual account (годишна сметка) of a North Macedonian company from Централен регистар: Биланс на состојба (AOP 001–112) and/or Биланс на успех (AOP 201–258). Columns are usually: Ознака за АОП, Опис, Нето за тековна година, Бруто за тековна година, Исправка на вредноста, Претходна година (or Тековна година / Претходна година). Reply ONLY JSON: {"year":number (the year of the annual account),"rows":[["bs" or "bu", AOP as 3-digit string, current year NET amount (number, 0 if empty), previous year amount (number or null)]]}. Include EVERY AOP row that has any amount. Amounts like 1.234.567,00 mean 1234567.';
+
+/** Legacy `zmImport` mapping of the AI answer: rows (AOP ≥ 201 → БУ), the year printed on the document. */
+export function zmFromAi(res: unknown): { year: number | null; rows: ZmRow[] } {
+  const r = (Array.isArray(res) ? { rows: res } : (res ?? {})) as { year?: unknown; rows?: unknown };
+  const rows: ZmRow[] = (Array.isArray(r.rows) ? r.rows : []).filter(Array.isArray).map((x: unknown[]) => [
+    x[0] === 'bu' || +(x[1] as number) >= 201 ? 'bu' : 'bs', String(+(x[1] as number)).padStart(3, '0'), +(x[2] as number) || 0, x[3] == null ? null : +(x[3] as number) || 0,
+  ] as ZmRow).filter((x) => /^\d{3}$/.test(x[1]) && x[1] !== '000' && x[1] !== 'NaN');
+  return { year: +(r.year as number) || null, rows };
+}

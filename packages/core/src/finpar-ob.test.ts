@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { obBankRows, obDiag, obFromAi } from './finpar-ob';
+import { npFromAnalytic, obBankRows, obDiag, obFromAi } from './finpar-ob';
 
 describe('opening balance AI read (legacy obAi + obNetZero + 951→950)', () => {
   it('maps rows, inherits the konto, drops net-zero kontos and remaps 951/961', () => {
@@ -44,5 +44,16 @@ describe('opening balance difference analysis (legacy obDiag / obSubtot)', () =>
   });
   it('bank accounts from 100x/103x rows', () => {
     expect(obBankRows([{ account: '100005' }, { account: '103001' }, { account: '100' }, { account: '100005' }, { account: '1200' }], ['100006']).map((r) => r.account)).toEqual(['100005', '103001']);
+  });
+});
+
+describe('partner split from an analytic card (legacy npImport)', () => {
+  it('takes the konto rows with partner and saldo, signed by side', () => {
+    const R: [string, string, string, string, number, number][] = [
+      ['1200', 'Купувачи', 'Алфа', '', 100, 0], ['1200', 'Купувачи', 'Бета', '', 0, 20], ['1200', 'Купувачи', '', '', 80, 0],
+      ['12', 'Купувачи', 'Гама', '', 5, 0], ['2200', 'Добавувачи', 'Делта', '', 0, 50], ['1200', '', 'Нула', '', 10, 10],
+    ];
+    expect(npFromAnalytic(R, '1200', '12', 'd')).toEqual([{ n: 'Алфа', a: '100' }, { n: 'Бета', a: '-20' }, { n: 'Гама', a: '5' }]);
+    expect(npFromAnalytic(R, '2200', '22', 'p')).toEqual([{ n: 'Делта', a: '50' }]);
   });
 });
