@@ -137,6 +137,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         {write && unnumbered && <RowAction className="btn" action={numberStatementsAction} label="Нумерирај изводи" />}
         {write && <Link className="btn pri" href={q({ review: '1' })}>Прокнижи автоматски</Link>}
         {write && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
+        {write && <a className="btn pri" href="#uvoz-izvod" title="Увоз на извод: PDF, слика, XML, MT940, Excel, CSV">📥 Увези извод (PDF / Excel / XML)</a>}
         <Link className="btn" href={q({ banks: sp.banks ? undefined : '1' })}>Банкарски сметки…</Link>
         <Link className="btn" href="/bankFmt" title="Кој формат на извод е најдобар за секоја банка">🔎 Формати по банка</Link>
         <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
@@ -363,7 +364,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       )}
 
       {write && (
-        <div className="card">
+        <div className="card" id="uvoz-izvod">
           <ImportBox firmId={firm.id} fx={fx} defaultAcct={acct?.id ?? ''} accounts={BK.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))} />
         </div>
       )}

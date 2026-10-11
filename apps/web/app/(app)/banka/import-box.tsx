@@ -104,7 +104,8 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
   return (
     <div>
       <h2>Увоз на извод од е-банкарство</h2>
-      <p className="note">Секој формат што го нуди банката: <b>XML</b> (Халк, ISO camt.053), <b>MT940</b>, <b>Комерцијална .300</b>, <b>Excel</b>, <b>CSV/TXT</b>.
+      <p className="note">Секој формат што го нуди банката: <b>XML</b> (Халк, ISO camt.053), <b>MT940</b>, <b>Комерцијална .300</b>, <b>Excel</b>, <b>CSV/TXT</b>,
+        а и <b>PDF извод или слика / скен</b> – се чита автоматски со AI (10–60 секунди).
         Најцелосен е XML од е-банкарството (комитент, цел на дознака, шифра, денарска противвредност, салда).
         {fx && ' Девизните износи се пресметуваат по курсот од курсната листа на датумот на изводот (може да се промени кај изводот).'}</p>
       <div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
@@ -114,8 +115,15 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
         </label>
-        <input ref={ref} type="file" multiple accept=".xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp" disabled={pending}
-          onChange={(e) => preview(Array.from(e.target.files ?? []))} />
+        <label className="f">Датотека од е-банкарство (XML, MT940, .300, Excel, CSV)
+          <input ref={ref} type="file" multiple accept=".xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp" disabled={pending}
+            onChange={(e) => preview(Array.from(e.target.files ?? []))} />
+        </label>
+        <label className="btn pri" style={{ cursor: pending ? 'wait' : 'pointer' }} title="PDF извод, слика или скен – се чита со AI">
+          📄 PDF / слика извод (AI)
+          <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,image/*,application/pdf" disabled={pending} hidden
+            onChange={(e) => { preview(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
+        </label>
         {pending && <span className="note">{note || 'Се чита…'}</span>}
       </div>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
