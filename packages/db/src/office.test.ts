@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   buildFirmSnapshot, contractNumber, decideClientEntry, dispatchReminders, getOfficeProfile, issueDueRecurring, nextOfficeNumber,
-  OfficeError, patchOfficeProfile, patchOfficeZz, runAutopilot, sendAutopilotMessage, type OfficeDataSources,
+  OfficeError, patchOfficeProfile, patchOfficeZz, routeInboxFiles, mpinInboxFallback, runAutopilot, sendAutopilotMessage, type OfficeDataSources,
 } from './office';
 import { postJournal, unpostSource } from './posting';
 import * as schema from './schema/index';
@@ -180,5 +180,25 @@ describe('reminders job', () => {
     expect(r.mailIds).toHaveLength(1);
     const [m] = await db.select().from(schema.mailLog).where(eq(schema.mailLog.id, r.mailIds[0]!));
     expect(m).toMatchObject({ to: ['ana@example.mk'], subject: 'Рок ДДВ', status: 'queued' });
+  });
+});
+
+describe('client inbox payroll file → МПИН list (legacy v453 irRoute)', () => {
+  it('queues an МПИН read for the firm; not an МПИН → dossier', async () => {
+    const [i] = await db.insert(schema.inboxItems).values({ firmId, fromOffice: false, subject: 'Плата 09' }).returning();
+    const [f] = await db.insert(schema.files).values({ firmId, bucketKey: 'firms/x/2026/mpin.pdf', name: 'mpin.pdf', mime: 'application/pdf', size: 1, sha256: 'b'.repeat(64), status: 'ready' }).returning();
+    await db.insert(schema.fileLinks).values({ fileId: f!.id, entityType: 'inbox_item', entityId: i!.id });
+    const r = await db.transaction((tx) => routeInboxFiles(tx, { itemId: i!.id, firmId, fileIdx: null, kind: 'payroll', userId }));
+    expect(r.go).toBe('/mpinIn');
+    expect(r.mpinRowIds).toHaveLength(1);
+    const [row] = await db.select().from(schema.mpinInbox).where(eq(schema.mpinInbox.id, r.mpinRowIds![0]!));
+    expect(row).toMatchObject({ firmId, status: 'queued', name: 'mpin.pdf' });
+    expect(await db.transaction((tx) => mpinInboxFallback(tx, row!.id))).toBeNull(); // still queued
+    await db.update(schema.mpinInbox).set({ status: 'notm' }).where(eq(schema.mpinInbox.id, row!.id));
+    const d = await db.transaction((tx) => mpinInboxFallback(tx, row!.id));
+    expect(d).toBeTruthy();
+    const [doc] = await db.select().from(schema.dossierDocs).where(eq(schema.dossierDocs.id, d!));
+    expect(doc!.category).toBe('Плати и персонал');
+    expect((await db.select().from(schema.mpinInbox).where(eq(schema.mpinInbox.id, row!.id)))[0]!.cleared).toBe(true);
   });
 });

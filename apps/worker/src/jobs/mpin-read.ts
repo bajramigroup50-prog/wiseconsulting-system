@@ -6,7 +6,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { mpinFirmOf, mpinNorm, mpinOk } from '@wise/core/law';
-import { firms, files, mpinInbox, type Tx } from '@wise/db';
+import { firms, files, mpinInbox, mpinInboxFallback, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { MPIN_ASK, MPIN_ASK_PDF } from '../ai/prompts';
@@ -34,6 +34,8 @@ export async function runMpinRead(db: Tx, rowId: string, log: (m: string) => voi
       status: mpinOk(M) ? 'ok' : 'notm', result: M as unknown as Record<string, unknown>, model: r.model, ...(firm ? { firmId: firm.id } : {}),
     }).where(eq(mpinInbox.id, rowId));
     log(`${rowId}: ${M.period} ${M.edb} → ${firm?.name ?? row.firmId ?? '?'}`);
+    // a payroll file routed from the client inbox that is not an МПИН goes to the dossier (legacy irRoute → irArch)
+    if (!mpinOk(M) && await db.transaction((tx) => mpinInboxFallback(tx, rowId))) log(`${rowId}: not an МПИН → dossier`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await db.update(mpinInbox).set({ status: 'error', error: msg || 'не успеа читањето' }).where(eq(mpinInbox.id, rowId));
