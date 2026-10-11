@@ -590,7 +590,15 @@ export function csvToGrid(text: string): string[][] {
  * FIX(#5): the dead `importOpen` 6342 CSV rules are not ported — only this parser runs.
  */
 export function parseOpeningSheet(A: readonly (readonly unknown[])[], src: 'excel' | 'csv' = 'excel'): ParsedSheet | null {
-  const low = (r: readonly unknown[] | undefined) => (r ?? []).map((c) => String(c ?? '').toLowerCase());
+  // Headings may come in Cyrillic, Latin transliteration (Konto, Dolzi, Pobaruva, Saldo, Naziv) or English/other programs
+  // (Debit, Credit, Duguje, Potrazuje, Account): normalise them to the Cyrillic words the parser looks for.
+  const HEAD_ALIAS: [RegExp, string][] = [
+    [/\b(konto|account|acct|ra[cč]un|llogari)\b/g, 'конто'], [/\b(do[lł][zžg]\w*|debit\w*|dugu\w*|dug)\b/g, 'должи'],
+    [/\b(pobar\w*|kredit\w*|credit\w*|potra[zž]\w*)\b/g, 'побарува'], [/\b(saldo|balance|bilanc)\b/g, 'салдо'],
+    [/\b(naziv|opis|name|description|emri)\b/g, 'назив'], [/\b(partner|komitent|kupuva[cč]|dobavuva[cč]|subjekt)\b/g, 'партнер'],
+    [/\b(edb|embs|[sš]ifra)\b/g, 'шифра'], [/\b(vkupno|zbir|suma|total)\b/g, 'вкупно'],
+  ];
+  const low = (r: readonly unknown[] | undefined) => (r ?? []).map((c) => HEAD_ALIAS.reduce((x, [re, to]) => x.replace(re, to), String(c ?? '').toLowerCase()));
   let hi = -1;
   for (let i = 0; i < Math.min(A.length, 25); i++) if (low(A[i]).some((c) => /конто|сметка|konto/.test(c))) { hi = i; break; }
   if (hi < 0) {

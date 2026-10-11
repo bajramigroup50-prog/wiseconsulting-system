@@ -126,7 +126,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
       {st.ok && <div className="callout good" role="status">{st.ok}</div>}
       <div className="card"><div className="cols">
         <div>
-          <h2>{full ? `Увоз на бруто биланс за ${year} (Excel или CSV) – сите класи` : 'Увоз од аналитички бруто биланс (Excel или CSV)'}</h2>
+          <h2>{full ? `Увоз на бруто биланс за ${year} (Excel, CSV, PDF или слика) – сите класи` : 'Увоз од аналитички бруто биланс (Excel, CSV, PDF или слика)'}</h2>
           <p className="note">Секоја аналитичка ставка се внесува посебно – на пр. 20 купувачи на 1200 и 20 добавувачи на 2200, секој со свој партнер. Партнерите што ги нема се креираат при зачувување. Се земаат само колоните <b>САЛДО</b>; програмот ги споредува прочитаните ставки со печатените збирови.</p>
           <input type="file" accept=".xlsx,.xls,.csv,.txt,text/csv,.pdf,application/pdf,image/*" disabled={reading || ai.busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importFile(f); }} />
           <div className="row" style={{ gap: 6, marginTop: 6 }}>
