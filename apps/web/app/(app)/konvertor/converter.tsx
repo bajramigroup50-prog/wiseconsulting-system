@@ -153,7 +153,7 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
             </label>
             <label className="f">Децимали
               <select value={dec} onChange={(e) => setDec(e.target.value as DecMode)}>
-                <option value="">автоматски</option><option value="comma">1.234,56 (запирка)</option><option value="dot">1,234.56 (точка)</option>
+                <option value="">од датотеката</option><option value="comma">1.234,56 – „10.000“ = десет илјади</option><option value="dot">1,234.56 – „10.000“ = десет</option>
               </select>
             </label>
             <span style={{ flex: 1 }} />
@@ -197,11 +197,15 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
           <div className="hd">
             <h2 style={{ fontSize: 15 }}>Резултат: {res.recs.length} реда{res.errors.length ? ` · ${res.errors.length} со грешка` : ''}{res.skipped ? ` · ${res.skipped} празни / збирни прескокнати` : ''}</h2>
             <div className="row" style={{ gap: 6 }}>
-              <button type="button" className="btn pri" disabled={!res.recs.length || !!chk?.error} onClick={() => xlsxDownload(`${t.file}_${(file.replace(/\.[^.]+$/, '') || 'konvertirano').slice(0, 40)}.xlsx`, [{ name: t.title.slice(0, 31), rows: res.grid }])}>⬇ Преземи Excel за увоз</button>
+              <button type="button" className="btn pri" disabled={!res.recs.length || res.blocked || !chk || !!chk.error || chk.diff.length > 0} onClick={() => xlsxDownload(`${t.file}_${(file.replace(/\.[^.]+$/, '') || 'konvertirano').slice(0, 40)}.xlsx`, [{ name: t.title.slice(0, 31), rows: res.grid }])}>⬇ Преземи Excel за увоз</button>
               <a className="btn" href={t.href} target="_blank" rel="noreferrer">↗ {t.where}</a>
             </div>
           </div>
-          {chk && (chk.error
+          {res.blocked && (
+            <div className="callout bad" role="alert"><b>⚠ Износите не се еднозначни</b> во колоните: {res.ambiguous.join(', ')} (на пр. „{res.ambExamples.join('“, „')}“).
+              „10.000“ може да значи десет илјади (10.000,00) или десет (10.000 со точка како децимала). Изберете „Децимали“ погоре – преземањето е оневозможено додека не изберете.</div>
+          )}
+          {chk && !res.blocked && (chk.error
             ? <div className="callout bad">Увозот не ја препознава конвертираната датотека: {chk.error}</div>
             : chk.diff.length
               ? <div className="callout warn"><b>Проверка со читачот на увозот:</b><ul style={{ margin: '4px 0 0 16px' }}>{chk.diff.map((d, i) => <li key={i}>{d}</li>)}</ul></div>

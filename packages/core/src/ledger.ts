@@ -15,6 +15,7 @@
  * (or `FIX(P8 #n)` for §8.4).
  */
 import { r2 } from './money';
+import { AmbiguousAmountsError, ambExamples, colFormat, parseNumAuto, reconcileFmt, type NumFmt } from './numfmt';
 import { closeYearLines as yeCloseYearLines, openYearLines as yeOpenYearLines, YEAR_RESULT_ACCOUNTS } from './yearend/close';
 
 /* ------------------------------------------------------------------ */
@@ -534,14 +535,14 @@ export function openYearLines(lines: readonly LedgerLine[]): PostingLine[] {
 /* Opening balance (почетна состојба)                                  */
 /* ------------------------------------------------------------------ */
 
-/** Legacy `parseAmount` 4745: `1.234,56` / `1,234.56` / `1234,5` → number. */
-export function parseAmount(v: unknown): number {
+/**
+ * Legacy `parseAmount` 4745: `1.234,56` / `1,234.56` / `1234,5` → number.
+ * FIX: an ambiguous value („10.000“: dot + exactly 3 digits) is read in `fmt` — the format of the whole column / file
+ * (`numfmt.ts`), default the Macedonian dot-thousands; legacy read „10.000“ as 10.
+ */
+export function parseAmount(v: unknown, fmt: NumFmt = 'mk'): number {
   if (typeof v === 'number') return v;
-  let s = String(v ?? '').trim().replace(/\s/g, '');
-  if (!s) return 0;
-  if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
-  else s = s.replace(/,/g, '');
-  return +s || 0;
+  return parseNumAuto(v, fmt) ?? 0;
 }
 
 /** Legacy `obDig` 10620. */
@@ -591,7 +592,36 @@ export function csvToGrid(text: string): string[][] {
  * (`sheet_to_json(ws, {header: 1})`) or {@link csvToGrid}.
  * FIX(#5): the dead `importOpen` 6342 CSV rules are not ported — only this parser runs.
  */
-export function parseOpeningSheet(A: readonly (readonly unknown[])[], src: 'excel' | 'csv' = 'excel'): ParsedSheet | null {
+export function parseOpeningSheet(A: readonly (readonly unknown[])[], src: 'excel' | 'csv' = 'excel', fmt?: NumFmt): ParsedSheet | null {
+  if (fmt) return parseOpeningSheetFmt(A, src, fmt);
+  // FIX: number format of the amount cells of the whole sheet (`numfmt.ts`); ambiguous („10.000“ only) → the
+  // interpretation whose totals reconcile (printed account totals, debit = credit), else AmbiguousAmountsError.
+  const probe = parseOpeningSheetFmt(A, src, 'mk', true);
+  if (!probe) return null;
+  const f = colFormat(probe.cells);
+  // no ambiguous value: every value carries its own format
+  if (!ambExamples(probe.cells, 1).length) return parseOpeningSheetFmt(A, src, 'mk');
+  if (f === 'mk' || f === 'dot') return parseOpeningSheetFmt(A, src, f);
+  const ok = (x: NumFmt) => {
+    const P = parseOpeningSheetFmt(A, src, x);
+    if (!P) return false;
+    const D = r2(P.rows.reduce((a, r) => a + r[4], 0)), C = r2(P.rows.reduce((a, r) => a + r[5], 0));
+    const tot = P.totals.length > 0 && P.totals.every(([k, d, p]) => {
+      const L = P.rows.filter((r) => r[0].startsWith(k));
+      return Math.abs(r2(L.reduce((a, r) => a + r[4], 0)) - d) < 0.01 && Math.abs(r2(L.reduce((a, r) => a + r[5], 0)) - p) < 0.01;
+    });
+    return tot || (Math.abs(D - C) < 0.01 && D > 0);
+  };
+  const pick = reconcileFmt(ok);
+  if (!pick) throw new AmbiguousAmountsError('Салдата во датотеката', ambExamples(probe.cells));
+  return parseOpeningSheetFmt(A, src, pick);
+}
+
+function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' | 'csv', fmt: NumFmt): ParsedSheet | null;
+function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' | 'csv', fmt: NumFmt, probe: true): { cells: unknown[] } | null;
+function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' | 'csv', fmt: NumFmt, probe?: boolean): ParsedSheet | { cells: unknown[] } | null {
+  const cells: unknown[] = [];
+  const parseAmount = (v: unknown) => { cells.push(v); return parseNumAuto(v, fmt) ?? 0; };
   // Headings may come in Cyrillic, Latin transliteration (Konto, Dolzi, Pobaruva, Saldo, Naziv) or English/other programs
   // (Debit, Credit, Duguje, Potrazuje, Account): normalise them to the Cyrillic words the parser looks for.
   const HEAD_ALIAS: [RegExp, string][] = [
@@ -613,6 +643,7 @@ export function parseOpeningSheet(A: readonly (readonly unknown[])[], src: 'exce
       if (c.length === 3) { const v = parseAmount(c[2]); d = v > 0 ? v : 0; p = v < 0 ? -v : 0; }
       rows.push([k, String(c[1] ?? ''), '', '', d, p]);
     }
+    if (probe) return rows.length ? { cells } : null;
     return rows.length ? { rows, totals: [], src: 'csv' } : null;
   }
   const up = hi > 0 ? low(A[hi - 1]) : [];
@@ -656,6 +687,7 @@ export function parseOpeningSheet(A: readonly (readonly unknown[])[], src: 'exce
     if (!r2(d) && !r2(p)) continue;
     rows.push([k || curK, k ? nn : '', pn || (!k && nn ? nn : ''), cC >= 0 ? String(c[cC] ?? '').trim() : '', d, p]);
   }
+  if (probe) return rows.length ? { cells } : null;
   return rows.length ? { rows, totals, src } : null;
 }
 

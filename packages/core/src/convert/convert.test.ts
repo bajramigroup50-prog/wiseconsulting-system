@@ -62,7 +62,7 @@ const SRC: Record<string, { head: string[]; rows: unknown[][]; expect: Record<st
   },
   pay: {
     head: ['EMBG', 'Ime i prezime', 'Neto', 'Godisen odmor', 'Bonus'],
-    rows: [['101990450000', 'Петар Петровски', '30.000,00', '16', '2.000']],
+    rows: [['101990450000', 'Петар Петровски', '30.000,00', '16', '2.000,00']],
     expect: [{ embg: '0101990450000', name: 'Петар Петровски', net: 30000, odm: 16, bonus: 2000 }],
   },
 };

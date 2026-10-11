@@ -28,11 +28,11 @@ export async function payXlsxTemplate(month: string): Promise<PlxTemplate> {
 
 export interface PlxResult { error?: string; ok?: string; confirm?: string; month?: string }
 
-export async function payXlsxImport(month: string, file: string, aoa: string[][], replace: boolean): Promise<PlxResult> {
+export async function payXlsxImport(month: string, file: string, aoa: string[][], replace: boolean, dec: '' | 'comma' | 'dot' = ''): Promise<PlxResult> {
   try {
     if (!isMonth(month)) return { error: 'Изберете месец.' };
     if (!Array.isArray(aoa) || aoa.length > 5001) return { error: 'Датотеката не може да се прочита.' };
-    const P = plxParse(aoa.map((r) => (Array.isArray(r) ? r.map((c) => String(c ?? '')) : [])));
+    const P = plxParse(aoa.map((r) => (Array.isArray(r) ? r.map((c) => String(c ?? '')) : [])), dec === 'comma' || dec === 'dot' ? dec : '');
     if ('error' in P) return { error: P.error };
     if (!P.rows.length) return { error: 'Нема редови со вработени.' };
     const { u, firm } = await payAction('plxImp');

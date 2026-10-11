@@ -14,8 +14,9 @@ import { parseBankTable } from '../bank-parsers';
 import { fimpParse, fimpVatFlag, fimpVatPeriod } from '../firms/firmimp';
 import { parseOpeningSheet } from '../ledger';
 import { plxParse, PXL_COLS, type PxlKey } from '../payroll/xlsx-import';
-import { detectDec, IMP_T, impAuto, impDate, impHeaderRow, impN, impNum, type DecMode, type ImpType } from '../retail/import';
+import { IMP_T, impAuto, impDate, impHeaderRow, impN, impNum, impNumFormats, type DecMode, type ImpType } from '../retail/import';
 import { parseXml, type XmlEl } from '../sales/xml';
+import { numStr } from '../numfmt';
 
 export type ConvKind = 'text' | 'num' | 'date';
 export interface ConvField {
@@ -68,7 +69,9 @@ function impTarget(t: ImpType): ConvTarget {
     check: (grid) => {
       const hi = impHeaderRow(grid);
       const map = impAuto(t, grid[hi] ?? []);
-      const dec = detectDec(grid.slice(hi + 1));
+      const body = grid.slice(hi + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
+      const NF = impNumFormats(body, fields.filter((f) => f.kind === 'num').map((f) => ({ key: f.key, label: f.label, idx: map[f.key] })));
+      if (NF.ambiguous.length) return { rows: [], error: 'Износите не се еднозначни: ' + NF.ambiguous.join(', ') };
       const rows: ConvRec[] = [];
       for (const r of grid.slice(hi + 1)) {
         if (!r.some((c) => String(c ?? '').trim() !== '')) continue;
@@ -78,7 +81,7 @@ function impTarget(t: ImpType): ConvTarget {
           if (i == null) continue;
           const v = r[i];
           if (String(v ?? '').trim() === '') continue;
-          o[f.key] = f.kind === 'num' ? impNum(v, dec) : f.kind === 'date' ? impDate(v) : String(v).trim();
+          o[f.key] = f.kind === 'num' ? impNum(v, NF.dec[f.key] ?? '') : f.kind === 'date' ? impDate(v) : String(v).trim();
         }
         rows.push(o);
       }
@@ -202,7 +205,7 @@ const payTarget: ConvTarget = {
     return { key: k, label: c[1], req: k === 'embg' || k === 'name', syn: [c[1], ...syn(c[2])], kind: PX_NUM.has(k) ? 'num' : k === 'start' ? 'date' : 'text' } as ConvField;
   }),
   check: (grid) => {
-    const P = plxParse(grid.map((r) => r.map((c) => (typeof c === 'number' ? String(c) : String(c ?? '')))));
+    const P = plxParse(grid.map((r) => r.map((c) => (typeof c === 'number' ? numStr(c) : String(c ?? '')))));
     if ('error' in P) return { rows: [], error: P.error };
     return {
       rows: P.rows.map((x) => {
@@ -262,7 +265,11 @@ export const convSig = (hdr: readonly unknown[]): string => hdr.map(impN).join('
 
 const TOTAL = /^(вкупно|збир|сума|total|gjithsej|toplam|салдо на крај|ново салдо)/i;
 
-export interface ConvResult { grid: ConvCell[][]; recs: ConvRec[]; errors: { row: number; msg: string }[]; skipped: number }
+export interface ConvResult {
+  grid: ConvCell[][]; recs: ConvRec[]; errors: { row: number; msg: string }[]; skipped: number;
+  /** Numeric columns with only ambiguous amounts („10.000“) and no „Децимали“ chosen: the result must not be used. */
+  ambiguous: string[]; ambExamples: string[]; blocked: boolean;
+}
 
 /**
  * Source rows (below the header) → records of the target fields → target grid. `consts` fills a field with a fixed
@@ -270,7 +277,11 @@ export interface ConvResult { grid: ConvCell[][]; recs: ConvRec[]; errors: { row
  * total rows are skipped.
  */
 export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], map: Readonly<Record<string, number | undefined>>, o: { dec?: DecMode; consts?: Readonly<Record<string, string>>; firstRow?: number } = {}): ConvResult {
-  const dec = o.dec ?? detectDec(rows);
+  // number format per numeric column (`numfmt.ts`): the column's own evidence, or the chosen „Децимали“; a column with
+  // only ambiguous values („10.000“) blocks the result until a choice is made (never guessed)
+  const NF = impNumFormats(rows, t.fields.filter((f) => f.kind === 'num').map((f) => ({ key: f.key, label: f.label, idx: map[f.key] })));
+  const sel: DecMode = o.dec ?? '';
+  const decOf = (k: string): DecMode => sel || NF.dec[k] || '';
   const recs: ConvRec[] = [];
   const errors: { row: number; msg: string }[] = [];
   let skipped = 0;
@@ -286,7 +297,7 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
       const s = raw instanceof Date ? impDate(raw) : String(raw ?? '').trim();
       if (!s) continue;
       if (f.kind === 'num') {
-        const n = impNum(raw, dec);
+        const n = impNum(raw, decOf(f.key));
         if (!n && !/^[-+]?0*([.,]0*)?$/.test(s.replace(/\s|ден\.?|mkd/gi, ''))) { bad.push(`${f.label}: „${s}“ не е број`); continue; }
         rec[f.key] = r4(n);
       } else if (f.kind === 'date') {
@@ -311,7 +322,7 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
     if (bad.length) errors.push({ row: rowNo, msg: bad.join('; ') });
     recs.push(rec);
   });
-  return { grid: convGrid(t, recs), recs, errors, skipped };
+  return { grid: convGrid(t, recs), recs, errors, skipped, ambiguous: NF.ambiguous, ambExamples: NF.examples, blocked: NF.ambiguous.length > 0 && !sel };
 }
 
 /** Records → target grid. */
@@ -325,7 +336,8 @@ export function convGrid(t: ConvTarget, recs: readonly ConvRec[]): ConvCell[][] 
  * values of every field the parser returns. `diff` lists the first differences (empty = the importer reads exactly
  * what the converter produced).
  */
-export function convCheck(t: ConvTarget, res: Pick<ConvResult, 'grid' | 'recs'>): { n: number; error?: string; diff: string[]; rows: ConvRec[] } {
+export function convCheck(t: ConvTarget, res: Pick<ConvResult, 'grid' | 'recs'> & { blocked?: boolean; ambiguous?: string[] }): { n: number; error?: string; diff: string[]; rows: ConvRec[] } {
+  if (res.blocked) return { n: 0, error: 'Изберете „Децимали“: износите во колоните ' + (res.ambiguous ?? []).join(', ') + ' не се еднозначни („10.000“ = десет илјади или десет).', diff: [], rows: [] };
   const c = t.check(res.grid);
   const diff: string[] = [];
   if (c.error) return { n: 0, error: c.error, diff, rows: [] };

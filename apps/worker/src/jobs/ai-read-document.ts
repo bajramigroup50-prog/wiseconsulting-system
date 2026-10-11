@@ -61,7 +61,11 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     try {
       const file = await loadFile(db, f.id, doc.fileId);
       return await freeRead(doc.kind, file, await readObject(file.bucketKey), { ownEdb: f.edb });
-    } catch { return null; }
+    } catch (e) {
+      // ambiguous amounts („10.000“) that the totals do not decide: flagged, never guessed
+      if (e instanceof Error && e.name === 'AmbiguousAmountsError') throw new ReadFail('noai', e.message);
+      return null;
+    }
   };
   /** AI not usable / failed: try the free reader, otherwise fail with the code's message. */
   const fallback = async (code: AiErrCode, detail = ''): Promise<{ result: unknown; model: string }> => {

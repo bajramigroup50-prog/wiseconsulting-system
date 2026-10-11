@@ -6,7 +6,8 @@
  * Lines are not read (too many layouts) — the draft is booked by VAT group, like a cost invoice.
  */
 import type { ScanInvoice } from '../sales/scan';
-import { dateIn, lineText, numsIn, type PdfLine } from './pdf-lines';
+import { AmbiguousAmountsError, ambExamples, reconcileFmt, type NumFmt } from '../numfmt';
+import { dateIn, docFmt, lineText, numsIn, numTokens, type PdfLine } from './pdf-lines';
 
 const RATES = [18, 10, 5, 0];
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -24,7 +25,22 @@ export function edbsIn(all: string): string[] {
   return out;
 }
 
+/**
+ * FIX (number format, `numfmt.ts`): the invoice is read with both readings of ambiguous amounts („1.000“); when they
+ * differ, the document's own evidence decides („1.180,00“ elsewhere), else the reading whose VAT recapitulation
+ * reconciles with the total (base × rate = VAT, Σ = total); none / both → AmbiguousAmountsError (never guessed).
+ */
 export function invoiceFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 'purchase' | 'sale' } = {}): ScanInvoice | null {
+  const A = readInvoice(L, o, 'mk'), B = readInvoice(L, o, 'dot');
+  if (JSON.stringify(A?.inv) === JSON.stringify(B?.inv)) return A?.inv ?? null;
+  const text = L.map(lineText);
+  const f = docFmt(text);
+  const pick = f === 'mk' || f === 'dot' ? f : reconcileFmt((x) => !!(x === 'mk' ? A : B)?.ok);
+  if (!pick) throw new AmbiguousAmountsError('Износите во фактурата', ambExamples(text.flatMap(numTokens)));
+  return (pick === 'mk' ? A : B)?.inv ?? null;
+}
+
+function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 'purchase' | 'sale' }, fmt: NumFmt): { inv: ScanInvoice; ok: boolean } | null {
   const text = L.map(lineText);
   const all = text.join('\n');
   if (!/фактур|invoice|сметка|faktur/i.test(all)) return null;
@@ -39,7 +55,7 @@ export function invoiceFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | nul
     const m = /(?:ддв|данок|vat|стапка)?[^\d]{0,12}(18|10|5|0)\s*%/i.exec(t);
     if (!m) continue;
     const rate = +m[1]!;
-    const ns = numsIn(t.slice(m.index + m[0].length)).filter((n) => n !== rate);
+    const ns = numsIn(t.slice(m.index + m[0].length), fmt).filter((n) => n !== rate);
     if (ns.length < 2) continue;
     // base, vat[, total]: pick the pair with vat ≈ base × rate
     let found: [number, number] | null = null;
@@ -49,7 +65,8 @@ export function invoiceFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | nul
     groups.push({ rate, base: found[0], vat: found[1], kind: 'other' });
   }
   const totT = after(text, /(вкупно за плаќање|износ за плаќање|за наплата|вкупен износ|вкупно со ддв|total due|grand total|вкупно)/i);
-  const total = numsIn(totT).filter((n) => n > 0).pop() ?? 0;
+  const total = numsIn(totT, fmt).filter((n) => n > 0).pop() ?? 0;
+  const recap = groups.length > 0;
   if (!groups.length && total > 0) {
     // no recapitulation: the total with the only rate printed on the document
     const rs = RATES.filter((r) => new RegExp(`(^|\\D)${r}\\s*%`).test(all));
@@ -60,8 +77,12 @@ export function invoiceFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | nul
   if (!groups.length) return null;
   const sum = r2(groups.reduce((s, g) => s + g.base + g.vat, 0));
   return {
-    number: numM?.[1] ?? '', date, ...(due ? { dueDate: due } : {}),
-    ...(o.kind === 'sale' ? { buyerEdb: edbs[0] ?? '' } : { supplierEdb: edbs[0] ?? '' }),
-    groups, lines: [], total: total && near(total, sum) ? total : sum,
+    inv: {
+      number: numM?.[1] ?? '', date, ...(due ? { dueDate: due } : {}),
+      ...(o.kind === 'sale' ? { buyerEdb: edbs[0] ?? '' } : { supplierEdb: edbs[0] ?? '' }),
+      groups, lines: [], total: total && near(total, sum) ? total : sum,
+    },
+    // reconciles: a recapitulation (VAT = base × rate) whose sum is the printed total
+    ok: recap && total > 0 && near(total, sum),
   };
 }

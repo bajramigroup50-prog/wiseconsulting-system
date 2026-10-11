@@ -3,7 +3,8 @@
  * AI call failed. Covers what has a machine-readable form — bank statements (PDF with a text layer, XML, CSV/TXT,
  * MT940, KB), trial balances (text PDF, CSV) and invoices (UBL XML is read before AI anyway; text PDF here). The
  * result has the same shape as the AI read, so the screens and drafts work unchanged; `model` is `noai`.
- * Scanned PDFs and photos have no text layer → null (the caller reports that AI is needed).
+ * Scanned PDFs and photos have no text layer → null (the caller reports that AI is needed). Amounts that stay
+ * ambiguous („10.000“, nothing reconciles) throw `AmbiguousAmountsError` — the read is flagged, not guessed.
  */
 import { csvToGrid, parseOpeningSheet } from '@wise/core';
 import { parseStatementFile } from '@wise/core/bank-parsers';

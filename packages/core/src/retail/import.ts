@@ -4,6 +4,8 @@
  * headers. Rows are arrays of cell values (string | number | Date).
  */
 
+import { ambExamples, colFormat, decToFmt, parseNumAuto } from '../numfmt';
+
 export type ImpType = 'partners' | 'items' | 'employees' | 'purchases' | 'invoices' | 'stock' | 'journal' | 'in' | 'pop' | 'nivel';
 /** [key, label (`*` = required), synonyms]. */
 export type ImpField = readonly [string, string, string];
@@ -68,17 +70,34 @@ export function detectDec(rows: readonly (readonly unknown[])[]): DecMode {
   return c > d * 2 && c ? 'comma' : d > c * 2 && d ? 'dot' : '';
 }
 
-/** Legacy `impNum`: a number from a cell, honouring the detected decimal separator; 0 when empty or invalid. */
+/**
+ * Legacy `impNum`: a number from a cell; 0 when empty or invalid. A value with its own evidence („1.234,56“,
+ * „1234.56“) is read that way; an ambiguous one („10.000“) in the chosen / detected decimal mode, default the
+ * Macedonian dot-thousands (FIX: legacy read „10.000“ as 10). Screens must not import a column that
+ * `impNumFormats` reports as ambiguous until the user chose „Децимали“.
+ */
 export function impNum(v: unknown, dec: DecMode = ''): number {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  let t = String(v ?? '').trim().replace(/\s|ден\.?|mkd/gi, '');
-  if (!t) return 0;
-  if (dec === 'comma') { const n = parseFloat(t.replace(/\./g, '').replace(',', '.')); return Number.isNaN(n) ? 0 : n; }
-  if (dec === 'dot') { const n = parseFloat(t.replace(/,/g, '')); return Number.isNaN(n) ? 0 : n; }
-  if (/,\d{1,2}$/.test(t) || /\.\d{3},/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
-  else t = t.replace(/,/g, '');
-  const n = parseFloat(t);
-  return Number.isNaN(n) ? 0 : n;
+  return parseNumAuto(v, decToFmt(dec) ?? 'mk') ?? 0;
+}
+
+/**
+ * Number format per numeric column (`numfmt.ts`): `ambiguous` / `conflict` list the labels of the columns that need
+ * the „Децимали“ choice (only values like „10.000“ / both „1.234,56“ and „1234.56“ with an ambiguous one).
+ */
+export function impNumFormats(rows: readonly (readonly unknown[])[], cols: readonly { key: string; label: string; idx: number | undefined }[]): { ambiguous: string[]; examples: string[]; dec: Record<string, DecMode> } {
+  const ambiguous: string[] = [], examples: string[] = [];
+  const dec: Record<string, DecMode> = {};
+  for (const c of cols) {
+    if (c.idx == null || c.idx < 0) continue;
+    const V = rows.map((r) => r[c.idx!]);
+    const f = colFormat(V);
+    // the column's own format for its ambiguous values (a „1.234,56“ column reads „10.000“ as 10000)
+    if (f === 'mk') dec[c.key] = 'comma'; else if (f === 'dot') dec[c.key] = 'dot';
+    const ex = ambExamples(V);
+    if (ex.length && (f === 'amb' || f === 'conflict')) { ambiguous.push(c.label); examples.push(...ex); }
+  }
+  return { ambiguous, examples: examples.slice(0, 3), dec };
 }
 
 /** Legacy `impDate`: Date, Excel serial, `YYYY-M-D` or `D.M.YYYY` / `D/M/YY` → `YYYY-MM-DD`, else `''`. */

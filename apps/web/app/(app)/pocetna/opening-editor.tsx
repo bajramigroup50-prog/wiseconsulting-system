@@ -38,6 +38,8 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   const [rows, setRows] = useState<ORow[]>(initialRows.length ? initialRows : [blank()]);
   const [ctl, setCtl] = useState<OpeningControl | null>(null);
   const [msg, setMsg] = useState('');
+  /** A sheet whose amounts are ambiguous („10.000“): waits for the decimal choice. */
+  const [amb, setAmb] = useState<{ grid: unknown[][]; src: 'excel' | 'csv' } | null>(null);
   const [reading, startRead] = useTransition();
   const [extra, setExtra] = useState<Extra | null>(null);
   const [diagOn, setDiagOn] = useState(false);
@@ -88,7 +90,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   }, [ai.docs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const importFile = (file: File) => startRead(async () => {
-    setMsg('Се чита…');
+    setMsg('Се чита…'); setAmb(null);
     try {
       let grid: unknown[][];
       let src: 'excel' | 'csv' = 'excel';
@@ -108,7 +110,12 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
         setMsg('Поддржани се Excel (.xlsx, .xls), CSV, PDF и слики.');
         return;
       }
-      const R = parseOpeningSheet(grid, src);
+      let R;
+      try { R = parseOpeningSheet(grid, src); } catch (e) {
+        // „10.000“ only and the totals do not decide: the user chooses (never guessed)
+        if (e instanceof Error && e.name === 'AmbiguousAmountsError') { setAmb({ grid, src }); setMsg(e.message); return; }
+        throw e;
+      }
       if (!R) { setMsg('Не се најдени колони „Конто“ и „Салдо / Должи / Побарува“.'); return; }
       applySheet(R);
     } catch {
@@ -135,6 +142,15 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
             <a className="btn sm ghost" href="/konvertor?t=ob" target="_blank" rel="noreferrer">🔄 Конвертор (друг формат)</a>
           </div>
           <div className="note">{msg}</div>
+          {amb && (
+            <div className="row" style={{ gap: 6, marginTop: 6 }}>
+              {(['mk', 'dot'] as const).map((f) => (
+                <button key={f} type="button" className="btn sm" onClick={() => { const R = parseOpeningSheet(amb.grid, amb.src, f); setAmb(null); if (R) applySheet(R); else setMsg('Не се најдени конта со салдо.'); }}>
+                  {f === 'mk' ? '„10.000“ = десет илјади (1.234,56)' : '„10.000“ = десет (1,234.56)'}
+                </button>
+              ))}
+            </div>
+          )}
           <AiReadList docs={ai.docs} setDocs={ai.setDocs} msg={ai.msg} />
         </div>
         <div className="form">

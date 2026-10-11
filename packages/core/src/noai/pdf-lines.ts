@@ -4,6 +4,7 @@
  * starts a new cell, so table columns stay apart. `pdfTable` maps the lines under a recognised header line to the
  * header's columns by x position — generic column detection instead of a per-bank / per-supplier layout.
  */
+import { colFormat, parseNumAuto, type ColFmt, type NumFmt } from '../numfmt';
 
 /** One text item of a page (x / y in PDF points, y grows upward like pdfjs `transform[5]`). */
 export interface PdfItem { page: number; x: number; y: number; w: number; h?: number; s: string }
@@ -113,31 +114,33 @@ export function pdfAutoGrid(L: readonly PdfLine[]): string[][] {
   return [...L.slice(0, at).map((l) => [lineText(l)]), T.header, ...T.rows];
 }
 
-/** A number as printed on Macedonian documents: „1.234,56“, „1,234.56“, „1 234,56“, „-12,5“, „12,50-“. */
-export function mkNum(s: unknown): number | null {
-  let t = String(s ?? '').trim().replace(/ /g, ' ').replace(/(ден\.?|мкд|mkd|eur|€)/gi, '').trim();
-  let neg = false;
-  if (/^\(.*\)$/.test(t)) { neg = true; t = t.slice(1, -1); }
-  if (/-$/.test(t)) { neg = true; t = t.slice(0, -1); }
-  if (/^-/.test(t)) { neg = true; t = t.slice(1); }
-  t = t.replace(/(\d)\s+(?=\d{3}\b)/g, '$1');
-  if (!/^\d[\d.,]*$/.test(t)) return null;
-  if (/,\d{1,2}$/.test(t) || /^\d{1,3}(\.\d{3})+,\d+$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
-  else if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) t = t.replace(/,/g, '');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
-  else t = t.replace(/,/g, '.');
-  const n = Number(t);
-  return Number.isFinite(n) ? (neg ? -n : n) : null;
+/**
+ * A number as printed on documents: „1.234,56“, „1,234.56“, „1 234,56“, „-12,5“, „12,50-“, „(12,50)“. An ambiguous
+ * value („10.000“, „1,500“) is read in `fmt` — the document's format (`docFmt`); default the Macedonian dot-thousands.
+ */
+export function mkNum(s: unknown, fmt: NumFmt = 'mk'): number | null {
+  const t = String(s ?? '').trim().replace(/\u00a0/g, ' ').replace(/(\d)\s+(?=\d{3}\b)/g, '$1');
+  return parseNumAuto(t, fmt);
 }
 
-/** All numbers in a text (thousands-separated, decimal comma / point). */
-export function numsIn(s: string): number[] {
+const NUM_RE = /-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,4})?-?|-?\d+(?:[.,]\d{1,4})?-?/g;
+
+/** Number tokens of a text as written. */
+export const numTokens = (s: string): string[] => [...s.matchAll(NUM_RE)].map((m) => m[0]);
+
+/** All numbers in a text (thousands-separated, decimal comma / point), ambiguous ones read in `fmt`. */
+export function numsIn(s: string, fmt: NumFmt = 'mk'): number[] {
   const out: number[] = [];
-  for (const m of s.matchAll(/-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,4})?-?|-?\d+(?:[.,]\d{1,4})?-?/g)) {
-    const n = mkNum(m[0]);
+  for (const t of numTokens(s)) {
+    const n = mkNum(t, fmt);
     if (n != null) out.push(n);
   }
   return out;
+}
+
+/** Number format of a whole document from all its amount tokens (dates are left out). */
+export function docFmt(lines: readonly string[]): ColFmt {
+  return colFormat(lines.map((l) => l.replace(/\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/g, ' ')).flatMap(numTokens));
 }
 
 /** First date in a text as `YYYY-MM-DD` (d.m.yyyy, d/m/yyyy, d-m-yyyy, yyyy-mm-dd, d.m.yy). */

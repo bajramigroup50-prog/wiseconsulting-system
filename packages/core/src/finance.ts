@@ -15,6 +15,7 @@
 import { r2 } from './money';
 import { bmEq, bmKey, type InvKey } from './bank-match';
 import { findHeaderRow, parseBankAmount, parseBankDate } from './bank-parsers';
+import { AmbiguousAmountsError, ambExamples, colFormat } from './numfmt';
 
 /* ================================================================== partner cards */
 
@@ -410,9 +411,16 @@ export function parseCardTable(rows: readonly unknown[][]): { rows: TheirRow[]; 
   const iD = f(/дат|date/), iDoc = f(/документ|бр\.|број|фактур|doc|nr|содржина/), iDs = f(/опис|содржина|desc|намена/);
   const iDe = f(/должи|задолж|debit|duguje/), iCr = f(/побарув|раздолж|credit|potražuje|potrazuje/);
   if (iD < 0 || (iDe < 0 && iCr < 0)) return null;
-  const out = rows.slice(hi + 1).filter((r) => parseBankDate(r[iD])).map((r) => ({
+  const data = rows.slice(hi + 1).filter((r) => parseBankDate(r[iD]));
+  // FIX: number format of the amount columns (`numfmt.ts`); ambiguous only („10.000“) → not guessed
+  const cells = data.flatMap((r) => [iDe >= 0 ? r[iDe] : '', iCr >= 0 ? r[iCr] : '']);
+  const nf = colFormat(cells);
+  const amb = ambExamples(cells);
+  if (amb.length && nf !== 'mk' && nf !== 'dot') throw new AmbiguousAmountsError('Износите во картицата', amb);
+  const fmt = nf === 'dot' ? 'dot' : 'mk';
+  const out = data.map((r) => ({
     date: parseBankDate(r[iD]), doc: iDoc >= 0 ? String(r[iDoc] ?? '') : '', desc: iDs >= 0 ? String(r[iDs] ?? '') : '',
-    debit: iDe >= 0 ? r2(parseBankAmount(r[iDe])) : 0, credit: iCr >= 0 ? r2(parseBankAmount(r[iCr])) : 0,
+    debit: iDe >= 0 ? r2(parseBankAmount(r[iDe], fmt)) : 0, credit: iCr >= 0 ? r2(parseBankAmount(r[iCr], fmt)) : 0,
   })).filter((r) => r.debit || r.credit);
   return { rows: out, opening: 0 };
 }
