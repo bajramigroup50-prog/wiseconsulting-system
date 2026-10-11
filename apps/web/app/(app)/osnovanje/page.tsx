@@ -47,7 +47,7 @@ export default async function OsnovanjePage({ searchParams }: { searchParams: Pr
             ))}
             <label className="f">Управител<input name="manager" defaultValue={(c?.managers[0] as { name?: string } | undefined)?.name ?? ''} /></label>
           </div>
-          {cap && cap.eur > 0 && <p className="note">Основачки влог: {fmt(cap.eur)} EUR = {fmt(cap.mkd)} ден. (курс {Number(c!.eurRate)})</p>}
+          {cap && cap.eur > 0 && <p className="note">Основачки влог: {fmt(cap.eur)} EUR = {fmt(cap.mkd)} ден. (курс {Number(c?.eurRate ?? 0)})</p>}
           <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Основачи</h3>
           <div className="tw"><table className="dense"><thead><tr><th>ФЛ/ПЛ</th><th>Име / назив</th><th>Презиме</th><th>ЕМБГ / ЕМБС</th><th>Државјанство</th><th>Удел %</th></tr></thead><tbody>
             {fo.map((p, i) => (
