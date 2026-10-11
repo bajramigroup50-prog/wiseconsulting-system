@@ -104,15 +104,19 @@ export async function replCfgAction(_p: ActionState, f: FormData): Promise<Actio
 /* ---------------- лојалност и купони ---------------- */
 
 export async function saveCardAction(_p: ActionState, f: FormData): Promise<ActionState> {
+  if (!s(f, 'number') || !s(f, 'name')) return { error: 'Внесете број и име.' };
   return done(await stockAction('lcSave', ['/lojalnost'], (tx, a) => saveLoyaltyCard(tx, a, {
     id: s(f, 'id') || null, number: s(f, 'number'), name: s(f, 'name'), phone: s(f, 'phone'), email: s(f, 'email'), discount: nOrNull(f, 'discount'), points: nOrNull(f, 'points'),
   })), '/lojalnost');
 }
 export async function saveCouponAction(_p: ActionState, f: FormData): Promise<ActionState> {
-  return done(await stockAction('cpSave', ['/lojalnost'], (tx, a) => saveCoupon(tx, a, {
+  if (!s(f, 'code') || !(numIn(s(f, 'value')) > 0)) return { error: 'Внесете код и вредност.' };
+  const stc = await stockAction('cpSave', ['/lojalnost'], (tx, a) => saveCoupon(tx, a, {
     id: s(f, 'id') || null, code: s(f, 'code'), kind: s(f, 'kind') === 'amt' ? 'amt' : 'pct', value: numIn(s(f, 'value')) || 0,
     validFrom: s(f, 'validFrom') || null, validTo: s(f, 'validTo') || null, maxUses: nOrNull(f, 'maxUses'), minTotal: nOrNull(f, 'minTotal'),
-  })), '/lojalnost?t=cp');
+  }));
+  if (stc.error && /постои/.test(stc.error)) return { error: 'Кодот постои.' };
+  return done(stc, '/lojalnost?t=cp');
 }
 export async function loyCfgAction(_p: ActionState, f: FormData): Promise<ActionState> {
   const loy = { per: numIn(s(f, 'per')) || 100, val: numIn(s(f, 'val')) || 1, min: numIn(s(f, 'min')) || 0 };
@@ -125,6 +129,10 @@ export async function loyCfgAction(_p: ActionState, f: FormData): Promise<Action
 export async function savePromoAction(_p: ActionState, f: FormData): Promise<ActionState> {
   const sel: Record<string, { price?: number | null; pct?: number | null }> = {};
   for (const id of fields(f, 's_')) if (f.get('s_' + id) === 'on') sel[id] = { price: nOrNull(f, 'n_' + id), pct: nOrNull(f, 'p_' + id) };
+  // legacy `akcSave` 7902 checks
+  if (!s(f, 'name')) return { error: 'Внесете назив на акцијата.' };
+  if (!s(f, 'from') || !s(f, 'to') || s(f, 'to') < s(f, 'from')) return { error: 'Проверете го периодот (Од / До).' };
+  if (!Object.keys(sel).length) return { error: 'Изберете артикли со нова (пониска) цена.' };
   return done(await stockAction('akcSave', ['/m_akcii'], (tx, a) => savePromotion(tx, a, {
     id: s(f, 'id') || null, name: s(f, 'name'), wh: s(f, 'wh'), from: s(f, 'from'), to: s(f, 'to'), pct: nOrNull(f, 'pct'), rnd: nOrNull(f, 'rnd'), sel,
   })), '/m_akcii');
