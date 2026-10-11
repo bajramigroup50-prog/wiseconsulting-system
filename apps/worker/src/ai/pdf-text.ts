@@ -6,6 +6,9 @@ import type { PdfItem } from '@wise/core/noai/pdf-lines';
 
 export async function pdfTextItems(bytes: Uint8Array, maxPages = 40): Promise<PdfItem[]> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const G = globalThis as { pdfjsWorker?: unknown };
+  // @ts-expect-error the worker module has no type declarations
+  G.pdfjsWorker ??= await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false, isEvalSupported: false, disableFontFace: true, verbosity: 0 }).promise;
   const out: PdfItem[] = [];
   try {

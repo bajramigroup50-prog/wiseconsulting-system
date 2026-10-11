@@ -20,7 +20,7 @@ vi.mock('@/lib/jobs', () => ({ enqueue: async (name: string, data: unknown) => {
 
 const { setAiEnabledAction } = await import('@/app/(app)/sistem/actions');
 const { aiReadStatus, retryAiRead } = await import('@/app/(app)/_ai/actions');
-const { saveConvPreset, listConvPresets, deleteConvPreset } = await import('@/app/(app)/konvertor/actions');
+const { saveConvPreset, listConvPresets, deleteConvPreset, readPdfGrid } = await import('@/app/(app)/konvertor/actions');
 const { readFirmsFile, importFirms } = await import('@/app/(app)/firmiImp/actions');
 const { importAction } = await import('@/app/(app)/_retail/actions');
 
@@ -75,6 +75,24 @@ describe('converter', () => {
     expect((await listConvPresets())[0]).toMatchObject({ hi: 1, map: { date: 0, amount: 1 } });
     expect((await saveConvPreset({ name: '', target: 'bank' })).error).toBeTruthy();
     expect((await deleteConvPreset(a.id!)).presets).toEqual([]);
+  });
+
+  it('a bank statement PDF with text → table → bank import format', async () => {
+    const txt = (x: number, y: number, s: string) => `BT /F1 9 Tf 1 0 0 1 ${x} ${y} Tm (${s}) Tj ET`;
+    const body = [txt(40, 800, 'Statement 12'), txt(40, 780, 'Date'), txt(120, 780, 'Partner'), txt(300, 780, 'Purpose'), txt(430, 780, 'Debit'), txt(500, 780, 'Credit'),
+      txt(40, 766, '02.03.2026'), txt(120, 766, 'ALFA DOOEL'), txt(300, 766, 'Invoice 12'), txt(500, 766, '12.500,00'),
+      txt(40, 752, '03.03.2026'), txt(120, 752, 'T-Mobile'), txt(300, 752, 'Phone'), txt(430, 752, '1.234,56')].join('\n');
+    const pdf = `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n5 0 obj<</Length ${body.length}>>stream\n${body}\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF`;
+    const r = await readPdfGrid(form({ file: new File([pdf], 'izvod.pdf', { type: 'application/pdf' }) }));
+    expect(r.error).toBeUndefined();
+    const g = r.grid!;
+    const hi = g.findIndex((x) => x[0] === 'Date');
+    expect(g[hi]).toEqual(['Date', 'Partner', 'Purpose', 'Debit', 'Credit']);
+    const t = convTarget('bank')!;
+    const res = convApply(t, g.slice(hi + 1), convAuto(t, g[hi]!));
+    const c = convCheck(t, res);
+    expect(c.diff).toEqual([]);
+    expect(c.rows.map((x) => [x.date, x.name, x.amount])).toEqual([['2026-03-02', 'ALFA DOOEL', 12500], ['2026-03-03', 'T-Mobile', -1234.56]]);
   });
 
   it('firms from another program → converted .xlsx → Фирми › Увоз од Excel', async () => {
