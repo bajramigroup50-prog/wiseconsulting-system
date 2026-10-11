@@ -1,5 +1,8 @@
 'use server';
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { PREVIEW_COOKIE } from '@/lib/route-guard';
 import { eq, sql } from 'drizzle-orm';
 import { firmProfiles, KL_PROF, KL_SEC, klAddRecommended, klModuleOff, type KlConfig, type KlNote } from '@wise/core/office';
 import { klNoteClean } from '@wise/core/firms/klnote';
@@ -123,4 +126,23 @@ export async function removeNoticeImage(): Promise<ActionState> {
     revalidatePath('/klPortal');
     return { ok: 'Се печати дизајнот.' };
   } catch (e) { return officeError(e); }
+}
+
+/**
+ * Legacy `klPrevOn` 9087 (ACT_NEED `settings`): 👁 Види како клиент — the office user sees the portal of this firm
+ * exactly as its client (menu `klNav`, client sections only, banner „Преглед како клиент“) without signing in as the
+ * client. Only a cookie with the firm id; the user's own rights and the klient route guard are unchanged.
+ */
+export async function klPrevOn(): Promise<void> {
+  const { u, firm } = await officeAction('settings');
+  if (u.role === 'klient' || u.role === 'teren') return;
+  await db().transaction((tx) => audit(tx, { userId: u.id, firmId: firm.id, action: 'klPrevOn', entityType: 'firm', entityId: firm.id }));
+  (await cookies()).set(PREVIEW_COOKIE, firm.id, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 8 * 3600 });
+  redirect('/klHome');
+}
+
+/** Legacy `klPrevOff` 9089: „✕ Излез од прегледот“ → back to 👥 Портал за клиенти. */
+export async function klPrevOff(): Promise<void> {
+  (await cookies()).delete(PREVIEW_COOKIE);
+  redirect('/klPortal');
 }

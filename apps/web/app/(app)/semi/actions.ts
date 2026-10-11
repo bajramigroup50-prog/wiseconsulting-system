@@ -7,6 +7,7 @@
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import { customSchemeBalanced, type CustomScheme } from '@wise/core/finance';
+import { J_TITLES } from '@wise/core/sch-journals';
 import { appSettings, audit, firms, missingAccounts, SCHEMES_SETTINGS_KEY, type Tx } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -54,6 +55,10 @@ export async function saveSchemesAction(_p: ActionState, f: FormData): Promise<A
       if (!customSchemeBalanced({ rows })) { errs.push(`Шемата „${name || '(без назив)'}“ не е изедначена (Д% мора = П%).`); continue; }
       custom.push({ id: g('c_id_' + i) || 'c' + Date.now().toString(36) + i, name: name || 'Шема', rows });
     }
+    // legacy `hidden` / `names` of „Шеми како налози“ (Скриј, renamed example journals)
+    const hidden = [...new Set(f.getAll('hid').map(String))].filter((x) => x in J_TITLES);
+    const names: Record<string, string> = {};
+    for (const id of Object.keys(J_TITLES)) { const v = g('n_' + id).slice(0, 120); if (v && v !== J_TITLES[id] && !(id === 'purR' && v.startsWith('Влезна фактура во продавница'))) names[id] = v; }
     if (errs.length) return { error: errs.join(' · ') };
     const codes = [...Object.values(sch).filter((v): v is string => typeof v === 'string' && v !== '-'), ...Object.values(vatIn), ...Object.values(vatImp), ...Object.values(vatOut), ...custom.flatMap((c) => c.rows.map((r) => r.k))].map(String);
     const missing = await missingAccounts(db(), firm.id, codes);
@@ -62,7 +67,7 @@ export async function saveSchemesAction(_p: ActionState, f: FormData): Promise<A
     await db().transaction(async (tx) => {
       const [row] = await tx.select().from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);
       const G = (row?.value ?? {}) as Record<string, unknown>;
-      const value = { ...G, sch, vatIn, vatOut, vatImp, custom, updated: new Date().toISOString(), by: u.name };
+      const value = { ...G, sch, vatIn, vatOut, vatImp, custom, hidden, names, updated: new Date().toISOString(), by: u.name };
       await tx.insert(appSettings).values({ key: SCHEMES_SETTINGS_KEY, value, updatedBy: u.id }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedBy: u.id } });
       cleared = await clearFirmOverrides(tx);
       await audit(tx, { userId: u.id, firmId: null, action: 'schSaveAll', entityType: 'appSettings', entityId: SCHEMES_SETTINGS_KEY, data: { sch, vatIn, vatOut, vatImp, custom: custom.length, firmsCleared: cleared } });

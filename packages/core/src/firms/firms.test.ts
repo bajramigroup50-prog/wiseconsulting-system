@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { MS_DISC, mailSigCfg, mailSigText, signMailHtml } from './mailsig';
 import { zsRokRows } from './zsrok';
-import { opDays, opDue, opGroups, opText, waPhone } from './dunning';
+import { opDays, opDue, opGroups, opOnlyFilter, opOnlyIds, opText, waPhone } from './dunning';
 import { mhKind, mhKindGroup } from './mailhist';
 import { klStrongPw, klUserName } from './klprofili';
 import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
 import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
 import { miCalc, miMonths, miRange } from './mojizv';
 import { FORMS0, TPL0, askFields, fillTpl, formHtml, formVals } from './requests';
-import { fsDup, lfGuess, normalizeResh, otherNkd } from './resh';
+import { fsDup, lfGuess, normalizeResh, otherNkd, tkFromRead, tkMatch } from './resh';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -64,6 +64,17 @@ describe('dunning (legacy opData / opLvAuto / opText v401)', () => {
     expect(X.tot).toBe(1300_00);
     expect(X.body).toContain('жиро сметка 300');
     expect(waPhone('070 123 456')).toBe('38970123456');
+  });
+  it('only the invoices ticked in Излез (legacy opOnly v406)', () => {
+    const a = '11111111-1111-1111-1111-111111111111', b = '22222222-2222-2222-2222-222222222222';
+    expect(opOnlyIds(`${a},${b},${a},x`)).toEqual([a, b]);
+    expect(opOnlyIds('')).toBeNull();
+    expect(opOnlyIds(undefined)).toBeNull();
+    const I = [inv(a, 'A', '2026-01-01', 100_00), inv(b, 'A', '2026-01-01', 50_00), inv('3', 'B', '2026-01-01', 30_00)];
+    const G = opGroups(opOnlyFilter(I, [a]), [], 15, '2026-03-05');
+    expect(G).toHaveLength(1);
+    expect(G[0]!.open).toBe(100_00);
+    expect(opOnlyFilter(I, null)).toHaveLength(3);
   });
 });
 
@@ -247,5 +258,19 @@ describe('firm import: VAT columns (headings, values, re-import updates)', async
     const none = fimpParse([['Назив'], ['А']]);
     if ('error' in none) throw new Error(none.error);
     expect(fimpPatch(cur, fimpToFirm(none.L[0]!).cols)).toEqual({});
+  });
+});
+
+describe('partner from a ЦРМ extract (legacy tkRead / tkMatch v404)', () => {
+  it('maps the FS_PROMPT answer to the partner form', () => {
+    const t = tkFromRead([{ docType: 'tekovna', name: 'ГАМА ДООЕЛ', edb: 'MK4030000000003', embs: '7.123.456', docDate: '01.02.2026', managers: [{ name: 'Марко' }], bank: '300-0000000001-23', nkd: '47.11' }]);
+    expect(t).toMatchObject({ name: 'ГАМА ДООЕЛ', edb: '4030000000003', embs: '7123456', docDate: '2026-02-01', manager: 'Марко', bank: '300000000000123', nkd: '47.11', ddv: false });
+    expect(tkFromRead(null).name).toBe('');
+  });
+  it('matches by ЕДБ or ЕМБС only', () => {
+    const P = [{ id: 'a', edb: '4030000000003', embs: null }, { id: 'b', edb: null, embs: '7123456' }];
+    expect(tkMatch({ edb: 'МК 4030000000003' }, P)?.id).toBe('a');
+    expect(tkMatch({ embs: '7123456' }, P)?.id).toBe('b');
+    expect(tkMatch({ edb: '', embs: '' }, P)).toBeUndefined();
   });
 });

@@ -54,6 +54,19 @@ export function opLevelAuto(rows: readonly OpRow[], letters: readonly OpLetter[]
   return Math.min(2, D.size);
 }
 
+/**
+ * Legacy v406 `opOnly` (16893): „Опомени“ opened from Излезни фактури with ticked invoices — `?ids=` (comma-separated
+ * invoice ids) → the set to keep, or `null` for all. Only uuid-shaped ids, at most 500.
+ */
+export function opOnlyIds(v: string | null | undefined): string[] | null {
+  const ids = [...new Set(String(v ?? '').split(',').map((x) => x.trim()).filter((x) => /^[0-9a-f-]{36}$/i.test(x)))].slice(0, 500);
+  return ids.length ? ids : null;
+}
+
+/** Legacy `opData` under `opOnly`: only the selected invoices (groups, open / overdue sums and level follow). */
+export const opOnlyFilter = <T extends { id: string }>(invoices: readonly T[], only: readonly string[] | null): readonly T[] =>
+  only ? invoices.filter((i) => only.includes(i.id)) : invoices;
+
 /** Legacy `opData`: open invoices (≥ 0.50 den.) grouped by customer, sorted by overdue then open amount. */
 export function opGroups(invoices: readonly OpInvoice[], letters: readonly OpLetter[], payDays: number, today: string): OpGroup[] {
   const by = new Map<string, OpGroup>();

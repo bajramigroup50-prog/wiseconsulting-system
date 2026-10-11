@@ -4,7 +4,9 @@ import { redirect } from 'next/navigation';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { ROLE_IDS } from '@wise/core';
-import { audit, sessions, userFirms, users } from '@wise/db';
+import { audit, fileLinks, files, getOfficeProfile, patchOfficeZz, sessions, userFirms, users } from '@wise/db';
+import { can } from '@wise/core';
+import { zzIzjNext } from '@wise/core/office';
 import { hashPassword, verifyPassword } from '@wise/db/password';
 import { requireCan, requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -102,4 +104,35 @@ export async function changeMyPassword(_prev: FormState, form: FormData): Promis
   });
   revalidatePath('/', 'layout');
   return { ok: 'Лозинката е променета.' };
+}
+
+/**
+ * Legacy `zzIzjSign` / `zzIzjUp` (15464–15468, ACT_NEED `users`): a colleague's confidentiality statement (ЗЗЛП) —
+ * „✓ Потпишана“ / „↺“ (undo only with `del`, „Само одговорното лице може да врати.“) or the scanned signed copy
+ * (📎, also marks it signed). The checklist item „iz“ follows: done once every colleague signed.
+ */
+export async function zzIzj(uid: string, fileId: string | null = null): Promise<FormState> {
+  const me = await requireCan('users');
+  const [t] = await db().select({ id: users.id, name: users.name }).from(users).where(eq(users.id, uid)).limit(1);
+  if (!t) return { error: 'Корисникот не постои.' };
+  let file: { id: string; name: string } | null = null;
+  if (fileId) {
+    const [f] = await db().select({ id: files.id, name: files.name }).from(files).where(and(eq(files.id, fileId), eq(files.status, 'ready'))).limit(1);
+    if (!f) return { error: 'Датотеката не е пронајдена.' };
+    file = f;
+  }
+  const res = await db().transaction(async (tx) => {
+    const O = await getOfficeProfile(tx);
+    const coll = (await tx.select({ id: users.id }).from(users).where(and(eq(users.active, true), ne(users.role, 'klient'), ne(users.role, 'admin')))).map((x) => x.id);
+    const r = zzIzjNext(O.zzlp?.izj ?? {}, uid, file ? { file } : { toggle: true }, new Date().toISOString().slice(0, 10), me.name, coll);
+    if (r.undo && !can(me.principal, 'del')) return { error: 'Само одговорното лице може да врати.' };
+    await patchOfficeZz(tx, 'izj', { [uid]: r.izj }, me.id);
+    await patchOfficeZz(tx, 'chk', { iz: r.iz }, me.id);
+    if (file) await tx.insert(fileLinks).values({ fileId: file.id, entityType: 'user', entityId: uid, role: 'izjava' }).onConflictDoNothing();
+    await audit(tx, { userId: me.id, action: file ? 'zzIzjUp' : 'zzIzjSign', entityType: 'user', entityId: uid, data: { text: 'Изјава за доверливост ' + (r.undo ? 'вратена' : 'потпишана') + ': ' + t.name, ...(file ? { fileId: file.id } : {}) } });
+    return { ok: file ? '✓ Потпишаната изјава е зачувана.' : r.undo ? 'Вратено.' : '✓ Потпишана.' };
+  });
+  revalidatePath('/korisnici');
+  revalidatePath('/zzlp');
+  return res;
 }

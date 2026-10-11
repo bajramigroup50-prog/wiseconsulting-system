@@ -7,7 +7,7 @@
  */
 import { revalidatePath } from 'next/cache';
 import { and, eq } from 'drizzle-orm';
-import { OP_LV, type OpGroup } from '@wise/core/firms/dunning';
+import { OP_LV, opOnlyIds, type OpGroup } from '@wise/core/firms/dunning';
 import { audit, dunningLetters, partners, textMailHtml, type Tx } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -32,13 +32,13 @@ async function logLetter(tx: Tx, a: { firmId: string; userId: string; g: OpGroup
 }
 
 /** Legacy `opMailGo`: send one letter by e-mail (the user may edit subject and text). */
-export async function sendDunning(pid: string, _p: ActionState, f: FormData): Promise<ActionState> {
+export async function sendDunning(pid: string, only: string | null, _p: ActionState, f: FormData): Promise<ActionState> {
   try {
     const { u, firm } = await officeAction('write');
     const lvl = lvlOk(f.get('lvl'));
     const to = String(f.get('to') ?? '').trim();
     if (!validAddresses(to)) return { error: 'Внесете валидна е-пошта.' };
-    const D = await loadDunning(firm);
+    const D = await loadDunning(firm, db(), opOnlyIds(only));
     const g = D.G.find((x) => x.pid === pid);
     if (!g || g.over <= 0) return { error: 'Купувачот нема достасани неплатени фактури.' };
     const { X, html } = letterFor(D, g, lvl);
@@ -86,12 +86,12 @@ export async function sendDunningAll(): Promise<ActionState> {
 }
 
 /** Legacy `opPdf` / `opWaDone`: remember a letter printed as PDF or sent through WhatsApp / Viber. */
-export async function logDunning(pid: string, lvl0: number, channel: string): Promise<ActionState> {
+export async function logDunning(pid: string, lvl0: number, channel: string, only: string | null = null): Promise<ActionState> {
   try {
     const { u, firm } = await officeAction('write');
     if (!(CHANNELS as readonly string[]).includes(channel)) return { error: 'Непознат канал.' };
     const lvl = lvlOk(lvl0);
-    const D = await loadDunning(firm);
+    const D = await loadDunning(firm, db(), opOnlyIds(only));
     const g = D.G.find((x) => x.pid === pid);
     if (!g) return { error: 'Купувачот нема отворени фактури.' };
     const { X } = letterFor(D, g, lvl);

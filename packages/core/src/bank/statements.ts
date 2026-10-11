@@ -26,6 +26,8 @@ export interface StatementDay {
  * legacy keyed balances, `ensureIzvNos` FIX #12); KB files carry a number per line.
  */
 export function splitStatementByDate(st: Statement): StatementDay[] {
+  // legacy 12681: a КБ leading record („водечки слог“) has only the balances → one day without lines
+  if (!st.lines.length) return st.date && (st.opening != null || st.closing != null) ? [{ date: st.date, no: st.no, opening: st.opening, closing: st.closing, lines: [] }] : [];
   const by = new Map<string, StatementLine[]>();
   for (const l of st.lines) {
     const d = l.date || st.date;

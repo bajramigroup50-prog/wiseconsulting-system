@@ -25,6 +25,7 @@ import {
   aiDocuments, appSettings, autopilotFindings, autopilotMessages, autopilotMetrics, autopilotRuns, clientEntries, dossierDocs, employees, fileLinks, files,
   firmDeadlines, firms, inboxItems, invoices, officeCounters, officeTasks, partners, payrollRuns, recurringInvoices, reminders,
   salesDaily, users, vatPeriods, OFFICE_FILE_ENTITY,
+  mpinInbox,
 } from './schema/index';
 
 /* ---------------- Numbering (FIX #8) ---------------- */
@@ -53,7 +54,7 @@ export interface OfficeProfile {
   apAuto?: Partial<Record<ClientMessage['type'], boolean>>;
   /** Autopilot: create an office task for new `bad` findings. */
   apTasks?: boolean;
-  zzlp?: { chk?: Record<string, boolean> };
+  zzlp?: { chk?: Record<string, boolean>; izj?: Record<string, { signed?: boolean; at?: string; by?: string; fileId?: string; fileName?: string }> };
 }
 
 export async function getOfficeProfile(tx: Tx): Promise<OfficeProfile> {
@@ -69,6 +70,20 @@ export async function patchOfficeProfile(tx: Tx, patch: Partial<OfficeProfile>, 
   const p = JSON.stringify(patch);
   await tx.insert(appSettings).values({ key: 'office', value: patch, updatedBy: userId })
     .onConflictDoUpdate({ target: appSettings.key, set: { value: sql`${appSettings.value} || ${p}::jsonb`, updatedBy: userId } });
+}
+
+/**
+ * Merge `patch` into `office.zzlp[key]` (one statement). FIX: `patchOfficeProfile({ zzlp: { chk } })` replaced the whole
+ * `zzlp` object, so the checklist and the colleagues' statements (`izj`) overwrote each other.
+ */
+export async function patchOfficeZz(tx: Tx, key: 'chk' | 'izj', patch: Record<string, unknown>, userId: string | null): Promise<void> {
+  const p = JSON.stringify(patch);
+  const init = JSON.stringify({ zzlp: { [key]: patch } });
+  await tx.insert(appSettings).values({ key: 'office', value: JSON.parse(init), updatedBy: userId })
+    .onConflictDoUpdate({ target: appSettings.key, set: {
+      value: sql`${appSettings.value} || jsonb_build_object('zzlp', coalesce(${appSettings.value}->'zzlp', '{}'::jsonb) || jsonb_build_object(${key}::text, coalesce(${appSettings.value}->'zzlp'->${key}, '{}'::jsonb) || ${p}::jsonb))`,
+      updatedBy: userId,
+    } });
 }
 
 /* ---------------- Data from other phases ---------------- */
@@ -544,6 +559,8 @@ export interface InboxRouteResult {
   aiDocIds: string[];
   /** Files skipped because the same file is already attached to a purchase / invoice. */
   skipped: string[];
+  /** `mpin_inbox` rows queued — enqueue `mpin.read` `{rowId}` after COMMIT (payroll route). */
+  mpinRowIds?: string[];
 }
 
 /**
@@ -573,6 +590,11 @@ export async function routeInboxFiles(tx: Tx, a: { itemId: string; firmId: strin
       out.aiDocIds.push(d!.id);
     }
     out.ref = out.aiDocIds.length ? `ai_document:${out.aiDocIds.join(',')}` : null;
+  } else if (T.mpin && F.length) {
+    // legacy v453 irRoute: the payroll file is read as an МПИН into the all-firms list, already assigned to this firm
+    const R = await tx.insert(mpinInbox).values(F.map((f) => ({ fileId: f.id, name: f.name, firmId: a.firmId, createdBy: a.userId }))).returning({ id: mpinInbox.id });
+    out.mpinRowIds = R.map((r) => r.id);
+    out.ref = `mpin_inbox:${out.mpinRowIds.join(',')}`;
   } else {
     const cat = a.kind === 'dossier' && a.category && (DOS_CAT as readonly string[]).includes(a.category) ? a.category : T.dossier ?? 'Друго';
     const one = F.length === 1 ? F[0]!.name : null;
@@ -586,6 +608,28 @@ export async function routeInboxFiles(tx: Tx, a: { itemId: string; firmId: strin
   await tx.update(inboxItems).set({ done: true, doneBy: a.userId, doneAt: new Date(), route: a.kind, routeRef: out.ref }).where(eq(inboxItems.id, i.id));
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'irGo', entityType: 'inbox_item', entityId: i.id, data: { route: a.kind, fileIdx: a.fileIdx, ref: out.ref, skipped: out.skipped.length } });
   return out;
+}
+
+/**
+ * Legacy v453 `irRoute` fallback (14104 → `irArch`): a payroll file routed from the client inbox that the read found
+ * not to be an МПИН goes to the firm dossier („Плати и персонал“) instead, and leaves the МПИН list. No-op for rows
+ * not coming from the inbox. Returns the dossier document id.
+ */
+export async function mpinInboxFallback(tx: Tx, rowId: string): Promise<string | null> {
+  const [r] = await tx.select().from(mpinInbox).where(eq(mpinInbox.id, rowId)).limit(1);
+  if (!r || r.status !== 'notm' || r.cleared) return null;
+  const [l] = await tx.select({ itemId: fileLinks.entityId }).from(fileLinks).where(and(eq(fileLinks.fileId, r.fileId), eq(fileLinks.entityType, OFFICE_FILE_ENTITY.inbox))).limit(1);
+  const [i] = l ? await tx.select().from(inboxItems).where(eq(inboxItems.id, l.itemId)).limit(1) : [];
+  if (!i || !String(i.routeRef ?? '').includes(rowId)) return null;
+  const cat = INBOX_ROUTE_TARGET.payroll.dossier!;
+  const [d] = await tx.insert(dossierDocs).values({
+    firmId: i.firmId, category: cat, title: `${cat} – ${r.name}`.slice(0, 200), date: i.createdAt.toISOString().slice(0, 10), fromInboxId: i.id, createdBy: r.createdBy,
+  }).returning({ id: dossierDocs.id });
+  await tx.insert(fileLinks).values({ fileId: r.fileId, entityType: OFFICE_FILE_ENTITY.dossier, entityId: d!.id }).onConflictDoNothing();
+  await tx.update(mpinInbox).set({ cleared: true, res: 'Не е МПИН – архивирано во досие (Плати и персонал).' }).where(eq(mpinInbox.id, rowId));
+  await tx.update(inboxItems).set({ routeRef: `dossier_doc:${d!.id}` }).where(eq(inboxItems.id, i.id));
+  await audit(tx, { userId: r.createdBy, firmId: i.firmId, action: 'irArch', entityType: 'inbox_item', entityId: i.id, data: { from: 'mpin', rowId, dossier: d!.id } });
+  return d!.id;
 }
 
 /* ---------------- Reminders ---------------- */

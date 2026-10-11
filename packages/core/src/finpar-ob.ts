@@ -147,3 +147,16 @@ export function obBankRows<R extends { account: string }>(rows: readonly R[], ha
   const seen = new Set<string>();
   return rows.filter((r) => /^10[03]\d*$/.test(r.account) && r.account !== '100' && r.account !== '103' && !have.has(r.account) && !seen.has(r.account) && !!seen.add(r.account));
 }
+
+/**
+ * Legacy `npImport` 17062 „📥 Пополни од аналитика“ (distribution of a 12.. / 22.. line without partner): from an
+ * analytic card / ИОС list / analytic trial balance (rows `[konto, name, partner, code, saldoD, saldoP]`) the rows of
+ * the konto (or of the same group when the sheet has only the 2-digit group) with a partner and a saldo, signed for
+ * the line's side (Д: saldoD − saldoP, П: saldoP − saldoD).
+ */
+export function npFromAnalytic(rows: readonly ObRowT[], konto: string, g: '12' | '22', side: 'd' | 'p'): { n: string; a: string }[] {
+  const sg = side === 'd' ? 1 : -1;
+  return rows.filter((r) => r[2] && (String(r[0]).startsWith(konto) || (String(r[0]).startsWith(g) && konto.startsWith(String(r[0]).slice(0, 2)))))
+    .map((r) => ({ n: String(r[2]).trim(), a: String(r2(sg * ((+r[4] || 0) - (+r[5] || 0)))) }))
+    .filter((r) => r.n && +r.a);
+}

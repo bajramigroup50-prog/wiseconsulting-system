@@ -28,7 +28,7 @@ export async function frInvoiceAction(_p: FormState, f: FormData): Promise<FormS
     const fx = await loadFxSources(tx, a.firmId);
     const inv = await invoiceFreightToursParity(tx, a, f.getAll('sel').map(String), today(), (c, d) => { try { return fxRate(c, d, fx) || 0; } catch { return 0; } });
     id = inv.id;
-    return `Фактура ${inv.number} од ${inv.tours} тури – проверете ја.`;
+    return `Нацрт-фактура од ${inv.tours} тури – проверете и зачувајте.`;
   });
   if (r.error || !id) return r;
   redirect(`/izlez?edit=${id}`);

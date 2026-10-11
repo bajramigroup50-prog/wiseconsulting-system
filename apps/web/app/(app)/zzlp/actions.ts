@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
 import { gdprDue, isGdprKind, ZZ_CHK } from '@wise/core/office';
-import { audit, gdprRecords, OFFICE_FILE_ENTITY, patchOfficeProfile } from '@wise/db';
+import { audit, gdprRecords, OFFICE_FILE_ENTITY, patchOfficeZz } from '@wise/db';
 import { requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -51,7 +51,7 @@ export async function saveZzChecklist(_p: ActionState, f: FormData): Promise<Act
     const u = await requireCan('settings');
     const chk = Object.fromEntries(ZZ_CHK.map(([k]) => [k, f.get(`chk_${k}`) === 'on']));
     await db().transaction(async (tx) => {
-      await patchOfficeProfile(tx, { zzlp: { chk } }, u.id);
+      await patchOfficeZz(tx, 'chk', chk, u.id);
       await audit(tx, { userId: u.id, action: 'zzSaveOff', entityType: 'app_settings', entityId: 'office', data: chk });
     });
     revalidatePath('/zzlp');

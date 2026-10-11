@@ -69,3 +69,17 @@ export function routeVerdict(role: GuardRole, pathname: string, views: readonly 
   }
   return allowed.has(seg) ? null : ROLE_HOME[role];
 }
+
+/** Cookie of legacy `S.asClient` (👁 Преглед како клиент): the firm id the office user previews as its client. */
+export const PREVIEW_COOKIE = 'wc_ascl';
+
+/**
+ * Legacy `klAllowed` while an office user previews the client portal (`S.asClient`): pages outside the client's
+ * sections go back to 🏠 Почетна, `klExit` leaves the preview. API calls are not touched (the office user keeps
+ * their own rights; the preview narrows only what is shown) and the klient / teren guard above is unchanged.
+ */
+export function previewVerdict(pathname: string, views: readonly string[]): string | null {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  if (p.startsWith('/api/')) return null;
+  return routeVerdict('klient', p, [...views, 'klExit']);
+}

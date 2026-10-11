@@ -2,35 +2,39 @@
  * Legacy `VIEWS.opomeni` (13337 + patches 13404, 13429) — Неплатени фактури и опомени: issued invoices that are not
  * paid, grouped by customer; letters by e-mail, WhatsApp / Viber or PDF with late interest and costs (v401); the level
  * is suggested from the letters already sent.
- * Gap: legacy `opOnly` (open only the invoices ticked in Излез) and the „Картица“ shortcut.
+ * `?ids=` = legacy `opOnly` (v406, 16893): only the invoices ticked in Излезни фактури. Gap: the „Картица“ shortcut.
  */
 import Link from 'next/link';
 import { can } from '@wise/core';
-import { waPhone } from '@wise/core/firms/dunning';
+import { opOnlyIds, waPhone } from '@wise/core/firms/dunning';
 import { officePage } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { saveDunningSettings, sendDunningAll } from './actions';
-import { letterFor, loadDunning } from './data';
+import { invoiceNumbers, letterFor, loadDunning } from './data';
 import { GroupActions, WaAllRow } from './group-actions';
 
 const LV = ['1. Опомена', '2. Опомена', 'Последна опомена пред тужба'];
 const fc = (c: number) => (c / 100).toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default async function OpomeniPage({ searchParams }: { searchParams: Promise<{ all?: string; wa?: string }> }) {
+export default async function OpomeniPage({ searchParams }: { searchParams: Promise<{ all?: string; wa?: string; ids?: string }> }) {
   const { u, firm } = await officePage('opomeni');
   if (!firm) return <NoFirm t="Неплатени фактури и опомени" />;
   const sp = await searchParams;
-  const all = sp.all === '1';
-  const D = await loadDunning(firm);
+  const only = opOnlyIds(sp.ids);
+  // legacy `opGoSel`: with ticked invoices the not-yet-due ones are shown too
+  const all = sp.all === '1' || !!only;
+  const D = await loadDunning(firm, undefined, only);
+  const onlyInv = only ? D.G.flatMap((g) => g.rows) : [];
+  const selNo = only ? await invoiceNumbers(firm.id, only) : [];
   const write = can(u.principal, 'write', firm.id), settings = can(u.principal, 'settings', firm.id);
   const L = D.G.filter((g) => all || g.over > 0);
   const T = L.reduce((s, g) => s + g.over, 0), Tall = D.G.reduce((s, g) => s + g.open, 0);
   const N = D.G.flatMap((g) => g.rows).filter((r) => r.days <= 0);
   const withMail = D.G.filter((g) => g.over > 0 && D.pOf(g.pid).email).length;
-  const q = (o: Record<string, string>) => '/opomeni?' + new URLSearchParams({ ...(all ? { all: '1' } : {}), ...o }).toString();
+  const q = (o: Record<string, string>) => '/opomeni?' + new URLSearchParams({ ...(all ? { all: '1' } : {}), ...(only ? { ids: only.join(',') } : {}), ...o }).toString();
   const over = D.G.filter((g) => g.over > 0);
   const W = over.filter((g) => waPhone(D.pOf(g.pid).phone)), NW = over.filter((g) => !waPhone(D.pOf(g.pid).phone));
   return (
@@ -47,6 +51,15 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
         <div className="tile"><span>Рок кога фактурата нема рок</span><b>{Math.floor(Number(firm.settings && (firm.settings as { payDays?: unknown }).payDays) || 15)} дена</b></div>
         <div className="tile"><span>Затезна камата · трошоци</span><b>{D.rate ? String(D.rate).replace('.', ',') + '%' : 'без камата'}</b><i>{D.cost ? fc(D.cost) + ' ден. за опомена' : 'без трошоци'}</i></div>
       </div>
+      {only && (() => {
+        const nd = onlyInv.filter((r) => r.days <= 0);
+        return (
+          <div className="callout" id="opSel">☑ Прикажани се само избраните фактури: <b>{selNo.join(', ')}</b> <Link className="btn sm" href="/opomeni">Прикажи ги сите</Link>
+            {nd.length > 0 && <><br />⚠ {nd.map((r, i) => <span key={r.inv.id}>{i ? '; ' : ''}<b>{r.inv.number}</b> ({D.pOf(r.inv.partnerId ?? '—').name}) не е достасана – рок {dmy(r.due)}</span>)}. Опомена се праќа дури по рокот; фактурата ја праќате од прегледот на фактурата (👁 → ✉ Е-пошта / WhatsApp).</>}
+            {onlyInv.length < selNo.length && <><br />Некои од избраните се веќе платени.</>}
+          </div>
+        );
+      })()}
       {settings && (
         <details className="card">
           <summary><b>⚙ Рок, затезна камата и трошоци</b></summary>
@@ -103,7 +116,7 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
                 ))}
               </tbody>
             </table></div>
-            {g.over > 0 && <GroupActions pid={g.pid} lvlAuto={g.lvlAuto} email={p.email ?? ''} phone={waPhone(p.phone)} texts={texts} canMail={write} />}
+            {g.over > 0 && <GroupActions pid={g.pid} lvlAuto={g.lvlAuto} email={p.email ?? ''} phone={waPhone(p.phone)} texts={texts} canMail={write} only={only ? only.join(',') : null} />}
           </div>
         );
       }) : <div className="card empty">✓ Нема достасани неплатени фактури.</div>}

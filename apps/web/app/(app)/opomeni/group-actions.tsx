@@ -6,18 +6,20 @@ import { logDunning, sendDunning } from './actions';
 
 const LV = ['1. Опомена', '2. Опомена', 'Последна опомена пред тужба'];
 
-export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail }: {
+export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail, only = null }: {
   pid: string; lvlAuto: number; email: string; phone: string; texts: { subj: string; body: string }[]; canMail: boolean;
+  /** Legacy `opOnly`: comma-separated invoice ids ticked in Излез (the letter covers only those). */
+  only?: string | null;
 }) {
   const [lvl, setLvl] = useState(lvlAuto);
   const [open, setOpen] = useState<'' | 'mail' | 'wa'>('');
   const [ph, setPh] = useState(phone);
-  const [st, run, busy] = useActionState<RowResult, FormData>(sendDunning.bind(null, pid), {});
+  const [st, run, busy] = useActionState<RowResult, FormData>(sendDunning.bind(null, pid, only), {});
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState('');
   const t = texts[lvl]!;
   const [waText, setWaText] = useState(t.body);
-  const log = (channel: string) => start(async () => { const r = await logDunning(pid, lvl, channel); setMsg(r.error ?? r.ok ?? ''); });
+  const log = (channel: string) => start(async () => { const r = await logDunning(pid, lvl, channel, only); setMsg(r.error ?? r.ok ?? ''); });
   return (
     <>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
@@ -26,7 +28,7 @@ export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail }: {
         </select>
         {canMail && <button type="button" className="btn sm pri" onClick={() => setOpen(open === 'mail' ? '' : 'mail')}>✉ Е-пошта</button>}
         {canMail && <button type="button" className="btn sm" style={{ borderColor: '#25D366' }} onClick={() => { setWaText(t.body); setOpen(open === 'wa' ? '' : 'wa'); }}>💬 WhatsApp / Viber</button>}
-        <button type="button" className="btn sm" disabled={pending} onClick={() => { window.open(`/opomeni/pecati?p=${encodeURIComponent(pid)}&l=${lvl}`, '_blank'); if (canMail) log('PDF'); }}>⬇ PDF опомена</button>
+        <button type="button" className="btn sm" disabled={pending} onClick={() => { window.open(`/opomeni/pecati?p=${encodeURIComponent(pid)}&l=${lvl}${only ? '&ids=' + encodeURIComponent(only) : ''}`, '_blank'); if (canMail) log('PDF'); }}>⬇ PDF опомена</button>
         {msg && <span className="mini">{msg}</span>}
       </div>
       {open === 'mail' && (

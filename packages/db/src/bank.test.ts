@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { parseMT940, type Statement } from '@wise/core';
+import { parseKB, parseMT940, type Statement } from '@wise/core';
 import {
   addManualLine, applyMatches, cashBook, closeTransit, deleteStatement, deleteVoucher, lineOpenDocs, linkLine, loadRegisters,
   createDefaultRegisters, proposeMatches, saveBankAccount, saveFxList, saveImport, savePaymentOrder, saveVoucher, setLineKonto,
@@ -284,5 +284,30 @@ describe('compensations', () => {
     expect((await T((tx) => kompOpenItems(tx, firmId, 2026, [g], r.id))).length).toBe(2);
     await T((tx) => deleteCompensation(tx, { firmId, userId: null, id: r.id }));
     expect(await journalOf('compensation', r.id)).toBeNull();
+  });
+});
+
+describe('КБ KBFileFormat (.300): special account and leading record (legacy 12668–12690)', () => {
+  const items = '30000000099990000001 MKD0010122026.03.102026.03.10+0.00+0.00+500.00+500.00 123456 210000000000123\n';
+  const head = '30000000099990000001 MKD0010122026.03.10+1000.00+1000.00+1500.00+1500.00\n';
+  it('an unknown account becomes „Посебна сметка“ on 108x; its lines go to 1009', async () => {
+    const st = parseKB(items)!;
+    expect(st.lines).toHaveLength(1);
+    const r = await T((tx) => saveImport(tx, { firmId, userId: null, statements: [st], format: 'kb' }));
+    expect(r.lines).toBe(1);
+    const [a] = await db.select().from(schema.bankAccounts).where(and(eq(schema.bankAccounts.firmId, firmId), eq(schema.bankAccounts.account, '3000000009999')));
+    expect(a!.name).toBe('Посебна сметка 3000000009999');
+    expect(a!.konto).toMatch(/^108\d$/);
+    const [s1] = await db.select().from(schema.bankStatements).where(eq(schema.bankStatements.bankAccountId, a!.id));
+    expect((await stLines(s1!.id))[0]).toMatchObject({ konto: '1009', auto: 'tech' });
+  });
+  it('a leading record (balances only) stores the balances and number of the statement', async () => {
+    const st = parseKB(head)!;
+    expect(st.lines).toHaveLength(0);
+    const r = await T((tx) => saveImport(tx, { firmId, userId: null, statements: [st], format: 'kb' }));
+    expect(r.balances).toBe(1);
+    const [a] = await db.select().from(schema.bankAccounts).where(and(eq(schema.bankAccounts.firmId, firmId), eq(schema.bankAccounts.account, '3000000009999')));
+    const [s1] = await db.select().from(schema.bankStatements).where(and(eq(schema.bankStatements.bankAccountId, a!.id), eq(schema.bankStatements.date, '2026-03-10')));
+    expect(s1).toMatchObject({ opening: '1000.00', closing: '1500.00' });
   });
 });

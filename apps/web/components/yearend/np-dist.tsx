@@ -1,6 +1,9 @@
 'use client';
 /** Legacy `npModal` 17048: distribute one journal line without partner (konto 12.. / 22..) over partners. */
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
+import { csvToGrid, parseOpeningSheet, type ObRow } from '@wise/core';
+import { npFromAnalytic, obFromAi } from '@wise/core/finpar-ob';
+import { AiReadList, useAiRead } from '@/components/ai-read';
 import { useRouter } from 'next/navigation';
 import { npDistAction } from '@/app/(app)/zsProc/actions';
 
@@ -9,7 +12,7 @@ export interface NpLine { id: number; account: string; side: 'd' | 'p'; amt: num
 const f2 = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (s: string) => { const v = Number(String(s ?? '').replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return Number.isFinite(v) ? v : 0; };
 
-export function NpDist({ g, list, ti, names, turnover }: { g: '12' | '22'; list: NpLine[]; ti: number; names: string[]; turnover: string[] }) {
+export function NpDist({ firmId, g, list, ti, names, turnover }: { firmId: string; g: '12' | '22'; list: NpLine[]; ti: number; names: string[]; turnover: string[] }) {
   const T = list[ti]!;
   const [rows, setRows] = useState<{ n: string; a: string }[]>([{ n: '', a: '' }]);
   const [msg, setMsg] = useState<{ ok?: string; error?: string } | null>(null);
@@ -19,6 +22,36 @@ export function NpDist({ g, list, ti, names, turnover }: { g: '12' | '22'; list:
   const rest = Math.round((T.amt - dist) * 100) / 100;
   const who = g === '12' ? 'купувачи' : 'добавувачи';
   const imp = T.kind === 'bbimp' || T.kind === 'open';
+  // legacy `npImport` 17062 „📥 Пополни од аналитика“: Excel / CSV parsed here, PDF / images read by AI (kind `ob`)
+  const [npMsg, setNpMsg] = useState('');
+  const ai = useAiRead(firmId);
+  const fill = (R: readonly ObRow[]) => {
+    const add = npFromAnalytic(R, T.account, g, T.side);
+    if (!add.length) { setNpMsg('Не се најдени редови со партнер за конто ' + T.account + '.'); return; }
+    setRows((cur) => [...cur.filter((r) => r.n || r.a), ...add]);
+    const tot = Math.round(add.reduce((s, r) => s + num(r.a), 0) * 100) / 100;
+    setNpMsg('✓ ' + add.length + ' партнери · ' + f2(tot) + (Math.abs(tot - T.amt) < 1 ? ' – се совпаѓа со салдото ✓' : ' – салдото е ' + f2(T.amt) + ', проверете'));
+  };
+  useEffect(() => {
+    const d = ai.docs.find((x) => x.status === 'done');
+    if (!d) return;
+    ai.reset();
+    fill(obFromAi(d.result, { full: true }).rows);
+  }, [ai.docs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const npImport = async (file: File) => {
+    setNpMsg('⏳ Се чита…');
+    try {
+      if (/\.(csv|txt)$/i.test(file.name)) { const R = parseOpeningSheet(csvToGrid(await file.text()), 'csv'); if (R?.rows.length) return fill(R.rows); }
+      else if (/\.(xlsx|xls)$/i.test(file.name)) {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+        const R = parseOpeningSheet(XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]!]!, { header: 1, raw: true, defval: '' }), 'excel');
+        if (R?.rows.length) return fill(R.rows);
+      }
+      if (!/pdf|image\//i.test(file.type) && !/\.(pdf|jpe?g|png|webp)$/i.test(file.name)) { setNpMsg('Не се најдени редови со партнер за конто ' + T.account + '.'); return; }
+      await ai.read('ob', [file]);
+    } catch (e) { setNpMsg('Не успеа читањето: ' + ((e as Error)?.message ?? '')); }
+  };
   return (
     <div className="card" style={{ borderColor: 'var(--accent)' }}>
       <div className="hd"><h2>Распредели по {who} – конто {T.account}</h2><a className="btn" href="/zsKontrola">Затвори</a></div>
@@ -29,6 +62,9 @@ export function NpDist({ g, list, ti, names, turnover }: { g: '12' | '22'; list:
         {imp && <div className="mini">Износот е <b>збирното салдо</b> на конто {T.account} од {T.kind === 'bbimp' ? 'увезениот бруто биланс' : 'почетната состојба'} – при увозот не беа прочитани имињата на {who}. Во стариот програм отпечатете аналитичка картица / ИОС по {who} за конто {T.account} и препишете ги салдата тука.</div>}
         {T.withP > 0 && <div className="mini">На истото конто во налогот веќе има {T.withP} ставки со партнер.</div>}
         {list.length > 1 && <div className="mini">Ставки без партнер: {list.map((x, i) => <a key={x.id} className={`pill ${i === ti ? 'info' : ''}`} href={`/zsKontrola?np=${g}&ti=${i}`}>{x.account} · {f2(x.amt)}</a>)}</div>}
+      </div>
+      <div style={{ display: 'block', margin: '8px 0', padding: '8px 10px', border: '1px dashed var(--line)', borderRadius: 8 }}><b>📥 Пополни од аналитика</b> <span style={{ fontSize: 12.5, opacity: 0.85 }}>– Excel / CSV / PDF од стариот програм (аналитичка картица по купувачи, ИОС листа или аналитички бруто биланс): се земаат редовите на конто {T.account} со партнер и салдо.</span> <label className="btn sm" style={{ marginLeft: 6 }}>Избери датотека<input type="file" accept=".pdf,.xlsx,.xls,.csv,image/*" hidden disabled={ai.busy} onChange={(e) => { const x = e.target.files?.[0]; e.target.value = ''; if (x) void npImport(x); }} /></label> <span className="mini">{npMsg}</span>
+        <AiReadList docs={ai.docs} msg={ai.msg} />
       </div>
       <datalist id="npPL">{names.map((n) => <option key={n} value={n} />)}</datalist>
       <div className="tw"><table className="dense">

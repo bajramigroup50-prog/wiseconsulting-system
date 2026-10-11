@@ -5,6 +5,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { INBOX_ROUTES, type InboxRoute } from '@wise/core/office';
 import { audit, clientEntries, decideClientEntry, fileLinks, files, firmMail, firms, inboxItems, OFFICE_FILE_ENTITY, routeInboxFiles, textMailHtml } from '@wise/db';
 import { dispatchAiReads, queueAiReads } from '@/lib/ai';
+import { enqueue } from '@/lib/jobs';
 import { selectFirm } from '@/app/(app)/actions';
 import { requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
@@ -46,11 +47,12 @@ export async function routeInboxFile(docId: string, fileIdx: number | null, kind
     const u = await requireCan('office', i.firmId);
     const r = await db().transaction((tx) => routeInboxFiles(tx, { itemId: docId, firmId: i.firmId, fileIdx, kind, category, userId: u.id }));
     await dispatchAiReads(r.aiDocIds);
+    for (const rowId of r.mpinRowIds ?? []) await enqueue('mpin.read', { rowId });
     if (r.go) await selectFirm(i.firmId);
     revalidatePath('/klInbox');
     const what = INBOX_ROUTES[kind];
     return {
-      ok: `→ ${what}${r.aiDocIds.length ? `: се читаат ${r.aiDocIds.length} документи` : r.ref ? ': зачувано во досие' : ''}${r.skipped.length ? ` (прескокнато: ${r.skipped.join('; ')})` : ''}.`,
+      ok: `→ ${what}${r.aiDocIds.length ? `: се читаат ${r.aiDocIds.length} документи` : r.mpinRowIds?.length ? `: се чита МПИН (${r.mpinRowIds.length}) – проверете и „Распореди“` : r.ref ? ': зачувано во досие' : ''}${r.skipped.length ? ` (прескокнато: ${r.skipped.join('; ')})` : ''}.`,
       go: r.go,
     };
   } catch (e) { return officeError(e); }

@@ -140,12 +140,16 @@ export type InboxRoute = keyof typeof INBOX_ROUTES;
  * by AI into the scan review (`ai` kind, then the user saves them as documents); everything else is archived in
  * the dossier (`dossier` category, legacy `irArch`) and the office continues in the module screen (`go`).
  */
-export const INBOX_ROUTE_TARGET: Readonly<Record<InboxRoute, { ai?: 'purchase' | 'sale'; dossier?: string; go: string | null }>> = {
+/**
+ * `mpin`: legacy v453 `irRoute` 14104 — a payroll file a client sent is read as an МПИН into the all-firms list
+ * (`/mpinIn`); when it turns out not to be an МПИН it is archived in the dossier under `dossier` (legacy fallback `irArch`).
+ */
+export const INBOX_ROUTE_TARGET: Readonly<Record<InboxRoute, { ai?: 'purchase' | 'sale'; dossier?: string; mpin?: boolean; go: string | null }>> = {
   purchase: { ai: 'purchase', go: '/skan' },
   sale: { ai: 'sale', go: '/skan?k=sale' },
   bank: { dossier: 'Банкарски документи', go: '/banka' },
   fisk: { dossier: 'Благајна', go: '/fiskPer' },
-  payroll: { dossier: 'Плати и персонал', go: '/plati' },
+  payroll: { dossier: 'Плати и персонал', mpin: true, go: '/mpinIn' },
   employee: { dossier: 'Плати и персонал', go: '/vraboteni?nov' },
   cash: { dossier: 'Благајна', go: '/blagajna' },
   stock: { dossier: 'Магацински документи', go: '/g_lager' },

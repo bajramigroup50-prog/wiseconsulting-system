@@ -17,7 +17,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { addRecommended, onlyBase, removeNoticeImage, saveNote, saveProfiles, saveSections, setNoticeImage } from './actions';
+import { addRecommended, klPrevOn, onlyBase,removeNoticeImage, saveNote, saveProfiles, saveSections, setNoticeImage } from './actions';
 
 export default async function KlPortalPage() {
   const { firm } = await officePage('klPortal', { perm: 'office' });
@@ -39,7 +39,7 @@ export default async function KlPortalPage() {
     <>
       <Hd t="Портал за клиенти" sub={firm.name}>
         <Link className="btn" href="/klInbox">📥 Пристигнато{nIn?.n ? ` (${nIn.n})` : ''}</Link>
-        <Link className="btn pri" href="/klHome" title="Почетната страница како што ја гледа клиентот">👁 Види како клиент</Link>
+        <form action={klPrevOn} style={{ display: 'contents' }}><button className="btn pri" title="Програмата како што ја гледа клиентот на оваа фирма">👁 Види како клиент</button></form>
       </Hd>
       <div className="callout warn">Клиентите се најавуваат со улога <b>„Клиент“</b> (Систем → Корисници) и гледаат само своја фирма. Серверот ги одбива страниците и акциите што не се вклучени за клиентот.</div>
       <ActionForm action={saveProfiles} reset={false}>

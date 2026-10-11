@@ -10,7 +10,7 @@ import { uploadFile } from '@/lib/upload';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
 import { previewImportAction, saveImportAction, type PreviewResult } from './actions';
 
-const CLS: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија' };
+const CLS: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија', tech: 'посебна сметка' };
 
 /** PDF / image statements are read by the AI job (legacy `importBankImg`); everything else is parsed on the server. */
 const isAiFile = (f: File) => /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || /^image\/|pdf/.test(f.type);

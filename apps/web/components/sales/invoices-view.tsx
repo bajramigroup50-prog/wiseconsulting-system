@@ -22,7 +22,7 @@ import { fuelBannerFor, fuelRuleNow } from '@/lib/sales-parity';
 import { DownloadCsv } from '@/components/download-csv';
 import { approveInvoiceAction, deleteInvoiceAction, deleteInvoicesAction, fuelItemsRateAction, saveCrMode, saveInvoiceStyle } from '@/app/(app)/izlez/actions';
 import { loadDunning } from '@/app/(app)/opomeni/data';
-import { BulkBar, SelAll, SelBox } from './bulk-select';
+import { BulkBar, OpGoSel, SelAll, SelBox } from './bulk-select';
 import { ensureScanBuyer } from '@/app/(app)/skan/actions';
 import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-editor';
 import { blankLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
@@ -234,6 +234,10 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const lastInv = sp.style !== undefined ? (await db().select({ id: invoices.id }).from(invoices).where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'))).orderBy(desc(invoices.date)).limit(1))[0]?.id : undefined;
   // legacy `opHint` (16892): unpaid invoices past their due date
   const OP = kind === 'invoice' && dt === 'invoice' ? (await loadDunning(firm)).G.filter((g) => g.over > 0) : [];
+  // row ticks: admin bulk delete, and (legacy v406 `opGoSel`) dunning letters for the ticked issued invoices
+  const bulkDel = !!del && u.role === 'admin';
+  const opSel = kind === 'invoice' && dt === 'invoice' && write && u.role !== 'klient';
+  const sel = bulkDel || opSel;
   const fuel = dt === 'invoice' ? await fuelBannerFor(firm) : null;
   const sg = kind === 'credit' ? -1 : 1;
 
@@ -289,21 +293,21 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
         <label className="chk"><input type="radio" name="crMode" value="flip" defaultChecked={crMode === 'flip'} disabled={!settingsOk} /> на обратната страна</label>
         {settingsOk && <button className="btn sm">Зачувај</button>}
         <span className="mini">важи за целата фирма · салдата се исти, се менуваат само прометите</span></form>}
-      {OP.length > 0 && <div className="callout warn" id="opHint">⏰ <b>{OP.reduce((a, g) => a + g.rows.filter((r) => r.days > 0).length, 0)}</b> фактури кај <b>{OP.length}</b> купувачи се неплатени по рокот – вкупно <b>{fmt(OP.reduce((a, g) => a + g.over, 0) / 100)}</b> ден. <Link className="btn sm pri" href="/opomeni">Опомени →</Link></div>}
+      {OP.length > 0 && <div className="callout warn" id="opHint">⏰ <b>{OP.reduce((a, g) => a + g.rows.filter((r) => r.days > 0).length, 0)}</b> фактури кај <b>{OP.length}</b> купувачи се неплатени по рокот – вкупно <b>{fmt(OP.reduce((a, g) => a + g.over, 0) / 100)}</b> ден. <OpGoSel /></div>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px', flexWrap: 'wrap' }}>
         <input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број, комитент или шифра…" style={{ width: 260 }} />
         <select name="m" defaultValue={mo} style={{ width: 'auto' }}><option value="">Сите месеци</option>{['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((x) => <option key={x} value={x}>{x}/{year}</option>)}</select>
         <button className="btn">Филтрирај</button><span className="note">{list.length} од {all.length} документи</span>
       </form>
       {list.length ? (<>
-        {del && u.role === 'admin' && <BulkBar label={`🗑 Избриши ги избраните ({n})`} confirm={`Да се избришат {n} избрани ставки?
+        {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
-Ова не може да се врати.`} action={deleteInvoicesAction} />}
+Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : undefined} />}
         <div className="tw"><table className="dense">
-          <thead><tr>{del && u.role === 'admin' && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
+          <thead><tr>{sel && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
           <tbody>{list.map(({ i, p }) => (
             <tr key={i.id}>
-              {del && u.role === 'admin' && <td><SelBox id={i.id} /></td>}
+              {sel && <td><SelBox id={i.id} /></td>}
               <td className="num"><b>{i.number}</b></td>{inv && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
               <td>{dmy(i.date)}</td><td style={i.due && i.due < addDays(new Date().toISOString().slice(0, 10), 0) ? { color: 'var(--bad)' } : undefined}>{dmy(i.due)}</td>
               <td style={{ maxWidth: 280 }}>{p?.name}</td><td className="num">{p?.code}</td>
@@ -323,7 +327,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
                 {del && <RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} />}
               </td>
             </tr>))}</tbody>
-          <tfoot><tr>{del && u.role === 'admin' && <td />}<td colSpan={inv ? 6 : 5}>Вкупно ({list.length})</td><td className="n">{fmt(sg * T.b)}</td><td className="n">{fmt(sg * T.v)}</td><td className="n">{fmt(sg * T.t)}</td>{payCols && <><td className="n">{fmt(T.pd)}</td><td className="n">{fmt(T.r)}</td></>}<td colSpan={2} /></tr></tfoot>
+          <tfoot><tr>{sel && <td />}<td colSpan={inv ? 6 : 5}>Вкупно ({list.length})</td><td className="n">{fmt(sg * T.b)}</td><td className="n">{fmt(sg * T.v)}</td><td className="n">{fmt(sg * T.t)}</td>{payCols && <><td className="n">{fmt(T.pd)}</td><td className="n">{fmt(T.r)}</td></>}<td colSpan={2} /></tr></tfoot>
         </table></div></>
       ) : <div className="card empty">{all.length ? 'Нема документи за овој филтер.' : `Сè уште нема ${DT[dt].list.toLowerCase()} за ${year}.`}</div>}
     </>

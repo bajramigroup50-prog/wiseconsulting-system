@@ -15,11 +15,12 @@ import {
   type BankRow, type ImportClass, type Statement,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
-import { bankAccounts, bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
+import { accounts, bankAccounts, bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
+import { bankKontoName, techAccountKonto } from '@wise/core/bank/parity';
 import { dec, loadBankEnv, loadFxSources, POS_PARTNER_NAME, type BankEnv } from './context';
 import { postStatements } from './posting';
 import { toBankRow } from './rows';
-import { assertOpenPeriod } from '../posting';
+import { assertOpenPeriod, missingAccounts } from '../posting';
 
 export interface ImportOptions {
   firmId: string;
@@ -51,7 +52,7 @@ export interface PreviewLine {
   counterAccount?: string;
   dup: boolean;
   dupKey: string;
-  cls: ImportClass | 'fee';
+  cls: ImportClass | 'fee' | 'tech';
   konto?: string;
   partner?: string;
   newPartner?: string;
@@ -110,7 +111,7 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
     let acct = hit ? byId.get(hit.id)! : o.defaultAccountId ? byId.get(o.defaultAccountId) : undefined;
     // No account yet (e.g. a new firm): the statement's own account is opened on save — preview it as a new account.
     if (!acct && (st.account || st.iban)) {
-      acct = newAccountFor(st, o.firmId);
+      acct = newAccountFor(st, o.firmId, accts.map((a) => a.konto));
       warnings.push(`Банкарската сметка ${st.iban || st.account} не постои – ќе се отвори при зачувување (конто ${acct.konto}).`);
     }
     if (!acct) { errors.push(`Не е пронајдена банкарска сметка за изводот${st.account ? ' ' + st.account : ''} – додадете ја сметката или изберете ја.`); continue; }
@@ -149,6 +150,8 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
           let booked: BankRow = row;
           let newPartner: string | undefined;
           if (p.fee) { cls = 'fee'; booked = { ...row, konto: env.konta.fee }; }
+          // legacy 12684: a КБ special account (konto 108x) books every line against the transfer konto 1009
+          else if (/^108/.test(String(acct.konto ?? ''))) { cls = 'tech'; booked = { ...row, konto: '1009' }; }
           else {
             const c = classifyImported(row, { accounts: env.accounts, partners: env.partners, invoices: [], purchases: [], firmName: env.firm.name, posPartner: env.posPartner, konta: env.konta });
             cls = c.cls; booked = c.row; newPartner = c.newPartner;
@@ -184,14 +187,24 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
   return { days, warnings: [...new Set(warnings)], errors, needPosPartner };
 }
 
-export interface ImportResult { batch: string; statements: number; lines: number; skipped: number; posted: number; drafts: number; plan: ImportPlan }
+export interface ImportResult {
+  batch: string; statements: number; lines: number; skipped: number; posted: number; drafts: number; plan: ImportPlan;
+  /** Statements updated from a balances-only file (КБ „водечки слог“). */
+  balances?: number;
+}
 
-/** A bank account for a statement whose account the firm does not have yet (MKD → 1000, foreign → 1030). */
-function newAccountFor(st: Statement, firmId: string): BankAccountRow {
+/**
+ * A bank account for a statement whose account the firm does not have yet (MKD → 1000, foreign → 1030). A КБ
+ * KBFileFormat (.300) file of an unknown account is a special account (legacy 12677: „Посебна сметка …“, first free
+ * konto 1080…1089).
+ */
+function newAccountFor(st: Statement, firmId: string, usedKontos: readonly (string | null)[] = []): BankAccountRow {
   const cur = (st.currency || 'MKD').toUpperCase();
+  const kb = st.format === 'kb';
   return {
-    id: `new:${st.iban || st.account}`, firmId, legacyId: null, name: st.owner ? `Сметка ${st.account || st.iban}` : `Банка ${st.account || st.iban}`,
-    account: st.account || null, iban: st.iban || null, cur, konto: cur === 'MKD' ? '1000' : '1030', nal: null, sort: 99, active: true,
+    id: `new:${st.iban || st.account}`, firmId, legacyId: null,
+    name: kb ? `Посебна сметка ${st.account}` : st.owner ? `Сметка ${st.account || st.iban}` : `Банка ${st.account || st.iban}`,
+    account: st.account || null, iban: st.iban || null, cur, konto: kb ? techAccountKonto(usedKontos.map(String)) : cur === 'MKD' ? '1000' : '1030', nal: null, sort: 99, active: true,
     createdAt: new Date(), updatedAt: new Date(),
   } as BankAccountRow;
 }
@@ -204,9 +217,11 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     const fallback = o.defaultAccountId && env0.accountRows.some((a) => a.id === o.defaultAccountId);
     for (const st of o.statements) {
       if (!(st.account || st.iban) || statementAccount(st, rows) || fallback) continue;
-      const n = newAccountFor(st, o.firmId);
+      const n = newAccountFor(st, o.firmId, rows.map((r) => r.konto));
       const [a] = await tx.insert(bankAccounts).values({ firmId: o.firmId, name: n.name, account: n.account, iban: n.iban, cur: n.cur, konto: n.konto, sort: rows.length }).returning();
       rows.push({ ...a!, account: a!.account ?? '' });
+      // the konto of the new account must be in the chart (legacy `addBankAcct` created it)
+      if ((await missingAccounts(tx, o.firmId, [n.konto])).length) await tx.insert(accounts).values({ firmId: o.firmId, code: n.konto, name: bankKontoName(n.name, n.cur) }).onConflictDoNothing();
       await audit(tx, { userId: o.userId, firmId: o.firmId, action: 'bankAccountAuto', entityType: 'bank_account', entityId: a!.id, data: { account: n.account, iban: n.iban, konto: n.konto } });
     }
   }
@@ -225,11 +240,20 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
   const touched = new Set<string>();
   let nLines = 0;
   let skipped = 0;
+  let balances = 0;
   for (const d of plan.days) {
     // replace: the old lines of an existing statement go (legacy „ДА = старите ставки се бришат“)
     const replacing = !!(o.replace && d.existingId && !d.allDup);
     const L = d.lines.filter((l) => replacing || !(skip && l.dup));
     skipped += d.lines.length - L.length;
+    if (!d.lines.length && (d.opening != null || d.closing != null)) {
+      // legacy 12681 (КБ „водечки слог“): only the balances and the number of the day's statement are stored
+      const bal = { number: d.no || null, opening: d.opening == null ? null : dec(d.opening), closing: d.closing == null ? null : dec(d.closing) };
+      if (d.existingId) await tx.update(bankStatements).set({ ...bal, number: bal.number ?? undefined }).where(eq(bankStatements.id, d.existingId));
+      else await tx.insert(bankStatements).values({ firmId: o.firmId, bankAccountId: d.accountId, date: d.date, ...bal, format: o.format ?? null, fileName: o.fileName ?? null, fileId: o.fileId ?? null, importBatch: batch, createdBy: o.userId });
+      balances++;
+      continue;
+    }
     if (!L.length) continue;
     assertOpenPeriod(env.firm, d.date);
     const toDec = (c: number | null) => (c == null ? null : dec(c));
@@ -282,7 +306,7 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     userId: o.userId, firmId: o.firmId, action: 'importBank', entityType: 'bank_import', entityId: batch,
     data: { file: o.fileName ?? null, format: o.format ?? null, statements: touched.size, lines: nLines, skipped },
   });
-  return { batch, statements: touched.size, lines: nLines, skipped, posted, drafts: touched.size - posted, plan };
+  return { batch, statements: touched.size, lines: nLines, skipped, posted, drafts: touched.size - posted, plan, balances };
 }
 
 export class ImportError extends Error {

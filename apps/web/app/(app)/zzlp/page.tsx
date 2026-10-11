@@ -12,9 +12,15 @@ import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { OwnTplLinks } from '@/components/own-tpl-links';
 import { closeGdpr, saveGdpr, saveZzChecklist, zzSigned } from './actions';
+import { hrDocCodeNorm } from '@wise/core/payroll';
+import { findDocCode } from './doc-verify';
 
-export default async function ZzlpPage() {
+export default async function ZzlpPage({ searchParams }: { searchParams: Promise<{ code?: string }> }) {
   const { u } = await officePage('zzlp', { perm: 'office' });
+  const sp = await searchParams;
+  // legacy `docVerify` 15598: the control code typed in „🔍 Провери контролен код на договор“
+  const vCode = sp.code != null ? hrDocCodeNorm(sp.code) : undefined;
+  const vHit = vCode ? await findDocCode(vCode) : null;
   const td = today();
   const [F, R, O] = await Promise.all([allowedFirms(u), db().select().from(gdprRecords).orderBy(desc(gdprRecords.date)), getOfficeProfile(db())]);
   const FL = await filesOf(OFFICE_FILE_ENTITY.gdpr, R.map((r) => r.id));
@@ -40,6 +46,13 @@ export default async function ZzlpPage() {
         <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>📄 Документи на канцеларијата</h2>
         <p className="note" style={{ margin: 0 }}>Барање за мислење до УЈП (чл. 47 ст. 3 ЗДП), Изјава за доверливост (вработен) и Договор за обработка на лични податоци се прават во Word / PDF од <a href="/tpl">📄 Шаблони</a>; изјавите на вработените се во <a href="/korisnici">👥 Корисници</a>.</p>
         <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginTop: 6 }}><OwnTplLinks src="firm:" docs={[{ k: 'd:Барање за мислење до УЈП', label: 'Барање за мислење до УЈП' }]} /></div>
+        <form method="get" className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}><b style={{ minWidth: 260 }}>🔍 Провери контролен код на договор</b><input id="doc_code" name="code" defaultValue={sp.code ?? ''} placeholder="XXXX-XXXX-XXXX" style={{ width: 160, fontFamily: 'monospace' }} /><button className="btn sm">Провери</button></form>
+        <div id="doc_vres">
+          {vCode === null && <div className="callout warn">Внесете го кодот од 12 знаци (пр. 12AF-A639-949C).</div>}
+          {vCode && (vHit
+            ? <div className="callout good">✓ <b>Оригинален документ.</b> {vHit.t} · {vHit.name}{vHit.firm && vHit.firm !== vHit.name ? ' · ' + vHit.firm : ''}{vHit.no ? ' · бр. ' + vHit.no : ''}{vHit.date ? ' · ' + dmy(vHit.date) : ''}<br /><span className="mini">Зачуван {dmy(vHit.at.slice(0, 10))} од {vHit.by}</span></div>
+            : <div className="callout bad">⚠ Кодот <b>{vCode}</b> не постои во програмата. Документот не е издаден од канцеларијата, или е изменет по зачувувањето (или не е зачуван во досие).</div>)}
+        </div>
       </div>
       <div className="card tw" style={{ overflow: 'auto' }}>
         <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>🤝 Договор за обработка на лични податоци – по клиент</h2>

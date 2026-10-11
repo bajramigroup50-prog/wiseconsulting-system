@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  empCalc, hrAddMonthsEnd, hrCtDefaults, hrCtWarnings, hrDiLastDay, hrDiWarnings, hrDocCode, hrDocLabel, hrExtWarnings, hrNextNo,
+  empCalc, hrAddMonthsEnd, hrCtDefaults, hrCtWarnings, hrDiLastDay, hrDiWarnings, hrDocCode, hrDocCodeNorm, hrDocLabel, hrExtWarnings, hrNextNo,
   makePayLine, payCopyPrev, payDraft, payEmpFor, payIOHours, payLeaveStats, payNotesOpen, payrollPaymentOrders, psifCodes, removePayLine,
   resolvePayParams, upsertPayLine, PAY_HOLIDAY, PAY_REGULAR, type PayEmp,
 } from './index';
@@ -83,6 +83,13 @@ describe('HR helpers', () => {
     expect(a).toMatch(/^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
     expect(hrDocCode({ t: 'ct', n: 'Ана' })).toBe(a);
     expect(hrDocCode({ t: 'ct', n: 'Ане' })).not.toBe(a);
+  });
+
+  it('control code check takes any case / separators, only 12 hex digits (legacy docVerify)', () => {
+    expect(hrDocCodeNorm('12af a639 949c')).toBe('12AF-A639-949C');
+    expect(hrDocCodeNorm('12AF-A639-949C')).toBe('12AF-A639-949C');
+    expect(hrDocCodeNorm('12AF-A639-949')).toBeNull();
+    expect(hrDocCodeNorm('')).toBeNull();
   });
 
   it('labels every registry kind correctly (FIX #15)', () => {

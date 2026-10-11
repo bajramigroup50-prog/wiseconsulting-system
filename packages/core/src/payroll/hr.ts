@@ -194,6 +194,15 @@ export function hrDocCode(o: unknown): string {
   return x.slice(0, 4) + '-' + x.slice(4, 8) + '-' + x.slice(8, 12);
 }
 
+/**
+ * Legacy `docVerify` 15598 input: the typed control code → `XXXX-XXXX-XXXX` (hex digits only, any case and
+ * separators), or `null` when it is not 12 hex digits.
+ */
+export function hrDocCodeNorm(v: unknown): string | null {
+  const s = String(v ?? '').toUpperCase().replace(/[^0-9A-F]/g, '');
+  return s.length === 12 ? `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}` : null;
+}
+
 /** Control code of an employment contract (legacy `ctCode`). */
 export function hrContractCode(firmId: string, e: { id?: string; name?: string | null; embg?: string | null; address?: string | null }, c: Partial<HrContract> & Record<string, unknown>): string {
   const K = ['type', 'no', 'signDate', 'start', 'end', 'position', 'duties', 'gross', 'net', 'hours', 'leave', 'notice', 'probation', 'sp', 'ncMonths', 'ncComp', 'workPlace', 'rep', 'repRole', 'obl'];

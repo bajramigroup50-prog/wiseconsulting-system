@@ -13,5 +13,8 @@ export const SCH_UI: [string, string, [string, string][]][] = [
   ['Конта што старата програма ги имаше фиксни', 'празно = стандардната вредност', [['purDefault', 'Влезна ставка без конто'], ['revDefault', 'Излезна ставка без конто'], ['fxGain', 'Позитивни курсни разлики'], ['fxLoss', 'Негативни курсни разлики'], ['bank', 'Банка без конто'], ['supDisc', 'Одобрение од добавувач без конто'], ['blgInOther', 'Уплата во благајна – спротивно конто'], ['fiskCash', 'Фискален извештај – готовина'], ['posCard', 'Картички (ПОС терминал)']]],
 ];
 export const SCH_FLAGS: [string, string][] = [['retailMethod', 'Малопродажба по продажни цени (6630 / 6694 / 6640) – исклучено: продавницата се води по набавна вредност на 6600'], ['whSaleMethod', 'Магацин (големопродажба) по продажни цени']];
-export const SCH_FIELD_KEYS = SCH_UI.flatMap(([, , F]) => F.map(([k]) => k));
+/** Legacy schEx „Основици за ДДВ пријава (вонбилансно, класа 99)“: Д / П konto per type and rate (`vbin18d` …). */
+export const VB_TYPES = [['in', 'Влезни'], ['imp', 'Увоз'], ['out', 'Излезни']] as const;
+export const VB_KEYS = [18, 10, 5].flatMap((r) => VB_TYPES.flatMap(([t]) => [`vb${t}${r}d`, `vb${t}${r}p`]));
+export const SCH_FIELD_KEYS = [...SCH_UI.flatMap(([, , F]) => F.map(([k]) => k)), ...VB_KEYS];
 export const VAT_RATES = [18, 10, 5] as const;

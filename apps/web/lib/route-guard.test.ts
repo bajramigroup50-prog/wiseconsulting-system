@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { klAllowedViews } from '@wise/core/office';
-import { klFileAllowed, routeVerdict } from './route-guard';
+import { klFileAllowed, previewVerdict, routeVerdict } from './route-guard';
 
 describe('client file access (klFileAllowed)', () => {
   const base = [...klAllowedViews({}), 'kdogovori'];
@@ -64,5 +64,20 @@ describe('route guard (klient / teren allow-list)', () => {
   it('public paths stay open', () => {
     for (const p of ['/login', '/_next/static/x.js', '/manifest.webmanifest', '/icons/icon-192.png', '/api/health', '/favicon.ico'])
       expect(routeVerdict('klient', p, base)).toBeNull();
+  });
+});
+
+describe('office preview as client (previewVerdict)', () => {
+  it('client sections and the exit yes, books no, API untouched', () => {
+    expect(previewVerdict('/klHome', base)).toBeNull();
+    expect(previewVerdict('/klExit', base)).toBeNull();
+    expect(previewVerdict('/nalozi', base)).toBe('/klHome');
+    expect(previewVerdict('/izlez', base)).toBe('/klHome');
+    expect(previewVerdict('/izlez', withInv)).toBeNull();
+    expect(previewVerdict('/api/anything', base)).toBeNull();
+    expect(previewVerdict('/', base)).toBe('/klHome');
+  });
+  it('the klient guard itself does not know klExit', () => {
+    expect(routeVerdict('klient', '/klExit', base)).toBe('/klHome');
   });
 });
