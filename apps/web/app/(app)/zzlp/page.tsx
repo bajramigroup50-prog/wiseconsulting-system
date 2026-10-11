@@ -10,6 +10,7 @@ import { FileChips, Pill } from '@/components/file-chips';
 import { Hd, dmy } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
+import { OwnTplLinks } from '@/components/own-tpl-links';
 import { closeGdpr, saveGdpr, saveZzChecklist, zzSigned } from './actions';
 
 export default async function ZzlpPage() {
@@ -38,6 +39,7 @@ export default async function ZzlpPage() {
       <div className="card">
         <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>📄 Документи на канцеларијата</h2>
         <p className="note" style={{ margin: 0 }}>Барање за мислење до УЈП (чл. 47 ст. 3 ЗДП), Изјава за доверливост (вработен) и Договор за обработка на лични податоци се прават во Word / PDF од <a href="/tpl">📄 Шаблони</a>; изјавите на вработените се во <a href="/korisnici">👥 Корисници</a>.</p>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginTop: 6 }}><OwnTplLinks src="firm:" docs={[{ k: 'd:Барање за мислење до УЈП', label: 'Барање за мислење до УЈП' }]} /></div>
       </div>
       <div className="card tw" style={{ overflow: 'auto' }}>
         <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>🤝 Договор за обработка на лични податоци – по клиент</h2>
@@ -51,7 +53,7 @@ export default async function ZzlpPage() {
                 <td>{s.manager || s.signer || <span className="muted">—</span>}</td>
                 <td>{d?.date ? dmy(d.date) : '—'}</td>
                 <td>{d ? <span className="pill good">✓ потпишан {dmy(d.date)}</span> : <span className="pill warn">не е потпишан</span>}{(FL.get(d?.id ?? '')?.length ?? 0) > 0 && <span className="mini"> 📎</span>}</td>
-                <td style={{ whiteSpace: 'nowrap' }}><a className="btn sm" href="/tpl">📝 Word / 🖨 PDF</a></td>
+                <td style={{ whiteSpace: 'nowrap' }}><OwnTplLinks src={`firm:${f.id}`} docs={[{ k: 'd:Договор за обработка на лични податоци' }]} none={<a className="btn sm" href="/tpl">📝 Word / 🖨 PDF</a>} /></td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <RowAction action={zzSigned.bind(null, f.id, !d)} label={d ? '↺' : '✓ Потпишан'} className={`btn sm ${d ? '' : 'pri'}`} />
                   {' '}<a className="btn sm ghost" href="#zzNew" title="Прикачи го скенираниот потпишан договор – запис во регистарот со датотека">📎 Прикачи</a>

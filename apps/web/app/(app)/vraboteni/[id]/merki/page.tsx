@@ -6,6 +6,7 @@ import { hrDocLabel } from '@wise/core';
 import { employees, hrContracts, hrDocs, nextHrDocNo } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
+import { hrOwnDocIds } from '@/lib/own-template';
 import { dmy } from '@/lib/fmt';
 import { payCtx, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
@@ -28,6 +29,7 @@ export default async function MerkiPage({ params }: { params: Promise<{ id: stri
     db().select().from(hrDocs).where(and(eq(hrDocs.employeeId, e.id), like(hrDocs.kind, 'di-%'))).orderBy(desc(hrDocs.date)),
     db().transaction((tx) => nextHrDocNo(tx, firm.id, today)),
   ]);
+  const ownW = await hrOwnDocIds(hist);
   return (
     <>
       <Hd t={'⚖ Мерки и престанок – ' + e.name} sub={e.end ? `престанок ${dmy(e.end)}${e.endReason ? ' · ' + e.endReason : ''}` : undefined}>
@@ -39,7 +41,7 @@ export default async function MerkiPage({ params }: { params: Promise<{ id: stri
         canWrite={canDo(u, 'write', firm.id)} />
       {hist.length > 0 && (
         <div className="card"><h3 className="fh" style={{ marginTop: 0 }}>Историја</h3>
-          <table className="dense"><tbody>{hist.map((d) => <tr key={d.id}><td>{dmy(d.date)}</td><td>{hrDocLabel(d)}</td><td>{d.no}</td><td className="mini">{d.code}</td><td><a className="btn sm" href={`/dogovori/${d.id}`} target="_blank" rel="noopener">Печати</a></td></tr>)}</tbody></table>
+          <table className="dense"><tbody>{hist.map((d) => <tr key={d.id}><td>{dmy(d.date)}</td><td>{hrDocLabel(d)}</td><td>{d.no}</td><td className="mini">{d.code}</td><td style={{ whiteSpace: 'nowrap' }}><a className="btn sm" href={`/dogovori/${d.id}`} target="_blank" rel="noopener">Печати</a>{ownW.has(d.id) && <> <a className="btn sm" href={`/dogovori/${d.id}?word=1`} title="Word од сопствениот шаблон">📝 Word (шаблон)</a></>}</td></tr>)}</tbody></table>
         </div>
       )}
     </>

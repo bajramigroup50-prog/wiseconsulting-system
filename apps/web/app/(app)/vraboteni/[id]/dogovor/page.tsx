@@ -6,6 +6,7 @@ import { hrCtDefaults, hrDocLabel, monthHours, resolvePayParams, type HrContract
 import { employees, hrContracts, hrDocs, hrNumbersTaken } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
+import { hrOwnDocIds } from '@/lib/own-template';
 import { dmy } from '@/lib/fmt';
 import { payCtx, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
@@ -35,6 +36,7 @@ export default async function DogovorPage({ params }: { params: Promise<{ id: st
     gross: Number(ct.gross ?? 0), net: Number(ct.net ?? 0), leave: ct.leave, notice: ct.notice, rep: ct.rep ?? '', repRole: ct.repRole ?? '', firstStart: ct.firstStart ?? ct.start,
   } : null;
   const c0 = hrCtDefaults({ ...e, netBase: Number(e.netBase), coef: Number(e.coef) }, { ...ctx.firm }, P, today, saved);
+  const ownW = await hrOwnDocIds(docs);
   const contractDoc = ct ? docs.find((d) => d.contractId === ct.id && d.kind === 'contract') : undefined;
   return (
     <>
@@ -42,6 +44,7 @@ export default async function DogovorPage({ params }: { params: Promise<{ id: st
         <Link className="btn" href="/vraboteni">← Вработени</Link>
         <Link className="btn" href={`/vraboteni/${e.id}/merki`}>⚖ Мерки и престанок</Link>
         {contractDoc && <a className="btn" href={`/dogovori/${contractDoc.id}`} target="_blank" rel="noopener">🖨 Печати заведениот договор</a>}
+        {contractDoc && ownW.has(contractDoc.id) && <a className="btn" href={`/dogovori/${contractDoc.id}?word=1`} title="Word од сопствениот шаблон">📝 Word (шаблон)</a>}
       </Hd>
       <ContractEditor
         employee={{ id: e.id, name: e.name, embg: e.embg, address: e.address, position: e.position, end: e.end }}
@@ -52,7 +55,7 @@ export default async function DogovorPage({ params }: { params: Promise<{ id: st
         <div className="card"><h2>Досие – документи во евиденцијата</h2>
           <table className="dense"><thead><tr><th>Дел. број</th><th>Датум</th><th>Документ</th><th>До</th><th>Контролен код</th><th></th></tr></thead>
             <tbody>{docs.map((d) => <tr key={d.id}><td><b>{d.no}</b></td><td>{dmy(d.date)}</td><td>{hrDocLabel(d)}</td><td>{dmy(d.end)}</td><td className="mini">{d.code}</td>
-              <td><a className="btn sm" href={`/dogovori/${d.id}`} target="_blank" rel="noopener">Печати</a></td></tr>)}</tbody></table>
+              <td style={{ whiteSpace: 'nowrap' }}><a className="btn sm" href={`/dogovori/${d.id}`} target="_blank" rel="noopener">Печати</a>{ownW.has(d.id) && <> <a className="btn sm" href={`/dogovori/${d.id}?word=1`} title="Word од сопствениот шаблон">📝 Word (шаблон)</a></>}</td></tr>)}</tbody></table>
         </div>
       )}
     </>

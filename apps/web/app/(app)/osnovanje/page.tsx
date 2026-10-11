@@ -11,7 +11,11 @@ import { Pill } from '@/components/file-chips';
 import { Hd, dmyHm } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { fmt } from '@/lib/fmt';
+import { OwnTplLinks } from '@/components/own-tpl-links';
 import { createFirmFromFormation, formationTask, saveFormation } from './actions';
+
+/** Formation documents that can come from an own template (legacy `tplKinds` group „Основање на фирма“). */
+const OSN_DOCS = ['Изјава за основање', 'Изјава по член 29 и 32 од ЗТД', 'Изјава по член 32 и 183 од ЗТД (управител)', 'Полномошно', 'Изјава (личен потпис)'];
 
 export default async function OsnovanjePage({ searchParams }: { searchParams: Promise<{ id?: string; nov?: string }> }) {
   const sp = await searchParams;
@@ -62,7 +66,8 @@ export default async function OsnovanjePage({ searchParams }: { searchParams: Pr
           <h3 style={{ fontSize: 14, margin: '8px 0 4px' }}>Проверка</h3>
           {NC_CHECK.map((t, i) => <label key={t} className="chk" style={{ display: 'block' }}><input type="checkbox" name={`chk${i}`} defaultChecked={!!c?.checklist[t]} /> {t}</label>)}
           {tasks.length > 0 && <p className="note">Задачи: {tasks.map((t) => `${t.title} (${t.status})`).join(', ')}</p>}
-          <p className="note">Документите за основање (изјава, полномошно, изјава на управител) се генерираат од <a href="/tpl">Шаблони</a> (група „Основање на фирма“).</p>
+          {c && <div className="row" style={{ flexWrap: 'wrap', gap: 4, margin: '6px 0' }}><OwnTplLinks src={`osn:${c.id}`} docs={OSN_DOCS.map((t) => ({ k: `d:${t}`, label: t }))} /></div>}
+          <p className="note">Документите за основање (изјава, полномошно, изјава на управител) се генерираат од <a href="/tpl">Шаблони</a> (група „Основање на фирма“): кога има прикачен сопствен шаблон, тука се појавуваат „📝 Word“ и „🖨 PDF“ пополнети со податоците од основањето.</p>
         </ActionForm>
       )}
       {L.length ? (

@@ -4,6 +4,7 @@ import { can, ROLES } from '@wise/core';
 import { employees, firms, userFirms, users } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { ownTemplateKinds } from '@/lib/own-template';
 import { Hd, dmyHm } from '@/components/hd';
 import { MyPassword } from './my-password';
 import { UserForm } from './user-form';
@@ -28,6 +29,8 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
     db().select().from(userFirms),
   ]);
   const fname = new Map(F.map((f) => [f.id, f.name]));
+  const IZJ = 'd:Изјава за доверливост';
+  const izjOwn = (await ownTemplateKinds([IZJ])).has(IZJ);
   // legacy „Изјава · Договор“: the colleague's employment contract in the office's own firm (matched by name)
   const office = (await db().select({ id: firms.id, settings: firms.settings }).from(firms)).find((f) => (f.settings as { officeFirm?: boolean }).officeFirm);
   const EMP = office ? await db().select({ id: employees.id, name: employees.name }).from(employees).where(eq(employees.firmId, office.id)) : [];
@@ -47,6 +50,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <td>{dmyHm(u.lastLoginAt)}</td>
       {u.role !== 'klient' && <td style={{ whiteSpace: 'nowrap' }}>
         <a className="btn sm" href={`/print/izjava?u=${u.id}`} target="_blank" title="Изјава за доверливост (ЗЗЛП)">📄 Изјава</a>{' '}
+        {izjOwn && <><a className="btn sm" href={`/api/office/tpl/own?${new URLSearchParams({ k: IZJ, src: `user:${u.id}`, fmt: 'word' })}`} title="Word од сопствениот шаблон">📝 Word</a>{' '}</>}
         {empOf(u.name) && <FirmGo fid={office!.id} to={`/vraboteni/${empOf(u.name)!.id}/dogovor`} className="btn sm" title="Договор за вработување (фирма на канцеларијата)">📄 Договор</FirmGo>}
       </td>}
       <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>

@@ -9,7 +9,7 @@ import { notFound } from 'next/navigation';
 import { and, desc, eq } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
 import { kdAmt, kdNew, kdNumber, kdStatus, kdVat, type KdContract } from '@wise/core/firms/kdog';
-import { serviceContracts, wordTemplates, officeCounters, type Firm } from '@wise/db';
+import { serviceContracts, wordTemplates, officeCounters } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -35,11 +35,6 @@ async function peekNo(date: string) {
   return kdNumber((c?.value ?? 0) + 1, y);
 }
 
-/** Template variables for the Word templates (legacy `tplRun(['kd'], {k})`). */
-const tplQ = (k: KdContract, firm: Firm) => new URLSearchParams({
-  ДОГОВОР_БРОЈ: k.number, ДАТУМ_ДОГОВОР: dmy(k.date), МЕСТО_ДОГОВОР: k.place, НАДОМЕСТ: fmt(Number(k.fee) || 0), ПРЕТСТАВНИК: k.rep, ПРЕТСТАВНИК_ФУНКЦИЈА: k.repRole,
-  НАПОМЕНА: k.note, ФИРМА: firm.name,
-});
 
 /** Client portal (legacy `if(kl)`): contracts signed by the office, sign on the screen. */
 async function ClientView() {
@@ -150,7 +145,7 @@ export default async function KdogovoriPage({ searchParams }: { searchParams: Pr
                   {!k.offSig && setOk && <RowAction className="btn sm pri" action={officeSign.bind(null, k.id!)} label="✍ Потпиши и печат"
                     confirm={`${missSig ? `Немате прикачено ${missSig} – договорот ќе се потпише рачно. ` : ''}Да се стави вашиот потпис и печат на договорот ${k.number}? По ова договорот не може да се менува и оди кај клиентот за потпис.`} />}
                   <a className="btn sm" href={`/kdogovori/pecati?id=${k.id}`} target="_blank" rel="noopener">⬇ PDF</a>
-                  {Tp.map((t) => <a key={t.id} className="btn sm" href={`/api/office/tpl/${t.id}?${tplQ(k, firm)}`} title="Word (шаблон)">⬇ {t.name}</a>)}
+                  {Tp.length > 0 && <a className="btn sm" href={`/api/office/tpl/own?k=kd&src=kd:${k.id}&fmt=word`} title="Word од сопствениот шаблон">📝 Word</a>}
                   {!k.arch && (k.draftArch ? <span className="pill info" title="Нацртот е во досието; по потпишувањето се заменува">📁 во досие</span> : <RowAction className="btn sm" action={contractToDossier.bind(null, k.id!)} label="📁 Во досие" />)}
                   {k.arch && <Link className="btn sm" href="/dosie">📁 Досие</Link>}
                   {delOk && !k.arch && <RowAction action={deleteContract.bind(null, k.id!)} label="🗑" style={{ color: 'var(--bad)' }} confirm={`Да се избрише договорот ${k.number}?`} />}

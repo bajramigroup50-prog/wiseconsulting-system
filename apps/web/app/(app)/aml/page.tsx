@@ -14,6 +14,7 @@ import { Pill } from '@/components/file-chips';
 import { Hd, dmy } from '@/components/hd';
 import { fmt } from '@/lib/fmt';
 import { RowAction } from '@/components/row-action';
+import { OwnTplLinks } from '@/components/own-tpl-links';
 import { saveAml } from './actions';
 import { amlCtl, amlGo, amlOffSet, amlRepNew, amlRepSt, amlTrAdd } from './office-actions';
 
@@ -76,6 +77,7 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
       <div className="card">
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Документи на канцеларијата</h2>
         <p className="note" style={{ margin: 0 }}>Одлука за овластено лице и заменик, Програма за спречување ПП/ФТ (член 12) и Проценка на ризик на канцеларијата (член 11) се прават од <a href="/tpl">📄 Шаблони</a> (Word / PDF).</p>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginTop: 6 }}><OwnTplLinks src="firm:" docs={['Одлука за овластено лице', 'Програма за спречување ПП/ФТ', 'Проценка на ризик на канцеларијата'].map((t) => ({ k: `d:${t}`, label: t }))} /></div>
       </div>
       <ActionForm action={amlTrAdd}>
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Обуки (најмалку 2 годишно) · во {y}: {tr.length}</h2>
@@ -182,7 +184,8 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
           <div className="row savebar"><button className="btn pri">Зачувај и пресметај ризик</button>
             <button className="btn" name="reviewed" value="on">✓ Анализата е обновена денес</button>
             {(risk.level === 'high' || !!A.pep) && <button className="btn" name="mgrOk" value="on" title="Засилена анализа: потребно е одобрение од управителот">✓ Одобрение од управителот{A.mgrOk ? ` (${dmy(A.mgrOk)})` : ''}</button>}
-            <a className="btn" href="/tpl">📄 Документи (Анализа на клиент, Изјава за ВС) – Шаблони</a></div>
+            <OwnTplLinks src="aml:" docs={[{ k: 'd:Анализа на клиент (ПП/ФТ)', label: 'Анализа на клиент' }, { k: 'd:Изјава за вистински сопственик и носител на јавна функција', label: 'Изјава за ВС' }]}
+              none={<a className="btn" href="/tpl">📄 Документи (Анализа на клиент, Изјава за ВС) – Шаблони</a>} /></div>
         </ActionForm>
       ) : <div className="callout">Изберете фирма за анализа на клиентот.</div>}
 

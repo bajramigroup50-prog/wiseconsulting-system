@@ -1,6 +1,7 @@
 import PizZip from 'pizzip';
 import { describe, expect, it } from 'vitest';
 import { docxText, fillDocx, minimalDocx, scanDocx, zipFiles } from './docx';
+import { docxToHtml } from '@wise/core/office';
 
 describe('Word templates', () => {
   // Word often splits a placeholder over several runs: "{{ФИР" + "МА}}".
@@ -18,5 +19,11 @@ describe('Word templates', () => {
   it('zips files with unique names', () => {
     const z = new PizZip(zipFiles([{ name: 'a.pdf', data: new Uint8Array([1]) }, { name: 'a.pdf', data: new Uint8Array([2]) }, { name: 'x/y.txt', data: 'т' }]));
     expect(Object.keys(z.files).sort()).toEqual(['a (2).pdf', 'a.pdf', 'x_y.txt']);
+  });
+  it('a filled own template renders as HTML for the PDF (legacy tplHtml)', () => {
+    const { out } = fillDocx(tpl, { ДОГОВОР_БРОЈ: 'СУ-002/2026', ФИРМА: 'Бета <ДОО>' });
+    const H = docxToHtml({ document: new PizZip(out).file('word/document.xml')!.asText() });
+    expect(H).toContain('Договор бр. СУ-002/2026 со Бета &lt;ДОО&gt;');
+    expect(H).toContain('ЕМБС: ________');
   });
 });

@@ -5,6 +5,7 @@ import { hrDocLabel, hrFixedTerm } from '@wise/core';
 import { hrDocs, loadPaySettings, nextHrDocNo } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
+import { hrOwnDocIds } from '@/lib/own-template';
 import { dmy } from '@/lib/fmt';
 import { firmEmployees, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
@@ -29,6 +30,7 @@ export default async function DogovoriPage({ searchParams }: { searchParams: Pro
   const R = all.filter((d) => d.date.startsWith(String(year)) && (!kind || (kind === 'di' ? d.kind.startsWith('di-') : d.kind === kind))
     && (!q || `${d.no} ${d.empName} ${d.position ?? ''}`.toLowerCase().includes(q)))
     .sort((a, b) => (parseInt(a.no.replace(/^\D+/, '')) || 0) - (parseInt(b.no.replace(/^\D+/, '')) || 0));
+  const ownW = await hrOwnDocIds(R);
   const E = new Map(emps.map((e) => [e.id, e]));
   const status = (d: (typeof all)[number]) => {
     if (d.kind === 'leave' || d.kind === 'sick') return <span className="pill">{dmy(d.start)}–{dmy(d.end)} · {Number(d.days)} дена</span>;
@@ -68,6 +70,7 @@ export default async function DogovoriPage({ searchParams }: { searchParams: Pro
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {isLast && write && <Link className="btn sm pri" href={`/vraboteni/${d.employeeId}/dogovor#prodolzi`}>Продолжи</Link>}{' '}
                   <a className="btn sm" href={`/dogovori/${d.id}`} target="_blank" rel="noopener">PDF</a>{' '}
+                  {ownW.has(d.id) && <><a className="btn sm" href={`/dogovori/${d.id}?word=1`} title="Word од сопствениот шаблон">📝 Word</a>{' '}</>}
                   {d.employeeId && <Link className="btn sm" href={d.kind.startsWith('di-') ? `/vraboteni/${d.employeeId}/merki` : `/vraboteni/${d.employeeId}/dogovor`}>Отвори</Link>}
                 </td>
               </tr>
