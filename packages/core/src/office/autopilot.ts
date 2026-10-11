@@ -274,6 +274,12 @@ export function apExtra(S: FirmSnapshot): ApExtra {
   const E = S.firm.vatRegistered ? S.vatEstimate : null;
   if (E) {
     X.m.vatEst = r2(E.amount);
+    // legacy tax tab: „ДДВ досега (тековен период)“ and „Проценка до крај“ (linear over the days of the period)
+    X.m.vatNow = r2(E.amount);
+    if (E.to >= td && !E.closed) {
+      const all = daysBetween(E.from, E.to) + 1, gone = Math.min(all, Math.max(1, daysBetween(E.from, td) + 1));
+      X.m.vatEst = r2(E.amount * all / gone);
+    }
     const lbl = E.period.replace('-Т', ' – квартал ');
     const left = daysBetween(td, E.due);
     const lines: string[] = [];
