@@ -101,7 +101,7 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
     const [fxS, missing] = await Promise.all([loadFxSources(db(), firm.id), missingAccounts(db(), firm.id, CAT_KONTA)]);
     scan = <ReceiptScan firmId={firm.id} registers={R} reg0={reg.id} kontos={CAT_KONTA.filter((k) => !missing.includes(k))} codes={chart.map((a) => a.code)}
       fx={fxS} ddv={firm.vatRegistered} curs={CURS} dups={dups} />;
-  }
+  } else if (!write) scan = <p className="note">Прикачувањето документи е достапно само за корисници со право на уредување.</p>;
 
   const closing = X.closing;
   return (
