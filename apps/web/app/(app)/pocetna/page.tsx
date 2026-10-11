@@ -30,7 +30,7 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
   const names = new Map(chart.map((a) => [a.code, a.name]));
   const rows: ORow[] = lines.map((l) => ({
     account: l.account, name: names.get(l.account) ?? '', partnerId: l.partnerId ?? '', partnerName: '', partnerCode: '',
-    debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '',
+    debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '', doc: l.doc, locationId: l.locationId,
   }));
   const banks = await db().select({ konto: bankAccounts.konto }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id), close = canDo(u, 'close', firm.id);

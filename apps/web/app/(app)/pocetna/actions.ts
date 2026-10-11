@@ -22,6 +22,8 @@ const Row = z.object({
   partnerId: z.string().max(40).optional().default(''), partnerName: z.string().trim().max(300).optional().default(''),
   partnerCode: z.string().trim().max(40).optional().default(''), debit: amount, credit: amount,
   note: z.string().trim().max(300).optional().default(''),
+  // carried from the closed year (open document on 12x/22x, location) — kept when the opening is re-saved
+  doc: z.string().trim().max(100).nullish(), locationId: z.string().uuid().nullish(),
 });
 const Input = z.object({ full: z.boolean(), date: z.string(), rows: z.array(Row).max(20000) });
 
@@ -97,7 +99,7 @@ export async function saveOpening(_prev: ActionState, form: FormData): Promise<A
       const res = await postJournal(tx, {
         firmId: firm.id, date, kind: v.full ? 'bbimp' : 'open', ...openingSource(year, v.full),
         description: v.full ? `Бруто биланс ${year} (увоз за завршна сметка)` : `Почетна состојба ${year}`,
-        lines: rows.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note || null })),
+        lines: rows.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note || null, doc: r.doc || null, locationId: r.locationId || null })),
         userId: u.id, requirePartner: false, auditAction: 'saveOpen',
       });
       // legacy `obAddBanks` 12222 (after saveOpen 12229): 100x / 103x rows become the firm's bank accounts (103x → EUR)
