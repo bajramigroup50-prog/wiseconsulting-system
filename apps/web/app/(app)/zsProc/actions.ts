@@ -9,9 +9,9 @@ import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { prClean } from '@wise/core/yearend/tools';
 import type { ZsRule } from '@wise/core/yearend/aop';
 import { patchFirmSettings } from '@/lib/firms-office';
-import { csvToGrid, DB_F, DE38, DLD_ND, parseTurnoverTb } from '@wise/core';
+import { csvToGrid, DB_F, DE38, DLD_ND, parseCarryKey, parseTurnoverTb } from '@wise/core';
 import {
-  audit, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
+  audit, carryOneRow, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
   snapshotAop, undoClose, undoOpen, unlockYear, upsertStatement, type StatementPatch,
 } from '@wise/db';
 import { and, asc, eq, sql } from 'drizzle-orm';
@@ -87,7 +87,9 @@ export async function closeYearAction(): Promise<ActionState> {
     const { u, firm, year } = await firmAction('closeYear');
     const r = await db().transaction((tx) => closeYear(tx, { firmId: firm.id, year, userId: u.id, today: todayMk() }));
     done();
-    return { ok: `Годината ${year} е затворена (налог ${r.journal.number}): ${r.plan.profit >= 0 ? 'добивка' : 'загуба'} пред данок ${fmt(r.plan.profit)}, данок ${fmt(r.plan.tax)}, нето ${fmt(r.plan.net)} ден.` };
+    const closed = `Годината ${year} е затворена (налог ${r.journal.number}): ${r.plan.profit >= 0 ? 'добивка' : 'загуба'} пред данок ${fmt(r.plan.profit)}, данок ${fmt(r.plan.tax)}, нето ${fmt(r.plan.net)} ден.`;
+    if (r.carry) return { ok: `${closed} Салдата се пренесени во „Почетна состојба ${year + 1}“ на 01.01.${year + 1} (${r.carry.lines} ставки, ${fmt(r.carry.debit)} = ${fmt(r.carry.credit)}) – проверете во „Пренос на салда“.` };
+    return { ok: `${closed} Салдата НЕ се пренесени во ${year + 1}: ${r.carryError ?? ''} Средете го тоа и притиснете „Пренеси ги салдата“ во „Пренос на салда“.` };
   } catch (e) { return actionError(e); }
 }
 
@@ -112,7 +114,30 @@ export async function openYearAction(): Promise<ActionState> {
     const { u, firm, year } = await firmAction('doTransfer');
     const r = await db().transaction((tx) => openNextYear(tx, { firmId: firm.id, year, userId: u.id, today: todayMk() }));
     done();
-    return { ok: `Преносот е направен: почетна состојба за ${year + 1} на 01.01.${year + 1} (${r.lines} ставки).` };
+    return { ok: `${r.replaced ? 'Преносот е повторен (налогот е заменет, не е дуплиран)' : 'Преносот е направен'}: почетна состојба за ${year + 1} на 01.01.${year + 1} (${r.lines} ставки, ${fmt(r.debit)} = ${fmt(r.credit)}).` };
+  } catch (e) { return actionError(e); }
+}
+
+/** „Пренеси ја ставката“: one missing row of the carry-over evidence into the existing opening (stays balanced). */
+export async function carryRowAction(key: string): Promise<ActionState> {
+  try {
+    const { u, firm, year } = await firmAction('doTransfer');
+    await db().transaction((tx) => carryOneRow(tx, { firmId: firm.id, year, userId: u.id, today: todayMk(), key: parseCarryKey(key) }));
+    done();
+    return { ok: 'Ставката е пренесена во почетната состојба.' };
+  } catch (e) { return actionError(e); }
+}
+
+/** Firm setting `carryByDoc`: carry 12x/22x partner balances per open document (for open items / ИОС). */
+export async function setCarryByDocAction(on: boolean): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('settings');
+    await db().transaction(async (tx) => {
+      await patchFirmSettings(tx, firm.id, { carryByDoc: on });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'carryByDoc', entityType: 'firm', entityId: firm.id, data: { on } });
+    });
+    done();
+    return { ok: on ? 'Побарувањата и обврските ќе се пренесуваат по отворен документ – притиснете „Пренеси повторно“.' : 'Побарувањата и обврските ќе се пренесуваат по партнер – притиснете „Пренеси повторно“.' };
   } catch (e) { return actionError(e); }
 }
 

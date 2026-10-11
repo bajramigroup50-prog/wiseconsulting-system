@@ -14,7 +14,10 @@ import { NotClosedNote, ZsHead } from '@/components/yearend/ph-bar';
 import { RowAction } from '@/components/row-action';
 import { ActionForm } from '@/components/yearend/action-form';
 import { YearGo } from '@/components/yearend/year-go';
-import { archiveNotesAction, setCrmPeriodAction } from './actions';
+import { carryState } from '@wise/db';
+import { db } from '@/lib/db';
+import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
+import { archiveNotesAction, openYearAction, setCrmPeriodAction } from './actions';
 
 function Card({ t, ok, href, children }: { t: string; ok: boolean | null; href: string; children?: React.ReactNode }) {
   return (
@@ -37,6 +40,7 @@ export default async function ZsProcPage() {
   const res = ent === 'npo' && L.Y.npo ? { profit: L.Y.npo.sur, tax: L.Y.npo.tax } : ent !== 'co' && L.Y.tp ? { profit: L.Y.tp.res, tax: L.Y.tp.tax } : { profit: L.Y.co.zs.profit, tax: L.Y.co.db.tax };
   const cl = L.closing;
   const write = canDo(u, 'write', firm.id);
+  const carry = L.closeJournal ? (await carryState(db(), firm.id, year, L)).evidence : null;
   const zsArch = ((firm.settings ?? {}) as { zsArch?: Record<string, { at: string }> }).zsArch ?? {};
   const prevA = zsArch[String(year - 1)];
   const hasPrev = Object.values(L.prev.V).some((v) => Math.round(v || 0) !== 0) || (!!L.prevStatement && Object.keys(L.prevStatement.zsMan).length > 0);
@@ -55,6 +59,7 @@ export default async function ZsProcPage() {
   return (
     <>
       <ZsHead id="zsProc" t="Завршна сметка – по фази" year={year} ent={ent} done={phaseDone(L)} />
+      <PrevYearCallout firmId={firm.id} year={year} />
       <NotClosedNote closed={L.Y.closed} year={year} />
       <div className="cols">
         <div className="card">
@@ -115,6 +120,11 @@ export default async function ZsProcPage() {
       )}
       <Card t="7. Досие на годината" ok={null} href="/zsDos"><p className="mini" style={{ margin: 0 }}>Сите датотеки на годината (XML, биланси, белешки, ДБ) и потврдите од ЦРМ и УЈП – „💾 Зачувај ги датотеките за {year}“.</p></Card>
       <Card t="8. Нова година" ok={!!L.openJournal} href="/prenos">
+        {!L.closeJournal
+          ? <div className="callout warn" style={{ margin: '0 0 6px' }}>Годината {year} не е затворена – со затворањето салдата автоматски се пренесуваат во „Почетна состојба {year + 1}“. <Link className="btn sm" href="/mbyllja">Затворање →</Link></div>
+          : carry && (carry.totals.ok
+            ? <div className="callout good" style={{ margin: '0 0 6px' }}>✓ Пренесено во {year + 1}: {carry.rows.filter((r) => r.carried).length} ставки (конто / партнер), вкупно затворање = вкупно почетна ({fmt(carry.totals.openingDebit)} = {fmt(carry.totals.openingCredit)}). <Link className="btn sm" href="/prenos?f=all">Контрола на преносот →</Link></div>
+            : <div className="callout bad" style={{ margin: '0 0 6px' }}>⚠ {L.openJournal ? `${carry.missing} ставки не се пренесени или се разликуваат.` : `Салдата не се пренесени во ${year + 1}.`} <Link className="btn sm" href="/prenos">Пренос на салда →</Link>{canDo(u, 'doTransfer', firm.id) && <> <RowAction className="btn sm pri" action={openYearAction} showOk label={L.openJournal ? '↻ Пренеси повторно' : `Пренеси во ${year + 1}`} confirm={`Да се пренесат салдата од ${year} во почетната состојба за ${year + 1}?`} /></>}</div>)}
         <p className="mini" style={{ margin: 0 }}>По поднесувањето: зачувајте ги белешките за {year} ({write ? <RowAction className="btn sm" action={archiveNotesAction.bind(null, year)} label={`📦 Зачувај белешки ${year}`} confirm={`Да се зачуваат објаснувачките белешки за ${year} (износите за следната година)?`} /> : `📦 Зачувај белешки ${year}`}), заклучете ја годината и пренесете ја почетната состојба во {year + 1}.</p>
       </Card>
     </>

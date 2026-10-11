@@ -9,6 +9,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteOpening, transferFromPrevYear } from './actions';
 import { OpeningEditor, type ORow } from './opening-editor';
+import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
+import { YearGo } from '@/components/yearend/year-go';
 
 export default async function PocetnaPage({ searchParams }: { searchParams: Promise<{ full?: string }> }) {
   const sp = await searchParams;
@@ -44,6 +46,11 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
         {ex ? <a className="btn" href={`/print/nalog?n=${encodeURIComponent(ex.number)}&t=${encodeURIComponent(full ? `БРУТО БИЛАНС ${year}` : `НАЛОГ ЗА ПОЧЕТНА СОСТОЈБА на ден ${ex.date.split('-').reverse().join('.')}`)}`} target="_blank" rel="noopener">PDF</a> : <button className="btn" disabled>PDF</button>}
         {ex && del && <RowAction className="btn danger" action={deleteOpening.bind(null, full)} label="🗑 Избриши" confirm={`Да се избрише ${full ? 'увезениот бруто биланс' : 'почетната состојба'} за ${year}?`} />}
       </Hd>
+      {!full && <PrevYearCallout firmId={firm.id} year={year} />}
+      {!full && ex && typeof (ex.meta as { carriedFrom?: unknown } | null)?.carriedFrom === 'number' && (
+        <div className="callout good">✓ Почетната состојба е пренесена од завршната сметка за {year - 1} (конто по конто и партнер по партнер, {lines.length} ставки).{' '}
+          <YearGo year={year - 1} to="/prenos">Контрола на преносот {year - 1} → {year}</YearGo></div>
+      )}
       <div className="card" style={{ padding: '10px 14px', ...(full ? { border: '2px solid var(--accent)' } : {}) }}>
         <Link href={full ? '/pocetna' : '/pocetna?full=1'} style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>
           <input type="checkbox" readOnly checked={full} style={{ width: 18, height: 18, flex: 'none', margin: 0 }} />
