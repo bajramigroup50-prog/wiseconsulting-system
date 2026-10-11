@@ -5,7 +5,8 @@ import { journals } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear, firmYearCallout } from '@/lib/context';
 import { db } from '@/lib/db';
-import { navFor } from '@/lib/nav';
+import { OWNER_VIEWS, navFor, withoutViews } from '@/lib/nav';
+import { isOfficeOwner } from '@/lib/office-owner';
 import { filterNavByModules } from '@/lib/nav-industry';
 import { klNav } from '@/lib/kl-nav';
 import { topStatus } from '@/lib/top-status';
@@ -24,7 +25,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // klient: legacy `klNav` — the sections the office switched on for this firm
   // legacy `S.asClient` (👁 Преглед како клиент, `klPrevOn`): an office user sees this firm as its client does
   const preview = !!firm && u.role !== 'klient' && u.role !== 'teren' && (await cookies()).get(PREVIEW_COOKIE)?.value === firm.id;
-  const groups = u.role === 'klient' || preview ? await klNav(firm, preview) : filterNavByModules(navFor(u.role), firm, false);
+  const groups = u.role === 'klient' || preview ? await klNav(firm, preview)
+    // owner-only screens (📊 Продуктивност на вработените) are not in anybody else's menu
+    : withoutViews(filterNavByModules(navFor(u.role), firm, false), u.role === 'admin' && await isOfficeOwner(u).catch(() => false) ? [] : OWNER_VIEWS);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
   const [st, [y0], yearNote] = await Promise.all([
     topStatus(u).catch(() => ({ bell: null, ainb: [], law: null })),

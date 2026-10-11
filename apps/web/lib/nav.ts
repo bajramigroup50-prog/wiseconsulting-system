@@ -39,6 +39,16 @@ export function navFor(role: Role): readonly NavGroup[] {
   return NAV;
 }
 
+/** Views only the office owner sees (`lib/office-owner.ts`); hidden from the menu of everybody else. */
+export const OWNER_VIEWS: readonly string[] = ['produktivnost'];
+
+/** The menu without the given views (empty groups dropped). */
+export function withoutViews(groups: readonly NavGroup[], ids: readonly string[]): readonly NavGroup[] {
+  if (!ids.length) return groups;
+  const drop = (L: readonly NavItem[]): NavItem[] => L.flatMap((x): NavItem[] => (x[0] === '>' ? [[x[0], x[1], drop(x[2] ?? [])] as NavItem] : ids.includes(x[0]) ? [] : [x]));
+  return groups.map(([g, L]) => [g, drop(L)] as NavGroup).filter(([, L]) => L.some((x) => x[0] !== '-'));
+}
+
 /** View ids each role may open (used to guard the catch-all route). */
 export const viewAllowed = (role: Role, id: string): boolean =>
   navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka'
