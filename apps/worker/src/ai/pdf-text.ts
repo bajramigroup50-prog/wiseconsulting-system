@@ -3,8 +3,10 @@
  * images) gives no items. At most 40 pages are read.
  */
 import type { PdfItem } from '@wise/core/noai/pdf-lines';
+import { ensurePdfGlobals } from '@wise/core/noai/pdf-env';
 
 export async function pdfTextItems(bytes: Uint8Array, maxPages = 40): Promise<PdfItem[]> {
+  ensurePdfGlobals(); // DOMMatrix without the native canvas package (standalone build)
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const G = globalThis as { pdfjsWorker?: unknown };
   // @ts-expect-error the worker module has no type declarations

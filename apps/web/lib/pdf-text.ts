@@ -1,8 +1,10 @@
 import 'server-only';
 /** Text layer of a PDF (positioned items) with pdfjs — the converter's PDF source. Scanned PDFs give no items. */
 import type { PdfItem } from '@wise/core/noai/pdf-lines';
+import { ensurePdfGlobals } from '@wise/core/noai/pdf-env';
 
 export async function pdfTextItems(bytes: Uint8Array, maxPages = 40): Promise<PdfItem[]> {
+  ensurePdfGlobals(); // DOMMatrix without the native canvas package (standalone build)
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   // the worker code runs in this thread; importing it here also puts it in the standalone build (file tracing)
   const G = globalThis as { pdfjsWorker?: unknown };
