@@ -27,7 +27,7 @@ import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { scanEditorHref, scanQueue } from '@/lib/scan-queue';
 import { fuelRuleNow } from '@/lib/sales-parity';
 
-type SP = { px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string };
+type SP = { merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string };
 
 export default async function VlezPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -76,6 +76,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         fileIds, scanned: pu.scanned, shifted: false, status: pu.status,
       };
       title = 'Измена на влезна фактура' + (pu.number ? ' ' + pu.number : '');
+      if (sp.merged) scanInfo = 'Спојената калкулација е зачувана, а старите се избришани – проверете ја и зачувајте ако менувате.';
     } else if (sp.scan) {
       const [doc] = await db().select().from(aiDocuments).where(and(eq(aiDocuments.id, sp.scan), eq(aiDocuments.firmId, firm.id))).limit(1);
       const idx = Number(sp.i ?? 0) || 0;

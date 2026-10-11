@@ -13,7 +13,8 @@ import { seedReference } from './seed/reference';
 import { loadStockContext, replaceSourceMoves } from './stock-service';
 import type { Actor } from './stock-docs';
 import { saveCoupon, saveLoyaltyCard } from './retail';
-import { createLevellingItems, deleteStoreOut, posSaleWithLoyalty, postFiskRead, saveStoreOut } from './parity-retail';
+import { calcInvoiceDraft, createLevellingItems, deleteStoreOut, mergePurchases, posSaleWithLoyalty, postFiskRead, saveStoreOut } from './parity-retail';
+import { savePurchase } from './sales/purchases';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -118,6 +119,25 @@ describe('levelling import: create unknown codes (nivMk)', () => {
     expect(ids['001']).toBe(I['001']);
     const [it] = await db.select().from(schema.items).where(eq(schema.items.id, ids['N1']!));
     expect([it!.name, it!.unit, it!.vatRate, Number(it!.price), (it!.data as { sp: Record<string, number> }).sp[store]]).toEqual(['Артикл N1', 'ком', 18, 100, 118]);
+  });
+});
+
+describe('calculations: copy to invoice, merge (ksInv / ksMerge)', () => {
+  it('merges two calculations of one supplier into one and deletes the old ones; invoice draft from the goods', async () => {
+    const P = (await db.insert(schema.partners).values({ firmId, name: 'Добавувач М', code: 'M1' }).returning())[0]!.id;
+    const act = { userId: null, role: 'admin' };
+    const mk = (n: string, d: string, q: number) => tx((t) => savePurchase(t, firmId, { number: n, date: d, partnerId: P, ptype: 'stock', groups: [{ account: '6600', rate: 18, base: q * 30, vat: q * 5.4 }], stock: [{ itemId: I['001']!, qty: q, price: 30 }] }, act));
+    const a = await mk('F-10', '2026-07-02', 2), b = await mk('F-11', '2026-07-05', 3);
+    const inv = await tx((t) => calcInvoiceDraft(t, firmId, [a.id, b.id]));
+    expect(inv.lines).toEqual([{ itemId: I['001']!, name: 'Кафе', unit: 'ком', qty: 5, price: 59, rate: 18, account: expect.any(String) }]);
+    expect(inv.note).toMatch(/^Од калкулација /);
+    const m = await tx((t) => mergePurchases(t, firmId, [a.id, b.id], act));
+    const [n] = await db.select().from(schema.purchases).where(eq(schema.purchases.id, m.id));
+    expect([n!.number, n!.date]).toEqual(['F-10+F-11', '2026-07-05']);
+    expect((await db.select().from(schema.purchases).where(eq(schema.purchases.id, a.id))).length).toBe(0);
+    const G = await db.select().from(schema.purchaseVatGroups).where(eq(schema.purchaseVatGroups.purchaseId, m.id));
+    expect(G.map((g) => [Number(g.base), Number(g.vat)])).toEqual([[150, 27]]);
+    expect((await err(tx((t) => mergePurchases(t, firmId, [m.id], act)))).message).toBe('Селектирајте најмалку две калкулации.');
   });
 });
 

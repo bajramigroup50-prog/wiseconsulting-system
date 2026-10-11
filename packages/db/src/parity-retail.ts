@@ -7,16 +7,18 @@
  * FIX vs legacy: the restaurant bill is marked paid in the same transaction as the sale (legacy `roPay` marked it paid
  * before the till was even opened).
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { deletePurchase, savePurchase, type PurchaseInput } from './sales/purchases';
+import type { DocActor } from './sales/context';
 import { cogsAccount, fkIssuePlan, postOut, priceAt, schemeValue, stockAt, type StockMove } from '@wise/core';
 import { fkNormDate, type FiskRead } from '@wise/core/ai/fisk';
 import {
-  FK_SC, couponCheck, findCard, fkGrossByRate, fkMetgDays, fkRows2, pointsEarned, posDiscount, posDiscountLines, posSaldo, type Coupon, type LoyaltyCard,
+  FK_SC, ksInvLines, ksMergeCheck, ksMergeGroups, ksMergeHead, type KsInvLine, couponCheck, findCard, fkGrossByRate, fkMetgDays, fkRows2, pointsEarned, posDiscount, posDiscountLines, posSaldo, type Coupon, type LoyaltyCard,
 } from '@wise/core/retail';
 import { r2, r4 } from '@wise/core/stock/num';
 const fq = (x: number) => String(Math.round(x * 1000) / 1000).replace('.', ',');
 import { audit, type Tx } from './audit';
-import { coupons, firmDocs, firms, items, journalLines, journals, loyaltyCards, partners, salesDaily, storeOuts, type StoreOutLine } from './schema/index';
+import { coupons, firmDocs, firms, items, journalLines, journals, loyaltyCards, partners, purchaseStockLines, purchaseVatGroups, purchases, salesDaily, storeOuts, type StoreOutLine } from './schema/index';
 import { assertOpenPeriod, postJournal } from './posting';
 import { StockDocError, ensurePosPartner, loadStockContext, removeSourceMoves, replaceSourceMoves, requireLocation, requireTracked, whId } from './stock-service';
 import { deleteSalesDay, posSell, retailDocNumber, saveSalesDay, type Actor } from './stock-docs';
@@ -284,6 +286,54 @@ export async function createLevellingItems(tx: Tx, a: Actor, x: { wh: string; ro
   }
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'nivMk', entityType: 'item', data: { wh: W, codes: Object.keys(out) } });
   return out;
+}
+
+/* ================================================================== kalkG / kalkM: copy to invoice, merge */
+
+/** Legacy `ksInv`: the selected calculations' goods as outgoing-invoice lines (same location required by the caller). */
+export async function calcInvoiceDraft(tx: Tx, firmId: string, ids: readonly string[]): Promise<{ lines: KsInvLine[]; warehouseId: string | null; note: string; numbers: string[] }> {
+  if (!ids.length) return { lines: [], warehouseId: null, note: '', numbers: [] };
+  const P = await tx.select().from(purchases).where(and(eq(purchases.firmId, firmId), inArray(purchases.id, [...ids])));
+  const ST = P.length ? await tx.select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, P.map((p) => p.id))).orderBy(asc(purchaseStockLines.purchaseId), asc(purchaseStockLines.lineNo)) : [];
+  const I = ST.length ? await tx.select().from(items).where(and(eq(items.firmId, firmId), inArray(items.id, [...new Set(ST.map((s) => s.itemId))]))) : [];
+  const IM = new Map(I.map((i) => [i.id, { id: i.id, name: i.name, unit: i.unit, rate: i.vatRate, price: i.price, konto: i.revenueAccount }]));
+  const order = new Map(ids.map((id, k) => [id, k]));
+  ST.sort((a, b) => (order.get(a.purchaseId)! - order.get(b.purchaseId)!) || a.lineNo - b.lineNo);
+  const lines = ksInvLines(ST.map((s) => ({ itemId: s.itemId, name: s.name, qty: s.qty, sp: s.sp })), IM);
+  const numbers = P.sort((a, b) => order.get(a.id)! - order.get(b.id)!).map((p) => p.calcNo || p.number || '');
+  return { lines, warehouseId: P[0]?.warehouseId ?? null, note: 'Од калкулација ' + numbers.join(', '), numbers };
+}
+
+/**
+ * Legacy `ksMerge` (17300 + the save wrapper that deletes `mergeFrom`): the selected calculations of one supplier and
+ * location become one — header of the oldest, latest date, numbers „A+B“, all goods lines, VAT groups summed per
+ * account and rate — and the old ones are deleted, in one transaction. Landed costs are not carried over (legacy
+ * neither). Returns the new purchase id (opened for review).
+ */
+export async function mergePurchases(tx: Tx, firmId: string, ids: readonly string[], actor: DocActor): Promise<{ id: string; warnings: string[] }> {
+  const P = await tx.select().from(purchases).where(and(eq(purchases.firmId, firmId), inArray(purchases.id, [...ids])));
+  if (P.length !== new Set(ids).size) throw new StockDocError('Некои калкулации не постојат.');
+  const err = ksMergeCheck(P.map((p) => ({ id: p.id, number: p.number, calcNo: p.calcNo, date: p.date, docDate: p.docDate, partnerId: p.partnerId, supplierName: p.supplierName, wh: p.warehouseId, imp: p.imp })));
+  if (err) throw new StockDocError(err);
+  const head = ksMergeHead(P.map((p) => ({ id: p.id, number: p.number, date: p.date, docDate: p.docDate, partnerId: p.partnerId, supplierName: p.supplierName, wh: p.warehouseId })));
+  const p0 = P.find((p) => p.id === head.first.id)!;
+  const pids = P.sort((a, b) => (a.date < b.date ? -1 : 1)).map((p) => p.id);
+  const [G, ST] = await Promise.all([
+    tx.select().from(purchaseVatGroups).where(inArray(purchaseVatGroups.purchaseId, pids)),
+    tx.select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, pids)),
+  ]);
+  ST.sort((a, b) => (pids.indexOf(a.purchaseId) - pids.indexOf(b.purchaseId)) || a.lineNo - b.lineNo);
+  for (const id of pids) await deletePurchase(tx, firmId, id, actor);
+  const r = await savePurchase(tx, firmId, {
+    number: head.number, date: head.date, docDate: head.docDate, due: p0.due, partnerId: p0.partnerId, supplierName: p0.supplierName, supplierEdb: p0.supplierEdb,
+    ptype: p0.ptype, art32: p0.art32, imp: false, cash: p0.cash, noDed: p0.noDed, warehouseId: p0.warehouseId, supplierAccount: p0.supplierAccount, currency: p0.currency, fx: 1,
+    distMode: p0.distMode, allowDuplicate: true,
+    groups: ksMergeGroups(G.map((g) => ({ account: g.account, rate: g.rate, base: g.base, vat: g.vat }))),
+    stock: ST.map((s) => ({ itemId: s.itemId, name: s.name, code: s.code, barcode: s.barcode, qty: s.qty, price: s.price, rab: s.rab, amount: s.amount, dep: s.dep, sp: s.sp, type: s.type })),
+    data: { note: 'Спојување: ' + P.map((p) => p.calcNo || p.number).join(', ') } as PurchaseInput['data'],
+  }, actor);
+  await audit(tx, { userId: actor.userId, firmId, action: 'ksMerge', entityType: 'purchase', entityId: r.id, data: { from: pids } });
+  return { id: r.id, warnings: r.warnings };
 }
 
 export interface PosSaleResult { id: string; total: number; pay: number; disc: number; card?: { name: string; earn: number; red: number; points: number } }

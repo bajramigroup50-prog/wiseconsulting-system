@@ -7,6 +7,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { deletePurchaseAction } from '../vlez/actions';
+import { mergeCalcsAction } from '../_retail/kalk-actions';
 
 const boxes = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[name="ks"]'));
 const sel = () => boxes().filter((c) => c.checked);
@@ -15,7 +16,7 @@ export function KsAll() {
   return <input type="checkbox" title="Избери ги сите" aria-label="Избери ги сите" onChange={(e) => { for (const c of boxes()) c.checked = e.target.checked; document.dispatchEvent(new Event('kssel')); }} />;
 }
 
-export function KsBar({ admin, warehouse }: { admin: boolean; warehouse: boolean }) {
+export function KsBar({ admin, warehouse, fix = false }: { admin: boolean; warehouse: boolean; fix?: boolean }) {
   const [n, setN] = useState(0);
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -36,8 +37,22 @@ export function KsBar({ admin, warehouse }: { admin: boolean; warehouse: boolean
           if (wh.length > 1) { window.alert('Селектираните калкулации се од различни објекти – изберете од еден магацин.'); return; }
           router.push('/prenosi?calc=' + L.map((c) => c.value).join(','));
         }}>📦 Пренос во продавница</button>}
-        <button type="button" className="btn sm" onClick={() => router.push('/ddvKnigi?t=in')}>📒 Книга на влезни ф-ри</button>
-        <button type="button" className="btn sm" onClick={() => router.push('/g_trgv')}>📗 ЕТ</button>
+        <button type="button" className="btn sm" onClick={() => {
+          // legacy `ksInv`: the goods of the selected calculations as a new outgoing invoice
+          const L = need(); if (!L.length) return;
+          router.push('/izlez?calc=' + L.map((c) => c.value).join(','));
+        }}>📄 Копирање на калкулацијата во излез</button>
+        {fix && <button type="button" className="btn sm" disabled={pending} onClick={() => {
+          // legacy `ksMerge`: one supplier, one location, no import calculations
+          const L = need(); if (!L.length) return;
+          if (L.length < 2) { window.alert('Селектирајте најмалку две калкулации.'); return; }
+          if (new Set(L.map((c) => c.dataset.wh)).size > 1 || new Set(L.map((c) => c.dataset.p)).size > 1) { window.alert('Спојување е можно само за ист добавувач и ист објект.'); return; }
+          if (L.some((c) => c.dataset.imp === '1')) { window.alert('Увозни калкулации не се спојуваат (различни курсеви и трошоци).'); return; }
+          if (!window.confirm(`Да се спојат ${L.length} калкулации (${L.map((c) => c.dataset.no ?? '').join(', ')}) во една нова?\nСтарите се бришат.`)) return;
+          start(async () => { const r = await mergeCalcsAction(L.map((c) => c.value)); if (r?.error) window.alert(r.error); });
+        }}>🔗 Спојување на селектираните</button>}
+        <button type="button" className="btn sm" title="Секоја зачувана калкулација/фактура веќе е во книгата на влезни фактури и во налогот 2." onClick={() => router.push('/ddvKnigi?t=in')}>📒 Книга на влезни ф-ри</button>
+        <button type="button" className="btn sm" title="Калкулациите во магацин автоматски се во ЕТ (трговска книга на големо)." onClick={() => router.push('/g_trgv')}>📗 ЕТ</button>
         {admin && <button type="button" className="btn sm ghost" style={{ color: 'var(--bad)' }} disabled={pending} onClick={() => {
           const L = need(); if (!L.length) return;
           if (!window.confirm(`Да се избришат ${L.length} калкулации?\nСе бришат и налозите и приемот на залиха.`)) return;
