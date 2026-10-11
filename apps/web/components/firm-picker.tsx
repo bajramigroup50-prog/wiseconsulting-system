@@ -12,7 +12,7 @@ import {
   FP_AZ, FP_FILTERS, FP_FILTER_TITLE, FP_VIEWS, fpApply, fpDdvDue, fpDdvNo, fpExportRows, fpGroupKey, fpPerson, fpPhone, fpPrevMonth, fpShort,
   type FpFilter, type FpFirm, type FpSort, type FpView,
 } from '@wise/core/firms/picker';
-import { selectFirm } from '@/app/(app)/actions';
+import { selectFirm, setYear } from '@/app/(app)/actions';
 import { logout } from '@/app/login/actions';
 import { PdfButton } from './pdf-button';
 
@@ -21,7 +21,11 @@ const read = (k: string): string[] => { try { return JSON.parse(localStorage.get
 const dmy = (d: string) => d.split('-').reverse().join('.');
 const nf = (v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function FirmPicker({ rows: F0, canNew, user, office, today }: { rows: FpFirm[]; canNew: boolean; user: string; office: string; today: string }) {
+export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
+  rows: FpFirm[]; canNew: boolean; user: string; office: string; today: string;
+  /** Selected year: the rows are the firms working in it; the top bar is hidden here, so the year is chosen here too. */
+  year?: number;
+}) {
   const router = useRouter();
   const [, start] = useTransition();
   const [q, setQ] = useState('');
@@ -73,7 +77,14 @@ export function FirmPicker({ rows: F0, canNew, user, office, today }: { rows: Fp
   return (
     <div className="fp2">
       <div className="fp2-top">
-        <h1>Изберете фирма <span className="note" style={{ fontSize: 14, fontWeight: 400 }}>· {F0.length} фирми</span></h1>
+        <h1>Изберете фирма <span className="note" style={{ fontSize: 14, fontWeight: 400 }}>· {F0.length} фирми{year ? ` во ${year}` : ''}</span></h1>
+        {year != null && (
+          <label className="mini" title="Се прикажуваат само фирмите што работат во избраната година">Година{' '}
+            <select style={{ width: 'auto' }} value={year} onChange={(e) => { const v = Number(e.target.value); start(() => setYear(v)); }}>
+              {Array.from({ length: Math.max(year, new Date().getFullYear()) + 2 - Math.min(2012, year) }, (_, i) => Math.max(year, new Date().getFullYear()) + 1 - i).map((v) => <option key={v}>{v}</option>)}
+            </select>
+          </label>
+        )}
         <div className="fp2-vw">{FP_VIEWS.map(([key, t]) => <button key={key} type="button" className={view === key ? 'on' : ''} onClick={() => { setView(key); setLim(60); setK(0); try { localStorage.setItem(LS.view, key); } catch { /* ignore */ } }}>{t}</button>)}</div>
         {canNew && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
         <form action={logout} style={{ display: 'inline' }}><button className="btn">Одјава ({user})</button></form>
@@ -118,7 +129,7 @@ export function FirmPicker({ rows: F0, canNew, user, office, today }: { rows: Fp
                 </tr>
               );
             })}
-            {!L.length && <tr><td colSpan={6} className="note" style={{ textAlign: 'center', padding: 24 }}>{!F0.length ? (canNew ? 'Нема фирми. Кликнете „+ Нова фирма“.' : 'Немате доделено фирми. Јавете се кај администраторот.') : 'Нема фирма што одговара на пребарувањето / филтерот.'}</td></tr>}
+            {!L.length && <tr><td colSpan={6} className="note" style={{ textAlign: 'center', padding: 24 }}>{!F0.length ? (year ? <>Нема фирми активни во {year}. Изберете друга година или во <Link href="/firmi?sve=1">Фирми → Прикажи ги сите години</Link> кај фирмата внесете „Активна од година“.</> : canNew ? 'Нема фирми. Кликнете „+ Нова фирма“.' : 'Немате доделено фирми. Јавете се кај администраторот.') : 'Нема фирма што одговара на пребарувањето / филтерот.'}</td></tr>}
           </tbody>
         </table>
       )}

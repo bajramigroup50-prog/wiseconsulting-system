@@ -9,10 +9,10 @@ import { Sig } from '../firm-head';
 
 export const metadata = { title: 'Листа на фирми' };
 
-export default async function PrintFirmi({ searchParams }: { searchParams: Promise<{ f?: string; ex?: string }> }) {
+export default async function PrintFirmi({ searchParams }: { searchParams: Promise<{ f?: string; ex?: string; sve?: string }> }) {
   const u = await requireUser();
   if (!can(u.principal, 'firms')) notFound();
-  const { k, list: L } = await firmReport(u, await searchParams);
+  const { k, year, allYears, list: L } = await firmReport(u, await searchParams);
   const t = FR_F.find((x) => x[0] === k)![1];
   const c = frCounts(L);
   return (
@@ -20,7 +20,7 @@ export default async function PrintFirmi({ searchParams }: { searchParams: Promi
       <style dangerouslySetInnerHTML={{ __html: '@page{size:A4 landscape}' }} />
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
         <div style={{ fontSize: '14pt', fontWeight: 700 }}>{frTitle(k)}</div>
-        <div style={{ fontSize: '9pt' }}>{t} · состојба на {dmy(new Date().toISOString())} · вкупно {L.length}</div>
+        <div style={{ fontSize: '9pt' }}>{t}{allYears ? ' · сите години' : ` · активни во ${year}`} · состојба на {dmy(new Date().toISOString())} · вкупно {L.length}</div>
       </div>
       <table style={{ fontSize: '8.5pt' }}>
         <thead><tr><th>Р.бр</th><th>Назив</th><th>ЕДБ</th><th>ЕМБС</th><th>Седиште</th><th>ДДВ</th><th>Даночен период</th><th>ДДВ од</th><th>Заклучено до</th></tr></thead>

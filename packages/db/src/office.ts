@@ -13,6 +13,7 @@ import {
   type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
 } from '@wise/core/office';
 import { audit, type Tx } from './audit';
+import { firmOpenInSql } from './firm-years';
 import { documentPayments } from './bank/open-items';
 import { effectiveChart, loadLedgerLines } from './ledger-queries';
 import { loanStateOf } from './lawrep';
@@ -224,7 +225,8 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
   const off = await getOfficeProfile(db);
   const [run] = await db.insert(autopilotRuns).values({ trigger: o.trigger ?? 'cron' }).returning({ id: autopilotRuns.id });
   const runId = run!.id;
-  const F = (await db.select().from(firms).where(eq(firms.active, true)).orderBy(asc(firms.name)))
+  // only the firms working this year (`firm-years.ts`): a closed firm (`toYear`) is no longer checked
+  const F = (await db.select().from(firms).where(and(eq(firms.active, true), firmOpenInSql(Number(today.slice(0, 4))))).orderBy(asc(firms.name)))
     .filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm);
   const rows: { id: string; m: Record<string, number | string | null> }[] = [];
   let findings = 0, newBad = 0, messages = 0, autoSent = 0;

@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const u = await getUser();
   if (!u || !can(u.principal, 'firms')) return new Response('Forbidden', { status: 403 });
   const p = new URL(req.url).searchParams;
-  const { k, list } = await firmReport(u, { f: p.get('f') ?? undefined, ex: p.get('ex') ?? undefined });
+  const { k, list } = await firmReport(u, { f: p.get('f') ?? undefined, ex: p.get('ex') ?? undefined, sve: p.get('sve') ?? undefined });
   const rows = [[...FR_XLSX_HEAD], ...list.map((f, i) => [i + 1, f.name, f.edb ?? '', f.embs ?? '', f.address ?? '', f.city ?? '',
     f.vatRegistered ? 'Да' : 'Не', f.vatRegistered ? (f.vatPeriod === 'month' ? 'месечен' : 'тромесечен') : '', f.vatFrom, f.lockDate ?? ''])];
   const wb = XLSX.utils.book_new();

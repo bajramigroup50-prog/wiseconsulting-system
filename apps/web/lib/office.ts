@@ -10,9 +10,9 @@ import { notFound } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
 import { klAllowedViews, todaySkopje, tplVars, type KlConfig } from '@wise/core/office';
-import { fileLinks, files, firms, getOfficeProfile, OfficeError, PostingError, StockDocError, type Firm, type Tx } from '@wise/db';
+import { fileLinks, files, firmListedIn, firms, getOfficeProfile, OfficeError, PostingError, StockDocError, type Firm, type Tx } from '@wise/db';
 import { Forbidden, requireCan, requireUser, type SessionUser } from './auth';
-import { currentFirm } from './context';
+import { currentFirm, currentYear } from './context';
 import { db } from './db';
 import { viewAllowed } from './nav';
 import type { ActionState } from './books';
@@ -81,9 +81,13 @@ export async function filesOf(entityType: string, ids: string[]) {
   return M;
 }
 
-/** Firms the user may see, for office-wide lists. */
-export async function allowedFirms(u: SessionUser) {
-  const L = await db().select().from(firms).where(eq(firms.active, true));
+/**
+ * Firms the user may see, for office-wide lists: only the firms working in the selected year (`wc_year`,
+ * `@wise/core/firms/years`) unless `year: 'all'`.
+ */
+export async function allowedFirms(u: SessionUser, o: { year?: number | 'all' } = {}) {
+  const y = o.year ?? await currentYear();
+  const L = await db().select().from(firms).where(y === 'all' ? eq(firms.active, true) : firmListedIn(y));
   return L.filter((f) => firmAllowed(u.principal, f.id, f.ownerId)).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
 }
 

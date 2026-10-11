@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { journals } from '@wise/db';
 import { requireUser } from '@/lib/auth';
-import { currentFirm, currentYear } from '@/lib/context';
+import { currentFirm, currentYear, firmYearCallout } from '@/lib/context';
 import { db } from '@/lib/db';
 import { navFor } from '@/lib/nav';
 import { filterNavByModules } from '@/lib/nav-industry';
@@ -26,10 +26,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const preview = !!firm && u.role !== 'klient' && u.role !== 'teren' && (await cookies()).get(PREVIEW_COOKIE)?.value === firm.id;
   const groups = u.role === 'klient' || preview ? await klNav(firm, preview) : filterNavByModules(navFor(u.role), firm, false);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
-  const [st, [y0]] = await Promise.all([
+  const [st, [y0], yearNote] = await Promise.all([
     topStatus(u).catch(() => ({ bell: null, ainb: [], law: null })),
     // legacy `dataYears()`: the year list starts at the firm's first booked year
     firm ? db().select({ y: sql<number | null>`min(extract(year from ${journals.date}))::int` }).from(journals).where(eq(journals.firmId, firm.id)).catch(() => [{ y: null }]) : Promise.resolve([{ y: null }]),
+    // the selected firm does not work in the selected year (`@wise/core/firms/years`) — said, never shown silently
+    firm ? firmYearCallout(firm, year).catch(() => null) : Promise.resolve(null),
   ]);
   return (
     <div className="app">
@@ -55,6 +57,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <div className="callout warn">Мора да ја промените привремената лозинка. <a href="/lozinka">Промени лозинка</a></div>
           )}
           {firm && u.role !== 'teren' && <NavBack />}
+          {yearNote && (
+            <div className="callout warn" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>📅 <b>{firm!.name}</b>: {yearNote} Променете ја годината горе или изберете друга фирма.</span>
+              {office && can(u.principal, 'saveFirm', firm!.id) && <a className="btn sm" href={`/firmi?sve=1&edit=${firm!.id}`}>Измени ги годините на фирмата</a>}
+              {office && <a className="btn sm" href="/firmi">⇄ Фирми во {year}</a>}
+            </div>
+          )}
           {preview && (
             // legacy `klBanner` 9065, on top of every view while previewing
             <div className="callout" style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', borderColor: 'var(--accent)' }}>

@@ -17,7 +17,7 @@ import {
 } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { LawHome } from './zakoni/law-home';
-import { currentFirm, currentYear } from '@/lib/context';
+import { currentFirm, currentYear, firmYearCallout } from '@/lib/context';
 import { acctMonths, cashKontos, stockSummary } from '@/lib/dash';
 import { db } from '@/lib/db';
 import { invoicesWithPayments, partnerNames, purchasesWithPayments } from '@/lib/firms-office';
@@ -78,10 +78,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   if (u.role === 'teren') redirect('/mojzad');
   const [f, year] = await Promise.all([currentFirm(u), currentYear()]);
   const td = today();
-  if (!f) {
+  // a firm outside the selected year (the layout shows „Фирмата не е активна во …“): the picker of that year instead of its dashboard
+  if (!f || await firmYearCallout(f, year)) {
     // legacy: no firm → `S.chooser` → full-screen `firmPicker` (menu and firm bar hidden, `body.picking`)
     const [P, O] = await Promise.all([pickerFirms(u), getOfficeProfile(db()).catch(() => ({ name: '' }))]);
-    return <FirmPicker rows={P.rows} canNew={can(u.principal, 'newFirm')} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} />;
+    return <FirmPicker rows={P.rows} canNew={can(u.principal, 'newFirm')} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} year={year} />;
   }
   const sp = await searchParams;
   const P = isDashPer(sp.per) ? sp.per : 'year';

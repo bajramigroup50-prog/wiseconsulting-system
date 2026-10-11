@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { firmActiveIn } from '@wise/core/firms/years';
-import { firmFirstDataYear, firmInYearSql, firmListedIn } from './firm-years';
+import { firmFirstDataYear, firmFirstDataYears, firmInYearSql, firmListedIn } from './firm-years';
 import * as schema from './schema/index';
 
 const db = drizzle(new PGlite(), { schema });
@@ -52,5 +52,13 @@ describe('firm working years in SQL (picker / list filter)', () => {
       const sqlIds = new Set((await db.select({ id: schema.firms.id }).from(schema.firms).where(and(firmInYearSql(y)))).map((r) => r.id));
       for (const f of all) expect([f.name, y, sqlIds.has(f.id)]).toEqual([f.name, y, firmActiveIn(f, y, await firmFirstDataYear(db, f.id))]);
     }
+  });
+  it('firmFirstDataYears: earliest year per firm over journals and invoices', async () => {
+    const M = await firmFirstDataYears(db);
+    expect(M.get(id['Со налози 2024']!)).toBe(2024);
+    expect(M.get(id['Со фактура 2025']!)).toBe(2025);
+    expect(M.has(id['Нова 2026']!)).toBe(false);
+    expect((await firmFirstDataYears(db, [id['Со фактура 2025']!])).size).toBe(1);
+    expect((await firmFirstDataYears(db, [])).size).toBe(0);
   });
 });

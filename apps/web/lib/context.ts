@@ -2,7 +2,8 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { eq } from 'drizzle-orm';
 import { firmAllowed } from '@wise/core';
-import { firms, type Firm } from '@wise/db';
+import { firmActiveIn, firmYearNote } from '@wise/core/firms/years';
+import { firmFirstDataYear, firms, type Firm } from '@wise/db';
 import { db } from './db';
 import type { SessionUser } from './auth';
 
@@ -27,4 +28,13 @@ export async function currentFirm(u: SessionUser): Promise<Firm | null> {
 export async function currentYear(): Promise<number> {
   const y = Number((await cookies()).get(YEAR_COOKIE)?.value);
   return Number.isInteger(y) && y > 2000 && y < 2100 ? y : new Date().getFullYear();
+}
+
+/**
+ * Callout text when the selected firm does not work in the selected year („Фирмата не е активна во 2024 – работи од
+ * 2026.“), `null` when it does. The first data year is only looked up when the firm would otherwise be outside the year.
+ */
+export async function firmYearCallout(firm: Pick<Firm, 'id' | 'settings' | 'createdAt'>, year: number): Promise<string | null> {
+  if (firmActiveIn(firm, year)) return null;
+  return firmYearNote(firm, year, await firmFirstDataYear(db(), firm.id).catch(() => null));
 }
