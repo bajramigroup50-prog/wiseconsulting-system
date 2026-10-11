@@ -24,7 +24,7 @@ export const NC_CHECK = [
 export const NF = [
   ['name', 'Целосен назив*'], ['short', 'Скратен назив'], ['form', 'Правна форма'], ['street', 'Улица'], ['no', 'Број'],
   ['city', 'Место'], ['muni', 'Општина'], ['postal', 'Поштенски број'], ['nkd', 'Шифра на дејност (НКД)'],
-  ['activity', 'Опис на дејноста'], ['capital', 'Основачки влог (EUR)'], ['capType', 'Вид на влог'], ['phone', 'Телефон'],
+  ['activity', 'Опис на претежната дејност'], ['capital', 'Основачки влог (EUR)'], ['capType', 'Вид на влог'], ['phone', 'Телефон'],
   ['email', 'Е-пошта'], ['bank', 'Банка за сметка'], ['embs', 'ЕМБС (по регистрација)'], ['edb', 'ЕДБ (по регистрација)'],
   ['regDate', 'Датум на регистрација'], ['notes', 'Белешки'],
 ] as const;
@@ -32,7 +32,7 @@ export type NfKey = (typeof NF)[number][0];
 
 export const LEGAL_FORMS = ['ДООЕЛ', 'ДОО', 'ТП', 'АД', 'Здружение'] as const;
 
-export interface Founder { kind: 'ФЛ' | 'ПЛ'; name: string; surname?: string; embg?: string; share?: number | string; cit?: string; address?: string; city?: string }
+export interface Founder { kind: 'ФЛ' | 'ПЛ'; name: string; surname?: string; embg?: string; share?: number | string; cit?: string; address?: string; city?: string; idNo?: string }
 export interface CapItem { name: string; eur?: number | string; mkd?: number | string }
 
 /**
