@@ -27,6 +27,7 @@ import { ensureScanBuyer } from '@/app/(app)/skan/actions';
 import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-editor';
 import { blankLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
 import { RepostCallout } from '@/components/repost-callout';
+import { ScanUpload } from './scan-upload';
 
 /** Legacy `payPill` (3723). */
 export function PayPill({ paid, total }: { paid: number; total: number }) {
@@ -180,7 +181,9 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       id: a.id, number: a.number, date: a.date, partnerId: a.partnerId, base: Number(a.base), art32: a.art32, lines: AL.get(a.id) ?? [],
       used: usedAdv.filter((x) => x.a === a.id && x.inv !== init.id).reduce((t, x) => t + Number(x.s), 0),
     }));
-    return <>{buyerBox && <div className="callout warn">Купувачот „{buyerBox.name}“ (ЕДБ {buyerBox.edb || '—'}) не е во комитенти. <RowAction className="btn sm pri" action={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} label="Додај го како партнер" /></div>}
+    return <>{dt === 'invoice' && sp.nov !== undefined && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
+        label={<><b>📷 Пополни од скенирана фактура</b> — повлечете PDF / слика од излезната фактура тука: купувачот, бројот, датумот и ставките се пополнуваат автоматски.</>} />}
+      {buyerBox &&<div className="callout warn">Купувачот „{buyerBox.name}“ (ЕДБ {buyerBox.edb || '—'}) не е во комитенти. <RowAction className="btn sm pri" action={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} label="Додај го како партнер" /></div>}
       {sp.prevSaved && <div className="callout good">Претходната фактура е зачувана. Се отвора следната скенирана фактура.</div>}
       <InvoiceEditor key={init.partnerId || 'np'} initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
       refInvoices={refInvoices} advances={advances} revDefault={revDefault} revByType={{ service: schemeValue(ctx, 'revService'), goods: schemeValue(ctx, 'revGoods'), material: schemeValue(ctx, 'revGoods'), product: schemeValue(ctx, 'revProduct') }} advanceKonto={schemeValue(ctx, 'advance')} nonVat={!firm.vatRegistered}
@@ -251,6 +254,8 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
           ...list.map(({ i, p }) => [i.number, J.get(i.id) ?? '', dmy(i.date), dmy(i.due), p?.name ?? '', p?.code ?? '', Number(i.base), Number(i.vat), Number(i.total), i.currency === 'MKD' ? '' : `${i.currency} ${i.fx}`])]} />
         {write && <Link className="btn pri" href={view + '?nov'}>+ {DT[dt].nova}</Link>}
       </Hd>
+      {dt === 'invoice' && write && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
+        label={<><b>Прочитај излезна фактура од PDF</b> — повлечете ја фактурата (PDF, JPG, PNG) тука или кликнете. Програмот ги чита купувачот, бројот, датумите и ставките и ја отвора фактурата за проверка.</>} />}
       {sp.saved && <div className="callout good">Документот е зачуван. <Link href={`/print/doc/${sp.saved}`} target="_blank">👁 Преглед / печатење</Link>{sp.w && <><br />{sp.w.split(' | ').map((w, k) => <span key={k}>⚠ {w}<br /></span>)}</>}</div>}
       {settingsOk && sp.style !== undefined && (
         <form action={saveInvoiceStyle} className="card">

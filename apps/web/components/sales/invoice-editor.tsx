@@ -455,7 +455,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
 
       <datalist id="itemList">{items.map((i) => <option key={i.id} value={i.name}>{i.code ?? ''}</option>)}</datalist>
       <datalist id="svcItemList">{[...new Set([...(p.svcTexts ?? []), ...items.map((i) => i.name)])].map((x) => <option key={x} value={x} />)}</datalist>
-      <div className="tw"><table><thead><tr>{canProd && <th title="Производство: ставката се произведува од репроматеријали">🏭</th>}<th style={{ minWidth: 200 }}>Артикл / опис</th><th>Ед. мерка</th><th className="n">Количина</th><th className="n">Цена без ДДВ{d.currency !== 'MKD' ? ' (' + d.currency + ')' : ''}</th><th className="n">Рабат %</th><th>ДДВ</th><th>Конто</th><th className="n">Износ</th><th></th></tr></thead><tbody>
+      <div className="tw"><table><thead><tr><th style={{ minWidth: 200 }}>Артикл / опис</th><th>Ед. мерка</th><th className="n">Количина</th><th className="n">Цена без ДДВ{d.currency !== 'MKD' ? ' (' + d.currency + ')' : ''}</th><th className="n">Рабат %</th><th>ДДВ</th><th>Конто</th><th className="n">Износ</th><th></th></tr></thead><tbody>
         {d.lines.map((l, i) => {
           const it = l.itemId ? itemById.get(l.itemId) : undefined;
           const sq = it ? stockOf(it.id) : undefined;
@@ -465,8 +465,6 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
           const c = calcs.get(i);
           return (<Fragment key={i}>
             <tr className={produced ? 'prodhead' : undefined}>
-              {canProd && <td><button type="button" className={'btn sm' + (produced ? ' pri' : ' ghost')} aria-pressed={produced} aria-label={`Производство: ${l.name || 'ред ' + (i + 1)}`}
-                title={produced ? 'Се произведува – исклучи' : 'Означи: ставката се произведува од репроматеријали'} onClick={() => toggleProd(i)}>🏭</button></td>}
               <td><input value={l.name} list="svcItemList" style={{ minWidth: svcMode ? 380 : 260 }} placeholder={svcMode ? 'Напишете ја услугата, пр. Сметководствени услуги за месец …' : 'Артикл од листата или слободен опис на услуга'} onChange={(e) => {
                 const v = e.target.value;
                 const found = items.find((x) => x.name === v || (x.code && x.code === v.trim()));
@@ -483,9 +481,11 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
                 {!p.accounts.some(([k]) => k === (l.account || p.revDefault)) && <option value={l.account || p.revDefault}>{l.account || p.revDefault}</option>}
                 {p.accounts.map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</select></td>
               <td className="n">{fmt(lineAmt(l))}</td>
-              <td><button type="button" className="btn sm ghost danger" aria-label="Отстрани ред" onClick={() => set({ lines: d.lines.filter((_, k) => k !== i) })}>✕</button></td>
+              <td style={{ whiteSpace: 'nowrap' }}>{canProd && <button type="button" className={'btn sm' + (produced ? ' pri' : ' ghost')} aria-pressed={produced} aria-label={`Производство: ${l.name || 'ред ' + (i + 1)}`}
+                title={produced ? '🏭 Се произведува – исклучи' : '🏭 Означи: ставката се произведува од репроматеријали'} onClick={() => toggleProd(i)}>🏭</button>}
+                <button type="button" className="btn sm ghost danger" aria-label="Отстрани ред" onClick={() => set({ lines: d.lines.filter((_, k) => k !== i) })}>✕</button></td>
             </tr>
-            {produced && (l.prod!.open || !c) && <tr className="prodrow"><td colSpan={10}>
+            {produced && (l.prod!.open || !c) && <tr className="prodrow"><td colSpan={9}>
               <LineProdPanel line={l} items={items} stock={p.stock} avg={avgs} boms={boms} locations={p.locations} fx={fxN} cur={cur}
                 onChange={(pr) => setProdOf(i, pr)} onCreate={() => void createProduct(i)} creating={creating === i} orderNo={orderNo(i)} />
             </td></tr>}

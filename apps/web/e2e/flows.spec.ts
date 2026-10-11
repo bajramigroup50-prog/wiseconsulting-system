@@ -106,6 +106,82 @@ test('sales invoice through the editor, print, credit note, VAT book', async ({ 
   await ok(page, w);
 });
 
+test('sales invoice with a 🏭 production line: create the product inline, materials from stock, live margin, save', async ({ page }) => {
+  const w = watch(page);
+  page.on('dialog', (d) => void d.accept());
+  await login(page);
+  // own firm and buyer, so the test also runs alone (`-g 🏭`)
+  const PF = `Е2Е ПРОИЗВОДСТВО ${stamp} ДООЕЛ`, PCUST = `НАРАЧАТЕЛ ${stamp} ДООЕЛ`;
+  await newFirm(page, PF, '4031' + String(Date.now()).slice(-9));
+  await page.goto('/partneri?nov');
+  const pf = page.locator('form.card:has(input[name=name])');
+  await pf.locator('input[name=name]').fill(PCUST);
+  await pf.locator('input[name=edb]').fill('4030027' + stamp);
+  await pf.getByRole('button', { name: 'Зачувај' }).click();
+  await expect(page.getByText(PCUST).first()).toBeVisible();
+  // the home page (opened by `newFirm`) may hit the dev PGlite's „unnamed prepared statement“ flake (see README);
+  // the errors that count are the ones of the invoice flow below
+  w.take();
+  const MAT = `Даска ${stamp}`, PROD = `Маса по мерка ${stamp}`;
+  await page.goto('/artikli?nov');
+  const itf = page.locator('form.card:has(input[name=name])');
+  await itf.locator('input[name=name]').fill(MAT);
+  await itf.locator('select[name=type]').selectOption('material');
+  await itf.getByRole('button', { name: 'Зачувај' }).click();
+  await expect(page.getByText(MAT).first()).toBeVisible();
+
+  await page.goto('/izlez?nov');
+  const ed = editor(page);
+  await expect(ed).toBeVisible();
+  // the header no longer has the invoice-level „Производство Да/Не“ switch, only the per-line hint
+  await expect(ed.locator('fieldset:has(legend:text-is("Производство")) input[type=radio]')).toHaveCount(0);
+  const ps = ed.getByRole('combobox', { name: 'Комитент', exact: true });
+  await ps.selectOption(await ps.locator('option', { hasText: PCUST }).first().getAttribute('value'));
+  const rows = ed.locator('table tbody tr');
+  if (!(await rows.count())) await ed.getByRole('button', { name: /^\+ Ред/ }).click();
+  const r0 = rows.nth(0);
+  await r0.locator('td').nth(0).locator('input').fill(PROD);
+  await r0.locator('td').nth(2).locator('input').fill('2');
+  await r0.locator('td').nth(3).locator('input').fill('1000');
+  // a plain service line next to the produced one
+  await ed.getByRole('button', { name: '+ Услуга (слободен опис)' }).click();
+  const svc = ed.locator('table tbody tr:not(.prodrow)').nth(1);
+  await svc.locator('td').nth(0).locator('input').fill('Достава');
+  await svc.locator('td').nth(3).locator('input').fill('500');
+
+  await ed.getByRole('button', { name: `Производство: ${PROD}` }).click();
+  const panel = ed.getByTestId('prod-line');
+  await expect(panel).toContainText('Креирај производ');
+  await panel.getByRole('button', { name: '+ Креирај производ' }).click();
+  await expect(panel).toContainText(`Репроматеријали за „${PROD}“`);
+  const search = panel.getByRole('textbox', { name: 'Додај материјал од залиха' });
+  await search.fill(MAT.slice(0, 5));
+  await expect(panel.locator('.qa-list')).toContainText(MAT);
+  await panel.locator('.qa-it', { hasText: MAT }).first().click();
+  await panel.getByRole('spinbutton', { name: 'Количина материјал' }).fill('4');
+  await panel.getByRole('spinbutton', { name: 'Дополнителни трошоци' }).fill('2500');
+  // live calculation: 0 materials on stock (average 0) + 2 500 extra = 2 500 > sale 2 000 → below cost
+  const calc = panel.getByTestId('prod-calc');
+  await expect(calc).toContainText('2.500,00');
+  await expect(panel.getByRole('alert')).toContainText('под цената на чинење');
+  await panel.getByRole('spinbutton', { name: 'Дополнителни трошоци' }).fill('300');
+  await expect(panel.getByRole('alert')).toHaveCount(0);
+  await expect(ed.getByTestId('prod-summary')).toContainText('300,00');
+  await expect(ed.getByTestId('prod-summary')).toContainText('1.700,00'); // margin 2 000 − 300
+
+  await ed.getByRole('button', { name: 'Зачувај и прокнижи' }).click();
+  await page.waitForURL(/\/izlez\?saved=/);
+  const id = new URL(page.url()).searchParams.get('saved')!;
+  await expect(page.getByRole('row').filter({ hasText: PCUST }).filter({ hasText: '🏭' })).toHaveCount(1); // the production order pill
+  // edit: the line is still marked and its materials are kept
+  await page.goto(`/izlez?edit=${id}`);
+  const e2 = editor(page);
+  await expect(e2.getByRole('button', { name: `Производство: ${PROD}` })).toHaveAttribute('aria-pressed', 'true');
+  await e2.getByRole('button', { name: '▾ репроматеријали' }).click();
+  await expect(e2.getByTestId('prod-line')).toContainText(MAT);
+  await ok(page, w);
+});
+
 test('bank statement upload for a firm without a bank account → automatic booking', async ({ page }) => {
   const w = watch(page);
   await login(page);
