@@ -123,6 +123,7 @@ export async function saveImportAction(form: FormData): Promise<FormState> {
       const { statements, format, fileId } = await readStatements(f, firm.id, ai);
       const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null, replace });
       if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
+      if (!x.statements && x.balances) return `„${f.name}“: водечки слог (КБ) – зачувани салдата и бројот на ${x.balances} извод(и). Ставките се во датотеката „Izvod_stavki_…“.`;
       return `„${f.name}“: ${x.statements} изводи, ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.posted}, за довршување ${x.drafts}.`;
     });
     if (r.error) return { error: `„${f.name}“: ${r.error}`, ...(msgs.length ? { ok: msgs.join(' ') } : {}) };
