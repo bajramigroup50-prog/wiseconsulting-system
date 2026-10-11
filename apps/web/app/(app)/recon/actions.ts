@@ -44,7 +44,7 @@ async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue 
     throw new Error('Форматот не е препознаен – користете Excel, CSV, PDF или слика.');
   }
   const P = parseCardTable(rows);
-  if (!P || !P.rows.length) throw new Error(`„${f.name}“: не се препознаени колоните (датум, должи, побарува) или нема ставки.`);
+  if (!P || !P.rows.length) throw new Error(`„${f.name}“: Не се прочитани ставки од датотеката. (Колони: датум, должи, побарува.)`);
   return { ...P, name: f.name };
 }
 

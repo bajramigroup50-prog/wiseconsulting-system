@@ -84,6 +84,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
           <button className="btn sm">Зачувај</button><span className="mini">(на пр. 0 1620 2620 1200 2200 7414)</span>
         </ActionForm>
       )}
+      {sp.p && !pf && <div className="callout warn">Комитентот не е најден.</div>}
       {tb.bbimpMixed && <div className="callout warn">Во периодот има и увезен бруто биланс и книжени документи – прометите може да се дуплираат. Проверете ја „Почетна состојба“.</div>}
       {R.length ? (
         <div className="tw"><table>

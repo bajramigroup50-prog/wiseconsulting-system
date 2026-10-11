@@ -15,7 +15,7 @@ export default async function PpPrint({ searchParams }: { searchParams: Promise<
   if (!firm) notFound();
   const ids = (Array.isArray(sp.ids) ? sp.ids : String(sp.ids ?? '').split(',')).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
   const L = ids.length ? await db().select().from(paymentOrders).where(and(eq(paymentOrders.firmId, firm.id), inArray(paymentOrders.id, ids))) : [];
-  if (!L.length) return <PrintPage title="Налози"><p>Нема избрани налози.</p></PrintPage>;
+  if (!L.length) return <PrintPage title="Налози"><p>Нема налози за печатење.</p></PrintPage>;
   const mode = sp.m === 'data1' ? 'data1' : sp.m === 'data' ? 'data' : 'full';
   // calibration for pre-printed forms (legacy `ppCal`, office setting `ppCal[kind] = {dx, dy}`)
   const [off] = await db().select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'office')).limit(1);

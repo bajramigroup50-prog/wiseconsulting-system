@@ -39,6 +39,7 @@ export default async function KkartPage({ searchParams }: { searchParams: Promis
         <label className="f">До<input type="date" name="to" defaultValue={to} /></label>
         <button className="btn pri">Прикажи</button>
       </div></form>
+      {sp.p && sp.p !== 'none' && !pf && <div className="callout warn">Комитентот не е најден.</div>}
       <div className="tiles">
         <div className="tile"><span className="k">Почетно салдо</span><b className="v num">{fmt(X.opening)}</b></div>
         <div className="tile"><span className="k">Должи</span><b className="v num">{fmt(X.debit)}</b></div>

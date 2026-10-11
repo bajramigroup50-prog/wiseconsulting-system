@@ -14,10 +14,11 @@ export async function saveFxAction(_p: FormState, form: FormData): Promise<FormS
   try {
     const u = await requireCan('fxSave');
     const date = str(form.get('date'));
-    if (!isDate(date)) return { error: 'Внесете датум.' };
+    if (!isDate(date)) return { error: 'Изберете датум.' };
     const curs = form.getAll('cur').map(String);
     const rates = form.getAll('rate');
     const rows = curs.map((cur, i) => ({ cur, rate: num(rates[i] ?? null) ?? 0 })).filter((r) => r.cur.trim() && r.rate);
+    if (!rows.some((r) => r.rate > 0)) return { error: 'Внесете барем еден курс.' };
     const orig = str(form.get('orig')) || null;
     const n = await db().transaction((tx) => saveFxList(tx, { userId: u.id, date, rows, orig }));
     revalidatePath('/kursna');

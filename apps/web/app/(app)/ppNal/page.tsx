@@ -150,8 +150,9 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
         </BankForm>
       )}
 
+      {write && !(sug.length > 0 || vatSug) && <div className="card"><h2>💡 Предлози за плаќање (автоматски)</h2><p className="note">Нема отворени обврски кон добавувачи ни ДДВ за плаќање.</p></div>}
       {write && (sug.length > 0 || vatSug) && (
-        <div className="card"><h2>Предлог – неплатени влезни фактури ({sug.length})</h2>
+        <div className="card"><h2>💡 Предлози за плаќање (автоматски) – неплатени влезни фактури ({sug.length})</h2>
           <div className="tw" style={{ maxHeight: 300 }}><table className="dense">
             <thead><tr><th>Добавувач · фактура · датум</th><th className="n">Отворено</th><th></th></tr></thead>
             <tbody>{vatSug && (
@@ -169,8 +170,9 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
         <div className="hd"><h2>Зачувани налози ({list.length})</h2>
           <div className="row">
             <ExportBar pdf={false} name="Platni_nalozi" title="Платни налози" rows={ppExportRows(list.map((o) => ({ kind: o.kind, date: o.date, amount: o.amount, printedAt: o.printedAt, data: o.data as unknown as PaymentOrder })))} />
-            <select name="m" defaultValue="full" aria-label="Начин на печатење"><option value="full">Цел образец (А4)</option><option value="data">Допечати (А4 – 3)</option><option value="data1">Допечати (210×99)</option></select>
-            <button className="btn">🖨 Печати избрани</button>
+            <button className="btn" name="m" value="full">🖨 Избраните – цел образец</button>
+            <button className="btn" name="m" value="data">🖨 Избраните – допечати</button>
+            <button className="btn" name="m" value="data1">🖨 Допечати (210×99)</button>
           </div></div>
         {list.length ? (
           <div className="tw"><table className="dense">

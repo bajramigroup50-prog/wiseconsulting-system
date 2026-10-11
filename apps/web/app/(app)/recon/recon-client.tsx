@@ -42,7 +42,7 @@ function Diffs({ M, l1, l2, title, sub, recon, file, extra }: { M: RecResult; l1
       {M.onlyT.length > 0 && <div className="card"><h2>🟠 Само {l2} ({M.onlyT.length} · {sum(M.onlyT)})</h2><div className="tw">{T2}</div></div>}
       {M.adiff.length > 0 && <div className="card"><h2>🟡 Ист документ – различен износ ({M.adiff.length})</h2><div className="tw">{T3}</div></div>}
       <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>✓ Усогласени ставки ({M.pairs.length})</summary>
-        <div className="tw"><table className="dense"><thead><tr><th>Датум 1</th><th>Документ 1</th><th>Датум 2</th><th>Документ 2</th><th className="n">Износ</th><th>Поврзано по</th></tr></thead>
+        <div className="tw"><table className="dense"><thead><tr><th>{recon ? 'Наш датум' : 'Датум 1'}</th><th>{recon ? 'Наш документ' : 'Документ 1'}</th><th>{recon ? 'Нивен датум' : 'Датум 2'}</th><th>{recon ? 'Нивен документ' : 'Документ 2'}</th><th className="n">Износ</th><th>Поврзано по</th></tr></thead>
           <tbody>{M.pairs.map((x, i) => <tr key={i}><Td v={dmy(x.o.date)} /><Td v={x.o.doc} /><Td v={dmy(x.t.date)} /><Td v={x.t.doc} /><Td v={x.o.amt} /><Td v={x.how} /></tr>)}</tbody></table></div>
       </details>
       <div id="recDoc" style={{ display: 'none' }}>
@@ -77,7 +77,7 @@ export function ReconForm({ pid, k, from, to, years, year, firmId }: { pid: stri
           <label className="mini">Од година <select name="y1" defaultValue={year} style={{ width: 'auto' }}>{years.map((y) => <option key={y}>{y}</option>)}</select></label>
           <label className="mini">До година <select name="y2" defaultValue={year} style={{ width: 'auto' }}>{years.map((y) => <option key={y}>{y}</option>)}</select></label>
           <input type="file" name="file" accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" required />
-          <button className="btn pri" disabled={pending}>{pending ? 'Се чита…' : 'Спореди'}</button>
+          <button className="btn pri" disabled={pending}>{pending ? '⏳ Се чита картицата на комитентот…' : 'Спореди'}</button>
           {note && <span className="note">{note}</span>}
         </div>
         <span className="mini mut">Ако картицата на комитентот почнува пред првата година, нејзините постари ставки се собираат во „пренесено салдо“ и се споредуваат со нашата почетна состојба.</span>
