@@ -15,3 +15,8 @@ export * from './industry/transport';
 export * from './industry/auto';
 export * from './industry/fuelcard';
 export * from './industry/fleetlive';
+export * from './industry/auto-parity';
+export * from './industry/freight-parity';
+export * from './industry/transport-parity';
+export * from './industry/hotel-rent-parity';
+export * from './industry/other-parity';

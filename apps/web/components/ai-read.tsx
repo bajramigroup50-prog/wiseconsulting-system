@@ -9,7 +9,8 @@ import { uploadFile } from '@/lib/upload';
 import { aiReadStatus, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
 
 export interface AiReadDoc extends AiReadState { name: string; fileId: string | null }
-type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom';
+type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom'
+  | 'vreg';
 
 const pending = (d: { status: string }) => d.status === 'queued' || d.status === 'reading';
 

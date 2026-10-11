@@ -7,3 +7,8 @@ export * from './services';
 export * from './transport';
 export * from './auto';
 export * from './live';
+export * from './auto-parity';
+export * from './freight-parity';
+export * from './transport-parity';
+export * from './hotel-rent-parity';
+export * from './other-parity';

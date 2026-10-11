@@ -2,18 +2,21 @@
  * Auto service and parts (legacy ACT `woNewB … woPdf` 9681, `cvNew … cvSave` 9704, `dlToWo` 9729, `potDone`,
  * `potMail`, `autoCfgSave` 9741).
  *
- * The work-order invoice goes through the Phase 3 invoice service (posted at once, parts issued from stock by the
- * invoice); legacy opened an invoice draft (`bzInvDraft`) and linked it by `woId` once saved. An invoiced order is
- * frozen. Legacy asked for confirmation when a part was short on stock; here the caller passes `force`.
+ * The work-order invoice goes through the Phase 3 invoice service as in legacy `woInv` → `bzInvDraft`: the order is
+ * set `done` and an unbooked DRAFT invoice (status `draft`, no journal, no stock move) is created for the owner; the
+ * user reviews it in the invoice editor (`/izlez?edit=…`) and saving there books it and issues the parts from stock.
+ * While the invoice is a draft the order stays editable and „Фактура“ refreshes the same draft; once the invoice is
+ * booked the order is frozen. Legacy asked for confirmation when a part was short on stock; here the caller passes
+ * `force`.
  */
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import { autoConfig, nextModuleNumber, vehicleProblems, woState, workOrderInvoiceLines, type AutoConfig } from '@wise/core/industry';
 import { audit, type Tx } from '../audit';
-import { customerVehicles, employees, firms, items, stockMoves, workOrders, type CustomerVehicle, type Firm, type WorkOrder } from '../schema/index';
+import { customerVehicles, employees, firms, invoices, items, stockMoves, workOrders, type CustomerVehicle, type Firm, type WorkOrder } from '../schema/index';
 import type { WorkOrderLabour, WorkOrderPart } from '../schema/vehicles';
 import { firmPostingContext } from '../sales/context';
-import { saveInvoice } from '../sales/invoices';
+import { deleteInvoice, saveInvoice } from '../sales/invoices';
 import { assertPartner, IndustryError, industrySettings, loadIndustryFirm, n, type IndActor } from './context';
 
 const MOD = 'auto';
@@ -88,6 +91,13 @@ async function ownOrder(tx: Tx, firmId: string, id: string): Promise<WorkOrder> 
   return w ?? fail('Работниот налог не постои.');
 }
 
+/** Status of the order's invoice (`draft` = legacy `bzInvDraft` not saved yet), null without an invoice. */
+async function invoiceStatusOf(tx: Tx, invoiceId: string | null): Promise<string | null> {
+  if (!invoiceId) return null;
+  const [i] = await tx.select({ status: invoices.status }).from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+  return i?.status ?? null;
+}
+
 /** Next number `РН-001/2026` (legacy `bzNextNo('wo', 'РН-', date)`). */
 export async function nextWorkOrderNumber(tx: Tx, firmId: string, date: string): Promise<string> {
   const y = date.slice(0, 4);
@@ -102,7 +112,7 @@ export async function nextWorkOrderNumber(tx: Tx, firmId: string, date: string):
 export async function saveWorkOrder(tx: Tx, a: IndActor, w: WorkOrderInput): Promise<{ id: string; number: string }> {
   await loadIndustryFirm(tx, a.firmId, MOD);
   const prev = w.id ? await ownOrder(tx, a.firmId, w.id) : null;
-  if (prev?.invoiceId) fail('Работниот налог е фактуриран.');
+  if (prev?.invoiceId && (await invoiceStatusOf(tx, prev.invoiceId)) !== 'draft') fail('Работниот налог е фактуриран.');
   if (!DAY.test(w.date)) fail('Внесете датум.');
   if (!w.vehicleId) fail('Изберете возило.');
   const v = await ownVehicle(tx, a.firmId, w.vehicleId);
@@ -136,11 +146,16 @@ export async function saveWorkOrder(tx: Tx, a: IndActor, w: WorkOrderInput): Pro
   return { id, number };
 }
 
-/** Not in legacy (orders could not be deleted): an order that is not invoiced may be removed by a user with `del`. */
+/**
+ * Not in legacy (orders could not be deleted): an order that is not invoiced may be removed by a user with `del`;
+ * its unbooked draft invoice goes with it.
+ */
 export async function deleteWorkOrder(tx: Tx, a: IndActor, id: string): Promise<void> {
+  await loadIndustryFirm(tx, a.firmId, MOD);
   const w = await ownOrder(tx, a.firmId, id);
-  if (w.invoiceId) fail('Работниот налог е фактуриран.');
+  if (w.invoiceId && (await invoiceStatusOf(tx, w.invoiceId)) !== 'draft') fail('Работниот налог е фактуриран.');
   await tx.delete(workOrders).where(eq(workOrders.id, id));
+  if (w.invoiceId) await deleteInvoice(tx, a.firmId, w.invoiceId, a);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'woDel', entityType: 'work_order', entityId: id, data: { number: w.number } });
 }
 
@@ -153,13 +168,16 @@ export async function stockOnHand(tx: Tx, firmId: string, itemIds?: readonly str
 }
 
 /**
- * Legacy `woInv`: status `done`, invoice to the owner with parts (issued from stock) and labour, note
- * `Работен налог РН-… · возило … · … км`. Short stock fails unless `force` (legacy confirm).
+ * Legacy `woInv` → `bzInvDraft`: status `done` and a DRAFT invoice to the owner with parts and labour, note
+ * `Работен налог РН-… · возило … · … км` — nothing is booked and no part leaves stock until the user saves the
+ * invoice in the invoice editor. An existing draft of the order is refreshed instead of a second one. Short stock
+ * fails unless `force` (legacy confirm „Нема доволно залиха за: … Сепак да се фактурира?“).
  */
 export async function invoiceWorkOrder(tx: Tx, a: IndActor, id: string, date: string, force = false): Promise<{ id: string; number: string; warnings: string[] }> {
   const f = await loadIndustryFirm(tx, a.firmId, MOD);
   const w = await ownOrder(tx, a.firmId, id);
-  if (w.invoiceId) fail('Работниот налог е веќе фактуриран.');
+  const prevStatus = await invoiceStatusOf(tx, w.invoiceId);
+  if (w.invoiceId && prevStatus !== 'draft' && prevStatus !== null) fail('Работниот налог е веќе фактуриран.');
   if (!w.parts.length && !w.labour.length) fail('Нема делови ни работа.');
   const pIds = w.parts.map((p) => p.itemId).filter((x): x is string => !!x);
   const I = pIds.length ? await tx.select({ id: items.id, unit: items.unit, type: items.type }).from(items).where(and(eq(items.firmId, a.firmId), inArray(items.id, pIds))) : [];
@@ -172,12 +190,13 @@ export async function invoiceWorkOrder(tx: Tx, a: IndActor, id: string, date: st
   const svc = schemeValue(ctx, 'revService') || schemeValue(ctx, 'revDefault');
   const lines = workOrderInvoiceLines(w, (iid) => I.find((i) => i.id === iid)?.unit, svc);
   const r = await saveInvoice(tx, a.firmId, {
+    id: prevStatus === 'draft' ? w.invoiceId : null, draft: true,
     kind: 'invoice', date, partnerId: w.partnerId, lines,
     note: `Работен налог ${w.number} · возило ${w.plate ?? ''}${w.km ? ` · ${w.km} км` : ''}`,
     data: { workOrder: w.number, source: { type: 'work_order', id: w.id } },
   }, a);
   await tx.update(workOrders).set({ invoiceId: r.id, status: 'done' }).where(eq(workOrders.id, id));
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'woInv', entityType: 'work_order', entityId: id, data: { number: w.number, invoice: r.number, force } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'woInv', entityType: 'work_order', entityId: id, data: { number: w.number, invoice: r.number, draft: true, force } });
   return { id: r.id, number: r.number, warnings: r.warnings };
 }
 

@@ -15,6 +15,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import { bomMaterials } from '@wise/core/ai/bom';
 import { fiskAfterRead, fiskApplySimple, fiskFinish, fiskReadTotal } from '@wise/core/ai/fisk';
+import { VREG_PROMPT } from '@wise/core/industry';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
 import { BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE } from './prompts';
@@ -22,7 +23,9 @@ import { AiReadError, fileContent, loadFile, readContent } from './read-document
 import { readObject } from './storage';
 
 /** Kinds handled here (the others are purchase / sale drafts). */
-export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom']);
+export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom',
+  'vreg',
+]);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
@@ -53,6 +56,11 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = n
     }
     case 'classify': {
       const r = await read(CLASSIFY_PROMPT, 'default');
+      return { result: r.data, model: r.model };
+    }
+    case 'vreg': {
+      // legacy DIG.vreg (сообраќајна дозвола → customer vehicle form)
+      const r = await read(VREG_PROMPT, 'default');
       return { result: r.data, model: r.model };
     }
     case 'fisk': {

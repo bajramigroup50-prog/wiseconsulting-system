@@ -3,10 +3,15 @@
  * Legacy `woEditor` (9650): work order with parts (search by code, name, OE / cross number or barcode — Enter adds,
  * stock shown, short stock in red) and labour (norm hours), live totals, next-service reminder. The state is posted
  * as JSON to `saveWorkOrderAction` / `invoiceWorkOrderAction`.
+ *
+ * Like legacy `S.woEd`, the unsaved order survives a trip to „+ Ново возило…“ (vehicles) or „🔩 Пребарување по
+ * возило“ (parts search): it is kept in `sessionStorage` and restored on return (`?r=1`), where the new vehicle
+ * (`veh`) or the part chosen with „+ во налог“ (`add`, legacy `dlToWo`) is applied.
  */
 import Link from 'next/link';
-import { useActionState, useMemo, useRef, useState } from 'react';
-import { findPartItem, LABOUR_PRESETS, partLineBase, vehicleLabel, woCalc, WO_STATUS, type WoState } from '@wise/core/industry';
+import { useRouter } from 'next/navigation';
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
+import { findPartItem, LABOUR_PRESETS, partLineBase, vehicleLabel, woCalc, woShortParts, WO_STATUS, type WoState } from '@wise/core/industry';
 import { invoiceWorkOrderAction, saveWorkOrderAction, type WorkOrderPayload } from '@/app/(app)/servis/actions';
 import type { FormState } from './bank-form';
 
@@ -16,12 +21,16 @@ export interface WoVehicle { id: string; plate: string | null; make: string | nu
 const f2 = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fq = (v: number) => v.toLocaleString('de-DE', { maximumFractionDigits: 3 });
 
-export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, goods, services, hourPrice, intervalKm, history, readOnly, invoice }: {
+const draftKey = (id: string) => 'wo-draft:' + (id || 'new');
+
+export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, goods, services, hourPrice, intervalKm, histories, readOnly, invoice, restore, vehParam, addItem }: {
   init: WorkOrderPayload; state: WoState; vehicles: WoVehicle[]; partners: { id: string; name: string }[]; mechanics: { id: string; name: string }[];
-  goods: WoItem[]; services: WoItem[]; hourPrice: number; intervalKm: number; history: { date: string; text: string }[]; readOnly: boolean;
-  invoice: { id: string; number: string } | null;
+  goods: WoItem[]; services: WoItem[]; hourPrice: number; intervalKm: number; histories: Record<string, { date: string; text: string }[]>; readOnly: boolean;
+  invoice: { id: string; number: string; draft: boolean } | null; restore?: boolean; vehParam?: string; addItem?: string;
 }) {
+  const router = useRouter();
   const [E, setE] = useState<WorkOrderPayload>(init);
+  const [note, setNote] = useState('');
   const [pq, setPq] = useState('');
   const [pQty, setPQty] = useState('1');
   const [ln, setLn] = useState('');
@@ -31,7 +40,41 @@ export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, go
   const [saveSt, save, saving] = useActionState<FormState, FormData>(saveWorkOrderAction, {});
   const [invSt, inv, invoicing] = useActionState<FormState, FormData>(invoiceWorkOrderAction, {});
   const partRef = useRef<HTMLInputElement>(null);
+  const forceRef = useRef<HTMLInputElement>(null);
   const v = vehicles.find((x) => x.id === E.vehicleId);
+  const history = (v && histories[v.id]) || [];
+
+  /* Return from „+ Ново возило…“ / the parts search: restore the unsaved order, then apply the new vehicle / part. */
+  useEffect(() => {
+    if (!restore && !vehParam && !addItem) return;
+    let x: WorkOrderPayload = init;
+    if (restore) {
+      try {
+        const raw = sessionStorage.getItem(draftKey(init.id));
+        if (raw) x = { ...init, ...(JSON.parse(raw) as WorkOrderPayload), id: init.id };
+        sessionStorage.removeItem(draftKey(init.id));
+      } catch { /* no storage */ }
+    }
+    const nv = vehParam ? vehicles.find((y) => y.id === vehParam) : undefined;
+    if (nv) x = { ...x, vehicleId: nv.id, partnerId: nv.partnerId || x.partnerId };
+    const it = addItem ? goods.find((g) => g.id === addItem) : undefined;
+    if (it) {
+      const parts = [...x.parts];
+      const i = parts.findIndex((p) => p.itemId === it.id);
+      if (i >= 0) parts[i] = { ...parts[i]!, qty: Number(parts[i]!.qty) + 1 };
+      else parts.push({ itemId: it.id, name: it.name, qty: 1, price: it.price, disc: 0, rate: it.rate || 18 });
+      x = { ...x, parts };
+      setNote(`Додадено во ${x.number}.`);
+    }
+    setE(x);
+    try { window.history.replaceState(null, '', `/servis?id=${init.id || 'new'}`); } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /** Keep the unsaved order and leave for another screen (legacy keeps `S.woEd` in memory). */
+  const leave = (href: string) => {
+    try { sessionStorage.setItem(draftKey(E.id), JSON.stringify(E)); } catch { /* no storage */ }
+    router.push(href);
+  };
   const c = useMemo(() => woCalc(E), [E]);
   const set = (p: Partial<WorkOrderPayload>) => setE((x) => ({ ...x, ...p }));
   const ro = readOnly;
@@ -61,6 +104,7 @@ export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, go
   const setPart = (i: number, k: 'qty' | 'price' | 'disc', val: string) => set({ parts: E.parts.map((p, j) => (j === i ? { ...p, [k]: Number(val.replace(',', '.')) || 0 } : p)) });
   const setLab = (i: number, k: 'name' | 'hrs' | 'price', val: string) => set({ labour: E.labour.map((l, j) => (j === i ? { ...l, [k]: k === 'name' ? val : Number(val.replace(',', '.')) || 0 } : l)) });
   const onVehicle = (id: string) => {
+    if (id === '__new') { leave(`/vozila?ed=new&back=servis&wo=${E.id || 'new'}`); return; }
     const nv = vehicles.find((x) => x.id === id);
     set({ vehicleId: id, partnerId: nv?.partnerId || E.partnerId });
   };
@@ -71,11 +115,13 @@ export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, go
     <>
       {(saveSt.error || invSt.error || msg) && <div className="callout bad" role="alert">{saveSt.error || invSt.error || msg}</div>}
       {saveSt.ok && <div className="callout good" role="status">{saveSt.ok}</div>}
+      {note && <div className="callout good" role="status">{note}</div>}
+      {invoice?.draft && <div className="callout warn">Фактурата {invoice.number} е нацрт – <Link href={`/izlez?edit=${invoice.id}`}>проверете ја и зачувајте</Link>; деловите се раздолжуваат од залиха кога фактурата ќе се зачува.</div>}
       <div className="card"><div className="form">
         <label className="f">Број<input value={E.number} onChange={(e) => set({ number: e.target.value })} disabled={ro} /></label>
         <label className="f">Датум<input type="date" value={E.date} onChange={(e) => set({ date: e.target.value })} disabled={ro} /></label>
         <label className="f">Возило<select value={E.vehicleId} onChange={(e) => onVehicle(e.target.value)} disabled={ro}>
-          <option value="">— избери —</option>{vehicles.map((x) => <option key={x.id} value={x.id}>{vehicleLabel(x)}</option>)}</select></label>
+          <option value="">— избери / + ново —</option>{vehicles.map((x) => <option key={x.id} value={x.id}>{vehicleLabel(x)}</option>)}<option value="__new">+ Ново возило…</option></select></label>
         <label className="f">Сопственик / плаќа<select value={E.partnerId} onChange={(e) => set({ partnerId: e.target.value })} disabled={ro}>
           <option value="">—</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <label className="f">Км на возилото<input type="number" value={E.km} placeholder={v?.km ? String(v.km) : ''} disabled={ro}
@@ -88,7 +134,6 @@ export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, go
         <label className="f wide">Опис на дефект / барање на клиентот<input value={E.complaint} onChange={(e) => set({ complaint: e.target.value })} disabled={ro} /></label>
         <label className="f wide">Извршена работа / дијагноза<input value={E.work} onChange={(e) => set({ work: e.target.value })} disabled={ro} /></label>
       </div>
-      {!ro && <div className="mini" style={{ marginTop: 6 }}><Link href="/vozila?ed=new&back=servis">+ Ново возило…</Link></div>}
       {v && <div className="mini" style={{ marginTop: 6 }}>🚘 {vehicleLabel(v)}{v.vin ? ' · VIN ' + v.vin : ''}{v.engine ? ' · ' + v.engine : ''}{v.km ? ` · последно ${fq(v.km)} км` : ''}
         {history.length > 0 && <> · <b>претходни:</b> {history.map((x) => `${x.date.split('-').reverse().join('.')} ${x.text}`).join('; ')}</>}</div>}
       </div>
@@ -114,7 +159,7 @@ export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, go
           <datalist id="wp_l">{goods.slice(0, 3000).map((i) => <option key={i.id} value={(i.code ? i.code + ' · ' : '') + i.name}>{(i.oe ? 'OE ' + i.oe + ' · ' : '') + 'залиха ' + fq(i.stock)}</option>)}</datalist>
           <label className="f">Кол.<input type="number" value={pQty} onChange={(e) => setPQty(e.target.value)} style={{ width: 70 }} /></label>
           <button type="button" className="btn sm" onClick={addPart}>+ Додај дел</button>
-          <Link className="btn sm ghost" href={`/delovi?veh=${E.vehicleId}${E.id ? '&wo=' + E.id : ''}`}>🔩 Пребарување по возило</Link>
+          <button type="button" className="btn sm ghost" onClick={() => leave(`/delovi?${new URLSearchParams({ ...(E.vehicleId ? { veh: E.vehicleId } : {}), wo: E.id || 'new', won: E.number }).toString()}`)}>🔩 Пребарување по возило</button>
         </div>}
       </div>
 
@@ -150,13 +195,20 @@ export function WorkOrderEditor({ init, state, vehicles, partners, mechanics, go
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className={`pill ${st[1]}`}>{st[0]}</span><span style={{ flex: 1 }} />
         <Link className="btn" href="/servis">Затвори</Link>
-        {invoice ? <Link className="pill good" href={`/print/doc/${invoice.id}`} target="_blank">Фактура {invoice.number}</Link> : !ro && <>
+        {invoice && !invoice.draft ? <Link className="pill good" href={`/print/doc/${invoice.id}`} target="_blank">Фактура {invoice.number}</Link> : !ro && <>
+          {invoice?.draft && <Link className="pill warn" href={`/izlez?edit=${invoice.id}`}>Нацрт фактура {invoice.number}</Link>}
           <form action={save}><input type="hidden" name="payload" value={payload} /><input type="hidden" name="then" value="stay" /><button className="btn" disabled={busy}>Зачувај и остани</button></form>
           <form action={save}><input type="hidden" name="payload" value={payload} /><button className="btn pri" disabled={busy}>Зачувај</button></form>
-          <form action={inv} onSubmit={(e) => { if (!E.parts.length && !E.labour.length) { e.preventDefault(); setMsg('Нема делови ни работа.'); } }} className="row" style={{ gap: 6, alignItems: 'center' }}>
-            <input type="hidden" name="payload" value={payload} />
-            {E.parts.some((p) => { const it = goods.find((g) => g.id === p.itemId); return it && it.type !== 'service' && it.stock < Number(p.qty); }) &&
-              <label className="chk" style={{ margin: 0 }}><input type="checkbox" name="force" /> Нема доволно залиха – сепак фактурирај</label>}
+          <form action={inv} onSubmit={(e) => {
+            if (!E.parts.length && !E.labour.length) { e.preventDefault(); setMsg('Нема делови ни работа.'); return; }
+            const short = woShortParts(E.parts, (id) => { const it = goods.find((g) => g.id === id); return it && it.type !== 'service' ? it.stock : null; });
+            if (forceRef.current) forceRef.current.value = '';
+            if (short.length) {
+              if (!window.confirm('Нема доволно залиха за: ' + short.map((p) => p.name).join(', ') + '. Сепак да се фактурира?')) { e.preventDefault(); return; }
+              if (forceRef.current) forceRef.current.value = 'on';
+            }
+          }}>
+            <input type="hidden" name="payload" value={payload} /><input type="hidden" name="force" ref={forceRef} defaultValue="" />
             <button className="btn pri" disabled={busy}>🧾 Фактура (раздолжи делови)</button>
           </form>
         </>}
