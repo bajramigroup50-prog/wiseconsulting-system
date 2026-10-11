@@ -68,3 +68,31 @@ export function spRows(pre: Readonly<Record<string, { s: number }>>, names: Read
   for (const x of rows) byA[x.a || '—'] = Math.round(((byA[x.a || '—'] || 0) + x.v) * 100) / 100;
   return { rows, tot, byA };
 }
+
+/**
+ * Legacy `gsXml` 6791 („Годишна сметка (стар XML)“, `VIEWS.vjetore`): the simple statements (POS_BS / POS_IS) and the
+ * trial balance without the close. Kept as a tool beside the ЦРМ XML (`crmXml`), which is what ЦРМ accepts.
+ */
+export function gsXml(year: number, firm: { edb?: string | null; embs?: string | null; name: string; aop?: Record<string, string> },
+  st: { BS: readonly { c: string; n: string; v?: number; head?: boolean }[]; IS: readonly { c: string; n: string; v: number }[]; assets: number; liab: number; profit: number; tax: number; net: number; closed: boolean },
+  tb: Readonly<Record<string, { d: number; p: number }>>, names: Readonly<Record<string, string>>): string {
+  const a = (c: string) => xe(firm.aop?.[c] ?? '');
+  const f2 = (v: number) => (+v || 0).toFixed(2);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<GodisnaSmetka godina="${year}" edb="${xe(firm.edb)}" embs="${xe(firm.embs)}" naziv="${xe(firm.name)}" sostojba="${st.closed ? 'zatvorena' : 'preliminarna'}">
+  <BilansNaSostojba>
+${st.BS.filter((x) => !x.head).map((x) => `    <Pozicija kod="${x.c}" aop="${a(x.c)}" naziv="${xe(x.n)}">${f2(x.v ?? 0)}</Pozicija>`).join('\n')}
+    <VkupnoAktiva>${f2(st.assets)}</VkupnoAktiva>
+    <VkupnoPasiva>${f2(st.liab)}</VkupnoPasiva>
+  </BilansNaSostojba>
+  <BilansNaUspeh>
+${st.IS.map((x) => `    <Pozicija kod="${x.c}" aop="${a(x.c)}" naziv="${xe(x.n)}">${f2(x.v)}</Pozicija>`).join('\n')}
+    <DobivkaPredOdanocuvanje>${f2(st.profit)}</DobivkaPredOdanocuvanje>
+    <DanokNaDobivka>${f2(st.tax)}</DanokNaDobivka>
+    <NetoDobivka>${f2(st.net)}</NetoDobivka>
+  </BilansNaUspeh>
+  <BrutoBilans>
+${Object.keys(tb).sort().map((k) => `    <Konto broj="${k}" naziv="${xe(names[k] ?? '')}" dolzi="${f2(tb[k]!.d)}" pobaruva="${f2(tb[k]!.p)}"/>`).join('\n')}
+  </BrutoBilans>
+</GodisnaSmetka>`;
+}

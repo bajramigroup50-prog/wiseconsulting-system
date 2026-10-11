@@ -22,13 +22,13 @@ const phases = (ent: YeEntity): [string, string, string[]][] => [
   ['zsXml', '6. XML и поднесување', ['zsXml']],
   ['zsDos', '7. Досие', ['zsDos']],
   ['prenos', '8. Нова година', ['prenos']],
-  ...(ent === 'co' || ent === 'tp' ? [['zs_aop', '⚙ Алатки', ['zs_aop', 'zs_pr', 'zsRok']] as [string, string, string[]]] : [['zsRok', '⚙ Алатки', ['zsRok']] as [string, string, string[]]]),
+  ...(ent === 'co' || ent === 'tp' ? [['zs_aop', '⚙ Алатки', ['zs_aop', 'zs_pr', 'vjetore', 'zsRok']] as [string, string, string[]]] : [['zsRok', '⚙ Алатки', ['zsRok']] as [string, string, string[]]]),
 ];
 
 const SUBN: Record<string, string> = {
   zs_db: 'ДБ (данок на добивка)', zs_vp: 'ДБ-ВП (данок на вкупен приход)', zs_bs: 'Биланс на состојба', zs_bu: 'Биланс на успех',
   zs_de: 'Образец 38 – државна евиденција', zs_sp: 'Образец 35 – приходи по дејности', zsTP: 'Образец Б и ДЛД-ДБ', zsNPO: 'Годишна сметка – НПО',
-  zs_skr: 'Скратен биланс на успех', zs_aop: 'АОП', zs_pr: 'Правила за завршна пресметка', zsRok: 'Што, каде и кога',
+  zs_skr: 'Скратен биланс на успех', zs_aop: 'АОП', zs_pr: 'Правила за завршна пресметка', zsRok: 'Што, каде и кога', vjetore: 'Годишна сметка (стар XML)',
 };
 
 export function PhBar({ cur, ent, done }: { cur: string; ent: YeEntity; done: Record<string, boolean> }) {

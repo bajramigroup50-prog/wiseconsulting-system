@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ZS_DEF } from './yearend/aop';
-import { aopXml, prClean, prParse, prTemplate, skrRows, spRows } from './yearend/tools';
+import { aopXml, gsXml, prClean, prParse, prTemplate, skrRows, spRows } from './yearend/tools';
 
 describe('year-end tools (legacy zs_aop / zs_pr / zs_skr)', () => {
   it('rule template round-trips through the importer', () => {
@@ -19,6 +19,13 @@ describe('year-end tools (legacy zs_aop / zs_pr / zs_skr)', () => {
     expect(x).toContain('naziv="A&amp;B"');
     expect(x).toContain('<AOP broj="063" naziv="Актива" tekovna="10" prethodna="0"/>');
     expect(skrRows({ bu201: 100, bu204: 60, bu250: 40, bu252: 4, bu255: 36 }).map((r) => r[1])).toEqual([100, 60, 40, 4, 36]);
+  });
+  it('old annual-account XML (legacy gsXml)', () => {
+    const x = gsXml(2026, { name: 'Ф', edb: '1', embs: '2' }, { BS: [{ c: 'A', n: 'АКТИВА', head: true }, { c: 'A1', n: 'Пари', v: 10 }], IS: [{ c: 'U1', n: 'Приходи', v: 5 }], assets: 10, liab: 10, profit: 5, tax: 0, net: 5, closed: false },
+      { 1000: { d: 10, p: 0 } }, { 1000: 'Жиро' });
+    expect(x).toContain('sostojba="preliminarna"');
+    expect(x).toContain('<Pozicija kod="A1" aop="" naziv="Пари">10.00</Pozicija>');
+    expect(x).toContain('<Konto broj="1000" naziv="Жиро" dolzi="10.00" pobaruva="0.00"/>');
   });
   it('form 35 base rows by revenue account (legacy spData)', () => {
     const D = spRows({ 7400: { s: -100 }, 7600: { s: -50 }, 4000: { s: 30 }, 7700: { s: 0 } }, { 7400: 'Приходи од продажба' }, { 7600: '68.20' }, '46.90');
