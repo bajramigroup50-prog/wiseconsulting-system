@@ -12,11 +12,11 @@ describe('transport / auto-service menu', () => {
     expect(L).toEqual(expect.arrayContaining(['servis', 'vozila', 'delovi', 'potsetnici', 'pnLive']));
   });
   it('the views follow their modules', () => {
-    const off = ids(filterNavByModules(NAV, { mods: ['pn'] }));
+    const off = ids(filterNavByModules(NAV, { mods: ['pn'] }, true));
     expect(off).toContain('pnLive');
     expect(off).not.toContain('servis');
     expect(off).not.toContain('frGor');
-    const on = ids(filterNavByModules(NAV, { mods: ['auto', 'frt'] }));
+    const on = ids(filterNavByModules(NAV, { mods: ['auto', 'frt'] }, true));
     expect(on).toEqual(expect.arrayContaining(['servis', 'vozila', 'delovi', 'potsetnici', 'frFak', 'frGor']));
     expect(on).not.toContain('pnLive');
   });

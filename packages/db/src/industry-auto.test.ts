@@ -51,8 +51,8 @@ beforeAll(async () => {
 
 describe('auto service', () => {
   let veh = '', wo = '';
-  it('is gated by the module', async () => {
-    expect(await err(tx((t) => saveCustomerVehicle(t, A, { plate: 'SK-1234-AB' })))).toBeInstanceOf(IndustryError);
+  it('is gated by the module for client users (the office works every module, legacy viewOn)', async () => {
+    expect(await err(tx((t) => saveCustomerVehicle(t, { ...A, role: 'klient' }, { plate: 'SK-1234-AB' })))).toBeInstanceOf(IndustryError);
     await tx((t) => saveFirmModules(t, A, ['auto', 'pn']));
   });
   it('customer vehicles: plate or VIN, no duplicates', async () => {

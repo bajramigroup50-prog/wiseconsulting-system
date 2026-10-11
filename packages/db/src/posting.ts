@@ -78,6 +78,8 @@ export interface PostJournalInput {
   meta?: Record<string, unknown>;
   /** Acting user (for `created_by` and the audit row); null for system jobs. */
   userId: string | null;
+  /** Allow a journal without amounts (an opened manual nalog, e.g. „ИЗВОДИ“ for a month, filled in later). */
+  allowEmpty?: boolean;
   /** Require a partner on 120–128 / 220–228 lines (default true). */
   requirePartner?: boolean;
   /** Audit action name (default `postJournal` / `repostJournal`). */
@@ -141,10 +143,11 @@ interface PreparedLine {
   note: string | null; doc: string | null; currency: string | null; amountCur: string | null; locationId: string | null;
 }
 
-async function prepareLines(tx: Tx, firmId: string, input: readonly PostLineInput[], requirePartner: boolean): Promise<{ lines: PreparedLine[]; total: number }> {
+async function prepareLines(tx: Tx, firmId: string, input: readonly PostLineInput[], requirePartner: boolean, allowEmpty = false): Promise<{ lines: PreparedLine[]; total: number }> {
   const L = input
     .map((l) => ({ ...l, account: String(l.account ?? '').trim(), d: money(l.debit), p: money(l.credit) }))
     .filter((l) => l.d || l.p);
+  if (!L.length && allowEmpty) return { lines: [], total: 0 };
   if (!L.length) throw new PostingError('empty', 'Налогот нема ставки со износ.');
   const bad = L.find((l) => !ACCOUNT_CODE_RE.test(l.account));
   if (bad) throw new PostingError('bad_account', `Неважечко конто „${bad.account}“.`);
@@ -215,7 +218,7 @@ async function writeJournal(tx: Tx, existing: Journal | null, input: PostJournal
   await assertNoBbimpConflict(tx, f.id, input, existing?.id ?? null);
   // Finance parity: manual line corrections of document journals (legacy `ed`/`edAdd`) are re-applied on every re-post.
   input = await applyJournalOverride(tx, f.id, input);
-  const { lines, total } = await prepareLines(tx, f.id, input.lines, input.requirePartner ?? true);
+  const { lines, total } = await prepareLines(tx, f.id, input.lines, input.requirePartner ?? true, input.allowEmpty ?? false);
   const number = await assignNumber(tx, f, input, existing);
   const header = {
     firmId: f.id, date: input.date, kind: input.kind, number, description: input.description?.trim() || null,
@@ -231,7 +234,7 @@ async function writeJournal(tx: Tx, existing: Journal | null, input: PostJournal
     const [j] = await tx.insert(journals).values({ ...header, createdBy: input.userId }).returning({ id: journals.id });
     id = j!.id;
   }
-  await tx.insert(journalLines).values(lines.map((l) => ({ ...l, journalId: id, firmId: f.id })));
+  if (lines.length) await tx.insert(journalLines).values(lines.map((l) => ({ ...l, journalId: id, firmId: f.id })));
   await audit(tx, {
     userId: input.userId, firmId: f.id, action: input.auditAction ?? (existing ? 'repostJournal' : 'postJournal'),
     entityType: 'journal', entityId: id,

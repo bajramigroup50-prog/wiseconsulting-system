@@ -13,7 +13,7 @@ import { industryPage } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { addItemAction, deleteTableAction, lineAction, noteAction, payAction, saveTableAction, sendKitchenAction, voidAction } from './actions';
+import { addItemAction, deleteTableAction, lineAction, noteAction, saveTableAction, sendKitchenAction, voidAction, waiterAction } from './actions';
 
 export default async function Restoran({ searchParams }: { searchParams: Promise<{ t?: string; q?: string; ed?: string; wh?: string }> }) {
   const sp = await searchParams;
@@ -44,6 +44,7 @@ export default async function Restoran({ searchParams }: { searchParams: Promise
             ))}{!menu.length && <p className="note">Нема артикли со продажна цена. Менито се артиклите (јадења како „Готов производ“ со норматив – при наплата се раздолжуваат суровините).</p>}</div>
           </div>
           <div className="card">
+            {write && o && <BankForm action={waiterAction} className="form"><input type="hidden" name="table" value={t.id} /><label className="f">Келнер<input name="waiter" defaultValue={o.data.waiter} /></label><button className="btn sm">✓</button></BankForm>}
             <table className="dense"><tbody>{L.map((l, i) => (
               <tr key={i}><td>{l.sent ? (l.ready ? '✅' : '🔥') : '📝'} {l.name}{l.note && <span className="mini"> ({l.note})</span>}</td>
                 <td className="n" style={{ whiteSpace: 'nowrap' }}>{write && <RowAction action={lineAction.bind(null, t.id, i, 'dec')} label="−" confirm={l.sent ? 'Ставката е веќе во кујна. Да се намали?' : undefined} />} {l.qty} {write && <RowAction action={lineAction.bind(null, t.id, i, 'inc')} label="+" />}</td>
@@ -57,14 +58,11 @@ export default async function Restoran({ searchParams }: { searchParams: Promise
               {(!L.length || !L.some((l) => l.sent)) && <RowAction className="btn ghost" action={voidAction.bind(null, o.id)} confirm="Да се затвори сметката без наплата?" label="Затвори празна" />}
             </div>}
             {write && o && L.length > 0 && (
-              <BankForm action={payAction} className="row" style={{ gap: 6, alignItems: 'end', marginTop: 8 }} confirm={`Наплата ${fmt(orderTotal(L))} ден. на каса?`}>
-                <input type="hidden" name="order" value={o.id} />
-                <label className="f">Објект<select name="wh" defaultValue={wh}><option value="main">Главен магацин</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-                <label className="f">од тоа картичка<input name="card" type="number" step="any" style={{ width: 100 }} /></label>
-                <button className="btn pri">💶 Наплати (каса)</button>
-              </BankForm>
+              <div className="row" style={{ gap: 6, marginTop: 8 }}>
+                <Link className="btn pri" href={`/kasa?ro=${o.id}&wh=${wh}`}>💶 Наплати (каса)</Link>
+              </div>
             )}
-            <p className="mini">📝 нова · 🔥 во кујна · ✅ готово. „Наплати“ ја евидентира продажбата во дневниот промет на касата (раздолжување на залиха и нормативи) и ја затвора масата.</p>
+            <p className="mini">📝 нова · 🔥 во кујна · ✅ готово. „Наплати“ ја пренесува сметката во касата (лојалност, купон, фискална датотека) и ја затвора масата.</p>
           </div>
         </div>
       </>

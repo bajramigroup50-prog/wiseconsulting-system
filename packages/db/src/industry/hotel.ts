@@ -27,7 +27,7 @@ export const firmHotelConfig = (f: Parameters<typeof industryConfigOf>[0]): Hote
 export interface RoomInput { id?: string | null; no: string; kind?: string | null; beds?: number | null; floor?: string | null; price?: number | null; active?: boolean }
 
 export async function saveRoom(tx: Tx, a: IndActor, r: RoomInput): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const no = r.no.trim() || fail('Внесете број на соба.');
   const [dup] = await tx.select({ id: hotelRooms.id }).from(hotelRooms).where(and(eq(hotelRooms.firmId, a.firmId), eq(hotelRooms.no, no), r.id ? ne(hotelRooms.id, r.id) : undefined)).limit(1);
   if (dup) fail(`Собата ${no} веќе постои.`);
@@ -70,7 +70,7 @@ async function clash(tx: Tx, firmId: string, roomId: string, from: string, to: s
 
 /** Legacy `htSaveB`: validate (room, guest, dates, room free) and save. Guests / charges are replaced when given. */
 export async function saveReservation(tx: Tx, a: IndActor, r: ReservationInput): Promise<{ id: string; number: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const prev = r.id ? await own(tx, a.firmId, r.id) : null;
   if (prev && prev.invoiceId) fail('Резервацијата е фактурирана – не може да се менува.');
   if (!r.roomId) fail('Изберете соба.');
@@ -171,7 +171,7 @@ async function payer(tx: Tx, a: IndActor, r: HotelReservation, cfg: HotelConfig)
 
 /** FIX (10.4 item 11): advance of the reservation → Phase 3 advance invoice at the accommodation VAT rate. */
 export async function issueReservationAdvance(tx: Tx, a: IndActor, id: string, date: string): Promise<{ id: string; number: string }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   const cfg = firmHotelConfig(f);
   if (!(n(r.advance) > 0)) fail('Резервацијата нема аванс.');
@@ -189,7 +189,7 @@ export async function issueReservationAdvance(tx: Tx, a: IndActor, id: string, d
 
 /** Legacy `htInv`: final invoice of a checked-out stay (with the advance invoice deducted). */
 export async function invoiceReservation(tx: Tx, a: IndActor, id: string, date: string): Promise<{ id: string; number: string; warnings: string[] }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const r = await own(tx, a.firmId, id);
   if (r.status !== 'out') fail('Фактура се издава по одјавата.');
   if (r.invoiceId || r.folioAt) fail('Престојот е веќе фактуриран / платен на каса.');

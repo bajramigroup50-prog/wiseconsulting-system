@@ -17,12 +17,12 @@ import { bomMaterials } from '@wise/core/ai/bom';
 import { fiskAfterRead, fiskApplySimple, fiskFinish, fiskReadTotal } from '@wise/core/ai/fisk';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
-import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, OB_PROMPT, REC_PROMPT } from './prompts';
+import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
 import { AiReadError, fileContent, loadFile, readContent } from './read-document';
 import { readObject } from './storage';
 
 /** Kinds handled here (the others are purchase / sale drafts). */
-export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom', 'ob', 'rec', 'bankcls']);
+export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec', 'bankcls']);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
@@ -107,6 +107,23 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = n
       const M = bomMaterials(I, p.id);
       if (!M.length) throw new AiReadError('Нема суровини во шифрарникот – прво внесете ги материјалите (вид „Суровина / материјал“).');
       const r = await readContent<unknown>({ ...base, prompt: BOM_PROMPT(p, M), tier: 'default', maxTokens: 4000 }, content);
+      return { result: r.data, model: r.model };
+    }
+    case 'cmp': {
+      // legacy `aiCmpGo` (14416): the same invoice read with the quick and the detailed model; nothing is saved
+      const one = async (tier: AiTier) => { try { const r = await read(PUR_PROMPT, tier); return { data: r.data, model: r.model, cost: r.costUsd, error: null }; } catch (e) { if (!(e instanceof AiReadError)) throw e; return { data: null, model: '', cost: 0, error: e.message }; } };
+      const quick = await one('quick');
+      const deep = await one('default');
+      return { result: { quick, deep }, model: [quick.model, deep.model].filter(Boolean).join(' / ') };
+    }
+    case 'scr': {
+      // legacy `scrScanFile` (16221): supplier return / credit note, SCR_PROMPT with the own firm
+      const r = await read(SCR_PROMPT(f), 'default');
+      return { result: r.data, model: r.model };
+    }
+    case 'imp': {
+      // legacy `readImportDocs` (4365): one import document (supplier invoice, ЕЦД, forwarding, transport, other cost)
+      const r = await read(IMP_PROMPT, 'default');
       return { result: r.data, model: r.model };
     }
     default:

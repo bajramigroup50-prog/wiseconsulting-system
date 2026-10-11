@@ -7,7 +7,7 @@
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import {
-  deleteLevelling, deleteProductionOrder, deleteSalesDay, deleteStockCount, deleteTransfer, posSell, runProductionOrder, runStockReaverage,
+  deleteLevelling, deleteProductionOrder, deleteSalesDay, deleteStockCount, deleteTransfer, posSaleWithLoyalty, runProductionOrder, runStockReaverage,
   saveBom, saveLevelling, saveSalesDay, saveStockCount, saveTransfer,
 } from '@wise/db';
 import type { ActionState } from '@/lib/books';
@@ -88,12 +88,24 @@ export async function deleteStockCountAction(docId: string): Promise<ActionState
 const CartIn = z.object({
   date, wh: loc, card: numOpt,
   cart: z.array(z.object({ itemId: z.string().uuid(), qty: num, price: num, rate: numOpt })).min(1, 'Додадете барем еден артикл.').max(500),
+  cardNo: z.string().max(60).nullish(), coupon: z.string().max(60).nullish(), usePts: z.boolean().optional(), order: z.string().uuid().nullish(),
 });
 
+/**
+ * Legacy `posSell` + loyalty wrapper 9940: the sale goes into the POS day; a loyalty card / coupon / points give the
+ * discount lines and update the card. The till stays open for the next receipt (legacy toast).
+ */
 export async function posSellAction(_p: ActionState, form: FormData): Promise<ActionState> {
   const v = payload(CartIn, form);
   if (isErr(v)) return v;
-  return done(await stockAction('posSell', ['/kasa'], (tx, a) => posSell(tx, a, v)), `/kasa?d=${v.date}${v.wh ? '&wh=' + v.wh : ''}&ok=1`);
+  const st = await stockAction('posSell', ['/kasa', '/lojalnost', '/restoran', '/kujna'], (tx, a) => posSaleWithLoyalty(tx, a, { ...v, orderId: v.order ?? null }));
+  if (st.error) return st;
+  const r = st.data!;
+  if (v.order) redirect('/restoran');
+  return {
+    ok: 'Продажбата е евидентирана и залихата е раздолжена.' + (r.disc ? ` Попуст ${r.disc.toFixed(2)} · за плаќање ${r.pay.toFixed(2)}.` : '')
+      + (r.card ? ` 💳 ${r.card.name}: +${r.card.earn} поени${r.card.red ? ', искористени ' + r.card.red : ''} · вкупно ${r.card.points}` : ''),
+  };
 }
 
 const FiskIn = z.object({

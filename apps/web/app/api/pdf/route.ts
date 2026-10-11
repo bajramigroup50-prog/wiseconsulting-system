@@ -18,8 +18,10 @@ import { eq, inArray } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
 import { ZY_ROLES } from '@wise/core/firms/zsdos';
 import { DOS_CAT } from '@wise/core/office';
-import { audit, docPackages, dossierDocs, files, OFFICE_FILE_ENTITY, YE_DOSSIER_ENTITY, type PdfFileLink } from '@wise/db';
+import { audit, docPackages, dossierDocs, fileLinks, files, OFFICE_FILE_ENTITY, YE_DOSSIER_ENTITY, type PdfFileLink } from '@wise/db';
 import { getUser } from '@/lib/auth';
+import { klientViews } from '@/lib/kl-views';
+import { klFileAllowed } from '@/lib/route-guard';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { renderPdf } from '@/lib/jobs';
@@ -41,9 +43,14 @@ export async function POST(req: Request) {
   const imgs = new Map<string, string | null>();
   if (ids.length) {
     const F = await db().select().from(files).where(inArray(files.id, ids));
+    // a client may inline only the files it may open through /api/files (same section rule)
+    const klViews = u.role === 'klient' ? await klientViews(u.id, firm?.id) : null;
+    const L = klViews && F.length ? await db().select({ fileId: fileLinks.fileId, entityType: fileLinks.entityType, role: fileLinks.role }).from(fileLinks).where(inArray(fileLinks.fileId, F.map((f) => f.id))) : [];
     for (const f of F) {
       const ok = f.status === 'ready' && f.mime.startsWith('image/') && f.size <= 5_000_000
-        && (f.firmId ? firmAllowed(u.principal, f.firmId) : can(u.principal, 'office') || f.uploadedBy === u.id);
+        && (f.firmId ? firmAllowed(u.principal, f.firmId) : can(u.principal, 'office') || f.uploadedBy === u.id)
+        && (!klViews || klFileAllowed(L.filter((l) => l.fileId === f.id), klViews, f.uploadedBy === u.id,
+          ['logo', 'sign', 'stamp'].some((k) => (firm?.settings as Record<string, unknown> | undefined)?.[k] === f.id)));
       if (ok) imgs.set(f.id.toLowerCase(), dataUri(f.mime, await getObjectBytes(f.bucketKey).catch(() => new Uint8Array())));
     }
   }

@@ -2,8 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import './legacy.css';
 import './legacy-injected.css';
 
-export const metadata: Metadata = { title: 'WISE CONSULTING' };
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover' };
+export const metadata: Metadata = {
+  title: 'WISE CONSULTING',
+  applicationName: 'WISE CONSULTING',
+  appleWebApp: { capable: true, title: 'WISE', statusBarStyle: 'black-translucent' },
+};
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#0d5b4b' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

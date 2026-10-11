@@ -8,10 +8,11 @@ import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { TableImport } from '@/components/parity-fin/table-import';
 import { missingVatAccounts } from '@/lib/parity-fin';
-import { addVatAccounts, deleteAccount, importAccounts, resetAccount } from './actions';
+import { addVatAccounts, deleteAccount, resetAccount } from './actions';
 import { AccountForm } from './account-form';
+import { ImportButton } from '@/components/doc-tools';
+import { importAccountsAction } from '../_stock/parity-actions';
 
 export default async function KontoPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string }> }) {
   const sp = await searchParams;
@@ -27,8 +28,9 @@ export default async function KontoPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <Hd t="Контен план" sub={`${A.length} конта`}>
-        {write && <TableImport action={importAccounts} label="📥 Увоз (Excel/CSV)" confirm="Контата од датотеката ќе се додадат или преименуваат во контниот план на фирмата. Продолжи?"
-          template={{ name: 'Kontni_plan_obrazec.xlsx', rows: [['Конто', 'Назив'], ['100005', 'Трансакциска сметка – Банка'], ['220001', 'Добавувачи – аналитика']] }} />}
+        {write && <ImportButton action={importAccountsAction} name="Konten_plan" label="Увоз од Excel" template={[['10000', 'Жиро сметка']]}
+          fields={[{ key: 'code', label: 'Конто', re: '^(конто|број|code|sifra|шифра)', req: true }, { key: 'name', label: 'Назив', re: '^(назив|name|naziv|опис)', req: true }]}
+          confirmText="Да се увезат {n} конта од „{file}“? Постоечко конто = нов назив." />}
         {write && <Link className="btn pri" href="/konto?nov">+ Конто</Link>}
       </Hd>
       {vatMiss.length > 0 && (

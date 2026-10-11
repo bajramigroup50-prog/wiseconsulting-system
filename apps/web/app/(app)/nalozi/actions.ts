@@ -42,7 +42,9 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
     if (v.periodTo && !isIsoDate(v.periodTo)) return { error: 'Неважечки датум „период до“.' };
     if (v.periodFrom && v.periodTo && v.periodTo < v.periodFrom) return { error: 'Периодот „до“ е пред „од“.' };
     const R = v.rows.filter((r) => r.account || Number(r.debit) || Number(r.credit));
-    if (!R.some((r) => Number(r.debit) || Number(r.credit))) return { error: 'Внесете износи во колоните Должи / Побарува.' };
+    // An opened nalog without amounts is allowed (legacy refused it); its konto rows are kept in `meta.rows` until amounts come.
+    const empty = !R.some((r) => Number(r.debit) || Number(r.credit));
+    if (empty && !R.some((r) => r.account)) return { error: 'Внесете барем едно конто или износи во колоните Должи / Побарува.' };
     if (R.some((r) => (Number(r.debit) || Number(r.credit)) && !r.account)) return { error: 'Изберете конто во секој ред со износ.' };
 
     const existing = v.id
@@ -60,6 +62,8 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
       userId: u.id, auditAction: existing ? 'nalSave' : 'saveJ',
       // opening balances may carry 12x/22x rows without a partner (saveOpening allows them)
       requirePartner: !(existing && ['open', 'bbimp'].includes(existing.kind)),
+      allowEmpty: empty,
+      meta: { ...((existing?.meta as Record<string, unknown>) ?? {}), rows: empty ? R.map((r) => ({ account: r.account, partnerId: r.partnerId || null, note: r.note, doc: r.doc })) : undefined },
     };
     const res = await db().transaction((tx) => (existing ? updateJournal(tx, existing.id, input) : postJournal(tx, input)));
     target = res.number;

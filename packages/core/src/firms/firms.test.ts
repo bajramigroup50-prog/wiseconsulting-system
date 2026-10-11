@@ -199,3 +199,14 @@ describe('firm from decision (legacy fsRead / fsDup / lfGuess)', () => {
     expect(fsDup({ name: 'Бета ДОО', edb: '', embs: '' }, [{ name: 'БЕТА ДОО', edb: null, embs: null }])).toBeTruthy();
   });
 });
+
+describe('fimpField: headings legacy did not know', async () => {
+  const { fimpField } = await import('./firmimp');
+  it('phone and e-mail variants', () => {
+    for (const h of ['Е-mail', 'Емаил', 'Електронска пошта', 'E-Mail адреса', 'mail']) expect(fimpField(h)).toBe('email');
+    for (const h of ['Тел.', 'Тел', 'Контакт телефон', 'Телефон за контакт', 'Phone']) expect(fimpField(h)).toBe('phone');
+    for (const h of ['Мобилен', 'Моб.', 'GSM']) expect(fimpField(h)).toBe('phone2');
+    expect(fimpField('Телефон')).toBe('phone');
+    expect(fimpField('Е-пошта')).toBe('email');
+  });
+});

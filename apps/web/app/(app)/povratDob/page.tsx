@@ -14,8 +14,11 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { ScrEditor, type EdScr, type ScrPurchase } from '@/components/sales/scr-editor';
 import { deleteScrAction } from './actions';
+import { ScrScan } from '@/components/sales/scr-scan';
+import { loadAiResult } from '@/lib/ai';
+import { scrDraftFromScan, type ScrScanResult } from '@wise/core/sales';
 
-type SP = { nov?: string; edit?: string; saved?: string; w?: string };
+type SP = { nov?: string; edit?: string; saved?: string; w?: string; ai?: string; scan?: string };
 
 export default async function PovratDobPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -35,6 +38,7 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
     }
     const ctx = await firmPostingContext(db(), firm);
     const PU = await db().select().from(purchases).where(eq(purchases.firmId, firm.id)).orderBy(desc(purchases.date)).limit(300);
+    let scanMsgs: string[] = [];
     const ids = PU.map((x) => x.id);
     const [ST, G] = ids.length ? await Promise.all([
       db().select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, ids)),
@@ -47,7 +51,21 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
       groups: G.filter((g) => g.purchaseId === x.id).map((g) => ({ account: g.account, rate: g.rate, base: Number(g.base) })),
     }));
     const [P, I, Lc, A] = await Promise.all([partnerOptions(firm.id), itemOptions(firm.id), locationOptions(firm.id), accountOptions(firm.id, (k) => /^[34675]/.test(k))]);
-    return <ScrEditor initial={init} partners={P} items={I} purchases={purs} locations={Lc} accounts={A} ddv={firm.vatRegistered} supplierKonto={schemeValue(ctx, 'supplier')} />;
+    // legacy `scrFromScan` (16213): the read document prefills the editor
+    const ad = sp.ai ? await loadAiResult(firm.id, sp.ai, 'scr') : null;
+    if (ad) {
+      const R0 = scrDraftFromScan(ad.result as ScrScanResult, {
+        partners: P.map((x) => ({ id: x.id, name: x.name, edb: x.edb })), items: I.map((x) => ({ id: x.id, name: x.name, code: x.code, type: x.type, unit: x.unit, rate: x.rate, barcodes: x.barcodes })),
+        purchases: purs.map((x) => ({ id: x.id, number: x.number, date: x.date, partnerId: x.partnerId, warehouseId: x.warehouseId, itemIds: x.stock.map((s) => s.itemId), groups: x.groups.map((g) => ({ rate: g.rate, account: g.account })) })),
+        today, stockKonto: (t) => schemeValue(ctx, t === 'material' ? 'material' : t === 'product' ? 'product' : 'stock'),
+      });
+      const dr = R0.draft;
+      init = { ...init, kind: dr.kind, date: dr.date, supNo: dr.supNo, note: dr.note, partnerId: dr.partnerId, refPurchaseId: dr.refPurchaseId, warehouseId: dr.warehouseId,
+        rows: dr.rows.map((x) => ({ itemId: x.itemId, name: x.name, qty: String(x.qty), price: String(x.price), rate: String(x.rate), account: x.account })) };
+      const tot = dr.rows.reduce((a, x) => a + x.qty * x.price * (1 + (firm.vatRegistered ? x.rate : 0) / 100), 0);
+      scanMsgs = [...R0.msgs, ...(R0.total && Math.abs(tot - R0.total) > 1 ? ['Пресметано ' + fmt(tot) + ' ≠ на документот ' + fmt(R0.total)] : [])];
+    }
+    return <>{ad && <div className={'callout ' + (scanMsgs.length ? 'warn' : 'good')}>{scanMsgs.length ? '⚠ ' + scanMsgs.join(' · ') : '✓ Прочитано – проверете и „Зачувај и книжи“.'}</div>}<ScrEditor initial={init} partners={P} items={I} purchases={purs} locations={Lc} accounts={A} ddv={firm.vatRegistered} supplierKonto={schemeValue(ctx, 'supplier')} /></>;
   }
 
   const L = await db().select({ d: supplierCredits, p: partners.name, pur: { n: purchases.number, d: purchases.date } }).from(supplierCredits)
@@ -58,8 +76,10 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <Hd t="Повратници и одобренија од добавувачи" sub={`враќање стока на добавувач · книжно одобрение (попуст) од добавувач · ${year}`}>
+        {write && <Link className="btn" href="/povratDob?scan=1">📷 Скенирај повратница</Link>}
         {write && <Link className="btn pri" href="/povratDob?nov">+ Нов документ</Link>}
       </Hd>
+      {write && sp.scan && <ScrScan firmId={firm.id} auto />}
       {sp.saved && <div className="callout good">Зачувано и прокнижено. <Link href={`/print/scr/${sp.saved}`} target="_blank">PDF</Link>{sp.w && sp.w.split(' | ').map((w, k) => <span key={k}><br />⚠ {w}</span>)}</div>}
       {L.length ? <div className="tw"><table><thead><tr><th>Датум</th><th>Број</th><th>Вид</th><th>Добавувач</th><th>Кон влезна ф-ра</th><th className="n">Основа</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th>Налог</th><th /></tr></thead>
         <tbody>{L.map(({ d, p, pur }) => (

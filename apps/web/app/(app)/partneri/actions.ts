@@ -1,7 +1,8 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
 import { audit, journalLines, partners } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
@@ -61,9 +62,8 @@ export async function deletePartner(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('del');
     const msg = await db().transaction(async (tx) => {
-      const [{ n }] = (await tx.select({ n: sql<number>`count(*)::int` }).from(journalLines)
-        .where(and(eq(journalLines.firmId, firm.id), eq(journalLines.partnerId, id)))) as [{ n: number }];
-      if (n) return `Не може да се избрише – се користи во ${n} ставки во налозите. Означете го како неактивен.`;
+      const n = (await partnerUsage(firm.id)).get(id) ?? 0;
+      if (n) return `Не може да се избрише – се користи во ${n} документи.`;
       const [p] = await tx.delete(partners).where(and(eq(partners.id, id), eq(partners.firmId, firm.id))).returning();
       if (p) await audit(tx, { userId: u.id, firmId: firm.id, action: 'delS', entityType: 'partner', entityId: id, data: { name: p.name, code: p.code } });
       return null;
@@ -84,5 +84,41 @@ export async function setPartnerActive(id: string, active: boolean): Promise<Act
     });
   } catch (e) { return actionError(e); }
   revalidatePath('/partneri');
-  return { ok: 'Зачувано.' };
+  return { ok: active ? 'Активиран.' : 'Означен како неактивен – нема да се нуди во изборот.' };
+}
+
+/** Legacy `autoCodes` (7005): the next numeric code for every partner without one, in name order. */
+export async function autoCodesAction(): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const n = await db().transaction(async (tx) => {
+      const all = await tx.select({ id: partners.id, name: partners.name, code: partners.code }).from(partners).where(eq(partners.firmId, firm.id));
+      const codes = all.map((x) => x.code);
+      const L = all.filter((x) => !String(x.code ?? '').trim()).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
+      for (const x of L) { const c = nextCode(codes); codes.push(c); await tx.update(partners).set({ code: c }).where(eq(partners.id, x.id)); }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'autoCodes', entityType: 'partner', data: { count: L.length } });
+      return L.length;
+    });
+    revalidatePath('/partneri');
+    return { ok: 'Доделени шифри: ' + n };
+  } catch (e) { return actionError(e); }
+}
+
+/** Legacy `slDel` (16942): admin bulk delete — partners used in documents are skipped (they can be made inactive). */
+export async function deletePartnersAction(ids: string[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('del');
+    if (u.role !== 'admin') return { error: 'Бришење може само администраторот.' };
+    const use = await partnerUsage(firm.id);
+    const L = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    const free = L.filter((x) => !use.get(x));
+    if (!free.length) return { error: 'Сите избрани се користат во документи – не може да се избришат.' };
+    await db().transaction(async (tx) => {
+      await tx.delete(partners).where(and(eq(partners.firmId, firm.id), inArray(partners.id, free)));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'slDel', entityType: 'partner', data: { text: 'Масовно бришење (partners): ' + free.length } });
+    });
+    revalidatePath('/partneri');
+    const rest = L.length - free.length;
+    return { ok: 'Избришани ' + free.length + ' од ' + L.length + '.' + (rest ? ' ' + rest + ' се користат во документи и не се избришани.' : '') };
+  } catch (e) { return actionError(e); }
 }

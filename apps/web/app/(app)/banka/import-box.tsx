@@ -110,6 +110,7 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
       <div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
         <label className="f" style={{ minWidth: 260 }}>{fx ? 'Девизна сметка' : 'Банкарска сметка'} (ако датотеката не ја наведува)
           <select value={acct} onChange={(e) => setAcct(e.target.value)}>
+            {!accounts.length && <option value="">— сметката од изводот (се отвора автоматски) —</option>}
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
         </label>

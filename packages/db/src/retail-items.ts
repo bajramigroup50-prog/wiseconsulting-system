@@ -3,6 +3,7 @@
  * merge `artMerge` 11266), `artKonta` (8445), `barkodi` (9201) and `uvoz` / `uvozMat` / `uvozMalo` (5413, 17222).
  * Every function runs in the caller's transaction and writes `audit_log`.
  */
+import { nextNumericCode } from './sales/partners-auto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
 import {
@@ -209,10 +210,12 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
   const ensureP = async (name: string, edb: string): Promise<string> => {
     const p = await findPartner(tx, a.firmId, name, edb);
     if (p) return p.id;
-    const [c] = await tx.insert(partners).values({ firmId: a.firmId, name, edb: edb.replace(/\D/g, '') || null, vatRegistered: true }).returning({ id: partners.id });
+    // legacy `save('partners')` auto-code (AUTO_CODE 3288): new partners get the next numeric code
+    const [c] = await tx.insert(partners).values({ firmId: a.firmId, code: await nextPartnerCode(), name, edb: edb.replace(/\D/g, '') || null, vatRegistered: true }).returning({ id: partners.id });
     R.newP++;
     return c!.id;
   };
+  const nextPartnerCode = async () => nextNumericCode((await tx.select({ c: partners.code }).from(partners).where(eq(partners.firmId, a.firmId))).map((x) => x.c));
   const row = async (label: string, f: () => Promise<void>) => {
     try { await tx.transaction(async () => { await f(); }); } catch (e) { R.skip.push(label + ': ' + (e instanceof Error ? e.message : String(e))); }
   };
@@ -233,7 +236,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         if (has(r, 'ddv')) v.vatRegistered = impYes(gs(r, 'ddv'));
         const ex = await findPartner(tx, a.firmId, name, gs(r, 'edb'));
         if (ex) { await tx.update(partners).set(v).where(eq(partners.id, ex.id)); R.upd++; }
-        else { await tx.insert(partners).values({ vatRegistered: true, ...v, firmId: a.firmId, name }); R.add++; }
+        else { await tx.insert(partners).values({ vatRegistered: true, ...v, code: v.code || await nextPartnerCode(), firmId: a.firmId, name }); R.add++; }
       });
     }
   }
@@ -376,8 +379,9 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         const nm = name || code || bc;
         const mpc = gn(r, 'mpc');
         const [c] = await tx.insert(items).values({
-          firmId: a.firmId, code: code || await nextItemCode(tx, a.firmId), name: nm, type: 'goods', unit: 'ком', vatRate: 18,
-          price: mpc ? String(r2(mpc / 1.18)) : '0', data: { cost: gn(r, 'cost') || 0 },
+          firmId: a.firmId, code: code || await nextItemCode(tx, a.firmId), name: nm, type: 'goods', unit: gs(r, 'unit') || 'ком', vatRate: [0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18,
+          // retail stock import (m_lager): the new item gets the store's retail price, the rate from the row
+          price: mpc ? String(r2(mpc / (1 + ([0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18) / 100))) : '0', data: { cost: gn(r, 'cost') || 0, ...(mpc && isStore && W0 ? { sp: { [whId(W0)]: r2(mpc) } } : {}) },
         }).returning();
         it = c!;
         if (bc) {

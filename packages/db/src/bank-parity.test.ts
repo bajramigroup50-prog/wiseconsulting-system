@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  addManualLine, applyBankPartnerFix, bankPartnerFixPlan, bookPosFee, fillStatementNumbers, ledgerOpenItemsSource, posBalance, saveBankAccount,
+  addManualLine, applyBankPartnerFix, bankPartnerFixPlan, bookBankPosFee, fillStatementNumbers, ledgerOpenItemsSource, posBalance, saveBankAccount,
   saveFxList, setLineKonto, setOpenItemsSource, statementNoSuggestions,
 } from './bank/index';
 import { postJournal } from './posting';
@@ -74,8 +74,8 @@ describe('POS fee (legacy posFee 13078)', () => {
     await T((tx) => postJournal(tx, { firmId, date: '2026-04-02', kind: 'manual', userId: null, lines: [{ account: '100077', debit: 980 }, { account: '1200001', credit: 980, partnerId: pp!.id }] }));
     const b = await T((tx) => posBalance(tx, firmId, 2026));
     expect([b.d, b.p, b.s, b.state]).toEqual([100000, 98000, 2000, 'fee']);
-    await expect(T((tx) => bookPosFee(tx, { firmId, userId: null, year: 2026, amount: 5000, date: '2026-04-02' }))).rejects.toThrow(/најмногу/);
-    await T((tx) => bookPosFee(tx, { firmId, userId: null, year: 2026, amount: 2000, date: '2026-04-02' }));
+    await expect(T((tx) => bookBankPosFee(tx, { firmId, userId: null, year: 2026, amount: 5000, date: '2026-04-02' }))).rejects.toThrow(/најмногу/);
+    await T((tx) => bookBankPosFee(tx, { firmId, userId: null, year: 2026, amount: 2000, date: '2026-04-02' }));
     expect((await T((tx) => posBalance(tx, firmId, 2026))).s).toBe(0);
   });
 });

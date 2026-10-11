@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { deleteSupplierCredit, saveSupplierCredit } from '@wise/db';
+import { audit, deleteSupplierCredit, ensurePartner, saveSupplierCredit } from '@wise/db';
+import { loadAiResult } from '@/lib/ai';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -40,4 +41,21 @@ export async function deleteScrAction(id: string): Promise<ActionState> {
   } catch (e) { return actionError(e); }
   revalidatePath('/povratDob');
   return { ok: 'Избришано.' };
+}
+
+/** Legacy `scrScanFile` 16228: an unknown supplier from the read document is added (`ensureSupplier`) before the editor opens. */
+export async function scrScanPrepare(aiId: string): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const d = await loadAiResult(firm.id, aiId, 'scr');
+    if (!d) return { error: 'Читањето не успеа. Внесете рачно.' };
+    const r = (d.result ?? {}) as { supplierName?: string; supplierEdb?: string };
+    if (r.supplierName) {
+      await db().transaction(async (tx) => {
+        const x = await ensurePartner(tx, firm.id, { name: r.supplierName!, edb: r.supplierEdb, type: 'supplier' });
+        if (x.created) await audit(tx, { userId: u.id, firmId: firm.id, action: 'addSupplier', entityType: 'partner', entityId: x.id, data: { name: r.supplierName, from: 'scr-scan' } });
+      });
+    }
+    return { ok: 'ok' };
+  } catch (e) { return actionError(e); }
 }

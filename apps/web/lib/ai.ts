@@ -13,7 +13,7 @@ import { enqueue } from './jobs';
 export const AI_READ_DOCUMENT = 'ai.read-document';
 
 /** Kinds whose result the web maps itself, and the permission needed to start / read them. */
-export const AI_RESULT_KIND_ACTION = { blg: 'blgSave', emp: 'write', bank: 'write', fisk: 'fkPost', bom: 'saveBom', classify: 'office', ob: 'write', rec: 'write', bankcls: 'autoMatch' } as const;
+export const AI_RESULT_KIND_ACTION = { blg: 'blgSave', emp: 'write', bank: 'write', fisk: 'fkPost', bom: 'saveBom', classify: 'office', cmp: 'del', imp: 'savePur', scr: 'write', ob: 'write', rec: 'write', bankcls: 'autoMatch' } as const;
 export type AiResultKind = keyof typeof AI_RESULT_KIND_ACTION;
 export const isAiResultKind = (k: unknown): k is AiResultKind => typeof k === 'string' && k in AI_RESULT_KIND_ACTION;
 

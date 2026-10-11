@@ -15,7 +15,7 @@ import {
   type BankRow, type ImportClass, type Statement,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
-import { bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
+import { bankAccounts, bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
 import { dec, loadBankEnv, loadFxSources, POS_PARTNER_NAME, type BankEnv } from './context';
 import { postStatements } from './posting';
 import { toBankRow } from './rows';
@@ -97,6 +97,7 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
   const numbers = new Map<string, Record<string, string>>();
   const numsFor = async (a: BankAccountRow) => {
     let m = numbers.get(a.id);
+    if (!m && a.id.startsWith('new:')) { m = {}; numbers.set(a.id, m); }
     if (!m) {
       const S = await tx.select({ date: bankStatements.date, number: bankStatements.number }).from(bankStatements).where(eq(bankStatements.bankAccountId, a.id));
       m = Object.fromEntries(S.filter((s) => s.number).map((s) => [statementKey(a.id, s.date), s.number!]));
@@ -106,7 +107,12 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
   };
   for (const st of o.statements) {
     const hit = statementAccount(st, accts.map((a) => ({ ...a, account: a.account ?? '' })));
-    const acct = hit ? byId.get(hit.id)! : o.defaultAccountId ? byId.get(o.defaultAccountId) : undefined;
+    let acct = hit ? byId.get(hit.id)! : o.defaultAccountId ? byId.get(o.defaultAccountId) : undefined;
+    // No account yet (e.g. a new firm): the statement's own account is opened on save — preview it as a new account.
+    if (!acct && (st.account || st.iban)) {
+      acct = newAccountFor(st, o.firmId);
+      warnings.push(`Банкарската сметка ${st.iban || st.account} не постои – ќе се отвори при зачувување (конто ${acct.konto}).`);
+    }
     if (!acct) { errors.push(`Не е пронајдена банкарска сметка за изводот${st.account ? ' ' + st.account : ''} – додадете ја сметката или изберете ја.`); continue; }
     if (!hit && (st.account || st.iban)) warnings.push(`Сметката од датотеката (${st.iban || st.account}) не е меѓу сметките на фирмата – увезено во „${acct.name}“.`);
     const fx = (acct.cur || 'MKD') !== 'MKD';
@@ -114,7 +120,7 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
     if (statementOwnerMismatch(st.owner, env.firm.name)) warnings.push(`Изводот е на „${st.owner}“, а работите во фирмата „${env.firm.name}“. Проверете дали е вистинската фирма.`);
     const nums = await numsFor(acct);
     for (const day of splitStatementByDate(st)) {
-      const [ex] = await tx.select().from(bankStatements).where(and(eq(bankStatements.bankAccountId, acct.id), eq(bankStatements.date, day.date))).limit(1);
+      const [ex] = acct.id.startsWith('new:') ? [] : await tx.select().from(bankStatements).where(and(eq(bankStatements.bankAccountId, acct.id), eq(bankStatements.date, day.date))).limit(1);
       // legacy 4802: the rate printed on the statement (AI read) becomes the day's rate when none is set
       const rate = fx ? (ex?.rate != null ? Number(ex.rate) : st.rate || fxRate(acct.cur, day.date, fxs) || null) : null;
       if (fx && !rate) warnings.push(`Нема курс за ${acct.cur} на ${day.date} – внесете го курсот на изводот.`);
@@ -180,7 +186,30 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
 
 export interface ImportResult { batch: string; statements: number; lines: number; skipped: number; posted: number; drafts: number; plan: ImportPlan }
 
+/** A bank account for a statement whose account the firm does not have yet (MKD → 1000, foreign → 1030). */
+function newAccountFor(st: Statement, firmId: string): BankAccountRow {
+  const cur = (st.currency || 'MKD').toUpperCase();
+  return {
+    id: `new:${st.iban || st.account}`, firmId, legacyId: null, name: st.owner ? `Сметка ${st.account || st.iban}` : `Банка ${st.account || st.iban}`,
+    account: st.account || null, iban: st.iban || null, cur, konto: cur === 'MKD' ? '1000' : '1030', nal: null, sort: 99, active: true,
+    createdAt: new Date(), updatedAt: new Date(),
+  } as BankAccountRow;
+}
+
 export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult> {
+  // Open the accounts the statements name but the firm does not have yet (legacy added them from the statement).
+  {
+    const env0 = await loadBankEnv(tx, o.firmId);
+    const rows = env0.accountRows.map((a) => ({ ...a, account: a.account ?? '' }));
+    const fallback = o.defaultAccountId && env0.accountRows.some((a) => a.id === o.defaultAccountId);
+    for (const st of o.statements) {
+      if (!(st.account || st.iban) || statementAccount(st, rows) || fallback) continue;
+      const n = newAccountFor(st, o.firmId);
+      const [a] = await tx.insert(bankAccounts).values({ firmId: o.firmId, name: n.name, account: n.account, iban: n.iban, cur: n.cur, konto: n.konto, sort: rows.length }).returning();
+      rows.push({ ...a!, account: a!.account ?? '' });
+      await audit(tx, { userId: o.userId, firmId: o.firmId, action: 'bankAccountAuto', entityType: 'bank_account', entityId: a!.id, data: { account: n.account, iban: n.iban, konto: n.konto } });
+    }
+  }
   const env = await loadBankEnv(tx, o.firmId);
   const plan = await planImport(tx, o, env);
   if (plan.errors.length) throw new ImportError(plan.errors.join(' '));

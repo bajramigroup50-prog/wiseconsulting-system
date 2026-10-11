@@ -10,7 +10,7 @@ import {
   detectStatementFormat, parseBankTable, parseStatementFile, type Statement,
 } from '@wise/core';
 import {
-  addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
+  addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
 } from '@wise/db';
@@ -329,7 +329,7 @@ export async function posFeeAction(_p: FormState, form: FormData): Promise<FormS
   const date = str(form.get('date'));
   if (!amount || amount <= 0) return { error: 'Внесете износ на провизијата.' };
   if (!isDate(date)) return { error: 'Внесете датум.' };
-  return bankRun('write', [...P, '/fiskPer'], async ({ tx, u, firm, year }) => `Провизијата е книжена (налог ${await bookPosFee(tx, { firmId: firm.id, userId: u.id, year, amount: Math.round(amount * 100), date })}).`);
+  return bankRun('write', [...P, '/fiskPer'], async ({ tx, u, firm, year }) => `Провизијата е книжена (налог ${await bookBankPosFee(tx, { firmId: firm.id, userId: u.id, year, amount: Math.round(amount * 100), date })}).`);
 }
 
 export async function removeBankAccountAction(id: string): Promise<FormState> {

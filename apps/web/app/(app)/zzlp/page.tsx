@@ -10,7 +10,7 @@ import { FileChips, Pill } from '@/components/file-chips';
 import { Hd, dmy } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { closeGdpr, saveGdpr, saveZzChecklist } from './actions';
+import { closeGdpr, saveGdpr, saveZzChecklist, zzSigned } from './actions';
 
 export default async function ZzlpPage() {
   const { u } = await officePage('zzlp', { perm: 'office' });
@@ -21,9 +21,46 @@ export default async function ZzlpPage() {
   const dpa = new Set(R.filter((r) => r.kind === 'dpa' && r.firmId).map((r) => r.firmId));
   const noDpa = F.filter((f) => !dpa.has(f.id) && !(f.settings as { officeFirm?: boolean }).officeFirm);
   const fname = (id: string | null) => F.find((f) => f.id === id)?.name ?? '';
+  // legacy: the module is the owner's only
+  if (u.role !== 'admin') return <><Hd t="🔐 Лични податоци (ЗЗЛП)" exp={false} /><div className="card empty">🔒 Само сопственикот.</div></>;
+  const C = F.filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm);
+  const dpaOf = (id: string) => R.find((r) => r.kind === 'dpa' && r.firmId === id);
+  const sg = C.filter((f) => dpa.has(f.id)).length;
   return (
     <>
-      <Hd t="🔐 Заштита на лични податоци (ЗЗЛП)" sub={`${R.length} записи · ${noDpa.length} клиенти без договор за обработка`} />
+      <Hd t="🔐 Лични податоци (ЗЗЛП)" sub="договори за обработка · изјави · УЈП" />
+      <div className="callout">Сервер во <b>ЕУ</b> е дозволен без одобрение од Агенцијата (ЗЗЛП 42/2020 – пренос во земји членки на ЕУ/ЕЕП). Обработувачот (канцеларијата) мора да има <b>договор со секој клиент</b> (чл. 32) и <b>технички и организациски мерки</b> (чл. 36). Деловните книги мора <b>во секое време да се достапни во земјата</b> (чл. 47 ст. 3 ЗДП) – затоа дневна копија и во канцеларијата.{(!O.name || !O.edb) && <><br />⚠ Пополнете ги податоците на канцеларијата (Канцеларија → договори / податоци на канцеларијата) – се користат во документите.</>}</div>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '6px 0 10px', alignItems: 'stretch' }}>
+        {([['Клиенти', C.length], ['Потпишан договор', sg], ['Без договор', C.length - sg], ['Листа за проверка', `${ZZ_CHK.filter(([k]) => chk[k]).length} / ${ZZ_CHK.length}`]] as const).map(([l, v]) => (
+          <div key={l} className="card" style={{ flex: 1, minWidth: 150, margin: 0 }}><div className="muted" style={{ fontSize: 12 }}>{l}</div><div style={{ fontSize: 22, fontWeight: 700 }}>{v}</div></div>
+        ))}
+      </div>
+      <div className="card">
+        <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>📄 Документи на канцеларијата</h2>
+        <p className="note" style={{ margin: 0 }}>Барање за мислење до УЈП (чл. 47 ст. 3 ЗДП), Изјава за доверливост (вработен) и Договор за обработка на лични податоци се прават во Word / PDF од <a href="/tpl">📄 Шаблони</a>; изјавите на вработените се во <a href="/korisnici">👥 Корисници</a>.</p>
+      </div>
+      <div className="card tw" style={{ overflow: 'auto' }}>
+        <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>🤝 Договор за обработка на лични податоци – по клиент</h2>
+        {C.length ? <table className="dense">
+          <thead><tr><th>Клиент</th><th>Управител</th><th>Датум</th><th>Статус</th><th>Документ</th><th></th></tr></thead>
+          <tbody>{C.map((f) => {
+            const d = dpaOf(f.id), s = f.settings as { signer?: string; manager?: string };
+            return (
+              <tr key={f.id}>
+                <td><b>{f.name}</b><br /><span className="mini muted">ЕДБ {f.edb || '—'}</span></td>
+                <td>{s.manager || s.signer || <span className="muted">—</span>}</td>
+                <td>{d?.date ? dmy(d.date) : '—'}</td>
+                <td>{d ? <span className="pill good">✓ потпишан {dmy(d.date)}</span> : <span className="pill warn">не е потпишан</span>}{(FL.get(d?.id ?? '')?.length ?? 0) > 0 && <span className="mini"> 📎</span>}</td>
+                <td style={{ whiteSpace: 'nowrap' }}><a className="btn sm" href="/tpl">📝 Word / 🖨 PDF</a></td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <RowAction action={zzSigned.bind(null, f.id, !d)} label={d ? '↺' : '✓ Потпишан'} className={`btn sm ${d ? '' : 'pri'}`} />
+                  {' '}<a className="btn sm ghost" href="#zzNew" title="Прикачи го скенираниот потпишан договор – запис во регистарот со датотека">📎 Прикачи</a>
+                </td>
+              </tr>
+            );
+          })}</tbody>
+        </table> : <div className="empty">Нема активни клиенти.</div>}
+      </div>
       <ActionForm action={saveZzChecklist} reset={false}>
         <h2>Обврски на канцеларијата</h2>
         {ZZ_CHK.map(([k, t]) => <label key={k} className="chk" style={{ display: 'block' }}><input type="checkbox" name={`chk_${k}`} defaultChecked={!!chk[k]} disabled={!can(u.principal, 'settings')} /> {t}</label>)}
@@ -33,7 +70,7 @@ export default async function ZzlpPage() {
       </ActionForm>
 
       <ActionForm action={saveGdpr}>
-        <h2>+ Запис во регистарот</h2>
+        <h2 id="zzNew">+ Запис во регистарот</h2>
         <div className="form">
           <label className="f">Вид<select name="kind" defaultValue="dpa">{Object.entries(GDPR_KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label className="f">Клиент (фирма)<select name="firmId" defaultValue=""><option value="">— канцеларија —</option>{F.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>

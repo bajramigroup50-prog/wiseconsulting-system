@@ -14,6 +14,8 @@ const mk = (endpoint: string | undefined) => new S3Client({
   endpoint,
   region: process.env.S3_REGION ?? 'us-east-1',
   forcePathStyle: true,
+  // SDK ≥3.729 adds CRC32 checksums by default; presigned PUTs would carry the empty-body checksum and SeaweedFS rejects the upload.
+  requestChecksumCalculation: 'WHEN_REQUIRED', responseChecksumValidation: 'WHEN_REQUIRED',
   credentials: {
     accessKeyId: process.env.S3_ACCESS_KEY ?? '',
     secretAccessKey: process.env.S3_SECRET_KEY ?? '',

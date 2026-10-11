@@ -13,7 +13,10 @@ import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { deleteContact, deleteDossierDoc, mailDossierDocs, saveContact, saveDeadline, saveDossierDoc, setDeadlineDone } from './actions';
 
-export default async function DosiePage() {
+type SP = { q?: string; cat?: string; nov?: string; edit?: string; mail?: string; id?: string | string[] };
+
+export default async function DosiePage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
   const { u, firm } = await officePage('dosie');
   if (!firm) return <NoFirm t="🗂 Досие на фирмата" />;
   const td = today();
@@ -28,56 +31,98 @@ export default async function DosiePage() {
   const byCat = new Map<string, typeof docs>();
   for (const d of docs) byCat.set(d.category, [...(byCat.get(d.category) ?? []), d]);
   const missingFresh = DOS_FRESH.filter((c) => !byCat.has(c));
+  // legacy: the newest of each kind is „најнова“, the others „постара верзија“; stale current-state extracts warn (3 / 6 months)
+  const newest = new Map<string, string>();
+  for (const [c, L] of byCat) newest.set(c, [...L].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))[0]!.id);
+  const addM = (d: string, m: number) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() + m); return x.toISOString().slice(0, 10); };
+  const stale = DOS_FRESH.map((c) => docs.find((d) => d.id === newest.get(c))).filter((d): d is (typeof docs)[number] => !!d && td > addM(d.date ?? '1900-01-01', 3));
+  const alerts = docs.filter((d) => { const e = expiry(d, td); return !!e && e.lvl !== 'good'; });
+  const q = (sp.q ?? '').trim().toLowerCase(), cat = sp.cat ?? '';
+  const shown = docs.filter((d) => (!cat || d.category === cat) && (!q || [d.category, d.title, d.number, d.note, ...(F.get(d.id) ?? []).map((x) => x.name)].join(' ').toLowerCase().includes(q)));
+  const sel = new Set([sp.id ?? []].flat());
+  const editing = sp.edit ? docs.find((d) => d.id === sp.edit) : undefined;
+  const showForm = write && (sp.nov !== undefined || !!editing);
 
   return (
     <>
-      <Hd t="🗂 Досие на фирмата" sub={`${firm.name} · ${docs.length} документи`} />
+      <Hd t="Документи на фирмата" sub={`${firm.name} · ${docs.length} документи`}>
+        {write && <>
+          <a className="btn" href={`/dosie?nov=${encodeURIComponent('Тековна состојба (ЦРМ)')}`}>📷 Нова тековна состојба</a>
+          <a className="btn" href={`/dosie?nov=${encodeURIComponent('Тековна состојба – вистински сопственик (ЦРМ)')}`}>📷 Нова – вистински сопственик</a>
+          <a className="btn pri" href="/dosie?nov">+ Нов документ / скенирај</a>
+        </>}
+      </Hd>
+      {stale.length > 0 && <div className="callout warn">{stale.map((d) => <span key={d.id}><b>{d.category}</b>: најновата е од {dmy(d.date)} – {td > addM(d.date ?? '1900-01-01', 6) ? 'постара од 6 месеци' : 'постара од 3 месеци'}. Кога ќе извадите нова, скенирајте ја – старите остануваат во архивата.<br /></span>)}</div>}
+      {alerts.length > 0 && <div className="callout warn"><b>Рокови:</b> {alerts.map((d) => `${d.title || d.category} – ${(d.validTo ?? '') < td ? 'истечен на ' : 'истекува на '}${dmy(d.validTo)}`).join(' · ')}</div>}
       {missingFresh.length > 0 && <div className="callout warn">Нема: {missingFresh.join(', ')} – банките и институциите бараат тековна состојба не постара од 3 / 6 месеци.</div>}
       {pend.length > 0 && <div className="callout">⏳ {pend.length} документи испратени од клиентот чекаат одобрување во <a href="/klInbox">Пристигнато од клиенти</a>.</div>}
 
-      {write && (
-        <ActionForm action={saveDossierDoc}>
-          <h2>+ Нов документ во досието</h2>
+      {showForm && (
+        <ActionForm action={saveDossierDoc} reset={!editing}>
+          <h2>{editing ? '✎ Промени документ' : '+ Нов документ во досието'}</h2>
+          {editing && <input type="hidden" name="id" value={editing.id} />}
           <div className="form">
-            <label className="f">Категорија<select name="category" required defaultValue="">
+            <label className="f">Категорија<select name="category" required defaultValue={editing?.category ?? (DOS_CAT as readonly string[]).find((c) => c === sp.nov) ?? ''}>
               <option value="" disabled>— изберете —</option>
               {DOS_CAT.map((c) => <option key={c}>{c}</option>)}
             </select></label>
-            <label className="f">Наслов<input name="title" placeholder="на пр. Тековна состојба" /></label>
-            <label className="f">Број<input name="number" /></label>
-            <label className="f">Датум<input name="date" type="date" /></label>
-            <label className="f">Важи до<input name="validTo" type="date" /></label>
-            <label className="f wide">Белешка<input name="note" /></label>
-            <UploadField firmId={firm.id} capture accept="image/*,application/pdf" label="📷 Скенирај / прикачи страници" />
+            <label className="f">Наслов<input name="title" placeholder="на пр. Тековна состојба" defaultValue={editing?.title ?? ''} /></label>
+            <label className="f">Број<input name="number" defaultValue={editing?.number ?? ''} /></label>
+            <label className="f">Датум<input name="date" type="date" defaultValue={editing?.date ?? td} /></label>
+            <label className="f">Важи до<input name="validTo" type="date" defaultValue={editing?.validTo ?? ''} /></label>
+            <label className="f wide">Белешка<input name="note" defaultValue={editing?.note ?? ''} /></label>
+            <UploadField firmId={firm.id} capture accept="image/*,application/pdf" label={editing ? '📷 Додај страници' : '📷 Скенирај / прикачи страници'} />
           </div>
-          <div className="row"><button className="btn pri">Зачувај</button></div>
+          <div className="row"><a className="btn" href="/dosie">Откажи</a><button className="btn pri">Зачувај</button></div>
         </ActionForm>
       )}
 
-      {DOS_CAT.filter((c) => byCat.has(c)).map((c) => (
-        <div className="card" key={c}>
-          <h2 style={{ fontSize: 15 }}>{c}</h2>
-          <div className="tw"><table className="dense">
-            <thead><tr><th>Документ</th><th>Број</th><th>Датум</th><th>Важи до</th><th>Страници</th><th></th></tr></thead>
-            <tbody>
-              {byCat.get(c)!.map((d) => {
-                const fr = freshness(d, td), ex = expiry(d, td);
-                return (
-                  <tr key={d.id}>
-                    <td><b>{d.title || c}</b>{d.note && <div className="mini" style={{ display: 'block' }}>{d.note}</div>}</td>
-                    <td>{d.number}</td>
-                    <td>{dmy(d.date)} {fr && <Pill c={fr.lvl} title={fr.title}>{fr.text}</Pill>}</td>
-                    <td>{ex ? ex.lvl === 'bad' ? <Pill c="bad">истечен {dmy(d.validTo)}</Pill> : ex.lvl === 'warn' ? <Pill c="warn">истекува за {ex.days} дена</Pill> : dmy(d.validTo) : <span className="note">—</span>}</td>
-                    <td><FileChips files={F.get(d.id)} /></td>
-                    <td>{del && <RowAction action={deleteDossierDoc.bind(null, d.id)} label="Избриши" confirm={`Да се избрише „${d.title || c}“ од досието?`} />}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table></div>
+      <form className="card" method="get" action="/dosie">
+        <div className="row" style={{ gap: '10px 16px', alignItems: 'end', flexWrap: 'wrap' }}>
+          <input name="q" placeholder="Барај назив, број, датотека…" defaultValue={sp.q ?? ''} style={{ width: 260 }} />
+          <label className="mini">Вид <select name="cat" defaultValue={cat} style={{ width: 'auto' }}><option value="">сите</option>{[...new Set([...DOS_CAT, ...docs.map((d) => d.category)])].map((c) => <option key={c}>{c}</option>)}</select></label>
+          <button className="btn">Барај</button>
+          <span style={{ flex: 1 }} />
+          <span className="mini">Штиклирајте документи подолу:</span>
+          <button className="btn pri" name="mail" value="1">✉ Испрати по е-пошта</button>
+          <button className="btn" formAction="/dosie/wa" style={{ borderColor: '#25D366' }}>💬 WhatsApp / Viber</button>
+          <button className="btn" formAction="/dosie/zip">⬇ Преземи</button>
         </div>
-      ))}
-      {!docs.length && <div className="card empty">Досието е празно.</div>}
+        {[...new Set([...DOS_CAT, ...shown.map((d) => d.category)])].filter((c) => shown.some((d) => d.category === c)).map((c) => (
+          <div key={c}>
+            <h3 style={{ margin: '14px 0 6px', fontSize: 14 }}>{c}</h3>
+            <div className="tw"><table>
+              <thead><tr><th style={{ width: 28 }}></th><th>Назив</th><th>Број</th><th>Издаден / старост</th><th>Архивирано</th><th>Важи до</th><th>Датотеки</th><th></th></tr></thead>
+              <tbody>
+                {shown.filter((d) => d.category === c).map((d) => {
+                  const fr = freshness(d, td), ex = expiry(d, td), many = (byCat.get(c)?.length ?? 0) > 1, isNew = newest.get(c) === d.id;
+                  return (
+                    <tr key={d.id}>
+                      <td><input type="checkbox" name="id" value={d.id} defaultChecked={sel.has(d.id)} /></td>
+                      <td style={many && !isNew ? { opacity: 0.6 } : undefined}><b>{d.title || c}</b>{many && (isNew ? <> <span className="pill info">најнова</span></> : <> <span className="pill">постара верзија</span></>)}{d.note && <div className="mini" style={{ display: 'block' }}>{d.note}</div>}</td>
+                      <td>{d.number}</td>
+                      <td>{dmy(d.date)} {fr && <Pill c={fr.lvl} title={fr.title}>{fr.text}</Pill>}</td>
+                      <td className="mini">{dmy(d.createdAt)}</td>
+                      <td>{ex ? ex.lvl === 'bad' ? <Pill c="bad">истечен {dmy(d.validTo)}</Pill> : ex.lvl === 'warn' ? <Pill c="warn">истекува за {ex.days} дена</Pill> : dmy(d.validTo) : <span className="note">—</span>}</td>
+                      <td><FileChips files={F.get(d.id)} /></td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {F.get(d.id)?.[0] && <a className="btn sm" href={`/api/files/${F.get(d.id)![0]!.id}`} target="_blank" rel="noopener" title="Погледни го документот">👁</a>}
+                        <a className="btn sm" href={`/dosie?mail=1&id=${d.id}`} title="Испрати по е-пошта">✉</a>
+                        <a className="btn sm" href={`/dosie/wa?id=${d.id}`} title="WhatsApp / Viber">💬</a>
+                        {write && <a className="btn sm" href={`/dosie?edit=${d.id}`} title="Промени">✎</a>}
+                        {del && <RowAction action={deleteDossierDoc.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише „${d.title || c}“ од досието?`} />}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table></div>
+          </div>
+        ))}
+        {docs.length > 0 && !shown.length && <p className="note">Нема документи за избраниот филтер.</p>}
+      </form>
+      {!docs.length && <div className="card empty">Нема документи. Притиснете „+ Нов документ / скенирај“ – на телефон се отвора камерата, на компјутер изберете PDF или слика.</div>}
+      <p className="note">Документите се чуваат трајно во програмот за оваа фирма и се гледаат и во „Архива на документи“. За секој документ со рок (тековна состојба, лиценци, дозволи) внесете „Важи до“ – програмот ве предупредува 30 дена пред истекот.</p>
 
       {u.role !== 'klient' && (
         <div className="grid2" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))' }}>
@@ -132,12 +177,12 @@ export default async function DosiePage() {
         </div>
       )}
       {/* legacy `dosMail` / `dosShare`: send selected documents by e-mail (packages with a cover letter: /paket) */}
-      {write && docs.some((d) => F.get(d.id)?.length) && (
+      {write && sp.mail && docs.some((d) => F.get(d.id)?.length) && (
         <ActionForm action={mailDossierDocs}>
           <h2 style={{ fontSize: 15 }}>✉ Испрати документи по е-пошта</h2>
           <div className="row" style={{ gap: '4px 14px', flexWrap: 'wrap' }}>
             {docs.filter((d) => F.get(d.id)?.length).map((d) => (
-              <label key={d.id} className="chk"><input type="checkbox" name="docId" value={d.id} /> {d.title || d.category}{d.date ? ` (${dmy(d.date)})` : ''}</label>
+              <label key={d.id} className="chk"><input type="checkbox" name="docId" value={d.id} defaultChecked={sel.has(d.id)} /> {d.title || d.category}{d.date ? ` (${dmy(d.date)})` : ''}</label>
             ))}
           </div>
           <div className="form">

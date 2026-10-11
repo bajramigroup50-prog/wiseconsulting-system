@@ -9,13 +9,15 @@ import { codes, firms, items, partners, purchaseCosts, purchases, purchaseStockL
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { dmy, fmt, fq } from '@/lib/fmt';
+import { FirmHead } from '../../firm-head';
 
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-export default async function PrintKalk({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ t?: string }> }) {
+export default async function PrintKalk({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ t?: string; vat?: string }> }) {
   const { id } = await params;
-  const plt = (await searchParams).t === 'plt';
+  const sq = await searchParams;
+  const plt = sq.t === 'plt', priem = sq.t === 'priem', withVat = sq.vat === '1';
   const u = await requireUser();
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const [p] = await db().select().from(purchases).where(eq(purchases.id, id)).limit(1);
@@ -38,7 +40,7 @@ export default async function PrintKalk({ params, searchParams }: { params: Prom
   const T = (k: keyof (typeof R)[number]) => r2(R.reduce((a, r) => a + Number(r[k]), 0));
   const locName = loc[0]?.name ?? 'Главен магацин';
   const head = (t: string) => <>
-    <div className="ph"><div><div className="pt">{t} бр. {p.calcNo || p.number}</div><div className="ps">{locName} · {dmy(p.date)}</div></div><div className="pm">{f.name}<br />ЕДБ {f.edb}</div></div>
+    <FirmHead firm={f} title={`${t} бр. ${p.calcNo || p.number}`} sub={`${locName} · ${dmy(p.date)}`} />
     <div className="grid2"><div className="box"><b>Добавувач:</b> {sup[0]?.name ?? p.supplierName}<br /><b>Фактура:</b> {p.number} од {dmy(p.docDate || p.date)}{p.imp && <><br /><b>ЕЦД:</b> {(p.data as Record<string, string>).ecd ?? ''} · <b>Курс:</b> {Number(p.fx)} {p.currency}</>}</div>
       <div className="box"><b>Датум на прием:</b> {dmy(p.date)}<br /><b>Објект:</b> {locName}{p.due && <><br /><b>Валута:</b> {dmy(p.due)}</>}</div></div></>;
   const sig = (w: string[]) => <div className="sig">{w.map((x) => <span key={x}>{x}</span>)}</div>;
@@ -54,15 +56,23 @@ export default async function PrintKalk({ params, searchParams }: { params: Prom
       <table style={{ width: '55%', marginLeft: 'auto' }}><tbody><tr><td>Набавна вредност</td><td className="n">{fmt(T('nabV'))}</td></tr><tr><td>Разлика во цена</td><td className="n">{fmt(T('marg'))}</td></tr><tr><td>Пресметан ДДВ во продажна вредност</td><td className="n">{fmt(T('vat'))}</td></tr><tr className="tot"><td>Продажна вредност со ДДВ</td><td className="n">{fmt(T('spV'))}</td></tr></tbody></table>
       {sig(['Предал', 'Примил', 'Одговорно лице'])}</div></>;
   }
+  if (priem) {
+    // legacy `priemPdfHTML` (4419): ПРИЕМНИЦА, optionally with the sale prices with VAT („Со данок“)
+    return <div className="pdfdoc printarea">{head('ПРИЕМНИЦА')}
+      <table><thead><tr><th>Р.б.</th><th>Шифра</th><th>Назив</th><th>Ем</th><th className="n">Количина</th><th className="n">Набавна цена</th><th className="n">Набавна вредност</th>{withVat && <><th className="n">Цена со ДДВ</th><th className="n">Вредност со ДДВ</th></>}</tr></thead>
+        <tbody>{R.map((r, i) => <tr key={i}><td>{i + 1}</td><td>{r.code}</td><td>{r.name}</td><td>{r.unit}</td><td className="n">{fq(r.qty)}</td><td className="n">{r.nabU.toFixed(4)}</td><td className="n">{fmt(r.nabV)}</td>{withVat && <><td className="n">{fmt(r.sp)}</td><td className="n">{fmt(r.spV)}</td></>}</tr>)}
+          <tr className="tot"><td colSpan={6}>Вкупно</td><td className="n">{fmt(T('nabV'))}</td>{withVat && <><td /><td className="n">{fmt(T('spV'))}</td></>}</tr></tbody></table>
+      {sig(['Предал', 'Примил'])}</div>;
+  }
   const cs = costsOf(P);
-  return <><div className="noprint row" style={{ justifyContent: "center", paddingTop: 6 }}><a className="btn" href={`/print/kalk/${id}?t=plt`}>Приемен лист (ПЛТ)</a></div><div className="pdfdoc printarea land">{head('ПРЕГЛЕД НА ВЛЕЗНА КАЛКУЛАЦИЈА')}
+  return <><div className="noprint row" style={{ justifyContent: "center", paddingTop: 6 }}><a className="btn" href={`/print/kalk/${id}?t=plt`}>Приемен лист (ПЛТ)</a> <a className="btn" href={`/print/kalk/${id}?t=priem`}>Приемница</a> <a className="btn" href={`/print/kalk/${id}?t=priem&vat=1`}>Приемница со данок</a></div><div className="pdfdoc printarea land">{head('ПРЕГЛЕД НА ВЛЕЗНА КАЛКУЛАЦИЈА')}
     <table><thead><tr><th rowSpan={2}>Шифра</th><th rowSpan={2}>Назив</th><th rowSpan={2}>Ем</th><th rowSpan={2} className="n">Кол</th><th colSpan={2} className="n">Набавна цена</th><th colSpan={2} className="n">Рабат</th><th rowSpan={2} className="n">Завис. трошоци</th><th rowSpan={2} className="n">Пренесен ДДВ</th><th rowSpan={2} className="n">Тар</th><th colSpan={2} className="n">Цена со ДДВ</th></tr>
       <tr><th className="n">По ед.</th><th className="n">Износ</th><th className="n">%</th><th className="n">Износ</th><th className="n">По ед.</th><th className="n">Износ</th></tr></thead>
       <tbody>{R.map((r, i) => <tr key={i}><td>{r.code}</td><td>{r.name}</td><td>{r.unit}</td><td className="n">{fq(r.qty)}</td><td className="n">{r.nabU.toFixed(4)}</td><td className="n">{fmt(r.nabV)}</td><td className="n">{fmt(r.rab)}</td><td className="n">{fmt(r.rabA)}</td><td className="n">{fmt(r.dep)}</td><td className="n">{fmt(r.cvat)}</td><td className="n">{r.rate}</td><td className="n">{fmt(r.sp)}</td><td className="n">{fmt(r.spV)}</td></tr>)}
         <tr className="tot"><td colSpan={5}>Вкупно</td><td className="n">{fmt(T('nabV'))}</td><td /><td className="n">{fmt(T('rabA'))}</td><td className="n">{fmt(T('dep'))}</td><td className="n">{fmt(T('cvat'))}</td><td /><td /><td className="n">{fmt(T('spV'))}</td></tr></tbody></table>
     {cs.length > 0 && <table style={{ width: '60%' }}><thead><tr><th>Зависен трошок</th><th>Документ</th><th className="n">Износ</th><th className="n">ДДВ</th></tr></thead>
       <tbody>{cs.map((c) => <tr key={c.k}><td>{c.n}</td><td>{String(c.o.doc ?? '')} {C.find((x) => x.c.slot === c.k)?.pn ?? ''}</td><td className="n">{fmt(c.amt)}</td><td className="n">{fmt(c.vat)}</td></tr>)}</tbody></table>}
-    <table style={{ width: '60%', marginLeft: 'auto' }}><tbody><tr><td>Фактурна вредност{p.imp && ` (${p.currency} × ${Number(p.fx)})`}</td><td className="n">{fmt(T('gross'))}</td></tr><tr><td>Рабат</td><td className="n">{fmt(T('rabA'))}</td></tr><tr><td>Зависни трошоци</td><td className="n">{fmt(T('dep'))}</td></tr>
+    <table style={{ width: '60%', marginLeft: 'auto' }}><tbody><tr><td>Фактурна вредност{p.imp && ` (${fmt(Number((p.data as Record<string, unknown>).fxAmt) || 0)} ${p.currency} × ${Number(p.fx)})`}</td><td className="n">{fmt(T('gross'))}</td></tr><tr><td>Рабат</td><td className="n">{fmt(T('rabA'))}</td></tr><tr><td>Зависни трошоци</td><td className="n">{fmt(T('dep'))}</td></tr>
       <tr className="tot"><td>Набавна вредност</td><td className="n">{fmt(T('nabV'))}</td></tr><tr><td>Разлика во цена</td><td className="n">{fmt(T('marg'))}</td></tr><tr><td>ДДВ (пресметан во продажна цена)</td><td className="n">{fmt(T('vat'))}</td></tr><tr className="tot"><td>Продажна вредност со ДДВ</td><td className="n">{fmt(T('spV'))}</td></tr></tbody></table>
     {sig(['Калкулирал', 'Одобрил'])}</div></>;
 }

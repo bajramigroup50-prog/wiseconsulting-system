@@ -48,7 +48,7 @@ async function purchaseTotals(tx: Tx, firmId: string, ids: string[]): Promise<Ma
 
 /** Legacy `taSave`: save the arrangement and mark linked purchases as prior services (noDed) for own arrangements. */
 export async function saveArrangement(tx: Tx, a: IndActor, x: ArrangementInput): Promise<{ id: string; code: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const name = x.name.trim() || fail('Внесете назив на аранжманот.');
   if (x.from && x.to && x.to < x.from) fail('Проверете ги датумите.');
   const [prev] = x.id ? await tx.select().from(travelArrangements).where(and(eq(travelArrangements.id, x.id), eq(travelArrangements.firmId, a.firmId))).limit(1) : [];
@@ -98,7 +98,7 @@ async function ownArr(tx: Tx, firmId: string, id: string): Promise<TravelArrange
 
 /** Legacy `tbSave`: holder name and phone required; returns a warning when the seats are exceeded. */
 export async function saveBooking(tx: Tx, a: IndActor, b: BookingInput): Promise<{ id: string; number: string; warning?: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const A = await ownArr(tx, a.firmId, b.arrangementId);
   const prev = b.id ? await ownBooking(tx, a.firmId, b.id) : null;
   if (prev?.invoiceId) fail('Пријавата е фактурирана.');
@@ -133,7 +133,7 @@ async function bookingPartner(tx: Tx, a: IndActor, b: TravelBookingRow) {
 
 /** Legacy `tbPay`: cash → receipt D register / P advances konto; bank / card → recorded only (booked from the statement). */
 export async function addBookingPayment(tx: Tx, a: IndActor, id: string, p: { date: string; amt: number; how: 'cash' | 'bank' | 'card' }): Promise<string> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const b = await ownBooking(tx, a.firmId, id);
   if (!(p.amt > 0)) fail('Внесете износ.');
   const pid = await bookingPartner(tx, a, b);
@@ -159,7 +159,7 @@ export async function removeBookingPayment(tx: Tx, a: IndActor, id: string, i: n
 
 /** Legacy `tbInv`: own arrangement → margin-scheme invoice (`tourM` + `arrangementId`); intermediary → commission + pass-through. */
 export async function invoiceBooking(tx: Tx, a: IndActor, id: string, date: string): Promise<{ id: string; number: string; warnings: string[] }> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const b = await ownBooking(tx, a.firmId, id);
   if (b.invoiceId) fail('Пријавата е веќе фактурирана.');
   if (b.status === 'cancel') fail('Пријавата е откажана.');
@@ -178,7 +178,7 @@ export async function invoiceBooking(tx: Tx, a: IndActor, id: string, date: stri
 
 /** Legacy `tbAdv`: offset the received advance against the invoice (journal `tadv`: D advances / P customer). */
 export async function settleBookingAdvance(tx: Tx, a: IndActor, id: string, date: string): Promise<number> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const b = await ownBooking(tx, a.firmId, id);
   if (!b.invoiceId) fail('Прво издадете фактура.');
   if (b.advanceSettled) fail('Авансот е веќе пребиен.');
@@ -244,7 +244,7 @@ export async function travelMarginPeriod(tx: Tx, f: Firm, period: string) {
 
 /** Legacy `tuVatPost`: VAT on the margin of a period — journal `tourVat`, D revenue / P output VAT 18%. */
 export async function postTravelVat(tx: Tx, a: IndActor, period: string): Promise<number> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const X = await travelMarginPeriod(tx, f, period);
   const vat = Math.round((X.vat + X.ownVat) * 100) / 100;
   if (!(vat > 0)) fail('Нема ДДВ на маржа за периодот.');

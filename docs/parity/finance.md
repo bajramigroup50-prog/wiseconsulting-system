@@ -85,7 +85,7 @@ New table (schema `packages/db/src/schema/parity-finance.ts`, migration to be ge
 | P2 | AI/PDF statement read; file kept | 4796 | file not linked | ✅ file id on the statement |
 | P2 | Unrecognised Excel / CSV → AI | 4789 | missing | ✅ „Прочитај го автоматски (AI)“ (Excel converted to CSV) |
 | P2 | Missing statement numbers by neighbour (`izvSugg` / `izvFill`) | 12389 | different | ✅ |
-| P2 | POS box + „Книжи провизија 4460“ | 13075–13082 | missing | ✅ banka + fiskPer (`posBalance`, `bookPosFee`) |
+| P2 | POS box + „Книжи провизија 4460“ | 13075–13082 | missing | ✅ banka + fiskPer (`posBalance`, `bookBankPosFee`; fiskPer uses the retail `bookPosFee`) |
 | P2 | Payment notifications (`pnCard` / `pnRun` 13306–13325) | | missing | ✅ settings card, mail queue after invoice links, last summary |
 | P2 | Unlinked payments callout + pill, one-sided transit, transit label, fee-fix confirm / year count | 12522, 12764, 12573, 12406 | missing / partial | ✅ |
 | P2 | Same-reference partner pick + note | 12690–12703 | partial | ✅ |

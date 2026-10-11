@@ -84,7 +84,7 @@ async function ownOrder(tx: Tx, firmId: string, id: string): Promise<TravelOrder
 
 /** Legacy `pnSaveB` (FIX item 1: it now really persists). Taken number in the year → next free one. */
 export async function saveTravelOrder(tx: Tx, a: IndActor, x: TravelOrderInput): Promise<{ id: string; number: string }> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const prev = x.id ? await ownOrder(tx, a.firmId, x.id) : null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) fail('Внесете датум.');
   const [v] = x.vehicleId ? await tx.select().from(fleetVehicles).where(and(eq(fleetVehicles.id, x.vehicleId), eq(fleetVehicles.firmId, a.firmId))).limit(1) : [];
@@ -162,7 +162,7 @@ export async function travelOrderEvent(tx: Tx, a: IndActor, id: string, ev:
 
 /** Legacy `pnCashPost`: cash handed over by the driver → one receipt per stop, D register / P customer (FIX item 4). */
 export async function postTravelCash(tx: Tx, a: IndActor, id: string): Promise<number> {
-  const f = await loadIndustryFirm(tx, a.firmId, MOD);
+  const f = await loadIndustryFirm(tx, a.firmId, MOD, a);
   const x = await ownOrder(tx, a.firmId, id);
   const ctx = await firmPostingContext(tx, f);
   const S = stopsOf(x);
@@ -187,7 +187,7 @@ export async function postTravelCash(tx: Tx, a: IndActor, id: string): Promise<n
 
 /** Legacy `pnRetCr`: goods returned at delivery → Phase 3 return credit note (goods back to stock) for the invoice. */
 export async function travelReturnCredit(tx: Tx, a: IndActor, id: string, i: number, date: string): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, MOD);
+  await loadIndustryFirm(tx, a.firmId, MOD, a);
   const x = await ownOrder(tx, a.firmId, id);
   const S = stopsOf(x);
   const s = S[i] ?? fail('Застанувањето не постои.');
@@ -229,7 +229,7 @@ async function ownTour(tx: Tx, firmId: string, id: string): Promise<FreightTour>
 
 /** Legacy `frSave`: number unique, client needed for a priced / finished tour, segment exits after entries, invoiced tours frozen. */
 export async function saveFreightTour(tx: Tx, a: IndActor, t: FreightInput): Promise<string> {
-  await loadIndustryFirm(tx, a.firmId, 'frt');
+  await loadIndustryFirm(tx, a.firmId, 'frt', a);
   const prev = t.id ? await ownTour(tx, a.firmId, t.id) : null;
   const number = t.number.trim() || fail('Внесете број на турата.');
   if (!t.partnerId && (n(t.price) || t.status === 'done')) fail('Изберете клиент (налогодавач) – потребен е за фактурата.');
@@ -269,7 +269,7 @@ export async function deleteFreightTour(tx: Tx, a: IndActor, id: string): Promis
  * tours at 0%, domestic at 18%.
  */
 export async function invoiceFreightTours(tx: Tx, a: IndActor, ids: string[], date: string, fxLookup: (cur: string, d: string) => Promise<number>) {
-  const f = await loadIndustryFirm(tx, a.firmId, 'frt');
+  const f = await loadIndustryFirm(tx, a.firmId, 'frt', a);
   const T = await tx.select().from(freightTours).where(and(eq(freightTours.firmId, a.firmId), inArray(freightTours.id, ids), isNull(freightTours.invoiceId)));
   if (!T.length) fail('Изберете нефактурирани тури.');
   const P = [...new Set(T.map((t) => t.partnerId))];

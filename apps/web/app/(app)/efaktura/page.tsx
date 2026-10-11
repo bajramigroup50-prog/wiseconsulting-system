@@ -24,19 +24,20 @@ export default async function EfakturaPage() {
   ].filter(Boolean) as string[];
   return (
     <>
-      <Hd t="Е-Фактура" sub={`UBL 2.1 · ${year}`} />
+      <Hd t="Е-Фактура" sub="УЈП · според предлог-законот: доброволно од 01.10.2026, задолжително за ДДВ обврзници од 01.04.2027 – проверете ги конечните рокови на УЈП" />
+      <div className="callout warn">Испраќањето до системот е-Фактура на УЈП бара квалификуван дигитален сертификат и поврзување со нивниот систем (следна фаза). Засега за секоја фактура може да се преземе структуриран XML (UBL 2.1) со сите задолжителни податоци: ЕДБ на продавач и купувач, датуми, ставки, стапки и износи на ДДВ, член 32-а.</div>
       {issues.length ? <div className="callout warn">{issues.map((x) => <div key={x}>⚠ {x}</div>)}</div> : <div className="callout good">Податоците на фирмата се подготвени за е-фактура.</div>}
       {canDo(u, 'write', firm.id) && (
         <div className="card"><h2>Увоз на примена е-фактура (UBL XML)</h2>
           <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null }} label={<><b>Прикачи UBL XML</b> — примените е-фактури се увезуваат како влезни фактури (без автоматско читање); потоа ги проверувате во „Скенирање документ“.</>} />
           <p className="note"><Link href="/skan">→ Скенирани / увезени документи</Link></p></div>
       )}
-      {L.length ? <div className="tw"><table className="dense"><thead><tr><th>Број</th><th>Датум</th><th>Купувач</th><th>ЕДБ</th><th className="n">Износ</th><th>Вид</th><th /></tr></thead>
+      {L.length ? <div className="tw"><table className="dense"><thead><tr><th>Број</th><th>Датум</th><th>Купувач</th><th>ЕДБ</th><th className="n">Износ</th><th>Вид</th><th>Статус</th><th /></tr></thead>
         <tbody>{L.map(({ i, p }) => (
           <tr key={i.id}><td className="num"><b>{i.number}</b></td><td>{dmy(i.date)}</td><td>{p?.name}</td>
-            <td>{p?.edb ?? <span className="pill warn">нема ЕДБ</span>}</td><td className="n">{fmt(i.total)}{i.currency !== 'MKD' && ' ' + i.currency}</td>
-            <td>{i.kind === 'credit' ? <span className="pill info">CreditNote</span> : <span className="pill">Invoice</span>}{i.status === 'pending' && <span className="pill warn"> чека одобрување</span>}</td>
-            <td><a className="btn sm" href={`/api/ubl/${i.id}`}>⬇ XML</a><Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank">👁</Link></td></tr>))}</tbody></table></div>
+            <td>{p?.edb || <span className="pill bad">нема ЕДБ</span>}</td><td className="n">{fmt(i.total)}{i.currency !== 'MKD' && ' ' + i.currency}</td>
+            <td>{i.kind === 'credit' ? <span className="pill info">CreditNote</span> : <span className="pill">Invoice</span>}{i.status === 'pending' && <span className="pill warn"> чека одобрување</span>}</td><td><span className="pill">не е испратена</span></td>
+            <td><a className="btn sm" href={`/api/ubl/${i.id}`}>XML (UBL)</a><Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank">👁</Link></td></tr>))}</tbody></table></div>
         : <div className="card empty">Нема излезни фактури за {year}.</div>}
     </>
   );

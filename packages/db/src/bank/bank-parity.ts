@@ -63,7 +63,7 @@ export async function posBalance(tx: Tx, firmId: string, year: number): Promise<
 }
 
 /** Legacy ACT `posFee` 13078: „Книжи провизија 4460“ — amount (cents) ≤ open POS balance. */
-export async function bookPosFee(tx: Tx, a: { firmId: string; userId: string | null; year: number; amount: number; date: string }): Promise<string> {
+export async function bookBankPosFee(tx: Tx, a: { firmId: string; userId: string | null; year: number; amount: number; date: string }): Promise<string> {
   const x = await posBalance(tx, a.firmId, a.year);
   if (!posFeeValid(a.amount, x)) throw new BankError(`Износот мора да е поголем од 0 и најмногу ${(x.s / 100).toFixed(2)} (отворено на ${x.k}).`);
   const env = await loadBankEnv(tx, a.firmId);

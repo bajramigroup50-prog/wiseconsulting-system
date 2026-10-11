@@ -8,3 +8,7 @@ export * from './sales/xml';
 export * from './sales/ubl';
 export * from './sales/scan';
 export * from './sales/invoice-print';
+export * from './sales/fuel';
+export * from './sales/px';
+export * from './sales/scr-scan';
+export * from './sales/inv-production';
