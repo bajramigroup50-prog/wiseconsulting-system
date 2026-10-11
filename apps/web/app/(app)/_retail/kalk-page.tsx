@@ -83,7 +83,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
         {write && <Link className="btn pri" href={newHref}>+ Нова калкулација</Link>}
       </Hd>
       {noName > 0 && <div className="callout warn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
-      {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null, ...(wh && wh !== 'main' ? { warehouseId: wh } : {}) }} small autoOpen={{ back: '/' + view }} batchView={md === 'store' ? '/masovnoM' : '/masovno'}
+      {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null, ...(wh && wh !== 'main' ? { warehouseId: wh } : {}) }} small={false} autoOpen={{ back: '/' + view }} batchView={md === 'store' ? '/masovnoM' : '/masovno'}
         label={<><b>📷 Прочитај фактура од PDF</b> — повлечете една или повеќе фактури од добавувач (PDF, JPG, PNG, XML е-фактура) тука или кликнете; калкулацијата се пополнува автоматски.</>} />}
       {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} калкулации се внесени двапати (иста фактура {[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
         <RowAction className="btn danger" action={deletePurchasesAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}

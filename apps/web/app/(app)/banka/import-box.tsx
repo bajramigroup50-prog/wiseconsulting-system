@@ -119,12 +119,18 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
           <input ref={ref} type="file" multiple accept=".xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp" disabled={pending}
             onChange={(e) => preview(Array.from(e.target.files ?? []))} />
         </label>
-        <label className="btn pri" style={{ cursor: pending ? 'wait' : 'pointer' }} title="PDF извод, слика или скен – се чита со AI">
-          📄 PDF / слика извод (AI)
-          <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,image/*,application/pdf" disabled={pending} hidden
-            onChange={(e) => { preview(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
-        </label>
+
         {pending && <span className="note">{note || 'Се чита…'}</span>}
+      </div>
+      {/* legacy drop zone: drag the statement (PDF / photo / XML / Excel) here or click */}
+      <div className="drop" role="button" tabIndex={0} style={{ marginTop: 10, opacity: pending ? 0.6 : 1 }}
+        onClick={() => !pending && ref.current?.click()}
+        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !pending) ref.current?.click(); }}
+        onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; }}
+        onDragLeave={(e) => { e.currentTarget.style.borderColor = ''; }}
+        onDrop={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = ''; if (!pending) preview(Array.from(e.dataTransfer.files)); }}>
+        Повлечете го изводот тука (PDF, слика, XML, MT940, Excel), или кликнете за да го изберете<br />
+        <small>PDF и слики се читаат автоматски со AI · оригиналот се чува прикачен на изводот за евиденција</small>
       </div>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
       {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}
