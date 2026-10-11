@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
 import { can, ROLES } from '@wise/core';
-import { employees, firms, userFirms, users } from '@wise/db';
+import { employees, firms, getOfficeProfile, userFirms, users } from '@wise/db';
+import { IzjCell } from './izj-cell';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Hd, dmyHm } from '@/components/hd';
@@ -31,6 +32,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
   // legacy „Изјава · Договор“: the colleague's employment contract in the office's own firm (matched by name)
   const office = (await db().select({ id: firms.id, settings: firms.settings }).from(firms)).find((f) => (f.settings as { officeFirm?: boolean }).officeFirm);
   const EMP = office ? await db().select({ id: employees.id, name: employees.name }).from(employees).where(eq(employees.firmId, office.id)) : [];
+  const IZJ = (await getOfficeProfile(db())).zzlp?.izj ?? {};
   const empOf = (n: string) => EMP.find((e) => e.name.trim().toLowerCase() === n.trim().toLowerCase());
   const firmsOf = (uid: string) => UF.filter((x) => x.userId === uid).map((x) => x.firmId);
 
@@ -46,6 +48,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <td>{u.active ? <span className="pill good">активен</span> : <span className="pill">неактивен</span>}</td>
       <td>{dmyHm(u.lastLoginAt)}</td>
       {u.role !== 'klient' && <td style={{ whiteSpace: 'nowrap' }}>
+        {u.role === 'admin' ? <span className="pill info" title="Изјава за доверливост не е потребна за сопственикот">👑 сопственик</span> : <IzjCell uid={u.id} signed={!!IZJ[u.id]?.signed} at={IZJ[u.id]?.at} fileId={IZJ[u.id]?.fileId} fileName={IZJ[u.id]?.fileName} />}{' '}
         <a className="btn sm" href={`/print/izjava?u=${u.id}`} target="_blank" title="Изјава за доверливост (ЗЗЛП)">📄 Изјава</a>{' '}
         {empOf(u.name) && <FirmGo fid={office!.id} to={`/vraboteni/${empOf(u.name)!.id}/dogovor`} className="btn sm" title="Договор за вработување (фирма на канцеларијата)">📄 Договор</FirmGo>}
       </td>}

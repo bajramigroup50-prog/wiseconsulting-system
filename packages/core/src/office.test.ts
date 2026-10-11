@@ -200,3 +200,19 @@ describe('formation, GDPR, templates', () => {
     expect(tplKinds().find((k) => k.key === 'kd')!.vars).toContain('НАДОМЕСТ');
   });
 });
+
+describe('colleague confidentiality statements (legacy zzIzjSign / zzIzjUp)', () => {
+  it('sign, undo, upload; checklist done when all signed', async () => {
+    const { zzIzjNext } = await import('./office');
+    let r = zzIzjNext({}, 'a', { toggle: true }, '2026-10-01', 'Ана', ['a', 'b']);
+    expect(r.izj).toEqual({ signed: true, at: '2026-10-01', by: 'Ана' });
+    expect(r.iz).toBe(false);
+    r = zzIzjNext({ a: r.izj }, 'b', { file: { id: 'f1', name: 'izj.pdf' } }, '2026-10-02', 'Ана', ['a', 'b']);
+    expect(r.izj).toMatchObject({ signed: true, at: '2026-10-02', fileId: 'f1' });
+    expect(r.iz).toBe(true);
+    const u = zzIzjNext({ b: r.izj }, 'b', { toggle: true }, '2026-10-03', 'Ана', ['b']);
+    expect(u.undo).toBe(true);
+    expect(u.izj).toMatchObject({ signed: false, fileId: 'f1' });
+    expect(u.iz).toBe(false);
+  });
+});

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   buildFirmSnapshot, contractNumber, decideClientEntry, dispatchReminders, getOfficeProfile, issueDueRecurring, nextOfficeNumber,
-  OfficeError, patchOfficeProfile, runAutopilot, sendAutopilotMessage, type OfficeDataSources,
+  OfficeError, patchOfficeProfile, patchOfficeZz, runAutopilot, sendAutopilotMessage, type OfficeDataSources,
 } from './office';
 import { postJournal, unpostSource } from './posting';
 import * as schema from './schema/index';
@@ -38,6 +38,15 @@ describe('office numbering and settings', () => {
     await patchOfficeProfile(db, { name: 'WISE', eurRate: 61.5 }, null);
     await patchOfficeProfile(db, { apAuto: { cash: true } }, null);
     expect(await getOfficeProfile(db)).toEqual({ name: 'WISE', eurRate: 61.5, apAuto: { cash: true } });
+  });
+  it('ЗЗЛП checklist and colleague statements merge inside zzlp', async () => {
+    await patchOfficeZz(db, 'chk', { hz: true }, null);
+    await patchOfficeZz(db, 'izj', { u1: { signed: true, at: '2026-10-01' } }, null);
+    await patchOfficeZz(db, 'izj', { u2: { signed: true } }, null);
+    await patchOfficeZz(db, 'chk', { iz: true }, null);
+    const z = (await getOfficeProfile(db)).zzlp;
+    expect(z).toEqual({ chk: { hz: true, iz: true }, izj: { u1: { signed: true, at: '2026-10-01' }, u2: { signed: true } } });
+    expect((await getOfficeProfile(db)).name).toBe('WISE');
   });
 });
 

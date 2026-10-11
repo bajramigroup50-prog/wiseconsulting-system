@@ -47,3 +47,21 @@ export const maskEmbg = (e: string | null | undefined) => {
   const s = String(e ?? '').replace(/\D/g, '');
   return s.length >= 6 ? `${s.slice(0, 2)}${'•'.repeat(s.length - 4)}${s.slice(-2)}` : s ? '•'.repeat(s.length) : '';
 };
+
+/** Legacy `zzlp.izj[uid]`: a colleague's confidentiality statement (signed, when, by whom, the scanned signed copy). */
+export interface ZzIzj { signed?: boolean; at?: string; by?: string; fileId?: string; fileName?: string }
+
+/**
+ * Legacy `zzIzjSign` / `zzIzjUp` (15464–15468): the next state of one colleague's statement — `toggle` flips „✓
+ * Потпишана“ / „↺“ (undo keeps the file), `file` attaches the scanned signed copy and marks it signed (keeping the
+ * first signing date). `iz` = the checklist item „Изјави … потпишани од сите вработени“ is done once every colleague
+ * signed.
+ */
+export function zzIzjNext(cur: Readonly<Record<string, ZzIzj>>, uid: string, op: { toggle: true } | { file: { id: string; name: string } }, today: string, by: string, colleagues: readonly string[]): { izj: ZzIzj; iz: boolean; undo: boolean } {
+  const was = cur[uid];
+  let izj: ZzIzj;
+  if ('toggle' in op) izj = was?.signed ? { ...was, signed: false } : { ...(was ?? {}), signed: true, at: today, by };
+  else izj = { ...(was ?? {}), signed: true, at: was?.at || today, fileId: op.file.id, fileName: op.file.name };
+  const all = { ...cur, [uid]: izj };
+  return { izj, iz: colleagues.length > 0 && colleagues.every((c) => all[c]?.signed), undo: 'toggle' in op && !!was?.signed };
+}

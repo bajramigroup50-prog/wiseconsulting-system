@@ -53,7 +53,7 @@ export interface OfficeProfile {
   apAuto?: Partial<Record<ClientMessage['type'], boolean>>;
   /** Autopilot: create an office task for new `bad` findings. */
   apTasks?: boolean;
-  zzlp?: { chk?: Record<string, boolean> };
+  zzlp?: { chk?: Record<string, boolean>; izj?: Record<string, { signed?: boolean; at?: string; by?: string; fileId?: string; fileName?: string }> };
 }
 
 export async function getOfficeProfile(tx: Tx): Promise<OfficeProfile> {
@@ -69,6 +69,20 @@ export async function patchOfficeProfile(tx: Tx, patch: Partial<OfficeProfile>, 
   const p = JSON.stringify(patch);
   await tx.insert(appSettings).values({ key: 'office', value: patch, updatedBy: userId })
     .onConflictDoUpdate({ target: appSettings.key, set: { value: sql`${appSettings.value} || ${p}::jsonb`, updatedBy: userId } });
+}
+
+/**
+ * Merge `patch` into `office.zzlp[key]` (one statement). FIX: `patchOfficeProfile({ zzlp: { chk } })` replaced the whole
+ * `zzlp` object, so the checklist and the colleagues' statements (`izj`) overwrote each other.
+ */
+export async function patchOfficeZz(tx: Tx, key: 'chk' | 'izj', patch: Record<string, unknown>, userId: string | null): Promise<void> {
+  const p = JSON.stringify(patch);
+  const init = JSON.stringify({ zzlp: { [key]: patch } });
+  await tx.insert(appSettings).values({ key: 'office', value: JSON.parse(init), updatedBy: userId })
+    .onConflictDoUpdate({ target: appSettings.key, set: {
+      value: sql`${appSettings.value} || jsonb_build_object('zzlp', coalesce(${appSettings.value}->'zzlp', '{}'::jsonb) || jsonb_build_object(${key}::text, coalesce(${appSettings.value}->'zzlp'->${key}, '{}'::jsonb) || ${p}::jsonb))`,
+      updatedBy: userId,
+    } });
 }
 
 /* ---------------- Data from other phases ---------------- */
