@@ -20,8 +20,12 @@ import { firms, users } from './schema/index';
 export const FIRM_BACKUP_FORMAT = 'wise-firm-backup';
 export const FIRM_BACKUP_VERSION = 1;
 
-/** Not firm data: the audit trail is append-only, user access belongs to user administration. */
-const SKIP = new Set(['audit_log', 'user_firms', 'sessions']);
+/**
+ * Not firm data: the audit trail is append-only, user access belongs to user administration. `aml_records` is the
+ * office's own AML file of the client (ЗСППФТ): it never travels in the client's export (ban on disclosure, чл. 72)
+ * and a restore must not replace or delete it (10-year retention, чл. 62).
+ */
+const SKIP = new Set(['audit_log', 'user_firms', 'sessions', 'aml_records']);
 /** Merged, never deleted on restore (documents in the bucket). */
 const MERGE = new Set(['files', 'file_links']);
 
