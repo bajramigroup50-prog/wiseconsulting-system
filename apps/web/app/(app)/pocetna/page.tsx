@@ -58,7 +58,7 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
       {!full && <div className="callout">За фирма што доаѓа од друг сметководител: внесете ги салдата од нивниот завршен бруто биланс (или биланс на состојба) на денот од кој почнувате. Побарувањата од купувачи (12..) и обврските кон добавувачи (22..) внесете ги по партнер, за да работи аналитиката и затворањето со изводи. Залихата по артикли внесете ја со приемница во „Залиха“ со датумот на почетната состојба.</div>}
       {write
         ? <OpeningEditor key={`${full}-${year}-${ex?.updatedAt?.toISOString() ?? ''}`} year={year} full={full} initialDate={ex?.date ?? `${year}-01-01`} initialRows={rows}
-            chart={chart.map((a) => [a.code, a.name])} partners={P} saved={lines.length} firmId={firm.id} bankKontos={banks.map((b) => b.konto)} />
+            chart={chart.map((a) => [a.code, a.name])} partners={P} saved={lines.length} firmId={firm.id} bankKontos={banks.map((b) => b.konto)} isAdmin={u.role === 'admin'} canDelete={del} />
         : <div className="card empty">Немате дозвола за внес. {ex ? `Зачувани се ${lines.length} ставки.` : ''}</div>}
     </>
   );

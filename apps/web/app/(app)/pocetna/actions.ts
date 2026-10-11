@@ -117,6 +117,39 @@ export async function saveOpening(_prev: ActionState, form: FormData): Promise<A
   } catch (e) { return actionError(e); }
 }
 
+/**
+ * Legacy `ACT.obMkP` 12215 („+ Внеси ги сите како комитенти сега“): create the partners named in the read rows now
+ * (same matching / ЕДБ rule as on save). Returns name → partner id for the editor.
+ */
+export async function makeOpeningPartnersAction(rows: { partnerName: string; partnerCode: string }[]): Promise<ActionState & { map?: Record<string, string>; n?: number }> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const R = rows.slice(0, 20000).map((r) => ({ account: '', name: '', partnerId: '', partnerName: String(r.partnerName ?? '').trim().slice(0, 300), partnerCode: String(r.partnerCode ?? '').trim().slice(0, 40), debit: 1, credit: 0, note: '' }))
+      .filter((r) => r.partnerName);
+    const n = await db().transaction((tx) => ensurePartners(tx, firm.id, u.id, R));
+    revalidatePath('/pocetna');
+    return { ok: n ? `Внесени се ${n} нови комитенти и се поврзани со ставките.` : 'Сите партнери се поврзани.', n, map: Object.fromEntries(R.map((r) => [r.partnerName, r.partnerId])) };
+  } catch (e) { return actionError(e); }
+}
+
+/** Legacy `ACT.obBanks` 12227 („+ Внеси ги како сметки на фирмата“): 100x / 103x rows → bank accounts of the firm now. */
+export async function addOpeningBanksAction(rows: { account: string; name: string }[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    let n = 0;
+    await db().transaction(async (tx) => {
+      const have = await tx.select({ konto: bankAccounts.konto }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
+      for (const r of obBankRows(rows.map((x) => ({ account: String(x.account), name: String(x.name ?? '') })), have.map((h) => h.konto))) {
+        await saveBankAccount(tx, { firmId: firm.id, userId: u.id, input: { name: r.name || 'Сметка ' + r.account, cur: /^103/.test(r.account) ? 'EUR' : 'MKD', konto: r.account } });
+        n++;
+      }
+    });
+    revalidatePath('/pocetna');
+    revalidatePath('/banka');
+    return { ok: n ? `Внесени се ${n} банкарски сметки кај фирмата (за изводите).` : 'Нема нови сметки.' };
+  } catch (e) { return actionError(e); }
+}
+
 /** Legacy `obClearAll` / `bbImpDel`: delete the saved opening balance or imported trial balance of the year (needs `del`). */
 export async function deleteOpening(full: boolean): Promise<ActionState> {
   try {

@@ -13,7 +13,8 @@ import { AiReadList, useAiRead } from '@/components/ai-read';
 import { xlsxDownload } from '@/components/parity-fin/export-bar';
 import type { ActionState } from '@/lib/books';
 import { fmt } from '@/lib/fmt';
-import { saveOpening } from './actions';
+import { addOpeningBanksAction, deleteOpening, makeOpeningPartnersAction, saveOpening } from './actions';
+import { useRouter } from 'next/navigation';
 
 export interface ORow { account: string; name: string; partnerId: string; partnerName: string; partnerCode: string; debit: string; credit: string; note?: string }
 const blank = (): ORow => ({ account: '', name: '', partnerId: '', partnerName: '', partnerCode: '', debit: '', credit: '' });
@@ -22,12 +23,15 @@ const TEMPLATE = [['Конто', 'Назив на конто', 'Комитент
   ['1200', 'Побарувања од купувачи во земјата', 'ПРИМЕР ДООЕЛ Скопје', '4030000000000', 12000, 0], ['2200', 'Обврски кон добавувачи во земјата', 'ДОБАВУВАЧ ДОО', '4030000000001', 0, 12000]];
 type Extra = { netZero: { k: string; n: number; g: number }[]; grand: [number, number]; remapped: number; src: string };
 const n = (s: string) => Number(String(s).replace(/\s/g, '').replace(',', '.')) || 0;
+const n0 = n;
 
-export function OpeningEditor({ year, full, initialDate, initialRows, chart, partners, saved, firmId = '', bankKontos = [] }: {
+export function OpeningEditor({ year, full, initialDate, initialRows, chart, partners, saved, firmId = '', bankKontos = [], isAdmin = false, canDelete = false }: {
   year: number; full: boolean; initialDate: string; initialRows: ORow[]; chart: [string, string][];
   partners: (MatchablePartner & { code: string | null })[]; saved: number;
   /** Firm (for the AI read of PDF / images) and the kontos it already has bank accounts for. */
   firmId?: string; bankKontos?: string[];
+  /** legacy `obClearAll` 12834: the saved opening balance is deleted only by an administrator */
+  isAdmin?: boolean; canDelete?: boolean;
 }) {
   const [st, action, pending] = useActionState<ActionState, FormData>(saveOpening, {});
   const [date, setDate] = useState(initialDate);
@@ -39,6 +43,24 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   const [diagOn, setDiagOn] = useState(false);
   const [findV, setFindV] = useState('');
   const ai = useAiRead(firmId);
+  const router = useRouter();
+  const [busy, startBusy] = useTransition();
+  const [note, setNote] = useState('');
+  const missingP = rows.filter((r) => r.partnerName && !r.partnerId && r.account);
+  const missingPn = new Set(missingP.map((r) => r.partnerName.toLowerCase())).size;
+  const clearAll = () => {
+    const n = rows.filter((r) => r.account || n0(r.debit) || n0(r.credit)).length;
+    if (!n && !saved) { setNote('Нема ставки за бришење.'); return; }
+    if (!window.confirm(`Да се избришат СИТЕ ${n} ставки од почетната состојба${saved ? ` (и зачуваниот налог за отворање ${year})` : ''}?`)) return;
+    setRows([blank()]); setCtl(null); setExtra(null);
+    if (saved) {
+      if (!isAdmin || !canDelete) { setNote('Зачуваната почетна состојба може да ја избрише само администраторот. Ставките на екранот се исчистени.'); return; }
+      if (!window.confirm(`⚠ ПОСЛЕДНА ПОТВРДА\n\nЗачуваниот налог за отворање ${year} (${saved} ставки) ќе се избрише. Бруто билансот ќе остане без почетна состојба додека не внесете нова.\n\nДа се избрише?`)) return;
+      startBusy(async () => { const r = await deleteOpening(full); setNote(r.error ?? 'Почетната состојба е исчистена – можете повторно да ја увезете.'); router.refresh(); });
+      return;
+    }
+    setNote('Почетната состојба е исчистена – можете повторно да ја увезете.');
+  };
   const names = new Map(chart);
   const t = lineTotals(rows.map((r) => ({ debit: n(r.debit), credit: n(r.credit) })));
   const setRow = (i: number, p: Partial<ORow>) => setRows((R) => R.map((r, k) => (k === i ? { ...r, ...p } : r)));
@@ -127,7 +149,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
           <p className="mini" style={{ margin: '0 0 6px' }}>Прочитани <b>{ctl.n}</b> аналитички ставки · {ctl.nP} со партнер ({ctl.nNew} нови партнери ќе се креираат, {ctl.nP - ctl.nNew} препознаени){ctl.dropped ? ` · ${ctl.dropped} збирни реда отстранети` : ''} · извор: {extra?.src === 'ai' ? 'автоматско читање (PDF/слика)' : 'Excel/CSV по колони'}</p>
           {extra && (extra.grand[0] || extra.grand[1]) ? (Math.abs(extra.grand[0] - ctl.D) < 1 && Math.abs(extra.grand[1] - ctl.P) < 1
             ? <div className="callout good">✓ Вкупното салдо од документот (Д {fmt(extra.grand[0])} / П {fmt(extra.grand[1])}) се совпаѓа со прочитаното.</div>
-            : <div className="callout warn">Вкупно во документот: Д {fmt(extra.grand[0])} / П {fmt(extra.grand[1])} · прочитано: Д {fmt(ctl.D)} / П {fmt(ctl.P)}.</div>) : null}
+            : <div className="callout warn">Вкупно на документот: должи {fmt(extra.grand[0])} / побарува {fmt(extra.grand[1])} · прочитано: {fmt(ctl.D)} / {fmt(ctl.P)} – разлика {fmt(ctl.D - extra.grand[0])} / {fmt(ctl.P - extra.grand[1])}.</div>) : null}
           {!!extra?.netZero.length && <div className="callout" style={{ margin: '6px 0' }}>Не се пренесуваат конта чии ставки по комитенти се пребиваат на нула (салдо 0): {extra.netZero.map((x) => <span key={x.k}><b>{x.k}</b> {names.get(x.k) ?? ''} ({x.n} ставки, {fmt(x.g)} Д = П) · </span>)}</div>}
           {!!extra?.remapped && <div className="callout" style={{ margin: '6px 0' }}>Добивката/загубата од претходната година (951/961) е пренесена на 950/960.</div>}
           {ctl.bad.length > 0
@@ -158,10 +180,30 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
       {(() => {
         // legacy `obBankRows` callout 12226: bank accounts are created on save
         const B = full ? [] : obBankRows(rows.map((r) => ({ ...r, name: names.get(r.account) ?? r.name })), bankKontos);
-        return B.length ? <div className="callout">🏦 Банкарски сметки во почетната состојба: {B.map((r) => <span key={r.account}><b>{r.account}</b> {r.name}{/^103/.test(r.account) ? ' (девизна)' : ''} · </span>)} – при зачувување се внесуваат како сметки на фирмата (за изводите).</div> : null;
+        return B.length ? (
+          <div className="callout" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>🏦 Банкарски сметки во бруто билансот: {B.map((r) => <span key={r.account}><b>{r.account}</b> {r.name}{/^103/.test(r.account) ? ' (девизна)' : ''} · </span>)}</span><span style={{ flex: 1 }} />
+            <button type="button" className="btn" style={{ fontWeight: 700 }} disabled={busy} onClick={() => startBusy(async () => { const r = await addOpeningBanksAction(B.map((x) => ({ account: x.account, name: x.name }))); setNote(r.error ?? r.ok ?? ''); router.refresh(); })}>+ Внеси ги како сметки на фирмата</button>
+          </div>
+        ) : null;
       })()}
+      {missingP.length > 0 && (
+        <div className="callout" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>👥 <b>{missingPn}</b> партнери од бруто билансот ги нема во шифрарникот ({missingP.length} ставки).</span><span style={{ flex: 1 }} />
+          <button type="button" className="btn pri" style={{ fontWeight: 700 }} disabled={busy} onClick={() => {
+            if (!window.confirm(`Да се внесат ${missingPn} нови партнери (комитенти) во шифрарникот и да се поврзат со ${missingP.length} ставки?`)) return;
+            startBusy(async () => {
+              const r = await makeOpeningPartnersAction(missingP.map((x) => ({ partnerName: x.partnerName, partnerCode: x.partnerCode })));
+              if (r.map) setRows((R) => R.map((x) => (x.partnerName && !x.partnerId && r.map![x.partnerName] ? { ...x, partnerId: r.map![x.partnerName]!, partnerName: '', partnerCode: '' } : x)));
+              setNote(r.error ?? r.ok ?? '');
+              router.refresh();
+            });
+          }}>+ Внеси ги сите како комитенти сега</button>
+        </div>
+      )}
+      {note && <div className="callout" role="status">{note}</div>}
       {(!t.balanced || diagOn) && <DiffPanel rows={rows} names={names} partners={partners} printed={ctl?.byK ?? []} on={diagOn} toggle={() => setDiagOn(!diagOn)} findV={findV} setFindV={setFindV}
-        swap={(i) => setRows((R) => R.map((r, k) => (k === i ? { ...r, debit: r.credit, credit: r.debit } : r)))}
+        swap={(i) => { setRows((R) => R.map((r, k) => (k === i ? { ...r, debit: r.credit, credit: r.debit } : r))); setNote('Страната е сменета: ' + (rows[i]?.account ?? '') + ' ' + (rows[i]?.partnerName || rows[i]?.name || '')); }}
         remove={(ix) => setRows((R) => R.filter((_, k) => !ix.includes(k)))} />}
       <datalist id="kontoList">{chart.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</datalist>
       <div className="tw"><table>
@@ -191,7 +233,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
       </table></div>
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="btn" onClick={() => setRows((R) => [...R, blank()])}>+ Ред</button>
-        <button type="button" className="btn danger" onClick={() => { if (window.confirm('Да се исчистат сите внесени редови (незачувани)?')) { setRows([blank()]); setCtl(null); setExtra(null); } }}>🗑 Исчисти ги редовите</button>
+        <button type="button" className="btn danger" disabled={busy} title="Ги брише сите ставки одеднаш" onClick={clearAll}>🗑 Избриши ги сите</button>
         <button className="btn pri" disabled={pending || reading}>{full ? `Зачувај бруто биланс ${year}` : 'Зачувај почетна состојба'}</button>
         <span className="note">
           {saved ? `${full ? 'Бруто билансот' : 'Почетната состојба'} за ${year} е зачувана (${saved} ставки). Со зачувување таа се заменува.`
@@ -216,6 +258,10 @@ function DiffPanel({ rows, names, partners, printed, on, toggle, findV, setFindV
   const go = (r: ObDiagRow) => <button type="button" className="btn sm" onClick={() => { const el = document.getElementById('ox-' + r.i); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid var(--warn)'; setTimeout(() => { el.style.outline = ''; }, 4000); } }}>→ ред</button>;
   const sw = (r: ObDiagRow) => <button type="button" className="btn sm" title="Смени Должи ↔ Побарува" onClick={() => swap(r.i)}>⇄ Д/П</button>;
   const ad = Math.abs(X.diff);
+  // legacy `obDocT` 12345: the document's grand total (Д = П) against what was read
+  const [docT, setDocT] = useState('');
+  const T = n(docT.replace(/\.(?=\d{3}(\D|$))/g, ''));
+  const eD = T ? X.D - T : 0, eP = T ? X.P - T : 0;
   const fv = n(findV.replace(/\.(?=\d{3}(\D|$))/g, ''));
   const found = fv ? R.filter((r) => r.account && (Math.abs((r.debit || r.credit) - fv) < 0.5 || Math.abs((r.debit || r.credit) - fv / 2) < 0.5)) : [];
   return (
@@ -233,13 +279,15 @@ function DiffPanel({ rows, names, partners, printed, on, toggle, findV, setFindV
           {X.both.length > 0 && <div className="callout" style={{ marginTop: 8 }}><b>Ставки со износ и во Должи и во Побарува:</b><br />{X.both.map((r) => <span key={r.i}>{nm(r)} · Д {fmt(r.debit)} / П {fmt(r.credit)} {go(r)}<br /></span>)}</div>}
           {X.noK.length > 0 && <div className="callout" style={{ marginTop: 8 }}><b>Конта што ги нема во контниот план:</b><br />{X.noK.map((r) => <span key={r.i}>{nm(r)} · {amt(r)} {go(r)}<br /></span>)}</div>}
           {X.sub.length > 0 && <div className="callout warn" style={{ marginTop: 8 }}><b>Збирни (вкупни) редови прочитани како ставки:</b><br />{X.sub.map((x) => <span key={x.r.i}>{nm(x.r)} · {amt(x.r)} – {x.why} {go(x.r)}<br /></span>)}
-            <button type="button" className="btn sm danger" onClick={() => remove(X.sub.map((x) => x.r.i))}>✕ Отстрани ги сите ({X.sub.length})</button></div>}
+            <button type="button" className="btn sm danger" onClick={() => remove(X.sub.map((x) => x.r.i))}>✕ Отстрани ги сите {X.sub.length} збирни редови</button></div>}
           <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
             <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><b>Барај износ:</b><input value={findV} placeholder={fmt(ad)} onChange={(e) => setFindV(e.target.value)} style={{ width: 160 }} /><span className="mini">ги наоѓа ставките со тој износ или со половина од него</span></div>
             {fv > 0 && <div className="callout">{found.length ? found.map((r) => <span key={r.i}>{nm(r)} · {amt(r)} {go(r)} {sw(r)}<br /></span>) : `Нема ставка со износ ${findV} (ниту половина).`}</div>}
             {X.pairs.length > 0 && <div className="callout"><b>Две ставки што заедно даваат {fmt(ad)}</b> (можеби една од нив недостасува од другата страна или е двојна):<br />{X.pairs.map(([a, b]) => <span key={a.i + '-' + b.i}>{nm(a)} · {amt(a)} + {nm(b)} · {amt(b)} {go(a)} {go(b)}<br /></span>)}</div>}
             <div className="callout"><b>Плати и обврски кон вработени (24.., 41.., 42..):</b> {X.pay.length ? <><br />{X.pay.map((r) => <span key={r.i}>{nm(r)} · {amt(r)} {go(r)} {sw(r)}<br /></span>)}</> : 'нема такви ставки во почетната состојба – ако во документот ги има (на пр. 2400 нето плати, 2410 придонеси), тие недостасуваат.'}</div>
             {!X.ctl.length && !X.hits.length && !X.dup.length && !X.both.length && !X.sub.length && Math.abs(Math.abs(X.res) - ad) >= 0.5 && <p className="note">Не се најде автоматска причина. Споредете ги збировите по класа погоре со бруто билансот – класата што не се совпаѓа ја содржи грешката.</p>}
+            <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid var(--line)', paddingTop: 8 }}><b>Вкупно салдо од документот (Д = П):</b><input value={docT} placeholder="на пр. 12,059,456" onChange={(e) => setDocT(e.target.value)} style={{ width: 160 }} /></div>
+            {T > 0 && <div className={`callout ${Math.abs(eD) < 1 && Math.abs(eP) < 1 ? 'good' : 'warn'}`}>Прочитано: Должи {fmt(X.D)} ({eD >= 0 ? 'повеќе' : 'помалку'} за <b>{fmt(Math.abs(eD))}</b>) · Побарува {fmt(X.P)} ({eP >= 0 ? 'повеќе' : 'помалку'} за <b>{fmt(Math.abs(eP))}</b>).{eD > 0.5 && eP > 0.5 ? ' Двете страни се поголеми → најверојатно се прочитани збирни редови (вкупно по конто/група) како ставки.' : ''}</div>}
             <p className="mini" style={{ margin: 0 }}>„⇄ Д/П“ ја менува страната на ставката – ако ставка од {fmt(ad / 2)} е на погрешна страна, по промената разликата станува 0.</p>
           </div>
         </div>
