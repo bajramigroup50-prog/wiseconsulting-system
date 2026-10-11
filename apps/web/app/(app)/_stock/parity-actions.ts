@@ -55,7 +55,7 @@ export async function customProdAction(_p: ActionState, f: FormData): Promise<Ac
   if (isErr(v)) return v;
   const st = await stockAction(v.mode === 'pct' ? 'pnbRun' : 'pcRun', ['/prod', '/normativ'], (tx, a) => runCustomProductionOrder(tx, a, v));
   if (st.error) return st;
-  redirect('/prod');
+  redirect(`/prod?done=${st.data!.id}&m=${v.mode === 'pct' ? 'pct' : v.saveAsBom ? 'bom' : ''}`);
 }
 
 /** Legacy `pnb_pct` change → `saveFirmPatch({rnPct})`. */

@@ -23,7 +23,7 @@ export default async function NormativPage({ searchParams }: { searchParams: Pro
   const { u, firm, L } = await stockPage('normativ');
   if (!firm || !L) return <NoFirm t="Нормативи" />;
   const prods = (L.ctx.items ?? []).filter((i) => i.type === 'product');
-  if (!prods.length) return <><Hd t="Нормативи" sub="состав на производот" /><div className="card empty">Нема производи. Во „Артикли“ додадете артикл од вид „Готов производ“ и неговите материјали.</div></>;
+  if (!prods.length) return <><Hd t="Нормативи" sub="состав на производот" /><div className="card empty">Нема производи. Во „Артикли“ додадете артикл од вид „Готов производ“ и неговите материјали.</div><div className="row" style={{ justifyContent: 'center', gap: 8, margin: '10px 0' }}><Link className="btn pri" href="/artikli">+ Додај готов производ (Шифрарник → Артикли)</Link></div></>;
   const p = prods.find((x) => x.id === sp.p) ?? prods[0]!;
   const [bom] = await db().select().from(boms).where(and(eq(boms.firmId, firm.id), eq(boms.productId, p.id))).limit(1);
   const items = itemOptions(L);

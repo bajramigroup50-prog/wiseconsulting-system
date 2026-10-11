@@ -21,7 +21,7 @@ import { RowAction } from '@/components/row-action';
 import { ActionForm } from '@/components/stock-ui';
 import { deleteProdAction, runProdAction } from '../_stock/actions';
 
-type SP = { p?: string; q?: string; d?: string; wh?: string; pc?: string };
+type SP = { p?: string; q?: string; d?: string; wh?: string; pc?: string; done?: string; m?: string };
 
 export default async function ProdPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -46,10 +46,17 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
   const hint = p && (p.bom ?? []).length ? bomHint(L.ctx, p, wh) : null;
   const rnPct = Number((L.firm.settings as Record<string, unknown> | null)?.rnPct) || 60;
   const pnb = p && !(p.bom ?? []).length && q > 0 ? pnbPlan(L.ctx, p, q, wh, rnPct, rnItems((L.ctx.items ?? []).map((i) => ({ ...i, active: L.items.get(i.id)?.active })))) : null;
+  // legacy toast after `runProd` / `pcRun` / `pnbRun`
+  const dn = sp.done ? list.find((x) => x.id === sp.done) : undefined;
+  const dp = dn ? (L.ctx.items ?? []).find((i) => i.id === dn.productId) : undefined;
+  const doneMsg = dn && dp ? (sp.m === 'pct'
+    ? `Произведени ${fq(Number(dn.qty))} ${dp.unit ?? ''} ${dp.name}; раздолжени суровини ${fmt(Number(dn.mat))} ден.`
+    : `Произведени ${fq(Number(dn.qty))} ${dp.unit ?? ''} ${dp.name}; цена на чинење ${fmt(Number(dn.mat) + Number(dn.lab))} ден.${sp.m === 'bom' ? ' Нормативот е зачуван.' : ''}`) : '';
   const payload = p && q ? JSON.stringify({ date, productId: p.id, qty: q, wh }) : '';
   return (
     <>
       <Hd t="Работни налози" sub="производство" />
+      {doneMsg && <div className="callout good">✓ {doneMsg}</div>}
       <div className="row" style={{ gap: 6, margin: '0 0 10px', flexWrap: 'wrap' }}>
         <Link className="btn pri" href="/prod">🏭 Работен налог (со или без норматив)</Link>
         <Link className="btn" href="/rasNorm">📦 Раздолжување за период – по попис или % од продажба</Link>
@@ -120,7 +127,7 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
             </>
           )}
         </div>
-      ) : <div className="card empty">Нема производи. Додадете артикл од вид „Готов производ“.</div>}
+      ) : <><div className="card empty">Нема производи. Додадете артикл од вид „Готов производ“.</div><div className="row" style={{ justifyContent: 'center', gap: 8, margin: '10px 0' }}><Link className="btn pri" href="/artikli">+ Додај готов производ (Шифрарник → Артикли)</Link></div></>}
       {/* production made from a sales invoice („Производство = Да“): link to the invoice */}
       {list.length > 0 && (
         <div className="tw"><table>

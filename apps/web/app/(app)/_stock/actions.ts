@@ -158,10 +158,13 @@ const ProdIn = z.object({ date, productId: z.string().uuid(), qty: num, wh: loc,
 export async function runProdAction(_p: ActionState, form: FormData): Promise<ActionState> {
   const v = payload(ProdIn, form);
   if (isErr(v)) return v;
-  return done(await stockAction('runProd', ['/prod'], (tx, a) => runProductionOrder(tx, a, v)), '/prod');
+  const st = await stockAction('runProd', ['/prod'], (tx, a) => runProductionOrder(tx, a, v));
+  // legacy toast „Произведени … ; цена на чинење … ден.“ — shown by the page from `?done=`
+  return done(st, st.data ? `/prod?done=${st.data.id}` : '/prod');
 }
 export async function deleteProdAction(docId: string): Promise<ActionState> {
-  return stockAction('delProd', ['/prod'], (tx, a) => deleteProductionOrder(tx, a, docId));
+  const st = await stockAction('delProd', ['/prod'], (tx, a) => deleteProductionOrder(tx, a, docId));
+  return st.error ? st : { ok: 'Налогот е сторниран и залихата е вратена.' };
 }
 
 /* ---------------- re-averaging ---------------- */
