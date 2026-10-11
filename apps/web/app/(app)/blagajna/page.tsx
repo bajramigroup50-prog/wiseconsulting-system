@@ -10,7 +10,7 @@ import {
 } from '@wise/db';
 import { booksPage, canDo, inYearOr, partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { BankForm } from '@/components/bank-form';
 import { ExportBar, type Cell } from '@/components/parity-fin/export-bar';
 import { Hd } from '@/components/hd';
@@ -58,7 +58,7 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
   /* ---------- editor ---------- */
   let init: VoucherInit | null = null;
   const editRow = sp.edit ? (await db().select().from(cashVouchers).where(and(eq(cashVouchers.id, sp.edit), eq(cashVouchers.firmId, firm.id))).limit(1))[0] : undefined;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const d0 = today.startsWith(String(year)) ? today : `${year}-12-31`;
   if (write && editRow) {
     const fn = editRow.fileId ? (await db().select({ name: files.name }).from(files).where(eq(files.id, editRow.fileId)).limit(1))[0]?.name : undefined;

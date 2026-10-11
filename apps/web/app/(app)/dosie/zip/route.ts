@@ -8,6 +8,7 @@ import { db } from '@/lib/db';
 import { zipFiles } from '@/lib/docx';
 import { getObjectBytes } from '@/lib/storage';
 
+import { todayIso } from '@/lib/fmt';
 export async function GET(req: Request) {
   const u = await getUser();
   const firm = u ? await currentFirm(u) : null;
@@ -25,6 +26,6 @@ export async function GET(req: Request) {
   }
   const zip = zipFiles(entries);
   return new Response(new Uint8Array(zip), {
-    headers: { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="Dokumenti_${new Date().toISOString().slice(0, 10)}.zip"` },
+    headers: { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="Dokumenti_${todayIso()}.zip"` },
   });
 }

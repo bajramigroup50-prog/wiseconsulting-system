@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { pxAuto, pxGroups, pxHeaderRow, pxLines, pxNum, type PxCol, type PxMap } from '@wise/core/sales';
 
+import { todayIso } from '@/lib/fmt';
 export const PX_DRAFT_KEY = 'wise:pxDraft';
 export interface PxDraft {
   imp: boolean; wh: string; number: string; date: string; partnerId: string; supplierName: string; currency: string; fx: string; fxAmt: number;
@@ -29,7 +30,7 @@ export function PxImport({ locations, partners, items, vatFirm, konto, closeHref
   imp0?: boolean;
 }) {
   const router = useRouter();
-  const today = new Date().toISOString().slice(0, 10).split('-').reverse().join('.');
+  const today = todayIso().split('-').reverse().join('.');
   const [imp, setImp] = useState(!!imp0);
   const [wh, setWh] = useState(locations[0]?.id ?? '');
   const [no, setNo] = useState('');

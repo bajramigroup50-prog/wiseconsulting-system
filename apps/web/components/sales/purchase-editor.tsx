@@ -12,7 +12,7 @@ import { allocCosts, stockLineValue } from '@wise/core/stock';
 import { addDays, CURRENCIES, fuelPurchaseWarning, type ScanPurchaseDraft } from '@wise/core/sales';
 import type { FuelRule } from '@wise/core/law';
 import type { ActionState } from '@/lib/books';
-import { fmt } from '@/lib/fmt';
+import { fmt, todayIso } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { addSupplierAction, createItemsAction, deletePurchaseAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
@@ -319,7 +319,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const beforeSave = (e: React.FormEvent<HTMLFormElement>) => {
     // closed VAT period → the invoice is booked with today's date of receipt (legacy savePur)
     if (!d.id && !d.data.lateOk && isClosed(d.date)) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayIso();
       e.preventDefault();
       setD((o) => ({ ...o, docDate: o.docDate || o.date, date: today, shifted: true }));
       setToast('ДДВ периодот на ' + dmy(d.date) + ' е затворен – фактурата се книжи со датум на прием ' + dmy(today) + '.');

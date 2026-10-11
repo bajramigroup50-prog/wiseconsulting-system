@@ -12,12 +12,13 @@ import { audit, bankLines, firms, invoices, loadBankEnv, matchContext, partners,
 import { db } from '@/lib/db';
 import { dispatchMail, queueMail } from '@/lib/mail';
 
+import { todayIso } from '@/lib/fmt';
 export interface PnLast { at: string; txt: string; n: number; tot: number; sent: number; mailed?: string }
 
 export async function runPayNotes(firm: Firm, userId: string | null, year: number): Promise<void> {
   const s = (firm.settings ?? {}) as Record<string, unknown>;
   const cfg = payNoteCfg(s.autoNotify);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const since = new Date(Date.now() - 45 * 864e5).toISOString().slice(0, 10);
   const ids: string[] = [];
   await db().transaction(async (tx) => {

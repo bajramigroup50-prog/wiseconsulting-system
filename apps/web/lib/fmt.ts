@@ -3,6 +3,8 @@
  * Implemented by hand rather than with `toLocaleString('mk-MK')`, whose output depends on the ICU data of the
  * runtime (Node vs. browser) — that would differ between server and client render.
  */
+import { todaySkopje } from '@wise/core/office/dates';
+
 const group = (int: string) => int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 export const fmt = (n: number | string | null | undefined): string => {
@@ -18,6 +20,13 @@ export const fq = (n: number | string | null | undefined): string => {
 };
 
 export const dmy = (d: string | null | undefined): string => (d ? String(d).slice(0, 10).split('-').reverse().join('.') : '');
+
+/**
+ * Today as YYYY-MM-DD in Skopje (legacy `today()` used the local date of the browser). `toISOString()` is UTC, so
+ * between midnight and 01:00/02:00 it gave yesterday — on the server (UTC) and in the browser alike — and the server
+ * and client renders of a default date could differ.
+ */
+export const todayIso = (): string => todaySkopje();
 
 /** CSV with `;` and a BOM, the way legacy `csv()` / `download()` produced Excel-friendly files. */
 export const toCsv = (rows: readonly (readonly (string | number | null | undefined)[])[]): string =>

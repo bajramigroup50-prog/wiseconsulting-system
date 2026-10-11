@@ -13,6 +13,7 @@ import { saveInvoice, type InvoiceInput } from '../sales/invoices';
 import { saveVoucher } from '../bank/cash';
 import type { InvoiceData } from '../schema/sales';
 
+import { todaySkopje } from '@wise/core/office/dates';
 /** Business-rule error of an industry module (shown to the user; extends the posting error like `DocumentError`). */
 export class IndustryError extends DocumentError {
   constructor(message: string) {
@@ -121,7 +122,7 @@ export async function cashMovement(tx: Tx, a: IndActor, o: { kind: 'in' | 'out';
   });
 }
 
-export const isoToday = () => new Date().toISOString().slice(0, 10);
+export const isoToday = () => todaySkopje();
 export const n = (v: unknown) => Number(v) || 0;
 export const dec2 = (v: number | null | undefined) => (v == null || Number.isNaN(v) ? null : (Math.round(v * 100) / 100).toFixed(2));
 export const dmy = (d: string) => (d ? d.slice(0, 10).split('-').reverse().join('.') : '');

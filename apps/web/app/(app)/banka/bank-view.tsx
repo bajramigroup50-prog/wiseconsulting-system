@@ -14,7 +14,7 @@ import {
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { AUTO_LBL } from '@/lib/bank';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -259,8 +259,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       {review && (
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>Автоматско книжење – преглед ({review.length})</h2><Link className="btn" href={q({})}>Затвори</Link></div>
-          {review.length ? (
-            <BankForm action={applyMatchesAction}>
+          {/* the form stays mounted after „Прокнижи избраните“ so its result message is shown with the emptied review */}
+          <BankForm action={applyMatchesAction}>
+          {review.length ? (<>
               <div className="tw"><table className="dense">
                 <thead><tr><th></th><th>Датум</th><th>Опис</th><th className="n">Износ</th><th>Предлог</th><th>Комитент</th></tr></thead>
                 <tbody>{review.map((p) => (
@@ -275,8 +276,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                 ))}</tbody>
               </table></div>
               <div className="row"><span className="note">Редослед: POS картички, ДДВ, шифра на плаќање, девизни фактури, фактури по број / износ / збир, провизии, правила. Отштиклирајте ги погрешните.</span><span style={{ flex: 1 }} /><button className="btn pri">Прокнижи избраните</button></div>
-            </BankForm>
-          ) : <p className="note">Нема ставки за автоматско книжење – останатите прокнижете ги рачно (копче „Прокнижи…“).</p>}
+          </>) : <p className="note">Нема ставки за автоматско книжење – останатите прокнижете ги рачно (копче „Прокнижи…“).</p>}
+          </BankForm>
           <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
             {aiProps ? (aiProps.length ? (
               <BankForm action={applyBankClassifyAction}>
@@ -405,7 +406,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <BankForm action={addManualLineAction} className="card form">
           <h3 style={{ width: '100%' }}>Рачна ставка во извод</h3>
           <label className="f">Сметка<select name="acct" defaultValue={acct.id}>{BK.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-          <label className="f">Датум<input type="date" name="date" required defaultValue={new Date().toISOString().slice(0, 10).startsWith(String(year)) ? new Date().toISOString().slice(0, 10) : `${year}-${month || '01'}-01`} /></label>
+          <label className="f">Датум<input type="date" name="date" required defaultValue={todayIso().startsWith(String(year)) ? todayIso() : `${year}-${month || '01'}-01`} /></label>
           <label className="f">Насока<select name="dir" defaultValue="in"><option value="in">Прилив (уплата кон нас)</option><option value="out">Одлив (плаќање)</option></select></label>
           <label className="f wide">Затвора наша / влезна фактура
             <select name="doc" defaultValue="">

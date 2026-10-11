@@ -11,7 +11,7 @@ import {
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -34,7 +34,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const { u, firm, year } = await booksPage('vlez');
   if (!firm) return <NoFirm t="Влезни фактури" />;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const dflt = today.startsWith(String(year)) ? today : `${year}-12-31`;
   const S = (firm.settings ?? {}) as Record<string, unknown>;
 

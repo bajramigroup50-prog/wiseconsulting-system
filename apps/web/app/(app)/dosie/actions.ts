@@ -9,6 +9,7 @@ import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fdate, fv, linkFiles, officeAction, officeError } from '@/lib/office';
 
+import { todayIso } from '@/lib/fmt';
 /**
  * Legacy `dosSave` (12786) / `archiveFile`. Office users save directly; a `klient` gets a pending
  * client entry instead (legacy `save()` set `pend:true` on docs for clients) — decided server-side.
@@ -37,7 +38,7 @@ export async function saveDossierDoc(_p: ActionState, f: FormData): Promise<Acti
         const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.dossier, d.id);
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosEdit', entityType: 'dossier_doc', entityId: d.id, data: { ...v, files: n } });
       } else {
-        const [d] = await tx.insert(dossierDocs).values({ ...v, firmId: firm.id, createdBy: u.id, ...(arc && arc !== new Date().toISOString().slice(0, 10) ? { createdAt: new Date(`${arc}T12:00:00Z`) } : {}) }).returning({ id: dossierDocs.id });
+        const [d] = await tx.insert(dossierDocs).values({ ...v, firmId: firm.id, createdBy: u.id, ...(arc && arc !== todayIso() ? { createdAt: new Date(`${arc}T12:00:00Z`) } : {}) }).returning({ id: dossierDocs.id });
         const n = await linkFiles(tx, ids, firm.id, OFFICE_FILE_ENTITY.dossier, d!.id);
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'dosSave', entityType: 'dossier_doc', entityId: d!.id, data: { category, files: n } });
       }

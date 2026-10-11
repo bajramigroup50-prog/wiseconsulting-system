@@ -5,6 +5,7 @@ import { getUser } from '@/lib/auth';
 import { archRows } from '@/lib/archive';
 import { currentFirm } from '@/lib/context';
 
+import { todayIso } from '@/lib/fmt';
 export async function GET(req: Request) {
   const u = await getUser();
   const firm = u ? await currentFirm(u) : null;
@@ -16,6 +17,6 @@ export async function GET(req: Request) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(archXlsxRows(R)), 'Архива');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   return new Response(new Uint8Array(buf), {
-    headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'content-disposition': `attachment; filename="Arhiva_${new Date().toISOString().slice(0, 10)}.xlsx"` },
+    headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'content-disposition': `attachment; filename="Arhiva_${todayIso()}.xlsx"` },
   });
 }

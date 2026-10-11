@@ -10,10 +10,11 @@ import { effectiveChart, loadYear, yearFindings, type LoadedYear } from '@wise/d
 import { booksPage, type BooksCtx } from './books';
 import { db } from './db';
 
+import { todaySkopje } from '@wise/core/office/dates';
 export const ZS_MENU_VIEW = 'zsProc';
 
 /** Today's date in Skopje (the bank year-end check only runs on/after 31.12). */
-export const todayMk = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Skopje' });
+export const todayMk = (): string => todaySkopje();
 
 export interface YePageCtx extends BooksCtx {
   L: LoadedYear;

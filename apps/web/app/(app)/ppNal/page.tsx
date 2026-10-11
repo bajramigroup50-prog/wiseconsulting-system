@@ -12,7 +12,7 @@ import { ppExportRows } from '@wise/core/bank/fin-parity';
 import { getOfficeProfile, orderSuggestions, payerOf, paymentOrders, vatDueEstimate } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -31,7 +31,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   if (!firm) return <NoFirm t="Платни налози" />;
   if (u.role === 'klient') return <><Hd t="Платни налози" /><div className="empty">Нема пристап.</div></>;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const [payer, list, sug, est, office] = await Promise.all([
     payerOf(db(), firm.id),
     db().select().from(paymentOrders).where(eq(paymentOrders.firmId, firm.id)).orderBy(desc(paymentOrders.date), desc(paymentOrders.createdAt)).limit(300),

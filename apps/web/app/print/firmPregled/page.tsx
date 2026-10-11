@@ -11,6 +11,7 @@ import { firms, invoices, loadInvoicePrintData } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 
+import { todayIso } from '@/lib/fmt';
 export const metadata = { title: 'Преглед на изгледот' };
 const KEYS = ['invStyle', 'invColor', 'invNote', 'legalFoot', 'logo', 'sign', 'stamp', 'signer', 'signerRole', 'bank', 'bankName'] as const;
 
@@ -26,7 +27,7 @@ export default async function FirmPregled({ searchParams }: { searchParams: Prom
   settings.qr = sp.qr === '1';
   const [last] = await db().select({ id: invoices.id }).from(invoices).where(eq(invoices.firmId, id)).orderBy(desc(invoices.date)).limit(1);
   const d = last ? await loadInvoicePrintData(db(), last.id, undefined) : null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const input = d ? { ...d.input, firm: { ...d.input.firm, settings } } : {
     kind: 'invoice' as const,
     doc: { kind: 'invoice', number: `001/${today.slice(0, 4)}`, date: today, due: today, currency: 'MKD', fx: 1 },

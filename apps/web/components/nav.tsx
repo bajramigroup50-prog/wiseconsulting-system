@@ -1,7 +1,7 @@
 'use client';
 /** Top-bar dropdown menu — same markup/classes as legacy `renderNav` / `navDD`. */
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { hrefFor, NAV_MINI, NAV_SHORT, navFlat, type NavGroup, type NavItem } from '@/lib/nav';
 
 /** Route handlers (not pages) need a full navigation. */
@@ -55,37 +55,56 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
 }
 
 function DD({ items, view }: { items: readonly NavItem[]; view: string }) {
+  // one open flyout at a time (legacy `subOpen`); hovering a plain item closes it (legacy mouseover 14713)
+  const [sub, setSub] = useState<number | null>(null);
   return (
     <>
       {items.map((x, i) => {
-        if (x[0] === '-') return <hr className="ddsep" key={i} />;
-        if (x[0] === '>') return <Sub key={i} label={x[1] ?? ''} items={x[2] ?? []} view={view} />;
+        if (x[0] === '-') return <hr className="ddsep" key={i} onMouseEnter={() => wide() && setSub(null)} />;
+        if (x[0] === '>') return <Sub key={i} label={x[1] ?? ''} items={x[2] ?? []} view={view} open={sub === i} setOpen={(o) => setSub(o ? i : null)} />;
         return (
-          <Go key={i} id={x[0]} className={x[0] === 'zs_bu' ? 'sep' : ''} current={view === x[0]}>{x[1]}</Go>
+          <Go key={i} id={x[0]} className={x[0] === 'zs_bu' ? 'sep' : ''} current={view === x[0]} onHover={() => wide() && setSub(null)}>{x[1]}</Go>
         );
       })}
     </>
   );
 }
 
-function Sub({ label, items, view }: { label: string; items: readonly NavItem[]; view: string }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<React.CSSProperties>({});
+/** Legacy `subWide`: flyouts beside the menu (desktop); below 700px they open inline. */
+const wide = () => typeof window !== 'undefined' && window.innerWidth > 700;
+
+function Sub({ label, items, view, open, setOpen }: { label: string; items: readonly NavItem[]; view: string; open: boolean; setOpen: (o: boolean) => void }) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
-  // Desktop: the flyout is `position:fixed` (legacy CSS parks it at left:-9999px) — place it next to the button, as legacy `navDD` did.
-  const place = () => {
-    const b = btn.current?.getBoundingClientRect();
-    if (!b || window.innerWidth <= 700) return setPos({});
-    const w = 260, left = b.right + w > window.innerWidth ? Math.max(8, b.left - w) : b.right;
-    setPos({ left, top: Math.max(8, Math.min(b.top, window.innerHeight - 80)), minWidth: w });
-  };
+  const fly = useRef<HTMLDivElement>(null);
+  // Desktop: the flyout is `position:fixed` (legacy CSS parks it at left:-9999px). Legacy `subPlace` (14709): next to the
+  // button, then moved up when its bottom would leave the window and to the left of the menu when its right edge would.
+  const place = useCallback(() => {
+    const b = btn.current, f = fly.current;
+    if (!b || !f || !wide()) return setPos(null);
+    const r = b.getBoundingClientRect();
+    const dd = b.closest('.dd')?.getBoundingClientRect() ?? r;
+    const w = f.offsetWidth, hgt = f.offsetHeight;
+    let left = r.right + 2, top = Math.max(8, r.top - 6);
+    if (top + hgt > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - hgt);
+    if (left + w > window.innerWidth - 8) left = Math.max(8, dd.left - w - 2);
+    setPos((p) => (p && Math.abs(p.left - left) < 1 && Math.abs(p.top - top) < 1 ? p : { left, top }));
+  }, []);
+  useLayoutEffect(() => {
+    if (!open) return;
+    place();
+    const dd = btn.current?.closest('.dd');
+    window.addEventListener('resize', place);
+    dd?.addEventListener('scroll', place);
+    return () => { window.removeEventListener('resize', place); dd?.removeEventListener('scroll', place); };
+  }, [open, place]);
   return (
-    <div className={'dsub' + (open ? ' open' : '')}>
+    <div className={'dsub' + (open ? ' open' : '')} onMouseEnter={() => { if (wide() && !open) setOpen(true); }}>
       <button ref={btn} role="menuitem" aria-haspopup="true" aria-expanded={open} className={items.some(([id]) => id === view) ? 'subcur' : ''}
-        onClick={(e) => { e.stopPropagation(); if (!open) place(); setOpen(!open); }}>
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
         {label}<i aria-hidden="true">▸</i>
       </button>
-      <div className="fly" role="menu" style={open ? pos : undefined}>
+      <div ref={fly} className="fly" role="menu" style={open && pos ? { left: pos.left, top: pos.top, minWidth: 260 } : open ? { minWidth: 260 } : undefined}>
         {items.map((x, i) => (x[0] === '-' ? <hr className="ddsep" key={i} /> : <Go key={i} id={x[0]} current={view === x[0]}>{x[1]}</Go>))}
       </div>
     </div>
@@ -93,7 +112,7 @@ function Sub({ label, items, view }: { label: string; items: readonly NavItem[];
 }
 
 /** Menu item: a <button> like legacy `data-go` (the legacy CSS styles `.dd button`). */
-function Go({ id, current, className, children }: { id: string; current: boolean; className?: string; children: React.ReactNode }) {
+function Go({ id, current, className, children, onHover }: { id: string; current: boolean; className?: string; children: React.ReactNode; onHover?: () => void }) {
   const router = useRouter();
-  return <button role="menuitem" className={className} aria-current={current} onClick={() => go(router, id)}>{children}</button>;
+  return <button role="menuitem" className={className} aria-current={current} onMouseEnter={onHover} onClick={() => go(router, id)}>{children}</button>;
 }

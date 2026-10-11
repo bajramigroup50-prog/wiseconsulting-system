@@ -131,10 +131,11 @@ export interface LoadedYear {
   locked: boolean;
 }
 
-async function payrollFor(firmId: string, year: number, lines: readonly LedgerLine[]) {
+async function payrollFor(tx: Tx, firmId: string, year: number, lines: readonly LedgerLine[]) {
   const fromLedger = yePayrollFromLedger(lines);
-  const fromModule = external.payroll ? await external.payroll.runs(firmId, year) : [];
-  const active = external.payroll ? await external.payroll.activeEmployees(firmId, year) : 0;
+  // read inside the caller's transaction: a second pool connection deadlocks with DB_POOL=1 and misses uncommitted rows
+  const fromModule = external.payroll ? await external.payroll.runs(firmId, year, tx) : [];
+  const active = external.payroll ? await external.payroll.activeEmployees(firmId, year, tx) : 0;
   let runs = yeMergePayroll(fromModule, fromLedger);
   // the ledger has no head count: use the active employees for months the payroll module did not report
   if (active) runs = runs.map((r) => (r.employees ? r : { ...r, employees: active }));
@@ -146,7 +147,7 @@ async function computeFor(tx: Tx, f: Firm, year: number, lines: LedgerLine[], st
   const rules = firmRules(f);
   const inputs = yeInputsFromLedger(lines);
   const settings = statementSettings(st);
-  const pay = await payrollFor(f.id, year, lines);
+  const pay = await payrollFor(tx, f.id, year, lines);
   const s = settingsOf(f);
   const metaTax = closeJ?.meta && typeof (closeJ.meta as Record<string, unknown>).tax === 'number' ? (closeJ.meta as { tax: number }).tax : undefined;
   const Y = yeComputeYear({

@@ -11,6 +11,7 @@ import { hashPassword, verifyPassword } from '@wise/db/password';
 import { requireCan, requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 
+import { todayIso } from '@/lib/fmt';
 export interface FormState { error?: string; ok?: string }
 
 const MIN_PW = 10;
@@ -124,7 +125,7 @@ export async function zzIzj(uid: string, fileId: string | null = null): Promise<
   const res = await db().transaction(async (tx) => {
     const O = await getOfficeProfile(tx);
     const coll = (await tx.select({ id: users.id }).from(users).where(and(eq(users.active, true), ne(users.role, 'klient'), ne(users.role, 'admin')))).map((x) => x.id);
-    const r = zzIzjNext(O.zzlp?.izj ?? {}, uid, file ? { file } : { toggle: true }, new Date().toISOString().slice(0, 10), me.name, coll);
+    const r = zzIzjNext(O.zzlp?.izj ?? {}, uid, file ? { file } : { toggle: true }, todayIso(), me.name, coll);
     if (r.undo && !can(me.principal, 'del')) return { error: 'Само одговорното лице може да врати.' };
     await patchOfficeZz(tx, 'izj', { [uid]: r.izj }, me.id);
     await patchOfficeZz(tx, 'chk', { iz: r.iz }, me.id);

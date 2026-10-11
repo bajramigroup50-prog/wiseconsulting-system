@@ -12,6 +12,7 @@ import {
 import { audit, type Tx } from '../audit';
 import { hotelReservations, hotelRooms, invoices, type HotelReservation } from '../schema/index';
 import type { HotelChargeRow, HotelGuestRow } from '../schema/industry';
+import { todaySkopje } from '@wise/core/office/dates';
 import {
   assertPartner, dec2, dmy, findOrCreatePartner, IndustryError, industryConfigOf, issueModuleInvoice, loadIndustryFirm, n, type IndActor,
 } from './context';
@@ -98,7 +99,7 @@ export async function saveReservation(tx: Tx, a: IndActor, r: ReservationInput):
     const y = r.from.slice(0, 4);
     const used = (await tx.select({ n: hotelReservations.number }).from(hotelReservations).where(and(eq(hotelReservations.firmId, a.firmId), sql`${hotelReservations.number} like ${'%/' + y}`))).map((x) => x.n);
     number = nextModuleNumber('Р-', used, y);
-    id = (await tx.insert(hotelReservations).values({ ...head, firmId: a.firmId, number, date: new Date().toISOString().slice(0, 10), createdBy: a.userId }).returning({ id: hotelReservations.id }))[0]!.id;
+    id = (await tx.insert(hotelReservations).values({ ...head, firmId: a.firmId, number, date: todaySkopje(), createdBy: a.userId }).returning({ id: hotelReservations.id }))[0]!.id;
   }
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: prev ? 'htSave' : 'htNew', entityType: 'hotel_reservation', entityId: id, data: { number, roomId: r.roomId, from: r.from, to: r.to } });
   return { id, number };

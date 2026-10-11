@@ -6,7 +6,7 @@ import { hrDocs, loadPaySettings, nextHrDocNo } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { hrOwnDocIds } from '@/lib/own-template';
-import { dmy } from '@/lib/fmt';
+import { dmy, todayIso } from '@/lib/fmt';
 import { firmEmployees, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -24,7 +24,7 @@ export default async function DogovoriPage({ searchParams }: { searchParams: Pro
     loadPaySettings(db(), firm.id),
     db().transaction((tx) => nextHrDocNo(tx, firm.id, `${year}-${new Date().toISOString().slice(5, 10)}`)),
   ]);
-  const today = new Date().toISOString().slice(0, 10), soon = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  const today = todayIso(), soon = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   const q = (sp.q ?? '').trim().toLowerCase();
   const kind = sp.kind ?? '';
   const R = all.filter((d) => d.date.startsWith(String(year)) && (!kind || (kind === 'di' ? d.kind.startsWith('di-') : d.kind === kind))

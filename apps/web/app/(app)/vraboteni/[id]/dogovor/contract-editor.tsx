@@ -5,7 +5,7 @@ import { useState, useTransition } from 'react';
 import {
   g4n, hrAddMonthsEnd, HR_CT_TYPES, HR_DURS, hrCtWarnings, hrExtWarnings, hrFixedTerm, type HrContract, type HrExtension, type PayParams,
 } from '@wise/core/payroll';
-import { fmt } from '@/lib/fmt';
+import { fmt, todayIso } from '@/lib/fmt';
 import { contractHtml, extHtml, type DocEmployee, type DocFirm } from '@/lib/payroll/docs';
 import { extendContractAction, saveContractAction } from '../../../dogovori/actions';
 
@@ -17,7 +17,7 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
   const [dirty, setDirty] = useState(!saved);
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [pending, start] = useTransition();
-  const [x, setX] = useState<HrExtension>({ kind: 'ext', doc: 'annex', date: new Date().toISOString().slice(0, 10), end: '', reason: '' });
+  const [x, setX] = useState<HrExtension>({ kind: 'ext', doc: 'annex', date: todayIso(), end: '', reason: '' });
   const set = <K extends keyof HrContract>(k: K, v: HrContract[K]) => { setC({ ...c, [k]: v }); setDirty(true); };
   const W = hrCtWarnings(c, params, taken);
   const F = (k: keyof HrContract, l: string, type = 'text', extra: Record<string, unknown> = {}) => (

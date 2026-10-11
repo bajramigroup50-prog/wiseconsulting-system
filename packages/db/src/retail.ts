@@ -21,6 +21,7 @@ import {
 import { saveLevelling, type Actor } from './stock-docs';
 import { saveInvoice } from './sales/invoices';
 
+import { todaySkopje } from '@wise/core/office/dates';
 const isDate = (d: string | null | undefined): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
 function needDate(d: string | null | undefined, what = 'датум'): asserts d is string {
   if (!isDate(d)) throw new StockDocError(`Неважечки ${what}.`);
@@ -391,7 +392,7 @@ export async function savePromotion(tx: Tx, a: Actor, x: PromotionInput): Promis
   const head = { name: x.name.trim(), locationId: loc, dateFrom: x.from, dateTo: x.to, pct: x.pct == null ? null : String(x.pct), rounding: Math.trunc(n(x.rnd)), lines };
   const id = prev
     ? (await tx.update(promotions).set(head).where(eq(promotions.id, prev.id)).returning({ id: promotions.id }))[0]!.id
-    : (await tx.insert(promotions).values({ ...head, firmId: a.firmId, number, date: new Date().toISOString().slice(0, 10), createdBy: a.userId }).returning({ id: promotions.id }))[0]!.id;
+    : (await tx.insert(promotions).values({ ...head, firmId: a.firmId, number, date: todaySkopje(), createdBy: a.userId }).returning({ id: promotions.id }))[0]!.id;
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'akcSave', entityType: 'promotion', entityId: id, data: { number, lines: lines.length } });
   return { id, number };
 }

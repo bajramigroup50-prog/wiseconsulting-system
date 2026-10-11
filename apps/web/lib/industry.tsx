@@ -14,6 +14,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import type { FormState } from '@/components/bank-form';
 
+import { todayIso } from '@/lib/fmt';
 export { num, str, isDate } from './bank';
 
 /** True when the current firm has the view's module switched off. */
@@ -49,7 +50,7 @@ export function indRun(action: string, paths: string[], fn: (c: IndCtx) => Promi
   return bankRun(action, paths, ({ tx, u, firm, year }) => fn({ tx, u, firm, year, a: { firmId: firm.id, userId: u.id, role: u.role } }));
 }
 
-export const today = () => new Date().toISOString().slice(0, 10);
+export const today = () => todayIso();
 export const nowLocal = () => {
   const d = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4);
   return d.toISOString().slice(0, 16);

@@ -9,13 +9,22 @@ export { audit, type Tx } from './audit';
 export type DB = PostgresJsDatabase<typeof schema>;
 
 let _db: DB | undefined;
+/**
+ * The pool lives on `globalThis`: Next bundles the proxy, route handlers and pages separately (and re-evaluates
+ * modules on every dev reload), so a module-level singleton gave each bundle — and each reload — its own pool. With
+ * the dev PGlite server (one Postgres session behind the socket) two pools interleaved their extended-protocol
+ * messages („bind message supplies 4 parameters, but prepared statement requires 2“, uuid "f" errors).
+ */
+const G = globalThis as { __wiseDb?: { url: string; db: DB } };
 
 /** Lazily-created singleton (one pool per process). */
 export function getDb(url = process.env.DATABASE_URL): DB {
   if (_db) return _db;
   if (!url) throw new Error('DATABASE_URL is not set');
+  if (G.__wiseDb?.url === url) return (_db = G.__wiseDb.db);
   const client = postgres(url, { max: Number(process.env.DB_POOL ?? 10) });
   _db = drizzle(client, { schema });
+  G.__wiseDb = { url, db: _db };
   return _db;
 }
 export * from './posting';

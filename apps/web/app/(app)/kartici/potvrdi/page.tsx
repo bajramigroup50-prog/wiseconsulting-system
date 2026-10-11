@@ -1,7 +1,7 @@
 /** „📨 Потврди на салдо – сите комитенти“ (legacy `paModal` 13836): date, partners with a balance, e-mails, PDF for all, e-mail. */
 import Link from 'next/link';
 import { booksPage, canDo } from '@/lib/books';
-import { dmy } from '@/lib/fmt';
+import { dmy, todayIso } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { confirmationList } from '../potvrdi-data';
@@ -11,7 +11,7 @@ export default async function PotvrdiPage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const { u, firm, year } = await booksPage('kartici');
   if (!firm) return <NoFirm t="Потврди на салдо" />;
-  const td = new Date().toISOString().slice(0, 10);
+  const td = todayIso();
   const to = sp.to && /^\d{4}-\d{2}-\d{2}$/.test(sp.to) && sp.to.startsWith(String(year)) ? sp.to : td.startsWith(String(year)) ? td : `${year}-12-31`;
   const { list, last } = await confirmationList(firm.id, year, to);
   return (

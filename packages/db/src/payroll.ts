@@ -471,8 +471,8 @@ export async function hrNumbersTaken(tx: Tx, firmId: string, exceptEmployeeId?: 
  */
 export function payrollYearEndSource(getTx: () => Tx | Promise<Tx>) {
   return {
-    async runs(firmId: string, year: number) {
-      const tx = await getTx();
+    async runs(firmId: string, year: number, db?: unknown) {
+      const tx = (db as Tx | undefined) ?? await getTx();
       const rows = await tx.select({
         month: payrollRuns.month, employees: sql<number>`count(${payrollEmp.id})::int`,
         tax: sql<string>`coalesce(sum(${payrollEmp.tax}),0)`, contrib: sql<string>`coalesce(sum(${payrollEmp.contr}),0)`,
@@ -481,8 +481,8 @@ export function payrollYearEndSource(getTx: () => Tx | Promise<Tx>) {
         .groupBy(payrollRuns.month).orderBy(asc(payrollRuns.month));
       return rows.map((r) => ({ month: r.month, employees: r.employees, tax: Number(r.tax), contrib: Number(r.contrib) }));
     },
-    async activeEmployees(firmId: string, year: number) {
-      const tx = await getTx();
+    async activeEmployees(firmId: string, year: number, db?: unknown) {
+      const tx = (db as Tx | undefined) ?? await getTx();
       const end = `${year}-12-31`;
       const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(employees).where(and(
         eq(employees.firmId, firmId), eq(employees.active, true),
@@ -493,5 +493,6 @@ export function payrollYearEndSource(getTx: () => Tx | Promise<Tx>) {
   };
 }
 
-// Registered with the year-end service at load (payroll head counts for the AOP statements); reads through the app pool.
+// Registered with the year-end service at load (payroll head counts for the AOP statements); reads in the year-end
+// transaction it is given, else through the app pool.
 registerYearEndInputs({ payroll: payrollYearEndSource(async () => (await import('./index')).getDb()) });

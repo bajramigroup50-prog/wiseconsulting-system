@@ -9,7 +9,7 @@ import { compensations, journals, KOMP_SOURCE_TYPE, kompOpenItems } from '@wise/
 import { KompTotals } from './komp-totals';
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -47,7 +47,7 @@ export default async function KompenzaciiPage({ searchParams }: { searchParams: 
     .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, KOMP_SOURCE_TYPE), inArray(journals.sourceId, list.map((k) => k.id)))) : [];
   const nalog = new Map(J.map((j) => [j.id, j.number]));
   const autoHref = '/kompenzacii?' + new URLSearchParams([...(edit ? [['edit', edit.id]] : [['nov', '']]), ['kind', kind], ...pids.map((p) => ['p', p]), ['auto', '1']]).toString();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const saved = sp.saved ? list.find((k) => k.id === sp.saved) : undefined;
 
   return (

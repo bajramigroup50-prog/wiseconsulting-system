@@ -7,7 +7,7 @@ import { employees, hrContracts, hrDocs, nextHrDocNo } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { hrOwnDocIds } from '@/lib/own-template';
-import { dmy } from '@/lib/fmt';
+import { dmy, todayIso } from '@/lib/fmt';
 import { payCtx, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -22,7 +22,7 @@ export default async function MerkiPage({ params }: { params: Promise<{ id: stri
   if (await hrOfficeLocked(firm, u)) return <><Hd t="Мерки и престанок" /><div className="callout bad">🔒 Само сопственикот.</div></>;
   const [e] = await db().select().from(employees).where(and(eq(employees.id, id), eq(employees.firmId, firm.id))).limit(1);
   if (!e) notFound();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const [ctx, [ct], hist, nextNo] = await Promise.all([
     payCtx(firm),
     db().select({ no: hrContracts.no, position: hrContracts.position }).from(hrContracts).where(and(eq(hrContracts.employeeId, e.id), eq(hrContracts.current, true))).limit(1),

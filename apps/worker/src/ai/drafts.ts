@@ -4,6 +4,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { calcLines, periodOf, schemeValue } from '@wise/core';
+import { todaySkopje } from '@wise/core/office/dates';
 import {
   batchStatus, findDuplicate, nextDocNumber, ownerCheck, purchaseDraftFromScan, purchaseTotal, saleDraftFromScan, scanInvoices,
   type MatchItem, type ScanResult,
@@ -34,7 +35,7 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
   const M = await matchData(db, f.id);
   const closed = new Set((await db.select({ d: journals.date }).from(journals).where(and(eq(journals.firmId, f.id), eq(journals.kind, 'ddv'))))
     .map((j) => periodOf(j.d, f.vatPeriod)));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todaySkopje();
   const prev = await db.select({ id: purchases.id, partnerId: purchases.partnerId, number: purchases.number, total: purchases.total, date: purchases.date, edb: partners.edb })
     .from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId)).where(eq(purchases.firmId, f.id));
   const cand = prev.map((p) => ({ ...p, partnerEdb: p.edb, total: Number(p.total) }));
@@ -55,7 +56,7 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
 export async function saleDrafts(db: Tx, f: Firm, r: ScanResult): Promise<AiDraft[]> {
   const ctx = await firmPostingContext(db, f);
   const M = await matchData(db, f.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todaySkopje();
   const used = (await db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.firmId, f.id), eq(invoices.kind, 'invoice'),
     sql`extract(year from ${invoices.date}) = ${Number(today.slice(0, 4))}`))).map((x) => x.n);
   const out: AiDraft[] = [];

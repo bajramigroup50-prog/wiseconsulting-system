@@ -15,7 +15,7 @@ import {
 import { booksPage, canDo, partnerOptions, yearRange } from '@/lib/books';
 import { RepostCallout } from '@/components/repost-callout';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -44,7 +44,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
 
   /* ---------- editor ---------- */
   if (sp.nov !== undefined || sp.edit) {
-    let initial: EditorJournal = newJournal(new Date().toISOString().slice(0, 10).startsWith(String(year)) ? new Date().toISOString().slice(0, 10) : `${year}-12-31`);
+    let initial: EditorJournal = newJournal(todayIso().startsWith(String(year)) ? todayIso() : `${year}-12-31`);
     const [chart, P] = await Promise.all([effectiveChart(db(), firm.id), partnerOptions(firm.id)]);
     if (sp.edit) {
       const [j] = await db().select().from(journals).where(and(eq(journals.id, sp.edit), eq(journals.firmId, firm.id))).limit(1);

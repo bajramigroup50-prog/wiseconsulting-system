@@ -7,7 +7,7 @@
 import { payrollPaymentOrders, resolvePayParams } from '@wise/core';
 import { loadRun } from '@wise/db';
 import { db } from '@/lib/db';
-import { toCsv } from '@/lib/fmt';
+import { toCsv, todayIso } from '@/lib/fmt';
 import { htmlResponse, printDoc } from '@/lib/payroll/html';
 import { ordersSummaryHtml, ppPagesHtml } from '@/lib/payroll/orders-html';
 import { coreEmp, firmEmployees, isMonth, payCtx, payRoute } from '@/lib/payroll/server';
@@ -21,7 +21,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ month: s
   if (!run) return new Response('Пресметката не постои.', { status: 404 });
   const ctx = await payCtx(g.firm);
   const q = new URL(req.url).searchParams;
-  const datum = /^\d{4}-\d{2}-\d{2}$/.test(q.get('datum') ?? '') ? q.get('datum')! : new Date().toISOString().slice(0, 10);
+  const datum = /^\d{4}-\d{2}-\d{2}$/.test(q.get('datum') ?? '') ? q.get('datum')! : todayIso();
   const P = resolvePayParams(run.params, month, ctx.overrides);
   const E = (await firmEmployees(g.firm.id)).map(coreEmp);
   const r = payrollPaymentOrders(run, P, E, ctx.firm, ctx.orders, datum);

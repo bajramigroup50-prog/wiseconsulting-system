@@ -15,7 +15,7 @@ import { booksPage, canDo } from '@/lib/books';
 import { RowAction } from '@/components/row-action';
 import { bkpFixAction } from '../banka/actions';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { lineText } from '@/lib/finance';
 import { aggregatedLines } from '@/lib/ledger-agg';
 import { Hd } from '@/components/hd';
@@ -64,7 +64,7 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
     }
   }
   const npAmt = Math.round(D.noPartner.reduce((a, l) => a + l.debit - l.credit, 0) * 100) / 100;
-  const td = new Date().toISOString().slice(0, 10);
+  const td = todayIso();
   // legacy wrappers 8621 (supplier warnings) and 12554 (`#kcAdv` advances without invoice) for the selected partner
   let warns: ReturnType<typeof supplierWarnings> = [];
   let adv: ReturnType<typeof virtualAdvances>['ADV'] = [];
