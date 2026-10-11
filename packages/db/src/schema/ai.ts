@@ -38,7 +38,9 @@ export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | '
   /** Auto service: vehicle registration certificate (legacy `DIG.vreg`). */
   | 'vreg'
   /** Rent-a-car: passport / ID card / driving licence of the customer (legacy `RC_DOC_PROMPT`). */
-  | 'rcdoc' | 'rclic';
+  | 'rcdoc' | 'rclic'
+  /** Partner from a ЦРМ „тековна состојба“ extract (legacy v404 `tkRead`, `FS_PROMPT`). */
+  | 'tk';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */

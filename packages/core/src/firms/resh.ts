@@ -71,3 +71,22 @@ export function fsDup<T extends { name: string; edb: string | null; embs: string
 
 /** Other activity codes, without the priority one (legacy `nkdOther`). */
 export const otherNkd = (r: Pick<ReshData, 'otherNkd' | 'nkd'>) => [...new Set(r.otherNkd.map((x) => (x.match(/\d{2}\.\d{1,2}/) ?? [''])[0]!).filter((x) => x && x !== r.nkd))];
+
+/* ---- v404 „Нов комитент од тековна состојба“ (legacy 13430–13455: `TK_F`, `tkMatch`, `tkRead`, `tkSave`) ---- */
+
+/** Legacy `TK_F`: the partner fields read from the ЦРМ extract, in form order. */
+export const TK_F = [['name', 'Назив'], ['edb', 'ЕДБ (даночен број)'], ['embs', 'ЕМБС'], ['address', 'Адреса'], ['city', 'Град'], ['manager', 'Управител'], ['nkd', 'Шифра на дејност'], ['activity', 'Дејност'], ['bank', 'Жиро сметка'], ['bankName', 'Банка'], ['email', 'Е-пошта'], ['phone', 'Телефон']] as const;
+export type TkKey = (typeof TK_F)[number][0];
+export type TkData = Record<TkKey, string> & { ddv: boolean; docDate: string; regDate: string };
+
+/** Legacy `tkRead`: the model JSON of `FS_PROMPT` → the partner form (dates ISO, numbers digits only, first manager). */
+export function tkFromRead(raw: unknown): TkData {
+  const r = normalizeResh(raw);
+  return { name: r.name, edb: r.edb, embs: r.embs, address: r.address, city: r.city, manager: r.signer, nkd: r.nkd, activity: r.activity, bank: r.bank, bankName: r.bankName, email: r.email, phone: r.phone, ddv: r.ddv, docDate: r.docDate, regDate: r.regDate };
+}
+
+/** Legacy `tkMatch`: an existing partner with the same ЕДБ or ЕМБС. */
+export function tkMatch<T extends { edb: string | null; embs: string | null }>(r: { edb?: string | null; embs?: string | null }, partners: readonly T[]): T | undefined {
+  const e = fsDig(r.edb), b = fsDig(r.embs);
+  return partners.find((p) => (e && fsDig(p.edb) === e) || (b && fsDig(p.embs) === b));
+}

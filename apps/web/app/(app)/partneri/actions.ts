@@ -4,7 +4,9 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
-import { audit, journalLines, partners } from '@wise/db';
+import { aiDocuments, audit, fileLinks, journalLines, partners } from '@wise/db';
+import { fsDig, TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
+import { markAiReadsSaved } from '@/lib/ai';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { nextCode } from '@/lib/codes';
 import { db } from '@/lib/db';
@@ -121,4 +123,62 @@ export async function deletePartnersAction(ids: string[]): Promise<ActionState> 
     const rest = L.length - free.length;
     return { ok: 'Избришани ' + free.length + ' од ' + L.length + '.' + (rest ? ' ' + rest + ' се користат во документи и не се избришани.' : '') };
   } catch (e) { return actionError(e); }
+}
+
+/**
+ * Legacy v404 `tkSave` 13451: the partner from a read ЦРМ extract — a new one (next code) or the existing one with the
+ * same ЕДБ / ЕМБС completed with the typed values; the extract stays with the partner (file link + `data.docs`,
+ * `data.tekovna` = date of the extract). Then the next read extract (`rest`), as legacy `tkNext`.
+ */
+export async function saveTk(_p: ActionState, f: FormData): Promise<ActionState> {
+  const readId = String(f.get('readId') ?? '');
+  const rest = String(f.get('rest') ?? '');
+  let name = '';
+  let ex = false;
+  try {
+    const { u, firm } = await firmAction('write');
+    const v = Object.fromEntries(TK_F.map(([k]) => [k, String(f.get(k) ?? '').trim().slice(0, 300)])) as Record<(typeof TK_F)[number][0], string>;
+    if (!v.name) return { error: 'Внесете назив.' };
+    v.edb = fsDig(v.edb); v.embs = fsDig(v.embs); v.bank = fsDig(v.bank);
+    name = v.name;
+    const ddv = f.get('ddv') === 'on';
+    await db().transaction(async (tx) => {
+      const [read] = /^[0-9a-f-]{36}$/i.test(readId) ? await tx.select().from(aiDocuments).where(and(eq(aiDocuments.id, readId), eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'tk'))).limit(1) : [];
+      const r = read ? tkFromRead(read.result) : null;
+      const all = await tx.select().from(partners).where(eq(partners.firmId, firm.id));
+      const old = tkMatch(v, all);
+      ex = !!old;
+      const docDate = r?.docDate || new Date().toISOString().slice(0, 10);
+      const data: Record<string, unknown> = { ...(old?.data ?? {}) };
+      for (const k of ['manager', 'nkd', 'activity'] as const) if (v[k]) data[k] = v[k];
+      if (r?.regDate && !data.regDate) data.regDate = r.regDate;
+      if (read?.fileId) {
+        const docs = Array.isArray(data.docs) ? (data.docs as { fileId?: string }[]).filter((d) => d.fileId !== read.fileId) : [];
+        data.docs = [...docs, { fileId: read.fileId, cat: 'Тековна состојба', date: docDate, at: new Date().toISOString() }];
+        data.tekovna = docDate;
+      }
+      const cols = {
+        name: v.name, edb: v.edb || null, embs: v.embs || null, address: v.address || null, city: v.city || null, email: v.email || null, phone: v.phone || null,
+        bankAccount: v.bank || null, bankName: v.bankName || null,
+      };
+      let pid: string;
+      if (old) {
+        // legacy: `base[k]=v[k]` for every filled field (the typed value wins), contact = manager when empty
+        const patch = Object.fromEntries(Object.entries(cols).filter(([, x]) => x)) as Partial<typeof cols>;
+        await tx.update(partners).set({ ...patch, vatRegistered: ddv, ...(!old.contact && v.manager ? { contact: v.manager } : {}), data }).where(eq(partners.id, old.id));
+        pid = old.id;
+      } else {
+        const code = nextCode(all.map((c) => c.code));
+        const [p] = await tx.insert(partners).values({ ...cols, firmId: firm.id, code, vatRegistered: ddv, active: true, contact: v.manager || null, data }).returning({ id: partners.id });
+        pid = p!.id;
+      }
+      if (read?.fileId) await tx.insert(fileLinks).values({ fileId: read.fileId, entityType: 'partner', entityId: pid, role: 'attachment' }).onConflictDoNothing();
+      if (read) await markAiReadsSaved(tx, firm.id, [read.id]);
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'tkSave', entityType: 'partner', entityId: pid, data: { text: (old ? 'Дополнет' : 'Нов') + ' комитент од тековна состојба: ' + v.name } });
+    });
+  } catch (e) {
+    return actionError(e);
+  }
+  revalidatePath('/partneri');
+  redirect(rest ? `/partneri?tk=${encodeURIComponent(rest)}&ok=${encodeURIComponent((ex ? 'Дополнет: ' : 'Додаден: ') + name)}` : `/partneri?ok=${encodeURIComponent((ex ? 'Дополнет: ' : 'Додаден: ') + name)}`);
 }

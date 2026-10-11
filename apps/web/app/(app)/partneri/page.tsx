@@ -12,10 +12,17 @@ import { autoCodesAction, deletePartner, deletePartnersAction, setPartnerActive 
 import { partnerUsage, usedList } from '@/lib/sales-parity';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { PartnerForm } from './partner-form';
+import { TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
+import { loadAiResult } from '@/lib/ai';
+import { filesOf } from '@/lib/office';
+import { ActionForm } from '@/components/action-form';
+import { FileChips } from '@/components/file-chips';
+import { saveTk } from './actions';
+import { TkScan } from './tk-scan';
 
 const LIMIT = 500;
 
-export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string }> }) {
+export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string }> }) {
   const sp = await searchParams;
   const { u, firm } = await booksPage('partneri');
   if (!firm) return <NoFirm t="Партнери" />;
@@ -37,6 +44,15 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const edit = sp.edit ? (await db().select().from(partners).where(and(eq(partners.id, sp.edit), eq(partners.firmId, firm.id))).limit(1))[0] : undefined;
   const showForm = write && (sp.nov !== undefined || !!edit);
+  // legacy v404 tkModal: the next read ЦРМ extract to check (`?tk=` = the reads still to go)
+  const tkIds = write ? (sp.tk ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 20) : [];
+  let tk: { id: string; fileId: string | null; r: ReturnType<typeof tkFromRead>; rest: string[]; n: number } | null = null;
+  for (let i = 0; i < tkIds.length && !tk; i++) {
+    const d = await loadAiResult(firm.id, tkIds[i], 'tk');
+    if (d && d.status === 'done') tk = { id: d.id, fileId: d.fileId, r: tkFromRead(d.result), rest: tkIds.slice(i + 1), n: i };
+  }
+  const tkEx = tk ? tkMatch(tk.r, await db().select({ id: partners.id, name: partners.name, code: partners.code, edb: partners.edb, embs: partners.embs }).from(partners).where(eq(partners.firmId, firm.id))) : undefined;
+  const pFiles = await filesOf('partner', rows.map((r) => r.id));
 
   return (
     <>
@@ -45,6 +61,27 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
         {write && noCode && <RowAction className="btn" action={autoCodesAction} label="Додели шифри" title="Автоматски шифри за сите без шифра" />}
         {write && <Link className="btn pri" href="/partneri?nov">+ Додај</Link>}
       </Hd>
+      {sp.ok && <div className="callout good">{sp.ok}</div>}
+      {write && !tk && <TkScan firmId={firm.id} />}
+      {tk && (
+        <ActionForm action={saveTk} reset={false} style={{ maxWidth: 720 }}>
+          <div className="hd"><h2>📄 Комитент од тековна состојба {tkIds.length > 1 && <span className="mini">({tk.n + 1} од {tkIds.length})</span>}</h2><Link className="btn" href="/partneri">Затвори</Link></div>
+          <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>{tk.fileId && <a className="btn sm" href={`/api/files/${tk.fileId}`} target="_blank" rel="noreferrer">👁 Документ</a>}{tk.r.docDate && <span className="pill">тековна од {tk.r.docDate.split('-').reverse().join('.')}</span>}</div>
+          <div className={`callout ${tk.r.name ? 'good' : 'warn'}`}>{tk.r.name ? '✓ Прочитано – проверете ги податоците.' : 'Не се најде назив – проверете дали документот е тековна состојба или пополнете рачно.'}</div>
+          {tkEx && <div className="callout warn">Комитентот веќе постои: <b>{tkEx.name}</b> (шифра {tkEx.code ?? ''}). Со „Зачувај“ ќе се дополнат празните и изменетите податоци и ќе се прикачи тековната состојба.</div>}
+          <input type="hidden" name="readId" value={tk.id} />
+          <input type="hidden" name="rest" value={tk.rest.join(',')} />
+          <div className="form" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {TK_F.map(([k, l]) => <label key={k} className="f" style={k === 'name' || k === 'activity' ? { gridColumn: '1/-1' } : undefined}>{l}<input name={k} defaultValue={tk.r[k]} /></label>)}
+          </div>
+          <div className="row" style={{ gap: 14, marginTop: 6, flexWrap: 'wrap' }}><label className="chk"><input type="checkbox" name="ddv" defaultChecked={tk.r.ddv} /> ДДВ обврзник</label></div>
+          <p className="note">Тековната состојба не покажува дали фирмата е ДДВ обврзник – проверете на фактурата или на УЈП и штиклирајте.</p>
+          <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+            {tkIds.length > 1 && <Link className="btn" href={tk.rest.length ? `/partneri?tk=${tk.rest.join(',')}` : '/partneri'}>Прескокни</Link>}
+            <button className="btn pri">{tkEx ? 'Дополни го комитентот' : 'Зачувај нов комитент'}</button>
+          </div>
+        </ActionForm>
+      )}
       {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0} />}
       {showForm && edit && !(used.get(edit.id) ?? 0) && canDo(u, 'del', firm.id) && <div className="row" style={{ marginTop: -6, marginBottom: 10 }}><RowAction className="btn danger" action={deletePartner.bind(null, edit.id)} label="Избриши" confirm={`Да се избрише „${edit.name}“?`} /></div>}
       {useP && <div className="card"><div className="hd"><h2>🔒 {useP.name} – се користи во {used.get(useP.id) ?? 0} документи</h2><Link className="btn sm" href="/partneri">✕</Link></div>
@@ -64,7 +101,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
               return (
                 <tr key={r.id} style={r.active ? undefined : { opacity: 0.55 }}>
                   {admin && <td><SelBox id={r.id} /></td>}
-                  <td>{r.code}</td><td>{r.name}</td><td>{r.edb}</td><td>{r.address}</td><td>{r.city}</td><td>{r.email}</td><td>{r.phone}</td>
+                  <td>{r.code}</td><td>{r.name}{pFiles.get(r.id)?.length ? <> <FileChips files={pFiles.get(r.id)} /></> : null}</td><td>{r.edb}</td><td>{r.address}</td><td>{r.city}</td><td>{r.email}</td><td>{r.phone}</td>
                   <td>{r.bankAccount}</td><td>{r.vatRegistered ? 'Да' : 'Не'}</td><td>{r.active ? 'Да' : 'Не'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {write && <Link className="btn sm" href={`/partneri?edit=${r.id}${q ? '&q=' + encodeURIComponent(q) : ''}`}>Измени</Link>}{' '}

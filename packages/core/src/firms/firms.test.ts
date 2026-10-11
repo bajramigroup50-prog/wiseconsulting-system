@@ -8,7 +8,7 @@ import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
 import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
 import { miCalc, miMonths, miRange } from './mojizv';
 import { FORMS0, TPL0, askFields, fillTpl, formHtml, formVals } from './requests';
-import { fsDup, lfGuess, normalizeResh, otherNkd } from './resh';
+import { fsDup, lfGuess, normalizeResh, otherNkd, tkFromRead, tkMatch } from './resh';
 import { numberGaps, zatMonthEnd, zatPrio, zatTasks } from './zatvoranje';
 
 describe('zsRok', () => {
@@ -219,5 +219,19 @@ describe('fimpField: headings legacy did not know', async () => {
     for (const h of ['Мобилен', 'Моб.', 'GSM']) expect(fimpField(h)).toBe('phone2');
     expect(fimpField('Телефон')).toBe('phone');
     expect(fimpField('Е-пошта')).toBe('email');
+  });
+});
+
+describe('partner from a ЦРМ extract (legacy tkRead / tkMatch v404)', () => {
+  it('maps the FS_PROMPT answer to the partner form', () => {
+    const t = tkFromRead([{ docType: 'tekovna', name: 'ГАМА ДООЕЛ', edb: 'MK4030000000003', embs: '7.123.456', docDate: '01.02.2026', managers: [{ name: 'Марко' }], bank: '300-0000000001-23', nkd: '47.11' }]);
+    expect(t).toMatchObject({ name: 'ГАМА ДООЕЛ', edb: '4030000000003', embs: '7123456', docDate: '2026-02-01', manager: 'Марко', bank: '300000000000123', nkd: '47.11', ddv: false });
+    expect(tkFromRead(null).name).toBe('');
+  });
+  it('matches by ЕДБ or ЕМБС only', () => {
+    const P = [{ id: 'a', edb: '4030000000003', embs: null }, { id: 'b', edb: null, embs: '7123456' }];
+    expect(tkMatch({ edb: 'МК 4030000000003' }, P)?.id).toBe('a');
+    expect(tkMatch({ embs: '7123456' }, P)?.id).toBe('b');
+    expect(tkMatch({ edb: '', embs: '' }, P)).toBeUndefined();
   });
 });
