@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { hrefFor, NAV_MINI, NAV_SHORT, navFlat, type NavGroup, type NavItem } from '@/lib/nav';
 
 /** Route handlers (not pages) need a full navigation. */
-const HARD = new Set(['izlezF']);
+const HARD = new Set(['izlezF', 'klExit']);
 const go = (router: ReturnType<typeof useRouter>, id: string) =>
   HARD.has(id) ? window.location.assign(hrefFor(id)) : router.push(hrefFor(id));
 
