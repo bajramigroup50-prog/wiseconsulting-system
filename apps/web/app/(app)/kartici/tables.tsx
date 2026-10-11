@@ -1,14 +1,14 @@
 /** Card tables shared by the screen and the print views (legacy `kcTable` 6435, `kcSynHTML` 6480). */
 import Link from 'next/link';
 import type { KontoCard, syntheticCard } from '@wise/core/finance';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { lineText } from '@/lib/finance';
 
 type Card = KontoCard;
 
 /** Legacy `kcTable` 6435. */
 export function KcTable({ c, links }: { c: Card; links?: boolean }) {
-  const td = new Date().toISOString().slice(0, 10);
+  const td = todayIso();
   return (
     <table>
       <thead><tr><th>Датум</th><th>Налог</th><th>Документ / опис</th><th>Валута</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th></tr></thead>

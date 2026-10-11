@@ -14,7 +14,7 @@ import { PDFDOC_CSS } from '@wise/core/print-css';
 import { renderPdf } from '@/lib/jobs';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { validAddresses } from '@/lib/mail';
 import { dispatchPdfMail, pdfFileTitle, queuePdfMail } from '@/lib/pdf-mail';
 import { PotvrdaDoc } from '../../print/fin/potvrda-doc';
@@ -45,7 +45,7 @@ export async function sendConfirmationsAction(input: z.input<typeof SendIn>): Pr
     const want = new Set(v.ids);
     const L = list.filter((x) => want.has(x.pid));
     const s = (firm.settings ?? {}) as { short?: string; signer?: string };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     const dl = new Date(Date.now() + 8 * 864e5).toISOString().slice(0, 10);
     const skip: string[] = [];
     const jobs = await db().transaction(async (tx) => {
@@ -94,7 +94,7 @@ export async function archiveConfirmationsAction(input: z.input<typeof ArchIn>):
     const want = new Set(v.ids);
     const L = list.filter((x) => want.has(x.pid) && x.p);
     if (!L.length) return { error: 'Изберете барем еден комитент.' };
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     let ok = 0;
     const err: string[] = [];
     for (const x of L) {

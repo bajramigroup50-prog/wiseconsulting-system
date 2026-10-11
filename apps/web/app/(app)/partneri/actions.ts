@@ -11,6 +11,7 @@ import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { nextCode } from '@/lib/codes';
 import { db } from '@/lib/db';
 
+import { todayIso } from '@/lib/fmt';
 const opt = z.string().trim().max(300).transform((s) => s || null);
 const PartnerInput = z.object({
   code: opt,
@@ -148,7 +149,7 @@ export async function saveTk(_p: ActionState, f: FormData): Promise<ActionState>
       const all = await tx.select().from(partners).where(eq(partners.firmId, firm.id));
       const old = tkMatch(v, all);
       ex = !!old;
-      const docDate = r?.docDate || new Date().toISOString().slice(0, 10);
+      const docDate = r?.docDate || todayIso();
       const data: Record<string, unknown> = { ...(old?.data ?? {}) };
       for (const k of ['manager', 'nkd', 'activity'] as const) if (v[k]) data[k] = v[k];
       if (r?.regDate && !data.regDate) data.regDate = r.regDate;

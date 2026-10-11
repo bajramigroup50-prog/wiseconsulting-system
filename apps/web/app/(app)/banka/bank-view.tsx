@@ -14,7 +14,7 @@ import {
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { AUTO_LBL } from '@/lib/bank';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -406,7 +406,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <BankForm action={addManualLineAction} className="card form">
           <h3 style={{ width: '100%' }}>Рачна ставка во извод</h3>
           <label className="f">Сметка<select name="acct" defaultValue={acct.id}>{BK.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-          <label className="f">Датум<input type="date" name="date" required defaultValue={new Date().toISOString().slice(0, 10).startsWith(String(year)) ? new Date().toISOString().slice(0, 10) : `${year}-${month || '01'}-01`} /></label>
+          <label className="f">Датум<input type="date" name="date" required defaultValue={todayIso().startsWith(String(year)) ? todayIso() : `${year}-${month || '01'}-01`} /></label>
           <label className="f">Насока<select name="dir" defaultValue="in"><option value="in">Прилив (уплата кон нас)</option><option value="out">Одлив (плаќање)</option></select></label>
           <label className="f wide">Затвора наша / влезна фактура
             <select name="doc" defaultValue="">

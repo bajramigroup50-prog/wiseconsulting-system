@@ -5,7 +5,7 @@ import { mkAccountValid, mpinEmpCodes, mpOpsName, payLeaveStats, stazFor } from 
 import { hrDocs, payrollEmp, payrollLines, payrollRuns } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { firmEmployees, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -30,7 +30,7 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const edit = sp.edit ? all.find((e) => e.id === sp.edit) : undefined;
   const nextNo = String(Math.max(0, ...all.map((e) => parseInt(e.no ?? '') || 0)) + 1);
-  const today = new Date().toISOString().slice(0, 10), soon = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  const today = todayIso(), soon = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
 
   /* leave / sick leave of the business year: payroll lines (legacy leaveStats) + registry entries */
   const lines = await db().select({ empId: payrollEmp.employeeId, type: payrollLines.type, hours: payrollLines.hours })

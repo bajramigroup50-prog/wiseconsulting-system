@@ -24,6 +24,7 @@ import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } 
 import { saveLevelling } from '../stock-docs';
 import { ensurePartner } from './partners-auto';
 
+import { todaySkopje } from '@wise/core/office/dates';
 export const COST_SLOTS = ['car', 't1', 't2', 'sped', 'trans', 'dr', 'dev'] as const;
 export interface PurchaseGroupInput { account?: string | null; rate: number | string; base: number | string; vat?: number | string | null }
 export interface PurchaseStockInput {
@@ -345,7 +346,7 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   const lv = level.filter((l) => l.qty > 0);
   if (lv.length) {
     await saveLevelling(tx, { firmId, userId: actor.userId }, {
-      date: input.date, wh: W, today: new Date().toISOString().slice(0, 10), note: 'од калкулација ' + (pur.calcNo || pur.number || ''),
+      date: input.date, wh: W, today: todaySkopje(), note: 'од калкулација ' + (pur.calcNo || pur.number || ''),
       prices: Object.fromEntries(lv.map((l) => [l.item, l.sp])), qty: Object.fromEntries(lv.map((l) => [l.item, l.qty])),
       old: Object.fromEntries(lv.map((l) => [l.item, l.old])),
     });

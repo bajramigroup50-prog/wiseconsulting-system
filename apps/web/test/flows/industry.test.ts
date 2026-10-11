@@ -5,6 +5,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { todaySkopje } from '@wise/core/office/dates';
 import { savePurchase, schema } from '@wise/db';
 import { act, form, pg, r2, setupDb, signIn, useFirm } from '../harness';
 
@@ -17,8 +18,8 @@ const rent = await import('@/app/(app)/rent/actions');
 const pn = await import('@/app/(app)/pnalozi/actions');
 const { saveInvoiceAction } = await import('@/app/(app)/izlez/actions');
 
-const today = new Date().toISOString().slice(0, 10);
-const plus = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = todaySkopje(); // the actions date documents in Skopje time
+const plus = (d: number) => new Date(Date.parse(today + 'T12:00:00Z') + d * 864e5).toISOString().slice(0, 10);
 let firmId = '', cust = '', wood = '', table = '', coffee = '';
 const inv = async (id: string) => (await pg.select().from(schema.invoices).where(eq(schema.invoices.id, id)))[0]!;
 const journalBy = async (sourceType: string, sourceId: string) => {

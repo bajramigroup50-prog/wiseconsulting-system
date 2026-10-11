@@ -16,7 +16,7 @@ import { cashExpenseAccount } from '@wise/core/posting';
 import { fxRate, fxRateSource, type FxRateRow } from '@wise/core/bank-match';
 import { r2 } from '@wise/core/money';
 import { uploadFile } from '@/lib/upload';
-import { fmt } from '@/lib/fmt';
+import { fmt, todayIso } from '@/lib/fmt';
 import type { FormState } from '@/components/bank-form';
 import { saveVoucherAction } from './actions';
 
@@ -62,7 +62,7 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
     setDocs([]);
     if (d.status === 'error') { setUp('✓ ' + d.name + ' · ' + (d.error || 'не е прочитана')); return; }
     const [x] = receiptDrafts(d.result, {
-      today: new Date().toISOString().slice(0, 10), kontoFor: (c, abroad) => cashExpenseAccount(c, abroad, (k) => has.has(k)),
+      today: todayIso(), kontoFor: (c, abroad) => cashExpenseAccount(c, abroad, (k) => has.has(k)),
       fxFor: (c, dt) => Number(rateOf(c, dt)) || 0,
     });
     if (!x) { setUp('✓ ' + d.name + ' · на сликата не е пронајдена сметка'); return; }

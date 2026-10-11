@@ -12,7 +12,7 @@ import { CASH_EXPENSE_CATEGORIES } from '@wise/core/data/posting';
 import { cashExpenseAccount } from '@wise/core/posting';
 import { fxRate, type FxRateRow } from '@wise/core/bank-match';
 import { r2 } from '@wise/core/money';
-import { fmt } from '@/lib/fmt';
+import { fmt, todayIso } from '@/lib/fmt';
 import { AiDrop, AiReadList, useAiRead } from '@/components/ai-read';
 import { saveReceiptBatchAction } from './actions';
 
@@ -46,7 +46,7 @@ export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, c
   useEffect(() => {
     const fresh = ai.docs.filter((d) => d.status === 'done' && !done.has(d.id));
     if (!fresh.length) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     const add: Row[] = [];
     for (const d of fresh) {
       const D = receiptDrafts(d.result, { today, kontoFor, fxFor: (c, dt) => Number(rateOf(c, dt)) || 0 });

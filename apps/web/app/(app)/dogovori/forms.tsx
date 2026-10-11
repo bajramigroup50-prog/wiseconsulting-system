@@ -4,6 +4,7 @@ import { useActionState } from 'react';
 import type { ActionState } from '@/lib/books';
 import { registerLeaveAction, savePrefixAction } from './actions';
 
+import { todayIso } from '@/lib/fmt';
 /** Registry number prefix (legacy `#hr_pre`). */
 export function PrefixForm({ prefix }: { prefix: string }) {
   const [st, action, pending] = useActionState<ActionState, FormData>(savePrefixAction, {});
@@ -19,7 +20,7 @@ export function PrefixForm({ prefix }: { prefix: string }) {
 /** Annual leave decision / sick-leave record. */
 export function LeaveForm({ employees, nextNo }: { employees: { id: string; name: string }[]; nextNo: string }) {
   const [st, action, pending] = useActionState<ActionState, FormData>(registerLeaveAction, {});
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   return (
     <form className="card" action={action}>
       <h2>Годишен одмор / боледување</h2>

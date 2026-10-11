@@ -12,7 +12,7 @@ import { schemeValue } from '@wise/core';
 import { calcInvoiceDraft } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -65,7 +65,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const kind: DocKind = dt === 'service' ? 'invoice' : dt;
   const view = '/' + DT[dt].view;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id), approve = write && u.role !== 'klient';
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const dflt = today.startsWith(String(year)) ? today : `${year}-12-31`;
 
   /* ---------------- editor ---------------- */
@@ -309,7 +309,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
             <tr key={i.id}>
               {sel && <td><SelBox id={i.id} /></td>}
               <td className="num"><b>{i.number}</b></td>{inv && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
-              <td>{dmy(i.date)}</td><td style={i.due && i.due < addDays(new Date().toISOString().slice(0, 10), 0) ? { color: 'var(--bad)' } : undefined}>{dmy(i.due)}</td>
+              <td>{dmy(i.date)}</td><td style={i.due && i.due < addDays(todayIso(), 0) ? { color: 'var(--bad)' } : undefined}>{dmy(i.due)}</td>
               <td style={{ maxWidth: 280 }}>{p?.name}</td><td className="num">{p?.code}</td>
               <td className="n">{fmt(i.base)}</td><td className="n">{fmt(i.vat)}</td><td className="n"><b>{fmt(i.total)}</b>{i.currency !== 'MKD' && <small className="mini"> {i.currency}</small>}</td>
               {payCols && (() => { const pm = payOf(i); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && i.due && i.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td></>; })()}

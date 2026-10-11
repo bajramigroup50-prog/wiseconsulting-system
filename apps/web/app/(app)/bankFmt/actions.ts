@@ -11,6 +11,7 @@ import { appSettings, audit } from '@wise/db';
 import { firmAction } from '@/lib/books';
 import { db } from '@/lib/db';
 
+import { todayIso } from '@/lib/fmt';
 export type Analysis = StatementAnalysis & { file: string; score: number };
 
 export async function analyzeFilesAction(form: FormData): Promise<{ error?: string; rows?: Analysis[] }> {
@@ -44,7 +45,7 @@ export async function analyzeFilesAction(form: FormData): Promise<{ error?: stri
     if (!r.bank || !r.n && !r.fmt.startsWith('PDF')) continue;
     const k = r.fmt.replace(/\s*\(.*\)$/, '');
     const prev = BF[r.bank]?.[k];
-    if (!prev || r.score > prev.s) { BF[r.bank] = { ...(BF[r.bank] ?? {}), [k]: { s: r.score, at: new Date().toISOString().slice(0, 10) } }; changed = true; }
+    if (!prev || r.score > prev.s) { BF[r.bank] = { ...(BF[r.bank] ?? {}), [k]: { s: r.score, at: todayIso() } }; changed = true; }
   }
   if (changed) {
     await db().transaction(async (tx) => {

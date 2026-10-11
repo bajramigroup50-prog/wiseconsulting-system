@@ -15,7 +15,7 @@ import {
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { vatLedgerNote, vatSource } from '@/lib/vat-source';
 import { DT_DEF, DT_SH, periodShortLabel } from '@/lib/vat-view';
 import type { SessionUser } from '@/lib/auth';
@@ -33,7 +33,7 @@ import { TarifiView } from './tarifi-view';
 import { ddvEvidenceRows } from '@wise/core/vat/evidence';
 
 type SP = { p?: string; view?: string; tab?: string; y?: string | string[]; mode?: string; c?: string | string[] };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 const list = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
 /** Legacy 13126: open the previous period while its return is still due, else the current one. */

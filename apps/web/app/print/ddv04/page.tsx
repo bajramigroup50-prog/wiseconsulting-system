@@ -6,6 +6,7 @@ import { vatSource } from '@/lib/vat-source';
 import { Ddv04Form } from '../../(app)/ddv/ddv04-form';
 import { printGuard } from '../guard';
 
+import { todayIso } from '@/lib/fmt';
 export const metadata = { title: 'ДДВ-04' };
 
 export default async function PrintDdv04({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
@@ -17,7 +18,7 @@ export default async function PrintDdv04({ searchParams }: { searchParams: Promi
   if (!cur) notFound();
   return (
     <div className="pdfdoc">
-      <Ddv04Form firm={firm} period={p} fields={cur.fields} amendmentNo={cur.row?.corrections.amendmentNo} today={new Date().toISOString().slice(0, 10)} />
+      <Ddv04Form firm={firm} period={p} fields={cur.fields} amendmentNo={cur.row?.corrections.amendmentNo} today={todayIso()} />
     </div>
   );
 }

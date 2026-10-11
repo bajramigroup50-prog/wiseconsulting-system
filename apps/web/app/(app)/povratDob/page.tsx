@@ -7,7 +7,7 @@ import {
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { accountOptions, itemOptions, locationOptions, partnerOptions } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -25,7 +25,7 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
   const { u, firm, year } = await booksPage('povratDob');
   if (!firm) return <NoFirm t="Повратници и одобренија од добавувачи" />;
   const write = canDo(u, 'write', firm.id) && u.role !== 'klient', del = canDo(u, 'del', firm.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
 
   if (write && (sp.nov !== undefined || sp.edit)) {
     let init: EdScr = { id: null, kind: 'ret', number: '', date: today.startsWith(String(year)) ? today : `${year}-12-31`, supNo: '', partnerId: '', refPurchaseId: '', warehouseId: '', note: '', rows: [] };

@@ -7,7 +7,7 @@ import { employees, hrContracts, hrDocs, hrNumbersTaken } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { hrOwnDocIds } from '@/lib/own-template';
-import { dmy } from '@/lib/fmt';
+import { dmy, todayIso } from '@/lib/fmt';
 import { payCtx, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -28,7 +28,7 @@ export default async function DogovorPage({ params }: { params: Promise<{ id: st
     db().select().from(hrDocs).where(and(eq(hrDocs.firmId, firm.id), eq(hrDocs.employeeId, e.id))).orderBy(desc(hrDocs.date), desc(hrDocs.createdAt)),
     hrNumbersTaken(db(), firm.id, e.id),
   ]);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const P = { ...resolvePayParams({}, today.slice(0, 7), ctx.overrides), hours: monthHours(today.slice(0, 7)) };
   const saved: Partial<HrContract> | null = ct ? {
     ...(ct.data as Partial<HrContract>), type: ct.type as HrContract['type'], no: ct.no, signDate: ct.signDate, place: ct.place ?? '', start: ct.start, end: ct.end ?? '',

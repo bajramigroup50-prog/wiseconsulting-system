@@ -13,6 +13,7 @@ import { postJournal } from '../posting';
 import { fixedAssets, fleetVehicles, invoices, rentRentals, type FleetVehicle, type RentRental } from '../schema/index';
 import type { RentDriver, RentHandover } from '../schema/industry';
 import { firmPostingContext } from '../sales/context';
+import { todaySkopje } from '@wise/core/office/dates';
 import {
   assertPartner, cashMovement, dec2, findOrCreatePartner, IndustryError, industryConfigOf, issueModuleInvoice, loadIndustryFirm, n, type IndActor,
 } from './context';
@@ -126,7 +127,7 @@ export async function saveRental(tx: Tx, a: IndActor, r: RentalInput): Promise<{
     const y = r.from.slice(0, 4);
     const used = (await tx.select({ n: rentRentals.number }).from(rentRentals).where(and(eq(rentRentals.firmId, a.firmId), sql`${rentRentals.number} like ${'%/' + y}`))).map((x) => x.n);
     number = nextModuleNumber('RC-', used, y);
-    id = (await tx.insert(rentRentals).values({ ...head, firmId: a.firmId, number, date: new Date().toISOString().slice(0, 10), createdBy: a.userId, out: r.out ?? { fuel: 8 } }).returning({ id: rentRentals.id }))[0]!.id;
+    id = (await tx.insert(rentRentals).values({ ...head, firmId: a.firmId, number, date: todaySkopje(), createdBy: a.userId, out: r.out ?? { fuel: 8 } }).returning({ id: rentRentals.id }))[0]!.id;
   }
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: prev ? 'rcSave' : 'rcNew', entityType: 'rent_rental', entityId: id, data: { number, plate: v.plate, from: r.from, to: r.to } });
   return { id, number };

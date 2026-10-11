@@ -12,7 +12,7 @@ import { requireUser } from '@/lib/auth';
 import { currentFirm } from '@/lib/context';
 import { viewAllowed } from '@/lib/nav';
 import { db } from '@/lib/db';
-import { dmy, fmt } from '@/lib/fmt';
+import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { notFound } from 'next/navigation';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
@@ -32,7 +32,7 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
   const curs = fxCurrencies(R);
   const last = (c: string) => R.find((r) => r.cur === c);
   const dates = [...new Set(R.map((r) => r.date))];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const editDate = sp.edit && dates.includes(sp.edit) ? sp.edit : null;
   // Legacy `fxNew` 7961: every currency, pre-filled with `getFx` (firm codebook → office list → FX_DEF).
   const fxSrc = ed && sp.nov !== undefined && !editDate ? await loadFxSources(db(), (await currentFirm(u))?.id ?? null) : null;

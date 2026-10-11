@@ -24,6 +24,7 @@ import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PRO
 import { AiReadError, fileContent, loadFile, readContent } from './read-document';
 import { readObject } from './storage';
 
+import { todaySkopje } from '@wise/core/office/dates';
 /** Kinds handled here (the others are purchase / sale drafts). */
 export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', 'emp', 'bank', 'fisk', 'classify', 'bom', 'cmp', 'imp', 'scr', 'ob', 'rec', 'bankcls',
   'vreg',
@@ -36,7 +37,7 @@ type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
 
 /** Read one document of a result kind; returns the JSON to store in `ai_documents.result`. */
-export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = new Date().toISOString().slice(0, 10)): Promise<{ result: unknown; model: string }> {
+export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = todaySkopje()): Promise<{ result: unknown; model: string }> {
   const base = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
   let content: Content = { blocks: [], extra: '' };
   if (doc.kind !== 'bom' && doc.kind !== 'bankcls') {

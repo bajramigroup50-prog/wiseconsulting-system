@@ -18,6 +18,7 @@ import { firmPostingContext } from '../sales/context';
 import { setPurchaseNoDed } from '../sales/purchases';
 import { deleteVoucher } from '../bank/cash';
 import { documentsVatSource } from '../vat-source';
+import { todaySkopje } from '@wise/core/office/dates';
 import {
   assertPartner, cashMovement, dec2, dmy, findOrCreatePartner, IndustryError, industryConfigOf, issueModuleInvoice, loadIndustryFirm, n, type IndActor,
 } from './context';
@@ -70,7 +71,7 @@ export async function saveArrangement(tx: Tx, a: IndActor, x: ArrangementInput):
   };
   let id = prev?.id ?? '';
   if (prev) await tx.update(travelArrangements).set(row).where(eq(travelArrangements.id, id));
-  else id = (await tx.insert(travelArrangements).values({ ...row, firmId: a.firmId, date: new Date().toISOString().slice(0, 10) }).returning({ id: travelArrangements.id }))[0]!.id;
+  else id = (await tx.insert(travelArrangements).values({ ...row, firmId: a.firmId, date: todaySkopje() }).returning({ id: travelArrangements.id }))[0]!.id;
   // noDed: linked purchases of an own arrangement are not deductible; purchases no longer linked get the deduction back.
   const before = (prev?.costs ?? []).map((c) => c.purchaseId).filter((p): p is string => !!p);
   for (const p of pids) await setPurchaseNoDed(tx, a.firmId, p, row.kind === 'own', a);
@@ -115,7 +116,7 @@ export async function saveBooking(tx: Tx, a: IndActor, b: BookingInput): Promise
   else {
     const y = new Date().getFullYear();
     number = nextModuleNumber('П-', (await tx.select({ c: travelBookings.number }).from(travelBookings).where(eq(travelBookings.firmId, a.firmId))).map((r) => r.c).filter((c) => c.endsWith('/' + y)), y);
-    id = (await tx.insert(travelBookings).values({ ...row, firmId: a.firmId, number, date: new Date().toISOString().slice(0, 10) }).returning({ id: travelBookings.id }))[0]!.id;
+    id = (await tx.insert(travelBookings).values({ ...row, firmId: a.firmId, number, date: todaySkopje() }).returning({ id: travelBookings.id }))[0]!.id;
   }
   let warning: string | undefined;
   if (A.seats) {
