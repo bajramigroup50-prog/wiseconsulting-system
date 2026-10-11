@@ -79,7 +79,7 @@ export default async function ZsProcPage() {
           </>}
         </tbody></table></div>
       </div>
-      <FindingsCard all={findings.all} open={findings.open} ack={L.statement?.ack ?? {}} canAck={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)} />
+      <FindingsCard all={findings.all} open={findings.open} ack={L.statement?.ack ?? {}} canAck={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)} canDist={canDo(u, 'fix', firm.id)} />
       <div className="callout">Одете по ред: 1 → 8. Секоја фаза се отвора од лентата горе или со „Отвори →“.</div>
       <Card t="1. Контрола" ok={findings.open.length === 0} href="/zsKontrola"><p className="mini" style={{ margin: 0 }}>Бруто биланс, логика на салдата по класи, нераспоредени конта и контролите на ЦРМ{findings.open.length ? <> – <b>{findings.open.length} наод(и)</b></> : ' – сè во ред'}.</p></Card>
       {ent === 'co' && <Card t="2. Даночен биланс" ok={!!L.statement && Object.keys(L.statement.dbAdj).length > 0} href="/zs_db"><p className="mini" style={{ margin: 0 }}>Данок на добивка {fmt(L.Y.co.db.tax)} ден.</p></Card>}

@@ -15,11 +15,13 @@ const goHref = (x: ZcFinding): string | null => {
   return `/${x.go}`;
 };
 
-export function FindingsCard({ all, open, ack, canAck }: {
+export function FindingsCard({ all, open, ack, canAck, canDist }: {
   all: readonly ZcFinding[];
   open: readonly ZcFinding[];
   ack: Record<string, { note?: string; by?: string; at?: string }>;
   canAck: boolean;
+  /** Legacy 17093 „⇄ Распредели по партнери“ on np12 / np22 (needs `fix`). */
+  canDist?: boolean;
 }) {
   return (
     <div className="card" style={{ borderColor: open.length ? 'var(--bad)' : 'var(--good)' }}>
@@ -47,6 +49,7 @@ export function FindingsCard({ all, open, ack, canAck }: {
                   <td>{x.txt}{a && <div className="mini">✓ проверено: {a.note} – {a.by} {dmy(String(a.at ?? '').slice(0, 10))}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {href && <Link className="btn sm" href={href}>Отвори</Link>}{' '}
+                    {canDist && (x.key === 'np12' || x.key === 'np22') && <><Link className="btn sm pri" href={`/zsKontrola?np=${x.key.slice(2)}`}>⇄ Распредели по партнери</Link>{' '}</>}
                     {x.sev === 'block' && canAck && (a
                       ? <RowAction action={unackFinding.bind(null, x.key)} label="↺" title="Врати како неразрешено" />
                       : (

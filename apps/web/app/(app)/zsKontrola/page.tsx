@@ -6,7 +6,10 @@
 import Link from 'next/link';
 import { crmRules } from '@wise/core';
 import { zkAopChecks, zkData } from '@wise/core/yearend/kontrola';
-import { forms3538 } from '@wise/db';
+import { and, asc, between, eq, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { forms3538, journalLines, journals, partners } from '@wise/db';
+import { db } from '@/lib/db';
+import { NpDist, type NpLine } from '@/components/yearend/np-dist';
 import { canDo } from '@/lib/books';
 import { fmt } from '@/lib/fmt';
 import { accountNames, phaseDone, yePage } from '@/lib/yearend';
@@ -21,7 +24,23 @@ function Step({ n, t, b, children }: { n: number; t: string; b: boolean; childre
   return <div className="card"><div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>{n}. {t}</h2>{ok(b)}</div>{children}</div>;
 }
 
-export default async function ZsKontrolaPage() {
+async function npData(firmId: string, year: number, g: '12' | '22', names: Record<string, string>) {
+  const yr = and(eq(journals.firmId, firmId), between(journals.date, `${year}-01-01`, `${year}-12-31`), ne(journals.kind, 'close'));
+  const rows = await db().select({ id: journalLines.id, account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, jid: journals.id, jdesc: journals.description, jdate: journals.date, jnumber: journals.number, kind: journals.kind })
+    .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .where(and(yr, like(journalLines.account, g + '%'), isNull(journalLines.partnerId), or(ne(journalLines.debit, '0'), ne(journalLines.credit, '0'))))
+    .orderBy(asc(journals.date), asc(journalLines.lineNo));
+  const withP = rows.length ? await db().select({ jid: journalLines.journalId, account: journalLines.account, n: sql<number>`count(*)::int` }).from(journalLines)
+    .where(and(inArray(journalLines.journalId, [...new Set(rows.map((r) => r.jid))]), isNotNull(journalLines.partnerId))).groupBy(journalLines.journalId, journalLines.account) : [];
+  const list: NpLine[] = rows.map((r) => ({ id: r.id, account: r.account, side: Number(r.debit) ? 'd' : 'p', amt: Math.round((Number(r.debit) || Number(r.credit)) * 100) / 100, jdesc: r.jdesc ?? '', jdate: r.jdate, jnumber: r.jnumber, kind: r.kind, kname: names[r.account] ?? '', withP: withP.find((w) => w.jid === r.jid && w.account === r.account)?.n ?? 0 }));
+  const P = await db().select({ name: partners.name }).from(partners).where(and(eq(partners.firmId, firmId), eq(partners.active, true))).orderBy(asc(partners.name));
+  const T = await db().selectDistinct({ name: partners.name }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).innerJoin(partners, eq(partners.id, journalLines.partnerId))
+    .where(and(yr, like(journalLines.account, g + '%')));
+  return { list, names: P.map((p) => p.name), turnover: T.map((t) => t.name).sort((a, b) => a.localeCompare(b, 'mk')) };
+}
+
+export default async function ZsKontrolaPage({ searchParams }: { searchParams: Promise<{ np?: string; ti?: string }> }) {
+  const sp = await searchParams;
   const c = await yePage('zsKontrola');
   if (!c) return <NoFirm t="Контрола" />;
   const { L, u, firm, year, findings } = c;
@@ -34,11 +53,18 @@ export default async function ZsKontrolaPage() {
   const A = L.ent === 'co' ? zkAopChecks(V, L.Y.co.db.V) : [];
   const meta = (L.closeJournal?.meta ?? null) as { net?: number; tax?: number } | null;
   const notesOk = !!L.statement && Object.keys(L.statement.notes ?? {}).length > 0;
+  const g = sp.np === '12' || sp.np === '22' ? sp.np : null;
+  const canFix = canDo(u, 'fix', firm.id);
+  const NP = g && canFix ? await npData(firm.id, year, g, names) : null;
+  const ti = Math.max(0, Math.min(Number(sp.ti) || 0, (NP?.list.length ?? 1) - 1));
   return (
     <>
       <ZsHead id="zsKontrola" t="Контрола на завршна сметка" year={year} ent={L.ent} done={phaseDone(L)} />
       <NotClosedNote closed={L.Y.closed} year={year} />
-      <FindingsCard all={findings.all} open={findings.open} ack={L.statement?.ack ?? {}} canAck={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)} />
+      {NP && (NP.list.length
+        ? <NpDist key={NP.list[ti]!.id} g={g!} list={NP.list} ti={ti} names={NP.names} turnover={NP.turnover} />
+        : <div className="callout warn">Нема ставки без партнер на конто {g}.. во налозите за {year}. (Ако салдото доаѓа од фактури/изводи, отворете ја картицата.)</div>)}
+      <FindingsCard all={findings.all} open={findings.open} ack={L.statement?.ack ?? {}} canAck={canDo(u, 'settings', firm.id) || canFix} canDist={canFix} />
       <Step n={1} t="Бруто билансот е изедначен" b={Math.abs(K.TD - K.TP) < 0.01}>
         <p className="mini" style={{ margin: 0 }}>Должи {fmt(K.TD)} · Побарува {fmt(K.TP)}{Math.abs(K.TD - K.TP) >= 0.01 && <> · <b>разлика {fmt(K.TD - K.TP)}</b> <Link className="btn sm" href="/bilanc">Бруто биланс</Link></>}</p>
       </Step>

@@ -13,7 +13,8 @@ import {
   audit, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
   snapshotAop, undoClose, undoOpen, unlockYear, upsertStatement, type StatementPatch,
 } from '@wise/db';
-import { eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import { journalLines, journals, partners, updateJournal } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { canDo } from '@/lib/books';
 import { Forbidden } from '@/lib/auth';
@@ -429,3 +430,57 @@ export async function setCrmPeriodAction(_prev: ActionState, form: FormData): Pr
   if (!(p >= 0 && p <= 4)) return { error: 'Period е 0–4.' };
   return patchStatement('crmPeriod', () => ({ crmPeriod: p }), `Period за ЦРМ: ${p}.`);
 }
+
+/* ---------------- npDist: distribute a 12../22.. balance without partner (legacy 17047–17090, ACT_NEED fix) ---------------- */
+
+export async function npDistAction(lineId: number, rows: { n: string; a: string }[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('npSave');
+    if (!(await requireFix(u, firm.id))) return { error: 'Немате дозвола за корекција на налози.' };
+    const num = (s: string) => { const v = Number(String(s ?? '').replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return Number.isFinite(v) ? Math.round(v * 100) / 100 : 0; };
+    const R = (Array.isArray(rows) ? rows : []).map((r) => ({ n: String(r.n ?? '').trim().slice(0, 200), a: num(r.a) })).filter((r) => r.n && r.a).slice(0, 500);
+    if (!R.length) return { error: 'Внесете барем еден партнер со износ.' };
+    const msg = await db().transaction(async (tx) => {
+      const [ln] = await tx.select().from(journalLines).where(and(eq(journalLines.id, lineId), eq(journalLines.firmId, firm.id))).limit(1);
+      if (!ln || ln.partnerId) throw new UserErr('Налогот е променет – отворете повторно.');
+      const side: 'd' | 'p' = Number(ln.debit) ? 'd' : 'p';
+      const amt = Math.round((Number(ln.debit) || Number(ln.credit)) * 100) / 100;
+      const dist = Math.round(R.reduce((s, r) => s + r.a, 0) * 100) / 100;
+      if (dist - amt > 0.009) throw new UserErr(`Распределено (${fmt(dist)}) е повеќе од салдото (${fmt(amt)}).`);
+      const [j] = await tx.select().from(journals).where(eq(journals.id, ln.journalId)).limit(1);
+      if (!j) throw new UserErr('Налогот не е пронајден.');
+      const P = await tx.select({ id: partners.id, name: partners.name }).from(partners).where(eq(partners.firmId, firm.id));
+      const pid = async (n: string) => {
+        const ex = P.find((p) => p.name.trim().toLowerCase() === n.toLowerCase());
+        if (ex) return ex.id;
+        const [ins] = await tx.insert(partners).values({ firmId: firm.id, name: n, active: true }).returning({ id: partners.id });
+        P.push({ id: ins!.id, name: n });
+        return ins!.id;
+      };
+      const L = await tx.select().from(journalLines).where(eq(journalLines.journalId, j.id)).orderBy(asc(journalLines.lineNo));
+      const keep = (l: typeof L[number]) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId, note: l.note, doc: l.doc, currency: l.currency, amountCur: l.amountCur, locationId: l.locationId });
+      const out = [];
+      for (const l of L) {
+        if (l.id !== ln.id) { out.push(keep(l)); continue; }
+        for (const r of R) out.push({ ...keep(l), partnerId: await pid(r.n), debit: side === 'd' ? r.a : 0, credit: side === 'p' ? r.a : 0, currency: null, amountCur: null });
+        const rest = Math.round((amt - dist) * 100) / 100;
+        if (Math.abs(rest) >= 0.01) out.push({ ...keep(l), debit: side === 'd' ? rest : 0, credit: side === 'p' ? rest : 0, currency: null, amountCur: null });
+      }
+      await updateJournal(tx, j.id, {
+        firmId: firm.id, date: j.date, kind: j.kind as Parameters<typeof updateJournal>[2]['kind'], description: j.description, sourceType: j.sourceType, sourceId: j.sourceId,
+        number: j.number, periodFrom: j.periodFrom, periodTo: j.periodTo, meta: j.meta, lines: out, userId: u.id, requirePartner: false, auditAction: 'npSave',
+      });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'npSave', entityType: 'journal', entityId: j.id, data: { text: `Распределба по партнери: конто ${ln.account} (${R.length} партнери, ${fmt(dist)})` } });
+      const rest = Math.round((amt - dist) * 100) / 100;
+      return `Распределено ${fmt(dist)} на ${R.length} партнери${Math.abs(rest) >= 0.01 ? '; остаток без партнер ' + fmt(rest) : ''}.`;
+    });
+    done();
+    return { ok: msg };
+  } catch (e) {
+    if (e instanceof UserErr) return { error: e.message };
+    return actionError(e);
+  }
+}
+
+class UserErr extends Error {}
+const requireFix = async (u: Awaited<ReturnType<typeof firmAction>>['u'], firmId: string) => canDo(u, 'fix', firmId);
