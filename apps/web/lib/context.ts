@@ -14,15 +14,18 @@ export const YEAR_COOKIE = 'wc_year';
 
 /**
  * Tab / window guard (`lib/firm-guard.ts`): the firm id / year the sending page was rendered for (header added by
- * `components/firm-guard.tsx` to mutations only) against what the session resolves now. Not checked when this very
- * request changed the cookie (choosing a firm / year is not a stale page) or when the header is absent (page loads).
+ * `components/firm-guard.tsx` to mutations only) against the firm / year this request STARTED with — the cookie the
+ * browser sent, not the value after a cookie set in this same request. So choosing a firm / year (which sets the cookie
+ * and re-renders in the same request) is never refused, nor is a page whose firm equals the one now set (picking A
+ * again in a stale A tab), while a page left open for firm A after another tab switched to B is. Without the cookie in the request the resolved value is used (single-firm clients, a cleared firm).
+ * No header (page loads, GET) → not checked.
  */
-async function sentFor(header: string, cookie: string): Promise<string | null> {
+async function sentAndStart(header: string, cookie: string): Promise<{ sent: string | null; start: string | undefined }> {
   const h = await headers();
-  const sent = h.get(header);
-  if (!sent) return null;
-  if (cookieFrom(h.get('cookie'), cookie) !== (await cookies()).get(cookie)?.value) return null;
-  return sent;
+  const start = cookieFrom(h.get('cookie'), cookie);
+  // this very request chose a firm / year (cookie set here): never a stale page
+  if (start !== (await cookies()).get(cookie)?.value) return { sent: null, start };
+  return { sent: h.get(header), start };
 }
 
 /**
@@ -33,7 +36,10 @@ async function sentFor(header: string, cookie: string): Promise<string | null> {
  */
 export async function currentFirm(u: SessionUser, opts: { check?: boolean } = {}): Promise<Firm | null> {
   const f = await resolveFirm(u);
-  if (opts.check !== false && firmMismatch(await sentFor(FIRM_HEADER, FIRM_COOKIE), f?.id ?? null)) throw new FirmChanged();
+  if (opts.check !== false) {
+    const { sent, start } = await sentAndStart(FIRM_HEADER, FIRM_COOKIE);
+    if (sent && firmMismatch(sent, start || (f?.id ?? null)) && firmMismatch(sent, f?.id ?? null)) throw new FirmChanged();
+  }
   return f;
 }
 
@@ -63,7 +69,11 @@ export async function yearChosen(): Promise<boolean> {
 export async function currentYear(opts: { check?: boolean } = {}): Promise<number> {
   const v = Number((await cookies()).get(YEAR_COOKIE)?.value);
   const y = Number.isInteger(v) && v > 2000 && v < 2100 ? v : calendarYear();
-  if (opts.check !== false && yearMismatch(await sentFor(YEAR_HEADER, YEAR_COOKIE), y)) throw new YearChanged();
+  if (opts.check !== false) {
+    const { sent, start } = await sentAndStart(YEAR_HEADER, YEAR_COOKIE);
+    const s0 = Number(start);
+    if (sent && yearMismatch(sent, Number.isInteger(s0) && s0 > 2000 && s0 < 2100 ? s0 : y) && yearMismatch(sent, y)) throw new YearChanged();
+  }
   return y;
 }
 
