@@ -14,7 +14,9 @@
  *
  * Without AI (switched off in Систем, no key, credit / key failure in the last 15 minutes, or the AI call failed):
  * bank statements, trial balances and invoices with a text layer / XML / CSV are read by the free readers
- * (`../ai/free-read.ts`, model `noai`); other documents get the message with the free import paths.
+ * (`../ai/free-read.ts`, model `noai`); other documents get the message with the free import paths. Inspection acts
+ * (`kontrola`) as text PDF / Word / TXT are read the same way (Word / TXT always, the model does not take them); a scan
+ * gets „Скенирана слика – потребно е AI или рачен внес“ with the reason AI was not used.
  */
 import { and, eq } from 'drizzle-orm';
 import { fixRates, scanResultConsistent, scanInvoices, ublToScan, type ScanResult } from '@wise/core/sales';
@@ -25,7 +27,8 @@ import { defineJob } from '../job';
 import { AI_ERR_BLOCKING, AI_ERR_MSG, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
 import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
-import { FREE_KINDS, freeRead, NOAI_MODEL } from '../ai/free-read';
+import { FREE_KINDS, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
+import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
 import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
@@ -71,7 +74,19 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   const fallback = async (code: AiErrCode, detail = ''): Promise<{ result: unknown; model: string }> => {
     const r = await free();
     if (r) return { result: r, model: NOAI_MODEL };
-    throw new ReadFail(code, code === 'nokey' ? new AiUnavailableError().message : AI_ERR_MSG[code], detail);
+    const why = code === 'nokey' ? new AiUnavailableError().message : AI_ERR_MSG[code];
+    // inspection act without a text layer: say it is a scan and what to do next (AI or manual entry), then why AI failed
+    if (doc.kind === 'kontrola') throw new ReadFail(code, `${KONTROLA_SCAN_MSG} (${/^.*?[.!](?=\s|$)/.exec(why)?.[0] ?? why})`, detail);
+    throw new ReadFail(code, why, detail);
+  };
+  /** Files only the free reader takes (an inspection act as .docx / .txt): read without AI even when AI works. */
+  const freeOnly = async (): Promise<{ result: unknown; model: string } | null> => {
+    if (!doc.fileId || !FREE_KINDS.has(doc.kind)) return null;
+    const file = await loadFile(db, f.id, doc.fileId);
+    if (!freeOnlyFile(doc.kind, file)) return null;
+    const r = await free();
+    if (r) return { result: r, model: NOAI_MODEL };
+    throw new ReadFail('noai', 'Документот нема текст што може да се прочита – внесете ги наодите рачно.');
   };
   /** Run an AI read; provider errors are classified, blocking ones remembered, then the free reader is tried. */
   const viaAi = async <T>(f0: () => Promise<T>): Promise<T | { result: unknown; model: string; free: true }> => {
@@ -89,7 +104,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   };
   try {
     if (RESULT_KINDS.has(doc.kind)) {
-      const { result, model } = noAi ? await fallback(noAi) : await viaAi(() => readResultKind(db, doc, f));
+      const { result, model } = noAi ? await fallback(noAi) : (await freeOnly()) ?? await viaAi(() => readResultKind(db, doc, f));
       await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
       log(`${docId}: ${doc.kind} read via ${model}`);
       return;

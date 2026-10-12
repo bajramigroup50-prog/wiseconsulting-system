@@ -82,7 +82,7 @@ export function useAiRead(firmId: string) {
 }
 
 /** Drop zone + file picker (legacy `.drop` label). */
-export function AiDrop({ onFiles, label, disabled, multiple = true, small, text }: { onFiles: (f: File[]) => void; label: React.ReactNode; disabled?: boolean; multiple?: boolean; small?: boolean; /** also XML / CSV / TXT (statements, trial balance) */ text?: boolean }) {
+export function AiDrop({ onFiles, label, disabled, multiple = true, small, text, accept }: { onFiles: (f: File[]) => void; label: React.ReactNode; disabled?: boolean; multiple?: boolean; small?: boolean; /** also XML / CSV / TXT (statements, trial balance) */ text?: boolean; /** own file types of the picker (overrides the default) */ accept?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   const [on, setOn] = useState(false);
   return (
@@ -94,7 +94,7 @@ export function AiDrop({ onFiles, label, disabled, multiple = true, small, text 
         onClick={(e) => { e.preventDefault(); if (!disabled) ref.current?.click(); }}>
         {label}
       </label>
-      <input ref={ref} type="file" hidden multiple={multiple} accept={'application/pdf,.pdf,image/jpeg,image/png,image/webp' + (text ? ',.xml,.csv,.txt,.sta,.mt940' : '')}
+      <input ref={ref} type="file" hidden multiple={multiple} accept={accept ?? 'application/pdf,.pdf,image/jpeg,image/png,image/webp' + (text ? ',.xml,.csv,.txt,.sta,.mt940' : '')}
         onChange={(e) => { const f = [...(e.target.files ?? [])]; e.target.value = ''; if (f.length) onFiles(f); }} />
     </>
   );

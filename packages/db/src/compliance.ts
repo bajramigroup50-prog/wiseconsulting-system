@@ -9,7 +9,7 @@
  */
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import {
-  AUTH_AREA, DEFAULT_ACTIVITIES, fromCents, invoiceLegalIssues, isFindingArea, isKontrolaAuth, isKontrolaDoc, isKontrolaStatus, isVerdict,
+  AUTH_AREA, deadlineFrom, DEFAULT_ACTIVITIES, fromCents, invoiceLegalIssues, isFindingArea, isKontrolaAuth, isKontrolaDoc, isKontrolaStatus, isVerdict,
   kontrolaDeadlines, numberingIssues, RECOMMEND_LBL, toCents, CASH_LIMIT_EUR, CASH_LIMIT_MONTH, CASH_LIMIT_SINGLE,
   type ComplianceFacts, type FindingArea, type KontrolaAiResult, type KontrolaAuth, type LegalIssue, type Recommendation,
 } from '@wise/core/compliance';
@@ -168,7 +168,7 @@ export async function complianceFacts(tx: Tx, firmId: string, year: number, toda
   let kontrolaExpired = 0, kontrolaUrgent = 0, kontrolaOpen = 0;
   for (const k of K) {
     if (!isKontrolaAuth(k.auth) || !isKontrolaDoc(k.doc)) continue;
-    const [d] = kontrolaDeadlines(k.auth, k.doc, k.delivered, today, k.dueOverride);
+    const [d] = kontrolaDeadlines(k.auth, k.doc, k.delivered, today, kontrolaDue(k));
     if (!d) continue;
     kontrolaOpen++;
     if (d.state === 'expired') kontrolaExpired++;
@@ -207,6 +207,17 @@ export interface KontrolaInput {
 
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const optDate = (s: unknown) => (isDate(s) ? s : null);
+
+/**
+ * The case's deadline: the one typed from the „правна поука“ (`dueOverride`), otherwise the days the reader found in
+ * it (`data.remedy`, `applyKontrolaAi`) counted from the delivery date; null = the authority's default remedy period.
+ */
+export function kontrolaDue(k: Pick<Kontrola, 'dueOverride' | 'delivered' | 'data'>): string | null {
+  if (k.dueOverride) return k.dueOverride;
+  const r = ((k.data ?? {}) as { remedy?: { n?: number; unit?: string } }).remedy;
+  if (!k.delivered || !r?.n) return null;
+  try { return deadlineFrom(k.delivered, r.n, r.unit === 'workdays' ? 'workdays' : 'days'); } catch { return null; }
+}
 
 async function own(tx: Tx, firmId: string, id: string): Promise<Kontrola> {
   const [k] = /^[0-9a-f-]{36}$/i.test(id) ? await tx.select().from(kontroli).where(and(eq(kontroli.id, id), eq(kontroli.firmId, firmId))).limit(1) : [];
@@ -303,6 +314,9 @@ export async function applyKontrolaAi(tx: Tx, firmId: string, kontrolaId: string
   if (!k.periodFrom && isDate(r.periodFrom)) patch.periodFrom = r.periodFrom;
   if (!k.periodTo && isDate(r.periodTo)) patch.periodTo = r.periodTo;
   if (!k.subject && r.subject) patch.subject = String(r.subject).slice(0, 500);
+  // the deadline of the „правна поука“ (free reader): kept with the case, counted from the delivery date (`kontrolaDue`)
+  const rd = Number(r.remedyDays);
+  if (Number.isInteger(rd) && rd > 0 && rd <= 90) patch.data = { ...(k.data ?? {}), remedy: { n: rd, unit: r.remedyUnit === 'workdays' ? 'workdays' : 'days' } };
   if (Object.keys(patch).length) await tx.update(kontroli).set(patch).where(eq(kontroli.id, kontrolaId));
   let n = 0;
   for (const f of r.findings ?? []) {
@@ -314,7 +328,7 @@ export async function applyKontrolaAi(tx: Tx, firmId: string, kontrolaId: string
     }, userId);
     n++;
   }
-  await audit(tx, { userId, firmId, action: 'kontrolaAiApply', entityType: 'kontrola', entityId: kontrolaId, data: { findings: n } });
+  await audit(tx, { userId, firmId, action: 'kontrolaAiApply', entityType: 'kontrola', entityId: kontrolaId, data: { findings: n, ...(r.noai ? { noai: true } : {}), ...(patch.data ? { remedyDays: rd } : {}) } });
   return n;
 }
 
