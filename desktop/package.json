@@ -1,14 +1,18 @@
 {
   "name": "wise-desktop",
   "productName": "WISE CONSULTING",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "WISE CONSULTING – десктоп апликација (app.wiseconsulting.com.mk)",
   "author": "WISE CONSULTING",
   "private": true,
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "test": "node --test \"fiscal/test/*.test.js\""
+  },
+  "dependencies": {
+    "serialport": "13.0.0"
   },
   "devDependencies": {
     "electron": "38.2.2",
@@ -17,9 +21,24 @@
   "build": {
     "appId": "mk.com.wiseconsulting.app",
     "productName": "WISE CONSULTING",
-    "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "fiscal.js", "package.json", "build/icon.ico", "build/icon.png"],
-    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "fiscal.js",
+      "preload.js",
+      "fiscal/**/*.js",
+      "!fiscal/test/**",
+      "package.json",
+      "build/icon.ico",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
@@ -29,6 +48,10 @@
       "createStartMenuShortcut": true,
       "shortcutName": "WISE CONSULTING",
       "artifactName": "WISE-Setup-${version}.exe"
-    }
+    },
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/@serialport/bindings-cpp/**"
+    ]
   }
 }

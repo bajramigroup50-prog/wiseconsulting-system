@@ -4,12 +4,19 @@
  * quantity from the qty box, the same item adds up), item select with price and stock, cart, loyalty card (number or
  * phone + Enter), coupon, redeem points, live discount („Попуст … · За плаќање …“), „Евидентирај продажба“ and
  * „Преземи сметка за апаратот“ (.inp file, legacy `posFile`). The server recomputes the discount.
+ * „🧾 Фискална сметка“ (WISE desktop app only): records the sale with a pending fiscal receipt, prints it on the
+ * device and stores the device's receipt number (fiscal-flow.ts); in a browser it explains that it needs the desktop app.
  */
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import * as Retail from '@wise/core/retail';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { posSellAction } from '../_stock/actions';
+import { DESKTOP_ONLY } from '@/lib/fiscal-bridge';
+import { fiscalResultAction, posSellFiscalAction } from './fiscal-actions';
+import { printFiscal, saveAgain, type FiscalOutcome } from './fiscal-flow';
+import { useFiscalBridge } from './fiscal-panel';
 
 export interface TillItem { id: string; code: string; name: string; type: string; rate: number; price: number; have: number; barcodes: string[] }
 export interface TillCard { id: string; no: string; name: string; phone: string | null; disc: number; points: number }
@@ -42,6 +49,11 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
   const [usePts, setUsePts] = useState(false);
   const [payCard, setPayCard] = useState('');
   const bcRef = useRef<HTMLInputElement>(null);
+  const bridge = useFiscalBridge();
+  const router = useRouter();
+  const [fBusy, setFBusy] = useState(false);
+  const [fMsg, setFMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [unsaved, setUnsaved] = useState<FiscalOutcome['unsaved']>(undefined);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const scanItems = useMemo(() => items.map((i) => ({ ...i, active: true })), [items]);
 
@@ -81,6 +93,27 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
     Object.assign(document.createElement('a'), { href: url, download: `smetka_${Date.now()}.inp` }).click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  const reset = () => { setCart([]); setCardId(''); setCardQ(''); setCoupon(''); setUsePts(false); setPayCard(''); };
+  /** 🧾 sale + fiscal receipt: the sale is recorded first (pending receipt), then printed; fiscalised only on the device's number. */
+  const fiscal = async () => {
+    if (!bridge) { setFMsg({ ok: false, text: DESKTOP_ONLY }); return; }
+    if (fBusy || !cart.length) return;
+    setFBusy(true); setFMsg(null); setUnsaved(undefined);
+    try {
+      const s = await posSellFiscalAction(payload);
+      if (s.error || !s.fiskId || !s.receipt) { setFMsg({ ok: false, text: s.error || 'Продажбата не е евидентирана.' }); return; }
+      reset();
+      const o = await printFiscal(bridge, { fiskId: s.fiskId, receipt: s.receipt }, fiscalResultAction);
+      setFMsg({ ok: o.ok, text: o.msg }); setUnsaved(o.unsaved);
+      if (order && o.ok) { router.push('/restoran'); return; }
+    } finally { setFBusy(false); router.refresh(); setTimeout(() => bcRef.current?.focus(), 30); }
+  };
+  const saveNo = async () => {
+    if (!unsaved) return;
+    setFBusy(true);
+    const o = await saveAgain(unsaved.fiskId, unsaved.result, fiscalResultAction);
+    setFBusy(false); setFMsg({ ok: o.ok, text: o.msg }); setUnsaved(o.unsaved); router.refresh();
+  };
   const payload = {
     date: D, wh, card: payCard === '' ? null : Number(payCard.replace(',', '.')) || 0, order: order ?? null,
     cart: cart.map((l) => ({ itemId: l.itemId, qty: l.qty, price: l.price, rate: l.rate })),
@@ -93,6 +126,8 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
       {st.ok && <div className="callout good">{st.ok}</div>}
       {msg && <div className="callout warn">{msg}</div>}
+      {fMsg && <div className={'callout ' + (fMsg.ok ? 'good' : 'bad')} role="alert" data-testid="fiscal-msg">{fMsg.text}</div>}
+      {unsaved && <button type="button" className="btn pri" onClick={saveNo} disabled={fBusy}>Зачувај го бројот {unsaved.result.number}</button>}
       <div className="row" style={{ marginBottom: 8 }}>
         <input ref={bcRef} id="posBc" value={bc} onChange={(e) => setBc(e.target.value)} placeholder="📷 Скенирај баркод или внеси шифра + Enter" style={{ flex: 1, fontSize: 16 }} autoComplete="off" autoFocus
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scan(); } }} />
@@ -126,7 +161,9 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
         </div>
         <div className="row">
           <label className="f">Од тоа со картичка<input inputMode="decimal" value={payCard} onChange={(e) => setPayCard(e.target.value)} style={{ width: 120 }} /></label>
-          <div className="savebar"><button className="btn pri" disabled={pending || (!!cp && 'err' in cp)}>Евидентирај продажба</button></div>
+          <div className="savebar"><button className="btn pri" disabled={pending || fBusy || (!!cp && 'err' in cp)}>Евидентирај продажба</button></div>
+          <button type="button" className="btn pri" data-testid="fiscal-sell" disabled={pending || fBusy || (!!cp && 'err' in cp)} onClick={fiscal}
+            title={bridge ? 'Евидентирај и печати фискална сметка' : DESKTOP_ONLY}>{fBusy ? 'Се печати…' : '🧾 Фискална сметка'}</button>
           <button type="button" className="btn" onClick={inp}>Преземи сметка за апаратот</button>
         </div>
       </> : <div className="empty">Додадете артикли во сметката.</div>}

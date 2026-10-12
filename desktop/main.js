@@ -17,7 +17,8 @@ function createWindow() {
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     title: 'WISE CONSULTING', icon: __dirname + '/build/icon.ico', backgroundColor: '#0d5b4b', show: false,
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false },
+    // preload.js exposes only `window.wiseFiscal` (fiscal device), and only on the app's own origin
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, preload: __dirname + '/preload.js' },
   });
   // Show the window only once the first page has painted (no white flash while the server answers).
   win.once('ready-to-show', () => { win.maximize(); win.show(); });

@@ -5,12 +5,13 @@
  * The sale accumulates into the day document of the location (POS day, `sales_daily`), posted like a cash sale with
  * card payments on the card account (POS partner); goods issued at average cost, products with a BOM issue the BOM.
  * `?ro=<bill>` opens a restaurant bill in the till (legacy `roPay`); the bill is closed together with the sale.
+ * „🧾 Фискален апарат“ (WISE desktop app): fiscal receipts of the day with the device numbers, storno, X / Z, cash in / out.
  */
 import Link from 'next/link';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { retailPrice, stock } from '@wise/core';
 import { zBaseVat } from '@wise/core/retail';
-import { coupons, itemBarcodes, listDocs, loyaltyCards, loyaltyRulesOf, salesDaily, type RestaurantOrder } from '@wise/db';
+import { coupons, itemBarcodes, listDocs, listFiscalLog, loyaltyCards, loyaltyRulesOf, salesDaily, type RestaurantOrder } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dateInYear, locOptions, pickLoc, stockPage, todayIso } from '@/lib/stock';
@@ -23,6 +24,7 @@ import { DownloadCsv } from '@/components/download-csv';
 import { LocSelect } from '@/components/loc-select';
 import { deleteSalesDayAction } from '../_stock/actions';
 import { PosTill, type TillItem } from './pos-till';
+import { FiscalPanel, type FiscalLogItem } from './fiscal-panel';
 
 type SP = { d?: string; wh?: string; ro?: string };
 
@@ -34,7 +36,7 @@ export default async function KasaPage({ searchParams }: { searchParams: Promise
   const locs = locOptions(L);
   const wh = pickLoc(L, sp.wh) || L.settings.fiskOpt.wh || locs.find((l) => l.kind === 'store')?.id || 'main';
   const date = sp.d ? dateInYear(sp.d, year) : todayIso();
-  const [days, bcs, C, P, ro] = await Promise.all([
+  const [days, bcs, C, P, ro, FL] = await Promise.all([
     db().select().from(salesDaily)
       .where(and(eq(salesDaily.firmId, firm.id), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
       .orderBy(desc(salesDaily.date)),
@@ -42,7 +44,13 @@ export default async function KasaPage({ searchParams }: { searchParams: Promise
     write ? db().select().from(loyaltyCards).where(eq(loyaltyCards.firmId, firm.id)) : Promise.resolve([]),
     write ? db().select().from(coupons).where(eq(coupons.firmId, firm.id)) : Promise.resolve([]),
     sp.ro && /^[0-9a-f-]{36}$/i.test(sp.ro) ? listDocs<RestaurantOrder>(db(), firm.id, 'rord', 'open').then((O) => O.find((o) => o.id === sp.ro) ?? null) : Promise.resolve(null),
+    listFiscalLog(db(), firm.id, date, date),
   ]);
+  const stornoOf = new Set(FL.filter((f) => f.data.kind === 'storno' && f.status === 'ok').map((f) => f.data.refId));
+  const fiscalLog: FiscalLogItem[] = FL.filter((f) => (f.data.wh ?? 'main') === wh).map((f) => ({
+    id: f.id, kind: f.data.kind, status: f.status, number: f.number, total: Number(f.data.total) || 0, error: f.data.error ?? null, ref: f.data.refNumber ?? null,
+    time: f.createdAt.toLocaleTimeString('mk-MK', { timeZone: 'Europe/Skopje', hour: '2-digit', minute: '2-digit' }), stornoed: stornoOf.has(f.id),
+  }));
   const bcOf = new Map<string, string[]>();
   for (const b of bcs) bcOf.set(b.itemId, [...(bcOf.get(b.itemId) ?? []), b.barcode]);
   const items: TillItem[] = (L.ctx.items ?? []).map((it) => ({
@@ -59,8 +67,9 @@ export default async function KasaPage({ searchParams }: { searchParams: Promise
         <Link className="btn" href="/lojalnost">💳 Лојалност</Link>
       </Hd>
       <div className="card"><div className="row"><LocSelect label="Продавница / каса" param="wh" value={wh} options={locs.map((l) => ({ value: l.id, label: l.name }))} /></div></div>
-      <div className="callout warn">Фискалниот апарат (Accent, David, Expert, Synergy…) се поврзува со компјутерот преку драјверот на производителот; од прелистувачот не може директно да му се испрати. Тука се евидентира продажбата, се раздолжува залихата и се презема датотека за фискалната сметка за програмата на апаратот.</div>
+      <div className="callout warn">Фискалниот апарат (ACCENT, DAVID, ДУНА…) печати само од <b>WISE десктоп апликацијата</b> на компјутерот на касата: „🧾 Фискална сметка“ ја евидентира продажбата и ја печати сметката, а бројот од апаратот се зачувува. Во прелистувач продажбата се евидентира без фискална сметка (или се презема датотека за програмата на апаратот).</div>
       {ro && <div className="callout">🍽 Сметка од маса во касата – додадете картичка/купон ако има и „Евидентирај продажба“. Масата се затвора со продажбата.</div>}
+      <FiscalPanel wh={wh} log={fiscalLog} canWrite={write} />
       <div className="cols">
         {write ? (
           <PosTill key={`${wh}:${ro?.id ?? ''}`} items={items} date={date} wh={wh} order={ro?.id ?? null} initial={initial}

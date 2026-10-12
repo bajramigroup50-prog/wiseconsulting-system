@@ -41,8 +41,8 @@ type SP = {
 
 const FK_BRANDS = ['Accent / Expert', 'David', 'Duna', 'Synergy', 'Daisy', 'Tremol', 'Datecs', 'Друго'];
 const CONN: Record<string, string> = { usb: 'USB (виртуелен COM порт)', com: 'Сериски COM порт', lan: 'Мрежа (LAN / IP)', none: 'Не е поврзан' };
-const MODE: Record<string, string> = { manual: 'Рачно – извештаите се носат и скенираат', file: 'Датотека (.inp) за програмата на производителот', bridge: 'Директно – локален мост (кога ќе се инсталира)' };
-const MODE_SHORT: Record<string, string> = { manual: 'Рачно – извештаи се скенираат', file: 'Датотека за програмата на производителот', bridge: 'Директно (локален мост)' };
+const MODE: Record<string, string> = { manual: 'Рачно – извештаите се носат и скенираат', file: 'Датотека (.inp) за програмата на производителот', bridge: 'Директно – WISE десктоп апликација (Фискална каса → ⚙️ Фискален апарат)' };
+const MODE_SHORT: Record<string, string> = { manual: 'Рачно – извештаи се скенираат', file: 'Датотека за програмата на производителот', bridge: 'Директно (WISE десктоп)' };
 const daysTo = (a: string, b: string) => Math.round((new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 864e5);
 
 export default async function FiskPerPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -129,7 +129,7 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
       <>
         <Hd t="Фискални апарати" sub="апарати и поврзување со компјутер" />
         {tabs}
-        <div className="callout">Евиденција на фискалните апарати по објект и подготовка за <b>директно поврзување со компјутер</b>. Од прелистувачот апаратот не може да се управува директно; тоа ќе го прави мала локална програма (мост) што ќе се инсталира на компјутерот во продавницата – тогаш сметката од системот се печати на апаратот и Z извештајот автоматски се враќа во програмата. Тука ги внесувате податоците што ќе ги користи мостот.</div>
+        <div className="callout">Евиденција на фискалните апарати по објект. Од прелистувачот апаратот не може да се управува директно; тоа го прави <b>WISE десктоп апликацијата</b> на компјутерот во продавницата (Фискална каса → ⚙️ Фискален апарат) – сметката се печати на апаратот, а бројот на сметката и Z извештајот се враќаат во програмата. Тука ја водите евиденцијата (сериски број, сервисер, рокови).</div>
         {seen.length > 0 && <div className="callout warn">Од прочитаните извештаи се пронајдени апарати што не се евидентирани: {seen.map((x) => <span key={x}><b>{x}</b> {write && <Link className="btn sm" href={`/fiskPer?tab=dev&dev=s:${encodeURIComponent(x)}`}>+ додај</Link>} </span>)}</div>}
         <div className="tw"><table className="dense">
           <thead><tr><th>Фискален број / сериски</th><th>Објект</th><th>Марка / модел</th><th>Поврзување</th><th>Начин на работа</th><th>Следен сервис</th><th /></tr></thead>

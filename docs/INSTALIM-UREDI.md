@@ -117,7 +117,7 @@ done
 
 ### Build the generic installer (once per desktop version, on a Windows PC)
 ```powershell
-cd desktop; npm ci; npm run dist   # → desktop\dist\WISE-Setup-1.1.0.exe
+cd desktop; npm ci; npm run dist   # → desktop\dist\WISE-Setup-1.2.0.exe
 ```
 Copy it to the server as `/opt/wise/download/WISE-Setup.exe` (`scp … wise@server:/opt/wise/download/WISE-Setup.exe`,
 readable by uid 1001). Never upload a per-device installer there (the app refuses a base that already has a trailer).
@@ -125,7 +125,7 @@ readable by uid 1001). Never upload a per-device installer there (the app refuse
 ### Rollout
 1. Merge + deploy (migration `0023_devices` creates the `devices` table; `DEVICE_CERTS` defaults to `off` → no change).
 2. On the VPS: `sudo sh /opt/wise/app/docker/device-ca.sh` → back up `/opt/wise/ca/private/ca.key` offline.
-3. Build the desktop 1.1.0 installer on Windows and copy it to `/opt/wise/download/WISE-Setup.exe`
+3. Build the desktop 1.2.0 installer on Windows and copy it to `/opt/wise/download/WISE-Setup.exe`
    (`sudo mkdir -p /opt/wise/download`).
 4. `docker compose -f docker/compose.yml --env-file /opt/wise/.env up -d app caddy` (picks up the new mounts).
    Check „🔐 Уреди“: CA ✔, installer ✔.
@@ -137,7 +137,7 @@ readable by uid 1001). Never upload a per-device installer there (the app refuse
    Rollback = `DEVICE_CERTS=optional` (or `off`) + redeploy.
    Keep SSH access to the VPS as the break-glass path (mTLS does not affect SSH).
 
-### Fiscal cash registers (later)
-Not implemented. The desktop app reserves IPC channels in `desktop/fiscal.js` (`wise:fiscal:status`,
-`wise:fiscal:printReceipt`, `wise:fiscal:dailyReport`; only `status` is registered and answers „not available“).
-Adding `preload.js` (contextBridge `window.wiseFiscal`) + the driver in the main process enables it.
+### Fiscal cash registers
+Implemented in desktop 1.2.0: `preload.js` exposes `window.wiseFiscal` on the app's origin, `desktop/fiscal/` holds the
+drivers (Datecs-family raw protocol over COM / LAN, Accent IN-file program, simulator). Setup per shop and what is
+confirmed / „за проверка“ per vendor: `docs/FISKALNI-APARATI.md`.

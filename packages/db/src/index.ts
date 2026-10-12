@@ -60,6 +60,7 @@ export * from './retail-items';
 export * from './journal-override';
 export * from './journal-override-save';
 export * from './parity-retail';
+export * from './fiscal-receipts';
 export * from './parity-stock';
 export * from './sales/partners-auto';
 export * from './sales/invoice-production';
