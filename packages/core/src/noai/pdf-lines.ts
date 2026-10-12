@@ -9,7 +9,7 @@ import { colFormat, parseNumAuto, type ColFmt, type NumFmt } from '../numfmt';
 /** One text item of a page (x / y in PDF points, y grows upward like pdfjs `transform[5]`). */
 export interface PdfItem { page: number; x: number; y: number; w: number; h?: number; s: string }
 export interface PdfCell { x0: number; x1: number; s: string }
-export interface PdfLine { page: number; y: number; cells: PdfCell[] }
+export interface PdfLine { page: number; y: number; cells: PdfCell[]; /** text height of the line (pt) */ h?: number }
 
 const clean = (s: string) => s.replace(/\s+/g, ' ');
 
@@ -23,7 +23,7 @@ export function pdfLines(items: readonly PdfItem[]): PdfLine[] {
     if (L && L.page === it.page && Math.abs(L.y - it.y) <= Math.max(2, Math.min(h, L.h) * 0.45)) L.it.push(it);
     else lines.push({ page: it.page, y: it.y, h, it: [it] });
   }
-  return lines.map((L) => {
+  return mergeOffsetLines(lines.map((L) => {
     const S = L.it.sort((a, b) => a.x - b.x);
     const cells: PdfCell[] = [];
     for (const it of S) {
@@ -36,8 +36,25 @@ export function pdfLines(items: readonly PdfItem[]): PdfLine[] {
         c.x1 = Math.max(c.x1, it.x + it.w);
       } else cells.push({ x0: it.x, x1: it.x + Math.max(it.w, 1), s: txt });
     }
-    return { page: L.page, y: L.y, cells: cells.map((c) => ({ ...c, s: c.s.trim() })).filter((c) => c.s) };
-  }).filter((l) => l.cells.length);
+    return { page: L.page, y: L.y, h: L.h, cells: cells.map((c) => ({ ...c, s: c.s.trim() })).filter((c) => c.s) };
+  }).filter((l) => l.cells.length));
+}
+
+/**
+ * Cells printed on a slightly different baseline than the rest of their row (amount columns of some programs sit
+ * 3–6 pt lower): a line closer than 0.9 × the text height to the previous one whose cells overlap none of the
+ * previous line's cells is the same table row. Real rows are at least one text height apart and share columns.
+ */
+function mergeOffsetLines(L: (PdfLine & { h: number })[]): PdfLine[] {
+  const out: (PdfLine & { h: number })[] = [];
+  for (const l of L) {
+    const p = out[out.length - 1];
+    const close = p && p.page === l.page && Math.abs(p.y - l.y) < 0.9 * Math.max(p.h, l.h);
+    const overlap = p && l.cells.some((c) => p.cells.some((q) => Math.min(q.x1, c.x1) - Math.max(q.x0, c.x0) > -1));
+    if (p && close && !overlap) { p.cells = [...p.cells, ...l.cells].sort((a, b) => a.x0 - b.x0); p.h = Math.max(p.h, l.h); }
+    else out.push({ ...l, cells: [...l.cells] });
+  }
+  return out;
 }
 
 /** Text of a line, cells separated by two spaces. */

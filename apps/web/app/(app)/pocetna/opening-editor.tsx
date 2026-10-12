@@ -9,6 +9,7 @@ import {
   buildOpening, csvToGrid, lineTotals, parseOpeningSheet, resultBalancingRow, type MatchablePartner, type OpeningControl,
 } from '@wise/core';
 import { obBankRows, obDiag, obFromAi, type ObDiagRow } from '@wise/core/finpar-ob';
+import { tbTotals } from '@wise/core/tb-rows';
 import { AiReadList, useAiRead } from '@/components/ai-read';
 import { xlsxDownload } from '@/components/parity-fin/export-bar';
 import type { ActionState } from '@/lib/books';
@@ -164,6 +165,16 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2 style={{ fontSize: 15 }}>Контрола на прочитаниот бруто биланс</h2><button type="button" className="btn sm ghost" onClick={() => setCtl(null)}>✕</button></div>
           <p className="mini" style={{ margin: '0 0 6px' }}>Прочитани <b>{ctl.n}</b> аналитички ставки · {ctl.nP} со партнер ({ctl.nNew} нови партнери ќе се креираат, {ctl.nP - ctl.nNew} препознаени){ctl.dropped ? ` · ${ctl.dropped} збирни реда отстранети` : ''} · извор: {extra?.src === 'ai' ? 'автоматско читање (PDF/слика)' : 'Excel/CSV по колони'}</p>
+          {(() => {
+            // debit = credit of the read rows and the sums per class (in cents) before anything is saved
+            const T = tbTotals(ctl.byK.map((x) => ({ k: x.k, d: x.d, p: x.p })));
+            return (
+              <div className={`callout ${T.balanced ? 'good' : 'warn'}`} style={{ margin: '6px 0' }}>
+                <b>{T.balanced ? '✓ Должи = Побарува' : '⚠ Должи ≠ Побарува'}:</b> {fmt(T.D)} / {fmt(T.P)}{T.balanced ? '' : ` – разлика ${fmt(T.diff)}${ctl.res ? ' (види го резултатот од класите 4, 5, 7, 8 подолу)' : ''}`}
+                <div className="mini" style={{ marginTop: 4 }}>По класи: {T.byClass.map((c) => <span key={c.c} style={{ marginRight: 10 }}><b>{c.c}</b> Д {fmt(c.d)} / П {fmt(c.p)}</span>)}</div>
+              </div>
+            );
+          })()}
           {extra && (extra.grand[0] || extra.grand[1]) ? (Math.abs(extra.grand[0] - ctl.D) < 1 && Math.abs(extra.grand[1] - ctl.P) < 1
             ? <div className="callout good">✓ Вкупното салдо од документот (Д {fmt(extra.grand[0])} / П {fmt(extra.grand[1])}) се совпаѓа со прочитаното.</div>
             : <div className="callout warn">Вкупно на документот: должи {fmt(extra.grand[0])} / побарува {fmt(extra.grand[1])} · прочитано: {fmt(ctl.D)} / {fmt(ctl.P)} – разлика {fmt(ctl.D - extra.grand[0])} / {fmt(ctl.P - extra.grand[1])}.</div>) : null}
