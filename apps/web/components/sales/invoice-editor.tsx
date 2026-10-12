@@ -362,7 +362,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               <div className="row" style={{ gap: 18 }}>
                 <fieldset className="fs" style={{ flex: 1 }}><legend>Салдо</legend><div className="row">{RB('saldo', [['Д', 'Да'], ['Н', 'Не']], 'Н')}</div></fieldset>
                 {isInv && <fieldset className="fs" style={{ flex: 1 }}><legend>Производство</legend>
-                  <small className="note">{prodLines.length ? <>🏭 {prodLines.length} ставки се произведуваат · трошок {fmt(PS.cost)}</> : 'Означете 🏭 на ставката што се произведува.'}</small></fieldset>}
+                  <small className="note">{prodLines.length ? <>🏭 {prodLines.length} ставки се произведуваат · трошок {fmt(PS.cost)}</> : <>Кликнете <b>„🏭 Производство“</b> на крајот од ставката (до ✕) што се произведува.</>}</small></fieldset>}
               </div>
               {isInv && p.prodRun?.orders.map((o) => <Link key={o.id} className="btn sm" href="/prod">🏭 Налог за производство бр. {o.number}</Link>)}
             </div>
@@ -481,8 +481,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
                 {!p.accounts.some(([k]) => k === (l.account || p.revDefault)) && <option value={l.account || p.revDefault}>{l.account || p.revDefault}</option>}
                 {p.accounts.map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</select></td>
               <td className="n">{fmt(lineAmt(l))}</td>
-              <td style={{ whiteSpace: 'nowrap' }}>{canProd && <button type="button" className={'btn sm' + (produced ? ' pri' : ' ghost')} aria-pressed={produced} aria-label={`Производство: ${l.name || 'ред ' + (i + 1)}`}
-                title={produced ? '🏭 Се произведува – исклучи' : '🏭 Означи: ставката се произведува од репроматеријали'} onClick={() => toggleProd(i)}>🏭</button>}
+              <td style={{ whiteSpace: 'nowrap' }}>{canProd && <button type="button" className={'btn sm' + (produced ? ' pri' : '')} aria-pressed={produced} aria-label={`Производство: ${l.name || 'ред ' + (i + 1)}`}
+                title={produced ? '🏭 Се произведува – исклучи' : '🏭 Означи: ставката се произведува од репроматеријали'} onClick={() => toggleProd(i)}>{produced ? '🏭 ✓ Производ.' : '🏭 Производство'}</button>}
                 <button type="button" className="btn sm ghost danger" aria-label="Отстрани ред" onClick={() => set({ lines: d.lines.filter((_, k) => k !== i) })}>✕</button></td>
             </tr>
             {produced && (l.prod!.open || !c) && <tr className="prodrow"><td colSpan={9}>
