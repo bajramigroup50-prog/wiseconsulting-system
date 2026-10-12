@@ -4,9 +4,9 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
-import { addDays, DT, INV_NOTE0, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
+import { addDays, DT, INV_NOTE0, isDraftNo, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
 import {
-  aiDocuments, boms, codes, employees, firmPostingContext, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, productionOrders, stockMoves, type DocPayment, type Invoice,
+  aiDocuments, boms, codes, employees, firmPostingContext, listInvoiceNalozi, proposeNalogNumber, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, productionOrders, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
 import { nextYearNumber, schemeValue } from '@wise/core';
 import { calcInvoiceDraft } from '@wise/db';
@@ -35,7 +35,7 @@ export function PayPill({ paid, total }: { paid: number; total: number }) {
   return st === 'paid' ? <span className="pill good">платена</span> : st === 'part' ? <span className="pill warn">делумно</span> : <span className="pill">отворена</span>;
 }
 
-export type SP = { prod?: string; calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
+export type SP = { drafted?: string; prod?: string; calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
 
 const INTRO: Record<DtKey, string> = {
   credit: 'Книжно одобрение (рабат, поврат, корекција на цена) кон купувач. Се книжи како сторно на фактурата (1200, приход и ДДВ со минус – или на обратна страна, според поставката подолу) и го намалува долгот по фактурата. Повратница: стоката се враќа на залиха.',
@@ -88,14 +88,16 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     if (dt === 'service') init.svc = true;
     // „🏭 Нова фактура од производство“ (menu / list button): the invoice opens with an empty main product
     if (dt === 'invoice' && sp.prod === '1' && sp.nov !== undefined) init = { ...init, data: { ...init.data, prodInv: '1' }, lines: [mainProdLine(schemeValue(ctx, 'revProduct') || revDefault)] };
-    let title = DT[dt].nova, sub = '', scanInfo: string | undefined, back = view;
+    let title: string = DT[dt].nova, sub = '', scanInfo: string | undefined, back = view;
     let nalogNo: string | null = null;
     let buyerBox: { doc: string; i: number; name: string; edb: string } | null = null;
     if (sp.edit) {
       const e = await loadFull(sp.edit);
       if (!e) return <NoFirm t="Документот не постои" />;
       init = e;
-      title = 'Измена: ' + DT[dt].n.toLowerCase() + ' ' + e.number;
+      const canc = !!((await db().select({ d: invoices.data }).from(invoices).where(eq(invoices.id, e.id!)).limit(1))[0]?.d as InvoiceData | undefined)?.cancelled;
+      if (canc) e.status = 'cancelled';
+      title = e.status === 'draft' && kind === 'invoice' ? 'Нацрт: ' + DT[dt].n.toLowerCase() + (isDraftNo(e.number) ? '' : ' ' + e.number) : 'Измена: ' + DT[dt].n.toLowerCase() + ' ' + e.number;
       nalogNo = (await db().select({ n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'invoice'), eq(journals.sourceId, e.id!))).limit(1))[0]?.n ?? null;
     } else if (sp.from) {
       const src = await loadFull(sp.from);
@@ -167,6 +169,11 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     ]) : [[], []];
     const workOrders = WO.filter((w, i) => WO.findIndex((x) => x.number === w.number) === i).map((w) => ({ number: w.number, from: w.from, to: w.to, invoices: WO.filter((x) => x.number === w.number).reduce((a, x) => a + x.n, 0) }));
     const nextWorkOrder = nextYearNumber([...PON, ...workOrders.map((w) => ({ number: w.number, date: w.from || `${year}-01-01` }))], year);
+    // „Налог за книжење“: the open sale nalozi of the year (collective ones first) and the number „+ Креирај налог“ proposes
+    const [nalozi, nextNalog] = kind === 'invoice' || kind === 'credit'
+      ? await Promise.all([listInvoiceNalozi(db(), firm.id, init.date.slice(0, 4)), proposeNalogNumber(db(), firm, init.date)])
+      : [[], ''];
+    const nextNumber = nextDocNumber(await used(kind, init.date), init.date.slice(0, 4));
     const lineMap = async (ids: string[]) => {
       if (!ids.length) return new Map<string, EdLine[]>();
       const L = await db().select().from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)).orderBy(asc(invoiceLines.lineNo));
@@ -199,7 +206,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       {sp.prevSaved && <div className="callout good">Претходната фактура е зачувана. Се отвора следната скенирана фактура.</div>}
       <InvoiceEditor key={init.partnerId || 'np'} initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
       refInvoices={refInvoices} advances={advances} revDefault={revDefault} revByType={{ service: schemeValue(ctx, 'revService'), goods: schemeValue(ctx, 'revGoods'), material: schemeValue(ctx, 'revGoods'), product: schemeValue(ctx, 'revProduct') }} advanceKonto={schemeValue(ctx, 'advance')} nonVat={!firm.vatRegistered}
-      nalogNo={nalogNo} back={back} firmAddress={firm.address} scanInfo={scanInfo}
+      nalogNo={nalogNo} nalozi={nalozi} nextNalog={nextNalog} nextNumber={nextNumber} drafted={sp.drafted === '1' ? (sp.w ?? '') : null} back={back} firmAddress={firm.address} scanInfo={scanInfo}
       svcOnly={FS.svcOnly === true || (FS.svcOnly !== false && !I.some((i) => i.type !== 'service'))} svcTexts={Array.isArray(FS.svcTexts) ? FS.svcTexts as string[] : []}
       vehicles={VH.map((v) => ({ code: v.code ?? '', name: v.name }))} drivers={[...new Set([...VH.map((v) => String((v.data as Record<string, unknown>)?.driver ?? '')).filter(Boolean), ...EMP.map((e) => e.name)])]}
       boms={BM} avg={avg} prodRun={prodRun} workOrders={workOrders} nextWorkOrder={nextWorkOrder}
@@ -238,10 +245,13 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   };
   // cancelled (сторнирани) invoices keep their number in the list but count for nothing (retention lock)
   const isCanc = (i: Invoice) => !!(i.data as { cancelled?: unknown } | null)?.cancelled;
-  const T = list.filter(({ i }) => !isCanc(i)).reduce((t, { i }) => ({ b: t.b + Number(i.base), v: t.v + Number(i.vat), t: t.t + Number(i.total), pd: t.pd + (payCols ? payOf(i).paid : 0), r: t.r + (payCols ? payOf(i).rest : 0) }), { b: 0, v: 0, t: 0, pd: 0, r: 0 });
+  // unissued drafts (нацрт) are not issued invoices: listed with their pill, not in the totals
+  const isDraft = (i: Invoice) => i.status === 'draft' && kind === 'invoice' && !isCanc(i);
+  const T = list.filter(({ i }) => !isCanc(i) && !isDraft(i)).reduce((t, { i }) => ({ b: t.b + Number(i.base), v: t.v + Number(i.vat), t: t.t + Number(i.total), pd: t.pd + (payCols ? payOf(i).paid : 0), r: t.r + (payCols ? payOf(i).rest : 0) }), { b: 0, v: 0, t: 0, pd: 0, r: 0 });
   const st = (i: Invoice) => {
     if (isCanc(i)) return <span className="pill bad" title="Издадена па сторнирана – бројот се чува, нема книжење">✗ Сторнирана</span>;
     if (i.status === 'pending') return <span className="pill warn" title="Внесено од клиентот – не е прокнижено">⏳ чека одобрување</span>;
+    if (isDraft(i)) return <span className="pill" title="Нацрт – не е издадена и не е прокнижена (нема ДДВ, залиха ни налог); бројот се доделува при книжење">✎ нацрт</span>;
     if (kind === 'credit') return <><span className="pill info">кон ф-ра {refNo.get(i.refInvoiceId ?? '')?.n ?? '—'}</span> {i.creditKind === 'ret' ? <span className="pill warn">↩ Повратница (стока на залиха)</span> : i.creditKind === 'gross' ? <span className="pill">Бруто износ</span> : <span className="pill">По ставки</span>}</>;
     if (kind === 'invoice') { const pm = payOf(i); return <><PayPill paid={pm.paid} total={pm.due} />{i.fromDocId ? <> <span className="pill info">од {refNo.get(i.fromDocId)?.k === 'dispatch' ? 'испратница' : 'профактура'} {refNo.get(i.fromDocId)?.n}</span></> : null}</>; }
     return i.invoicedId ? <span className="pill good">фактурирана {refNo.get(i.invoicedId)?.n ?? ''}</span> : kind === 'dispatch' ? <span className="pill warn">нефактурирана</span> : <span className="pill">отворена</span>;
@@ -346,6 +356,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
                 {kind === 'invoice' && <Link className="btn sm" href={`/print/doc/${i.id}?k=dispatch`} target="_blank">Испратница</Link>}
                 {kind !== 'proforma' && kind !== 'credit' && <Link className="btn sm" href={`/print/doc/${i.id}?k=waybill`} target="_blank">Товарен лист</Link>}
                 {inv && <Link className="btn sm" href={`/api/ubl/${i.id}`} title="UBL е-фактура (XML)">XML</Link>}
+                {approve && isDraft(i) && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Прокнижи" confirm={`Да се прокнижи нацртот ${i.number}?${isDraftNo(i.number) ? ' Фактурата го добива следниот број од серијата.' : ''}`} />}
                 {approve && i.status === 'pending' && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Одобри" confirm={`Да се одобри и прокнижи ${i.number}?`} />}
                 {del && <RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} />}
               </td>

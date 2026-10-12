@@ -14,7 +14,8 @@ import {
   cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
-import { checkCredit, invoiceTotals, nextDocNumber, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
+import { checkCredit, invoiceTotals, isDraftNo, nextDocNumber, nextDraftNo, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
+import { assertInvoiceNalog } from './invoice-nalog';
 import { blockingIssues, deletionVerdict, invoiceLegalIssues, isLastInSeries, numberGapWarning } from '@wise/core/compliance';
 import { todaySkopje } from '@wise/core/office/dates';
 import { audit, type Tx } from '../audit';
@@ -51,7 +52,12 @@ export interface InvoiceInput {
   data?: InvoiceData;
   lines: InvoiceLineInput[];
   advances?: { advanceId: string; amount: number | string }[];
-  /** Save an invoice as an unbooked `draft` (Phase 9 recurring invoices); `approveInvoice` books it. */
+  /**
+   * Save an invoice as an unbooked `draft` (header-first workflow „Креирај фактура“, Phase 9 recurring invoices,
+   * documents prepared by other modules); `approveInvoice` or a save without `draft` books it. A draft may have no
+   * lines yet, does not touch journals / VAT / stock, and carries a provisional number `НАЦРТ-n` unless a number was
+   * typed — the number of the issued series is assigned when it is booked (no gap when a draft is deleted).
+   */
   draft?: boolean;
   /** „Производство = Да“: materials of the produced lines (`sales/invoice-production.ts`). */
   production?: InvoiceProductionInput | null;
@@ -63,13 +69,16 @@ const n = (v: unknown) => Number(v) || 0;
 const n4 = (v: number) => String(Math.round(v * 1e4) / 1e4);
 const kindOfJournal = (k: DocKind) => (k === 'credit' ? 'odobr' : 'izlez');
 
-/** Numbers already used by a kind in the year of `date` (excluding one document). */
-async function usedNumbers(tx: Tx, firmId: string, kind: DocKind, date: string, exceptId?: string | null) {
+/**
+ * Numbers already used by a kind in the year of `date` (excluding one document): the issued series, or with
+ * `drafts` the provisional `НАЦРТ-n` numbers of unissued drafts (they are not part of the series).
+ */
+async function usedNumbers(tx: Tx, firmId: string, kind: DocKind, date: string, exceptId?: string | null, drafts = false) {
   const rows = await tx.select({ n: invoices.number }).from(invoices).where(and(
     eq(invoices.firmId, firmId), eq(invoices.kind, kind), sql`extract(year from ${invoices.date}) = ${Number(yearOf(date))}`,
     exceptId ? ne(invoices.id, exceptId) : undefined,
   ));
-  return rows.map((r) => r.n);
+  return rows.map((r) => r.n).filter((n) => isDraftNo(n) === drafts);
 }
 
 /** Next number for a new document of `kind` in the year of `date` (legacy `nextNumber`). */
@@ -213,8 +222,11 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
       const cur = invoiceTotals({ items: toItems(L), art32: inv.art32, credit: inv.kind === 'credit', advance: inv.advance });
       for (const l of lines) if (l.partnerId && l.partnerId === inv.partnerId && (l.debit || l.credit) && !l.note) { l.cur = inv.currency; l.amtCur = inv.art32 ? cur.base : cur.total; }
     }
+    // „Налог за книжење“: an existing (collective) nalog chosen on the invoice, or the automatic number
+    const nalogNo = String(((inv.data ?? {}) as InvoiceData).nalogNo ?? '').trim() || null;
+    if (nalogNo) await assertInvoiceNalog(tx, f, nalogNo, inv);
     await postJournal(tx, {
-      firmId: f.id, date: inv.date, kind: kindOfJournal(inv.kind), sourceType: 'invoice', sourceId: inv.id, userId,
+      firmId: f.id, date: inv.date, kind: kindOfJournal(inv.kind), sourceType: 'invoice', sourceId: inv.id, userId, number: nalogNo,
       description: (inv.kind === 'credit' ? 'Одобрение ' : inv.advance ? 'Авансна фактура ' : 'Фактура ') + inv.number,
       lines: journalLinesOf(lines).map((l) => ({ ...l, doc: l.doc ?? inv.number })), auditAction: 'postInvoice',
     });
@@ -252,6 +264,9 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   await assertLocation(tx, firmId, input.warehouseId ?? null);
   const warnings: string[] = [];
 
+  const status = kind === 'proforma' || (kind === 'invoice' && input.draft) ? 'draft' : pendingFor(actor) ? 'pending' : 'posted';
+  /** An unissued draft invoice (header first, lines later): no lines required, provisional number. */
+  const draftInv = kind === 'invoice' && status === 'draft';
   const art32 = !!input.art32 && kind !== 'dispatch';
   const isExport = !!input.export;
   // FIX (LEGACY-MAP 3.4 item 16): art. 32-a lines always carry rate 18 (the buyer's VAT), export lines rate 0.
@@ -261,10 +276,10 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
       lineNo: i + 1, itemId: l.itemId || null, code: l.code?.trim() || null, name: String(l.name ?? '').trim(), unit: l.unit?.trim() || null,
       qty: n(l.qty), price: n(l.price), disc: n(l.disc), rate: isExport ? 0 : art32 ? 18 : n(l.rate), account: String(l.account ?? '').trim(),
     }));
-  if (!lines.length) throw new DocumentError('Додадете барем еден артикл.');
+  if (!lines.length && !draftInv) throw new DocumentError('Додадете барем еден артикл.');
   const bad = lines.filter((l) => !(VALID_LINE_RATES as readonly number[]).includes(l.rate));
   if (bad.length) throw new DocumentError(`Неважечка ДДВ стапка (${bad.map((l) => l.rate).join(', ')}%). Дозволени: 18, 10, 5, 0.`);
-  if (!lines.some((l) => l.qty && (kind === 'dispatch' || l.price))) throw new DocumentError('Додадете барем еден ред со количина' + (kind === 'dispatch' ? '.' : ' и цена.'));
+  if (!draftInv && !lines.some((l) => l.qty && (kind === 'dispatch' || l.price))) throw new DocumentError('Додадете барем еден ред со количина' + (kind === 'dispatch' ? '.' : ' и цена.'));
   const IT = await firmItems(tx, firmId, lines.map((l) => l.itemId ?? ''));
   const ctx = await firmPostingContext(tx, f);
   // FIX (LEGACY-MAP 3.4 item 3): legacy fell back to the literal '7400' (~40 places); the scheme decides by item type (legacy REV_K).
@@ -284,8 +299,13 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   const used = await usedNumbers(tx, firmId, kind, input.date, existing?.id);
   let number = String(input.number ?? '').trim();
   let renumbered = false;
-  if (!number || used.includes(number)) {
-    renumbered = !!number;
+  if (draftInv && (!number || isDraftNo(number))) {
+    // an unissued draft keeps (or gets) a provisional number; the series number comes when it is booked
+    const dn = await usedNumbers(tx, firmId, kind, input.date, existing?.id, true);
+    const own = number || (existing && isDraftNo(existing.number) ? existing.number : '');
+    number = own && !dn.includes(own.toUpperCase()) && !dn.includes(own) ? own.toUpperCase() : nextDraftNo(dn);
+  } else if (!number || isDraftNo(number) || used.includes(number)) {
+    renumbered = !!number && !isDraftNo(number);
     number = nextDocNumber(used, yearOf(input.date));
     if (renumbered) warnings.push(`Бројот ${input.number} веќе постои – доделен е следниот: ${number}.`);
   } else if ((kind === 'invoice' || kind === 'credit') && number !== existing?.number) {
@@ -325,7 +345,6 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   }
 
   const T = invoiceTotals({ items: toItems(lines.map((l) => ({ ...l, qty: String(l.qty), price: String(l.price), disc: String(l.disc) }))), art32, credit: kind === 'credit', advance: input.advance });
-  const status = kind === 'proforma' || (kind === 'invoice' && input.draft) ? 'draft' : pendingFor(actor) ? 'pending' : 'posted';
   const header = {
     firmId, kind, status, number, date: input.date, pdate: kind === 'invoice' ? input.pdate || input.date : input.pdate || null, due: input.due || null,
     partnerId: input.partnerId, warehouseId: input.warehouseId || null, art32, advance: kind === 'invoice' && !!input.advance, export: isExport,
@@ -343,7 +362,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   } else {
     [inv] = await tx.insert(invoices).values({ ...header, createdBy: actor.userId }).returning() as [Invoice];
   }
-  await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc) })));
+  if (lines.length) await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc) })));
   if (adv.length) await tx.insert(invoiceAdvances).values(adv.map((a) => ({ invoiceId: inv.id, advanceId: a.advanceId, amount: r2(n(a.amount)).toFixed(2) })));
 
   // production from the invoice: the old orders go, the new ones are made before the invoice issues the product
@@ -360,10 +379,13 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     [inv] = await tx.update(invoices).set({ data }).where(eq(invoices.id, inv.id)).returning() as [Invoice];
   }
 
+  // another „Налог за книжење“ chosen: the invoice's row leaves the old nalog (a fresh automatic number, or the new one)
+  const prevNalog = String(((existing?.data ?? {}) as InvoiceData).nalogNo ?? '').trim();
+  if (existing && prevNalog !== String(((inv.data ?? {}) as InvoiceData).nalogNo ?? '').trim()) await unpostSource(tx, { firmId, sourceType: 'invoice', sourceId: inv.id, userId: actor.userId });
   if (status === 'posted') warnings.push(...(await postInvoice(tx, f, inv, actor.userId)));
   else await unpostInvoice(tx, firmId, inv, actor.userId);
   // mandatory elements (ЗДДВ чл. 53): the document is saved, but printing as final and e-mailing are blocked until fixed
-  const blk = blockingIssues(invoiceLegalIssues({
+  const blk = draftInv ? [] : blockingIssues(invoiceLegalIssues({
     kind, number, date: inv.date, pdate: inv.pdate, art32, export: isExport, advance: inv.advance, note: inv.note, ref: kind === 'credit' ? { number: '', date: '' } : null,
     firm: f, partner: p, lines, today: todaySkopje(),
   }));
@@ -387,7 +409,12 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
   if (!inv) throw new DocumentError('Документот не постои.');
   if (isCancelled(inv)) throw new DocumentError(CANCELLED_MSG);
   if (inv.status !== 'pending' && !(inv.status === 'draft' && inv.kind === 'invoice')) throw new DocumentError('Документот не чека одобрување.');
-  let [u] = await tx.update(invoices).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
+  // a draft is booked only with its lines; a provisional „НАЦРТ-n“ gets the next number of the issued series now
+  const IL = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, id));
+  if (!IL.length) throw new DocumentError('Нацртот нема ставки – додадете барем еден артикл пред книжење.');
+  if (inv.kind !== 'dispatch' && !IL.some((l) => Number(l.qty) && Number(l.price))) throw new DocumentError('Додадете барем еден ред со количина и цена.');
+  const number = isDraftNo(inv.number) ? nextDocNumber(await usedNumbers(tx, firmId, inv.kind, inv.date, inv.id), yearOf(inv.date)) : inv.number;
+  let [u] = await tx.update(invoices).set({ status: 'posted', number, approvedBy: actor.userId, approvedAt: new Date() }).where(eq(invoices.id, id)).returning();
   const plan = ((u!.data ?? {}) as InvoiceData).prodRun;
   const pw: string[] = [];
   if (u!.kind === 'invoice' && (u!.data as InvoiceData).prod !== 'Н' && plan?.lines.length && !plan.orders.length) {
@@ -398,7 +425,7 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
     [u] = await tx.update(invoices).set({ data: { ...(u!.data ?? {}), prodRun: r.state, prodCost: r2(r.state.mat + r.state.extra).toFixed(2) } }).where(eq(invoices.id, id)).returning();
   }
   const w = [...pw, ...(await postInvoice(tx, f, u!, actor.userId))];
-  await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'invoice', entityId: id, data: { number: inv.number } });
+  await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'invoice', entityId: id, data: { number, ...(number !== inv.number ? { draftNo: inv.number } : {}) } });
   return w;
 }
 

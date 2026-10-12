@@ -39,6 +39,18 @@ export function addDays(d: string, n: number | string): string {
 const numPart = (s: string) => parseInt(String(s ?? '').replace(/^\D+/, ''), 10) || 0;
 
 /**
+ * Provisional number of an unissued draft invoice („нацрт“, header-first workflow and documents prepared by other
+ * modules). ЗДДВ чл. 53 ст. 10 т. 1 asks for one unbroken series of ISSUED invoices, so a draft does not take a number
+ * of the series: it carries `НАЦРТ-<n>` (unique per kind and year) and receives the next free number of the series
+ * only when it is booked. Deleting a draft therefore never leaves a gap (docs/legal/COMPLIANCE.md 4.16).
+ */
+export const DRAFT_NO_PREFIX = 'НАЦРТ-';
+export const isDraftNo = (n: string | null | undefined): boolean => String(n ?? '').trim().toUpperCase().startsWith(DRAFT_NO_PREFIX);
+/** Next provisional draft number after the ones already used in the year. */
+export const nextDraftNo = (existing: readonly (string | null | undefined)[]): string =>
+  DRAFT_NO_PREFIX + (Math.max(0, ...existing.filter(isDraftNo).map((x) => numPart(String(x)))) + 1);
+
+/**
  * Next document number of a kind in a year (legacy `nextNumber`, 4071): prefix, zero padding and suffix of the
  * highest number are kept (`007/2026` → `008/2026`); with no documents `001/<year>`.
  *
@@ -46,7 +58,8 @@ const numPart = (s: string) => parseInt(String(s ?? '').replace(/^\D+/, ''), 10)
  * (e.g. only `5/2026` and two unnumbered drafts) jumped ahead. Only the highest number counts now.
  */
 export function nextDocNumber(existing: readonly (string | null | undefined)[], year: number | string): string {
-  const L = existing.map((x) => String(x ?? '').trim()).filter(Boolean);
+  // provisional numbers of unissued drafts (`НАЦРТ-3`) are not part of the issued series
+  const L = existing.map((x) => String(x ?? '').trim()).filter((x) => x && !isDraftNo(x));
   let best: string | undefined;
   for (const x of L) if (!best || numPart(x) > numPart(best)) best = x;
   const n = (best ? numPart(best) : 0) + 1;

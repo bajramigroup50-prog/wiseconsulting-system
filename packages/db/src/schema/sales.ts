@@ -69,6 +69,12 @@ export interface InvoiceData {
   unloadDate?: string; dAddr?: string; loadPlace?: string; vehicle?: string; driver?: string;
   /** „🏭 Фактура од производство“ ('1') and its work order number / period (also in `prodRun.workOrder`). */
   prodInv?: string; woNo?: string; woFrom?: string; woTo?: string;
+  /**
+   * „Налог за книжење“ chosen on the invoice: '' / missing = a new nalog with the automatic number (one per invoice or
+   * the period nalog of the firm's numbering); a number = book into that existing (collective) nalog
+   * (`sales/invoice-nalog.ts`). The invoice keeps its own journal row inside the nalog.
+   */
+  nalogNo?: string;
   /** Cancelled (сторнирана) instead of deleted — retention lock, `deleteInvoice` (docs/legal/COMPLIANCE.md). `status` = status before. */
   cancelled?: { at: string; by: string | null; reason: string; status: string };
   /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
