@@ -425,13 +425,13 @@ export async function carryOneRow(tx: Tx, a: YeActionInput & { key: CarryKey }) 
  */
 export async function prevYearCarry(tx: Tx, firmId: string, year: number): Promise<{ prevHasData: boolean; prevClosed: boolean; opened: boolean }> {
   const p = year - 1;
-  const [prev, close, open] = await Promise.all([
-    tx.select({ id: journals.id }).from(journals)
-      .where(and(eq(journals.firmId, firmId), sql`${journals.date} between ${p + '-01-01'} and ${p + '-12-31'}`)).limit(1),
-    closeJournalOf(tx, firmId, p),
-    tx.select({ id: journals.id }).from(journals)
-      .where(and(eq(journals.firmId, firmId), eq(journals.kind, 'open'), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`)).limit(1),
-  ]);
+  // one after the other (three indexed `limit 1` lookups): pipelined on one connection they broke the local PGlite
+  // dev database („unnamed prepared statement does not exist“) on the dashboard right after choosing a firm
+  const prev = await tx.select({ id: journals.id }).from(journals)
+    .where(and(eq(journals.firmId, firmId), sql`${journals.date} between ${p + '-01-01'} and ${p + '-12-31'}`)).limit(1);
+  const close = await closeJournalOf(tx, firmId, p);
+  const open = await tx.select({ id: journals.id }).from(journals)
+    .where(and(eq(journals.firmId, firmId), eq(journals.kind, 'open'), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`)).limit(1);
   return { prevHasData: prev.length > 0, prevClosed: !!close, opened: open.length > 0 };
 }
 

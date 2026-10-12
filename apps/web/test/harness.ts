@@ -15,7 +15,8 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { schema, seedReference } from '@wise/db';
 
-export const pg = drizzle(new PGlite(), { schema });
+// `WISE_TEST_PGLITE_DIR`: a persistent PGlite data directory (the demo seed in test/demo fills the dev database).
+export const pg = drizzle(new PGlite(process.env.WISE_TEST_PGLITE_DIR || undefined), { schema });
 export type PgDb = typeof pg;
 // Modules that call `getDb()` from `@wise/db` directly (proxy, kl-views) need, inline in the test file:
 //   vi.mock('@wise/db', async (orig) => ({ ...(await orig<object>()), getDb: () => (globalThis as { __wisePg?: unknown }).__wisePg }));
