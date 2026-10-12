@@ -4,6 +4,10 @@ const { registerFiscal } = require('./fiscal');
 
 const APP_URL = 'https://app.wiseconsulting.com.mk';
 const APP_HOST = new URL(APP_URL).host;
+/** Browser-internal URLs (blank / blob / data windows a page fills itself) — never handed to Windows. */
+const internalUrl = (url) => /^(about:|blob:|data:)/i.test(String(url || ''));
+/** Only real web / mail / phone links go to the system (never about:, file:, javascript: …). */
+const externalOk = (url) => /^(https?:|mailto:|tel:)/i.test(String(url || ''));
 const sameApp = (url) => { try { const h = new URL(url).host; return h === APP_HOST || h.endsWith('.' + APP_HOST); } catch { return false; } };
 
 /** Issuer CN of the device certificates (apps/web/lib/device-certs.ts DEVICE_CA_CN). */
@@ -27,11 +31,17 @@ function createWindow() {
 
   // Links to other sites (bank, УЈП, WhatsApp, Maps…) open in the normal browser; the app's own pages and PDFs stay here.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (sameApp(url) || url === 'about:blank') return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: __dirname + '/build/icon.ico' } };
-    shell.openExternal(url);
+    // the app's own pages, PDFs and print previews (also blank / blob / data windows filled by the page) stay in the app
+    if (sameApp(url) || internalUrl(url)) return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: __dirname + '/build/icon.ico' } };
+    if (externalOk(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (e, url) => { if (!sameApp(url)) { e.preventDefault(); shell.openExternal(url); } });
+  win.webContents.on('will-navigate', (e, url) => { if (!sameApp(url) && !internalUrl(url)) { e.preventDefault(); if (externalOk(url)) shell.openExternal(url); } });
+  // windows opened by the page (PDF / print) follow the same rules
+  win.webContents.on('did-create-window', (child) => {
+    child.webContents.setWindowOpenHandler(({ url }) => (sameApp(url) || internalUrl(url) ? { action: 'allow' } : (externalOk(url) && shell.openExternal(url), { action: 'deny' })));
+    child.webContents.on('will-navigate', (e, url) => { if (!sameApp(url) && !internalUrl(url)) { e.preventDefault(); if (externalOk(url)) shell.openExternal(url); } });
+  });
 
   // Offline / server unreachable: a plain message with retry instead of a blank window. A TLS client-certificate
   // error (-110 ERR_SSL_CLIENT_AUTH_CERT_NEEDED, -117 ERR_BAD_SSL_CLIENT_AUTH_CERT, -123 / -134…) means this computer
