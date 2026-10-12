@@ -37,7 +37,7 @@ const done = (st: ActionState, to: string): ActionState => {
 /* ---------------- transfers ---------------- */
 
 const TransferIn = z.object({
-  id, date, from: loc, to: loc, note: text,
+  id, date, from: loc, to: loc, note: text, sourcePurchaseIds: z.array(z.string().uuid()).max(200).optional(),
   lines: z.array(z.object({ itemId: z.string().uuid(), qty: num, sp: numOpt })).max(2000),
 });
 
@@ -46,8 +46,10 @@ export async function saveTransferAction(_p: ActionState, form: FormData): Promi
   if (isErr(v)) return v;
   return done(await stockAction('prSave', ['/prenosi'], (tx, a) => saveTransfer(tx, a, v)), '/prenosi');
 }
-export async function deleteTransferAction(docId: string): Promise<ActionState> {
-  return stockAction('prDel', ['/prenosi'], (tx, a) => deleteTransfer(tx, a, docId));
+/** 🗑 on /prenosi and in the transfers table of kalkM; `orphan` = the source calculation was already deleted. */
+export async function deleteTransferAction(docId: string, reason?: 'orphan'): Promise<ActionState> {
+  const r = await stockAction('prDel', ['/prenosi', '/kalkM', '/kalkG'], (tx, a) => deleteTransfer(tx, a, docId, reason === 'orphan' ? { reason } : {}));
+  return r.error ? r : { ok: 'Преносницата е избришана.' };
 }
 
 /* ---------------- levelling ---------------- */

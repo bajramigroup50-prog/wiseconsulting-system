@@ -65,7 +65,11 @@ function ItemPicker({ items, onPick, filter }: { items: ItemOpt[]; onPick: (it: 
 
 /* ================================================================== transfer */
 
-export interface TransferDraft { id?: string; number?: string; date: string; from: string; to: string; note: string; lines: { itemId: string; qty: string; sp: string }[] }
+export interface TransferDraft {
+  id?: string; number?: string; date: string; from: string; to: string; note: string; lines: { itemId: string; qty: string; sp: string }[];
+  /** Source calculations (purchase ids) the transfer is made from; deleting one of them deletes the transfer too. */
+  src?: string[];
+}
 /** A purchase calculation offered in „Додај ги артиклите од калкулација“ (legacy `pr_calc`). */
 export interface CalcOpt { id: string; wh: string; date: string; label: string; lines: { item: string; qty: number; sp: string | number }[] }
 
@@ -111,14 +115,14 @@ export function TransferEditor({ initial, items, locs, calcs = [], nextNo, round
       const cur = it.sp[d.to];
       L.push({ itemId: s.item, qty: String(Math.round(q * 10000) / 10000), sp: cur ? String(cur) : s.sp !== '' && s.sp != null ? String(s.sp) : '' });
     }
-    set({ lines: L });
+    set({ lines: L, src: [...new Set([...(d.src ?? []), c.id])] });
   };
   const applyMargin = (m: number) => {
     if (!Number.isFinite(m)) { setMsg('Внесете процент.'); return; }
     set({ lines: d.lines.map((l) => { const it = byId.get(l.itemId); const p = marginPrice(avgOf(it), it?.rate ?? 18, m, n(rd) || 1); return p == null ? l : { ...l, sp: String(p) }; }) });
     setMsg(`Малопродажните цени се пресметани со ${m}% разлика.`);
   };
-  const payload = { id: d.id ?? null, date: d.date, from: d.from, to: d.to, note: d.note, lines: d.lines.filter((l) => n(l.qty) > 0).map((l) => ({ itemId: l.itemId, qty: n(l.qty), sp: l.sp === '' ? null : n(l.sp) })) };
+  const payload = { id: d.id ?? null, date: d.date, from: d.from, to: d.to, note: d.note, ...(d.src ? { sourcePurchaseIds: d.src } : {}), lines: d.lines.filter((l) => n(l.qty) > 0).map((l) => ({ itemId: l.itemId, qty: n(l.qty), sp: l.sp === '' ? null : n(l.sp) })) };
   const fromCalcs = calcs.filter((c) => c.wh === d.from);
   return (
     <form action={action} className="card">

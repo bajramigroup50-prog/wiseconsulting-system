@@ -125,6 +125,12 @@ export const transfers = pgTable('transfers', {
   toLocationId: location('to_location_id'),
   lines: jsonb('lines').$type<TransferLine[]>().notNull().default([]),
   note: text('note'),
+  /**
+   * Purchases (калкулации) this transfer was created from („→ Продавница“ / „Пренос во продавница“, `?calc=`).
+   * Deleting such a purchase deletes the transfer too (with a warning first). Null = unknown (older transfers: the
+   * link is inferred from the note „Од калкулација <calcNo>“ at read time).
+   */
+  sourcePurchaseIds: jsonb('source_purchase_ids').$type<string[]>(),
   legacyId: text('legacy_id'),
   createdBy: createdBy(),
   createdAt: createdAt(),

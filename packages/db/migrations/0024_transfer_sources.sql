@@ -1,0 +1,1 @@
+ALTER TABLE "transfers" ADD COLUMN "source_purchase_ids" jsonb;

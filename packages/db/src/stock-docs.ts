@@ -17,8 +17,9 @@ import {
 } from '@wise/core';
 import { audit, type Tx } from './audit';
 import { assertOpenPeriod, postJournal, unpostSource } from './posting';
+import { assertTransferRemovable } from './transfer-links';
 import {
-  boms, fileLinks, files, firms, journals, levellingDocs, productionOrders, salesDaily, stockCounts, stockMoves, transfers,
+  boms, fileLinks, files, firms, journals, levellingDocs, productionOrders, purchases, salesDaily, stockCounts, stockMoves, transfers,
   type LevellingDocLine, type SalesDayRow, type SalesFiskInfo, type SalesGroupRow, type SalesItemLine, type StockCountLine,
   type TransferLine,
 } from './schema/index';
@@ -58,6 +59,8 @@ export interface TransferInput {
   /** `sp` = retail price incl. VAT at the destination (default: the item's current price there). */
   lines: readonly { itemId: string; qty: number; sp?: number | null }[];
   note?: string | null;
+  /** Source calculations (purchase ids) when the transfer is made from them (`?calc=`); undefined on edit = keep. */
+  sourcePurchaseIds?: readonly string[] | null;
 }
 
 /**
@@ -87,7 +90,13 @@ export async function saveTransfer(tx: Tx, a: Actor, input: TransferInput): Prom
     const ex = await tx.select({ number: transfers.number, date: transfers.date }).from(transfers).where(eq(transfers.firmId, a.firmId));
     number = nextYearNumber(ex, yearOf(input.date), 4);
   }
-  const head = { date: input.date, fromLocationId: from, toLocationId: to, number, note: input.note?.trim() || null };
+  let src: string[] | null | undefined;
+  if (input.sourcePurchaseIds !== undefined) {
+    const want = [...new Set(input.sourcePurchaseIds ?? [])].filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    src = want.length ? (await tx.select({ id: purchases.id }).from(purchases).where(and(eq(purchases.firmId, a.firmId), inArray(purchases.id, want)))).map((p) => p.id) : [];
+    if (!src.length) src = null;
+  }
+  const head = { date: input.date, fromLocationId: from, toLocationId: to, number, note: input.note?.trim() || null, ...(src !== undefined ? { sourcePurchaseIds: src } : {}) };
   const id = prev
     ? (await tx.update(transfers).set(head).where(eq(transfers.id, prev.id)).returning({ id: transfers.id }))[0]!.id
     : (await tx.insert(transfers).values({ ...head, firmId: a.firmId, createdBy: a.userId }).returning({ id: transfers.id }))[0]!.id;
@@ -113,12 +122,22 @@ export async function saveTransfer(tx: Tx, a: Actor, input: TransferInput): Prom
   return { id, number };
 }
 
-export async function deleteTransfer(tx: Tx, a: Actor, id: string): Promise<void> {
+/**
+ * Delete a transfer: its stock moves and stock journal are removed (the goods go back to the source). Refused in a
+ * locked period and when later moves in the destination already consumed the goods (see `assertTransferRemovable`).
+ * `reason`: `cascade` = deleted together with its source calculation (audit `delTransfer`), `orphan` = the source
+ * calculation was already deleted. `alsoRemoved` = other transfers deleted in the same operation.
+ */
+export async function deleteTransfer(tx: Tx, a: Actor, id: string, opts: { reason?: 'cascade' | 'orphan'; purchaseId?: string; alsoRemoved?: readonly string[] } = {}): Promise<void> {
   const row = await own(tx.select().from(transfers).where(and(eq(transfers.id, id), eq(transfers.firmId, a.firmId))).limit(1), 'Преносницата');
+  await assertTransferRemovable(tx, a.firmId, row, opts.alsoRemoved ?? []);
   await assertDocOpen(tx, a.firmId, row.date);
   await removeSourceMoves(tx, { firmId: a.firmId, sourceType: 'transfer', sourceId: id, userId: a.userId });
   await tx.delete(transfers).where(eq(transfers.id, id));
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'prDel', entityType: 'transfer', entityId: id, data: { number: row.number, date: row.date } });
+  await audit(tx, {
+    userId: a.userId, firmId: a.firmId, action: opts.reason === 'cascade' ? 'delTransfer' : 'prDel', entityType: 'transfer', entityId: id,
+    data: { number: row.number, date: row.date, from: row.fromLocationId, to: row.toLocationId, lines: row.lines.length, ...(opts.reason ? { reason: opts.reason } : {}), ...(opts.purchaseId ? { purchaseId: opts.purchaseId } : {}) },
+  });
 }
 
 async function assertDocOpen(tx: Tx, firmId: string, date: string): Promise<LoadedStock['firm']> {
