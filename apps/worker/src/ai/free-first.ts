@@ -69,6 +69,10 @@ export function acceptFree(kind: string, r: unknown): FreeVerdict {
     const head = !!(k.auth || k.docNo || (k.doc && k.docDate));
     return head && (k.findings?.length ?? 0) >= 1 ? { ok: true, why: '' } : { ok: false, why: WHY.header };
   }
+  if (kind === 'classify') {
+    // the free classifier answers only when the title words / UBL seller say it clearly
+    return (r as { kind?: string }).kind ? { ok: true, why: '' } : { ok: false, why: WHY.header };
+  }
   return { ok: false, why: WHY.format };
 }
 

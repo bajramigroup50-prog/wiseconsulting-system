@@ -17,6 +17,11 @@ export interface AiBudgetCfg {
   maxPages: number;
   /** Opus (the most expensive model) only on an explicit „🔍 Детално читање“; otherwise Sonnet. */
   opusOnlyDeep: boolean;
+  /**
+   * Owner opt-in for AUTOMATIC (background) AI use — the daily law robot describing new links with AI. Default off
+   * (owner policy: AI only on a user's click, and only when nothing free can do it). See docs/AI-TROSHOK.md.
+   */
+  autoLawAi: boolean;
   /** Last level notified to the owner this month (80 / 100), written by the worker when it is crossed. */
   alert: { month: string; level: 80 | 100; at: string; spent: number; limit: number; firmId: string | null } | null;
 }
@@ -44,6 +49,7 @@ export function aiBudgetClean(v: unknown): AiBudgetCfg {
     firms,
     maxPages: pages && pages >= 1 ? Math.min(500, Math.floor(pages)) : AI_MAX_PAGES_DEFAULT,
     opusOnlyDeep: o.opusOnlyDeep !== false,
+    autoLawAi: o.autoLawAi === true,
     alert: a && typeof a === 'object' && typeof a.month === 'string' && (a.level === 80 || a.level === 100) ? a : null,
   };
 }

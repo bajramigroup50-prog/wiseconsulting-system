@@ -61,12 +61,22 @@ export async function lawAskStart(_p: ActionState, f: FormData): Promise<ActionS
   } catch (e) { return err(e); }
 }
 
-/** Run the robot now (otherwise daily at 06:52). */
+/** Run the robot now (otherwise daily at 06:52) — free: new links are stored „⚠ да се потврди“, no AI. */
 export async function lawRunNow(): Promise<ActionState> {
   try {
     const u = await requireCan('settings');
     await db().transaction((tx) => audit(tx, { userId: u.id, action: 'lawRobotRun', entityType: 'law_run' }));
-    await enqueue('law.robot', {});
+    await enqueue('law.robot', { manual: true });
     return { ok: 'Роботот е пуштен – новите записи ќе се појават за неколку минути.' };
+  } catch (e) { return err(e); }
+}
+
+/** „🤖 Провери со AI“: the same check, and the model describes / filters the new links (spends AI credit). */
+export async function lawRunAi(): Promise<ActionState> {
+  try {
+    const u = await requireCan('settings');
+    await db().transaction((tx) => audit(tx, { userId: u.id, action: 'lawRobotRun', entityType: 'law_run', data: { ai: true } }));
+    await enqueue('law.robot', { manual: true, ai: true });
+    return { ok: 'Роботот е пуштен со AI – новите записи ќе се појават за неколку минути.' };
   } catch (e) { return err(e); }
 }

@@ -24,12 +24,13 @@ export async function saveAiBudget(_prev: RowResult, form: FormData): Promise<Ro
   const pages = Number(String(form.get('maxPages') ?? '').trim());
   if (!Number.isInteger(pages) || pages < 1 || pages > 500) return { error: 'Страници по читање: цел број од 1 до 500.' };
   const opusOnlyDeep = form.get('opusOnlyDeep') === 'on';
+  const autoLawAi = form.get('autoLawAi') === 'on';
   await db().transaction(async (tx) => {
     const before = await getAiBudget(tx);
     // a raised limit clears this month's alert so a new 80 % / 100 % crossing is notified again
     const raised = monthlyUsd == null || (before.monthlyUsd != null && monthlyUsd > before.monthlyUsd);
-    await putAiBudget(tx, { monthlyUsd, maxPages: pages, opusOnlyDeep, ...(raised ? { alert: null } : {}) }, u.id);
-    await audit(tx, { userId: u.id, action: 'aiBudgetSet', entityType: 'app_settings', entityId: AI_BUDGET_KEY, data: { from: before.monthlyUsd, to: monthlyUsd, maxPages: pages, opusOnlyDeep } });
+    await putAiBudget(tx, { monthlyUsd, maxPages: pages, opusOnlyDeep, autoLawAi, ...(raised ? { alert: null } : {}) }, u.id);
+    await audit(tx, { userId: u.id, action: 'aiBudgetSet', entityType: 'app_settings', entityId: AI_BUDGET_KEY, data: { from: before.monthlyUsd, to: monthlyUsd, maxPages: pages, opusOnlyDeep, autoLawAi } });
   });
   revalidatePath('/', 'layout');
   return { ok: monthlyUsd == null ? 'Зачувано – AI нема месечен лимит.' : `Зачувано – месечен лимит за AI: $${monthlyUsd.toFixed(2)}.` };

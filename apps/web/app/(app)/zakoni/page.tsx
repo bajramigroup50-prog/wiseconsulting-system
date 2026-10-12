@@ -17,7 +17,8 @@ import { allowedFirms, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { Hd, dmyHm } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { lawAskStart, lawDelete, lawRunNow, lawSeenAll } from './actions';
+import { lawAskStart, lawDelete, lawRunAi, lawRunNow, lawSeenAll } from './actions';
+import { AI_COST_TAG, AiBadge } from '@/components/ai-badge';
 import { AskPoll } from './ask-poll';
 import { Robot, RobotCss } from './robot';
 
@@ -64,7 +65,8 @@ export default async function ZakoniPage({ searchParams }: { searchParams: Promi
       <RobotCss />
       <Hd t="⚖️ Законски промени" sub="УЈП, УФР, ЦРМ, ДПИ, ДИТ, АВРМ, ПИОМ, ФЗОМ, Царина, МФ, Мин. економија и труд, Мин. дигитална трансформација, Мин. транспорт, МВР (странци), Службен весник, ИСОС, НБРМ">
         <RowAction className="btn" action={lawSeenAll} label="✓ Означи ги сите како прочитани" />
-        {can(u.principal, 'settings') && <RowAction className="btn" action={lawRunNow} label="▶ Провери сега" />}
+        {can(u.principal, 'settings') && <RowAction className="btn" action={lawRunNow} label="▶ Провери сега" title="Без AI: новите линкови се внесуваат „⚠ да се потврди“" />}
+        {can(u.principal, 'settings') && <RowAction className="btn" action={lawRunAi} label={`🤖 Провери со AI · ${AI_COST_TAG}`} title="AI ги опишува и филтрира новите линкови (троши AI-кредит)" />}
       </Hd>
       <div className="lawbot-hero">
         <Robot size={110} alert={N > 0} id="rbz" />
@@ -83,7 +85,7 @@ export default async function ZakoniPage({ searchParams }: { searchParams: Promi
         <AskPoll pending={ask?.status === 'queued'} />
         <ActionForm action={lawAskStart} reset={false} className="row" style={{ gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <textarea name="q" rows={2} style={{ flex: 1, minWidth: 280 }} defaultValue={ask?.question ?? ''} placeholder="Прашајте нешто, пр. „До кога важи ДДВ 10% за горива?“ или „Кои се стапките на придонеси за плата октомври 2026?“" />
-          <button className="btn pri">🤖 Прашај</button>
+          <button className="btn pri">🤖 Прашај<AiBadge /></button>
         </ActionForm>
         {ask && (ask.status === 'queued'
           ? <div className="callout" style={{ marginTop: 8 }}>⏳ Се бара одговор…</div>

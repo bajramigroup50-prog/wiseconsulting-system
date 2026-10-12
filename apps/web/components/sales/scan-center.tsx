@@ -133,7 +133,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
                 {x && !x.savedId && write && <Link className="btn sm" href={`${editor}?scan=${r.doc.id}&i=${r.i}&back=${encodeURIComponent(back)}`}>{kind === 'sale' ? (s0 === 'dup' ? 'Отвори сепак' : 'Провери') : s0 === 'ok' ? 'Прегледај' : 'Отвори и поправи'}</Link>}
                 {x?.savedId && J.get(x.savedId) && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(J.get(x.savedId)!)}`}>Налог</Link>}
                 {x?.savedId && <Link className="btn sm ghost" href={`${editor}?edit=${x.savedId}`}>Отвори</Link>}
-                {kind === 'sale' && x && !x.savedId && s0 === 'check' && !(r.doc.options as { deep?: boolean }).deep && write && <RowAction action={deepScan.bind(null, r.doc.id)} label="🔍 Подетално" title="Повторно читање со подетален модел (побавно, ~1–2 мин.)" />}
+                {kind === 'sale' && x && !x.savedId && s0 === 'check' && !(r.doc.options as { deep?: boolean }).deep && write && <RowAction action={deepScan.bind(null, r.doc.id)} label="🔍 Подетално · 💲 AI" title="Повторно читање со подетален модел (побавно, ~1–2 мин., троши AI-кредит)" />}
                 {write && r.doc.status === 'error' && <RowAction action={retryScan.bind(null, r.doc.id)} label="↻ Повторно" />}
                 {write && r.doc.status !== 'reading' && r.doc.status !== 'saved' && !x?.savedId && <RowAction action={removeScan.bind(null, r.doc.id)} label="✕" title="Отстрани" confirm={kind === 'sale' ? `Да се отстрани „${r.fileName}“ од листата за проверка?` : undefined} />}
               </td>);

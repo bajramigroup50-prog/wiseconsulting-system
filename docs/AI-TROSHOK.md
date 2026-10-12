@@ -3,6 +3,10 @@
 Ky dokument shpjegon si llogaritet kostoja e leximit me AI, sa kushton zakonisht një dokument dhe si mbahet nën kontroll
 (limiti mujor në program dhe limiti në konsolën e Anthropic).
 
+**Rregulli i pronarit:** çdo gjë që mund të bëhet pa AI bëhet pa AI; AI vetëm kur s'ka zgjidhje tjetër.
+Asnjë përdorim **automatik** (në sfond) i AI-së nuk është i ndezur si parazgjedhje – vetëm me zgjedhjen e pronarit.
+Butonat që shpenzojnë kredit AI kanë distinktivin **„💲 AI“**.
+
 ## 1. Parimi: falas së pari, AI vetëm kur duhet
 
 Për çdo lloj dokumenti që ka lexues falas, programi provon **gjithmonë së pari leximin pa AI** (PDF me tekst, Excel,
@@ -100,3 +104,35 @@ Limiti i programit nuk e zëvendëson limitin te ofruesi. Vendoseni edhe atje:
 
 Kur kredia mbaron ose çelësi refuzohet, programi kalon automatikisht te lexuesit falas dhe tregon mesazhin përkatës
 (Систем › AI читање).
+
+## 7. Inventari i të gjitha thirrjeve AI
+
+Të gjitha thirrjet kalojnë nga `readContent` / `askText` (apps/worker/src/ai): limiti mujor, regjistrimi para/pas,
+Opus vetëm te „🔍“. Kolona „Nisja“: **klik** = përdoruesi e nis vetë; **auto** = në sfond pa klik.
+
+| Ku (lloji / puna) | Nisja | Modeli | ≈ USD / dok. | Alternativa falas |
+|---|---|---|---|---|
+| Fatura hyrëse / dalëse `purchase` / `sale` (Скенирај, Масовно, sanduku) | klik (ngarkim) | Haiku, pastaj Sonnet nëse shumat s'përputhen | 0.001–0.024 | ✅ PDF me tekst (pranohet kur baza×norma=TVSH, grupet=totali), UBL XML – falas së pari |
+| Ndarja e PDF-së me shumë fatura (`:split`) | brenda leximit të faturës, vetëm kur leximi falas dështon | Haiku | 0.002–0.01 | ✅ fatura me tekst që përputhet nuk ndahet fare |
+| Ekstrakt bankar `bank` | klik (ngarkim) | Sonnet | 0.057 (3 faqe) | ✅ PDF me tekst që pajtohet, XML / CSV / MT940 / KB – falas së pari |
+| Bilanc bruto / çelje `ob` | klik | Sonnet (Opus vetëm „🔍“) | 0.126 (5 faqe) | ✅ PDF me tekst / CSV (debi = kredi); lexuesi i bilancit 39-faqësh – agjenti tjetër |
+| Procesverbal kontrolli `kontrola` | klik | Sonnet (Opus vetëm „🔍“) | 0.051 | ✅ PDF me tekst / Word / TXT (kokë + ≥ 1 konstatim) |
+| Klasifikim i sandukut `classify` („🤖 Автоматски 💲 AI“) | klik | Haiku | 0.0005 | ✅ i ri: PDF / XML / Word / TXT me tekst sipas fjalëve të titullit / ЕДБ e shitësit; AI vetëm për skanime |
+| Kontimi i rreshtave bankarë `bankcls` („🤖 Предложи со AI 💲 AI“) | klik, vetëm pas rregullave + konteve të mësuara (`autoMatch`) | Sonnet | 0.02–0.10 | ✅ rregullat dhe kontet e mësuara janë hapi i parë; AI vetëm për mbetjet |
+| Kupona / blloqe `blg` | klik | Haiku (PDF) / Sonnet (foto) | 0.001–0.016 | ⏳ lexues falas – agjenti tjetër |
+| Raporte fiskale `fisk` | klik | Sonnet (Opus vetëm „🔍“) | 0.021 | ⏳ lexues falas – agjenti tjetër |
+| МПИН `mpin.read` (МПИН, sanduku) | klik (ngarkim) | Sonnet | 0.02 | ⏳ lexues falas – agjenti tjetër |
+| Vendim / ekstrakt ЦРМ `ai.read-firm-resh` (Нова фирма од решение, Инспекции – шифри) dhe `tk` | klik | Sonnet | 0.02–0.04 | ⏳ lexues falas – agjenti tjetër |
+| Dokumente punonjësish `emp` | klik | Sonnet | 0.022 | ❌ s'ka (dokumente të lira, shpesh skanime) |
+| Dokumente importi `imp`, kthime / miratime `scr` | klik | Sonnet | 0.02–0.05 | ❌ s'ka ende (kandidat: UBL / PDF me tekst) |
+| Kartela e partnerit `rec` (усогласување) | klik | Sonnet | 0.03–0.08 | ❌ s'ka ende (kandidat: PDF me tekst) |
+| Llogaria vjetore `zm` (БС / БУ) | klik | Sonnet | 0.04 | ❌ s'ka ende (kandidat: XML / PDF me tekst) |
+| Leje qarkullimi `vreg`, pasaportë / LK `rcdoc`, patentë `rclic` | klik | Haiku | 0.001–0.003 | ❌ s'ka (foto) |
+| Normativ `bom` („🤖 Предложи“) | klik | Sonnet | 0.01–0.03 | ❌ s'ka (sugjerim) |
+| Krahasim modelesh `cmp` | klik | Haiku + Sonnet | 0.025 | – (vegël testimi) |
+| Robot për ligjet `law.robot` | **auto** (çdo ditë 06:52; kontrolli i parë në ballinë) + klik | Sonnet | 0.01–0.05 për burim me lidhje të reja | ✅ **parazgjedhje pa AI**: lidhjet e reja ruhen „⚠ да се потврди“. AI vetëm me „🤖 Провери со AI 💲 AI“ ose kur pronari ndez „Дневниот робот за закони користи AI автоматски“ (💲 AI трошок, `aiBudget.autoLawAi`, fikur si parazgjedhje) |
+| Pyetje për ligjet `law.ask` („🤖 Прашај 💲 AI“) | klik | Sonnet | 0.01–0.03 | ❌ s'ka (përgjigje e lirë) |
+| Autopilot, fatura periodike, mail-e, kujtesa | auto | – | 0 | nuk përdorin AI |
+
+Asnjë punë tjetër në sfond (cron) nuk thërret AI. Kur limiti mujor arrihet, rreshtat me ✅ vazhdojnë pa AI; roboti
+ruan lidhjet pa përshkrim.

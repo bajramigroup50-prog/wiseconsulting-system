@@ -23,6 +23,8 @@ import { freeRead } from './free-read';
 import { readContent } from './read-document';
 import { setObjectReader } from './storage';
 import { runReadDocument } from '../jobs/ai-read-document';
+import { lawRobotUsesAi, runLawRobot } from '../jobs/law';
+import { classifyText } from '@wise/core/noai/classify';
 
 const pg = drizzle(new PGlite(), { schema });
 const db = pg as unknown as Tx;
@@ -281,5 +283,44 @@ describe('cost report', () => {
     // a 2-page invoice: Haiku ≈ $0.002, Sonnet ≈ $0.04
     expect(typicalDocCost(AI_MODELS.quick, 2)).toBeLessThan(0.003);
     expect(typicalDocCost(AI_MODELS.default, 2)).toBeLessThan(0.05);
+  });
+});
+
+describe('owner policy: no automatic AI, free classification', () => {
+  it('the law robot uses AI only on an explicit click or with the owner opt-in', async () => {
+    expect(await lawRobotUsesAi(db, null)).toBe(false); // daily cron, default
+    expect(await lawRobotUsesAi(db, {})).toBe(false); // dashboard first check
+    expect(await lawRobotUsesAi(db, { manual: true })).toBe(false); // „▶ Провери сега“
+    expect(await lawRobotUsesAi(db, { manual: true, ai: true })).toBe(true); // „🤖 Провери со AI“
+    await putAiBudget(db, { autoLawAi: true });
+    expect(await lawRobotUsesAi(db, null)).toBe(true);
+    expect(await lawRobotUsesAi(db, { manual: true })).toBe(false);
+  });
+  it('the robot without AI stores the new links „⚠ да се потврди“ and makes no call', async () => {
+    const api = fake([]);
+    setAiClient(api);
+    const SRC = [{ url: 'https://www.ujp.gov.mk/mk', inst: 'UJP', name: 'УЈП', pick: /\/pogledni\/\d+/ }];
+    const page = (ids: number[]) => ids.map((i) => `<a href="/mk/pogledni/${i}">Соопштение ${i}</a>`).join('');
+    await runLawRobot(db, { sources: SRC, fetcher: async () => page([1]), ai: false });
+    const r = await runLawRobot(db, { sources: SRC, fetcher: async () => page([1, 2]), ai: false });
+    expect(r.added).toBe(1);
+    expect(api.calls).toHaveLength(0);
+  });
+  it('inbox classification from the text, AI only when the text does not say it', async () => {
+    expect(classifyText('ИЗВОД бр. 12 по сметка 300000000012345\nПретходна состојба')).toMatchObject({ kind: 'bank' });
+    expect(classifyText('ДЕКЛАРАЦИЈА ЗА ПРИЕМ\nПресметка на плата')).toMatchObject({ kind: 'payroll' });
+    expect(classifyText('ДНЕВЕН ФИНАНСИСКИ ИЗВЕШТАЈ\nZ бр 15')).toMatchObject({ kind: 'fiscal' });
+    expect(classifyText('ФАКТУРА бр. 1\nЕДБ MK4030999000111\nКупувач ЕДБ 4030000000001', { ownEdb: '4030000000001' })).toMatchObject({ kind: 'purchase' });
+    expect(classifyText('ФАКТУРА бр. 1\nЕДБ 4030000000001\nКупувач ЕДБ 4030999000111', { ownEdb: '4030000000001' })).toMatchObject({ kind: 'sale' });
+    expect(classifyText('Писмо до клиентот')).toBeNull();
+    const api = fake(['{"kind":"other","what":"?"}']);
+    setAiClient(api);
+    const t = await doc('classify', 'izvod.txt', 'text/plain', new TextEncoder().encode('ИЗВОД бр. 7 на сметка 300000000012345'));
+    await runReadDocument(db, t);
+    expect(await load(t)).toMatchObject({ status: 'done', model: 'noai', result: { kind: 'bank' } });
+    const s = await doc('classify', 'slika.jpg', 'image/jpeg', new Uint8Array([1]));
+    await runReadDocument(db, s);
+    expect(api.calls).toHaveLength(1);
+    expect((await load(s)).options).toMatchObject({ aiWhy: WHY.scan });
   });
 });

@@ -8,7 +8,7 @@ import { Robot, RobotCss } from './robot';
 /**
  * Legacy `VIEWS.home` wrapper (14347 + robot 14398): callout with the new changes on the dashboard.
  * Legacy read the stored office-wide changes (`applaw`); on a fresh server nothing is stored until the robot's first
- * check, so the dashboard starts that check once (it runs daily at 06:52 afterwards).
+ * check, so the dashboard starts that check once (it runs daily at 06:52 afterwards) — without AI unless the owner opted in (`aiBudget.autoLawAi`).
  */
 export async function LawHome({ userId, role }: { userId: string; role: string }) {
   if (role === 'klient' || role === 'teren') return null;

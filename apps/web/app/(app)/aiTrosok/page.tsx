@@ -112,6 +112,9 @@ export default async function AiTrosokPage({ searchParams }: { searchParams: Pro
           <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <input type="checkbox" name="opusOnlyDeep" defaultChecked={B.opusOnlyDeep} /> Најскапиот модел (Opus) само при „🔍 Подетално читање“
           </label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="Автоматска (позадинска) употреба на AI – стандардно исклучена">
+            <input type="checkbox" name="autoLawAi" defaultChecked={B.autoLawAi} /> Дневниот робот за закони користи AI автоматски (без ова: бесплатно, линковите „⚠ да се потврди“)
+          </label>
           <Submit>Зачувај</Submit>
         </div>
         <p className="note" style={{ margin: '8px 0 0' }}>
