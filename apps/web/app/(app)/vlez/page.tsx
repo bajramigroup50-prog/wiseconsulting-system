@@ -20,7 +20,7 @@ import { DownloadCsv } from '@/components/download-csv';
 import { PurchaseEditor, type PurItemOpt, type ScanQueueProp } from '@/components/sales/purchase-editor';
 import { PayPill } from '@/components/sales/invoices-view';
 import { blankCost, COSTS, newPurchase, s, type EdPurchase } from '@/components/sales/model';
-import { approvePurchaseAction, deletePurchaseAction, deletePurchasesAction } from './actions';
+import { approvePurchaseAction, deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePreviewAction } from './actions';
 import { ScanUpload } from '@/components/sales/scan-upload';
 import { PxImport } from '@/components/sales/px-import';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
@@ -168,10 +168,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null }} small autoOpen={{ back: '/vlez' }} batchView="/masovno"
         label={<><b>Прочитај фактура од PDF</b> — повлечете една или повеќе фактури (PDF, JPG, PNG) тука или кликнете. Програмот ги чита добавувачот, бројот, датумот и износите по стапка, и ја прикачува оригиналната фактура.</>} />}
       {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} фактури се внесени двапати ({[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
-        <RowAction className="btn danger" action={deletePurchasesAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
+        <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px' }}><input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {list.length ? (<>
-        {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesAction} />}
+        {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesCascadeAction} preview={purchaseDeletePreviewAction} />}
         <div className="tw"><table><thead><tr>{del && <th style={{ width: 30 }}><SelAll /></th>}<th>Датум</th><th>Бр.</th><th>Добавувач</th><th>Вид</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th className="n">Девизен износ</th><th className="n">Платено</th><th className="n">Останува</th><th>Плаќање</th><th></th></tr></thead>
           <tbody>{list.map(({ p, name }) => {
             const x = fxInfo(p);
@@ -187,7 +187,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
                 {(() => { const pm = payOf(p.id, p.total); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && p.due && p.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td><td>{p.status === 'pending' ? null : <PayPill paid={pm.paid} total={pm.due} />}</td></>; })()}
                 <td><div className="row" style={{ flexWrap: 'nowrap' }}>
                   {write && <Link className="btn sm" href={`/vlez?edit=${p.id}`}>Измени</Link>}
-                  {del && <RowAction action={deletePurchaseAction.bind(null, p.id)} label="Избриши" title="Избриши ја фактурата" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура бр. ${p.number || ''} од ${dmy(p.date)} (${name ?? p.supplierName ?? ''}, ${fmt(p.total)} ден.)?\nЌе се избрише и налогот и приемот на залиха.`} />}
+                  {del && <RowAction action={deletePurchaseAction.bind(null, p.id, true)} preview={purchaseDeletePreviewAction.bind(null, [p.id])} label="Избриши" title="Избриши ја фактурата" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура бр. ${p.number || ''} од ${dmy(p.date)} (${name ?? p.supplierName ?? ''}, ${fmt(p.total)} ден.)?\nЌе се избрише и налогот и приемот на залиха.`} />}
                   {nStock.get(p.id) ? <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калкулација</Link> : null}
                   <Link className="btn sm" href={J.get(p.id) ? `/nalozi?n=${encodeURIComponent(J.get(p.id)!)}` : '#'}>Налог бр. {J.get(p.id) ?? '—'}</Link>
                   {write && u.role !== 'klient' && p.status === 'pending' && <RowAction className="btn sm pri" action={approvePurchaseAction.bind(null, p.id)} label="✓ Одобри" />}

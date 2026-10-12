@@ -5,8 +5,13 @@ import { useState, useTransition } from 'react';
 
 export interface RowResult { error?: string; ok?: string }
 
-export function RowAction({ action, label, title, confirm: ask, className = 'btn sm ghost', style, showOk, inline, okHref, okLink }: {
+/** Checked right before the confirm: `extra` is appended to the confirm text, `block` is shown instead and stops. */
+export interface RowPreview { extra?: string; block?: string }
+
+export function RowAction({ action, label, title, confirm: ask, preview, className = 'btn sm ghost', style, showOk, inline, okHref, okLink }: {
   action: () => Promise<RowResult | void>;
+  /** E.g. the documents deleted together with this one („Ќе се избришат и: …“). */
+  preview?: () => Promise<RowPreview>;
   label: React.ReactNode;
   title?: string;
   confirm?: string;
@@ -24,8 +29,14 @@ export function RowAction({ action, label, title, confirm: ask, className = 'btn
   const [res, setRes] = useState<RowResult | null>(null);
   const button = (
     <button type="button" className={className} style={style} title={title} disabled={pending}
-      onClick={() => {
-        if (ask && !window.confirm(ask)) return;
+      onClick={async () => {
+        let extra = '';
+        if (preview) {
+          const p = await preview();
+          if (p.block) { if (inline) setRes({ error: p.block }); else window.alert(p.block); return; }
+          extra = p.extra ?? '';
+        }
+        if ((ask || extra) && !window.confirm((ask ?? '') + extra)) return;
         setRes(null);
         start(async () => {
           const r = await action();

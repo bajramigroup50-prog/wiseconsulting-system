@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 import { nextYearNumber, transferBookTotals } from '@wise/core';
 import { transferFromCalc } from '@wise/core/parity-stock';
-import { partners, purchases, purchaseStockLines, transfers } from '@wise/db';
+import { partners, purchases, purchaseStockLines, transferSources, transfers } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { itemOptions, locOptions, stockPage, todayIso } from '@/lib/stock';
@@ -25,11 +25,15 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
   const { u, firm, year, L } = await stockPage('prenosi');
   if (!firm || !L) return <NoFirm t="Пренос во продавница" />;
   const write = canDo(u, 'prSave', firm.id);
+  const del = canDo(u, 'prDel', firm.id);
   const locs = locOptions(L);
   const stores = locs.filter((l) => l.kind === 'store');
   const list = await db().select().from(transfers)
     .where(and(eq(transfers.firmId, firm.id), gte(transfers.date, `${year}-01-01`), lte(transfers.date, `${year}-12-31`)))
     .orderBy(desc(transfers.date), desc(transfers.number));
+  // data check: transfers whose source calculation no longer exists (deleted before the cascade delete existed)
+  const SRC = await transferSources(db(), firm.id, list);
+  const orphans = list.filter((d) => SRC.get(d.id)?.missing.length);
   const tot = (d: (typeof list)[number]) => {
     const t = transferBookTotals(L.ctx, { id: d.id, number: d.number, date: d.date, from: d.fromLocationId ?? 'main', to: d.toLocationId ?? 'main', lines: d.lines.map((l) => ({ item: l.itemId, qty: l.qty, nabU: l.nabU ?? 0, sp: l.sp ?? null })) });
     return { ...t, mg: t.marg };
@@ -66,7 +70,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
     let info = '';
     let ok = '';
     if (edit) {
-      initial = { id: edit.id, number: edit.number, date: edit.date, from: edit.fromLocationId ?? 'main', to: edit.toLocationId ?? 'main', note: edit.note ?? '', lines: edit.lines.map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' })) };
+      initial = { id: edit.id, number: edit.number, date: edit.date, from: edit.fromLocationId ?? 'main', to: edit.toLocationId ?? 'main', note: edit.note ?? '', ...(edit.sourcePurchaseIds?.length ? { src: edit.sourcePurchaseIds } : {}), lines: edit.lines.map((l) => ({ itemId: l.itemId, qty: String(l.qty), sp: l.sp != null ? String(l.sp) : '' })) };
     } else {
       // one or more calculations (legacy `prFromCalc` / `ksPren`): same warehouse, newest date
       const cs = (sp.calc ?? '').split(',').map((id) => calcs.find((x) => x.id === id)).filter((x): x is CalcOpt => !!x);
@@ -83,7 +87,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
       else if (cs.length && new Set(cs.map((x) => x.wh ?? 'main')).size > 1) info = 'Селектираните калкулации се од различни објекти (' + [...new Set(cs.map((x) => L.locName(x.wh ?? 'main')))].join(', ') + ') – изберете од еден магацин.';
       else if (cs.length && stores.some((s) => s.id === from)) info = 'Калкулацијата е веќе во продавница – пренос се прави од магацин.';
       else if (cs.length) ok = 'Преносницата е подготвена од ' + cs.length + ' калкулации – изберете продавница и продажни цени, па зачувајте.';
-      initial = { date, from, to, note: cs.length ? 'Од калкулација ' + cs.map((x) => x.label.split(' · ')[0]).join(', ') : '', lines };
+      initial = { date, from, to, note: cs.length ? 'Од калкулација ' + cs.map((x) => x.label.split(' · ')[0]).join(', ') : '', lines, ...(cs.length ? { src: cs.filter((x) => x.wh === from).map((x) => x.id) } : {}) };
     }
     const nextNo = nextYearNumber(list.map((x) => ({ number: x.number, date: x.date })), (initial.date ?? dflt).slice(0, 4), 4);
     const round = String((L.firm.settings as Record<string, unknown> | null)?.mgRound ?? '1');
@@ -106,6 +110,7 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
       {editor ?? (
         <div className="callout">Стоката прво се прима во <b>магацин</b> (Големопродажба → Влез). Со преносница се префрла во <b>продавница</b> по набавна цена од магацинот, а за продавницата се внесува малопродажна цена со ДДВ. Се печатат Преносница и ПЛТ за продавницата; магацинот се раздолжува, продавницата се задолжува (Д 6630 / П 6600 / П 6694 / П 6640).</div>
       )}
+      {orphans.length > 0 && <div className="callout warn">⚠ {orphans.length} {orphans.length === 1 ? 'преносница е направена' : 'преносници се направени'} од калкулација која е избришана ({orphans.map((d) => d.number).join(', ')}) – стоката во продавницата нема извор, а магацинот оди во минус. Избришете ги со 🗑 кај редот (ако стоката е веќе продадена, прво сторнирајте ги продажбите).</div>}
       {list.length ? (
         <div className="tw"><table>
           <thead><tr><th>Датум</th><th>Бр.</th><th>Од магацин</th><th>Во продавница</th><th className="n">Ставки</th><th className="n">Набавна вредност</th><th className="n">Разлика</th><th className="n">Продажна со ДДВ</th><th className="noprint" /></tr></thead>
@@ -114,13 +119,15 @@ export default async function PrenosiPage({ searchParams }: { searchParams: Prom
               const t = tot(d);
               return (
                 <tr key={d.id}>
-                  <td>{dmy(d.date)}</td><td><b>{d.number}</b></td><td>{L.locName(d.fromLocationId)}</td><td>{L.locName(d.toLocationId)}</td>
+                  <td>{dmy(d.date)}</td><td><b>{d.number}</b>{SRC.get(d.id)?.missing.length ? <> <span className="pill warn" title={d.note ?? ''}>⚠ изворната калкулација е избришана</span></> : null}</td><td>{L.locName(d.fromLocationId)}</td><td>{L.locName(d.toLocationId)}</td>
                   <td className="n">{d.lines.length}</td><td className="n">{fmt(t.nab)}</td><td className="n">{fmt(t.mg)}</td><td className="n">{fmt(t.sp)}</td>
                   <td className="row noprint" style={{ gap: 4, flexWrap: 'nowrap' }}>
                     <Link className="btn sm" href={`/print/prenos/${d.id}`} target="_blank">Преносница</Link>
                     <Link className="btn sm" href={`/print/prenos/${d.id}?t=plt`} target="_blank">ПЛТ</Link>
                     {write && <Link className="btn sm" href={`/prenosi?id=${d.id}`}>Измени</Link>}
-                    {write && <RowAction action={deleteTransferAction.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише преносницата ${d.number}? Стоката се враќа во ${L.locName(d.fromLocationId)}.`} />}
+                    {del && (SRC.get(d.id)?.missing.length
+                      ? <RowAction className="btn sm danger" action={deleteTransferAction.bind(null, d.id, 'orphan')} label="🗑 Избриши (без извор)" title="Изворната калкулација е избришана – избриши ја и преносницата" confirm={`Изворната калкулација на преносницата ${d.number} е избришана. Да се избрише и преносницата (${d.lines.length} ставки)? Стоката се враќа од ${L.locName(d.toLocationId)} во ${L.locName(d.fromLocationId)}, се брише и налогот.`} />
+                      : <RowAction action={deleteTransferAction.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише преносницата ${d.number}? Стоката се враќа во ${L.locName(d.fromLocationId)}.`} />)}
                   </td>
                 </tr>
               );

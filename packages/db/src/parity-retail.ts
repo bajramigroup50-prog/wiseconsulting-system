@@ -18,11 +18,12 @@ import {
 import { r2, r4 } from '@wise/core/stock/num';
 const fq = (x: number) => String(Math.round(x * 1000) / 1000).replace('.', ',');
 import { audit, type Tx } from './audit';
-import { coupons, firmDocs, firms, items, journalLines, journals, loyaltyCards, partners, purchaseStockLines, purchaseVatGroups, purchases, salesDaily, storeOuts, type StoreOutLine } from './schema/index';
+import { coupons, firmDocs, firms, items, journalLines, journals, loyaltyCards, partners, purchaseStockLines, purchaseVatGroups, purchases, salesDaily, storeOuts, transfers, type StoreOutLine } from './schema/index';
 import { assertOpenPeriod, postJournal } from './posting';
 import { StockDocError, ensurePosPartner, loadStockContext, removeSourceMoves, replaceSourceMoves, requireLocation, requireTracked, whId } from './stock-service';
 import { deleteSalesDay, posSell, retailDocNumber, saveSalesDay, type Actor } from './stock-docs';
 import { loyaltyApplySale, loyaltyRulesOf, patchFirmSettings } from './retail';
+import { dependentTransfers } from './transfer-links';
 
 export interface PosSaleInput {
   date: string;
@@ -323,7 +324,9 @@ export async function mergePurchases(tx: Tx, firmId: string, ids: readonly strin
     tx.select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, pids)),
   ]);
   ST.sort((a, b) => (pids.indexOf(a.purchaseId) - pids.indexOf(b.purchaseId)) || a.lineNo - b.lineNo);
-  for (const id of pids) await deletePurchase(tx, firmId, id, actor);
+  // transfers made from the merged calculations stay and point to the new one
+  const dep = await dependentTransfers(tx, firmId, pids);
+  for (const id of pids) await deletePurchase(tx, firmId, id, actor, { keepTransfers: true });
   const r = await savePurchase(tx, firmId, {
     number: head.number, date: head.date, docDate: head.docDate, due: p0.due, partnerId: p0.partnerId, supplierName: p0.supplierName, supplierEdb: p0.supplierEdb,
     ptype: p0.ptype, art32: p0.art32, imp: false, cash: p0.cash, noDed: p0.noDed, warehouseId: p0.warehouseId, supplierAccount: p0.supplierAccount, currency: p0.currency, fx: 1,
@@ -332,6 +335,9 @@ export async function mergePurchases(tx: Tx, firmId: string, ids: readonly strin
     stock: ST.map((s) => ({ itemId: s.itemId, name: s.name, code: s.code, barcode: s.barcode, qty: s.qty, price: s.price, rab: s.rab, amount: s.amount, dep: s.dep, sp: s.sp, type: s.type })),
     data: { note: 'Спојување: ' + P.map((p) => p.calcNo || p.number).join(', ') } as PurchaseInput['data'],
   }, actor);
+  for (const d of dep) {
+    await tx.update(transfers).set({ sourcePurchaseIds: [...new Set([...d.sourceIds.filter((x) => !pids.includes(x)), r.id])] }).where(eq(transfers.id, d.id));
+  }
   await audit(tx, { userId: actor.userId, firmId, action: 'ksMerge', entityType: 'purchase', entityId: r.id, data: { from: pids } });
   return { id: r.id, warnings: r.warnings };
 }

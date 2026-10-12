@@ -21,7 +21,8 @@ import {
   assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, stockLocations, type DocActor,
 } from './context';
 import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
-import { saveLevelling } from '../stock-docs';
+import { deleteTransfer, saveLevelling } from '../stock-docs';
+import { dependentLabel, dependentTransfers } from '../transfer-links';
 import { ensurePartner } from './partners-auto';
 
 import { todaySkopje } from '@wise/core/office/dates';
@@ -367,17 +368,30 @@ export async function approvePurchase(tx: Tx, firmId: string, id: string, actor:
   await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'purchase', entityId: id, data: { number: pur.number } });
 }
 
-export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: DocActor): Promise<void> {
+/**
+ * Delete a purchase with its journal and stock receipt. Transfers created from it (calculation → store) are deleted
+ * too when `cascade` is set (the user confirmed the list from `dependentTransfers`); without it the delete is refused
+ * so the store never keeps goods without a source. A dependent transfer in a locked period, or whose goods were
+ * already sold in the store, blocks the whole delete (`assertTransferRemovable`).
+ */
+export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: DocActor, opts: { cascade?: boolean; /** merge: the transfers are re-linked to the merged calculation by the caller */ keepTransfers?: boolean } = {}): Promise<{ transfers: string[] }> {
   await loadFirmForUpdate(tx, firmId);
   const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firmId))).for('update').limit(1);
   if (!pur) throw new DocumentError('Влезната фактура не постои.');
   if (pendingFor(actor) && pur.status !== 'pending') throw new DocumentError('Прокнижен документ не може да се брише од порталот.');
   const [sc] = await tx.select({ n: supplierCredits.number }).from(supplierCredits).where(eq(supplierCredits.refPurchaseId, id)).limit(1);
   if (sc) throw new DocumentError(`На фактурата се однесува повратница/одобрение ${sc.n} – прво избришете го.`);
+  const dep = opts.keepTransfers ? [] : await dependentTransfers(tx, firmId, [id]);
+  if (dep.length && !opts.cascade) {
+    throw new DocumentError(`Од калкулацијата ${pur.calcNo || pur.number || ''} е направен пренос во продавница: ${dep.map(dependentLabel).join('; ')}. Потврдете го бришењето – ќе се избришат и преносниците.`);
+  }
+  const depIds = dep.map((d) => d.id);
+  for (const d of dep) await deleteTransfer(tx, { firmId, userId: actor.userId }, d.id, { reason: 'cascade', purchaseId: id, alsoRemoved: depIds });
   await unpostPurchase(tx, firmId, id, actor.userId);
   await tx.delete(fileLinks).where(and(eq(fileLinks.entityType, 'purchase'), eq(fileLinks.entityId, id)));
   await tx.delete(purchases).where(eq(purchases.id, id));
-  await audit(tx, { userId: actor.userId, firmId, action: 'delPur', entityType: 'purchase', entityId: id, data: { number: pur.number, date: pur.date, total: n(pur.total) } });
+  await audit(tx, { userId: actor.userId, firmId, action: 'delPur', entityType: 'purchase', entityId: id, data: { number: pur.number, date: pur.date, total: n(pur.total), ...(depIds.length ? { transfers: dep.map((d) => d.number) } : {}) } });
+  return { transfers: dep.map((d) => d.number) };
 }
 
 /**
