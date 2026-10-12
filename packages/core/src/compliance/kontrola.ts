@@ -320,4 +320,10 @@ Rules: amounts as plain decimal strings with a dot (1234.56), "0.00" when none; 
 export interface KontrolaAiResult {
   auth?: string; doc?: string; docNo?: string; docDate?: string; periodFrom?: string; periodTo?: string; subject?: string;
   findings?: { no?: number; area?: string; text?: string; article?: string; claimed?: string | number; interest?: string | number; fine?: string | number }[];
+  /** Days of the legal remedy from the act's „правна поука“ (free reader; counted from delivery). */
+  remedyDays?: number;
+  remedyUnit?: 'days' | 'workdays';
+  /** Read without AI (`@wise/core/noai/kontrola`): the office must check the findings. */
+  noai?: boolean;
+  note?: string;
 }
