@@ -50,7 +50,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['vlez', 'c', 'savePur createMissingItems'],
   ['vlez', 'u', 'editPur ksMerge purNoDed scrSave'],
   ['vlez', 'd', 'delPur scrDel'],
-  ['nalozi', 'c', 'saveJ postJournal impJournal kamNote posFee kompSave lnCreateSel'],
+  ['nalozi', 'c', 'saveJ postJournal impJournal kamNote posFee kompSave lnCreateSel newNalog'],
   ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost lnSave'],
   ['nalozi', 'd', 'unpostJournal deleteJournal kompDel lnDel'],
   ['izvodi', 'c', 'importBank importReplace izvSave mbSave addRule pnRun ppSave trClose'],

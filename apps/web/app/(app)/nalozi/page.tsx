@@ -90,7 +90,11 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     ...(Object.keys(NAL_DEF) as NalDefKey[]).map((k) => [nalCode(k, S), NAL_DEF[k][1]] as [string, string]),
     ...banks.map((b) => [bankNalCode(b.id, S.banks), 'ИЗВОДИ ' + b.name.toUpperCase()] as [string, string]),
   ]);
+  /** Header row of a collective sale nalog opened with „+ Креирај налог“ in the invoice editor (`sales/invoice-nalog.ts`). */
+  const headOf = (g: (typeof G)[number]) => g.journals.find((j) => !j.sourceId && ((j.meta ?? {}) as { collective?: unknown }).collective != null);
   const titleOf = (g: (typeof G)[number]) => {
+    const h = headOf(g);
+    if (h) return h.description ?? '';
     if (g.journals.length === 1) return g.journals[0]!.description ?? '';
     const c = g.no.includes('/') ? g.no.split('/')[0]! : '';
     return codeTitle.get(c) ?? `${g.journals[0]!.description ?? ''} (+${g.journals.length - 1})`;
@@ -144,7 +148,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         </Hd>
         {g.journals.length > 1 && (
           <div className="card">
-            <h2>Документи во налогот ({g.journals.length})</h2>
+            <h2>Документи во налогот ({g.journals.filter((j) => j.sourceId).length}){headOf(g) && <> <span className="pill info" title="Збирен налог: секоја фактура си ги чува своите ставки; бришење/сторно на една фактура ги отстранува само нејзините ставки">збирен налог · {g.journals.filter((j) => j.sourceType === 'invoice').length} фактури</span></>}</h2>
             <div className="tw"><table className="dense"><tbody>
               {g.journals.map((j) => {
                 const o = ovOf(j);
@@ -153,6 +157,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {canEdit(j) && <Link className="btn sm" href={`/nalozi?edit=${j.id}`}>✎ Корекција</Link>}{' '}
                       {!manualLike(j) && j.sourceType && DOC_SCREEN[j.sourceType] && <Link className="btn sm ghost" href={DOC_SCREEN[j.sourceType]!}>Документ →</Link>}{' '}
+                      {j.sourceType === 'invoice' && j.sourceId && <Link className="btn sm ghost" href={`/print/doc/${j.sourceId}`} target="_blank" title="Фактурата во налогот">👁 Фактура</Link>}{' '}
                       {del && manualLike(j) && <RowAction action={deleteJournalAction.bind(null, j.id)} label="🗑" title="Избриши" confirm={`Да се избрише „${j.description ?? j.number}“?`} style={{ color: 'var(--bad)' }} />}
                     </td></tr>
                 );

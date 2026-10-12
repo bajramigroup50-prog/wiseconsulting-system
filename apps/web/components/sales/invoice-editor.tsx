@@ -8,12 +8,12 @@
 import Link from 'next/link';
 import { Fragment, useActionState, useMemo, useRef, useState, useTransition } from 'react';
 import {
-  addDays, CURRENCIES, creditGrossLines, DT, fuelInvoiceCheck, invoiceTotals, PARITY, PAYM, plansFromSavedRun, prodSummary, PTERMS, specText, workOrderLabel, type DtKey,
+  addDays, CURRENCIES, creditGrossLines, DT, fuelInvoiceCheck, invoiceTotals, isDraftNo, PARITY, PAYM, plansFromSavedRun, prodSummary, PTERMS, specText, workOrderLabel, type DtKey,
 } from '@wise/core/sales';
 import type { FuelRule } from '@wise/core/law';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
-import { createProductAction, saveInvoiceAction, setSvcOnlyAction } from '@/app/(app)/izlez/actions';
+import { createInvoiceNalogAction, createProductAction, saveInvoiceAction, setSvcOnlyAction } from '@/app/(app)/izlez/actions';
 import { blankCostEls, blankLine, blankSpec, mainProdLine, OTHER_COSTS, type EdInvoice, type EdLine } from './model';
 import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
 import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';
@@ -43,7 +43,15 @@ export interface InvoiceEditorProps {
   /** Advance konto from the scheme — FIX (LEGACY-MAP 3.4 item 2): the callout used to say 2270 while posting used 2220. */
   advanceKonto: string;
   nonVat: boolean;
+  /** Number of the nalog the saved invoice is booked in. */
   nalogNo?: string | null;
+  /** „Налог за книжење“: open sale nalozi of the year and the number „+ Креирај налог“ proposes. */
+  nalozi?: NalogOpt[];
+  nextNalog?: string;
+  /** Next number of the issued series (a draft gets it when it is booked). */
+  nextNumber?: string;
+  /** The draft was just created / saved („Креирај фактура“); warnings of that save. */
+  drafted?: string | null;
   back: string;
   firmAddress?: string | null;
   scanInfo?: string;
@@ -66,6 +74,8 @@ export interface InvoiceEditorProps {
   workOrders?: WorkOrderOpt[];
   nextWorkOrder?: string;
 }
+export interface NalogOpt { number: string; description: string; from: string; to: string; periodFrom: string | null; periodTo: string | null; invoices: number; collective: boolean }
+
 export interface InvoiceProdRun {
   wh: string | null; extra: number; saveBom: boolean;
   lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[]; wh?: string | null; extra?: number | null; saveBom?: boolean; main?: boolean; spec?: ProdSpec | null; calc?: ProdCostInput | null }[];
@@ -119,7 +129,20 @@ const lineAmt = (l: EdLine) => (Number(l.qty) || 0) * (Number(l.price) || 0) * (
 
 export function InvoiceEditor(p: InvoiceEditorProps) {
   const [st, action, pending] = useActionState<ActionState, FormData>(saveInvoiceAction, {});
-  const [d, setD] = useState<EdInvoice>(() => withSavedProd(p.initial, p.prodRun, p.items));
+  // a draft's provisional number („НАЦРТ-n“) is not shown as the invoice number: the series number comes at booking
+  const [d, setD] = useState<EdInvoice>(() => {
+    let x = withSavedProd(p.initial, p.prodRun, p.items);
+    if (isDraftNo(x.number)) x = { ...x, number: '' };
+    // a draft created from its header opens with the first main product card (production) or an empty row
+    if (x.kind === 'invoice' && x.data.prodInv === '1' && !x.lines.some((l) => l.prod?.main)) x = { ...x, lines: [mainProdLine(p.revByType.product || p.revDefault, x.warehouseId, x.export ? '0' : '18'), ...x.lines] };
+    else if (!x.lines.length) x = { ...x, lines: [blankLine(p.revDefault, x.export ? '0' : '18')] };
+    return x;
+  });
+  const [nalozi, setNalozi] = useState<NalogOpt[]>(p.nalozi ?? []);
+  const [newNal, setNewNal] = useState<{ number: string; date: string; description: string; from: string; to: string } | null>(null);
+  const [nalBusy, setNalBusy] = useState(false);
+  // header first: a new invoice is created as a draft from its header, then the lines are entered „from inside“
+  const [direct, setDirect] = useState(false);
   const [tab, setTab] = useState<'osn' | 'dop' | 'pos'>('osn');
   const [qa, setQa] = useState({ q: '', sel: '' as string, qty: '1', i: 0 });
   const [toast, setToast] = useState('');
@@ -142,6 +165,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const prodInv = canProd && d.data.prodInv === '1';
   const isMain = (l: EdLine) => prodInv && !!l.prod?.main;
   const nonEmpty = (l: EdLine) => !!(l.itemId || l.name.trim() || Number(l.price));
+  /** A line with an article or a name — empty rows (and unnamed rows marked 🏭) are ignored, never block. */
+  const named = (l: EdLine) => !!(l.itemId || l.name.trim());
   const setMode = (on: boolean) => setD((o) => {
     if (!on) {
       // back to a normal invoice: typed main products stay as lines marked „🏭“, empty ones go
@@ -149,7 +174,9 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
       return { ...o, data: { ...o.data, prodInv: '' }, lines: L.length ? L : [blankLine(p.revDefault, o.export ? '0' : '18')] };
     }
     const has = o.lines.some((l) => l.prod?.main);
-    const rest = o.lines.filter(nonEmpty);
+    // production invoice: production is done in the main product cards above, the other lines are ordinary lines
+    if (has) return { ...o, data: { ...o.data, prodInv: '1' }, lines: o.lines.map((l) => (l.prod && !l.prod.main ? { ...l, prod: undefined } : l)) };
+    const rest = o.lines.filter(nonEmpty).map((l) => (l.prod ? { ...l, prod: undefined } : l));
     return { ...o, data: { ...o.data, prodInv: '1' }, lines: has ? o.lines : [mainProdLine(p.revByType.product || p.revDefault, o.warehouseId, o.export ? '0' : '18'), ...rest] };
   });
   const addMain = () => setD((o) => {
@@ -207,7 +234,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const fxN = d.currency === 'MKD' ? 1 : Number(d.fx) || 0;
 
   // „🏭 производство“ per line: the produced lines, their live calculation and the invoice summary
-  const prodLines = canProd ? d.lines.map((l, i) => ({ l, i })).filter(({ l }) => l.prod) : [];
+  const prodLines = canProd ? d.lines.map((l, i) => ({ l, i })).filter(({ l }) => l.prod && named(l) && (!prodInv || l.prod.main)) : [];
   const calcs = new Map(prodLines.filter(({ l }) => l.itemId && itemById.get(l.itemId)?.type !== 'service').map(({ l, i }) => [i, lineCalc(l, p.stock, avgs, fxN)]));
   const PS = prodSummary([...calcs.values()]);
   // production order of the saved invoice per line (orders follow the produced lines of the same product)
@@ -216,11 +243,13 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
     const same = prodLines.filter((x) => x.l.itemId === l.itemId).map((x) => x.i);
     return (p.prodRun?.orders ?? []).filter((o) => o.productId === l.itemId)[same.indexOf(i)]?.number ?? null;
   };
+  /** Lines sent to the server: rows with nothing typed (no article, name or price) are dropped, never block. */
+  const keepLine = (l: EdLine) => nonEmpty(l);
   /** The payload of the produced lines: `lineNo` = the line's index among the saved (non-empty) lines. */
   const woRef = prodInv && d.data.woNo?.trim() ? { number: d.data.woNo.trim(), from: d.data.woFrom || null, to: d.data.woTo || null } : null;
   const production = (() => {
     if (!prodLines.length) return null;
-    const keep = d.lines.map(nonEmpty);
+    const keep = d.lines.map(keepLine);
     const idx = (i: number) => keep.slice(0, i).filter(Boolean).length;
     return {
       wh: null, extra: '0', saveBom: false, mode: prodInv ? 'prodInv' as const : null, workOrder: woRef,
@@ -297,6 +326,10 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   /** legacy `saveInv` confirm chain (7017 → 14359): fuel VAT, stock shortage, lines without an item, art. 32-a buyer. */
   const beforeSave = (e: React.FormEvent<HTMLFormElement>) => {
     const NL = '\n';
+    // a draft is not booked: no stock / VAT / production checks until „Зачувај и прокнижи“
+    if (((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.name === 'asDraft') return;
+    const noName = d.lines.findIndex((l) => !named(l) && Number(l.price));
+    if (noName >= 0) { e.preventDefault(); setToast(`Редот ${noName + 1} има цена, но нема назив ни артикл – внесете назив или избришете го редот (✕).`); return; }
     if (!d.export && !d.art32 && !d.data.fuelOk) {
       const m = fuelInvoiceCheck(d.lines, d.pdate || d.date, p.fuelRule ?? null, 'Фактура');
       if (m) {
@@ -310,8 +343,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         setD((o) => ({ ...o, data: { ...o.data, fuelOk: '1' } }));
       }
     }
-    if (prodInv && !d.lines.some((l) => l.prod?.main && nonEmpty(l)) && !window.confirm('Фактурата е „🏭 од производство“, но нема внесено главен производ. Сепак да се зачува како обична фактура?')) { e.preventDefault(); return; }
-    const used = prodLines.filter(({ l }) => nonEmpty(l));
+    if (prodInv && !d.lines.some((l) => l.prod?.main && named(l)) && !window.confirm('Фактурата е „🏭 од производство“, но нема внесено главен производ. Сепак да се зачува како обична фактура?')) { e.preventDefault(); return; }
+    const used = prodLines;
     if (canProd && used.length) {
       const bad = used.filter(({ l }) => !l.itemId || itemById.get(l.itemId)?.type === 'service');
       if (bad.length) {
@@ -358,21 +391,55 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   ));
   const pOpts = <>{<option value="">— избери —</option>}{p.partners.map((x) => <option key={x.id} value={x.id}>{x.code ? x.code + ' · ' : ''}{x.name}</option>)}</>;
   const saveLbl = d.kind === 'proforma' ? 'Зачувај' : d.kind === 'dispatch' ? 'Зачувај и раздолжи залиха' : 'Зачувај и прокнижи';
+  /** An unbooked draft invoice (not a cancelled one — the page marks those `cancelled`). */
+  const isDraftDoc = isInv && d.status === 'draft';
+  /** New invoice, nothing entered yet: only the header and „Креирај фактура“ (the draft then opens with the lines). */
+  const headerStage = isInv && !d.id && !direct && p.initial.scanDocId == null && !d.fromDocId && !p.initial.lines.some((l) => !l.prod?.main && nonEmpty(l));
+  const canDraft = isInv && (!d.id || isDraftDoc) && p.initial.scanDocId == null;
+  // „Налог за книжење“: nalozi of the invoice's year whose period (or, without one, whose months) cover the date
+  const ym = d.date.slice(0, 7);
+  const nalOpts = nalozi.filter((n) => n.number === (d.data.nalogNo ?? '') || (n.from.slice(0, 4) === d.date.slice(0, 4) && (n.periodFrom || n.periodTo
+    ? (!n.periodFrom || d.date >= n.periodFrom) && (!n.periodTo || d.date <= n.periodTo)
+    : n.from.slice(0, 7) <= ym && ym <= n.to.slice(0, 7)))).sort((a, b) => Number(b.collective) - Number(a.collective) || a.number.localeCompare(b.number, 'mk', { numeric: true }));
+  const nalSel = newNal ? '__new' : d.data.nalogNo ?? '';
+  const monthEnd = (x: string) => { const [y, m] = x.split('-').map(Number) as [number, number]; return `${x.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`; };
+  const createNalog = async () => {
+    if (!newNal) return;
+    setNalBusy(true);
+    try {
+      const r = await createInvoiceNalogAction({ number: newNal.number, date: newNal.date, description: newNal.description, periodFrom: newNal.from, periodTo: newNal.to });
+      if (r.error || !r.nalog) { setToast(r.error ?? 'Налогот не е креиран.'); return; }
+      const n = r.nalog;
+      setNalozi((L) => [...L.filter((x) => x.number !== n.number), { number: n.number, description: n.description, from: n.date, to: n.date, periodFrom: n.periodFrom, periodTo: n.periodTo, invoices: 0, collective: true }]);
+      setData('nalogNo', n.number);
+      setNewNal(null);
+      setToast(r.ok ?? '');
+    } finally { setNalBusy(false); }
+  };
 
   return (
     <form action={action} ref={formRef} onSubmit={beforeSave}>
       <input type="hidden" name="payload" value={JSON.stringify({
-        ...d, back: p.back, lines: d.lines.map((x) => { const { prod: _p, ...l } = lineOut(x); return l; }), production,
+        ...d, number: headerStage ? '' : d.number, back: p.back, lines: d.lines.filter(keepLine).map((x) => { const { prod: _p, ...l } = lineOut(x); return l; }), production,
         data: isInv ? { ...d.data, prod: production ? 'Д' : 'Н', prodCost: production ? PS.cost.toFixed(2) : '', prodInv: prodInv ? '1' : '', ...(prodInv ? {} : { woNo: '', woFrom: '', woTo: '' }) } : d.data,
       })} />
       <div className="hd">
         <h1>{p.title}{p.sub && <span className="mk">{p.sub}</span>}</h1>
-        <div className="row"><Link className="btn" href={p.back}>Откажи</Link><button className="btn pri" disabled={pending}>{saveLbl}</button></div>
+        <div className="row"><Link className="btn" href={p.back}>Откажи</Link>
+          {headerStage
+            ? <button className="btn pri" name="asDraft" value="1" disabled={pending} data-testid="create-draft">Креирај фактура →</button>
+            : <><button className="btn pri" disabled={pending}>{saveLbl}</button>
+              {canDraft && <button className="btn" name="asDraft" value="1" disabled={pending} title="Се чува без книжење (нема налог, ДДВ ни залиха); бројот се доделува при книжење">💾 Зачувај нацрт</button>}</>}</div>
       </div>
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
       {toast && <div className="callout info" role="status" onClick={() => setToast('')}>{toast}</div>}
       {p.scanInfo && <div className="callout good">{p.scanInfo}</div>}
       {d.status === 'pending' && <div className="callout warn">Внесено од клиентот – чека одобрување (не е прокнижено).</div>}
+      {p.drafted != null && <div className="callout good" role="status">Фактурата е креирана како <b>нацрт</b>. Сега внесете ги {prodInv ? <>главните производи и калкулацијата, па другите ставки</> : <>ставките</>} и на крајот „Зачувај и прокнижи“.
+        {p.drafted && <>{p.drafted.split(' | ').map((w, k) => <span key={k}><br />⚠ {w}</span>)}</>}</div>}
+      {isDraftDoc && <div className="callout info" data-testid="draft-note">✎ <b>Нацрт</b> – не е издадена и не е прокнижена: нема налог, ДДВ ни движење на залиха. Бројот од серијата се доделува при книжење{p.nextNumber ? <> (следен: <b>{p.nextNumber}</b>)</> : null}, па бришењето на нацрт не остава прескокнат број.</div>}
+      {headerStage && <div className="callout info" data-testid="header-stage">Прво заглавието: вид на фактура, купувач, датуми, валута/курс, налог{prodInv ? ', работен налог' : ''}. Со <b>„Креирај фактура“</b> се зачувува како нацрт (без книжење) и се отвора за ставките{prodInv ? ', главниот производ и калкулацијата' : ''}.{' '}
+        <button type="button" className="btn sm ghost" onClick={() => setDirect(true)}>или внеси ги ставките веднаш</button></div>}
       {canProd && !d.svc && <div className="card invmode" data-testid="inv-mode" role="radiogroup" aria-label="Вид на фактура" style={{ padding: '8px 12px', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <b>Вид на фактура:</b>
         <label className="rb"><input type="radio" name="invMode" checked={!prodInv} onChange={() => setMode(false)} /> 📄 Обична фактура</label>
@@ -393,9 +460,32 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         <div className="fpane" hidden={tab !== 'osn'}>
           <div className="igrid">
             <div className="fcol">
-              <label className="fl b"><span>{d.kind === 'proforma' ? 'Профактура бр.' : d.kind === 'dispatch' ? 'Испратница бр.' : 'Калкулација / фактура бр.'}</span><input value={d.number} onChange={(e) => set({ number: e.target.value })} /></label>
+              <label className="fl b"><span>{d.kind === 'proforma' ? 'Профактура бр.' : d.kind === 'dispatch' ? 'Испратница бр.' : 'Калкулација / фактура бр.'}</span><input value={headerStage ? '' : d.number} disabled={headerStage} aria-label="Број на документ"
+                placeholder={isInv && (headerStage || isDraftDoc) ? `при книжење${p.nextNumber ? ' (следен: ' + p.nextNumber + ')' : ''}` : undefined} onChange={(e) => set({ number: e.target.value })} /></label>
               {I('oe', 'Орг. ед. (ОЕ)', { w: 120 })}
-              <label className="fl"><span>Налог</span><input value={p.nalogNo ? 'бр. ' + p.nalogNo : 'се доделува при зачувување'} disabled /></label>
+              {(d.kind === 'invoice' || d.kind === 'credit') ? <>
+                <label className="fl"><span>Налог за книжење</span><select value={nalSel} aria-label="Налог за книжење" data-testid="nalog-select" onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '__new') { setNewNal({ number: p.nextNalog ?? '', date: d.date, description: `Излезни фактури ${d.date.slice(5, 7)}/${d.date.slice(0, 4)}`, from: `${d.date.slice(0, 7)}-01`, to: monthEnd(d.date) }); return; }
+                  setNewNal(null); setData('nalogNo', v);
+                }}>
+                  <option value="">Нов налог (автоматски број)</option>
+                  {nalOpts.map((n) => <option key={n.number} value={n.number}>бр. {n.number}{n.description ? ' · ' + n.description : ''}{n.invoices ? ` · ${n.invoices} док.` : ''}</option>)}
+                  <option value="__new">+ Креирај налог…</option>
+                </select></label>
+                {p.nalogNo && <small className="note">Прокнижено во налог бр. <Link href={`/nalozi?n=${encodeURIComponent(p.nalogNo)}`}>{p.nalogNo}</Link>{d.data.nalogNo && d.data.nalogNo !== p.nalogNo ? <> → при зачувување се префрла во бр. <b>{d.data.nalogNo}</b></> : null}</small>}
+                {newNal && <fieldset className="fs" data-testid="new-nalog"><legend>Нов налог за книжење (збирен)</legend>
+                  <label className="fl"><span>Број</span><input value={newNal.number} aria-label="Број на налог" onChange={(e) => setNewNal({ ...newNal, number: e.target.value })} /></label>
+                  <label className="fl"><span>Датум</span><input type="date" value={newNal.date} aria-label="Датум на налог" onChange={(e) => setNewNal({ ...newNal, date: e.target.value })} /></label>
+                  <label className="fl"><span>Опис</span><input value={newNal.description} aria-label="Опис на налог" onChange={(e) => setNewNal({ ...newNal, description: e.target.value })} /></label>
+                  <label className="fl"><span>Период од – до</span><div className="row" style={{ flexWrap: 'nowrap' }}>
+                    <input type="date" value={newNal.from} aria-label="Налог период од" onChange={(e) => setNewNal({ ...newNal, from: e.target.value })} />
+                    <input type="date" value={newNal.to} aria-label="Налог период до" onChange={(e) => setNewNal({ ...newNal, to: e.target.value })} /></div></label>
+                  <div className="row" style={{ gap: 8 }}><button type="button" className="btn sm pri" disabled={nalBusy} onClick={() => void createNalog()}>{nalBusy ? 'Се креира…' : 'Креирај налог'}</button>
+                    <button type="button" className="btn sm ghost" onClick={() => setNewNal(null)}>Откажи</button></div>
+                  <small className="note">Во истиот налог може да се книжат повеќе фактури од периодот; секоја фактура си ги чува своите ставки во налогот.</small>
+                </fieldset>}
+              </> : <label className="fl"><span>Налог</span><input value={p.nalogNo ? 'бр. ' + p.nalogNo : 'се доделува при зачувување'} disabled /></label>}
               <label className="fl b"><span>Комитент</span><select value={d.partnerId} onChange={(e) => set({ partnerId: e.target.value, ...(d.kind === 'credit' ? { refInvoiceId: '' } : {}) })}>{pOpts}</select></label>
               <label className="fl"><span>Комитент носител</span><select value={d.data.payerId ?? ''} onChange={(e) => setData('payerId', e.target.value)}>{pOpts}</select></label>
               <label className="fl b"><span>Датум</span><input type="date" value={d.date} onChange={(e) => set({ date: e.target.value, ...(d.data.days ? { due: addDays(e.target.value, d.data.days) } : {}) })} /></label>
@@ -454,7 +544,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               <div className="row" style={{ gap: 18 }}>
                 <fieldset className="fs" style={{ flex: 1 }}><legend>Салдо</legend><div className="row">{RB('saldo', [['Д', 'Да'], ['Н', 'Не']], 'Н')}</div></fieldset>
                 {isInv && <fieldset className="fs" style={{ flex: 1 }}><legend>Производство</legend>
-                  <small className="note">{prodLines.length ? <>🏭 {prodLines.length} ставки се произведуваат · трошок {fmt(PS.cost)}</> : <>Кликнете <b>„🏭 Производство“</b> на крајот од ставката (до ✕) што се произведува.</>}</small></fieldset>}
+                  <small className="note">{prodInv ? <>🏭 Фактура од производство: главните производи и калкулацијата се внесуваат горе, во документот{prodLines.length ? <> · трошок {fmt(PS.cost)}</> : null}.</>
+                    : prodLines.length ? <>🏭 {prodLines.length} ставки се произведуваат · трошок {fmt(PS.cost)}</> : <>Кликнете <b>„🏭 Производство“</b> на крајот од ставката (до ✕) што се произведува.</>}</small></fieldset>}
               </div>
               {isInv && p.prodRun?.orders.map((o) => <Link key={o.id} className="btn sm" href="/prod">🏭 Налог за производство бр. {o.number}</Link>)}
             </div>
@@ -511,20 +602,22 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         </div>
       </div>
 
+      {!headerStage && <>
       {prodInv && <section data-testid="main-products">
         <datalist id="prodNameList">{items.filter((i) => i.type === 'product').map((i) => <option key={i.id} value={i.name}>{i.code ?? ''}</option>)}</datalist>
         {d.lines.map((l, i) => ({ l, i })).filter(({ l }) => l.prod?.main).map(({ l, i }, k, all) => (
-          <MainProductCard key={i} k={k} line={l} items={items} stock={p.stock} avg={avgs} boms={boms} locations={p.locations} fx={fxN} cur={cur} rates={RATES} vatLocked={d.art32 || d.export}
+          <div key={i} id={`mainprod-${i}`}><MainProductCard k={k} line={l} items={items} stock={p.stock} avg={avgs} boms={boms} locations={p.locations} fx={fxN} cur={cur} rates={RATES} vatLocked={d.art32 || d.export}
             head={{ number: d.number, date: d.date, partner: p.partners.find((x) => x.id === d.partnerId)?.name ?? '', currency: d.currency, fx: d.fx, workOrder: woRef ? workOrderLabel(woRef) : '' }}
             onLine={(x) => (x.name !== undefined ? setMainName(i, x.name) : setLine(i, x))} onProd={(pr) => setProdOf(i, pr)}
             onCreate={() => void createProduct(i)} creating={creating === i} onRemove={all.length > 1 || nonEmpty(l) ? () => set({ lines: d.lines.filter((_, j) => j !== i) }) : null}
-            orderNo={orderNo(i)} printHref={d.id && p.prodRun?.lines.length ? `/print/prodKalk/${d.id}` : null} />
+            orderNo={orderNo(i)} printHref={d.id && p.prodRun?.lines.length ? `/print/prodKalk/${d.id}` : null} /></div>
         ))}
         <div className="row" style={{ marginTop: 6 }}><button type="button" className="btn" onClick={addMain}>+ Уште еден главен производ</button></div>
-        <h3 className="fh" style={{ marginTop: 14 }}>Други ставки на фактурата (услуги, стока од залиха)</h3>
+        <h3 className="fh" style={{ marginTop: 14 }}>Ставки на фактурата</h3>
+        <p className="note" style={{ marginTop: 0 }}>Редовите 🏭 доаѓаат од главните производи (се менуваат горе). Подолу може да се додадат и други ставки – услуги (транспорт, монтажа) или стока од залиха.</p>
       </section>}
 
-      {d.kind !== 'dispatch' && <label className="chk"><input type="checkbox" checked={svcOnly} disabled={!p.canSettings} onChange={(e) => {
+      {d.kind !== 'dispatch' && !prodInv && <label className="chk"><input type="checkbox" checked={svcOnly} disabled={!p.canSettings} onChange={(e) => {
         const v = e.target.checked;
         setSvcOnly(v);
         startT(async () => { await setSvcOnlyAction(v); });
@@ -562,11 +655,18 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
       <datalist id="svcItemList">{[...new Set([...(p.svcTexts ?? []), ...items.map((i) => i.name)])].map((x) => <option key={x} value={x} />)}</datalist>
       <div className="tw"><table><thead><tr><th style={{ minWidth: 200 }}>Артикл / опис</th><th>Ед. мерка</th><th className="n">Количина</th><th className="n">Цена без ДДВ{d.currency !== 'MKD' ? ' (' + d.currency + ')' : ''}</th><th className="n">Рабат %</th><th>ДДВ</th><th>Конто</th><th className="n">Износ</th><th></th></tr></thead><tbody>
         {d.lines.map((l, i) => {
-          if (isMain(l)) return null;
+          if (isMain(l)) {
+            const k = d.lines.slice(0, i).filter((x) => x.prod?.main).length;
+            return (<tr key={i} className="prodhead" data-testid="main-line">
+              <td><b>{lineOut(l).name || '…'}</b><small className="note"> 🏭 главен производ{k ? ' ' + (k + 1) : ''} · <a href={`#mainprod-${i}`}>измени горе ↑</a></small></td>
+              <td>{l.unit}</td><td className="n">{l.qty}</td><td className="n">{l.price}</td><td className="n">{l.disc}</td><td>{l.rate}%</td><td>{l.account || p.revDefault}</td>
+              <td className="n">{fmt(lineAmt(l))}</td><td />
+            </tr>);
+          }
           const it = l.itemId ? itemById.get(l.itemId) : undefined;
           const sq = it ? stockOf(it.id) : undefined;
           const tracked = it && sq != null;
-          const produced = canProd && !!l.prod;
+          const produced = canProd && !!l.prod && !prodInv;
           const over = tracked && !produced && Number(l.qty) > sq! + 1e-9 && d.kind !== 'proforma' && !d.fromDocId;
           const c = calcs.get(i);
           return (<Fragment key={i}>
@@ -587,7 +687,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
                 {!p.accounts.some(([k]) => k === (l.account || p.revDefault)) && <option value={l.account || p.revDefault}>{l.account || p.revDefault}</option>}
                 {p.accounts.map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</select></td>
               <td className="n">{fmt(lineAmt(l))}</td>
-              <td style={{ whiteSpace: 'nowrap' }}>{canProd && <button type="button" className={'btn sm' + (produced ? ' pri' : '')} aria-pressed={produced} aria-label={`Производство: ${l.name || 'ред ' + (i + 1)}`}
+              <td style={{ whiteSpace: 'nowrap' }}>{canProd && !prodInv && <button type="button" className={'btn sm' + (produced ? ' pri' : '')} aria-pressed={produced} aria-label={`Производство: ${l.name || 'ред ' + (i + 1)}`}
                 title={produced ? '🏭 Се произведува – исклучи' : '🏭 Означи: ставката се произведува од репроматеријали'} onClick={() => toggleProd(i)}>{produced ? '🏭 ✓ Производ.' : '🏭 Производство'}</button>}
                 <button type="button" className="btn sm ghost danger" aria-label="Отстрани ред" onClick={() => set({ lines: d.lines.filter((_, k) => k !== i) })}>✕</button></td>
             </tr>
@@ -617,6 +717,10 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         <div className="note">При зачувување: за секоја ставка се прави налог за производство со датумот на фактурата – репроматеријалите се раздолжуваат по просечна цена, производот се заприма по цената на чинење, а фактурата го продава.</div>
       </div>}
       {d.kind !== 'proforma' && <p className="note">Артиклите со залиха автоматски се раздолжуваат по просечна цена (Должи 7000/7010 – Побарува 6300/6600).</p>}
+      </>}
+      {headerStage && <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <button className="btn pri" name="asDraft" value="1" disabled={pending}>Креирај фактура →</button>
+        <small className="note">Се зачувува како нацрт (не се книжи); потоа се отвораат ставките{prodInv ? ', главниот производ и калкулацијата' : ''}.</small></div>}
     </form>
   );
 }

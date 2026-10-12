@@ -63,6 +63,7 @@ export * from './parity-retail';
 export * from './parity-stock';
 export * from './sales/partners-auto';
 export * from './sales/invoice-production';
+export * from './sales/invoice-nalog';
 export * from './repost';
 export * from './firm-years';
 export * from './ai-settings';

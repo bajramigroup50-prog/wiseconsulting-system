@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { isFuel } from '@wise/core/sales';
 import { z } from 'zod';
-import { aiDocuments, approveInvoice, audit, deleteInvoice, fileLinks, firms, invoices, items, markDraftSaved, saveInvoice } from '@wise/db';
+import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, fileLinks, firms, invoices, items, markDraftSaved, saveInvoice } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -30,6 +30,8 @@ const Payload = z.object({
   note: z.string().max(4000), data: z.record(z.string(), z.string().max(500)),
   lines: z.array(Line).max(2000), advances: z.array(z.object({ advanceId: z.string().max(40), amount: str })).max(100),
   scanDocId: z.string().max(40).optional(), scanIndex: z.number().int().min(0).optional(), back: z.string().max(200).optional(),
+  // header-first workflow: „Креирај фактура“ / „💾 Зачувај нацрт“ save an unbooked draft and reopen it in the editor
+  draft: z.boolean().optional(),
   production: z.object({
     wh: z.string().max(40).nullable(), extra: str, saveBom: z.boolean(),
     // „🏭 Фактура од производство“ and its „Работен налог / период“
@@ -59,6 +61,8 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
     const p = Payload.safeParse(JSON.parse(String(form.get('payload') ?? '{}')));
     if (!p.success) return { error: p.error.issues[0]?.message ?? 'Неважечки податоци.' };
     const v = p.data;
+    // the submit button pressed: „Креирај фактура“ / „💾 Зачувај нацрт“ (draft) or „Зачувај и прокнижи“
+    const asDraft = v.kind === 'invoice' && (form.get('asDraft') === '1' || !!v.draft);
     const { u, firm } = await firmAction(v.id ? 'editInv' : 'saveInv');
     const res = await db().transaction(async (tx) => {
       const r = await saveInvoice(tx, firm.id, {
@@ -69,7 +73,7 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
           lines: v.production.lines.map((l) => ({ ...l, ...(l.wh !== undefined ? { wh: l.wh || null } : {}), ...(l.extra !== undefined ? { extra: l.extra || '0' } : {}) })),
         } : null,
         advances: v.advances.filter((a) => Number(a.amount) > 0),
-        data: v.data,
+        data: v.data, draft: asDraft,
       }, actorOf(u));
       if (v.scanDocId != null && v.scanIndex != null) {
         await markDraftSaved(tx, firm.id, v.scanDocId, v.scanIndex, r.id);
@@ -91,6 +95,13 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
     const q = new URLSearchParams({ saved: res.id });
     if (res.warnings.length) q.set('w', res.warnings.join(' | ').slice(0, 1500));
     target = back + (back.includes('?') ? '&' : '?') + q.toString();
+    // a draft opens again „from inside“: lines, main products, calculation, then „Зачувај и прокнижи“
+    if (asDraft && res.status === 'draft' && v.scanDocId == null) {
+      const e = new URLSearchParams({ edit: res.id, drafted: '1' });
+      if (res.warnings.length) e.set('w', res.warnings.join(' | ').slice(0, 1500));
+      if (v.back && /^\/[a-zA-Z]/.test(v.back)) e.set('back', v.back);
+      target = '/' + viewOf(v.kind, v.svc) + '?' + e.toString();
+    }
     // legacy `outSaveOne` / scan queue: the next scanned invoice of the run opens automatically
     if (v.scanDocId != null && v.scanIndex != null) {
       const Q = await scanQueue(firm.id, v.scanDocId, v.scanIndex);
@@ -99,6 +110,30 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
   } catch (e) { return actionError(e); }
   revalidatePath('/', 'layout');
   redirect(target);
+}
+
+const NewNalog = z.object({
+  number: z.string().trim().max(40), date: date.refine((s) => !!s, 'Внесете датум на налогот.'),
+  description: z.string().trim().max(200), periodFrom: date, periodTo: date,
+});
+
+/**
+ * „+ Креирај налог“ in the invoice header: open a collective sale nalog (e.g. „Излезни фактури 10/2026“) into which
+ * several invoices are booked. Needs `write` (like a manual nalog); audited `newNalog` by the posting service.
+ */
+export async function createInvoiceNalogAction(input: z.input<typeof NewNalog>): Promise<ActionState & { nalog?: { number: string; description: string; periodFrom: string | null; periodTo: string | null; date: string } }> {
+  try {
+    const p = NewNalog.safeParse(input);
+    if (!p.success) return { error: p.error.issues[0]?.message ?? 'Неважечки податоци.' };
+    const v = p.data;
+    const { u, firm } = await firmAction('write');
+    const r = await db().transaction((tx) => createInvoiceNalog(tx, firm, { number: v.number || null, date: v.date, description: v.description || null, periodFrom: v.periodFrom || null, periodTo: v.periodTo || null }, u.id));
+    revalidatePath('/nalozi');
+    return {
+      ok: `Креиран е налогот бр. ${r.number} – фактурата ќе се книжи во него.`,
+      nalog: { number: r.number, description: v.description || `Излезни фактури ${v.date.slice(5, 7)}/${v.date.slice(0, 4)}`, periodFrom: v.periodFrom || null, periodTo: v.periodTo || null, date: v.date },
+    };
+  } catch (e) { return actionError(e); }
 }
 
 /** Delete a document (needs `del`, like legacy `delOk`). */
@@ -116,10 +151,13 @@ export async function deleteInvoiceAction(id: string): Promise<ActionState> {
 export async function approveInvoiceAction(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('write');
-    await db().transaction((tx) => approveInvoice(tx, firm.id, id, actorOf(u)));
+    const n = await db().transaction(async (tx) => {
+      await approveInvoice(tx, firm.id, id, actorOf(u));
+      return (await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.id, id)).limit(1))[0]?.n ?? '';
+    });
+    revalidatePath('/', 'layout');
+    return { ok: `Документот е прокнижен (бр. ${n}).` };
   } catch (e) { return actionError(e); }
-  revalidatePath('/', 'layout');
-  return { ok: 'Документот е одобрен и прокнижен.' };
 }
 
 const STYLE_KEYS = ['invStyle', 'invColor', 'invNote', 'bank', 'bankName', 'signer', 'signerRole', 'short', 'legalFoot', 'logo', 'sign', 'stamp', 'cert_serial', 'cert_thumb'] as const;
