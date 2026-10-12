@@ -29,6 +29,8 @@ export default async function FirmiReshPage({ searchParams }: { searchParams: Pr
     <label className="f" style={o.wide ? { gridColumn: '1/-1' } : undefined}>{l}<input name={k} type={o.date ? 'date' : 'text'} defaultValue={String(r?.[k] ?? '')} /></label>
   );
   const prof = r ? nkdProfiles(r.nkd) : [];
+  /** What the free (no-AI) reader could not confirm. */
+  const noaiWarn = read?.model === 'noai' ? ((read.result as { warnings?: unknown })?.warnings as string[] | undefined ?? []).filter((w) => typeof w === 'string') : [];
   return (
     <>
       <Hd t="Нова фирма од решение" sub="Скенирајте го решението од ЦРМ (или тековна состојба / решение од УЈП) – програмата сама ја отвора фирмата">
@@ -43,7 +45,12 @@ export default async function FirmiReshPage({ searchParams }: { searchParams: Pr
       {r && read?.status !== 'saved' && (
         <ReviewForm readId={read?.id ?? ''} exId={dup?.id ?? ''}>
           <div className="hd"><h2 style={{ fontSize: 16 }}>{read ? 'Прочитано од решението – проверете пред внесување' : 'Податоци од решението'}</h2>{read && <span className="pill info">{FS_CAT[r.docType] ?? 'Решение'}</span>}</div>
-          {read && !r.name && <div className="callout warn">Не се најде назив – проверете дали е добро скенирано или пополнете рачно.</div>}
+          {read?.model === 'noai' && (
+            <div className="callout warn">🆓 Прочитано без AI – проверете ги податоците (електронски документ од ЦРСМ / УЈП, без трошок).
+              {!!noaiWarn.length && <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{noaiWarn.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+            </div>
+          )}
+          {read && !r.name &&<div className="callout warn">Не се најде назив – проверете дали е добро скенирано или пополнете рачно.</div>}
           {dup && <div className="callout warn">⚠ Веќе постои фирма „<b>{dup.name}</b>“ (ЕДБ {dup.edb || '—'}, ЕМБС {dup.embs || '—'}). Нема да се креира двапати – со „Дополни постоечка“ решението се зачувува во нејзиното досие и се пополнуваат само празните полиња.</div>}
           <div className="form">
             {I('name', 'Назив (целосен)', { wide: true })}{I('short', 'Кратко име')}
