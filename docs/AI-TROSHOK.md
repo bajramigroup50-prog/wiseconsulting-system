@@ -164,3 +164,25 @@ ruan lidhjet pa përshkrim.
 
 Тестови: `packages/core/src/noai/firm-resh.test.ts` (синтетички текстови во `firm-resh.fixtures.ts`, без вистински
 податоци), `apps/worker/src/jobs/firm-resh.test.ts`.
+## 8. Lexues falas të rinj: МПИН, raporte fiskale, kupona fiskalë
+
+Këto tre lloje tani lexohen **së pari pa AI** (zëvendësojnë rreshtat ⏳ për `mpin.read`, `fisk` dhe `blg` në tabelën
+e mësipërme). Rezultati ka **të njëjtën formë** si leximi me AI, shënohet `model = noai` dhe
+**„прочитано без AI – проверете“**, dhe pranohet **vetëm kur kalojnë kontrollet**; përndryshe lexon AI dhe arsyeja
+ruhet (`noaiWhy` te rezultati i `fisk` / `blg`, në log te `mpin.read`). Fotot dhe PDF-të e skanuara shkojnë gjithmonë te AI.
+
+| Dokumenti | Burimi falas | Çfarë lexohet | Kontrollet (të gjitha duhet të kalojnë) |
+|---|---|---|---|
+| МПИН „Декларација за прием“ (`mpin.read`, МПИН од УЈП) | PDF me tekst nga e-Персонален данок; eksport tekst (.txt) | ЕДБ, emri, periudha, statusi, nr. / data e paraqitjes, nr. i të siguruarve, tabela (Бруто основица / Стапка / Месечен износ × ПИО, здравство, 0,5 %, вработување, стаж, персонален данок), totali, afati, folio | ЕДБ 13 shifra, periudha, bruto / ПИО / здравство > 0; **totali = shuma e kolonave** (± 1) dhe/ose **çdo kolonë = baza × norma e shtypur** (± 1) – të paktën njëra duhet të jetë e shtypur; neto = bruto − kontribute − tatim > 0 |
+| Raport fiskal periodik / Z ditore (`fisk`, fiskPer) | PDF me tekst ose eksport tekst nga arka | ОД–ДО (data dhe Z), ЕДБ, aparati, ПРОМЕТ А/Б/В/Г, ДДВ për grup, ВКУПЕН ПРОМЕТ, готовина / картичка, nr. i kuponave, storno; çdo ditë më vete kur ka disa „ДНЕВЕН ФИНАНСИСКИ ИЗВЕШТАЈ“ | Σ grupet = ВКУПЕН ПРОМЕТ (± 0,05); ДДВ X = qarkullimi × r / (100 + r) (± 1, më shumë për shumë kuponë); Σ ДДВ = ДДВ ИЗНОС; pagesat = totali (± 1); data / periudha. Blloku „ПРОМЕТ ОД МАКЕДОНСКИ ПР.“ nuk numërohet, „СТОРНИ СМЕТКИ“ shkon vetëm te storno |
+| Kupon fiskal (`blg`, Благајна) | vetëm e-kupon / PDF me tekst | shitësi, ЕДБ / ДДВ број, data dhe ora, nr. i kuponit, artikujt (sasia × çmimi = vlera, grupi), ДДВ për grup, totali, pagesa (кусур), kategoria (karburant → litra) | totali > 0, data, ЕДБ; Σ artikujt (ose qarkullimi i shtypur për grup) = totali (± 0,02); ДДВ për grup = qarkullimi × r / (100 + r); paguar − kusur = totali. Kupon me попуст / rabat → AI |
+
+**Grupet e TVSH-së** (verifikuar me `FISK_G0` dhe me rregullat e printerëve fiskalë): **А = 18 %, Б = 5 %,
+В = 0 % (ослободено), Г = 10 %** – jo 18/5/10/0 sipas rendit të shkronjave. Norma e shtypur në raport / kupon
+(„ДДВ Г 10.00%“) ka përparësi.
+
+Kodi: `packages/core/src/noai/mpin.ts`, `fiscal-report.ts`, `receipt.ts` (+ `doc-text.ts`: shumat me saktësisht 2
+decimale, kështu „1.234,56“ / „1,234.56“ / „1 234.56“ nuk janë kurrë të dykuptimta); worker
+`apps/worker/src/ai/free-docs.ts` (përdoret nga `mpin.read`, `readResultKind` për `fisk` / `blg` dhe nga `freeRead`
+kur AI nuk është në dispozicion). Testet me dokumente sintetike: `packages/core/src/noai/free-docs.test.ts`,
+`apps/worker/src/ai/free-docs.test.ts` (PDF me tekst cirilik të gjeneruar në test).

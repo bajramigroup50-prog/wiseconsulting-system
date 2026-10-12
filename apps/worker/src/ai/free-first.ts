@@ -37,6 +37,8 @@ export const WHY = {
 /** Does the free reader's result pass its own checks? */
 export function acceptFree(kind: string, r: unknown): FreeVerdict {
   if (!r || typeof r !== 'object') return { ok: false, why: WHY.empty };
+  // fiscal reports / receipts: the free reader returns only results whose own checks passed (./free-docs.ts)
+  if (kind === 'fisk' || kind === 'blg') return { ok: true, why: '' };
   if (kind === 'bank') {
     const b = r as { balanced?: boolean | null; warnings?: unknown[]; blocking?: unknown[]; items?: { amount?: unknown }[]; openingBalance?: unknown; closingBalance?: unknown };
     if (!b.items?.length) return { ok: false, why: WHY.empty };

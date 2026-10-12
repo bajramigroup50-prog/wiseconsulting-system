@@ -8,6 +8,9 @@
  *   classify office inbox file, inline prompt of `irClassify`
  *   bom      BOM suggestion for a product, inline prompt of `bomAI` — no file, the prompt lists the firm's materials
  *
+ * `fisk` / `blg` as a text PDF / text export are read FIRST without AI (./free-docs.ts) and taken when their sums
+ * check; otherwise AI reads them and the reason is kept on the result (`noaiWhy`).
+ *
  * The mapping to vouchers / statements / employees / fiscal rows / BOM lines is in `@wise/core/ai/*` and runs where
  * the user reviews the result; nothing is saved from here.
  */
@@ -24,6 +27,8 @@ import type { AiTier } from './client';
 import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
 import { AiReadError, fileContent, loadFile, readContent } from './read-document';
 import { readObject } from './storage';
+import { freeDocRead, type FreeDocKind } from './free-docs';
+import { NOAI_MODEL } from './free-read';
 
 import { todaySkopje } from '@wise/core/office/dates';
 /** Kinds handled here (the others are purchase / sale drafts). */
@@ -44,10 +49,15 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
   // the `complex` tier below becomes Sonnet unless the read is an explicit „🔍 Детално читање“ (`options.deep`)
   const base = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy, deep: !!(doc.options as { deep?: boolean } | null)?.deep };
   let content: Content = { blocks: [], extra: '' };
+  /** Fiscal report / receipt as text PDF / text export: the free reader first, AI only when its checks fail. */
+  let free: (() => Promise<{ result: unknown; why: string }>) | null = null;
   if (doc.kind !== 'bom' && doc.kind !== 'bankcls') {
     if (!doc.fileId) throw new AiReadError('Датотеката не е пронајдена.');
     const file = await loadFile(db, f.id, doc.fileId);
-    content = fileContent(file, await readObject(file.bucketKey));
+    const bytes = await readObject(file.bucketKey);
+    content = fileContent(file, bytes);
+    const o = (doc.options ?? {}) as { extraFileIds?: string[]; deep?: boolean };
+    if ((doc.kind === 'fisk' || doc.kind === 'blg') && !o.deep && !o.extraFileIds?.length) free = () => freeDocRead(doc.kind as FreeDocKind, file, bytes, today);
     // legacy `fkTiles` 13005 + `FK_TILE_NOTE` 13010: several photos / pages of ONE fiscal report read together
     const extra = ((doc.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [];
     if (doc.kind === 'fisk' && extra.length) {
@@ -60,11 +70,19 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     }
   }
   const read = async (prompt: string, tier: AiTier) => readContent<unknown>({ ...base, prompt, tier }, content);
+  let freeWhy = '';
+  if (free) {
+    const r = await free();
+    if (r.result) return { result: r.result, model: NOAI_MODEL };
+    freeWhy = r.why;
+  }
+  /** The reason the free reader did not take it, kept on the AI result (`noaiWhy`). */
+  const why = <T>(x: T): T => { if (freeWhy && x && typeof x === 'object' && !Array.isArray(x)) (x as Record<string, unknown>).noaiWhy = freeWhy; return x; };
 
   switch (doc.kind) {
     case 'blg': {
       const r = await read(BLG_PROMPT, isImage(content) ? 'default' : 'quick');
-      return { result: r.data, model: r.model };
+      return { result: why(r.data), model: r.model };
     }
     case 'emp': {
       const r = await read(EMP_PROMPT, 'default');
@@ -135,7 +153,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
         }
       }
       fiskFinish(R, today);
-      return { result: R, model };
+      return { result: why(R), model };
     }
     case 'bom': {
       const productId = String((doc.options as { productId?: string }).productId ?? '');

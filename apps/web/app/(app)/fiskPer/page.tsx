@@ -226,7 +226,7 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
     read = (
       <>
         <div className={`callout ${tot > 0 ? 'good' : 'warn'}`}>{manualIn ? <>✎ Внесено рачно: вкупен промет {fmt(tot)} ден. Проверете и прокнижете.</> : tot > 0
-          ? <>✓ Прочитано{X0.daily ? `: ${X0.rows.length} дневни извештаи` : ''}{R.text2 ? ' (втор обид)' : ''}: вкупен промет {fmt(tot)} ден. Проверете ги износите.</>
+          ? <>✓ Прочитано{X0.daily ? `: ${X0.rows.length} дневни извештаи` : ''}{R.text2 ? ' (втор обид)' : ''}{(R as { noai?: boolean }).noai ? ' (прочитано без AI – проверете)' : ''}: вкупен промет {fmt(tot)} ден. Проверете ги износите.</>
           : <>⚠ Износот не можеше да се прочита од сликата. Сликајте го поблиску (само лентата, исправено, без сенка) или „✎ Внеси рачно (само вкупно)“.</>}
           {' '}<Link className="btn sm ghost" href="/fiskPer">✕ Почни одново</Link></div>
         {aiDoc && <details id="fkTxt" className="card" style={{ padding: '8px 12px' }}><summary className="mut" style={{ cursor: 'pointer' }}>📝 Што е прочитано од сликата (за проверка)</summary>
