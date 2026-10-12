@@ -18,7 +18,9 @@ import { AinbEnvelope } from './ainb';
 import { FirmWindow } from './firm-window';
 
 export interface TopFirm { id: string; name: string; edb: string | null; vatRegistered: boolean; lockDate: string | null }
-export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: string | null } | null; ainb: number; law: number | null; locks?: number }
+export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: string | null } | null; ainb: number; law: number | null; locks?: number;
+  /** Owner only: the office's monthly AI limit at 80 % / 100 % (`lib/ai-budget-status.ts`). */
+  ai?: { level: 80 | 100; pct: number; msg: string } | null }
 
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
@@ -74,6 +76,12 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
       {office && !!status.locks && (
         <a className="btn sm" id="lockTop" href="/korisnici#zaklucheni" title="Заклучени најави по премногу неуспешни обиди – отклучи во Корисници"
           style={{ background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 }}>🔒 {status.locks}</a>
+      )}
+      {office && status.ai && (
+        <a className="btn sm" id="aiBudgetTop" href="/aiTrosok" title={status.ai.msg}
+          style={status.ai.level === 100 ? { background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 } : { background: '#fef0c7', color: '#93370d', border: '2px solid #dc6803', fontWeight: 700 }}>
+          💲 {status.ai.level === 100 ? 'AI паузирано' : `AI ${Math.round(status.ai.pct)}%`}
+        </a>
       )}
       {office && <AinbEnvelope n={status.ainb} />}
       {office && B && (

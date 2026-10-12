@@ -9,11 +9,11 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { schema, type AiDocKind, type Tx } from '@wise/db';
 import { AI_MODELS, setAiClient, type MessagesApi } from './client';
 import { checkBank, checkOb, MAX_CHUNK_PAGES, mergeBank, mergeOb, planRead } from './chunked';
-import { readTier } from './kinds';
+import { effectiveTier } from './budget';
 import { OB_PROMPT } from './prompts';
 import { TRUNCATED_MSG } from './read-document';
 import { setObjectReader } from './storage';
-import { aiReadDocument, freeAccepted, runReadDocument } from '../jobs/ai-read-document';
+import { aiReadDocument, runReadDocument } from '../jobs/ai-read-document';
 
 const pg = drizzle(new PGlite(), { schema });
 const db = pg as unknown as Tx;
@@ -68,11 +68,12 @@ afterEach(() => { setAiClient(null); });
 
 describe('tier rule (cost): never Opus on its own', () => {
   it('complex kinds read with Sonnet; „🔍 Детално читање“ (deep) reads with Opus', () => {
-    expect(readTier('complex', false)).toBe('default');
-    expect(readTier('default', false)).toBe('default');
-    expect(readTier('quick', false)).toBe('quick');
-    expect(readTier('default', true)).toBe('complex');
-    expect(readTier('quick', true)).toBe('complex');
+    // the one tier rule (budget.ts, applied in readContent to every call, the trial-balance chunks included)
+    const cfg = { opusOnlyDeep: true };
+    expect(effectiveTier('complex', false, cfg)).toBe('default');
+    expect(effectiveTier('default', false, cfg)).toBe('default');
+    expect(effectiveTier('quick', false, cfg)).toBe('quick');
+    expect(effectiveTier('complex', true, cfg)).toBe('complex');
   });
   it('ai.read-document is never retried by pg-boss (a repeat pays the same tokens again)', () => {
     expect(aiReadDocument.queue?.retryLimit).toBe(0);
@@ -124,14 +125,6 @@ describe('merge + checks', () => {
     expect(b).toMatchObject({ number: '12', openingBalance: 1000, closingBalance: 1300, totalDebit: 200, balanced: true, warnings: [] });
     expect(b.items).toHaveLength(2);
     expect(checkBank({ openingBalance: 1000, closingBalance: 1400, items: [{ amount: 500 }, { amount: -200 }] }).balanced).toBe(false);
-  });
-  it('a free read is accepted (AI not called) only when it balances / reconciles', () => {
-    expect(freeAccepted('ob', { rows: [['1200', '', 'А', '', 10, 0], ['2200', '', 'Б', '', 0, 10]], grand: [0, 0] })).toBe(true);
-    expect(freeAccepted('ob', { rows: [['1200', '', 'А', '', 10, 0]], grand: [0, 0] })).toBe(false);
-    expect(freeAccepted('ob', { rows: [], grand: [0, 0] })).toBe(false);
-    expect(freeAccepted('bank', { balanced: true, items: [] })).toBe(true);
-    expect(freeAccepted('bank', { balanced: true, warnings: ['x'] })).toBe(false);
-    expect(freeAccepted('blg', { rows: [1] })).toBe(false);
   });
 });
 

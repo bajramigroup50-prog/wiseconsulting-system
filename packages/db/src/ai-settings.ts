@@ -15,14 +15,25 @@ export interface AiSettings {
   enabled: boolean;
   /** Last blocking failure (credit / auth); cleared by the next successful AI call. */
   lastFail: { code: AiErrCode; at: string; detail: string } | null;
+  /**
+   * Last „Провери го AI-кредитот“ check (`ai.ping`, worker): manual (`id` = the request of the screen) or automatic
+   * (a read blocked by an older failure, at most once per 2 minutes). `code` / `msg` on failure.
+   */
+  lastPing: AiPing | null;
 }
+
+export interface AiPing { at: string; ok: boolean; id?: string | null; auto?: boolean; code?: AiErrCode | null; msg: string }
 
 type Q = Pick<Tx, 'select' | 'insert' | 'update'>;
 
 export async function getAiSettings(tx: Q): Promise<AiSettings> {
   const [r] = await tx.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'ai')).limit(1);
   const v = (r?.v ?? {}) as Partial<AiSettings>;
-  return { enabled: v.enabled !== false, lastFail: v.lastFail && typeof v.lastFail === 'object' ? v.lastFail : null };
+  return {
+    enabled: v.enabled !== false,
+    lastFail: v.lastFail && typeof v.lastFail === 'object' ? v.lastFail : null,
+    lastPing: v.lastPing && typeof v.lastPing === 'object' ? v.lastPing : null,
+  };
 }
 
 async function patch(tx: Q, p: Record<string, unknown>, userId: string | null = null): Promise<void> {
@@ -34,6 +45,7 @@ async function patch(tx: Q, p: Record<string, unknown>, userId: string | null = 
 export const setAiEnabled = (tx: Q, enabled: boolean, userId: string | null) => patch(tx, { enabled, ...(enabled ? { lastFail: null } : {}) }, userId);
 export const noteAiFailure = (tx: Q, code: AiErrCode, detail: string) => patch(tx, { lastFail: { code, at: new Date().toISOString(), detail: detail.slice(0, 500) } });
 export const clearAiFailure = (tx: Q) => patch(tx, { lastFail: null });
+export const noteAiPing = (tx: Q, p: Omit<AiPing, 'at'> & { at?: string }) => patch(tx, { lastPing: { ...p, at: p.at ?? new Date().toISOString(), msg: p.msg.slice(0, 500) } });
 
 /** Is AI reading usable right now (switched on and not blocked by a credit / key failure)? */
 export const aiUsable = (s: AiSettings): boolean => s.enabled && !s.lastFail;

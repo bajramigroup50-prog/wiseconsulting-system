@@ -12,11 +12,19 @@
  * timeout) are stored as a clear Macedonian message (`@wise/core/ai/errors`) with the code and the raw text in
  * `options.errCode` / `options.errDetail`; credit / key failures are remembered office-wide (`app_settings.ai`).
  *
+ * A read blocked by an earlier failure says so („AI е привремено паузирано поради претходна грешка … во HH:MM“, not
+ * „the credit is exhausted“), and when that failure is older than 2 minutes the reader first runs a quick automatic
+ * `ai.ping` (at most once per 2 minutes, `./ai-ping.ts`) — a topped-up credit is picked up without user action.
+ *
  * Without AI (switched off in Систем, no key, credit / key failure in the last 15 minutes, or the AI call failed):
  * bank statements, trial balances and invoices with a text layer / XML / CSV are read by the free readers
  * (`../ai/free-read.ts`, model `noai`); other documents get the message with the free import paths. Inspection acts
  * (`kontrola`) as text PDF / Word / TXT are read the same way (Word / TXT always, the model does not take them); a scan
  * gets „Скенирана слика – потребно е AI или рачен внес“ with the reason AI was not used.
+ *
+ * Cost control: with AI available the free reader still runs FIRST for those kinds and its result is used when its own
+ * checks pass; an earlier AI read of the same file (sha256) is reused; the monthly AI limit pauses AI (code `budget`)
+ * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { fixRates, scanResultConsistent, scanInvoices, ublToScan, type ScanResult } from '@wise/core/sales';
@@ -24,17 +32,19 @@ import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
 import { defineJob } from '../job';
-import { AI_ERR_BLOCKING, AI_ERR_MSG, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
+import { AI_ERR_BLOCKING, AI_ERR_MSG, aiBlockedMsg, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
+import { runAiPing, shouldAutoPing } from './ai-ping';
 import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_KINDS, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
 import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
-import { checkOb } from '../ai/chunked';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
 import { readObject } from '../ai/storage';
 import { readResultKind, RESULT_KINDS } from '../ai/kinds';
+import { AiBudgetError, aiBudgetPaused } from '../ai/budget';
+import { preRead } from '../ai/free-first';
 
 export const AI_READ_DOCUMENT = 'ai.read-document';
 
@@ -43,21 +53,6 @@ const fx = (r: ScanResult | null) => { if (r) for (const x of scanInvoices(r)) f
 class ReadFail extends Error { constructor(public code: AiErrCode, msg: string, public detail = '') { super(msg); } }
 const BLOCK_MS = 15 * 60_000;
 
-/** Kinds whose free reader runs before AI when AI is available (text PDFs). */
-const FREE_FIRST: ReadonlySet<string> = new Set(['bank', 'ob']);
-/** A free read good enough to skip AI: a reconciled statement, a balanced trial balance. */
-export function freeAccepted(kind: string, r: unknown): boolean {
-  if (!r) return false;
-  const R = r as { balanced?: boolean | null; warnings?: unknown[]; blocking?: unknown[]; rows?: unknown[]; grand?: [number, number] };
-  if (kind === 'bank') return R.balanced === true && !R.warnings?.length && !R.blocking?.length;
-  if (kind === 'ob') {
-    const rows = (R.rows ?? []).filter((x): x is [string, string, string, string, number, number] => Array.isArray(x));
-    if (!rows.length) return false;
-    const c = checkOb({ rows, grand: R.grand ?? [0, 0] });
-    return c.balanced && c.grandOk !== false;
-  }
-  return false;
-}
 const hasRows = (r: unknown) => !!r && (((r as { rows?: unknown[] }).rows?.length ?? 0) > 0 || ((r as { items?: unknown[] }).items?.length ?? 0) > 0);
 
 const has = (r: ScanResult | null) => !!r && scanInvoices(r).some((x) => (x.lines ?? []).length || (x.groups ?? []).length);
@@ -71,13 +66,22 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   const [f] = await db.select().from(firms).where(eq(firms.id, doc.firmId)).limit(1);
   if (!f) return;
   await db.update(aiDocuments).set({ status: 'reading', error: null, options: sql`${aiDocuments.options} - 'progress'` }).where(eq(aiDocuments.id, docId));
+  doc.options = Object.fromEntries(Object.entries(doc.options ?? {}).filter(([k]) => k !== 'progress'));
   /** „дел 2/5…“ of a read in parts (shown by the screen while it polls); merged in SQL, a concurrent cancel stays. */
   const progress = (p: string) => db.update(aiDocuments).set({ options: sql`${aiDocuments.options} || jsonb_build_object('progress', ${p}::text)` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
-  const S = await getAiSettings(db);
+  let S = await getAiSettings(db);
   const retry = !!(doc.options as { retry?: boolean }).retry;
-  const blocked = !!S.lastFail && !retry && Date.now() - Date.parse(S.lastFail.at) < BLOCK_MS;
+  let blocked = !!S.lastFail && !retry && Date.now() - Date.parse(S.lastFail.at) < BLOCK_MS;
+  // blocked by an older credit / key failure: a quick automatic check (at most once per 2 minutes) picks up a top-up
+  if (blocked && aiConfigured() && shouldAutoPing(S)) {
+    const p = await runAiPing(db, { auto: true });
+    log(`auto ai.ping: ${p.ok ? 'ok' : p.code}`);
+    if (p.ok) { S = await getAiSettings(db); blocked = false; }
+  }
   /** Why AI is not used for this read (null = use AI). */
-  const noAi: AiErrCode | null = !S.enabled ? 'off' : !aiConfigured() ? 'nokey' : blocked ? S.lastFail!.code : null;
+  const noAi: AiErrCode | null = !S.enabled ? 'off' : !aiConfigured() ? 'nokey' : blocked ? S.lastFail!.code
+    // monthly AI limit reached (office or firm, ../ai/budget.ts): AI paused, the free readers continue
+    : (await aiBudgetPaused(db, f.id)) ? 'budget' : null;
   /** Free read of the document's file; null when not possible. */
   const free = async (): Promise<unknown | null> => {
     if (!FREE_KINDS.has(doc.kind) || !doc.fileId) return null;
@@ -96,7 +100,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   const fallback = async (code: AiErrCode, detail = ''): Promise<{ result: unknown; model: string }> => {
     const r = await free();
     if (r) return { result: r, model: NOAI_MODEL };
-    const why = code === 'nokey' ? new AiUnavailableError().message : AI_ERR_MSG[code];
+    // not a fresh provider error: AI was skipped because of an earlier credit / key failure — say so (with its time)
+    const why = code === 'nokey' ? new AiUnavailableError().message
+      : blocked && !detail && S.lastFail && code === S.lastFail.code ? aiBlockedMsg(code, S.lastFail.at) : AI_ERR_MSG[code];
     // inspection act without a text layer: say it is a scan and what to do next (AI or manual entry), then why AI failed
     if (doc.kind === 'kontrola') throw new ReadFail(code, `${KONTROLA_SCAN_MSG} (${/^.*?[.!](?=\s|$)/.exec(why)?.[0] ?? why})`, detail);
     throw new ReadFail(code, why, detail);
@@ -118,31 +124,50 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       return r;
     } catch (e) {
       if (e instanceof AiUnavailableError) return { ...(await fallback('nokey')), free: true };
+      if (e instanceof AiBudgetError) return { ...(await fallback('budget')), free: true };
       const p = aiProviderError(e);
       if (!p) throw e;
       if (AI_ERR_BLOCKING.has(p.code)) await noteAiFailure(db, p.code, p.detail);
       return { ...(await fallback(p.code, p.detail)), free: true };
     }
   };
+  /**
+   * Cost control (../ai/free-first.ts): before AI, the free reader (accepted when its own checks pass: the statement
+   * reconciles, debit = credit, base × rate = VAT, header + findings) and then an earlier AI read of the same file
+   * (sha256). The reason AI is still needed is kept in `options.aiWhy` („скенирано“, „не се совпаѓаат збировите“).
+   */
+  const pre = async (): Promise<{ result: unknown; model: string } | null> => {
+    if (noAi) return null;
+    const p = await preRead(db, doc, f).catch(() => ({ hit: false as const, why: '' }));
+    if (p.hit) {
+      if (p.cachedFrom) {
+        doc.options = { ...doc.options, cachedFrom: p.cachedFrom };
+        await db.update(aiDocuments).set({ options: doc.options }).where(eq(aiDocuments.id, docId));
+      }
+      log(`${docId}: ${doc.kind} ${p.model === NOAI_MODEL ? 'read without AI (checks pass)' : 'reused from an earlier read of the same file'}`);
+      return { result: p.result, model: p.model };
+    }
+    if (p.why) {
+      doc.options = { ...doc.options, aiWhy: p.why };
+      await db.update(aiDocuments).set({ options: doc.options }).where(eq(aiDocuments.id, docId));
+    }
+    return null;
+  };
   try {
     if (RESULT_KINDS.has(doc.kind)) {
-      // the free reader first, for text PDFs: a bank statement whose balances reconcile (opening + movements = closing)
-      // and a trial balance whose САЛДО columns balance are read exactly without AI — no tokens, no misread digits;
-      // otherwise (scan, no balances, not reconciling) AI reads it
-      let freeR: unknown = null;
-      if (!noAi && FREE_FIRST.has(doc.kind)) {
-        try { freeR = await free(); } catch { freeR = null; }
-        if (freeAccepted(doc.kind, freeR)) {
-          await db.update(aiDocuments).set({ status: 'done', result: freeR, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
-          log(`${docId}: ${doc.kind} read from the PDF text (${doc.kind === 'bank' ? 'reconciled' : 'balanced'}), no AI`);
-          return;
-        }
+      const hit = await pre();
+      if (hit) {
+        await db.update(aiDocuments).set({ status: 'done', result: hit.result, drafts: [], model: hit.model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
+        return;
       }
       const { result, model } = noAi ? await fallback(noAi) : (await freeOnly()) ?? await viaAi(async () => {
         try { return await readResultKind(db, doc, f, undefined, progress); } catch (e) {
           // the AI read failed for good (too large, unreadable): a free read of the text layer, even unbalanced, is
           // better than nothing — its warnings say what to check
-          if (e instanceof AiReadError && hasRows(freeR)) { log(`${docId}: AI read failed (${e.message}), the free read is used`); return { result: freeR, model: NOAI_MODEL }; }
+          if (e instanceof AiReadError) {
+            const fr = await free().catch(() => null);
+            if (hasRows(fr)) { log(`${docId}: AI read failed (${e.message}), the free read is used`); return { result: fr, model: NOAI_MODEL }; }
+          }
           throw e;
         }
       });
@@ -153,9 +178,11 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     if (!doc.fileId) throw new Error('Датотеката не е пронајдена.');
     const file = await loadFile(db, f.id, doc.fileId);
     const bytes = await readObject(file.bucketKey);
+    // free reader / earlier read of the same file first (an invoice whose sums agree costs no AI and is not split)
+    const hit = /\.xml$/i.test(file.name) || /xml/.test(file.mime) ? null : await pre();
     // legacy `invSplit` (13685): a PDF with several invoices is cut into one PDF per invoice, each read on its own
     const opts0 = doc.options as { split?: boolean; noSplit?: boolean };
-    if (!opts0.split && !opts0.noSplit && !noAi && (file.mime === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+    if (!hit && !opts0.split && !opts0.noSplit && !noAi && (file.mime === 'application/pdf' || /\.pdf$/i.test(file.name))) {
       const parts = await splitInvoicePdf({ db, firmId: f.id, refId: doc.id, userId: doc.createdBy, name: file.name, bytes, purpose: doc.kind });
       if (parts) {
         const ids: string[] = [];
@@ -170,9 +197,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
         return;
       }
     }
-    let result: ScanResult | null = null;
-    let model: string | null = null;
-    if (/\.xml$/i.test(file.name) || /xml/.test(file.mime)) {
+    let result: ScanResult | null = hit ? fx(hit.result as ScanResult) : null;
+    let model: string | null = hit ? hit.model : null;
+    if (!result && /\.xml$/i.test(file.name) || /xml/.test(file.mime)) {
       result = ublToScan(new TextDecoder('utf-8').decode(bytes));
       if (result) model = 'ubl';
     }

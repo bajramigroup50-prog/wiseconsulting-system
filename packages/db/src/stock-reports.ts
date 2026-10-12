@@ -4,7 +4,7 @@
  */
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import {
-  plainMoveDoc, purchaseBookTotals, transferBookTotals, type BookPurchase, type BookSales, type FiscalSales, type MoveDocResolver, type StockMove,
+  plainMoveDoc, purchaseBookItems, purchaseBookTotals, transferBookTotals, type BookPurchase, type BookSales, type FiscalSales, type MoveDocResolver, type StockMove,
 } from '@wise/core';
 import type { Tx } from './audit';
 import { inArray } from 'drizzle-orm';
@@ -87,6 +87,7 @@ export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocR
   const IV = new Map(iv.map((x) => [x.id, x]));
   const PN = new Map(pn.map((x) => [x.id, x.name]));
   const purTotals = new Map<string, { nab: number; sp: number }>();
+  const purItems = new Map<string, ReturnType<typeof purchaseBookItems>>();
   const loadPurTotals = async () => {
     const ids = pu.map((p) => p.id);
     if (!ids.length) return;
@@ -102,6 +103,7 @@ export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocR
         stock: st.filter((x) => x.purchaseId === p.id).map((x) => ({ item: x.itemId, qty: Number(x.qty), price: Number(x.price), rab: Number(x.rab), cn: x.cn ?? '', dep: x.dep ?? '', sp: x.sp ?? '' })),
       };
       purTotals.set(p.id, purchaseBookTotals(L.ctx, bp));
+      purItems.set(p.id, purchaseBookItems(L.ctx, bp));
     }
   };
   await loadPurTotals();
@@ -137,7 +139,7 @@ export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocR
       const p = PU.get(id)!;
       return {
         key: 'pur-' + id, no: 'Од ПЛТ бр. ' + (p.calcNo || p.number || '') + (p.calcNo && p.number && p.calcNo !== p.number ? ' (ф-ра ' + p.number + ')' : ''),
-        name: (p.partnerId && PN.get(p.partnerId)) || p.supplierName || 'Добавувач', ddate: p.docDate || p.date, inTotals: purTotals.get(id),
+        name: (p.partnerId && PN.get(p.partnerId)) || p.supplierName || 'Добавувач', ddate: p.docDate || p.date, inTotals: purTotals.get(id), inItems: purItems.get(id),
       };
     }
     if ((s.sourceType === 'invoice' || s.sourceType === 'dispatch') && IV.has(id)) {

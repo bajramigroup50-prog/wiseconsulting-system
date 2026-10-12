@@ -189,7 +189,7 @@ export function AiErrLine({ d, onRetry }: { d: Pick<AiReadDoc, 'id' | 'error' | 
           if (r.error) setErr(r.error); else onRetry();
         }}>↻ Повторно</button>
       )}
-      {onRetry && !(code && ['off', 'nokey', 'credit', 'auth'].includes(code)) && (
+      {onRetry && !(code && ['off', 'nokey', 'credit', 'auth', 'budget'].includes(code)) && (
         // the only way the detailed (Opus, more expensive) model reads a document
         <button type="button" className="btn sm ghost" disabled={busy} style={{ marginLeft: 6 }} title="Повторно читање со подетален модел (поскапо, побавно)" onClick={async () => {
           setBusy(true); const r = await safeAction(() => retryAiRead(d.id, { deep: true })); setBusy(false);

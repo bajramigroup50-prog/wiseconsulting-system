@@ -17,7 +17,7 @@ export const AI_MODELS: Record<AiTier, string> = {
 };
 
 /** USD per 1M tokens: input, output, cache read, cache write (5 min). */
-const PRICES: Record<string, [number, number, number, number]> = {
+export const AI_PRICES: Readonly<Record<string, readonly [number, number, number, number]>> = {
   'claude-haiku-5-5': [0.1, 0.5, 0.01, 0.125],
   'claude-sonnet-5-5': [2, 10, 0.2, 2.5],
   'claude-opus-5-5': [4, 20, 0.2, 5],
@@ -26,7 +26,7 @@ const PRICES: Record<string, [number, number, number, number]> = {
 export interface AiUsage { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }
 
 export function costUsd(model: string, u: AiUsage): number {
-  const p = PRICES[model];
+  const p = AI_PRICES[model];
   if (!p) return 0;
   return (u.inputTokens * p[0] + u.outputTokens * p[1] + u.cacheReadTokens * p[2] + u.cacheWriteTokens * p[3]) / 1e6;
 }

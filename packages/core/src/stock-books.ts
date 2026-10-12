@@ -409,6 +409,8 @@ export interface MoveDocInfo {
    * purchase value (col. 5) and sale value (col. 6) of the whole document at this location.
    */
   inTotals?: { nab: number; sp: number };
+  /** Retail value per item of the document (ПЛТ lines), used to split col. 6 over the locations its lines went to. */
+  inItems?: ReadonlyMap<string, { qty: number; sp: number }>;
 }
 
 export type MoveDocResolver = (m: StockMove) => MoveDocInfo;
@@ -438,6 +440,18 @@ export function purchaseBookTotals(ctx: StockContext, p: BookPurchase): { nab: n
   const vatReg = ctx.vatRegistered !== false;
   const nab = r2(R.reduce((s, r) => s + r.nabV + (p.imp ? r.cvat : p.art32 || !vatReg ? 0 : r2((r.v * r.rate) / 100)), 0));
   return { nab, sp: r2(R.reduce((s, r) => s + r.spV, 0)) };
+}
+
+/** Per item of a purchase calculation: quantity and retail value (col. 10 of the ПЛТ), for splitting it over locations. */
+export function purchaseBookItems(ctx: StockContext, p: BookPurchase): Map<string, { qty: number; sp: number }> {
+  const M = new Map<string, { qty: number; sp: number }>();
+  for (const r of calculationRows(ctx, p)) {
+    const o = M.get(r.item) ?? { qty: 0, sp: 0 };
+    o.qty += r.qty;
+    o.sp += r.spV;
+    M.set(r.item, o);
+  }
+  return M;
 }
 
 /** Transfer document (warehouse → store), legacy `docs.type='prenos'`. */
@@ -491,6 +505,7 @@ export function legacyMoveDoc(ctx: StockContext, D: LegacyBookDocs): MoveDocReso
           name: pn(p.partner) || p.supplierName || 'Добавувач',
           ddate: p.docDate || p.date || m.date,
           inTotals: purchaseBookTotals(ctx, p),
+          inItems: purchaseBookItems(ctx, p),
         };
     }
     if ((x = s.match(/^inv-(.+)-\d+$/))) {
@@ -531,6 +546,8 @@ export interface EtRow {
   /** Col. 7 — daily turnover. */
   pr: number;
   inn: boolean;
+  /** Location (продажен објект) the row belongs to — shown as „Објект“ when all stores are listed. */
+  wh: string;
   bal: number;
 }
 
@@ -551,9 +568,59 @@ export interface EtBookArgs extends StockBookOptions {
 }
 
 /**
+ * Split of a receipt document's col. 5 / col. 6 totals over the locations its receipt moves went to: per document key,
+ * per location `{ nab, sp }`. Weights: purchase value of the moves (col. 5) and qty × retail price at the location on
+ * the date (col. 6, falling back to the col. 5 weight when no retail price is known). Allocated in cents with the
+ * remainder on the last location, so the parts always add up to the whole document. Documents whose receipt moves all
+ * went to one location are not listed (they keep their whole totals).
+ */
+export function receiptShares(ctx: StockContext, docOf: MoveDocResolver): Map<string, Map<string, { nab: number; sp: number }>> {
+  const W = new Map<string, { tot: { nab: number; sp: number }; by: Map<string, { n: number; s: number }> }>();
+  for (const m of live(ctx)) {
+    if (!(num(m.qty) > 0)) continue;
+    const D = docOf(m);
+    if (!D.inTotals) continue;
+    const w = whOf(m);
+    const it = itemById(ctx, m.item);
+    let x = W.get(D.key);
+    if (!x) W.set(D.key, (x = { tot: D.inTotals, by: new Map() }));
+    const o = x.by.get(w) ?? { n: 0, s: 0 };
+    o.n += Math.abs(num(m.value));
+    const li = D.inItems?.get(m.item);
+    o.s += li && li.qty ? (li.sp * num(m.qty)) / li.qty : it ? num(m.qty) * priceAt(ctx, it, w, m.date) : 0;
+    x.by.set(w, o);
+  }
+  const out = new Map<string, Map<string, { nab: number; sp: number }>>();
+  for (const [key, { tot, by }] of W) {
+    if (by.size < 2) continue;
+    const locs = [...by.keys()];
+    const N = locs.reduce((s, l) => s + by.get(l)!.n, 0);
+    const S = locs.reduce((s, l) => s + by.get(l)!.s, 0);
+    const wN = (l: string) => (N > 0 ? by.get(l)!.n / N : 1 / locs.length);
+    const wS = (l: string) => (S > 0 ? by.get(l)!.s / S : wN(l));
+    const split = (total: number, share: (l: string) => number): Map<string, number> => {
+      const T = cents(total);
+      const R = new Map<string, number>();
+      let used = 0;
+      locs.forEach((l, i) => {
+        const c = i === locs.length - 1 ? T - used : Math.round(T * share(l));
+        used += c;
+        R.set(l, c);
+      });
+      return R;
+    };
+    const n = split(tot.nab, wN);
+    const s = split(tot.sp, wS);
+    out.set(key, new Map(locs.map((l) => [l, { nab: fromCents(n.get(l)!), sp: fromCents(s.get(l)!) }])));
+  }
+  return out;
+}
+
+/**
  * Legacy `etData()` (5022): the official ЕТ form for retail ("Евиденција во трговијата на мало"), per store or all
  * stores (all locations when the firm has no store). Receipt documents (ПЛТ, transfers) are booked once per document
- * and location with their whole value; other moves at retail price on the date (returns and write-offs negative, issues
+ * and location; DELIBERATE FIX: with only that location's part of the document ({@link receiptShares}) — legacy put
+ * the whole document total into every location the document's lines went to; other moves at retail price on the date (returns and write-offs negative, issues
  * not from retail output marked "(сторно)"); levellings as value difference; daily fiscal reports (per day for periodic
  * reports) as turnover. POS / retail-output sales are not booked as issues — the turnover covers them.
  */
@@ -563,6 +630,13 @@ export function etBook(ctx: StockContext, a: EtBookArgs): EtBook {
   const okW = (w: string) => (W ? w === W : noStore || locationKind(ctx, w) === 'store');
   const ln = a.locationName ?? ((id: string) => id);
   const G = new Map<string, Omit<EtRow, 'bal'>>();
+  const docCache = new Map<StockMove, MoveDocInfo>();
+  const docOf = (m: StockMove): MoveDocInfo => {
+    let d = docCache.get(m);
+    if (!d) docCache.set(m, (d = a.docOf(m)));
+    return d;
+  };
+  const inShares = receiptShares(ctx, docOf);
   const add = (k: string, o: Omit<EtRow, 'bal'>) => {
     const x = G.get(k);
     if (x) {
@@ -577,13 +651,15 @@ export function etBook(ctx: StockContext, a: EtBookArgs): EtBook {
     if (!okW(w)) continue;
     const it = itemById(ctx, m.item);
     if (!it) continue;
-    const D = a.docOf(m);
+    const D = docOf(m);
     const k = D.key + '|' + w;
     if (num(m.qty) < 0 && m.type === 'sale' && /^(pos|mo)-/.test(String(m.src))) continue;
     if (D.inTotals && num(m.qty) > 0) {
       if (done.has(k)) continue;
       done.add(k);
-      add(k, { date: m.date, no: D.no, name: D.name, ddate: D.ddate, nab: D.inTotals.nab, sp: D.inTotals.sp, pr: 0, inn: true });
+      // only this location's part of the document (the whole document when it all went to this location)
+      const part = inShares.get(D.key)?.get(w) ?? D.inTotals;
+      add(k, { date: m.date, no: D.no, name: D.name, ddate: D.ddate, nab: part.nab, sp: part.sp, pr: 0, inn: true, wh: w });
       continue;
     }
     const sp = r2(num(m.qty) * priceAt(ctx, it, w, m.date));
@@ -596,12 +672,13 @@ export function etBook(ctx: StockContext, a: EtBookArgs): EtBook {
       sp,
       pr: 0,
       inn: num(m.qty) > 0,
+      wh: w,
     });
   }
   for (const n of ctx.levellings ?? []) {
     if (!okW(whOf(n))) continue;
     const amt = r2(n.lines.reduce((s, l) => s + num(l.qty) * (num(l.new) - num(l.old)), 0));
-    if (amt) add('niv-' + (n.id ?? n.number ?? n.date), { date: n.date, no: 'Извештај за нивелација ' + (n.number || ''), name: ln(whOf(n)), ddate: n.date, nab: 0, sp: amt, pr: 0, inn: amt > 0 });
+    if (amt) add('niv-' + (n.id ?? n.number ?? n.date), { date: n.date, no: 'Извештај за нивелација ' + (n.number || ''), name: ln(whOf(n)), ddate: n.date, nab: 0, sp: amt, pr: 0, inn: amt > 0, wh: whOf(n) });
   }
   for (const z of a.sales ?? []) {
     if (!okW(whOf(z))) continue;
@@ -617,6 +694,7 @@ export function etBook(ctx: StockContext, a: EtBookArgs): EtBook {
           sp: 0,
           pr: num(d.total),
           inn: false,
+          wh: whOf(z),
         }),
       );
       continue;
@@ -630,6 +708,7 @@ export function etBook(ctx: StockContext, a: EtBookArgs): EtBook {
       sp: 0,
       pr: num(z.total),
       inn: false,
+      wh: whOf(z),
     });
   }
   const all = [...G.values()].sort(inFirst);

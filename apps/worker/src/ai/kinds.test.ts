@@ -98,7 +98,8 @@ describe('ai.read-document result kinds', () => {
       ['blg', BLG_PROMPT, 'quick', '{"receipts":[]}'],
       ['emp', EMP_PROMPT, 'default', '{"name":"Ана","embg":"0101990455001"}'],
       ['bank', BANK_PROMPT, 'default', '{"items":[{"date":"2026-03-02","amount":5}]}'],
-      ['classify', CLASSIFY_PROMPT, 'default', '{"kind":"fiscal","what":"Z извештај"}'],
+      // classification is a short answer: Haiku (cost tiers, ../ai/budget.ts)
+      ['classify', CLASSIFY_PROMPT, 'quick', '{"kind":"fiscal","what":"Z извештај"}'],
     ] as const) {
       const api = fake([ans]);
       setAiClient(api);
@@ -111,7 +112,7 @@ describe('ai.read-document result kinds', () => {
     }
   });
 
-  it('fisk: Sonnet read (Opus only on „🔍 Детално читање“), FK_SIMPLE second read when the total is 0, normalised result stored', async () => {
+  it('fisk: Sonnet read (Opus only on a detailed read), FK_SIMPLE second read when the total is 0, normalised result stored', async () => {
     const api = fake([
       JSON.stringify({ device: 'AC1', days: [], totals: { gross: {}, total: 0 }, text: '' }),
       JSON.stringify({ total: '12 345.00', group: 'A', vatTotal: 1883.14, to: '31-03-2026', receipts: 10 }),

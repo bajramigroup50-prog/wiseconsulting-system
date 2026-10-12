@@ -9,6 +9,7 @@ import { inboxClassification } from '@wise/core/ai/classify';
 import { INBOX_ROUTES } from '@wise/core/office';
 import { useAiPoll } from '@/components/ai-read';
 import { classifyInbox, routeInboxFile } from './actions';
+import { AiBadge } from '@/components/ai-badge';
 
 export function AutoRoute({ itemId }: { itemId: string }) {
   const router = useRouter();
@@ -39,7 +40,7 @@ export function AutoRoute({ itemId }: { itemId: string }) {
   };
   return (
     <>
-      <button className="btn sm" type="button" onClick={go} disabled={working || busy} title="AI препознава каков е документот и го праќа во соодветниот модул">🤖 Автоматски</button>
+      <button className="btn sm" type="button" onClick={go} disabled={working || busy} title="Документ со текст (PDF, XML, Word) се препознава без AI по клучни зборови; скенираниот – со AI">🤖 Автоматски<AiBadge /></button>
       {msg && <span className="mini">{msg}</span>}
     </>
   );

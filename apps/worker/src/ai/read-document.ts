@@ -5,13 +5,15 @@
  *
  * PDFs go to the model as a document block and images as image blocks (no browser-side PDF rendering or Tesseract
  * OCR any more — the model reads scanned PDFs directly); XML / CSV / TXT are passed as text like legacy `aiInput0`.
- * Every call is logged in `ai_usage` with its cost for the firm.
+ * Every call is logged in `ai_usage` with its cost for the firm: reserved with an estimate before the call, settled with
+ * the real tokens after it, and refused when the monthly AI limit is reached (`./budget.ts`).
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import { aiUsage, files, type Tx } from '@wise/db';
 import { AI_MODELS, aiMessages, costUsd, type AiTier, type AiUsage } from './client';
 import { readObject } from './storage';
+import { aiBudgetGuard, effectiveTier, estimateCost, estimateInputTokens, pagesMsg, prepareBlocks, reserveAiCall, settleAiCall } from './budget';
 
 export class AiReadError extends Error {
   constructor(message: string) { super(message); this.name = 'AiReadError'; }
@@ -43,6 +45,10 @@ export interface ReadDocumentArgs<T> {
   /** Validates / narrows the parsed JSON (a zod schema or a function). */
   schema?: Validator<T>;
   maxTokens?: number;
+  /** An explicit „🔍 Детално читање“: the only case where Opus (`complex`) is used (see ./budget.ts). */
+  deep?: boolean;
+  /** false: send the PDF as it is (no page cap / blank-page removal — the multi-invoice split needs the page numbers). */
+  prune?: boolean;
 }
 export interface ReadDocumentResult<T> { data: T; model: string; usage: AiUsage; costUsd: number }
 
@@ -86,28 +92,45 @@ export async function loadFile(db: Tx, firmId: string, fileId: string) {
 
 /** Call the model with an already prepared content (used by `readDocument` and by jobs that re-read the same bytes). */
 export async function readContent<T>(a: Omit<ReadDocumentArgs<T>, 'fileId'>, content: { blocks: Anthropic.ContentBlockParam[]; extra: string }): Promise<ReadDocumentResult<T>> {
-  const tier = a.tier ?? 'default';
-  const model = AI_MODELS[tier];
   const api = aiMessages();
-  const msg = await api.create({
-    model, max_tokens: a.maxTokens ?? 16000, output_config: { effort: EFFORT[tier] },
-    messages: [{ role: 'user', content: [...content.blocks, { type: 'text', text: a.prompt + content.extra }] }],
-  });
+  // cost control (./budget.ts): monthly limit → AiBudgetError before any call; Opus only on a detailed read
+  const cfg = await aiBudgetGuard(a.db, a.firmId);
+  const tier = effectiveTier(a.tier ?? 'default', a.deep, cfg);
+  const model = AI_MODELS[tier];
+  let blocks = content.blocks;
+  if (a.prune !== false) {
+    const p = await prepareBlocks(blocks, cfg.maxPages);
+    if (p.over) throw new AiReadError(pagesMsg(p.over, cfg.maxPages));
+    blocks = p.blocks;
+  }
+  const text = a.prompt + content.extra;
+  const maxTokens = a.maxTokens ?? 16000;
+  const rid = await reserveAiCall(a.db, { firmId: a.firmId, userId: a.userId, purpose: a.purpose, tier, model, refId: a.refId }, estimateCost(model, estimateInputTokens(blocks, text), maxTokens));
+  let msg: Anthropic.Message;
+  try {
+    msg = await api.create({
+      model, max_tokens: maxTokens, output_config: { effort: EFFORT[tier] },
+      messages: [{ role: 'user', content: [...blocks, { type: 'text', text }] }],
+    });
+  } catch (e) {
+    await settleAiCall(a.db, rid, a.firmId, null, 0);
+    throw e;
+  }
   const usage: AiUsage = {
     inputTokens: msg.usage?.input_tokens ?? 0, outputTokens: msg.usage?.output_tokens ?? 0,
     cacheReadTokens: msg.usage?.cache_read_input_tokens ?? 0, cacheWriteTokens: msg.usage?.cache_creation_input_tokens ?? 0,
   };
   const cost = costUsd(model, usage);
+  await settleAiCall(a.db, rid, a.firmId, usage, cost);
   // a cut answer is marked in the cost report (`ai_usage.purpose` = `<purpose>:truncated`)
   const truncated = msg.stop_reason === 'max_tokens';
-  await a.db.insert(aiUsage).values({
-    firmId: a.firmId, userId: a.userId ?? null, purpose: truncated ? a.purpose + ':truncated' : a.purpose, tier, model, ...usage, costUsd: cost.toFixed(6), refId: a.refId ?? null,
-  });
+  if (truncated) await a.db.update(aiUsage).set({ purpose: a.purpose + ':truncated' }).where(eq(aiUsage.id, rid));
   if (msg.stop_reason === 'refusal') throw new AiReadError('Моделот одби да го прочита документот.');
-  const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
-  if (truncated && !/[}\]]\s*(```)?\s*$/.test(text.trim())) throw new AiTruncatedError();
+  const out = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
+  // deterministic: never repeated as it is (large PDFs are read in parts by the caller, `chunked.ts`)
+  if (truncated && !/[}\]]\s*(```)?\s*$/.test(out.trim())) throw new AiTruncatedError();
   let json: unknown;
-  try { json = parseModelJson(text); } catch (e) { throw truncated ? new AiTruncatedError() : e; }
+  try { json = parseModelJson(out); } catch (e) { throw truncated ? new AiTruncatedError() : e; }
   const s = a.schema;
   const data = (s ? (typeof s === 'function' ? s(json) : s.parse(json)) : json) as T;
   return { data, model, usage, costUsd: cost };

@@ -4,7 +4,8 @@
  * the Плата submenu (15280). `firmiResh` (10540) was a button on Фирми in legacy; here it is also a menu item after
  * `firmiImp` so the route guard (`viewAllowed`) knows it. `produktivnost` (new, owner-only) follows `aktivnost`;
  * `uredi` (new, owner-only, 🔐 enrolled computers) follows `greski`.
- * „🔄 Конвертор на датотеки“ (new, no legacy screen) follows „Увоз од Excel / CSV / XML“ in Систем.
+ * „🔄 Конвертор на датотеки“ (new, no legacy screen) follows „Увоз од Excel / CSV / XML“ in Систем, then
+ * „🤖 AI читање“ (new: status, on / off and the AI credit check).
  */
 import type { NavGroup, NavItem } from './nav-data';
 
@@ -15,7 +16,11 @@ const ADD: [string, string, NavItem[]][] = [
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // owner-only (hidden for everybody else in the layout, `OWNER_VIEWS`)
   ['Систем', 'aktivnost', [['produktivnost', '📊 Продуктивност на вработените']]],
+  // owner-only: AI cost report and monthly AI limit (docs/AI-TROSHOK.md)
+  ['Систем', 'produktivnost', [['aiTrosok', '💲 AI трошок']]],
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
+  // the AI reading card (also in „Податоци и резервна копија“) on its own page, with the credit check
+  ['Систем', 'konvertor', [['aiCitanje', '🤖 AI читање']]],
   // owner-only: enrolled computers (device certificates, mutual TLS)
   ['Систем', 'greski', [['uredi', '🔐 Уреди (компјутери)']]],
 ];

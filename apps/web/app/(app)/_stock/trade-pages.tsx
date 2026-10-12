@@ -104,15 +104,17 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
   const [from, to] = rangeOf(sp, year);
   const [sales, docOf] = await Promise.all([loadStockSales(db(), firm.id), stockDocResolver(db(), L)]);
   const T = etBook(L.ctx, { wh, from, to, sales, docOf, firmFiskScheme: L.settings.fiskOpt.sc, locationName: L.locName });
+  // „сите продавници“: each row is one store's part — show which store (column outside the official numbering)
+  const allW = !wh;
   return (
     <>
       <Hd exp={false} t={t} sub="по продажен објект">
         <ExportButtons name={'ET_malo_' + from + '_' + to} rows={[
-          ['Реден бр.', 'Датум на книжење', 'Назив и број на документот', 'Датум на документот', 'Набавна вредност на стоките', 'Продажна вредност на стоките', 'Дневен промет'],
-          ['', dmy(from), 'Пренос од претходен период (состојба по продажни цени)', '', '', T.open, ''],
-          ...T.rows.map((r, i) => [i + 1, dmy(r.date), r.no + (r.name ? ' · ' + r.name : ''), dmy(r.ddate), r.nab || '', r.sp || '', r.pr || '']),
-          ['', '', 'Вкупно за периодот', '', T.totals.nab, T.totals.sp, T.totals.pr],
-          ['', '', 'Состојба на залиха по продажни цени (пренос + кол. 6 − кол. 7)', '', '', T.totals.close, ''],
+          ['Реден бр.', 'Датум на книжење', 'Назив и број на документот', ...(allW ? ['Објект'] : []), 'Датум на документот', 'Набавна вредност на стоките', 'Продажна вредност на стоките', 'Дневен промет'],
+          ['', dmy(from), 'Пренос од претходен период (состојба по продажни цени)', ...(allW ? [''] : []), '', '', T.open, ''],
+          ...T.rows.map((r, i) => [i + 1, dmy(r.date), r.no + (r.name ? ' · ' + r.name : ''), ...(allW ? [L.locName(r.wh)] : []), dmy(r.ddate), r.nab || '', r.sp || '', r.pr || '']),
+          ['', '', 'Вкупно за периодот', ...(allW ? [''] : []), '', T.totals.nab, T.totals.sp, T.totals.pr],
+          ['', '', 'Состојба на залиха по продажни цени (пренос + кол. 6 − кол. 7)', ...(allW ? [''] : []), '', '', T.totals.close, ''],
         ]} />
         <ServerPdfButton title="Образец ЕТ" landscape />
         <PrintButton label="Печати" className="btn" />
@@ -134,19 +136,19 @@ export async function EtPage({ sp }: { sp: TrgSP }) {
         <p className="mini noprint">{firm.name} · Образец ЕТ · {wh ? L.locName(wh) : 'сите продавници'} · {dmy(from)} – {dmy(to)}</p>
         <table>
           <thead>
-            <tr><th>Реден бр.</th><th>Датум на книжење</th><th>Назив и број на документот</th><th>Датум на документот</th><th className="n">Набавна вредност на стоките</th><th className="n">Продажна вредност на стоките</th><th className="n">Дневен промет</th></tr>
-            <tr>{[1, 2, 3, 4, 5, 6, 7].map((n) => <th key={n} style={{ textAlign: 'center' }}>{n}</th>)}</tr>
+            <tr><th>Реден бр.</th><th>Датум на книжење</th><th>Назив и број на документот</th>{allW && <th>Објект</th>}<th>Датум на документот</th><th className="n">Набавна вредност на стоките</th><th className="n">Продажна вредност на стоките</th><th className="n">Дневен промет</th></tr>
+            <tr>{(allW ? ['1', '2', '3', '', '4', '5', '6', '7'] : ['1', '2', '3', '4', '5', '6', '7']).map((n, i) => <th key={i} style={{ textAlign: 'center' }}>{n}</th>)}</tr>
           </thead>
           <tbody>
-            <tr className="sub"><td /><td>{dmy(from)}</td><td>Пренос од претходен период (состојба по продажни цени)</td><td /><td /><td className="n">{fmt(T.open)}</td><td /></tr>
+            <tr className="sub"><td /><td>{dmy(from)}</td><td>Пренос од претходен период (состојба по продажни цени)</td>{allW && <td />}<td /><td /><td className="n">{fmt(T.open)}</td><td /></tr>
             {T.rows.map((r, i) => (
-              <tr key={i}><td>{i + 1}</td><td>{dmy(r.date)}</td><td>{r.no}{r.name ? ' · ' + r.name : ''}</td><td>{dmy(r.ddate)}</td>
+              <tr key={i}><td>{i + 1}</td><td>{dmy(r.date)}</td><td>{r.no}{r.name ? ' · ' + r.name : ''}</td>{allW && <td>{L.locName(r.wh)}</td>}<td>{dmy(r.ddate)}</td>
                 <td className="n">{r.nab ? fmt(r.nab) : ''}</td><td className="n" style={neg(r.sp)}>{r.sp ? fmt(r.sp) : ''}</td><td className="n">{r.pr ? fmt(r.pr) : ''}</td></tr>
             ))}
           </tbody>
           <tfoot>
-            <tr><td colSpan={4}>Вкупно за периодот</td><td className="n">{fmt(T.totals.nab)}</td><td className="n">{fmt(T.totals.sp)}</td><td className="n">{fmt(T.totals.pr)}</td></tr>
-            <tr><td colSpan={5}>Состојба на залиха по продажни цени (пренос + кол. 6 − кол. 7)</td><td className="n" colSpan={2}>{fmt(T.totals.close)}</td></tr>
+            <tr><td colSpan={allW ? 5 : 4}>Вкупно за периодот</td><td className="n">{fmt(T.totals.nab)}</td><td className="n">{fmt(T.totals.sp)}</td><td className="n">{fmt(T.totals.pr)}</td></tr>
+            <tr><td colSpan={allW ? 6 : 5}>Состојба на залиха по продажни цени (пренос + кол. 6 − кол. 7)</td><td className="n" colSpan={2}>{fmt(T.totals.close)}</td></tr>
           </tfoot>
         </table>
         <PrintSig />

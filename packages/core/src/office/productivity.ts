@@ -97,12 +97,12 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
 const NOISE = new Set((
-  'login logout loginFail loginLocked loginUnlock uMyPass uNew uSave uDel ownerSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip pnLivePos lawSeenAll lawRobotRun '
+  'login logout loginFail loginLocked loginUnlock uMyPass uNew uSave uDel ownerSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip pnLivePos lawSeenAll lawRobotRun '
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
   + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify offFirmSet amlOffSet mpinTplImport '
-  + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch viewPersonal '
+  + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
   + 'na photo mail cancel reminded dep deliv approve pct posted mrp recv action pos'
 ).split(' '));
