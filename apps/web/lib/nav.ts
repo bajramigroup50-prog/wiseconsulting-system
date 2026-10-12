@@ -40,7 +40,7 @@ export function navFor(role: Role): readonly NavGroup[] {
 }
 
 /** Views only the office owner sees (`lib/office-owner.ts`); hidden from the menu of everybody else. */
-export const OWNER_VIEWS: readonly string[] = ['produktivnost'];
+export const OWNER_VIEWS: readonly string[] = ['produktivnost', 'uredi'];
 
 /** The menu without the given views (empty groups dropped). */
 export function withoutViews(groups: readonly NavGroup[], ids: readonly string[]): readonly NavGroup[] {

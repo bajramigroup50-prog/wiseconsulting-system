@@ -20,23 +20,84 @@
 	}
 }
 
+# 🔐 Enrolled computers (mutual TLS) — DEVICE_CERTS in /opt/wise/.env: off (default) | optional | required.
+#   off      → no client certificate is asked for (as before);
+#   optional → a certificate is asked for and verified when the computer has one (enrolment period);
+#   required → only computers with a certificate signed by the device CA complete the TLS handshake.
+# The CA certificate (public part only) is /opt/wise/ca/public/ca.crt on the host (docker/device-ca.sh).
+# Caddy has no CRL: the certificate fingerprint goes to the app, which refuses revoked / unknown devices (proxy.ts).
+# Any other DEVICE_CERTS value makes Caddy refuse to start (fail closed). ACME (Let's Encrypt) keeps working:
+# HTTP-01 on port 80 is not affected by client_auth.
+(device_tls_off) {
+	vars device_mode off
+}
+(device_tls_optional) {
+	tls {
+		client_auth {
+			mode verify_if_given
+			trust_pool file /etc/caddy/wise-ca/ca.crt
+		}
+	}
+}
+(device_tls_required) {
+	tls {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/caddy/wise-ca/ca.crt
+		}
+	}
+}
+
+# The verified client certificate, for the app. A client's own X-Wise-Client-* headers are removed first
+# (device_strip, site level); without a certificate the placeholder stays unresolved and the app ignores it.
+(device_strip) {
+	request_header -X-Wise-Client-Fp
+	request_header -X-Wise-Client-Serial
+}
+(device_headers) {
+	header_up X-Wise-Client-Fp {http.request.tls.client.fingerprint}
+	header_up X-Wise-Client-Serial {http.request.tls.client.serial}
+}
+
+# files.DOMAIN goes straight to the S3 store: the app is asked first whether the device is still allowed (revocation).
+(device_files_off) {
+	vars device_files off
+}
+(device_files_optional) {
+	forward_auth app:3000 {
+		uri /api/device-check
+		import device_headers
+	}
+}
+(device_files_required) {
+	import device_files_optional
+}
+
 {$DOMAIN} {
 	import office_only
+	import device_tls_{$DEVICE_CERTS:off}
+	import device_strip
 	encode zstd gzip
 	import security
 	request_body {
 		max_size 110MB
 	}
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		import device_headers
+	}
 }
 
 www.{$DOMAIN} {
+	import device_tls_{$DEVICE_CERTS:off}
 	redir https://{$DOMAIN}{uri} permanent
 }
 
 # Presigned uploads/downloads go straight to the S3 store (SeaweedFS S3 API only).
 files.{$DOMAIN} {
 	import office_only
+	import device_tls_{$DEVICE_CERTS:off}
+	import device_strip
+	import device_files_{$DEVICE_CERTS:off}
 	request_body {
 		max_size 110MB
 	}
@@ -47,8 +108,12 @@ files.{$DOMAIN} {
 
 # Temporary access by IP address before DNS works (self-signed certificate, browser warning).
 # Set IP_HOST=<server ip> in .env to enable; leave it empty in production. File uploads need files.DOMAIN.
+# No client_auth here (tls internal); with DEVICE_CERTS=required the app refuses every request on it (no certificate).
 {$IP_HOST:localhost} {
 	tls internal
+	import device_strip
 	import security
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		import device_headers
+	}
 }

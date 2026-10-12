@@ -85,7 +85,17 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       s3-init: { condition: service_completed_successfully }
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # 🔐 enrolled computers (docs/INSTALIM-UREDI.md): off | optional | required — the same value Caddy gets
+      DEVICE_CERTS: ${DEVICE_CERTS:-off}
+      DEVICE_CA_DIR: /run/wise-ca
+      DEVICE_INSTALLER: /opt/wise-download/WISE-Setup.exe
+    volumes:
+      # device CA (private key readable by uid 1001 only; created by docker/device-ca.sh) — never in the repository
+      - ${DEVICE_CA_HOST_DIR:-/opt/wise/ca}:/run/wise-ca:ro
+      # the generic Windows installer (desktop/ → WISE-Setup.exe), to which each device's certificate is appended
+      - ${DEVICE_DOWNLOAD_HOST_DIR:-/opt/wise/download}:/opt/wise-download:ro
 
   worker:
     image: wise-worker
@@ -98,9 +108,11 @@ services:
     restart: unless-stopped
     depends_on: [app, s3]
     ports: ["80:80", "443:443", "443:443/udp"]
-    environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}", ALLOW_IPS: "${ALLOW_IPS:-0.0.0.0/0 ::/0}" }
+    environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}", ALLOW_IPS: "${ALLOW_IPS:-0.0.0.0/0 ::/0}", DEVICE_CERTS: "${DEVICE_CERTS:-off}" }
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # public half of the device CA only (trust pool for client certificates)
+      - ${DEVICE_CA_HOST_DIR:-/opt/wise/ca}/public:/etc/caddy/wise-ca:ro
       - caddydata:/data
       - caddyconfig:/config
 

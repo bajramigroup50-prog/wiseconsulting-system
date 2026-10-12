@@ -1,9 +1,13 @@
 // WISE CONSULTING desktop: a window on the server app. Data and updates stay on the server.
 const { app, BrowserWindow, Menu, shell, session } = require('electron');
+const { registerFiscal } = require('./fiscal');
 
 const APP_URL = 'https://app.wiseconsulting.com.mk';
 const APP_HOST = new URL(APP_URL).host;
 const sameApp = (url) => { try { const h = new URL(url).host; return h === APP_HOST || h.endsWith('.' + APP_HOST); } catch { return false; } };
+
+/** Issuer CN of the device certificates (apps/web/lib/device-certs.ts DEVICE_CA_CN). */
+const DEVICE_CA_CN = 'WISE CONSULTING Device CA';
 
 const primary = app.requestSingleInstanceLock();
 if (!primary) app.quit();
@@ -28,12 +32,18 @@ function createWindow() {
   });
   win.webContents.on('will-navigate', (e, url) => { if (!sameApp(url)) { e.preventDefault(); shell.openExternal(url); } });
 
-  // Offline / server unreachable: a plain message with retry instead of a blank window.
+  // Offline / server unreachable: a plain message with retry instead of a blank window. A TLS client-certificate
+  // error (-110 ERR_SSL_CLIENT_AUTH_CERT_NEEDED, -117 ERR_BAD_SSL_CLIENT_AUTH_CERT, -123 / -134…) means this computer
+  // is not enrolled (or its certificate was revoked / expired).
   win.webContents.on('did-fail-load', (_e, code, _desc, url, isMain) => {
     if (!isMain || code === -3) return;
+    const certErr = [-110, -117, -123, -134, -135, -136, -137].includes(code);
+    const msg = certErr
+      ? 'Овој компјутер не е овластен за пристап до серверот (нема важечки сертификат). Обратете се кај WISE CONSULTING.'
+      : 'Серверот не е достапен. Проверете ја интернет врската.';
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
       `<html><body style="font-family:Segoe UI,Arial;padding:40px;color:#0d5b4b"><h2>WISE CONSULTING</h2>` +
-      `<p>Серверот не е достапен. Проверете ја интернет врската.</p><p><button onclick="location.href='${APP_URL}'" ` +
+      `<p>${msg}</p><p><button onclick="location.href='${APP_URL}'" ` +
       `style="padding:8px 16px;background:#0d5b4b;color:#fff;border:0;border-radius:6px;cursor:pointer">Обиди се повторно</button></p></body></html>`));
   });
 
@@ -51,6 +61,22 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
   { label: 'Уреди', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
 ]));
 
+/**
+ * 🔐 Mutual TLS: the server asks for this computer's certificate (installed into the Windows user store by the
+ * per-device installer). Pick ours automatically — issuer = the WISE device CA, the newest one — never a dialog and
+ * never a certificate of another issuer (bank / e-signature tokens stay untouched). Only for the app's own host.
+ */
+// Chromium passes „host:port“ (no scheme) here; accept a full URL too.
+const certHost = (u) => String(u || '').replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0].replace(/:\d+$/, '').toLowerCase();
+const certForApp = (u) => { const h = certHost(u); return h === APP_HOST || h.endsWith('.' + APP_HOST); };
+app.on('select-client-certificate', (event, _wc, url, list, callback) => {
+  if (!certForApp(url)) return; // default Chromium behaviour for other sites
+  event.preventDefault();
+  const ours = list.filter((c) => c.issuerName === DEVICE_CA_CN || (c.issuer && c.issuer.commonName === DEVICE_CA_CN))
+    .sort((a, b) => (b.validStart || 0) - (a.validStart || 0));
+  callback(ours[0]); // undefined → continue without a certificate (the server shows „not authorised“)
+});
+
 app.on('second-instance', () => { const [w] = BrowserWindow.getAllWindows(); if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
 /**
  * Safety: the app always starts at the login screen (then year → firm). The server's cookies (session, firm, year) are
@@ -60,7 +86,7 @@ const clearAppCookies = () => session.defaultSession.clearStorageData({ storages
   .then(() => session.defaultSession.cookies.flushStore()).catch(() => {});
 
 // a second instance only hands over to the running one: it must not touch the shared cookies
-if (primary) app.whenReady().then(clearAppCookies).then(createWindow);
+if (primary) app.whenReady().then(() => registerFiscal(sameApp)).then(clearAppCookies).then(createWindow);
 app.on('window-all-closed', () => app.quit());
 let cleared = false;
 app.on('before-quit', (e) => {
