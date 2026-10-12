@@ -30,6 +30,25 @@ export const AI_ERR_MSG: Record<AiErrCode, string> = {
   other: 'AI-читањето не успеа. Кликнете ↻ Повторно. ' + FREE,
 };
 
+/** HH:MM of an ISO time in Skopje (24 h). */
+export function hhmmSkopje(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(+d)) return '';
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Skopje', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+}
+
+/**
+ * Message of a read that did not call AI only because an earlier credit / key failure (`app_settings.ai.lastFail`) is
+ * still remembered — not a fresh provider error, so it must not claim the credit is exhausted right now.
+ */
+export function aiBlockedMsg(code: AiErrCode, at: string): string {
+  const why = code === 'credit' ? 'кредит' : code === 'auth' ? 'клуч' : code;
+  return `AI е привремено паузирано поради претходна грешка (${why}) во ${hhmmSkopje(at)} – кликнете ↻ Повторно или „Провери го AI-кредитот“. ${FREE}`;
+}
+
+/** Success text of „🔎 Провери го AI-кредитот сега“ (`ai.ping`). */
+export const AI_PING_OK = '✓ AI работи – кредитот е во ред.';
+
 /** Codes for which the free import paths are the useful next step. */
 export const AI_ERR_FREE: ReadonlySet<AiErrCode> = new Set(['credit', 'auth', 'nokey', 'off', 'noai', 'other']);
 /** Codes that mean „AI is not usable at all right now“ — later reads go to the free readers until a retry succeeds. */

@@ -29,6 +29,7 @@ export async function setAiEnabledAction(on: boolean): Promise<ActionState> {
       await audit(tx, { userId: u.id, firmId: null, action: 'aiSwitch', entityType: 'app_settings', data: { enabled: on } });
     });
     revalidatePath('/sistem');
+    revalidatePath('/aiCitanje');
     return { ok: on ? 'AI читањето е вклучено.' : 'AI читањето е исклучено – датотеките се читаат без AI (Excel/CSV/XML и PDF со текст).' };
   } catch (e) { return err(e); }
 }
