@@ -139,7 +139,7 @@ describe('jobs: free first, AI only when needed', () => {
   it('fisk whose groups do not add up → AI, the reason kept on the result', async () => {
     const api = fake([JSON.stringify({ days: [], totals: { gross: { А: 118000 }, total: 118000 }, to: '2026-09-30' })]);
     setAiClient(api);
-    bytes = pdfOf(swap(FISK_PERIODIC, 'ПРОМЕТ В            1 000.00', 'ПРОМЕТ В            1 100.00'));
+    bytes = pdfOf(swap(FISK_PERIODIC, 'ПРОМЕТ Г            1 000.00', 'ПРОМЕТ Г            1 100.00'));
     const id = await doc('fisk', 'z.pdf', 'application/pdf');
     await runReadDocument(db, id);
     expect(api.calls).toHaveLength(1);
