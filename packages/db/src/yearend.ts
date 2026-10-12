@@ -13,7 +13,8 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  carryCandidateAccounts, carryEvidence, carryOneLine, carryPlan, type CarryEvidence, type CarryKey, type CarryOpenLine, type CarryPlan,
+  carryCandidateAccounts, carryEvidence, carryOneLine, carryPlan, DEFAULT_CARRY_STAT_PREFIXES, parseCarryStatPrefixes, schemeOn, schemeValue,
+  type CarryEvidence, type CarryKey, type CarryOpenLine, type CarryPlan,
   clearCrmImport, crmImportPatch, deAuto, depEntries, depFor, deVals, f35Rows, parseCrmXml, r2, obRebuild, yeClosePlan, yeComputeYear,
   yeEntityOf, yeInputsFromLedger, yeManualOnly, yeMergePayroll, yePayrollFromLedger, zcFindings, zcOpen, zsRules,
   type CrmFirmState, type CrmImportUndo, type DepRow, type LedgerLine, type ObRebuildRow, type YeEntity, type YeLedgerInputs,
@@ -22,6 +23,7 @@ import {
 import { audit, type Tx } from './audit';
 import { loadLedgerLines } from './ledger-queries';
 import { missingAccounts, PostingError, postJournal, unpostSource } from './posting';
+import { loadVatPostingContext } from './vat-context';
 import {
   annualStatements, bankAccounts, bankLines, clientEntries, codes, depreciationRuns, firms, fixedAssets, invoices, items, journalLines, journals, partners,
   purchases, stockMoves, yearClosings,
@@ -330,19 +332,38 @@ export async function undoClose(tx: Tx, a: Omit<YeActionInput, 'today'>) {
 
 const carryByDoc = (f: Pick<Firm, 'settings'>): boolean => settingsOf(f).carryByDoc === true;
 
+/** Firm setting `carryStatPrefixes`: statistical (memo) accounts never carried — default 994, 999 („Основица за ДДВ“). */
+export const carryStatPrefixesOf = (f: Pick<Firm, 'settings'>): string[] => {
+  const v = settingsOf(f).carryStatPrefixes;
+  return v == null ? [...DEFAULT_CARRY_STAT_PREFIXES] : parseCarryStatPrefixes(v);
+};
+const VAT_BASE_KEYS = ['18', '10', '5'].flatMap((r) => ['vbin', 'vbout', 'vbimp'].flatMap((k) => [`${k}${r}d`, `${k}${r}p`]));
+
+/**
+ * The statistical accounts of a firm: its `carryStatPrefixes` plus the VAT-base kontos of its posting scheme (firm or
+ * office override of `vbin*` / `vbout*` / `vbimp*`), which hold period figures only.
+ */
+export async function carryStatPrefixesFor(tx: Tx, f: Pick<Firm, 'settings' | 'vatRegistered'>): Promise<string[]> {
+  const out = new Set(carryStatPrefixesOf(f));
+  const ctx = await loadVatPostingContext(tx, f);
+  for (const k of VAT_BASE_KEYS) if (schemeOn(ctx, k)) { const a = schemeValue(ctx, k); if (/^\d{3,10}$/.test(a) && ![...out].some((x) => a.startsWith(x))) out.add(a); }
+  return [...out].sort();
+}
+
 /**
  * The carry-over plan of a loaded year (`@wise/core` `carryPlan`): every konto, every partner on any partner-bearing
  * konto, the location, optionally the open document on 12x/22x (firm setting `carryByDoc`); accounts missing from the
  * chart fall back to their synthetic account; inactive partners are flagged.
  */
 export async function carryPlanFor(tx: Tx, L: LoadedYear): Promise<CarryPlan> {
-  const missing = await missingAccounts(tx, L.firm.id, carryCandidateAccounts(L.lines));
+  const stat = await carryStatPrefixesFor(tx, L.firm);
+  const missing = await missingAccounts(tx, L.firm.id, carryCandidateAccounts(L.lines, stat));
   const pids = [...new Set(L.lines.map((l) => l.partnerId).filter((x): x is string => !!x))];
   const inactive = pids.length
     ? (await tx.select({ id: partners.id }).from(partners)
       .where(and(eq(partners.firmId, L.firm.id), inArray(partners.id, pids), eq(partners.active, false)))).map((r) => r.id)
     : [];
-  return carryPlan(L.lines, { byDoc: carryByDoc(L.firm), missingAccounts: missing, inactivePartners: inactive });
+  return carryPlan(L.lines, { byDoc: carryByDoc(L.firm), missingAccounts: missing, inactivePartners: inactive, statPrefixes: stat });
 }
 
 async function openLinesOf(tx: Tx, journalId: string): Promise<CarryOpenLine[]> {
@@ -360,6 +381,8 @@ export interface CarryState {
   /** the next year is in the locked period */
   lockedNext: boolean;
   byDoc: boolean;
+  /** the firm's statistical-account prefixes (setting, without the scheme kontos) */
+  statPrefixes: string[];
 }
 
 /** Evidence of the carry-over of `year` into `year + 1`: closing balances vs the posted opening journal. */
@@ -368,7 +391,7 @@ export async function carryState(tx: Tx, firmId: string, year: number, loaded?: 
   const plan = await carryPlanFor(tx, L);
   const actual = L.openJournal ? await openLinesOf(tx, L.openJournal.id) : [];
   const lockedNext = !!L.firm.lockDate && L.firm.lockDate >= `${year + 1}-01-01`;
-  return { L, plan, evidence: carryEvidence(plan, actual, { opened: !!L.openJournal, lockedNext }), lockedNext, byDoc: carryByDoc(L.firm) };
+  return { L, plan, evidence: carryEvidence(plan, actual, { opened: !!L.openJournal, lockedNext }), lockedNext, byDoc: carryByDoc(L.firm), statPrefixes: carryStatPrefixesOf(L.firm) };
 }
 
 const postOpening = (tx: Tx, a: Omit<YeActionInput, 'today'>, lines: readonly CarryOpenLine[], auditAction: string) => postJournal(tx, {
@@ -425,8 +448,8 @@ export async function carryOneRow(tx: Tx, a: YeActionInput & { key: CarryKey }) 
  */
 export async function prevYearCarry(tx: Tx, firmId: string, year: number): Promise<{ prevHasData: boolean; prevClosed: boolean; opened: boolean }> {
   const p = year - 1;
-  // one after the other (three indexed `limit 1` lookups): pipelined on one connection they broke the local PGlite
-  // dev database („unnamed prepared statement does not exist“) on the dashboard right after choosing a firm
+  // one after the other (three indexed `limit 1` lookups): pipelined on the one connection of the local PGlite dev
+  // database they failed („unnamed prepared statement does not exist“) on the dashboard right after choosing a firm
   const prev = await tx.select({ id: journals.id }).from(journals)
     .where(and(eq(journals.firmId, firmId), sql`${journals.date} between ${p + '-01-01'} and ${p + '-12-31'}`)).limit(1);
   const close = await closeJournalOf(tx, firmId, p);

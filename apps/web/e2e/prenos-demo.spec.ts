@@ -44,7 +44,11 @@ async function shot(page: Page, name: string, caption: string, opts: { fullPage?
   recording = false;
   try {
     if (opts.clip) await opts.clip.screenshot({ path: join(OUT, file) });
-    else await page.screenshot({ path: join(OUT, file), fullPage: opts.fullPage ?? true });
+    else {
+      // a full page starts at the top (the sticky menu bar would otherwise be drawn in the middle of the picture)
+      if (opts.fullPage ?? true) await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: join(OUT, file), fullPage: opts.fullPage ?? true });
+    }
   } finally { recording = true; }
   captions.push([file, caption]);
   await page.waitForTimeout(STEP);
@@ -168,26 +172,27 @@ test('year-end 2026 → carry-over into 2027 (demo walkthrough)', async ({ page 
     const msg = await confirmStep(page, () => closeBtn.click(), 'zatvoranje-potvrda', 'Потврда пред затворањето: износот на данокот и нето резултатот, и дека салдата ќе се пренесат во 2027.');
     expect(msg).toContain('31.12.2026');
     await unmark(page);
-    // the result comes as the browser's alert(): read it, show it for the picture
-    let done = '';
-    page.once('dialog', (d) => { done = d.message(); void d.accept(); });
-    await expect.poll(() => done, { timeout: 120_000 }).not.toBe('');
-    expect(done).toContain('пренесени');
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await showDialog(page, done, false);
-    await shot(page, 'zatvoranje-poraka', 'Пораката по затворањето: резултатот, данокот и колку ставки се пренесени во 2027 (должи = побарува).', { fullPage: false });
-    await hideDialog(page);
-    const ok = page.locator('.callout.good').filter({ hasText: /е затворена/ }).first();
-    await expect(ok).toBeVisible({ timeout: 60_000 });
-    await shot(page, 'zatvoranje-uspeh', 'Годината 2026 е затворена (налог 999 на 31.12.2026); копчињата сега се „Пресметај повторно“ и „Поништи затворање“.');
+    // the result is shown on the page: the action's message under the button and the carry-over callout
+    const res = page.locator('[role=status].callout.good').filter({ hasText: /пренесени/ }).first();
+    await expect(res).toBeVisible({ timeout: 120_000 });
+    await expect(page.locator('#carryDone')).toContainText('Салдата се пренесени');
+    await mark(res);
+    await shot(page, 'zatvoranje-uspeh', 'Годината 2026 е затворена (налог 999 на 31.12.2026): на екранот – резултатот, данокот и колку ставки се пренесени во 2027 (должи = побарува), со врска „Пренос на салда“.');
+    await unmark(page);
 
     // 6. Пренос на салда
     await click(page.getByRole('link', { name: /Пренос во 2027/ }).first());
     await page.waitForURL(/\/prenos/);
     await expect(page.getByText('Контрола на преносот 2026 → 2027')).toBeVisible();
-    await shot(page, 'prenos-neprenseni', 'Пренос на салда, филтер „Непренесени и разлики“: класите 4/7 и контата со салдо нула не се пренесуваат – со причина.');
+    await expect(page.getByText('Нема непренесени салда ни разлики')).toBeVisible();
+    await shot(page, 'prenos-neprenseni', 'Пренос на салда, филтер „Непренесени и разлики“: нема вистински разлики – сè е пренесено.');
+    await click(page.locator('#carryEx'));
+    await page.waitForURL(/ex=1/);
+    await expect(page.locator('tr', { hasText: '994018' }).first()).toContainText('не се пренесува (статистичка)');
+    await shot(page, 'prenos-po-pravilo', 'Со „Прикажи ги и непренесените по правило“: класите 4/7/8 (по закон), статистичките сметки 994/999 (основица за ДДВ) и салдата нула – сиво „— не се пренесува“, со причина.');
     await click(page.getByRole('link', { name: 'Пренесени', exact: true }));
     await page.waitForURL(/f=carried/);
+    await expect(page.locator('tr', { hasText: '994018' })).toHaveCount(0);
     await shot(page, 'prenos-preneseni', 'Филтер „Пренесени“: секое конто и секој партнер – салдо 31.12.2026 = почетна 01.01.2027 (✓ пренесено).');
     await click(page.getByRole('link', { name: 'Сите', exact: true }));
     await page.waitForURL(/f=all/);

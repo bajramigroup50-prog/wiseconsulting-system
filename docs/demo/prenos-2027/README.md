@@ -1,6 +1,6 @@
 # Mbyllja e vitit 2026 dhe bartja e saldove në 2027 (demo)
 
-Hapni **`index.html`** (galeria me 21 foto dhe videon) ose shikoni direkt **`prenos-2027.mp4`** (~1 minutë).
+Hapni **`index.html`** (galeria me 21 foto dhe videon) ose shikoni direkt **`prenos-2027.mp4`** (~2 minuta).
 Të dhënat janë shembull: firma **„ДЕМО ПРОИЗВОДСТВО ДООЕЛ“**, viti 2026 (gjendje fillestare, 7 partnerë, fatura
 dalëse dhe hyrëse – disa të paguara, disa të hapura –, ekstrakte bankare, arkë, pagat e 2 punonjësve për nëntor dhe
 dhjetor, një makinë me amortizim, kredi nga banka, TVSH mujore). Fitimi para tatimit 81.171,00 den., tatimi 8.117,00.
@@ -14,9 +14,9 @@ dhjetor, një makinë me amortizim, kredi nga banka, TVSH mujore). Fitimi para t
 | 5 | Финансово › Завршна сметка – по фази | Pasqyra e fazave: „Годината не е затворена“, kontrolli është i pastër. |
 | 6 | „3. Затворање“ (/mbyllja) | Kontrollet para mbylljes (bruto bilanci i barabartë, pa gjetje, amortizimi), rezultati, tatimi dhe fitimi neto → 951. |
 | 7 | Butoni **„Затвори ја годината 2026“** | Programi pyet për konfirmim (tatimi dhe neto). Shtypni **OK**. |
-| 8 | Mesazhi pas mbylljes | Viti u mbyll (urdhri 999 më 31.12.2026) **dhe** saldot u bartën automatikisht në „Почетна состојба 2027“ më 01.01.2027 (25 rreshta, debi = kredi). |
-| 9 | Ekrani i mbylljes | Tani butonat janë „Пресметај повторно“ (rillogarit) dhe „Поништи затворање“ (anulo). |
-| 10 | **„Пренос на салда“** (/prenos), filtri „Непренесени и разлики“ | Rreshtat që NUK barten, me arsyen: klasat 4/7/8 (mbyllen në 8000 → 951) dhe kontot me saldo zero (p.sh. 2400, 130018, 230018). |
+| 8 | Rezultati në ekran | Viti u mbyll (urdhri 999 më 31.12.2026) **dhe** saldot u bartën automatikisht në „Почетна состојба 2027“ më 01.01.2027 (23 rreshta, debi = kredi) – mesazhi del në faqe, me lidhjen „Пренос на салда →“. Butonat tani janë „Пресметај повторно“ (rillogarit) dhe „Поништи затворање“ (anulo). |
+| 9 | **„Пренос на салда“** (/prenos), filtri „Непренесени и разлики“ | Tregon vetëm mungesat/dallimet e vërteta – këtu: „нема непренесени салда ни разлики“. |
+| 10 | „☐ Прикажи ги и непренесените по правило“ | Rreshtat që sipas rregullit NUK barten, me shenjë gri „— не се пренесува“: klasat 4/7/8 (по закон), kontot statistikore 994/999 – baza e TVSH-së (статистичка) dhe saldot zero (нулто салдо). Poshtë: cilësimi i prefikseve të kontove statistikore (994, 999). |
 | 11 | Filtri „Пренесени“ | Çdo konto analitike dhe **çdo partner veç e veç** (1200 për çdo blerës, 2200 për çdo furnizues, 2620 banka): saldo 31.12.2026 = fillestare 01.01.2027, „✓ пренесено“. 951 → 950. |
 | 12 | Filtri „Сите“ | E gjithë evidenca e bartjes. |
 | 13 | Kontrolli i totaleve | „Вкупно затворање = Вкупно почетна“, debi = kredi, aktiva = pasiva. |
@@ -32,6 +32,8 @@ dhjetor, një makinë me amortizim, kredi nga banka, TVSH mujore). Fitimi para t
 - Mbyllja dhe bartja bëhen me **një klik**; nëse më vonë ndryshoni diçka në 2026, shtypni „Пресметај повторно“ ose
   „↻ Пренеси повторно“ – urdhri i 2027 **zëvendësohet, nuk dyfishohet**.
 - Pas dorëzimit të llogarisë vjetore: „Заклучи ја годината 2026“ (dokumentet e 2026 nuk ndryshojnë më).
+- Kontot statistikore të bazës së TVSH-së (994…, 999…) janë shifra të periudhës, jo saldo – nuk barten. Lista e
+  prefikseve ndryshohet poshtë në „Пренос на салда“ (regjistrohet në ditarin e aktiviteteve), pastaj „Пренеси повторно“.
 - Butoni PDF i „Пренос на салда“ krijon PDF-në në server dhe e hap në një dritare të re.
 
 ## Si u krijua (për teknikët)

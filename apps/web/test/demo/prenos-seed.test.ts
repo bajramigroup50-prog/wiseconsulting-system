@@ -15,7 +15,7 @@ import { and, eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 import { parseStatementFile } from '@wise/core';
 import {
-  applyMatches, closeVatPeriod, createDefaultRegisters, loadRegisters, loadRun, loadYear, proposeMatches, saveImport, saveInvoice,
+  applyMatches, carryState, closeVatPeriod, createDefaultRegisters, loadRegisters, loadRun, loadYear, proposeMatches, saveImport, saveInvoice,
   savePurchase, saveVoucher, schema, yearFindings, type DocActor,
 } from '@wise/db';
 import { hashPassword } from '@wise/db/password';
@@ -270,5 +270,12 @@ describe.skipIf(!DIR || !PASS)('demo seed — ДЕМО ПРОИЗВОДСТВО 
     const F = await yearFindings(pg as never, L, '2027-02-15');
     console.log('findings', JSON.stringify(F.open.map((x) => [x.key, (x as { t?: string; msg?: string }).t ?? (x as { msg?: string }).msg ?? x])));
     console.log('profit', L.Y.co.zs.profit, 'tax', L.Y.co.db.tax);
+    expect(F.open).toEqual([]);
+    // the planned carry-over: the statistical VAT bases (994 / 999) left out
+    const C = await carryState(pg as never, firmId, 2026, L);
+    // (before the close the plan differs by the year's profit, still in classes 4 / 7)
+    expect(Math.round((C.plan.credit - C.plan.debit + L.Y.co.zs.profit) * 100)).toBe(0);
+    expect(C.plan.lines.some((l) => /^99[49]/.test(l.account))).toBe(false);
+    expect(C.evidence.rows.filter((r) => r.rule === 'stat').map((r) => r.account)).toEqual(['994018', '999018']);
   }, 600_000);
 });

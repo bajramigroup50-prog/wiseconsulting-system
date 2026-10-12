@@ -15,6 +15,9 @@
  *    posted until it is opened in the chart);
  *  - amounts are summed in integer denar-cents (no float drift).
  * Classes 4, 5, 7 and 8 are not carried (4/7 close to 8000, 8 to 951/961 — Правилник за сметковен план).
+ * Statistical (memo) accounts of class 9 that only hold the VAT bases of the period (994x / 999x „Основица за ДДВ“,
+ * the scheme's `vbin*` / `vbout*` / `vbimp*` kontos) are not carried either: they are period figures, not balances
+ * (prefixes: firm setting `carryStatPrefixes`, default 994 and 999).
  */
 import type { YeLine } from './balances';
 import { carryForwardAccount } from './close';
@@ -39,7 +42,27 @@ export interface CarryOptions {
   missingAccounts?: ReadonlySet<string> | readonly string[];
   /** partners of the firm that are inactive (carried, with a remark) */
   inactivePartners?: ReadonlySet<string> | readonly string[];
+  /** statistical / memo account prefixes that are never carried (default `DEFAULT_CARRY_STAT_PREFIXES`) */
+  statPrefixes?: readonly string[];
 }
+
+/** Statistical VAT-base accounts (class 9 memo, „Основица за ДДВ“): period figures, never carried. */
+export const DEFAULT_CARRY_STAT_PREFIXES: readonly string[] = ['994', '999'];
+export const CARRY_STAT_REASON = 'статистичка сметка (основица за ДДВ) – не се пренесува';
+/** The account is a statistical (memo) account by one of the prefixes. */
+export const carryStatAccount = (account: string, prefixes: readonly string[] = DEFAULT_CARRY_STAT_PREFIXES): boolean =>
+  prefixes.some((x) => !!x && String(account).startsWith(x));
+/** Clean list of prefixes from user input („994, 999“) — digits only, 2–10 long, unique. */
+export function parseCarryStatPrefixes(v: unknown): string[] {
+  const list = Array.isArray(v) ? v.map(String) : String(v ?? '').split(/[\s,;]+/);
+  return [...new Set(list.map((x) => x.trim()).filter((x) => /^\d{2,10}$/.test(x)))].sort();
+}
+
+/**
+ * Why a balance is not carried by RULE (not an error): the class (4, 5, 7, 8), a statistical account or a zero
+ * balance. `null` on rows that are carried or that should be carried but cannot (missing account).
+ */
+export type CarryRule = 'class' | 'stat' | 'zero';
 
 /** Balance-sheet classes carried into the next year. */
 export const CARRY_CLASSES = ['0', '1', '2', '3', '6', '9'] as const;
@@ -77,6 +100,8 @@ export interface CarrySourceRow extends CarryKey {
   target: string | null;
   /** remark (carried with a note) or reason (not carried) */
   reason: string;
+  /** not carried by rule (class / statistical / zero balance) */
+  rule?: CarryRule | null;
 }
 
 /** One line of the planned opening journal. */
@@ -128,11 +153,11 @@ export function carryTargetAccount(account: string, missing: ReadonlySet<string>
 }
 
 /** All codes the plan may post to (each account and its prefixes ≥ 3 digits) — feed to `missingAccounts`. */
-export function carryCandidateAccounts(lines: readonly CarryLedgerLine[]): string[] {
+export function carryCandidateAccounts(lines: readonly CarryLedgerLine[], statPrefixes: readonly string[] = DEFAULT_CARRY_STAT_PREFIXES): string[] {
   const s = new Set<string>();
   for (const l of lines) {
     const a = carryForwardAccount(String(l.account));
-    if (!carriedClass(a)) continue;
+    if (!carriedClass(a) || carryStatAccount(a, statPrefixes)) continue;
     for (let n = a.length; n >= 3; n--) s.add(a.slice(0, n));
   }
   return [...s].sort();
@@ -145,6 +170,7 @@ export function carryCandidateAccounts(lines: readonly CarryLedgerLine[]): strin
 export function carryPlan(lines: readonly CarryLedgerLine[], opt: CarryOptions = {}): CarryPlan {
   const missing = new Set(opt.missingAccounts ?? []);
   const inactive = new Set(opt.inactivePartners ?? []);
+  const stat = opt.statPrefixes ?? DEFAULT_CARRY_STAT_PREFIXES;
   const { rows: src } = sourceRows(lines, !!opt.byDoc);
   const rows: CarrySourceRow[] = [];
   const plan = new Map<string, CarryPlanLine & { c: number }>();
@@ -158,11 +184,15 @@ export function carryPlan(lines: readonly CarryLedgerLine[], opt: CarryOptions =
     const cls = s.account.charAt(0);
     if (!carriedClass(s.account)) {
       const r = NOT_CARRIED_REASON[cls] ?? `класа ${cls} не се пренесува`;
-      rows.push({ ...base, closing, target: null, reason: s.c ? `${r} – по затворањето има салдо, проверете го затворањето` : r });
+      rows.push({ ...base, closing, target: null, reason: s.c ? `${r} – по затворањето има салдо, проверете го затворањето` : r, rule: 'class' });
+      continue;
+    }
+    if (carryStatAccount(s.account, stat)) {
+      rows.push({ ...base, closing, target: null, reason: CARRY_STAT_REASON, rule: 'stat' });
       continue;
     }
     if (!s.c) {
-      rows.push({ ...base, closing, target: null, reason: 'нулто салдо на 31.12 – нема што да се пренесе' });
+      rows.push({ ...base, closing, target: null, reason: 'нулто салдо на 31.12 – нема што да се пренесе', rule: 'zero' });
       continue;
     }
     const notes: string[] = [];
@@ -220,6 +250,8 @@ export interface CarryEvidenceRow extends CarryKey {
   carried: boolean;
   status: CarryStatus;
   reason: string;
+  /** not carried by rule (class 4–8, statistical account, zero balance) — correct, not a gap */
+  rule: CarryRule | null;
 }
 
 export interface CarryTotals {
@@ -301,16 +333,22 @@ export function carryEvidence(plan: CarryPlan, actual: readonly CarryOpenLine[],
     }
     rows.push({
       account: p.account, partnerId: p.partnerId, doc: p.doc, locationId: p.locationId, sources: p.sources,
-      closing: toMoney(pc), planned: toMoney(pc), opening: ac == null ? null : toMoney(ac), carried: true, status, reason,
+      closing: toMoney(pc), planned: toMoney(pc), opening: ac == null ? null : toMoney(ac), carried: true, status, reason, rule: null,
     });
   }
-  // not carried by rule (class, zero balance, account missing)
+  // not carried: by rule (class, statistical account, zero balance) or because the account is missing
   for (const r of plan.rows) {
     if (r.target) continue;
+    const k = keyOf(r.account, r.partnerId, r.doc, r.locationId);
+    // a rule-excluded row that is nevertheless in the opening (posted by an older transfer) is a real difference
+    const inOpening = ctx.opened && !!act.get(k);
+    if (inOpening) seen.add(k);
     rows.push({
       account: r.account, partnerId: r.partnerId, doc: r.doc, locationId: r.locationId, sources: [r.account],
-      closing: r.closing, planned: 0, opening: null, carried: false,
-      status: plan.blocked.includes(carryForwardAccount(r.account)) ? 'missing' : 'note', reason: r.reason,
+      closing: r.closing, planned: 0, opening: inOpening ? toMoney(act.get(k)!) : null, carried: false,
+      status: inOpening || plan.blocked.includes(carryForwardAccount(r.account)) ? 'missing' : 'note',
+      reason: inOpening ? `${r.reason} – но е во почетната состојба (од постар пренос) – „Пренеси повторно“` : r.reason,
+      rule: inOpening ? null : r.rule ?? null,
     });
   }
   // in the opening journal but not in the plan (typed by hand or carried before a change)
@@ -321,7 +359,7 @@ export function carryEvidence(plan: CarryPlan, actual: readonly CarryOpenLine[],
       rows.push({
         account, partnerId: partnerId || null, doc: doc || null, locationId: locationId || null, sources: [], closing: 0, planned: 0,
         opening: toMoney(c), carried: false, status: 'missing',
-        reason: 'ставка само во почетната состојба (рачно внесена или од постар пренос) – нема салдо на 31.12',
+        reason: 'ставка само во почетната состојба (рачно внесена или од постар пренос) – нема салдо на 31.12', rule: null,
       });
     }
   }
