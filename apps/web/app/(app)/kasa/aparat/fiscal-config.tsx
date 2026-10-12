@@ -1,6 +1,7 @@
 'use client';
 /** Device configuration form (talks only to the desktop app through `window.wiseFiscal`). */
 import { useEffect, useState } from 'react';
+import { FISCAL_VAT_GROUPS, FISCAL_VAT_GROUPS_OLD, FISCAL_VAT_RATES, VAT_GROUP_LETTERS, cleanVatGroups, vatGroupsLabel, type FiscalVatGroups } from '@wise/core/retail/vat-groups';
 import { DESKTOP_ONLY, fiscalBridge, safeCall, type FiscalConfig, type FiscalInfo, type FiscalStatus, type WiseFiscal } from '@/lib/fiscal-bridge';
 
 const HELP: Record<string, string> = {
@@ -43,7 +44,11 @@ export function FiscalConfigForm() {
     setMsg(r.ok ? { ok: true, text: okText } : { ok: false, text: r.error || 'Грешка.' });
     return r;
   };
-  const save = () => act(() => b.setConfig({
+  const groups: FiscalVatGroups = c.groups ?? FISCAL_VAT_GROUPS;
+  let groupsErr = '';
+  try { cleanVatGroups(groups); } catch (e) { groupsErr = e instanceof Error ? e.message : 'Неисправни даночни групи.'; }
+  const legal = VAT_GROUP_LETTERS.every((L) => groups[L] === FISCAL_VAT_GROUPS[L]);
+  const save = () => act(() => b.setConfig({ groups: { ...groups },
     vendor: c.vendor, model: c.model, driver: c.driver, port: c.port, baud: c.baud, host: c.host, tcpPort: c.tcpPort,
     op: c.op, till: c.till, fault: c.fault, ...(pwd ? { pwd } : {}),
   }), 'Поставките се зачувани на овој компјутер.');
@@ -51,7 +56,7 @@ export function FiscalConfigForm() {
     setBusy(true); setMsg(null);
     const s = await safeCall(() => b.status()) as FiscalStatus;
     setBusy(false);
-    setMsg(s.ok ? { ok: true, text: `✅ Апаратот одговара.${s.serial ? ' Сериски бр. ' + s.serial + '.' : ''}${(s.warnings ?? []).length ? ' ' + s.warnings!.join(' ') : ''}` }
+    setMsg(s.ok ? { ok: !s.vatMismatch, text: `${s.vatMismatch ? '⚠' : '✅'} Апаратот одговара.${s.serial ? ' Сериски бр. ' + s.serial + '.' : ''}${(s.warnings ?? []).length ? ' ' + s.warnings!.join(' ') : ''}` }
       : { ok: false, text: s.error || (s.errors ?? []).join(' ') || 'Апаратот не одговара.' });
   };
 
@@ -107,8 +112,26 @@ export function FiscalConfigForm() {
           <label className="f">Број на каса<input inputMode="numeric" value={c.till} onChange={(e) => set({ till: Number(e.target.value) || 1 })} style={{ width: 70 }} /></label>
         </div>
       )}
+      <fieldset className="fs" style={{ marginTop: 12 }} data-testid="fiscal-vat-groups">
+        <legend>Даночни групи на апаратот</legend>
+        <p className="mini" style={{ marginTop: 0 }}>Законски (Правилник за фискални системи, чл. 26): {vatGroupsLabel()} (Г = ослободено / фирма што не е ДДВ обврзник).
+          Ако X извештајот на апаратот печати други стапки по група (на пр. постар апарат со В 0 %, Г 10 %), поставете ги како на извештајот — програмата ќе ја праќа секоја ставка во групата со нејзината стапка.</p>
+        <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
+          {VAT_GROUP_LETTERS.map((L) => (
+            <label key={L} className="f">Група {L}
+              <select value={groups[L]} onChange={(e) => set({ groups: { ...groups, [L]: Number(e.target.value) } })}>
+                {FISCAL_VAT_RATES.map((r) => <option key={r} value={r}>{r} %</option>)}
+              </select></label>
+          ))}
+          <button type="button" className="btn sm" onClick={() => set({ groups: { ...FISCAL_VAT_GROUPS } })}>Законски</button>
+          <button type="button" className="btn sm ghost" onClick={() => set({ groups: { ...FISCAL_VAT_GROUPS_OLD } })}>Стар распоред (В 0 %, Г 10 %)</button>
+        </div>
+        {groupsErr ? <div className="callout bad">{groupsErr}</div>
+          : !legal && <div className="callout warn">Апаратот е поставен различно од законскиот распоред: {vatGroupsLabel(groups)}. Проверете со X извештај.</div>}
+        <p className="mini">„X извештај“ на касата и „Статус“ ги споредуваат стапките што ги враќа апаратот со овие поставки и предупредуваат ако се разликуваат.</p>
+      </fieldset>
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
-        <button type="button" className="btn pri" disabled={busy || !c.vendor} onClick={save}>Зачувај</button>
+        <button type="button" className="btn pri" disabled={busy || !c.vendor || !!groupsErr} onClick={save}>Зачувај</button>
         <button type="button" className="btn" disabled={busy || !c.vendor} onClick={status}>Статус</button>
         <button type="button" className="btn" disabled={busy || !c.vendor} onClick={() => act(() => b.test(), 'Тест печатењето е испратено (дијагностичка, нефискална сметка).')}>Тест печатење</button>
       </div>

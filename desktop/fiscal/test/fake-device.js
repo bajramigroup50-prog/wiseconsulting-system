@@ -66,6 +66,7 @@ function fakeDevice(opts = {}) {
       case P.CMD.DAILY_REPORT: if (data === '0') st.z++; return reply(seq, cmd, `${String(st.z).padStart(4, '0')},000000123.45,000000100.00,000000020.00,000000003.45,000000000.00`, status());
       case P.CMD.CASH: { const v = Number(data); if (st.cash + v < 0) return reply(seq, cmd, `F,${st.cash.toFixed(2)},0,0`, status()); st.cash += v; return reply(seq, cmd, `P,${st.cash.toFixed(2)},0,0`, status()); }
       case P.CMD.DIAG_PRINT: return reply(seq, cmd, '', status());
+      case P.CMD.VAT_RATES: return opts.rates === null ? reply(seq, cmd, '', status({ syntax: true })) : reply(seq, cmd, opts.rates || '18.00%,5.00%,10.00%,0.00%', status());
       default: return reply(seq, cmd, '', status({ syntax: true }));
     }
   }

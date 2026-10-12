@@ -8,9 +8,14 @@
  * — the model reads the whole PDF / image.
  */
 import { r2 } from '../money';
+import { FISCAL_VAT_GROUPS, checkVatGroups } from '../retail/vat-groups';
 
-/** Default tax-group letters → VAT rate (legacy `FISK_G0`). */
-export const FISK_G0: Readonly<Record<string, number>> = { А: 18, Б: 5, В: 0, Г: 10 };
+/**
+ * Default tax-group letters → VAT rate when the report prints no rates (legacy `FISK_G0`). Since the 2020/2022
+ * amendments of the fiscal-device rulebook this is the legal mapping `FISCAL_VAT_GROUPS` (А 18, Б 5, В 10, Г 0); the
+ * legacy program had В 0, Г 10 (pre-amendment programming). Rates printed on the report always win (`fkRows`).
+ */
+export const FISK_G0: Readonly<Record<string, number>> = FISCAL_VAT_GROUPS;
 /** Latin look-alikes of the group letters (legacy `FK_LAT`). */
 export const FK_LAT: Readonly<Record<string, string>> = { A: 'А', B: 'Б', V: 'В', G: 'Г', Б: 'Б', В: 'В', Г: 'Г', А: 'А' };
 
@@ -73,6 +78,17 @@ export function fkRows(R: FiskRead, today: string): { G: Record<string, number>;
   };
   if (days.length) return { G, rows: days.map((d) => mk(d, fkNormDate(d.date))), daily: true };
   return { G, rows: [mk(R.totals ?? {}, fkNormDate(R.to) || today)], daily: false };
+}
+
+/**
+ * Rates of the read report vs the legal mapping (`FISCAL_VAT_GROUPS`), only for groups that carry turnover: the posting
+ * uses the report's rates, so a difference (an old device programming, or a rate the reader missed) must be checked.
+ */
+export function fiskGroupWarnings(R: FiskRead, today = '2000-01-01'): string[] {
+  if (R.nonVat) return [];
+  const X = fkRows(R, today);
+  const used = Object.keys(X.G).filter((L) => X.rows.some((r) => r.gross[L]));
+  return checkVatGroups(X.G, FISCAL_VAT_GROUPS, used);
 }
 
 /** Total turnover of a read (legacy `fkRows(R).rows.reduce(total)`). */

@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { FiscalError, errorResult, MESSAGES } = require('./receipt');
+const { FISCAL_VAT_GROUPS, FISCAL_VAT_GROUPS_OLD, VAT_GROUPS_HINT, cleanVatGroups, remapGroup, checkVatGroups, isLegal } = require('./vat-groups');
 const { isLanHost, listSerialPorts, serialTransport, tcpTransport } = require('./transport');
 const { DatecsRawDriver } = require('./drivers/datecs-raw');
 const { CommandFileDriver } = require('./drivers/command-file');
@@ -27,7 +28,7 @@ const VENDORS = Object.freeze({
 });
 const DRIVERS = Object.freeze({ serial: 'COM порта (RS232 / USB-сериски)', tcp: 'Мрежа (LAN, IP:порта)', file: 'Програма на производителот (IN/OUT датотеки)', sim: 'Симулатор' });
 
-const DEFAULTS = Object.freeze({ vendor: '', model: '', driver: '', port: '', baud: 9600, host: '', tcpPort: 0, folder: '', exePath: '', op: 1, pwd: '0000', till: 1, fault: '' });
+const DEFAULTS = Object.freeze({ vendor: '', model: '', driver: '', port: '', baud: 9600, host: '', tcpPort: 0, folder: '', exePath: '', op: 1, pwd: '0000', till: 1, fault: '', groups: FISCAL_VAT_GROUPS });
 
 /** Validates the part of the configuration the web page may change (paths are set only through the native dialog). */
 function cleanConfig(c, prev = DEFAULTS) {
@@ -45,12 +46,19 @@ function cleanConfig(c, prev = DEFAULTS) {
   if (c.op !== undefined) { const n = Number(c.op); if (!Number.isInteger(n) || n < 1 || n > 16) throw new FiscalError('INVALID_INPUT', 'оператор'); o.op = n; }
   if (c.pwd !== undefined) { const s = String(c.pwd || ''); if (!/^\d{4,6}$/.test(s)) throw new FiscalError('INVALID_INPUT', 'лозинка на операторот (4–6 цифри)'); o.pwd = s; }
   if (c.till !== undefined) { const n = Number(c.till); if (!Number.isInteger(n) || n < 1 || n > 99999) throw new FiscalError('INVALID_INPUT', 'број на каса'); o.till = n; }
+  if (c.groups !== undefined) { try { o.groups = cleanVatGroups(c.groups); } catch (e) { throw new FiscalError('INVALID_INPUT', e.message); } }
   if (c.fault !== undefined) { const f = String(c.fault || ''); if (f && !['PAPER_OUT', 'NOT_CONNECTED', 'FM_FULL', 'COVER_OPEN'].includes(f)) throw new FiscalError('INVALID_INPUT'); o.fault = o.vendor === 'sim' ? f : ''; }
   return o;
 }
 
 /** The configuration as the page sees it (the operator password is not echoed back). */
-const publicConfig = (c) => ({ ...c, pwd: c.pwd ? '••••' : '', exePath: c.exePath ? path.basename(c.exePath) : '' });
+const publicConfig = (c) => ({ ...c, groups: { ...c.groups }, pwd: c.pwd ? '••••' : '', exePath: c.exePath ? path.basename(c.exePath) : '' });
+
+/** Receipt from the page (letters of the legal mapping) → letters of a device programmed with `groups`. */
+function remapReceipt(r, groups) {
+  if (!r || typeof r !== 'object' || !Array.isArray(r.items) || isLegal(groups)) return r;
+  return { ...r, items: r.items.map((it) => (it && FISCAL_VAT_GROUPS[it.vat] !== undefined ? { ...it, vat: remapGroup(it.vat, groups) } : it)) };
+}
 
 class FiscalService {
   /** @param {object} o dataDir (userData), driverFactory? (tests) */
@@ -66,7 +74,7 @@ class FiscalService {
     } catch { /* not configured yet */ }
   }
 
-  info() { return { vendors: VENDORS, drivers: DRIVERS, messages: MESSAGES }; }
+  info() { return { vendors: VENDORS, drivers: DRIVERS, messages: MESSAGES, vatGroups: FISCAL_VAT_GROUPS, vatGroupsOld: FISCAL_VAT_GROUPS_OLD }; }
   getConfig() { return { ok: true, config: publicConfig(this.cfg), configured: this.configured() }; }
   configured() {
     const c = this.cfg;
@@ -119,17 +127,31 @@ class FiscalService {
   device() { return { vendor: this.cfg.vendor, model: this.cfg.model, driver: this.cfg.driver }; }
   withDevice(r) { return r && r.ok ? { ...r, device: this.device() } : r; }
 
+  /**
+   * VAT rates the device reports (driver `vatRates`, when it has one) vs „Даночни групи на апаратот“: `rates` and the
+   * mismatch `warnings` merged into a result. Best effort — a device / firmware that cannot report them adds nothing.
+   */
+  async withRates(d, r) {
+    if (!r || !r.ok || typeof d.vatRates !== 'function') return r;
+    let rates = null;
+    try { rates = await d.vatRates(); } catch { /* not supported by this firmware */ }
+    if (!rates) return r;
+    const W = checkVatGroups(rates, this.cfg.groups);
+    return { ...r, rates, ...(W.length ? { vatMismatch: true, warnings: [...(r.warnings || []), ...W, VAT_GROUPS_HINT] } : {}) };
+  }
+
   async status() {
     if (!this.configured()) return { ok: false, available: true, configured: false, code: 'NOT_CONFIGURED', error: MESSAGES.NOT_CONFIGURED };
-    const r = await this.job((d) => d.status());
+    const r = await this.job(async (d) => this.withRates(d, await d.status()));
     const errors = (r.errors || []).map((c) => MESSAGES[c] || c);
     return { ...r, errors, available: true, configured: true, device: this.device() };
   }
-  printReceipt(receipt) { return this.job((d) => d.printReceipt(receipt)).then((r) => this.withDevice(r)); }
-  printStorno(receipt) { return this.job((d) => d.printReceipt(receipt, { storno: true })).then((r) => this.withDevice(r)); }
+  printReceipt(receipt) { return this.job((d) => d.printReceipt(remapReceipt(receipt, this.cfg.groups))).then((r) => this.withDevice(r)); }
+  printStorno(receipt) { return this.job((d) => d.printReceipt(remapReceipt(receipt, this.cfg.groups), { storno: true })).then((r) => this.withDevice(r)); }
   report(type) {
     if (type !== 'X' && type !== 'Z') return Promise.resolve(errorResult(new FiscalError('INVALID_INPUT')));
-    return this.job((d) => d.report(type)).then((r) => this.withDevice(r));
+    // the X report is the cashier's check of the device programming: its rates are compared with the settings
+    return this.job(async (d) => { const r = await d.report(type); return type === 'X' ? this.withRates(d, r) : r; }).then((r) => this.withDevice(r));
   }
   cash(amount) { return this.job((d) => d.cash(amount)).then((r) => this.withDevice(r)); }
   lastReceipt() { return this.job((d) => d.lastReceipt()); }
@@ -137,4 +159,4 @@ class FiscalService {
   async listPorts() { try { return await listSerialPorts(); } catch (e) { return errorResult(e); } }
 }
 
-module.exports = { FiscalService, VENDORS, DRIVERS, cleanConfig, publicConfig };
+module.exports = { FiscalService, VENDORS, DRIVERS, cleanConfig, publicConfig, remapReceipt };

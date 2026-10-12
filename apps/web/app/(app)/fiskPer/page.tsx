@@ -12,7 +12,8 @@
 import Link from 'next/link';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { dfiControl, fkIssuePlan, schemeValue, stock, type FkMethod } from '@wise/core';
-import { fkRows, fiskAfterRead, fiskFinish } from '@wise/core/ai/fisk';
+import { fkRows, fiskAfterRead, fiskFinish, fiskGroupWarnings } from '@wise/core/ai/fisk';
+import { vatGroupsLabel } from '@wise/core/retail/vat-groups';
 import { FK_SC, fkChecks2, fkEdbOk, fkManualRead, fkRows2, fkScDef, posSaldo } from '@wise/core/retail';
 import { fiscalDevicesOf, journalLines, journals, loadLedgerLines, loadStockSales, salesDaily } from '@wise/db';
 import { canDo } from '@/lib/books';
@@ -223,12 +224,14 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
     const rev = FK_SC[sc][1] || O.konto || schemeValue(L.settings.posting, 'revRetail') || '7411';
     const txt = [R.text, R.text2].map((x) => String(x || '').trim()).filter(Boolean).join('\n\n— втор обид —\n\n');
     const tot = X.rows.reduce((a, r) => a + r.total, 0);
+    const gw = nonVat || manualIn ? [] : fiskGroupWarnings(R, today);
     read = (
       <>
         <div className={`callout ${tot > 0 ? 'good' : 'warn'}`}>{manualIn ? <>✎ Внесено рачно: вкупен промет {fmt(tot)} ден. Проверете и прокнижете.</> : tot > 0
           ? <>✓ Прочитано{X0.daily ? `: ${X0.rows.length} дневни извештаи` : ''}{R.text2 ? ' (втор обид)' : ''}{(R as { noai?: boolean }).noai ? ' (прочитано без AI – проверете)' : ''}: вкупен промет {fmt(tot)} ден. Проверете ги износите.</>
           : <>⚠ Износот не можеше да се прочита од сликата. Сликајте го поблиску (само лентата, исправено, без сенка) или „✎ Внеси рачно (само вкупно)“.</>}
           {' '}<Link className="btn sm ghost" href="/fiskPer">✕ Почни одново</Link></div>
+        {gw.length > 0 && <div className="callout warn" data-testid="fisk-group-warn">⚠ Даночните групи на извештајот се разликуваат од законските ({vatGroupsLabel()}): {gw.join(' ')} Книжењето ги користи стапките од извештајот — проверете дали апаратот е програмиран според X извештајот.</div>}
         {aiDoc && <details id="fkTxt" className="card" style={{ padding: '8px 12px' }}><summary className="mut" style={{ cursor: 'pointer' }}>📝 Што е прочитано од сликата (за проверка)</summary>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: 320, overflow: 'auto' }}>{txt || '(програмата не врати текст)'}</pre>
           <p className="note">Апарат: {R.device || '—'} · период: {R.from || '—'} – {R.to || '—'} · вкупно: {fmt(Number(R.totals?.total) || 0)}</p></details>}

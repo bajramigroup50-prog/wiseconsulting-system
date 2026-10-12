@@ -68,7 +68,7 @@ Nëse aparati e printoi faturën por interneti ra pikërisht atëherë, programi
       në modalitetin **„фискален печатач / PC mode“** (Duna: „FPR“).
 - [ ] A është instaluar programi/shërbimi i prodhuesit dhe a e lejon prodhuesi lidhjen direkte (protokolli).
 - [ ] Numri i operatorit, fjalëkalimi dhe numri i arkës.
-- [ ] Grupet e TVSH-së të programuara në aparat (А 18 %, Б 5 %, В 10 %, Г 0 %/e liruar) — kontrollo raportin X.
+- [ ] Grupet e TVSH-së të programuara në aparat (А 18 %, Б 5 %, В 10 %, Г 0 %/e liruar) — kontrollo raportin X; nëse ndryshojnë, „Даночни групи на апаратот“.
 - [ ] Për firmat jo-pagues TVSH: aparati pranon vetëm grupin Г (WISE e dërgon automatikisht kur firma s'është në TVSH).
 
 ---
@@ -83,10 +83,18 @@ Nëse aparati e printoi faturën por interneti ra pikërisht atëherë, programi
 | **DAVID** (Давид компјутери, Skopje; software partner ПИКСЕЛ Системи) | Fiscal printers **ДАВИД ФП**, **FX1200**, **FX1300**; registers **Expert SX**, **Perfect S**, **Давид S**, **Давид М** (Daisy-made models, also sold by Fiditek) | „ideal for PC-based POS“ (FP); Expert SX: Bluetooth; interfaces not published | Not published by David. The open driver **tinodj/mk-fiscal-printer-driver** prints on **David Expert SX** with the same Datecs frames and commands 48/49/53/56/69 and cp1251 VAT letters. Daisy's ISL protocol family (FX1200C, Expert SX, Perfect S) is Datecs-compatible framing (ErpNet.FP `bg.dy.isl`). | **Partly confirmed** (Expert SX, community driver). **за проверка**: FX1200/FX1300/ДАВИД ФП commands, storno (85/86), payment codes, Z/X options, baud rate, whether the PIXEL „софтвер за работа со фискални апарати“ offers a command-file interface. |
 | **DUNA** (Дуна компјутери, Skopje — own production since 2001) | Registers **Вардарец**, **Развигорец**, **Северец**, mobile **Пелистерец**, **Маестрал**; retail software Vector / Спинакер | Вардарец: 3× RS232 (PC port **115200 b/s**), USB (master mode), GPRS; can run as **„Fiscal printer (FPR)“** | **Not public.** The user manual only says the register can be switched into fiscal-printer mode and connected to a PC over RS232 115200. | **за проверка** (everything protocol-related): ask Duna (fiskalni@duna.mk, 02/3104 500) for the PC protocol / SDK or their service program. Until then: the „command file“ driver only if Duna's program uses the Accent-style IN/OUT format, otherwise sales are recorded without a fiscal receipt. The raw driver can be *tried* in FPR mode (Datecs framing is the most common in MK) — **за проверка**. |
 
-VAT groups on Macedonian fiscal devices (Правилник за означување на даночните стапки во фискалните апарати, as quoted by
-public sources): **А = 18 %**, **Б = 5 %**, **В = 10 %** (since the 10 % rate for catering), **Г = exempt / 0 %**.
-Accent's docs add: a VAT-registered firm may use А/Б/В only, a non-VAT firm Г only. Older Duna manuals still show
-В = 0 % — **за проверка** on each device with an X report. WISE maps rate → letter in `@wise/core/retail/fiscal` (`vatGroup`).
+VAT groups on Macedonian fiscal devices — Правилник за техничките и функционалните карактеристики на фискалните системи
+на опрема, чл. 26 ст. 1, as amended by Сл. весник на РСМ 315/2020 and 60/2022 (in force 14.03.2022): **А = 18 %**,
+**Б = 5 %**, **В = 10 %**, **Г = ослободено / 0 %** (also every sale of a firm that is not a VAT payer). Before the
+amendment exempt sales were marked В (old programming В 0 %, Г 10 %, which the legacy WISE program assumed); the
+transition ran to 01.07.2021 (exempt В → Г) and 01.01.2022 (10 % on В). Sources: ujp.gov.mk Правилник (пречистен текст
+60/22), zonel.com.mk „Законски 96“ (04.01.2021), knigoprima.com.mk (01/2021), eurokonsaltplus.com.mk (2022).
+One constant for everything: `FISCAL_VAT_GROUPS` in `@wise/core/retail/vat-groups` (receipts `vatGroup`, report reader
+`FISK_G0`, AI prompt `FISK_GROUPS`); the desktop copy `desktop/fiscal/vat-groups.js` is kept equal by
+`packages/core/test/retail/vat-groups.test.ts`. A device programmed differently: ⚙️ Фискален апарат → „Даночни групи на
+апаратот“ (the service remaps the letters by rate); „X извештај“ / „Статус“ read the device's rates (Datecs command 97,
+**за проверка** per firmware) and warn on a mismatch; the fiscal-report reader uses the rates printed on the report and
+warns when they differ from the legal mapping.
 
 ### Architecture
 

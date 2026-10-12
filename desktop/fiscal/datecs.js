@@ -17,7 +17,7 @@ const SOH = 0x01, ENQ = 0x05, SEP = 0x04, ETX = 0x03, NAK = 0x15, SYN = 0x16;
 /** Commands (decimal codes from the PF550/PF700 control-code tables). */
 const CMD = Object.freeze({
   OPEN: 48, SALE: 49, SUBTOTAL: 51, TOTAL: 53, CLOSE: 56, OPEN_STORNO: 85, CLOSE_STORNO: 86,
-  DATETIME: 62, DAILY_REPORT: 69, CASH: 70, DIAG_PRINT: 71, STATUS: 74, TRANSACTION: 76, DIAG: 90, LAST_DOC: 113,
+  DATETIME: 62, DAILY_REPORT: 69, CASH: 70, DIAG_PRINT: 71, STATUS: 74, TRANSACTION: 76, DIAG: 90, VAT_RATES: 97, LAST_DOC: 113,
 });
 
 const bcc4 = (sum) => [12, 8, 4, 0].map((s) => ((sum >> s) & 0xF) + 0x30);
@@ -126,6 +126,17 @@ function parseDaily(data) {
   const p = String(data || '').split(',');
   return { closure: (p[0] || '').trim(), total: Number(p[1]) || 0, groups: p.slice(2, 6).map((x) => Number(x) || 0) };
 }
+/**
+ * Answer of 97 (current VAT rates, Datecs family — за проверка on PF550/PF700 and DAVID firmware): TaxA,TaxB,TaxC,TaxD
+ * as percentages („18.00%,5.00%,10.00%,0.00%“; a disabled group may be „X“ / „-“). → { А, Б, В, Г } or null.
+ */
+function parseRates(data) {
+  const p = String(data || '').split(',').map((x) => x.trim());
+  if (p.length < 4) return null;
+  const L = ['А', 'Б', 'В', 'Г'], out = {};
+  p.slice(0, 4).forEach((x, i) => { const n = Number(x.replace('%', '')); if (x && Number.isFinite(n)) out[L[i]] = Math.round(n * 100) / 100; });
+  return Object.keys(out).length ? out : null;
+}
 /** Answer of 62: DD-MM-YY HH:MM:SS → ISO local time string (YYYY-MM-DDTHH:MM:SS) or ''. */
 function parseDateTime(data) {
   const m = /^(\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(data || '').trim());
@@ -140,5 +151,5 @@ function parseDiag(data) {
 module.exports = {
   SOH, ENQ, SEP, ETX, NAK, SYN, CMD,
   buildFrame, parseFrame, buildAnswer, decodeStatus, receiptCommands,
-  parseTotal, parseCounters, parseDaily, parseDateTime, parseDiag, money,
+  parseTotal, parseCounters, parseDaily, parseDateTime, parseDiag, parseRates, money,
 };

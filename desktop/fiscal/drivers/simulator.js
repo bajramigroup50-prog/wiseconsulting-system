@@ -2,14 +2,16 @@
 // SIMULATOR driver — for demos, training and tests: no device, every receipt / report is appended to a log file
 // (JSON lines) and counted like a real device (receipt number, Z number, cash in the drawer).
 // `fault` makes it behave like a broken device: 'PAPER_OUT' | 'NOT_CONNECTED' | 'FM_FULL' | 'COVER_OPEN' | ''.
+// `rates` in the state file = the simulated device programming (default the legal А 18, Б 5, В 10, Г 0).
 const fs = require('node:fs');
 const { FiscalError, normalizeReceipt, r2 } = require('../receipt');
+const { FISCAL_VAT_GROUPS } = require('../vat-groups');
 
 class SimulatorDriver {
   /** @param {object} o logFile, stateFile, fault?, nameMax? , now?() */
   constructor(o) {
     this.o = { nameMax: 22, now: () => new Date(), ...o };
-    this.s = { receipt: 0, z: 0, cash: 0, day: { sales: 0, storno: 0, count: 0 } };
+    this.s = { receipt: 0, z: 0, cash: 0, day: { sales: 0, storno: 0, count: 0 }, rates: { ...FISCAL_VAT_GROUPS } };
     try { this.s = { ...this.s, ...JSON.parse(fs.readFileSync(this.o.stateFile, 'utf8')) }; } catch { /* first run */ }
   }
   time() { const d = this.o.now(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
@@ -46,6 +48,8 @@ class SimulatorDriver {
     this.log({ type, number, total });
     return { ok: true, type, number, total };
   }
+
+  async vatRates() { this.guard(); return { ...this.s.rates }; }
 
   async cash(amount) {
     this.guard();
