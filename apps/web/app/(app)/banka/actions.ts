@@ -13,13 +13,16 @@ import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
+  bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
 } from '@wise/db';
 import { statementFromRead } from '@wise/core/ai/bank';
 import { ownerCheck, withNote, type OwnerFirm } from '@wise/core/bank/parity';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
 import { firmAction } from '@/lib/books';
 import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
-import { bankRun, isDate, num, str } from '@/lib/bank';
+import { bankError, bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
 import { runPayNotes } from './paynotes';
 import type { FormState } from '@/components/bank-form';
@@ -155,6 +158,102 @@ export async function saveImportAction(form: FormData): Promise<FormState> {
     msgs.push(r.ok!);
   }
   return msgs.length ? { ok: msgs.join(' ') } : { error: 'Изберете датотека.' };
+}
+
+/* ---------------- statements inside a nalog (journal flow) ---------------- */
+
+export interface NalogPreviewResult extends PreviewResult { sugg?: Record<string, LineSuggestion>[] }
+
+/** Preview for the import inside a nalog: the normal preview (with the reconciliation block) plus suggested kontos. */
+export async function previewNalogImportAction(form: FormData): Promise<NalogPreviewResult> {
+  const r = await previewImportAction(form);
+  if (r.error || !r.plans) return r;
+  try {
+    const { firm } = await firmAction('write');
+    const sugg = await db().transaction(async (tx) => Promise.all(r.plans!.map((p) => previewSuggestions(tx, firm.id, p.plan))));
+    return { ...r, sugg };
+  } catch (e) {
+    if (e instanceof Error && 'digest' in e) throw e;
+    return { ...r, error: e instanceof Error ? e.message : 'Грешка.' };
+  }
+}
+
+export interface NalogImportResult extends FormState { number?: string; period?: boolean }
+const LK = z.record(z.string(), z.object({ konto: z.string().trim().max(10), partnerId: z.string().max(40).nullish(), createPartner: z.string().max(120).nullish() }));
+
+/**
+ * „Прокнижи во овој налог“: import the files (the same reading, reconciliation hard block and duplicate checks as
+ * /banka), book every line on the (edited) konto and post the statements into the nalog `nalog` ('' = the bank
+ * series number of the statement's period). `dropEmpty` = an empty manual nalog of the wrong period to remove.
+ */
+export async function saveNalogImportAction(form: FormData): Promise<NalogImportResult> {
+  const acct = str(form.get('acct')) || null;
+  const skip = form.get('dups') !== 'on';
+  const nalogNo = str(form.get('nalog')) || null;
+  const dropEmpty = str(form.get('dropEmpty')) || null;
+  let kontos: z.infer<typeof LK>[] = [];
+  try { kontos = z.array(LK).max(50).parse(JSON.parse(str(form.get('kontos')) || '[]')); } catch { return { error: 'Неважечки конта.' }; }
+  const msgs: string[] = [];
+  let number = '';
+  try {
+    const { u, firm, year } = await firmAction('write');
+    let period: { from: string | null; to: string | null } | null = null;
+    if (nalogNo) {
+      const J = await db().select({ periodFrom: journals.periodFrom, periodTo: journals.periodTo }).from(journals)
+        .where(and(eq(journals.firmId, firm.id), eq(journals.number, nalogNo), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
+      const own = J.find((j) => j.periodFrom || j.periodTo);
+      period = nalogPeriod(nalogNo, year, own ? { from: own.periodFrom, to: own.periodTo } : undefined);
+    }
+    for (const [i, { f, ai }] of filesOf(form).entries()) {
+      const x = await db().transaction(async (tx) => {
+        const { statements, format, fileId, blocking } = await readStatements(f, firm.id, ai);
+        if (blocking?.length) throw fail(blocking.join(' '));
+        const r = await saveImport(tx, {
+          firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null,
+          book: true, lineKonto: kontos[i] ?? {}, nalog: { number: nalogNo, from: period?.from ?? null, to: period?.to ?? null },
+        });
+        if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
+        if (dropEmpty && r.numbers?.length) {
+          // the empty nalog of the wrong period (e.g. „6/10-12“ dated 31.12 for a June statement) goes away
+          const [j] = await tx.select({ id: journals.id, sourceType: journals.sourceType }).from(journals).where(and(eq(journals.id, dropEmpty), eq(journals.firmId, firm.id))).limit(1);
+          const [{ n }] = (await tx.select({ n: sql<number>`count(*)::int` }).from(journalLines).where(eq(journalLines.journalId, dropEmpty))) as [{ n: number }];
+          if (j && !j.sourceType && !n) await deleteJournal(tx, { firmId: firm.id, journalId: dropEmpty, userId: u.id });
+        }
+        return r;
+      });
+      number ||= x.numbers?.[0] ?? '';
+      const sk = x.book?.skipped ?? [];
+      msgs.push(`„${f.name}“: ${x.statements} извод(и), ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.book?.booked ?? 0}`
+        + (x.numbers?.length ? ` во налог ${x.numbers.join(', ')}` : '')
+        + (sk.length ? `. Непрокнижени ${sk.length}: ${sk.map((s) => `ред ${s.lineNo} – ${s.why}`).join('; ')}` : '') + '.');
+    }
+  } catch (e) {
+    const r = bankError(e);
+    return { ...r, ...(msgs.length ? { ok: msgs.join(' ') } : {}), ...(/не припаѓа во периодот/.test(r.error ?? '') ? { period: true } : {}) };
+  }
+  for (const p of P) revalidatePath(p);
+  return msgs.length ? { ok: msgs.join(' '), number } : { error: 'Изберете датотека.' };
+}
+
+/**
+ * „Прокнижи ги сите“ (statements, optionally with the user's konto per line) and the one-click „✓ Прокнижи“ of a
+ * line (`only`). Lines without a usable konto stay unbooked and the reason is shown.
+ */
+export async function bookAllAction(_p: FormState, form: FormData): Promise<FormState> {
+  const ids = form.getAll('st').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+  const only = form.getAll('only').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+  const overrides: Record<string, { konto: string; partnerId: string | null }> = {};
+  for (const [k, v] of form.entries()) {
+    const m = /^k_([0-9a-f-]{36})$/i.exec(k);
+    if (m && String(v).trim()) overrides[m[1]!] = { konto: String(v).trim().split(/\s/)[0]!, partnerId: str(form.get('p_' + m[1])) || null };
+  }
+  if (!ids.length) return { error: 'Нема избран извод.' };
+  return bankRun('write', P, async ({ tx, u, firm }) => {
+    const r = await bookStatementLines(tx, { firmId: firm.id, userId: u.id, statementIds: ids, overrides, ...(only.length ? { onlyLines: only } : {}) });
+    const nums = [...new Set([...r.posted.values()].map((x) => x.number).filter(Boolean))];
+    return `Прокнижени ${r.booked} ставки${nums.length ? ` (налог ${nums.join(', ')})` : ''}.`
+      + (r.skipped.length ? ` Непрокнижени ${r.skipped.length}: ${r.skipped.map((s) => `ред ${s.lineNo} – ${s.why}`).join('; ')}.` : '');
+  });
 }
 
 /* ---------------- matching ---------------- */

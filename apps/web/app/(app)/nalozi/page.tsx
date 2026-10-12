@@ -9,8 +9,8 @@ import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
 import type { CustomScheme } from '@wise/core/finance';
 import {
-  appSettings, bankAccounts, bankLines, effectiveChart, firmNalogSettings, journalLines, journalOverrideState, journals, partners, purchases,
-  SCHEMES_SETTINGS_KEY,
+  appSettings, bankAccounts, bankLines, bankStatements, effectiveChart, firmNalogSettings, journalLines, journalOverrideState, journals, lineProblem, loadBankAccounts, partners, purchases,
+  SCHEMES_SETTINGS_KEY, statementSuggestions,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions, yearRange } from '@/lib/books';
 import { RepostCallout } from '@/components/repost-callout';
@@ -25,8 +25,10 @@ import { deleteJournalAction, nalFixAllAction, resetOverrideAction, saveBankNalC
 import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
+import { ImportBox } from '../banka/import-box';
+import { bookAllAction } from '../banka/actions';
 
-type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string };
+type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string };
 const KIND_LBL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(NAL_DEF).map(([k, v]) => [k, v[1]])), bank: 'ИЗВОД', manual: 'РАЧЕН НАЛОГ', bbimp: 'БРУТО БИЛАНС', pos: 'POS ПРОВИЗИЈА',
 };
@@ -70,6 +72,23 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     ]);
     const schemes = ((g?.v ?? {}) as { custom?: CustomScheme[] }).custom ?? [];
     return <JournalEditor initial={initial} chart={chart.map((a) => [a.code, a.name])} partners={P} numbers={nums.map((x) => x.n)} schemes={schemes} />;
+  }
+
+  /* ---------- „+ Нов налог – изводи“: the statement is imported first, the nalog is numbered / dated by it ---------- */
+  if (sp.izv !== undefined) {
+    if (!write) return <NoFirm t="Немате право на внес" />;
+    const [chart, P, A] = await Promise.all([effectiveChart(db(), firm.id), partnerOptions(firm.id), loadBankAccounts(db(), firm.id)]);
+    return (
+      <>
+        <Hd t="Нов налог – изводи" sub="налогот се отвора од изводот: датум и број според изводот (на пр. 6/4-6 за извод од јуни)" exp={false}>
+          <Link className="btn" href="/nalozi">← Листа на налози</Link>
+        </Hd>
+        <div className="card">
+          <ImportBox firmId={firm.id} fx={false} defaultAcct={A[0]?.id ?? ''} accounts={A.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))}
+            nalog={{ number: null, chart: chart.map((a) => [a.code, a.name]), partners: P.map((p) => ({ id: p.id, name: p.name })) }} />
+        </div>
+      </>
+    );
   }
 
   /* ---------- journals of the year ---------- */
@@ -130,6 +149,20 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       .from(bankLines).where(inArray(bankLines.statementId, stIds)) : [];
     const bankK = IZ ? L.find(({ l }) => banks.length && l.account && /^10/.test(l.account))?.l.account : undefined;
     const one = g.journals.length === 1 ? g.journals[0]! : null;
+    /* statements of this nalog (also those imported into it whose lines are not booked yet) → import box + open lines */
+    const prefix = g.no.includes('/') ? g.no.split('/')[0]! : '';
+    const bankOfCode = banks.find((b) => bankNalCode(b.id, S.banks) === prefix || (b.nal && b.nal === prefix));
+    const isIzv = IZ || !!bankOfCode || /извод/i.test(title);
+    const empty = L.length === 0;
+    const showImport = write && (isIzv || (empty && sp.uvoz !== undefined));
+    const inNal = await db().select({ id: bankStatements.id }).from(bankStatements)
+      .where(and(eq(bankStatements.firmId, firm.id), sql`${bankStatements.meta}->>'nalog' = ${g.no}`, sql`${bankStatements.date} between ${from} and ${to}`));
+    const stAll = [...new Set([...stIds, ...inNal.map((x) => x.id)])];
+    const openL = stAll.length && write ? (await db().select().from(bankLines).where(inArray(bankLines.statementId, stAll)).orderBy(asc(bankLines.date), asc(bankLines.lineNo)))
+      .filter((l) => lineProblem(l, !!l.cur && l.cur !== 'MKD')) : [];
+    const sugg = openL.length ? await db().transaction((tx) => statementSuggestions(tx, firm.id, [...new Set(openL.map((l) => l.statementId))])) : new Map();
+    const [impAccts, impP] = showImport || openL.length ? await Promise.all([loadBankAccounts(db(), firm.id), partnerOptions(firm.id)]) : [[], []];
+    const impPName = new Map(impP.map((p) => [p.id, p.name]));
     const ov = one ? ovOf(one) : undefined;
     const xl = [['Р.бр.', 'Датум', 'Опис', 'Конто', 'Назив на конто', 'Должи', 'Побарува', 'Документ', 'Дев. должи', 'Дев. побарува', 'Шифра', 'Комитент'],
       ...L.map(({ l, j, p }, i) => [i + 1, dmy(j.date), (j.description ?? '') + (l.note && l.note !== j.description ? ' – ' + l.note : ''), l.account, names.get(l.account) ?? '',
@@ -146,6 +179,53 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <a className="btn" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
           {one && del && manualLike(one) && <RowAction className="btn danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши налог" confirm={`Да се избрише налогот бр. ${g.no}? Ова не може да се врати.`} />}
         </Hd>
+        {one && empty && manualLike(one) && (
+          <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Налогот е <b>празен</b> (датум {dmy(one.date)}{one.periodFrom ? `, период ${dmy(one.periodFrom)} – ${dmy(one.periodTo)}` : ''}). Изводите се книжат во налог по датумот на изводот – увезете го изводот тука или го преместете / избришете празниот налог.</span>
+            <span className="row" style={{ gap: 6 }}>
+              {canEdit(one) && <Link className="btn sm" href={`/nalozi?edit=${one.id}`}>✎ Премести (број / датум / период)</Link>}
+              {del && !locked(one) && <RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши празен налог" confirm={`Да се избрише празниот налог бр. ${g.no}?`} />}
+              {write && !isIzv && sp.uvoz === undefined && <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(g.no)}&uvoz`}>📥 Увези извод во овој налог</Link>}
+            </span>
+          </div>
+        )}
+        {showImport && (
+          <div className="card" id="uvoz-izvod" style={{ borderColor: 'var(--accent)' }}>
+            <ImportBox firmId={firm.id} fx={false} defaultAcct={bankOfCode?.id ?? impAccts[0]?.id ?? ''}
+              accounts={impAccts.map((x) => ({ id: x.id, label: `${x.name} · ${x.account || x.iban || ''} · конто ${x.konto}` }))}
+              nalog={{ number: g.no, emptyId: one && empty && manualLike(one) ? one.id : null, chart: chart.map((a) => [a.code, a.name]), partners: impP.map((p) => ({ id: p.id, name: p.name })) }} />
+          </div>
+        )}
+        {openL.length > 0 && (
+          <div className="card" style={{ borderColor: 'var(--warn, #c80)' }}>
+            <h2>Ставки од изводот што не се прокнижени ({openL.length})</h2>
+            <BankForm action={bookAllAction}>
+              {[...new Set(openL.map((l) => l.statementId))].map((id) => <input key={id} type="hidden" name="st" value={id} />)}
+              <datalist id="nalOpenK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
+              <div className="tw"><table className="dense">
+                <thead><tr><th>Датум</th><th>Опис</th><th>Шифра</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Спротивно конто (предлог)</th></tr></thead>
+                <tbody>{openL.map((l) => {
+                  const s = sugg.get(l.id);
+                  const a = Number(l.amount);
+                  return (
+                    <tr key={l.id}>
+                      <td>{dmy(l.date)}</td><td style={{ minWidth: 220 }}>{l.description}</td><td>{l.osnov ?? ''}</td>
+                      <td className="n">{a > 0 ? fmt(a) : ''}</td><td className="n">{a < 0 ? fmt(-a) : ''}</td>
+                      <td>
+                        <input name={'k_' + l.id} list="nalOpenK" defaultValue={s?.konto || l.konto || ''} placeholder="конто" style={{ width: 90, ...(!s?.konto || s?.missing ? { borderColor: 'var(--bad)' } : {}) }} aria-label="Спротивно конто" />
+                        <input type="hidden" name={'p_' + l.id} value={s?.partnerId ?? l.partnerId ?? ''} />
+                        {' '}<small>{s?.konto ? names.get(s.konto) ?? '' : ''}{s?.partnerId ? ' · ' + (impPName.get(s.partnerId) ?? '') : ''}</small>
+                        {s && <><br /><small style={s.missing || !s.konto ? { color: 'var(--bad)' } : undefined} className={s.missing || !s.konto ? '' : 'note'}>{s.why}</small></>}
+                      </td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table></div>
+              <div className="row"><span className="note">Предлогот е по шифрата на плаќање (840 данок, 843 придонеси, провизии), правилата, отворените фактури и комитентите. Сменете го контото каде што треба.</span><span style={{ flex: 1 }} />
+                <button className="btn pri">✓ Прокнижи ги сите во налогот</button></div>
+            </BankForm>
+          </div>
+        )}
         {g.journals.length > 1 && (
           <div className="card">
             <h2>Документи во налогот ({g.journals.filter((j) => j.sourceId).length}){headOf(g) && <> <span className="pill info" title="Збирен налог: секоја фактура си ги чува своите ставки; бришење/сторно на една фактура ги отстранува само нејзините ставки">збирен налог · {g.journals.filter((j) => j.sourceType === 'invoice').length} фактури</span></>}</h2>
@@ -235,6 +315,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         <a className="btn" href="/nalozi/dnevnik?f=csv">CSV</a>
         <a className="btn" href="/nalozi/dnevnik">⬇ Excel</a>
         <a className="btn" href="/print/dnevnik" target="_blank" rel="noopener">PDF</a>
+        {write && <Link className="btn pri" href="/nalozi?izv" title="Увезете го изводот (PDF / Excel / XML) – налогот се отвора со датум и број според изводот">+ Нов налог – изводи</Link>}
         {write && <Link className="btn pri" href="/nalozi?nov">+ Рачен налог</Link>}
       </Hd>
       {dups.length > 0 && (

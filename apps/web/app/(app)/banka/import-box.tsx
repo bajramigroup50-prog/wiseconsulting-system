@@ -9,7 +9,19 @@ import { fmt, dmy } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
-import { previewImportAction, saveImportAction, type PreviewResult } from './actions';
+import { previewImportAction, previewNalogImportAction, saveImportAction, saveNalogImportAction, type NalogPreviewResult } from './actions';
+
+/** Import inside a nalog (Налози → ИЗВОДИ): the statements are booked and posted into this nalog. */
+export interface NalogTarget {
+  /** Nalog number; null = the bank series number of the statement's period („+ Нов налог – изводи“). */
+  number: string | null;
+  /** Id of the opened nalog when it is empty (offered for removal when the statement belongs to another period). */
+  emptyId?: string | null;
+  /** Chart for the editable counter kontos. */
+  chart: [string, string][];
+  partners: { id: string; name: string }[];
+}
+type LK = { konto: string; partnerId?: string | null; createPartner?: string | null };
 
 const CLS: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија', tech: 'посебна сметка' };
 
@@ -55,7 +67,7 @@ async function readAiStatements(L: File[], firmId: string, note: (m: string) => 
   return { ids, error: 'Читањето трае предолго – обидете се повторно.' };
 }
 
-export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { id: string; label: string }[]; defaultAcct: string; fx: boolean; firmId: string }) {
+export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accounts: { id: string; label: string }[]; defaultAcct: string; fx: boolean; firmId: string; nalog?: NalogTarget }) {
   const router = useRouter();
   const ref = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -63,7 +75,12 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
   const [acct, setAcct] = useState(defaultAcct);
   const [dups, setDups] = useState(false);
   const [replace, setReplace] = useState(false);
-  const [prev, setPrev] = useState<PreviewResult | null>(null);
+  const [prev, setPrev] = useState<NalogPreviewResult | null>(null);
+  /** Edited counter konto per file and preview line (`day:index`). */
+  const [lk, setLk] = useState<Record<string, LK>[]>([]);
+  const [periodErr, setPeriodErr] = useState(false);
+  const kName = new Map(nalog?.chart ?? []);
+  const pName = new Map((nalog?.partners ?? []).map((p) => [p.id, p.name]));
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [note, setNote] = useState('');
   const [pending, start] = useTransition();
@@ -92,10 +109,23 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
       setNote('');
       if (a.error) { setPrev({ error: a.error }); return; }
       setAiIds(a.ids);
-      setPrev(await previewImportAction(formOf(L, a.ids)));
+      const r: NalogPreviewResult = nalog ? await previewNalogImportAction(formOf(L, a.ids)) : await previewImportAction(formOf(L, a.ids));
+      setPeriodErr(false);
+      setLk(r.sugg?.map((S) => Object.fromEntries(Object.entries(S).map(([k, x]) => [k, { konto: x.konto, partnerId: x.partnerId ?? null, createPartner: x.newPartner ?? null }]))) ?? []);
+      setPrev(r);
     });
   };
-  const save = () => start(async () => {
+  const saveNalog = (number: string | null, dropEmpty?: string | null) => start(async () => {
+    const f = form();
+    f.set('nalog', number ?? '');
+    if (dropEmpty) f.set('dropEmpty', dropEmpty);
+    f.set('kontos', JSON.stringify(lk));
+    const r = await saveNalogImportAction(f);
+    setMsg(r);
+    setPeriodErr(!!r.period);
+    if (!r.error) { setFiles([]); setPrev(null); if (ref.current) ref.current.value = ''; if (r.number) router.push(`/nalozi?n=${encodeURIComponent(r.number)}`); router.refresh(); }
+  });
+  const save = () => nalog ? saveNalog(nalog.number) : start(async () => {
     const r = await saveImportAction(form());
     setMsg(r);
     // legacy 4761 / 4782 / 4807: after the import the remaining lines are matched automatically → the review
@@ -104,7 +134,8 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
 
   return (
     <div>
-      <h2>Увоз на извод од е-банкарство</h2>
+      <h2>{nalog ? (nalog.number ? `📥 Увези извод во налог ${nalog.number}` : '📥 Увези извод – нов налог') : 'Увоз на извод од е-банкарство'}</h2>
+      {nalog && <p className="note">Изводот се чита (PDF / Excel / XML), се проверуваат салдата (почетно + приливи − одливи = ново салдо), а секоја ставка добива предлог за спротивно конто (шифра на плаќање 840 данок, 843 придонеси, провизии, правила, фактури, комитенти) што може да го смените пред книжење. Налогот се датира според изводот.</p>}
       {/* where the statements go — always in view (statements imported into the wrong firm) */}
       <UploadTarget />
       <p className="note">Секој формат што го нуди банката: <b>XML</b> (Халк, ISO camt.053), <b>MT940</b>, <b>Комерцијална .300</b>, <b>Excel</b>, <b>CSV/TXT</b>,
@@ -137,7 +168,9 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
       </div>
       <p className="mini" style={{ margin: '4px 0 0' }}>Excel/CSV со непознати колони или без AI: <a href="/konvertor?t=bank" target="_blank" rel="noreferrer">🔄 Конвертор на датотеки</a> → Excel за увоз.</p>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
+      {nalog && <datalist id="nalImpK">{nalog.chart.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</datalist>}
       {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}
+        {periodErr && nalog && <> <button type="button" className="btn sm pri" disabled={pending} onClick={() => saveNalog(null, nalog.emptyId)}>{nalog.emptyId ? 'Прокнижи во налогот за периодот на изводот и избриши го празниот налог' : 'Прокнижи во налогот за периодот на изводот'}</button></>}
         {/колоните|форматот не е препознаен/.test(prev?.error ?? '') && files.length > 0 && <> <button type="button" className="btn sm pri" disabled={pending} onClick={() => preview(files, true)}>Прочитај го автоматски (AI)</button></>}</div>}
       {prev?.plans && (
         <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 8 }}>
@@ -155,7 +188,7 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
                       {d.rate != null && <> · курс {d.rate}</>}
                       {d.opening != null && <> · салдо {fmt(d.opening / 100)} → {fmt((d.closing ?? 0) / 100)} {d.cur}</>}
                       {d.statedDebit != null && <> · по изводот должува {fmt((d.statedDebit ?? 0) / 100)} / побарува {fmt((d.statedCredit ?? 0) / 100)}</>}</td></tr>
-                    <tr><th>Датум</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Препознаено</th></tr>
+                    <tr><th>Датум</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Препознаено</th>{nalog && <th>Спротивно конто (предлог)</th>}</tr>
                   </thead>
                   <tbody>{d.lines.map((l, i) => (
                     <tr key={i} style={l.dup ? { opacity: 0.5 } : undefined}>
@@ -164,6 +197,23 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
                       <td className="n">{l.amount < 0 ? fmt(-l.amount / 100) : ''}{l.amountCur != null && l.amount < 0 ? <><br /><small className="note">{d.cur} {fmt(-l.amountCur / 100)}</small></> : null}</td>
                       <td>{l.dup && <span className="pill bad">дупликат</span>} {l.cls && <span className="pill info">{CLS[l.cls] ?? l.cls}{l.konto ? ' → ' + l.konto : ''}</span>}
                         {l.newPartner && <span className="pill warn" title="Комитентот не постои – ќе може да се додаде при книжењето">нов комитент: {l.newPartner}</span>}</td>
+                      {nalog && (() => {
+                        const fi = prev.plans!.indexOf(p), key = `${p.plan.days.indexOf(d)}:${i}`;
+                        const s = prev.sugg?.[fi]?.[key];
+                        const cur = lk[fi]?.[key];
+                        if (l.dup) return <td />;
+                        const set = (konto: string) => setLk((A) => { const B = A.slice(); B[fi] = { ...(B[fi] ?? {}), [key]: { ...(cur ?? {}), konto, ...(s && konto === s.konto ? { partnerId: s.partnerId ?? null, createPartner: s.newPartner ?? null } : { partnerId: null, createPartner: null }) } }; return B; });
+                        return (
+                          <td style={{ minWidth: 220 }}>
+                            <input list="nalImpK" value={cur?.konto ?? ''} onChange={(e) => set(e.target.value.trim().split(/\s/)[0] ?? '')} placeholder="конто"
+                              style={{ width: 90, ...(!cur?.konto || s?.missing ? { borderColor: 'var(--bad)' } : {}) }} aria-label="Спротивно конто" />
+                            {' '}<small>{cur?.konto ? kName.get(cur.konto) ?? <span style={{ color: 'var(--bad)' }}>непознато конто</span> : ''}</small>
+                            {cur?.partnerId && <><br /><small className="mini">{pName.get(cur.partnerId) ?? ''}</small></>}
+                            {cur?.createPartner && !cur.partnerId && <><br /><small className="mini">нов комитент: {cur.createPartner}</small></>}
+                            {s && <><br /><small className={s.missing || !s.konto ? '' : 'note'} style={s.missing || !s.konto ? { color: 'var(--bad)' } : undefined}>{s.why}</small></>}
+                          </td>
+                        );
+                      })()}
                     </tr>
                   ))}</tbody>
                 </table></div>
@@ -177,7 +227,7 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId }: { accounts: { i
             )}
             <span style={{ flex: 1 }} />
             <button className="btn" type="button" onClick={() => preview([])} disabled={pending}>Откажи</button>
-            <button className="btn pri" type="button" onClick={save} disabled={pending || prev.plans.some((p) => p.plan.errors.length > 0)}>Зачувај и прокнижи</button>
+            <button className="btn pri" type="button" onClick={save} disabled={pending || prev.plans.some((p) => p.plan.errors.length > 0)}>{nalog ? (nalog.number ? 'Прокнижи во овој налог' : 'Прокнижи во нов налог') : 'Зачувај и прокнижи'}</button>
           </div>
         </div>
       )}

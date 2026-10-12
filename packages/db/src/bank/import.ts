@@ -18,7 +18,8 @@ import { audit, type Tx } from '../audit';
 import { accounts, bankAccounts, bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
 import { bankKontoName, techAccountKonto } from '@wise/core/bank/parity';
 import { dec, loadBankEnv, loadFxSources, POS_PARTNER_NAME, type BankEnv } from './context';
-import { postStatements } from './posting';
+import { postStatements, type PostStatementResult } from './posting';
+import { bookStatementLines, type BookAllResult } from './suggest';
 import { toBankRow } from './rows';
 import { assertOpenPeriod, missingAccounts } from '../posting';
 
@@ -35,7 +36,21 @@ export interface ImportOptions {
   format?: string | null;
   /** Legacy `_impAsk` 12661: the same statement imported again in another format replaces the old lines. */
   replace?: boolean;
+  /**
+   * Import inside a nalog (Налози → ИЗВОДИ → „📥 Увези извод“): the statements are posted into this nalog number
+   * (null = the automatic bank series number of the statement's period) and must fall in its period.
+   */
+  nalog?: { number: string | null; from?: string | null; to?: string | null } | null;
+  /**
+   * Book the lines right away (journal flow): the user's konto per preview line (key `lineKey(day, i)`), the
+   * suggestions for the rest. Lines without a usable konto stay unbooked and are reported.
+   */
+  book?: boolean;
+  lineKonto?: Record<string, { konto: string; partnerId?: string | null; createPartner?: string | null }>;
 }
+
+/** Key of a preview line (index of the day in `plan.days`, index of the line in the day). */
+export const lineKey = (day: number, i: number) => `${day}:${i}`;
 
 export interface PreviewLine {
   date: string;
@@ -191,6 +206,12 @@ export interface ImportResult {
   batch: string; statements: number; lines: number; skipped: number; posted: number; drafts: number; plan: ImportPlan;
   /** Statements updated from a balances-only file (КБ „водечки слог“). */
   balances?: number;
+  /** Statements written by this import. */
+  statementIds?: string[];
+  /** Journal flow (`book`): lines booked and the ones left with the reason. */
+  book?: BookAllResult;
+  /** Nalog numbers the statements were posted into. */
+  numbers?: string[];
 }
 
 /**
@@ -241,10 +262,13 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
   let nLines = 0;
   let skipped = 0;
   let balances = 0;
-  for (const d of plan.days) {
+  const lineIds = new Map<string, string>();
+  const dmy = (x: string) => x.split('-').reverse().join('.');
+  const nal = o.nalog ?? null;
+  for (const [di, d] of plan.days.entries()) {
     // replace: the old lines of an existing statement go (legacy „ДА = старите ставки се бришат“)
     const replacing = !!(o.replace && d.existingId && !d.allDup);
-    const L = d.lines.filter((l) => replacing || !(skip && l.dup));
+    const L = d.lines.map((l, i) => ({ ...l, key: lineKey(di, i) })).filter((l) => replacing || !(skip && l.dup));
     skipped += d.lines.length - L.length;
     if (!d.lines.length && (d.opening != null || d.closing != null)) {
       // legacy 12681 (КБ „водечки слог“): only the balances and the number of the day's statement are stored
@@ -256,6 +280,11 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     }
     if (!L.length) continue;
     assertOpenPeriod(env.firm, d.date);
+    // a statement belongs to the nalog of its own period (a June statement never goes into „6/10-12“)
+    if (nal && ((nal.from && d.date < nal.from) || (nal.to && d.date > nal.to))) {
+      throw new ImportError(`Изводот од ${dmy(d.date)} не припаѓа во периодот на налогот ${nal.number ?? ''} (${nal.from ? dmy(nal.from) : '…'} – ${nal.to ? dmy(nal.to) : '…'}). `
+        + 'Увезете го во налогот за неговиот период или преку „+ Нов налог – изводи“ (бројот и датумот се според изводот).');
+    }
     const toDec = (c: number | null) => (c == null ? null : dec(c));
     let stId = d.existingId;
     if (stId) {
@@ -270,6 +299,7 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
         rate: ex!.rate ?? (d.rate != null ? String(d.rate) : null),
         statedDebit: ex!.statedDebit ?? toDec(d.statedDebit ?? null), statedCredit: ex!.statedCredit ?? toDec(d.statedCredit ?? null),
         ...(o.fileId && !ex!.fileId ? { fileId: o.fileId } : {}),
+        ...(nal?.number ? { meta: { ...((ex!.meta ?? {}) as Record<string, unknown>), nalog: nal.number } } : {}),
       }).where(eq(bankStatements.id, stId));
     } else {
       const [s] = await tx.insert(bankStatements).values({
@@ -277,17 +307,19 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
         opening: toDec(d.opening), closing: toDec(d.closing), rate: d.rate != null ? String(d.rate) : null,
         statedDebit: toDec(d.statedDebit ?? null), statedCredit: toDec(d.statedCredit ?? null),
         format: o.format ?? null, fileName: o.fileName ?? null, fileId: o.fileId ?? null, importBatch: batch, createdBy: o.userId,
+        ...(nal?.number ? { meta: { nalog: nal.number } } : {}),
       }).returning({ id: bankStatements.id });
       stId = s!.id;
     }
     const [{ mx }] = (await tx.select({ mx: sql<number>`coalesce(max(${bankLines.lineNo}), 0)::int` }).from(bankLines).where(eq(bankLines.statementId, stId))) as [{ mx: number }];
-    await tx.insert(bankLines).values(L.map((l, i) => ({
+    const ins = await tx.insert(bankLines).values(L.map((l, i) => ({
       firmId: o.firmId, statementId: stId!, bankAccountId: d.accountId, lineNo: mx + i + 1, date: l.date, valDate: l.valDate ?? null,
       amount: dec(l.amount), amountCur: l.amountCur != null ? dec(l.amountCur) : null, cur: d.cur !== 'MKD' ? d.cur : null, mkdFromBank: l.mkdFromBank,
       description: l.desc, name: l.name || null, purpose: l.purpose || null, osnov: l.osnov ?? null, bref: l.bref || null, counterAccount: l.counterAccount ?? null,
       konto: l.konto ?? null, partnerId: l.partner ?? (l.pos ? posPartner ?? null : null), own: !!l.own, conv: !!l.conv, pos: !!l.pos,
       auto: l.cls ?? null, newPartner: l.newPartner ?? null, dupKey: l.dupKey, importBatch: batch,
-    })));
+    }))).returning({ id: bankLines.id });
+    L.forEach((l, i) => lineIds.set(l.key, ins[i]!.id));
     nLines += L.length;
     touched.add(stId);
   }
@@ -300,13 +332,21 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
       if (row) touched.add(row.st);
     }
   }
-  const res = await postStatements(tx, touched, o.userId);
+  let book: BookAllResult | undefined;
+  let res: Map<string, PostStatementResult>;
+  if (o.book && touched.size) {
+    const overrides: Record<string, { konto: string; partnerId?: string | null; createPartner?: string | null }> = {};
+    for (const [k, v] of Object.entries(o.lineKonto ?? {})) { const id = lineIds.get(k); if (id && v.konto) overrides[id] = v; }
+    book = await bookStatementLines(tx, { firmId: o.firmId, userId: o.userId, statementIds: [...touched], overrides });
+    res = book.posted;
+  } else res = await postStatements(tx, touched, o.userId);
   const posted = [...res.values()].filter((r) => r.status === 'posted').length;
   await audit(tx, {
     userId: o.userId, firmId: o.firmId, action: 'importBank', entityType: 'bank_import', entityId: batch,
-    data: { file: o.fileName ?? null, format: o.format ?? null, statements: touched.size, lines: nLines, skipped },
+    data: { file: o.fileName ?? null, format: o.format ?? null, statements: touched.size, lines: nLines, skipped, ...(nal ? { nalog: nal.number } : {}) },
   });
-  return { batch, statements: touched.size, lines: nLines, skipped, posted, drafts: touched.size - posted, plan, balances };
+  const numbers = [...new Set([...res.values()].map((r) => r.number).filter((x): x is string => !!x))];
+  return { batch, statements: touched.size, lines: nLines, skipped, posted, drafts: touched.size - posted, plan, balances, statementIds: [...touched], numbers, ...(book ? { book } : {}) };
 }
 
 export class ImportError extends Error {

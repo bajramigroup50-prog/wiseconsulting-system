@@ -49,11 +49,24 @@ export function statementJournalLines(env: BankEnv, acct: { konto: string; cur: 
   return out;
 }
 
-export interface PostStatementResult { status: 'draft' | 'posted'; number?: string; problems: { lineId: string; lineNo: number; problem: string }[] }
+export interface PostStatementResult {
+  status: 'draft' | 'posted'; number?: string;
+  /** Lines in the journal (the others are listed in `problems`). */
+  booked?: number;
+  problems: { lineId: string; lineNo: number; problem: string }[];
+}
+
+/** Nalog number a statement is posted into (chosen when it was imported inside a nalog); null = automatic. */
+export const statementNalog = (st: Pick<BankStatement, 'meta'>): string | null => {
+  const n = (st.meta as { nalog?: unknown } | null)?.nalog;
+  return typeof n === 'string' && n.trim() ? n.trim() : null;
+};
 
 /**
- * (Re-)post one statement inside the caller's transaction: complete → journal replaced in place; incomplete →
- * journal removed and the statement goes back to `draft`. Period lock: throws `PostingError('locked')`.
+ * (Re-)post one statement inside the caller's transaction. The journal is dated on the statement date and numbered
+ * in the bank series of its period (6/4-6 …) or into the nalog the statement was imported into. Every booked line
+ * is posted at once („Прокнижи…“ on one line shows in the nalog immediately); lines still without a counter konto
+ * stay out and keep the statement a `draft`. No booked line → no journal. Period lock: `PostingError('locked')`.
  */
 export async function postStatement(tx: Tx, statementId: string, userId: string | null, env?: BankEnv): Promise<PostStatementResult> {
   const [st] = await tx.select().from(bankStatements).where(eq(bankStatements.id, statementId)).limit(1);
@@ -63,23 +76,26 @@ export async function postStatement(tx: Tx, statementId: string, userId: string 
   const L = await tx.select().from(bankLines).where(eq(bankLines.statementId, st.id)).orderBy(asc(bankLines.lineNo));
   const fx = (acct!.cur || 'MKD') !== 'MKD';
   const problems = L.map((l) => ({ lineId: l.id, lineNo: l.lineNo, problem: lineProblem(l, fx) })).filter((p) => p.problem);
+  const bad = new Set(problems.map((p) => p.lineId));
+  const ok = L.filter((l) => !bad.has(l.id));
   const src = { firmId: st.firmId, sourceType: BANK_SOURCE_TYPE, sourceId: st.id, userId };
-  const lines = problems.length ? [] : statementJournalLines(E, { konto: acct!.konto, cur: acct!.cur }, L);
-  if (problems.length || !lines.length) {
+  const lines = statementJournalLines(E, { konto: acct!.konto, cur: acct!.cur }, ok);
+  const status = problems.length ? 'draft' : 'posted';
+  if (!lines.length) {
     await unpostSource(tx, src);
-    const status = problems.length ? 'draft' : 'posted';
     if (st.status !== status) await tx.update(bankStatements).set({ status }).where(eq(bankStatements.id, st.id));
-    return { status, problems };
+    return { status, booked: 0, problems };
   }
   const j = await postJournal(tx, {
     firmId: st.firmId, date: st.date, kind: 'bank', sourceType: BANK_SOURCE_TYPE, sourceId: st.id, userId,
     description: `Извод бр. ${st.number || '—'} од ${dmy(st.date)} – ${acct!.name}`,
+    number: statementNalog(st),
     numbering: { bankAccountId: acct!.id }, lines,
-    meta: { bankAccountId: acct!.id, statementNo: st.number },
+    meta: { bankAccountId: acct!.id, statementNo: st.number, ...(problems.length ? { open: problems.length } : {}) },
     auditAction: 'postStatement',
   });
-  if (st.status !== 'posted') await tx.update(bankStatements).set({ status: 'posted' }).where(eq(bankStatements.id, st.id));
-  return { status: 'posted', number: j.number, problems: [] };
+  if (st.status !== status) await tx.update(bankStatements).set({ status }).where(eq(bankStatements.id, st.id));
+  return { status, number: j.number, booked: ok.length, problems };
 }
 
 /** Re-post several statements (after matching / import), each once. */

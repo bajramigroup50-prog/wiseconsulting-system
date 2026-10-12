@@ -10,6 +10,7 @@ import { sameRefKey, transitOpen, transitResidueLabel } from '@wise/core/bank/pa
 import {
   bankLines, bankPartnerFixPlan, bankRules, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
   loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
+  statementSuggestions, type LineSuggestion,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { AUTO_LBL } from '@/lib/bank';
@@ -20,7 +21,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import {
-  addManualLineAction, addRuleAction, applyMatchesAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
+  addManualLineAction, addRuleAction, applyMatchesAction, bookAllAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
@@ -112,6 +113,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const fees = write ? feeFix(ctx.rows.filter((r) => BK.some((b) => b.id === r.acct)), year).length : 0;
   const unnumbered = S.some((s) => !s.number);
   const nOpen = L.filter((l) => lineProblem(l, fx)).length;
+  // counter-konto suggestions of the unbooked lines (payment code, rules, invoices, partners) — one click posts them
+  const openSt = [...new Set(L.filter((l) => lineProblem(l, fx)).map((l) => l.statementId))];
+  const suggs: Map<string, LineSuggestion> = write && openSt.length ? await db().transaction((tx) => statementSuggestions(tx, firm.id, openSt, env)) : new Map();
 
   /* ---------- review & line editor ---------- */
   const review = sp.review !== undefined && write ? await db().transaction((tx) => proposeMatches(tx, firm.id, year, { fx })) : null;
@@ -137,7 +141,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         {write && unnumbered && <RowAction className="btn" action={numberStatementsAction} label="Нумерирај изводи" />}
         {write && <Link className="btn pri" href={q({ review: '1' })}>Прокнижи автоматски</Link>}
         {write && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
-        {write && <a className="btn pri" href="#uvoz-izvod" title="Увоз на извод: PDF, слика, XML, MT940, Excel, CSV">📥 Увези извод (PDF / Excel / XML)</a>}
+        {write && <Link className="btn pri" href="/nalozi?izv" title="Изводот се увезува во налог за книжење: датум и број според изводот, предлог за спротивно конто на секоја ставка">Увезете го изводот во налог →</Link>}
+        {write && <a className="btn" href="#uvoz-izvod" title="Увоз на извод: PDF, слика, XML, MT940, Excel, CSV">📥 Увези извод (PDF / Excel / XML)</a>}
         <Link className="btn" href={q({ banks: sp.banks ? undefined : '1' })}>Банкарски сметки…</Link>
         <Link className="btn" href="/bankFmt" title="Кој формат на извод е најдобар за секоја банка">🔎 Формати по банка</Link>
         <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
@@ -303,7 +308,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       )}
 
       {edLine && (
-        <div className="card" style={{ borderColor: 'var(--accent)' }}>
+        <div className="card" id="bk-line" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>Ставка од {dmy(edLine.date)} · {fmt(Number(edLine.amount))} ден.{edLine.amountCur != null ? ` (${edLine.cur} ${fmt(Number(edLine.amountCur))})` : ''}</h2>
             <Link className="btn" href={q({})}>Затвори</Link></div>
           <p>{edLine.description}{edLine.osnov ? <> · шифра <b>{edLine.osnov}</b></> : null}{edLine.counterAccount ? <> · сметка {edLine.counterAccount}</> : null}</p>
@@ -332,8 +337,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                 <h3>Директно на конто</h3>
                 <BankForm action={setKontoAction} className="form">
                   <input type="hidden" name="line" value={edLine.id} />
-                  <label className="f">Конто<input name="konto" list="bkK2" defaultValue={edLine.konto ?? ''} required /></label>
-                  <label className="f">Комитент{partnerSelect('partner', edLine.partnerId)}</label>
+                  <label className="f">Конто<input name="konto" list="bkK2" defaultValue={edLine.konto ?? suggs.get(edLine.id)?.konto ?? ''} required /></label>
+                  <label className="f">Комитент{partnerSelect('partner', edLine.partnerId ?? suggs.get(edLine.id)?.partnerId)}</label>
+                  {suggs.get(edLine.id) && <p className="note" style={{ width: '100%', margin: 0 }}>Предлог: {suggs.get(edLine.id)!.konto ? <b>{suggs.get(edLine.id)!.konto} {kName(suggs.get(edLine.id)!.konto)}</b> : '—'} · {suggs.get(edLine.id)!.why}</p>}
                   <label className="f wide">На кого / за што (белешка, се додава на описот)<input name="note" defaultValue={/ · \[(.*)\]$/.exec(edLine.description)?.[1] ?? ''} /></label>
                   <label className="chk"><input type="checkbox" name="learn" defaultChecked /> запомни правило за овој опис / шифра</label>
                   <div className="row"><button className="btn pri">Прокнижи</button></div>
@@ -440,8 +446,11 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
               const av = (l: BankLine) => Number(fx ? l.amountCur ?? 0 : l.amount);
               const pr = its.filter((l) => av(l) > 0).reduce((x, l) => x + av(l), 0);
               const od = its.filter((l) => av(l) < 0).reduce((x, l) => x - av(l), 0);
-              const prM = its.filter((l) => Number(l.amount) > 0).reduce((x, l) => x + Number(l.amount), 0);
-              const odM = its.filter((l) => Number(l.amount) < 0).reduce((x, l) => x - Number(l.amount), 0);
+              // only the lines in the nalog count as booked (an unbooked line is not on the bank konto yet)
+              const bk = its.filter((l) => !lineProblem(l, fx));
+              const prM = bk.filter((l) => Number(l.amount) > 0).reduce((x, l) => x + Number(l.amount), 0);
+              const odM = bk.filter((l) => Number(l.amount) < 0).reduce((x, l) => x - Number(l.amount), 0);
+              const ready = its.filter((l) => lineProblem(l, fx) && suggs.get(l.id)?.konto && !suggs.get(l.id)?.missing).length;
               const tot = s.statedDebit != null || s.statedCredit != null ? Math.abs(Number(s.statedDebit ?? 0) - od) < 0.01 && Math.abs(Number(s.statedCredit ?? 0) - pr) < 0.01 : null;
               // devizni: balance in the account currency by the statement chain (legacy `bookSaldoCur` 12652)
               const book = s.closing != null ? (fx ? (fxBal.get(s.id) != null ? fxBal.get(s.id)! / 100 : bookBal(a.konto, s.date, fx)) : bookBal(a.konto, s.date, fx)) : null;
@@ -464,13 +473,13 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                       {diff != null && s.status !== 'posted' ? <span className="pill warn" title="Изводот има непрокнижени ставки и сè уште не е во книгите – салдото не може да се спореди">непрокнижен – не е во книгите</span>
                         : diff != null && (Math.abs(diff) < 0.5 ? <span className="pill good" title="Салдото во книгите = салдото на банката">✓ салдо</span>
                         : <span className="pill bad" title={`Во книгите: ${fmt(book)} · Банка: ${fmt(Number(s.closing))}`}>⚠ разлика {fmt(diff)}</span>)}
-                      {s.status === 'posted' ? (no ? <Link className="btn sm pri" href={`/nalozi?n=${encodeURIComponent(no)}`}>Налог бр. {no}</Link> : <span className="pill good">нема што да се книжи</span>)
-                        : <span className="pill warn">{probs} за книжење</span>}
+                      {no && <Link className="btn sm pri" href={`/nalozi?n=${encodeURIComponent(no)}`}>Налог бр. {no}</Link>}
+                      {s.status === 'posted' ? (!no && <span className="pill good">нема што да се книжи</span>) : <span className="pill warn">{probs} за книжење</span>}
                     </span>
                     <span className="row" style={{ gap: 10, fontWeight: 400, width: '100%' }}>
                       <span>По изводот{fx ? ` (${a.cur})` : ''}: должува <input name="sd" defaultValue={n2(s.statedDebit)} placeholder={fmt(od)} aria-label="Должува по извод" style={{ width: 110, padding: '2px 6px' }} disabled={!write} />
                         {' '}побарува <input name="sp" defaultValue={n2(s.statedCredit)} placeholder={fmt(pr)} aria-label="Побарува по извод" style={{ width: 110, padding: '2px 6px' }} disabled={!write} /></span>
-                      <span>{fx ? <>Во {a.cur}: должува <b>{fmt(od)}</b> · побарува <b>{fmt(pr)}</b> · </> : null}Прокнижено на {a.konto}: Побарува <b>{fmt(odM)}</b> · Должи <b>{fmt(prM)}</b> ден.</span>
+                      <span>{fx ? <>Во {a.cur}: должува <b>{fmt(od)}</b> · побарува <b>{fmt(pr)}</b> · </> : null}Прокнижено на {a.konto}: Побарува <b>{fmt(odM)}</b> · Должи <b>{fmt(prM)}</b> ден.{probs ? <> · <b style={{ color: 'var(--bad)' }}>непрокнижени {probs}</b></> : null}</span>
                       {tot === null ? <span className="pill">внесете ги износите од изводот за контрола</span> : tot ? <span className="pill good">изводот е затворен</span> : <span className="pill bad">разлика со изводот</span>}
                       <span style={{ flex: 1 }} />
                       {write && <button className="btn sm">Зачувај</button>}
@@ -483,8 +492,16 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                       {del && <RowAction action={deleteStatementAction.bind(null, s.id)} label="Избриши извод" className="btn sm ghost danger" confirm={`Да се избрише изводот од ${dmy(s.date)} со ${its.length} ставки и налогот?`} />}
                     </span>
                   </BankForm>
+                  {write && probs > 0 && (
+                    <BankForm action={bookAllAction} className="row" style={{ gap: 8, marginTop: 4, alignItems: 'center' }}
+                      confirm={`Да се прокнижат ${ready} ставки по предлогот (спротивно конто покрај секоја ставка)? Ставките без предлог остануваат за рачно книжење.`}>
+                      <input type="hidden" name="st" value={s.id} />
+                      <button className="btn sm pri" disabled={!ready}>✓ Прокнижи ги сите по предлогот ({ready}/{probs})</button>
+                      {ready < probs && <span className="note">{probs - ready} без предлог – изберете конто со „Прокнижи…“</span>}
+                    </BankForm>
+                  )}
                 </td></tr>,
-                ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id })} active={l.id === sp.line} unlinked={unlIds.has(l.id)} bulk={admin} />),
+                ...its.map((l) => <LineRow key={l.id} l={l} fx={fx} kName={kName} pName={pName} write={write} del={del} href={q({ line: l.id }) + '#bk-line'} active={l.id === sp.line} unlinked={unlIds.has(l.id)} bulk={admin} sugg={suggs.get(l.id)} />),
               ];
             })}
           </tbody>
@@ -494,8 +511,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   );
 }
 
-function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk }: {
+function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk, sugg }: {
   l: BankLine; fx: boolean; kName: (k: string | null | undefined) => string; pName: Map<string, string>; write: boolean; del: boolean; href: string; active: boolean; unlinked?: boolean; bulk?: boolean;
+  sugg?: LineSuggestion;
 }) {
   const amt = Number(l.amount);
   const cur = l.amountCur != null ? Number(l.amountCur) : null;
@@ -537,7 +555,14 @@ function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk
         ) : prob ? (
           <div className="row" style={{ gap: 4 }}>
             <span className="pill bad">{prob}</span>
+            {write && sugg?.konto && !sugg.missing && (
+              <BankForm action={bookAllAction} className="row" style={{ gap: 4 }}>
+                <input type="hidden" name="st" value={l.statementId} /><input type="hidden" name="only" value={l.id} />
+                <button className="btn sm pri" title={sugg.why}>✓ {sugg.konto} {kName(sugg.konto).slice(0, 28)}</button>
+              </BankForm>
+            )}
             {write && <Link className="btn sm" href={href}>Прокнижи…</Link>}
+            {sugg && <small className="note" style={sugg.missing || !sugg.konto ? { color: 'var(--bad)' } : undefined}>{sugg.konto ? 'предлог: ' : ''}{sugg.why}{sugg.partnerId ? ' · ' + (pName.get(sugg.partnerId) ?? '') : ''}</small>}
           </div>
         ) : null}
       </td>
