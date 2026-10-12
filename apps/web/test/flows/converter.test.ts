@@ -6,20 +6,34 @@
 import { eq } from 'drizzle-orm';
 import * as XLSX from 'xlsx';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { AI_ERR_MSG } from '@wise/core/ai/errors';
+import { AI_ERR_MSG, AI_PING_OK } from '@wise/core/ai/errors';
 import { convApply, convAuto, convCheck, convSig, convTarget, type ConvCell } from '@wise/core/convert/index';
 import { IMP_T, impAuto, impHeaderRow } from '@wise/core/retail/import';
-import { getAiSettings, schema } from '@wise/db';
+import { getAiSettings, noteAiFailure, schema } from '@wise/db';
 import { form, pg, setupDb, signIn, useFirm, useYear } from '../harness';
 
 vi.mock('@/lib/db', () => import('../harness').then((h) => h.dbModule));
 vi.mock('next/headers', () => import('../harness').then((h) => h.headersModule));
 vi.mock('next/cache', () => import('../harness').then((h) => h.cacheModule));
 const sent: { name: string; data: unknown }[] = [];
-vi.mock('@/lib/jobs', () => ({ enqueue: async (name: string, data: unknown) => { sent.push({ name, data }); return 'job'; } }));
+/** The worker's answer to `ai.ping` in these tests (null = the worker does not answer). */
+const ping: { reply: { ok: boolean; msg: string; code?: 'credit' | null } | null } = { reply: null };
+vi.mock('@/lib/jobs', () => ({
+  enqueue: async (name: string, data: { id?: string }) => {
+    sent.push({ name, data });
+    if (name === 'ai.ping' && ping.reply) {
+      const D = await import('@wise/db');
+      const h = await import('../harness');
+      if (ping.reply.ok) await D.clearAiFailure(h.pg as never);
+      await D.noteAiPing(h.pg as never, { ...ping.reply, id: data.id });
+    }
+    return 'job';
+  },
+}));
 
 const { setAiEnabledAction } = await import('@/app/(app)/sistem/actions');
 const { aiReadStatus, retryAiRead } = await import('@/app/(app)/_ai/actions');
+const { aiPingAction } = await import('@/app/(app)/aiCitanje/actions');
 const { saveConvPreset, listConvPresets, deleteConvPreset, readPdfGrid } = await import('@/app/(app)/konvertor/actions');
 const { readFirmsFile, importFirms } = await import('@/app/(app)/firmiImp/actions');
 const { importAction } = await import('@/app/(app)/_retail/actions');
@@ -62,6 +76,26 @@ describe('AI on / off and failed reads', () => {
     expect(x).toMatchObject({ status: 'queued', error: null });
     expect(x!.options).toMatchObject({ retry: true });
     expect(sent.at(-1)).toEqual({ name: 'ai.read-document', data: { docId: d!.id } });
+  });
+
+  it('„🔎 Провери го AI-кредитот сега“: administrator only, queues ai.ping and returns the worker\'s answer; success clears the block', async () => {
+    await noteAiFailure(pg as never, 'credit', 'x');
+    ping.reply = { ok: true, msg: AI_PING_OK, code: null };
+    expect(await aiPingAction()).toEqual({ ok: AI_PING_OK });
+    expect(sent.at(-1)!.name).toBe('ai.ping');
+    expect((await getAiSettings(pg as never)).lastFail).toBeNull();
+    const [a] = await pg.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'aiPing'));
+    expect(a).toBeTruthy();
+
+    ping.reply = { ok: false, msg: AI_ERR_MSG.credit, code: 'credit' };
+    expect(await aiPingAction()).toEqual({ error: AI_ERR_MSG.credit });
+
+    await signIn('knigovoditel', { firms: [firmId] });
+    const n = sent.length;
+    expect((await aiPingAction()).error).toBeTruthy();
+    expect(sent.length).toBe(n);
+    await signIn('admin');
+    ping.reply = null;
   });
 });
 

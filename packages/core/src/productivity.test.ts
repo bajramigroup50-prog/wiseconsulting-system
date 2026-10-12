@@ -29,7 +29,7 @@ describe('classifyAction', () => {
     expect(classifyAction('tNew', 'office_task')).toMatchObject({ cat: 'kanc', verb: 'c' });
   });
   it('excludes sign-in, settings and downloads', () => {
-    for (const a of ['login', 'logout', 'uMyPass', 'invStyle', 'pdfRender', 'ublDl', 'bankFmt', 'ownerSet', 'backupJson']) expect(classifyAction(a), a).toBeNull();
+    for (const a of ['login', 'logout', 'uMyPass', 'invStyle', 'pdfRender', 'ublDl', 'bankFmt', 'ownerSet', 'backupJson', 'aiSwitch', 'aiPing']) expect(classifyAction(a), a).toBeNull();
     expect(classifyAction('fkPost', 'firm')).toBeNull(); // the firm-setting use of the name
     expect(classifyAction('fkPost', 'sales_daily')).toMatchObject({ cat: 'magacin', verb: 'c' });
   });

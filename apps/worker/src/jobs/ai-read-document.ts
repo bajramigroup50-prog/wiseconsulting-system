@@ -12,6 +12,10 @@
  * timeout) are stored as a clear Macedonian message (`@wise/core/ai/errors`) with the code and the raw text in
  * `options.errCode` / `options.errDetail`; credit / key failures are remembered office-wide (`app_settings.ai`).
  *
+ * A read blocked by an earlier failure says so („AI е привремено паузирано поради претходна грешка … во HH:MM“, not
+ * „the credit is exhausted“), and when that failure is older than 2 minutes the reader first runs a quick automatic
+ * `ai.ping` (at most once per 2 minutes, `./ai-ping.ts`) — a topped-up credit is picked up without user action.
+ *
  * Without AI (switched off in Систем, no key, credit / key failure in the last 15 minutes, or the AI call failed):
  * bank statements, trial balances and invoices with a text layer / XML / CSV are read by the free readers
  * (`../ai/free-read.ts`, model `noai`); other documents get the message with the free import paths. Inspection acts
@@ -24,7 +28,8 @@ import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
 import { defineJob } from '../job';
-import { AI_ERR_BLOCKING, AI_ERR_MSG, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
+import { AI_ERR_BLOCKING, AI_ERR_MSG, aiBlockedMsg, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
+import { runAiPing, shouldAutoPing } from './ai-ping';
 import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_KINDS, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
@@ -53,9 +58,15 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   const [f] = await db.select().from(firms).where(eq(firms.id, doc.firmId)).limit(1);
   if (!f) return;
   await db.update(aiDocuments).set({ status: 'reading', error: null }).where(eq(aiDocuments.id, docId));
-  const S = await getAiSettings(db);
+  let S = await getAiSettings(db);
   const retry = !!(doc.options as { retry?: boolean }).retry;
-  const blocked = !!S.lastFail && !retry && Date.now() - Date.parse(S.lastFail.at) < BLOCK_MS;
+  let blocked = !!S.lastFail && !retry && Date.now() - Date.parse(S.lastFail.at) < BLOCK_MS;
+  // blocked by an older credit / key failure: a quick automatic check (at most once per 2 minutes) picks up a top-up
+  if (blocked && aiConfigured() && shouldAutoPing(S)) {
+    const p = await runAiPing(db, { auto: true });
+    log(`auto ai.ping: ${p.ok ? 'ok' : p.code}`);
+    if (p.ok) { S = await getAiSettings(db); blocked = false; }
+  }
   /** Why AI is not used for this read (null = use AI). */
   const noAi: AiErrCode | null = !S.enabled ? 'off' : !aiConfigured() ? 'nokey' : blocked ? S.lastFail!.code : null;
   /** Free read of the document's file; null when not possible. */
@@ -76,7 +87,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   const fallback = async (code: AiErrCode, detail = ''): Promise<{ result: unknown; model: string }> => {
     const r = await free();
     if (r) return { result: r, model: NOAI_MODEL };
-    const why = code === 'nokey' ? new AiUnavailableError().message : AI_ERR_MSG[code];
+    // not a fresh provider error: AI was skipped because of an earlier credit / key failure — say so (with its time)
+    const why = code === 'nokey' ? new AiUnavailableError().message
+      : blocked && !detail && S.lastFail && code === S.lastFail.code ? aiBlockedMsg(code, S.lastFail.at) : AI_ERR_MSG[code];
     // inspection act without a text layer: say it is a scan and what to do next (AI or manual entry), then why AI failed
     if (doc.kind === 'kontrola') throw new ReadFail(code, `${KONTROLA_SCAN_MSG} (${/^.*?[.!](?=\s|$)/.exec(why)?.[0] ?? why})`, detail);
     throw new ReadFail(code, why, detail);
