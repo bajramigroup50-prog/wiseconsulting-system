@@ -15,6 +15,7 @@
  * (or `FIX(P8 #n)` for §8.4).
  */
 import { r2 } from './money';
+import { partnerSplit, tbAmountCols, tbBlocks, tbKontoCol, tbPreferredBlock, tbRebuild } from './tb-rows';
 import { AmbiguousAmountsError, ambExamples, colFormat, parseNumAuto, reconcileFmt, type NumFmt } from './numfmt';
 import { closeYearLines as yeCloseYearLines, openYearLines as yeOpenYearLines, YEAR_RESULT_ACCOUNTS } from './yearend/close';
 
@@ -630,65 +631,90 @@ function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' |
     [/\b(naziv|opis|name|description|emri)\b/g, 'назив'], [/\b(partner|komitent|kupuva[cč]|dobavuva[cč]|subjekt)\b/g, 'партнер'],
     [/\b(edb|embs|[sš]ifra)\b/g, 'шифра'], [/\b(vkupno|zbir|suma|total)\b/g, 'вкупно'],
   ];
-  const low = (r: readonly unknown[] | undefined) => (r ?? []).map((c) => HEAD_ALIAS.reduce((x, [re, to]) => x.replace(re, to), String(c ?? '').toLowerCase()));
+  // „Д“ / „П“ (and „Dug.“ / „Pot.“) alone under a block heading („Салдо“ → Д | П)
+  const dp = (x: string) => (/^(д|д\.|дол\.?|dr\.?|d\.?)$/.test(x) ? 'должи' : /^(п|п\.|поб\.?|пот\.?|cr\.?|p\.?|pot\.?)$/.test(x) ? 'побарува' : x);
+  const low = (r: readonly unknown[] | undefined) => (r ?? []).map((c) => dp(HEAD_ALIAS.reduce((x, [re, to]) => x.replace(re, to), String(c ?? '').toLowerCase()).trim()));
+  // header row: a short „Конто“ heading with amount headings in the same row or the row below (a firm line „Жиро
+  // сметка 300-…“ above the table is not a header); else the first row with a konto heading (legacy)
+  const isK = (c: string) => /конто|сметка|konto/.test(c) && c.length <= 30;
   let hi = -1;
-  for (let i = 0; i < Math.min(A.length, 25); i++) if (low(A[i]).some((c) => /конто|сметка|konto/.test(c))) { hi = i; break; }
+  for (let i = 0; i < Math.min(A.length, 40) && hi < 0; i++) {
+    const L = low(A[i]);
+    if (L.some(isK) && (L.some((c) => /долж|побар|салдо/.test(c)) || low(A[i + 1]).some((c) => /^долж|^побар/.test(c)))) hi = i;
+  }
+  // (a data row „1000 | Жиро сметка | …“ is not a heading)
+  for (let i = 0; i < Math.min(A.length, 25) && hi < 0; i++) { const L = low(A[i]); if (L.some(isK) && !L.some((c) => /^\d{3,8}$/.test(c))) hi = i; }
+  let H: string[], start: number, top: number, cK: number, cN: number, cP = -1, cC = -1, cD = -1, cR = -1, cS = -1;
+  const outSrc: 'excel' | 'csv' = hi < 0 ? 'csv' : src;
   if (hi < 0) {
-    /* no header: konto; name; debit; credit */
-    const rows: ObRow[] = [];
-    for (const c of A) {
-      const k = digitsOnly(c[0]);
-      if (!/^\d{3,8}$/.test(k) || (String(c[0]).trim() !== k && !/^\s*\d/.test(String(c[0])))) continue;
-      let d = parseAmount(c[c.length - 2]), p = parseAmount(c[c.length - 1]);
-      if (c.length === 3) { const v = parseAmount(c[2]); d = v > 0 ? v : 0; p = v < 0 ? -v : 0; }
-      rows.push([k, String(c[1] ?? ''), '', '', d, p]);
+    /* no header (legacy: konto; name; debit; credit): the konto column and the amount columns by their values */
+    const G = A.slice(0, 300);
+    const width = Math.max(0, ...G.map((r) => r.length));
+    cK = tbKontoCol(G);
+    if (cK < 0) return null;
+    const num = tbAmountCols(G, new Set([cK]), fmt, cK + 1);
+    cN = -1;
+    for (let j = cK + 1; j < width && cN < 0; j++) if (!num.includes(j) && G.some((r) => String(r[j] ?? '').trim())) cN = j;
+    if (num.length >= 2) { cD = num[num.length - 2]!; cR = num[num.length - 1]!; } else if (num.length === 1) cS = num[0]!; else return null;
+    H = []; start = 0; top = 0;
+  } else {
+    // a block row above („Почетно салдо | Промет | Салдо“ over „Д | П“ …) is combined, a title / firm line is not
+    const up = hi > 0 ? low(A[hi - 1]) : [];
+    const useUp = up.some((c) => /салдо|промет|почетн|вкупно|состојба|кумулат/.test(c)) && up.every((c) => c.length <= 40) && !up.some(isK);
+    let last = '';
+    const upF = useUp ? up.map((c) => (c ? (last = c) : last)) : [];
+    H = low(A[hi]).map((c, i) => ((upF[i] || '') + ' ' + c).trim());
+    const H2 = low(A[hi + 1]);
+    start = hi + 1;
+    top = useUp ? hi - 1 : hi;
+    if (H2.some((c) => /^долж|^побар/.test(c)) && !H2.some((c) => /^\d{3,6}$/.test(c))) {
+      let l2 = '';
+      const hf = H.map((c) => (c ? (l2 = c) : l2));
+      for (let i = 0; i < H.length || i < H2.length; i++) H[i] = ((hf[i] || '') + ' ' + (H2[i] || '')).trim();
+      start = hi + 2;
     }
-    if (probe) return rows.length ? { cells } : null;
-    return rows.length ? { rows, totals: [], src: 'csv' } : null;
+    const col = (re: RegExp) => H.findIndex((c) => re.test(c));
+    cK = col(/конто|сметка|konto/); cN = col(/назив на конто|назив|опис/);
+    cP = col(/партнер|комитент|купувач|добавувач|субјект/); cC = col(/шифра на (партнер|комитент)|едб|даночен|шифра/);
+    // multi-block trial balance: the closing saldo (never the opening one), else the cumulative totals (netted on import)
+    const B = tbPreferredBlock(tbBlocks(H));
+    if (B) { cD = B.d; cR = B.p; } else {
+      const dI = H.map((c, i) => (/долж/.test(c) ? i : -1)).filter((i) => i >= 0);
+      const pI = H.map((c, i) => (/побар/.test(c) ? i : -1)).filter((i) => i >= 0);
+      if (dI.length && pI.length) { cD = dI[dI.length - 1]!; cR = pI[pI.length - 1]!; } else cS = col(/салдо/);
+    }
+    if (cK < 0 || (cD < 0 && cS < 0)) return null;
   }
-  const up = hi > 0 ? low(A[hi - 1]) : [];
-  let last = '';
-  const upF = up.map((c) => (c ? (last = c) : last));
-  const H = low(A[hi]).map((c, i) => ((upF[i] || '') + ' ' + c).trim());
-  const H2 = low(A[hi + 1]);
-  let start = hi + 1;
-  if (H2.some((c) => /^долж|^побар/.test(c)) && !H2.some((c) => /^\d{3,6}$/.test(c))) {
-    let l2 = '';
-    const hf = low(A[hi]).map((c) => (c ? (l2 = c) : l2));
-    for (let i = 0; i < H.length || i < H2.length; i++) H[i] = ((hf[i] || '') + ' ' + (H2[i] || '')).trim();
-    start = hi + 2;
-  }
-  const col = (re: RegExp) => H.findIndex((c) => re.test(c));
-  const cK = col(/конто|сметка|konto/), cN = col(/назив на конто|назив|опис/);
-  const cP = col(/партнер|комитент|купувач|добавувач|субјект/), cC = col(/шифра на (партнер|комитент)|едб|даночен|шифра/);
-  let cD = H.findIndex((c) => /салдо/.test(c) && /долж/.test(c)), cR = H.findIndex((c) => /салдо/.test(c) && /побар/.test(c)), cS = -1;
-  if (cD < 0 || cR < 0) {
-    const dI = H.map((c, i) => (/долж/.test(c) ? i : -1)).filter((i) => i >= 0);
-    const pI = H.map((c, i) => (/побар/.test(c) ? i : -1)).filter((i) => i >= 0);
-    if (dI.length && pI.length) { cD = dI[dI.length - 1]!; cR = pI[pI.length - 1]!; } else cS = col(/салдо/);
-  }
-  if (cK < 0 || (cD < 0 && cS < 0)) return null;
   const rows: ObRow[] = [], totals: [string, number, number][] = [];
   let curK = '';
-  for (let i = start; i < A.length; i++) {
-    const c = A[i];
-    if (!c || !c.length) continue;
-    const raw = String(c[cK] ?? '').trim();
-    const k = digitsOnly(raw);
+  // the same row reconstruction as the converter (`tb-rows.ts`): continuation lines, amounts on their own line, page
+  // headers, class headings and total rows
+  const RB = tbRebuild(A.slice(start), { k: cK, name: cN, partner: cP, code: cC, amt: [cD, cR, cS] }, { pre: A.slice(0, top), fmt, firstRow: start });
+  for (const it of RB.items) {
+    const c = it.cells;
+    const k = it.k;
     const same = cP >= 0 && cP === cN;
     let pn = cP >= 0 ? String(c[cP] ?? '').trim() : '';
     let nn = cN >= 0 ? String(c[cN] ?? '').trim() : '';
     if (same) { if (k && !/^(12|13|15|16|22|23|25|26)/.test(k)) pn = ''; else if (k) nn = ''; }
-    const d = cS >= 0 ? Math.max(0, parseAmount(c[cS])) : parseAmount(c[cD]);
-    const p = cS >= 0 ? Math.max(0, -parseAmount(c[cS])) : parseAmount(c[cR]);
-    if (/вкупно|збир|сума|total/i.test(raw + ' ' + nn + ' ' + pn)) { if (k) totals.push([k, d, p]); continue; }
+    // headerless legacy row „konto;name;saldo“ (shorter than the debit / credit columns): one signed saldo
+    const sC = cS >= 0 ? cS : hi < 0 && c.length <= cR ? c.length - 1 : -1;
+    const d = sC >= 0 ? Math.max(0, parseAmount(c[sC])) : parseAmount(c[cD]);
+    const p = sC >= 0 ? Math.max(0, -parseAmount(c[sC])) : parseAmount(c[cR]);
+    if (it.kind === 'total') { if (k) totals.push([k, d, p]); continue; }
     if (/^\d{3,8}$/.test(k)) curK = k;
-    else if (!(!k && (pn || nn) && curK)) continue;
+    else if (hi < 0 || !(!k && (pn || nn) && curK)) continue;
     if (!r2(d) && !r2(p)) continue;
-    rows.push([k || curK, k ? nn : '', pn || (!k && nn ? nn : ''), cC >= 0 ? String(c[cC] ?? '').trim() : '', d, p]);
+    let code = cC >= 0 ? String(c[cC] ?? '').trim() : '';
+    let partner = pn || (!k && nn ? nn : '');
+    // „1029 МАЈАНЦЕ“ in the partner cell: partner code + name
+    if (partner && !code) { const ps = partnerSplit(partner); if (ps.code) { partner = ps.name; code = ps.code; } }
+    // „1200-001“: the analytic suffix as the code
+    if (!code && it.sub) code = it.sub;
+    rows.push([k || curK, k ? nn : '', partner, code, d, p]);
   }
   if (probe) return rows.length ? { cells } : null;
-  return rows.length ? { rows, totals, src } : null;
+  return rows.length ? { rows, totals, src: outSrc } : null;
 }
 
 /** Legacy `obDropSums` 10659: drop synthetic rows that are sums of their sub-accounts / partner rows. */
