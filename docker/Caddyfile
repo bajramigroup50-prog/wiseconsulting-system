@@ -4,6 +4,13 @@
 	default_sni {$IP_HOST:localhost}
 }
 
+# Office-only access: ALLOW_IPS in /opt/wise/.env (space-separated IPs / CIDRs). Empty = open to everyone.
+# Any other address gets the connection closed without a response (no login page, nothing to find).
+(office_only) {
+	@outside not remote_ip {$ALLOW_IPS}
+	abort @outside
+}
+
 (security) {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -14,6 +21,7 @@
 }
 
 {$DOMAIN} {
+	import office_only
 	encode zstd gzip
 	import security
 	request_body {
@@ -28,6 +36,7 @@ www.{$DOMAIN} {
 
 # Presigned uploads/downloads go straight to the S3 store (SeaweedFS S3 API only).
 files.{$DOMAIN} {
+	import office_only
 	request_body {
 		max_size 110MB
 	}

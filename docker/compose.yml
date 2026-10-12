@@ -98,7 +98,7 @@ services:
     restart: unless-stopped
     depends_on: [app, s3]
     ports: ["80:80", "443:443", "443:443/udp"]
-    environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}" }
+    environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}", ALLOW_IPS: "${ALLOW_IPS:-0.0.0.0/0 ::/0}" }
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
