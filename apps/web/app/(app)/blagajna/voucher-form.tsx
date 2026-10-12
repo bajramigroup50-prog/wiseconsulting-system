@@ -70,7 +70,7 @@ export function VoucherForm({ init, registers, partners, kontos, fx, ddv, curs, 
       date: x.date, docNo: x.docNo, merchant: x.merchant, vatId: x.vatId, country: x.country, cur: x.cur, amt: x.amt === '' ? '' : String(x.amt),
       fx: x.fx === '' ? '' : String(x.fx), rate: x.rate, vat: x.vat === '' ? '' : String(x.vat), cat: x.cat, konto: x.konto, liters: x.liters === '' ? '' : String(x.liters),
     });
-    setUp('🤖 ' + d.name + ' – прочитано, проверете ги податоците');
+    setUp((d.result as { noai?: boolean } | null)?.noai ? '📄 ' + d.name + ' – прочитано без AI – проверете ги податоците' : '🤖 ' + d.name + ' – прочитано, проверете ги податоците');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docs]);
 

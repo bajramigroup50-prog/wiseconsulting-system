@@ -2,7 +2,8 @@
  * Reading without AI (free): used when AI reading is switched off, the credit is exhausted / the key refused, or the
  * AI call failed. Covers what has a machine-readable form — bank statements (PDF with a text layer, XML, CSV/TXT,
  * MT940, KB), trial balances (text PDF, CSV), invoices (UBL XML is read before AI anyway; text PDF here) and
- * inspection records / decisions (text PDF, .docx, .txt). The
+ * inspection records / decisions (text PDF, .docx, .txt), fiscal reports and fiscal receipts (text PDF / text export,
+ * accepted only when their sums check — ./free-docs.ts). The
  * result has the same shape as the AI read, so the screens and drafts work unchanged; `model` is `noai`.
  * Scanned PDFs and photos have no text layer → null (the caller reports that AI is needed). Amounts that stay
  * ambiguous („10.000“, nothing reconciles) throw `AmbiguousAmountsError` — the read is flagged, not guessed.
@@ -18,6 +19,7 @@ import { kontrolaFromPdf, kontrolaFromText } from '@wise/core/noai/kontrola';
 import type { ScanResult } from '@wise/core/sales';
 import { pdfTextItems } from './pdf-text';
 import { docxText } from './docx-text';
+import { freeDocRead } from './free-docs';
 
 export const NOAI_MODEL = 'noai';
 const isPdf = (f: { name: string; mime: string }) => f.mime === 'application/pdf' || /\.pdf$/i.test(f.name);
@@ -32,6 +34,8 @@ async function lines(bytes: Uint8Array): Promise<PdfLine[]> {
 /** Free read of one file for a kind; null when this kind / file cannot be read without AI. */
 export async function freeRead(kind: string, file: { name: string; mime: string }, bytes: Uint8Array, o: { ownEdb?: string | null } = {}): Promise<unknown | null> {
   if (kind === 'kontrola') return kontrolaFree(file, bytes);
+  // fiscal reports / fiscal receipts as text PDF or text export: only a read whose checks pass (./free-docs.ts)
+  if (kind === 'fisk' || kind === 'blg') return (await freeDocRead(kind, file, bytes)).result;
   if (kind === 'bank') {
     // a table that is found but not readable throws `BankPdfError` with the row / column (shown on the read)
     if (isPdf(file)) return statementFromPdfItems(await textItems(bytes));
@@ -60,7 +64,7 @@ export async function freeRead(kind: string, file: { name: string; mime: string 
 }
 
 /** Kinds that have a free reader (the others need AI). */
-export const FREE_KINDS: ReadonlySet<string> = new Set(['bank', 'ob', 'purchase', 'sale', 'kontrola']);
+export const FREE_KINDS: ReadonlySet<string> = new Set(['bank', 'ob', 'purchase', 'sale', 'kontrola', 'fisk', 'blg']);
 
 /** Inspection record / decision (kind `kontrola`): text PDF, .docx or .txt; a scan / photo has no text → null. */
 async function kontrolaFree(file: { name: string; mime: string }, bytes: Uint8Array): Promise<unknown | null> {
