@@ -105,7 +105,7 @@ function sample(t: ConvTarget, key: string, i: number): string {
   const S: Record<string, string> = {
     konto: '1200', edb: '4030000000011', embs: '7000011', embg: '0101990450000', code: 'C' + i, barcode: '5310000000017', k: '1000', wh: '01',
     ops: '183', fzo: '4061', bank: '200000000000000', email: 'a@b.mk', phone: '070000000', type: 'стока', ddv: 'да', number: 'F-1', no: '7',
-    osnov: '930', ref: 'R1', unit: 'ком', lf: 'ДООЕЛ',
+    osnov: '930', ref: 'R1', unit: 'ком', lf: 'ДООЕЛ', acc: '300000000012345',
   };
   return S[key] ?? (t.id === 'pay' && key === 'name' ? 'Петар Петровски' : 'Текст ' + key);
 }

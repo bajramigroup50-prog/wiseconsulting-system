@@ -13,6 +13,9 @@ export interface PdfLine { page: number; y: number; cells: PdfCell[]; /** text h
 
 const clean = (s: string) => s.replace(/\s+/g, ' ');
 
+/** Two text lines closer than this × the text height are one printed row (baseline offset); shared with `pdf-rows.ts`. */
+export const OFFSET_TOL = 0.9;
+
 /** Group the items into lines (top → bottom, page by page) and cells (left → right). */
 export function pdfLines(items: readonly PdfItem[]): PdfLine[] {
   const I = items.filter((i) => i.s && i.s.trim()).slice().sort((a, b) => a.page - b.page || b.y - a.y || a.x - b.x);
@@ -49,7 +52,7 @@ function mergeOffsetLines(L: (PdfLine & { h: number })[]): PdfLine[] {
   const out: (PdfLine & { h: number })[] = [];
   for (const l of L) {
     const p = out[out.length - 1];
-    const close = p && p.page === l.page && Math.abs(p.y - l.y) < 0.9 * Math.max(p.h, l.h);
+    const close = p && p.page === l.page && Math.abs(p.y - l.y) < OFFSET_TOL * Math.max(p.h, l.h);
     const overlap = p && l.cells.some((c) => p.cells.some((q) => Math.min(q.x1, c.x1) - Math.max(q.x0, c.x0) > -1));
     if (p && close && !overlap) { p.cells = [...p.cells, ...l.cells].sort((a, b) => a.x0 - b.x0); p.h = Math.max(p.h, l.h); }
     else out.push({ ...l, cells: [...l.cells] });

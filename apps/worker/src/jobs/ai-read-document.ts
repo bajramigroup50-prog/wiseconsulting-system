@@ -67,6 +67,8 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     } catch (e) {
       // ambiguous amounts („10.000“) that the totals do not decide: flagged, never guessed
       if (e instanceof Error && e.name === 'AmbiguousAmountsError') throw new ReadFail('noai', e.message);
+      // a statement table found but not readable: the reason (row / column) instead of the generic message
+      if (e instanceof Error && e.name === 'BankPdfError') throw new ReadFail('noai', e.message);
       return null;
     }
   };
@@ -104,6 +106,17 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   };
   try {
     if (RESULT_KINDS.has(doc.kind)) {
+      // a bank statement PDF with a text layer whose balances reconcile (opening + movements = closing) is read
+      // exactly without AI — no tokens, no misread digits; otherwise (scan, no balances, not reconciling) AI reads it
+      if (!noAi && doc.kind === 'bank') {
+        let r: unknown = null;
+        try { r = await free(); } catch { r = null; }
+        if (r && (r as { balanced?: boolean | null }).balanced === true && !((r as { warnings?: unknown[] }).warnings?.length)) {
+          await db.update(aiDocuments).set({ status: 'done', result: r, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
+          log(`${docId}: bank statement read from the PDF text (reconciled), no AI`);
+          return;
+        }
+      }
       const { result, model } = noAi ? await fallback(noAi) : (await freeOnly()) ?? await viaAi(() => readResultKind(db, doc, f));
       await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
       log(`${docId}: ${doc.kind} read via ${model}`);

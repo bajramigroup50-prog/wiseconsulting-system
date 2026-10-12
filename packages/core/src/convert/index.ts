@@ -10,14 +10,15 @@
  * nivel), the opening balance / trial balance (`parseOpeningSheet`), bank statements (`parseBankTable`), firms
  * (`fimpParse`) and the payroll month (`plxParse`).
  */
-import { parseBankTable } from '../bank-parsers';
+import { readBankTable } from '../bank-parsers';
+import { prepBankGrid, type BankRole } from '../bank/table';
 import { fimpParse, fimpVatFlag, fimpVatPeriod } from '../firms/firmimp';
 import { dropSummaryRows, parseOpeningSheet, type ObRow } from '../ledger';
 import { partnerSplit, tbAmountCols, tbBlocks, tbKontoCol, tbPreferredBlock, tbRebuild, tbTotals, type TbBlock, type TbSkipWhy } from '../tb-rows';
 import { plxParse, PXL_COLS, type PxlKey } from '../payroll/xlsx-import';
 import { IMP_T, impAuto, impDate, impHeaderRow, impN, impNum, impNumFormats, type DecMode, type ImpType } from '../retail/import';
 import { parseXml, type XmlEl } from '../sales/xml';
-import { numStr } from '../numfmt';
+import { colFormat, numStr } from '../numfmt';
 
 export type ConvKind = 'text' | 'num' | 'date';
 export interface ConvField {
@@ -38,9 +39,33 @@ export interface ConvTarget {
   /** File / sheet name of the download. */
   file: string;
   /** Rows → target grid (header = the importer's headings). Default: one column per field, in field order. */
-  build?: (recs: readonly ConvRec[]) => ConvCell[][];
+  build?: (recs: readonly ConvRec[], meta?: ConvMeta) => ConvCell[][];
+  /**
+   * Normalise a source grid for this target (bank: header over several rows, multi-line transactions, split cells,
+   * statement data from the header block). Null = the grid is used as it is.
+   */
+  prepare?: (grid: readonly (readonly unknown[])[], hi?: number) => ConvPrep | null;
   /** Read a target grid back with the importer's own parser → records keyed like `fields` (normalised values). */
   check: (grid: readonly (readonly unknown[])[]) => { rows: ConvRec[]; error?: string };
+}
+
+/** Statement-level data of a source (bank: number, date, account, balances as printed). */
+export type ConvMeta = Record<string, string | null | undefined>;
+
+/** A source grid prepared for a target (`ConvTarget.prepare`). */
+export interface ConvPrep {
+  /** Rows above the header as they were, the (combined) header row, one row per record. */
+  grid: unknown[][];
+  hi: number;
+  /** Column per field found by the target itself. */
+  map: Record<string, number>;
+  /** Values for fields from the header block („од заглавјето“), in the form typed in the converter (dates dd.mm.yyyy). */
+  hdr: Record<string, string>;
+  meta: ConvMeta;
+  /** Source row number (1-based) of each record row, for messages. */
+  rowNos: number[];
+  /** What was recognised (shown above the mapping). */
+  note: string;
 }
 
 const syn = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
@@ -125,28 +150,70 @@ const obTarget: ConvTarget = {
 
 /* ------------------------------------------------------------------ bank statement */
 
-const BANK_HEAD = ['Датум', 'Налогодавач / примач', 'Цел на дознака', 'Референца', 'Шифра на плаќање', 'Прилив', 'Одлив'];
+const BANK_HEAD = ['Датум', 'Налогодавач / примач', 'Сметка', 'Цел на дознака', 'Референца', 'Шифра на плаќање', 'Прилив', 'Одлив'];
+const ROLE_FIELD: Partial<Record<BankRole, string>> = { date: 'date', name: 'name', account: 'acc', purpose: 'purpose', ref: 'ref', code: 'osnov', credit: 'in', debit: 'out', amount: 'amount' };
+const DIR_HEAD = /^(д\s*\/\s*п|d\s*\/\s*c|db\s*\/\s*cr|тип|tip|насока)$/i;
 const bankTarget: ConvTarget = {
   id: 'bank', title: 'Банкарски извод', href: '/banka', where: 'Банка › Увоз на извод (Excel)', file: 'Izvod',
   fields: [
     { key: 'date', label: 'Датум', req: true, syn: syn('датум на книжење,датум,дата,date,data,valuta'), kind: 'date' },
     { key: 'name', label: 'Налогодавач / примач', syn: syn('налогодавач,примач,партнер,назив,корисник,name,partner,emri,nalogodavac,primac'), kind: 'text' },
+    { key: 'acc', label: 'Сметка на налогодавач / примач', syn: syn('сметка на налогодавач,жиро сметка,број на сметка,account,iban'), kind: 'text' },
     { key: 'purpose', label: 'Цел на дознака', syn: syn('цел на дознака,цел,опис,намена,детали,purpose,description,pershkrimi,opis'), kind: 'text' },
     { key: 'ref', label: 'Референца', syn: syn('референца,реф,reference,ref,повикување'), kind: 'text' },
-    { key: 'osnov', label: 'Шифра на плаќање', syn: syn('шифра на плаќање,основ,sifra,code'), kind: 'text' },
-    { key: 'in', label: 'Прилив', syn: syn('прилив,побарува,во корист,уплата,credit,hyrje,priliv'), kind: 'num' },
-    { key: 'out', label: 'Одлив', syn: syn('одлив,должи,на товар,исплата,debit,dalje,odliv'), kind: 'num' },
+    { key: 'osnov', label: 'Шифра на плаќање', syn: syn('шифра на плаќање,шифра,основ,sifra,code'), kind: 'text' },
+    { key: 'in', label: 'Прилив', syn: syn('прилив,побарува,одобрува,одобрување,во корист,уплата,credit,hyrje,priliv'), kind: 'num' },
+    { key: 'out', label: 'Одлив', syn: syn('одлив,должи,задолжува,задолжување,на товар,исплата,debit,dalje,odliv'), kind: 'num' },
     { key: 'amount', label: 'Износ (+ прилив / − одлив)', syn: syn('износ,amount,shuma,iznos'), kind: 'num' },
   ],
-  build: (R) => [BANK_HEAD, ...R.map((r) => {
-    let i = Number(r.in) || 0, o = Number(r.out) || 0;
-    if (!i && !o && r.amount !== undefined) { const a = Number(r.amount) || 0; i = a > 0 ? a : 0; o = a < 0 ? -a : 0; }
-    return [String(r.date ?? ''), String(r.name ?? ''), String(r.purpose ?? ''), String(r.ref ?? ''), String(r.osnov ?? ''), i ? r2(i) : '', o ? r2(o) : ''];
-  })],
+  // statement data above / below the table, so the bank import reads number, account and balances as from the bank
+  build: (R, meta = {}) => {
+    const pre: ConvCell[][] = [];
+    if (meta.no) pre.push([`Извод бр. ${meta.no}`]);
+    if (meta.date) pre.push([`Датум на извод: ${meta.date}`]);
+    if (meta.account) pre.push([`Сметка: ${meta.account}`]);
+    if (meta.opening) pre.push(['Претходна состојба:', meta.opening]);
+    const post: ConvCell[][] = meta.closing ? [['Нова состојба:', meta.closing]] : [];
+    return [...pre, BANK_HEAD, ...R.map((r) => {
+      let i = Number(r.in) || 0, o = Number(r.out) || 0;
+      if (!i && !o && r.amount !== undefined) { const a = Number(r.amount) || 0; i = a > 0 ? a : 0; o = a < 0 ? -a : 0; }
+      return [String(r.date ?? ''), String(r.name ?? ''), String(r.acc ?? ''), String(r.purpose ?? ''), String(r.ref ?? ''), String(r.osnov ?? ''), i ? r2(i) : '', o ? r2(o) : ''];
+    }), ...post];
+  },
   check: (grid) => {
-    const st = parseBankTable(grid.map((r) => [...r]));
-    if (!st) return { rows: [], error: 'Не се препознаени колоните „Датум“ и „Износ / Прилив / Одлив“.' };
-    return { rows: st.lines.map((l) => ({ date: l.date, name: l.counterparty, purpose: l.purpose, ref: l.ref, osnov: l.osnov ?? '', amount: r2(l.amount / 100) })) };
+    const R = readBankTable(grid.map((r) => [...r]));
+    if (!R.st) return { rows: [], error: R.error ?? 'Не се препознаени колоните „Датум“ и „Износ / Прилив / Одлив“.' };
+    return { rows: R.st.lines.map((l) => ({ date: l.date, name: l.counterparty, ...(l.iban ? { acc: l.iban } : {}), purpose: l.purpose, ref: l.ref, osnov: l.osnov ?? '', amount: r2(l.amount / 100) })) };
+  },
+  prepare: (grid, hi) => {
+    const P = prepBankGrid(grid, hi);
+    if (!P) return null;
+    const head = P.cols.map((c) => c.header);
+    const map: Record<string, number> = {};
+    P.cols.forEach((c, i) => { const k = c.role ? ROLE_FIELD[c.role] : undefined; if (k && map[k] == null) map[k] = i; });
+    // a „Д/П“ indicator next to a single amount column → signed amounts
+    const iDir = P.cols.findIndex((c) => c.role === null && DIR_HEAD.test(c.header.trim()));
+    const rows = P.items.map((it) => P.cols.map((c, i): unknown => {
+      if (c.role === 'date') return it.rawDate ?? '';
+      if (c.role === 'valDate') return it.rawValDate ?? '';
+      const v = it.cells[i] ?? '';
+      if (c.role === 'amount' && iDir >= 0 && v !== '') {
+        const d = String(it.cells[iDir] ?? '').trim();
+        if (/^(д|d|-|дб|db)/i.test(d)) return typeof v === 'number' ? -Math.abs(v) : '-' + String(v).replace(/^-/, '');
+      }
+      return v;
+    }));
+    const M = P.meta;
+    const hdr: Record<string, string> = {};
+    if (M.date && map.date == null) hdr.date = dmyOf(M.date);
+    const meta: ConvMeta = { no: M.no, date: M.date ? dmyOf(M.date) : '', account: M.account, opening: M.opening, closing: M.closing };
+    const note = [
+      `Насловот е во ред ${P.hi + 1}${P.hn > 1 ? `–${P.hi + P.hn} (${P.hn} реда споени)` : ''}`,
+      `${P.items.length} ставки`,
+      M.no ? `извод бр. ${M.no}` : '', M.date ? `датум на изводот ${dmyOf(M.date)}` : '', M.account ? `сметка ${M.account}` : '',
+      M.opening != null ? `претходна состојба ${M.opening}` : '', M.closing != null ? `нова состојба ${M.closing}` : '',
+    ].filter(Boolean).join(' · ');
+    return { grid: [...grid.slice(0, P.hi).map((r) => [...r]), head, ...rows], hi: P.hi, map, hdr, meta, rowNos: P.items.map((it) => it.row + 1), note };
   },
 };
 
@@ -260,8 +327,12 @@ export function convAuto(t: ConvTarget, hdr: readonly unknown[]): Record<string,
   }
   for (const { f, s } of S) {
     if (map[f.key] != null) continue;
-    const i = H.findIndex((x, j) => !used.has(j) && x && s.some((y) => y.length > 2 && x.includes(y)));
-    if (i >= 0) { map[f.key] = i; used.add(i); }
+    // synonyms in their order of priority („продажна“ before „цена“)
+    for (const y of s) {
+      if (y.length <= 2) continue;
+      const i = H.findIndex((x, j) => !used.has(j) && x && x.includes(y));
+      if (i >= 0) { map[f.key] = i; used.add(i); break; }
+    }
   }
   return map;
 }
@@ -279,6 +350,10 @@ export interface ConvResult {
   skippedRows: { row: number; why: ConvSkipWhy; text: string }[];
   /** Numeric columns with only ambiguous amounts („10.000“) and no „Децимали“ chosen: the result must not be used. */
   ambiguous: string[]; ambExamples: string[]; blocked: boolean;
+  /** Statement data carried into the result (bank: number, date, account, balances as numbers). */
+  meta?: ConvMeta;
+  /** Checks on the whole file (bank: opening + movements = closing). */
+  notes: { ok: boolean; msg: string }[];
 }
 
 /** Konto / text / amount fields of the targets whose rows are trial-balance or journal lines (row reconstruction). */
@@ -294,7 +369,11 @@ const KONTO_T: Record<string, { k: string; name?: string; partner?: string; code
  * split in two are joined, page headers / class headings / totals are left out (listed in `skippedRows`, not errors).
  * `pre` = the rows above the header (repeated page headers are recognised by them).
  */
-export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], map: Readonly<Record<string, number | undefined>>, o: { dec?: DecMode; consts?: Readonly<Record<string, string>>; firstRow?: number; pre?: readonly (readonly unknown[])[] } = {}): ConvResult {
+export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], map: Readonly<Record<string, number | undefined>>, o: {
+  dec?: DecMode; consts?: Readonly<Record<string, string>>; firstRow?: number; pre?: readonly (readonly unknown[])[];
+  /** Values from the header block for unmapped fields (`ConvPrep.hdr`); a typed constant wins. */
+  hdr?: Readonly<Record<string, string>>; meta?: ConvMeta; rowNos?: readonly number[];
+} = {}): ConvResult {
   // number format per numeric column (`numfmt.ts`): the column's own evidence, or the chosen „Децимали“; a column with
   // only ambiguous values („10.000“) blocks the result until a choice is made (never guessed)
   const NF = impNumFormats(rows, t.fields.filter((f) => f.kind === 'num').map((f) => ({ key: f.key, label: f.label, idx: map[f.key] })));
@@ -318,14 +397,14 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
   let curK = '';
   const rowOf = new Map<ConvRec, number>();
   src.forEach(({ ri, r, sub, k }) => {
-    const rowNo = first + ri;
+    const rowNo = o.rowNos?.[ri] ?? first + ri;
     if (!r.some((c) => String(c ?? '').trim() !== '')) { skipped++; return; }
     if (!KC && r.slice(0, 3).some((c) => TOTAL.test(String(c ?? '').trim()))) { skipped++; return; }
     const rec: ConvRec = {};
     const bad: string[] = [];
     for (const f of t.fields) {
       const i = map[f.key];
-      const raw = i != null && i >= 0 ? r[i] : o.consts?.[f.key];
+      const raw = i != null && i >= 0 ? r[i] : (o.consts?.[f.key] || o.hdr?.[f.key]);
       const s = raw instanceof Date ? impDate(raw) : String(raw ?? '').trim();
       if (!s) continue;
       if (f.kind === 'num') {
@@ -383,7 +462,24 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
     });
   }
   skippedRows.sort((a, b) => a.row - b.row);
-  return { grid: convGrid(t, out), recs: out, errors, skipped, skippedRows, ambiguous: NF.ambiguous, ambExamples: NF.examples, blocked: NF.ambiguous.length > 0 && !sel };
+  // statement data: balances in the numbers' format; opening + movements = closing
+  const notes: ConvResult['notes'] = [];
+  let meta: ConvMeta | undefined;
+  if (o.meta) {
+    const numKeys = t.fields.filter((f) => f.kind === 'num').map((f) => f.key);
+    const own = colFormat([o.meta.opening, o.meta.closing].filter(Boolean));
+    const dec: DecMode = sel || numKeys.map((k) => NF.dec[k]).find(Boolean) || (own === 'mk' ? 'comma' : own === 'dot' ? 'dot' : '');
+    const num = (v: string | null | undefined) => (v ? r2(impNum(v, dec)) : null);
+    const op = num(o.meta.opening), cl = num(o.meta.closing);
+    meta = { ...o.meta, opening: op == null ? '' : numStr(op), closing: cl == null ? '' : numStr(cl) };
+    if (t.id === 'bank' && op != null && cl != null) {
+      const sum = out.reduce((a, r) => a + Math.round((r.in !== undefined || r.out !== undefined ? (Number(r.in) || 0) - (Number(r.out) || 0) : Number(r.amount) || 0) * 100), 0);
+      const exp = Math.round(op * 100) + sum, ok = exp === Math.round(cl * 100);
+      notes.push({ ok, msg: ok ? `Салдата се совпаѓаат: претходна состојба ${mkC(op * 100)} + промет ${mkC(sum)} = нова состојба ${mkC(cl * 100)}.`
+        : `Салдата НЕ се совпаѓаат: претходна состојба ${mkC(op * 100)} + промет ${mkC(sum)} = ${mkC(exp)}, а во изводот новата состојба е ${mkC(cl * 100)} (разлика ${mkC(Math.round(cl * 100) - exp)}). Проверете ги ставките и „Децимали“.` });
+    }
+  }
+  return { grid: convGrid(t, out, meta), recs: out, errors, skipped, skippedRows, ambiguous: NF.ambiguous, ambExamples: NF.examples, blocked: NF.ambiguous.length > 0 && !sel, ...(meta ? { meta } : {}), notes };
 }
 
 /** Debit / credit of an opening-balance record (a signed saldo split like `obTarget.build`). */
@@ -448,9 +544,15 @@ export function convGuess(t: ConvTarget, head: readonly unknown[], data: readonl
   return map;
 }
 
+/** Cents as „1.234,56“. */
+const mkC = (c: number): string => {
+  const v = Math.round(c), s = (Math.abs(v) / 100).toFixed(2).split('.');
+  return (v < 0 ? '-' : '') + s[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + s[1];
+};
+
 /** Records → target grid. */
-export function convGrid(t: ConvTarget, recs: readonly ConvRec[]): ConvCell[][] {
-  if (t.build) return t.build(recs);
+export function convGrid(t: ConvTarget, recs: readonly ConvRec[], meta?: ConvMeta): ConvCell[][] {
+  if (t.build) return t.build(recs, meta);
   return [t.fields.map((f) => f.label), ...recs.map((r) => t.fields.map((f) => r[f.key] ?? ''))];
 }
 
@@ -490,6 +592,9 @@ function expected(t: ConvTarget, r: ConvRec): ConvRec {
     o[f.key] = f.kind === 'date' ? iso(v) : v;
   }
   if (t.id === 'bank') {
+    // account numbers come back as digits („300-0000012345-67“ → „300000001234567“)
+    const acc = /(?:MK\s?\d{2}\s?)?(\d{3})[-\s]?(\d{10})[-\s]?(\d{2})/.exec(String(o.acc ?? ''));
+    if (acc && o.acc !== undefined) o.acc = String(o.acc).replace(acc[0], acc[1]! + acc[2]! + acc[3]!).trim();
     const a = r.in !== undefined || r.out !== undefined ? (Number(r.in) || 0) - (Number(r.out) || 0) : Number(r.amount) || 0;
     delete o.in; delete o.out; o.amount = r2(a);
   }
@@ -556,6 +661,9 @@ export function xmlToGrid(txt: string): string[][] | null {
 
 /** Header row of a source grid: the importer's rule (most text cells in the first 15 rows). */
 export const convHeaderRow = (grid: readonly (readonly unknown[])[]): number => impHeaderRow(grid);
+
+/** Header row of a source grid for a target: the target's own recognition (bank: the statement table) first. */
+export const convHeaderRowFor = (t: ConvTarget, grid: readonly (readonly unknown[])[]): number => t.prepare?.(grid)?.hi ?? impHeaderRow(grid);
 
 /* ------------------------------------------------------------------ presets */
 

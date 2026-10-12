@@ -5,14 +5,15 @@
  * with errors → check with the target importer's own parser → download .xlsx and open the target screen.
  */
 import { useMemo, useState, useTransition } from 'react';
-import { CONV_TARGETS, convApply, convBlocks, convCheck, convGuess, convHeaderRow, convHeads, convPresetFor, convSig, convTarget, convTotals, xmlToGrid, type ConvPreset } from '@wise/core/convert/index';
+import { CONV_TARGETS, convApply, convBlocks, convCheck, convGuess, convHeaderRowFor, convHeads, convPresetFor, convSig, convTarget, convTotals, xmlToGrid, type ConvPreset, type ConvTarget } from '@wise/core/convert/index';
 import { TB_BLOCK_LABEL } from '@wise/core/tb-rows';
 import { splitCsv } from '@wise/core/bank-parsers';
 import type { DecMode } from '@wise/core/retail/import';
 import { xlsxDownload } from '@/components/parity-fin/export-bar';
 import { deleteConvPreset, readPdfGrid, saveConvPreset } from './actions';
 
-type Sheets = { name: string; grid: unknown[][] }[];
+/** `target`: a sheet prepared for one target (PDF bank statement table); shown first for that target. */
+type Sheets = { name: string; grid: unknown[][]; target?: string }[];
 
 const fmtN = (n: number) => n.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cellTxt = (v: unknown) => (v instanceof Date ? v.toLocaleDateString('mk-MK') : String(v ?? ''));
@@ -31,7 +32,8 @@ async function readSource(f: File): Promise<{ sheets?: Sheets; error?: string }>
   if (/\.pdf$/.test(nm) || f.type === 'application/pdf') {
     const fd = new FormData(); fd.set('file', f);
     const r = await readPdfGrid(fd);
-    return r.grid ? { sheets: [{ name: 'PDF', grid: r.grid }] } : { error: r.error };
+    if (!r.grid) return { error: r.error };
+    return { sheets: [...(r.bank ? [{ name: 'PDF – табела на извод', grid: r.bank, target: 'bank' }] : []), { name: 'PDF', grid: r.grid }] };
   }
   if (/\.(csv|txt|tsv|prn)$/.test(nm) || f.type.startsWith('text/')) {
     const buf = new Uint8Array(await f.arrayBuffer());
@@ -57,48 +59,65 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [pending, start] = useTransition();
   const t = convTarget(tid)!;
-  const grid = sheets[si]?.grid ?? [];
-  // a two-row header („Салдо“ over „Д | П“) gives one combined heading per column
-  const HC = useMemo(() => convHeads(grid, hi), [grid, hi]);
+  const raw = sheets[si]?.grid ?? [];
+  // the target's own reading of the source (bank: header over several rows, transactions over several rows,
+  // statement data from the header block); the header row chosen by the user is respected
+  const prep = useMemo(() => (raw.length && t.prepare ? t.prepare(raw, hi) : null), [t, raw, hi]);
+  const grid = prep?.grid ?? raw;
+  // a two-row header („Салдо“ over „Д | П“) gives one combined heading per column (a prepared grid has one row already)
+  const HC = useMemo(() => (prep ? { head: (grid[hi] ?? []).map((c) => String(c ?? '')), start: hi + 1 } : convHeads(grid, hi)), [prep, grid, hi]);
   const hdr = HC.head;
   const width = Math.max(hdr.length, ...grid.slice(hi, hi + 50).map((r) => r.length));
   const data = useMemo(() => grid.slice(HC.start), [grid, HC.start]);
+  const hv = useMemo<Record<string, string>>(() => prep?.hdr ?? {}, [prep]);
   const blocks = convBlocks(t, hdr);
   const block = blocks.find((b) => b.d === map.debit && b.p === map.credit)?.id ?? '';
 
   /** New layout / target: a saved preset when there is one, otherwise the automatic mapping. */
   const remap = (g: unknown[][], h: number, target: string, P = presets) => {
     const T = convTarget(target)!;
-    const p = convPresetFor(P, g[h] ?? [], target);
+    const pp = T.prepare?.(g, h) ?? null;
+    const head = pp ? pp.grid[pp.hi] ?? [] : g[h] ?? [];
+    const p = convPresetFor(P, head, target);
     if (p) { setMap(p.map); setConsts(p.consts ?? {}); setDec(p.dec ?? ''); setPid(p.id); setPname(p.name); return p; }
+    if (pp) { setMap(pp.map); setConsts({}); setDec(''); setPid(''); setPname(''); return null; }
     // headings first, then the values (konto column, amount columns, the closing saldo block)
     const H = convHeads(g, h);
     setMap(convGuess(T, H.head, g.slice(H.start))); setConsts({}); setDec(''); setPid(''); setPname('');
     return null;
   };
+  /** Sheet to start with for a target (the PDF statement table for the bank). */
+  const sheetFor = (S: Sheets, target: string) => Math.max(0, S.findIndex((x) => !x.target || x.target === target));
+  const headerOf = (T: ConvTarget, g: unknown[][]) => convHeaderRowFor(T, g);
 
   const pick = (f: File) => start(async () => {
     setMsg({});
     const r = await readSource(f);
     if (!r.sheets?.length) { setMsg({ error: r.error ?? 'Датотеката е празна.' }); return; }
-    setFile(f.name); setSheets(r.sheets); setSi(0);
-    const g = r.sheets[0]!.grid;
+    setFile(f.name); setSheets(r.sheets);
+    const s0 = sheetFor(r.sheets, tid);
+    setSi(s0);
+    const g = r.sheets[s0]!.grid;
     // a preset for this layout (any target) chooses the target too
     let h = -1, p: ConvPreset | undefined;
-    for (const x of presets) if (convSig(g[x.hi] ?? []) === x.sig) { p = x; h = x.hi; break; }
-    const hh = h >= 0 ? h : convHeaderRow(g);
-    setHi(hh);
+    for (const x of presets) {
+      const T = convTarget(x.target);
+      const head = T?.prepare?.(g, x.hi)?.grid[x.hi] ?? g[x.hi] ?? [];
+      if (convSig(head) === x.sig) { p = x; h = x.hi; break; }
+    }
     const target = p?.target ?? tid;
+    const hh = h >= 0 ? h : headerOf(convTarget(target)!, g);
+    setHi(hh);
     setTid(target);
     remap(g, hh, target);
     if (p) setMsg({ ok: `Препознаен шаблон „${p.name}“.` });
   });
 
-  const res = useMemo(() => (grid.length ? convApply(t, data, map, { dec, consts, firstRow: HC.start + 1, pre: grid.slice(0, hi) }) : null), [t, grid, data, map, dec, consts, hi, HC.start]);
+  const res = useMemo(() => (grid.length ? convApply(t, data, map, { dec, consts, firstRow: HC.start + 1, pre: grid.slice(0, hi), hdr: hv, ...(prep ? { meta: prep.meta, rowNos: prep.rowNos } : {}) }) : null), [t, grid, data, map, dec, consts, hi, HC.start, hv, prep]);
   const tot = useMemo(() => (res ? convTotals(t, res.recs) : null), [t, res]);
   const chk = useMemo(() => (res && res.recs.length ? convCheck(t, res) : null), [t, res]);
   const sample = (i: number) => data.map((r) => cellTxt(r[i])).find((x) => x.trim()) ?? '';
-  const miss = t.fields.filter((f) => f.req && map[f.key] == null && !consts[f.key]);
+  const miss = t.fields.filter((f) => f.req && map[f.key] == null && !consts[f.key] && !hv[f.key]);
   const usedBy = new Map(Object.entries(map).map(([k, i]) => [i, k]));
 
   const savePreset = () => start(async () => {
@@ -120,7 +139,14 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
         </p>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <label className="f">Цел (каде се увезува)
-            <select value={tid} onChange={(e) => { setTid(e.target.value); if (grid.length) remap(grid, hi, e.target.value); }}>
+            <select value={tid} onChange={(e) => {
+              const v = e.target.value;
+              setTid(v);
+              if (!sheets.length) return;
+              const s1 = sheets[si]?.target && sheets[si]!.target !== v ? sheetFor(sheets, v) : si;
+              const g = sheets[s1]!.grid, h = s1 !== si ? headerOf(convTarget(v)!, g) : hi;
+              setSi(s1); setHi(h); remap(g, h, v);
+            }}>
               {CONV_TARGETS.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
             </select>
           </label>
@@ -152,13 +178,13 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
           <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
             {sheets.length > 1 && (
               <label className="f">Лист
-                <select value={si} onChange={(e) => { const i = +e.target.value; setSi(i); const g = sheets[i]!.grid; const h = convHeaderRow(g); setHi(h); remap(g, h, tid); }}>
+                <select value={si} onChange={(e) => { const i = +e.target.value; setSi(i); const g = sheets[i]!.grid; const h = headerOf(t, g); setHi(h); remap(g, h, tid); }}>
                   {sheets.map((s, i) => <option key={i} value={i}>{s.name}</option>)}
                 </select>
               </label>
             )}
             <label className="f">Наслови во ред
-              <input type="number" min={1} max={grid.length} value={hi + 1} style={{ width: 70 }} onChange={(e) => { const h = Math.max(0, Math.min(grid.length - 1, (+e.target.value || 1) - 1)); setHi(h); remap(grid, h, tid); }} />
+              <input type="number" min={1} max={raw.length} value={hi + 1} style={{ width: 70 }} onChange={(e) => { const h = Math.max(0, Math.min(raw.length - 1, (+e.target.value || 1) - 1)); setHi(h); remap(raw, h, tid); }} />
             </label>
             <label className="f">Децимали
               <select value={dec} onChange={(e) => setDec(e.target.value as DecMode)}>
@@ -183,9 +209,10 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
             })}>✕ Избриши шаблон</button>}
           </div>
 
+          {prep && <p className="note" style={{ margin: '10px 0 0' }}>📄 {prep.note}.</p>}
           <h3 style={{ margin: '12px 0 6px', fontSize: 14 }}>Поврзување на колоните → {t.title}</h3>
           <div className="tw"><table className="dense">
-            <thead><tr><th>Поле во програмата</th><th>Колона од датотеката</th><th>Пример</th><th>или фиксна вредност</th></tr></thead>
+            <thead><tr><th>Поле во програмата</th><th>Колона од датотеката</th><th>Пример</th><th>или вредност (фиксна / од заглавјето)</th></tr></thead>
             <tbody>{t.fields.map((f) => {
               const i = map[f.key];
               return (
@@ -199,8 +226,8 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
                       ))}
                     </select>
                   </td>
-                  <td className="mini">{i != null ? sample(i).slice(0, 40) : ''}</td>
-                  <td><input value={consts[f.key] ?? ''} disabled={i != null} style={{ width: 140 }} onChange={(e) => setConsts((C) => ({ ...C, [f.key]: e.target.value }))} /></td>
+                  <td className="mini">{i != null ? sample(i).slice(0, 40) : hv[f.key] && !consts[f.key] ? <b title="Колоната ја нема – се користи вредноста од заглавјето на датотеката">од заглавјето: {hv[f.key]}</b> : ''}</td>
+                  <td><input value={consts[f.key] ?? ''} disabled={i != null} placeholder={hv[f.key] ? hv[f.key] + ' (од заглавјето)' : ''} style={{ width: 170 }} onChange={(e) => setConsts((C) => ({ ...C, [f.key]: e.target.value }))} /></td>
                 </tr>
               );
             })}</tbody>
@@ -222,6 +249,7 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
             <div className="callout bad" role="alert"><b>⚠ Износите не се еднозначни</b> во колоните: {res.ambiguous.join(', ')} (на пр. „{res.ambExamples.join('“, „')}“).
               „10.000“ може да значи десет илјади (10.000,00) или десет (10.000 со точка како децимала). Изберете „Децимали“ погоре – преземањето е оневозможено додека не изберете.</div>
           )}
+          {res.notes.map((n, i) => <div key={i} className={'callout ' + (n.ok ? 'good' : 'bad')} role={n.ok ? 'status' : 'alert'}>{n.ok ? '✓ ' : '⚠ '}{n.msg}</div>)}
           {chk && !res.blocked && (chk.error
             ? <div className="callout bad">Увозот не ја препознава конвертираната датотека: {chk.error}</div>
             : chk.diff.length

@@ -6,6 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
@@ -128,6 +129,23 @@ describe('provider errors', () => {
     const id = await doc('purchase', 'f.jpg', 'image/jpeg', IMG);
     await runReadDocument(db, id);
     expect(await load(id)).toMatchObject({ status: 'error', error: AI_ERR_MSG.auth });
+  });
+});
+
+describe('bank statement PDF whose balances reconcile', () => {
+  it('is read exactly from the text layer even with AI on (no tokens); without balances AI reads it', async () => {
+    const api = answering('{"items":[]}');
+    setAiClient(api);
+    const halk = new Uint8Array(readFileSync(fileURLToPath(new URL('../../../web/test/import/fixtures/halk.pdf', import.meta.url))));
+    const id = await doc('bank', 'halk.pdf', 'application/pdf', halk);
+    await runReadDocument(db, id);
+    const d = await load(id);
+    expect(api.n).toBe(0);
+    expect(d).toMatchObject({ status: 'done', model: 'noai' });
+    expect(statementFromRead(d.result)!.lines).toHaveLength(7);
+    const id2 = await doc('bank', 'izvod.pdf', 'application/pdf', await statementPdf());
+    await runReadDocument(db, id2);
+    expect(api.n).toBe(1);
   });
 });
 

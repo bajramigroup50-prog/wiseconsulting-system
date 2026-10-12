@@ -49,7 +49,12 @@ export function impAuto(t: ImpType, hdr: readonly unknown[]): Record<string, num
     const S2 = syn.split(',').map(impN);
     let best = -1;
     H.forEach((x, i) => { if (!used.has(i) && best < 0 && S2.some((s) => x === s)) best = i; });
-    if (best < 0) H.forEach((x, i) => { if (!used.has(i) && best < 0 && S2.some((s) => s.length > 2 && (x.startsWith(s) || x.includes(s)))) best = i; });
+    // FIX: synonyms in their order of priority („продажна“ before „цена“: „Набавна цена“ is not the sales price)
+    if (best < 0) for (const s of S2) {
+      if (s.length <= 2) continue;
+      best = H.findIndex((x, i) => !used.has(i) && x.includes(s));
+      if (best >= 0) break;
+    }
     if (best >= 0) { map[k] = best; used.add(best); }
   }
   return map;

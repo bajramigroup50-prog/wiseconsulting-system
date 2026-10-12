@@ -30,7 +30,7 @@ export const PXL_COLS: readonly (readonly [PxlKey, string, string])[] = [
   ['reg', 'Редовни часови', 'çalıştığı resmi mesai,calistigi resmi mesai,редовн,regular,orë të rregullta,часови редовно'],
   ['hol', 'Државен празник (ч)', 'празник ч,државен,festa'],
   ['odm', 'Годишен одмор (ч)', 'одмор,pushim,leave'],
-  ['bol', 'Боледување до 30 дена (ч)', 'боледување до,bolovanje do,sëmundje deri'],
+  ['bol', 'Боледување до 30 дена (ч)', 'боледување до,bolovanje do,sëmundje deri,боледување,bolovanje,sëmundje'],
   ['bol30', 'Боледување над 30 дена (ч)', 'над 30,над30,mbi 30'],
   ['ot', 'Прекувремена (ч)', 'ekstra mesai,прекувремен,overtime,jashtë orarit'],
   ['sun', 'Работа во недела (ч)', 'pazar çalışma,pazar calisma,недела,e diel'],
@@ -116,7 +116,8 @@ export function plxParse(aoa: readonly (readonly unknown[])[], dec: DecMode = ''
   for (const [k, lab, al] of PXL_COLS) {
     const A = [plxN(lab), ...al.split(',').map(impN)];
     let i = H.findIndex((x, j) => !used.has(j) && A.includes(x));
-    if (i < 0) i = H.findIndex((x, j) => !used.has(j) && A.some((a) => a.length > 2 && x.includes(a)));
+    // FIX: „Боледување“ alone is sick leave up to 30 days; the „над 30“ column stays for bol30
+    if (i < 0) i = H.findIndex((x, j) => !used.has(j) && A.some((a) => a.length > 2 && x.includes(a)) && !(k === 'bol' && /над ?30|mbi 30|preko 30/.test(x)));
     if (i >= 0) { map[k] = i; used.add(i); }
   }
   if (map.name == null && map.embg == null) return { error: 'Нема колона ЕМБГ или Име.' };

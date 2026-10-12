@@ -7,6 +7,7 @@
 import { revalidatePath } from 'next/cache';
 import { convPresetClean, type ConvPreset } from '@wise/core/convert/index';
 import { pdfAutoGrid, pdfLines } from '@wise/core/noai/pdf-lines';
+import { bankPdfGrid } from '@wise/core/noai/bank-grid';
 import { audit, getConvPresets, putConvPresets } from '@wise/db';
 import { Forbidden, requireUser } from '@/lib/auth';
 import { actionError } from '@/lib/books';
@@ -19,16 +20,21 @@ const office = async () => {
   return u;
 };
 
-/** A PDF with a text layer as rows of cells; scanned PDFs have no text. */
-export async function readPdfGrid(form: FormData): Promise<{ grid?: string[][]; error?: string }> {
+/**
+ * A PDF with a text layer as rows of cells; scanned PDFs have no text. `bank`: the same PDF cut into the columns of
+ * its bank-statement table (header over several lines, values printed close together kept apart), when it has one.
+ */
+export async function readPdfGrid(form: FormData): Promise<{ grid?: string[][]; bank?: string[][]; error?: string }> {
   try {
     await office();
     const f = form.get('file');
     if (!(f instanceof File)) return { error: 'Изберете датотека.' };
     if (f.size > 20 * 1024 * 1024) return { error: 'Датотеката е преголема (најмногу 20 MB).' };
-    const L = pdfLines(await pdfTextItems(new Uint8Array(await f.arrayBuffer())));
+    const items = await pdfTextItems(new Uint8Array(await f.arrayBuffer()));
+    const L = pdfLines(items);
     if (!L.length) return { error: 'PDF-от нема текст (скениран документ / слика) – без AI не може да се прочита. Побарајте Excel/CSV/XML од програмата или банката.' };
-    return { grid: pdfAutoGrid(L) };
+    const B = bankPdfGrid(items);
+    return { grid: pdfAutoGrid(L), ...(B ? { bank: B.grid } : {}) };
   } catch (e) {
     const r = actionError(e);
     return { error: r.error ?? 'PDF-от не може да се отвори.' };
