@@ -4,7 +4,7 @@
  * into one cell), and rows printed a little apart — amounts sitting 2–4 pt below the text of the same transaction —
  * can be joined by y position once the columns are known (`mergeCloseRows`).
  */
-import type { PdfItem } from './pdf-lines';
+import { OFFSET_TOL, type PdfItem } from './pdf-lines';
 
 export interface PdfRow { page: number; y: number; h: number; items: PdfItem[] }
 
@@ -50,15 +50,15 @@ export function itemParts(it: PdfItem): PdfCellPart[] {
 }
 
 /**
- * Rows already cut into columns (`cells[i]` = text of column i) whose baselines are closer than ~0.85 of the text
+ * Rows already cut into columns (`cells[i]` = text of column i) whose baselines are closer than `OFFSET_TOL` (the rule of `pdfLines`) × the text
  * height and that do not both fill a column are one printed row (an amount printed a little lower or higher than
  * the text of the same transaction): joined.
  */
-export function mergeCloseRows<T extends { page: number; y: number; h: number; cells: string[] }>(rows: readonly T[], tol = 0.85): T[] {
+export function mergeCloseRows<T extends { page: number; y: number; h: number; cells: string[] }>(rows: readonly T[], tol = OFFSET_TOL): T[] {
   const out: T[] = [];
   for (const r of rows) {
     const p = out[out.length - 1];
-    const close = p && p.page === r.page && Math.abs(p.y - r.y) < Math.min(p.h, r.h) * tol;
+    const close = p && p.page === r.page && Math.abs(p.y - r.y) < Math.max(p.h, r.h) * tol;
     if (close && !r.cells.some((c, i) => c && p.cells[i])) {
       out[out.length - 1] = { ...p, cells: p.cells.map((c, i) => c || r.cells[i] || '') };
       continue;

@@ -14,36 +14,96 @@ import {
 import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { dispatchKontrolaReads, kontrolaReads, startKontrolaReads } from '@/lib/kontrola';
 import { fdate, fv, isUuid, linkFiles, officeAction, officeError, today } from '@/lib/office';
+import { OWNER_ONLY_MSG, isOfficeOwner } from '@/lib/office-owner';
 
 const PATH = '/kontroli';
 const tri = (v: FormDataEntryValue | null): boolean | null => (v === 'yes' ? true : v === 'no' ? false : null);
 
 export async function kSave(_p: ActionState, f: FormData): Promise<ActionState> {
   let id = '';
+  let reads: string[] = [];
   const isNew = !fv(f, 'id');
   try {
     const { u, firm } = await officeAction('office');
     const prev = fv(f, 'id');
     if (prev && !isUuid(prev)) return { error: 'Неважечка контрола.' };
-    id = await db().transaction(async (tx) => {
+    [id, reads] = await db().transaction(async (tx) => {
       const id = await saveKontrola(tx, firm.id, {
         id: prev, auth: fv(f, 'auth') ?? '', doc: fv(f, 'doc') ?? '', docNo: fv(f, 'docNo'), docDate: fdate(f, 'docDate'), delivered: fdate(f, 'delivered'),
         dueOverride: fdate(f, 'dueOverride'), periodFrom: fdate(f, 'periodFrom'), periodTo: fdate(f, 'periodTo'), subject: fv(f, 'subject'), status: fv(f, 'status'),
         filedOn: fdate(f, 'filedOn'), clientVisible: f.get('clientVisible') === 'on',
       }, u.id);
-      await linkFiles(tx, f.getAll('fileIds'), firm.id, KONTROLA_FILE_ENTITY, id);
-      return id;
+      const ids = f.getAll('fileIds').filter(isUuid);
+      await linkFiles(tx, ids, firm.id, KONTROLA_FILE_ENTITY, id);
+      // the attached act (PDF / photo / Word) is read right away — the case page shows the progress and the findings
+      return [id, await startKontrolaReads(tx, firm.id, u.id, id, ids)] as const;
+    });
+  } catch (e) { return officeError(e); }
+  await dispatchKontrolaReads(reads);
+  revalidatePath(PATH);
+  if (isNew) redirect(`${PATH}?id=${id}`);
+  return { ok: reads.length ? 'Зачувано. Прикачениот акт се чита – наодите ќе се појават подолу.' : 'Зачувано.' };
+}
+
+/** „↻ Прочитај го прикачениот акт“: read an act already attached to the case (again). */
+export async function kReadFile(kid: string, fileId: string): Promise<ActionState> {
+  let reads: string[] = [];
+  try {
+    const { u, firm } = await officeAction('office');
+    if (!isUuid(kid) || !isUuid(fileId)) return { error: 'Неважечки податоци.' };
+    reads = await db().transaction(async (tx) => {
+      const [k] = await tx.select({ id: kontroli.id }).from(kontroli).where(and(eq(kontroli.id, kid), eq(kontroli.firmId, firm.id))).limit(1);
+      if (!k) return null;
+      const [l] = await tx.select({ id: fileLinks.fileId }).from(fileLinks).where(and(eq(fileLinks.fileId, fileId), eq(fileLinks.entityType, KONTROLA_FILE_ENTITY), eq(fileLinks.entityId, kid))).limit(1);
+      if (!l) return null;
+      return startKontrolaReads(tx, firm.id, u.id, kid, [fileId]);
+    }) ?? [];
+    if (!reads.length) return { error: 'Документот не е пронајден или не може да се чита (PDF, слика, Word или TXT).' };
+  } catch (e) { return officeError(e); }
+  await dispatchKontrolaReads(reads);
+  revalidatePath(PATH);
+  return { ok: 'Се чита…' };
+}
+
+/** The drop zone on the case page: the uploaded act is attached to the case and read. */
+export async function kReadUpload(kid: string, fileIds: string[]): Promise<{ ids?: string[]; error?: string }> {
+  let reads: string[] = [];
+  try {
+    const { u, firm } = await officeAction('office');
+    if (!isUuid(kid)) return { error: 'Неважечка контрола.' };
+    const ids = fileIds.filter(isUuid).slice(0, 10);
+    reads = await db().transaction(async (tx) => {
+      const [k] = await tx.select({ id: kontroli.id }).from(kontroli).where(and(eq(kontroli.id, kid), eq(kontroli.firmId, firm.id))).limit(1);
+      if (!k) return null;
+      await linkFiles(tx, ids, firm.id, KONTROLA_FILE_ENTITY, kid);
+      return startKontrolaReads(tx, firm.id, u.id, kid, ids);
+    }) ?? [];
+    if (!reads.length) return { error: 'Изберете PDF, слика (JPG/PNG), Word (.docx) или TXT.' };
+  } catch (e) { return officeError(e); }
+  await dispatchKontrolaReads(reads);
+  return { ids: reads };
+}
+
+/** ✕ on a failed / unwanted read: it is no longer shown on the case. */
+export async function kDismissRead(kid: string, aiId: string): Promise<ActionState> {
+  try {
+    const { u, firm } = await officeAction('office');
+    await db().transaction(async (tx) => {
+      const [k] = await tx.select({ data: kontroli.data }).from(kontroli).where(and(eq(kontroli.id, kid), eq(kontroli.firmId, firm.id))).limit(1);
+      if (!k) return;
+      await tx.update(kontroli).set({ data: { ...(k.data ?? {}), reads: kontrolaReads(k).filter((r) => r.id !== aiId) }, updatedBy: u.id }).where(eq(kontroli.id, kid));
     });
   } catch (e) { return officeError(e); }
   revalidatePath(PATH);
-  if (isNew) redirect(`${PATH}?id=${id}`);
-  return { ok: 'Зачувано.' };
+  return { ok: 'Отстрането.' };
 }
 
 export async function kDelete(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await officeAction('del');
+    if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
     await db().transaction((tx) => deleteKontrola(tx, firm.id, id, u.id));
   } catch (e) { return officeError(e); }
   revalidatePath(PATH);
@@ -98,6 +158,9 @@ export async function kApplyAi(kid: string, aiId: string): Promise<ActionState> 
     const { u, firm } = await officeAction('office');
     const d = await loadAiResult(firm.id, aiId, 'kontrola');
     if (!d) return { error: 'Читањето не е завршено.' };
+    // applied already (another tab / a second poll): the findings are not added twice
+    if (d.status === 'saved') return { ok: 'Наодите од овој документ се веќе додадени.' };
+    const noai = d.model === 'noai' || !!(d.result as KontrolaAiResult | null)?.noai;
     const n = await db().transaction(async (tx) => {
       const n = await applyKontrolaAi(tx, firm.id, kid, (d.result ?? {}) as KontrolaAiResult, u.id);
       if (d.fileId) {
@@ -108,7 +171,8 @@ export async function kApplyAi(kid: string, aiId: string): Promise<ActionState> 
       return n;
     });
     revalidatePath(PATH);
-    return { ok: n ? `Прочитани ${n} наоди – проверете ги и дополнете ја анализата.` : 'Не се пронајдени наоди во документот – внесете ги рачно.' };
+    const tag = noai ? ' (прочитано без AI – проверете ги наодите)' : '';
+    return n ? { ok: `Прочитани ${n} наоди${tag} – проверете ги и дополнете ја анализата.` } : { error: `Не се пронајдени наоди во документот${tag} – внесете ги рачно („✎ Внеси рачно“).` };
   } catch (e) { return officeError(e); }
 }
 

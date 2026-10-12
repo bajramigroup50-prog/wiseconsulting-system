@@ -17,7 +17,7 @@ import { AinbEnvelope } from './ainb';
 import { FirmWindow } from './firm-window';
 
 export interface TopFirm { id: string; name: string; edb: string | null; vatRegistered: boolean; lockDate: string | null }
-export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: string | null } | null; ainb: number; law: number | null }
+export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: string | null } | null; ainb: number; law: number | null; locks?: number }
 
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
@@ -70,6 +70,10 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
           <span id="lawTopN" style={{ position: 'absolute', top: -2, right: -2, background: '#b42318', color: '#fff', borderRadius: 9, fontSize: 10, padding: '0 5px', fontWeight: 700, display: status.law ? '' : 'none' }}>{status.law || ''}</span>
         </button>
       </>}
+      {office && !!status.locks && (
+        <a className="btn sm" id="lockTop" href="/korisnici#zaklucheni" title="Заклучени најави по премногу неуспешни обиди – отклучи во Корисници"
+          style={{ background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 }}>🔒 {status.locks}</a>
+      )}
       {office && <AinbEnvelope n={status.ainb} />}
       {office && B && (
         <button type="button" id="alTop" className={`al-top ${B.cls}`} title={B.title} onClick={bell}>

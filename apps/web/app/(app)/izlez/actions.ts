@@ -32,10 +32,20 @@ const Payload = z.object({
   scanDocId: z.string().max(40).optional(), scanIndex: z.number().int().min(0).optional(), back: z.string().max(200).optional(),
   production: z.object({
     wh: z.string().max(40).nullable(), extra: str, saveBom: z.boolean(),
+    // „🏭 Фактура од производство“ and its „Работен налог / период“
+    mode: z.enum(['prodInv']).nullable().optional(),
+    workOrder: z.object({ number: z.string().trim().max(40), from: date.nullable(), to: date.nullable() }).nullable().optional(),
     // one entry per line marked „🏭 производство“, with its own materials warehouse, extra costs and „зачувај како норматив“
     lines: z.array(z.object({
       lineNo: z.number().int().min(0), productId: z.uuid(), qty: str, materials: z.array(z.object({ itemId: z.uuid(), qty: str })).max(200),
       wh: z.string().max(40).nullable().optional(), extra: str.optional(), saveBom: z.boolean().optional(),
+      // main product of a production invoice: specification / dimensions and cost elements
+      main: z.boolean().optional(),
+      spec: z.object({ text: z.string().max(500), l: str, w: str, h: str, mode: z.enum(['', 'm', 'm2', 'm3']), pcs: str }).nullable().optional(),
+      calc: z.object({
+        hours: str, rate: str, labour: str, ovhPct: str,
+        other: z.array(z.object({ label: z.string().max(80), amount: str })).max(30),
+      }).nullable().optional(),
     })).max(200),
   }).nullable().optional(),
 });

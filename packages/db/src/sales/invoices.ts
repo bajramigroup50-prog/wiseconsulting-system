@@ -392,8 +392,8 @@ export async function approveInvoice(tx: Tx, firmId: string, id: string, actor: 
   const pw: string[] = [];
   if (u!.kind === 'invoice' && (u!.data as InvoiceData).prod !== 'Н' && plan?.lines.length && !plan.orders.length) {
     // per-line plans carry their own extra costs; `plan.extra` includes them, the rest is shared (older invoice-level plan)
-    const shared = r2(n(plan.extra) - plan.lines.reduce((a, l) => a + n(l.extra), 0));
-    const r = await runInvoiceProduction(tx, f, u!, { wh: plan.wh, extra: shared, saveBom: plan.saveBom, lines: plan.lines }, actor);
+    const shared = Math.max(0, r2(n(plan.extra) - plan.lines.reduce((a, l) => a + n(l.extra), 0)));
+    const r = await runInvoiceProduction(tx, f, u!, { wh: plan.wh, extra: shared, saveBom: plan.saveBom, lines: plan.lines, mode: plan.mode ?? null, workOrder: plan.workOrder ?? null }, actor);
     pw.push(...r.warnings);
     [u] = await tx.update(invoices).set({ data: { ...(u!.data ?? {}), prodRun: r.state, prodCost: r2(r.state.mat + r.state.extra).toFixed(2) } }).where(eq(invoices.id, id)).returning();
   }

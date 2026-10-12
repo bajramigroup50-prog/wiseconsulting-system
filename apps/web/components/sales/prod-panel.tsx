@@ -10,19 +10,29 @@
  */
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { bomMaterials, lineProdCalc, materialRows, parseQuickMaterial, searchStockMaterials, type LineProdCalc, type ProdBom } from '@wise/core/sales';
+import { bomMaterials, materialRows, parseQuickMaterial, prodCostCalc, searchStockMaterials, type ProdBom, type ProdCostCalc, type ProdCostInput } from '@wise/core/sales';
 import { fmt, fq } from '@/lib/fmt';
-import type { EdLine, EdLineProd } from './model';
+import { blankCostEls, type EdCostEls, type EdLine, type EdLineProd } from './model';
 import type { InvItemOpt } from './invoice-editor';
 
 type Stock = Record<string, Record<string, number>>;
 
-/** Materials value (average cost at the line's materials warehouse) and the calculation of a produced line. */
-export function lineCalc(l: EdLine, stock: Stock, avg: Stock, fx: number): LineProdCalc & { short: boolean } {
+/** Cost elements of the editor → the core input (denars). */
+export const costInput = (c: EdCostEls | undefined): ProdCostInput => ({ hours: c?.hours, rate: c?.rate, labour: c?.labour, other: c?.other ?? [], ovhPct: c?.ovhPct });
+
+/**
+ * Materials value (average cost at the line's materials warehouse) and the calculation of a produced line: a main
+ * product of a production invoice with labour / other direct costs / overhead %, any other produced line with its
+ * single extra cost.
+ */
+export function lineCalc(l: EdLine, stock: Stock, avg: Stock, fx: number): ProdCostCalc & { short: boolean } {
   const W = l.prod?.wh || 'main';
   const R = materialRows((l.prod?.materials ?? []).filter((m) => m.itemId).map((m) => ({ itemId: m.itemId, qty: Number(m.qty) || 0 })), (id) => ({ qty: stock[id]?.[W] ?? 0, avg: avg[id]?.[W] ?? 0 }));
   const sale = (Number(l.qty) || 0) * (Number(l.price) || 0) * (1 - (Number(l.disc) || 0) / 100) * (fx || 1);
-  return { ...lineProdCalc({ mat: R.value, extra: l.prod?.extra, qty: l.qty, sale }), short: R.rows.some((r) => r.short) };
+  const c = l.prod?.main
+    ? prodCostCalc({ ...costInput(l.prod.cost), mat: R.value, qty: l.qty, sale })
+    : prodCostCalc({ mat: R.value, other: [{ label: '', amount: l.prod?.extra ?? '' }], qty: l.qty, sale });
+  return { ...c, short: R.rows.some((r) => r.short) };
 }
 
 /** Production state when a line is marked: the normativ × quantity when the product has one. */
@@ -36,7 +46,8 @@ export function reProd(l: EdLine, boms: Readonly<Record<string, ProdBom>>, itemC
   if (!l.prod) return l;
   if (!l.prod.fromBom && !itemChanged) return l;
   const M = l.itemId ? bomMaterials(boms[l.itemId], l.qty) : [];
-  if (!M.length && !itemChanged) return l;
+  // a main product keeps the materials picked by hand when it gets another (new variant) article without a normativ
+  if (!M.length && (!itemChanged || l.prod.main)) return l;
   return { ...l, prod: { ...l.prod, materials: M.map((m) => ({ itemId: m.itemId, qty: String(m.qty) })), fromBom: M.length > 0 } };
 }
 
@@ -89,7 +100,7 @@ export function LineProdPanel({ line, items, stock, avg, boms, locations, fx, cu
       </div>
       <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'end', margin: '6px 0' }}>
         <label className="f" style={{ maxWidth: 260 }}>Материјали од објект<select value={P.wh} onChange={(e) => set({ wh: e.target.value })}><option value="">01 Главен магацин</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.code} {l.name}</option>)}</select></label>
-        <label className="f" style={{ maxWidth: 200 }}>Дополнителни трошоци (труд, енергија…)<input type="number" step="any" min={0} value={P.extra} aria-label="Дополнителни трошоци" onChange={(e) => set({ extra: e.target.value })} style={{ textAlign: 'right' }} /></label>
+        {!P.main && <label className="f" style={{ maxWidth: 200 }}>Дополнителни трошоци (труд, енергија…)<input type="number" step="any" min={0} value={P.extra} aria-label="Дополнителни трошоци" onChange={(e) => set({ extra: e.target.value })} style={{ textAlign: 'right' }} /></label>}
         <label className="chk"><input type="checkbox" checked={P.saveBom} onChange={(e) => set({ saveBom: e.target.checked })} /> зачувај како норматив</label>
       </div>
       <div className="tw"><table className="dense"><thead><tr><th>Репроматеријал</th><th className="n">Количина</th><th className="n">На залиха</th><th className="n">Просечна цена</th><th className="n">Вредност</th><th /></tr></thead>
@@ -124,16 +135,54 @@ export function LineProdPanel({ line, items, stock, avg, boms, locations, fx, cu
           <div key={x.id} className={'qa-it' + (k === hi ? ' on' : '')} onMouseDown={(e) => { e.preventDefault(); add(x.id); }}>
             <span className="num">{x.code}</span><b>{x.name}</b><span className="note" style={x.have <= 0 ? { color: 'var(--bad)' } : undefined}>залиха {fq(x.have)} {x.unit ?? ''} · ø {fmt(x.avg)}</span></div>))}</div>}
       </div>
+      {P.main && <CostElsBlock c={P.cost ?? blankCostEls()} onChange={(cost) => set({ cost })} />}
       <div className="prodcalc" data-testid="prod-calc">
         <span>Материјали <b className="num">{fmt(C.mat)}</b></span>
-        <span>+ дополнителни <b className="num">{fmt(C.extra)}</b></span>
+        {P.main ? <>
+          <span>+ труд <b className="num">{fmt(C.lab)}</b></span>
+          <span>+ други директни <b className="num">{fmt(C.other)}</b></span>
+          <span>+ режија {C.ovhPct ? `${C.ovhPct}%` : ''} <b className="num">{fmt(C.ovh)}</b></span>
+        </> : <span>+ дополнителни <b className="num">{fmt(C.extra)}</b></span>}
         <span>= трошок на производство <b className="num">{fmt(C.cost)}</b></span>
         <span>по единица <b className="num">{fmt(C.unit)}</b></span>
         <span>продажна вредност <b className="num">{fmt(C.sale)}</b>{cur !== 'ден.' ? ' ден.' : ''}</span>
         <span style={C.margin < 0 ? { color: 'var(--bad)' } : undefined}>маржа <b className="num">{fmt(C.margin)}</b>{C.pct != null ? ` (${C.pct.toFixed(2)}%)` : ''}</span>
       </div>
       {C.below && <div className="callout bad" role="alert" style={{ margin: '6px 0 0' }}>⚠ Се продава под цената на чинење: трошок {fmt(C.cost)}, продажба {fmt(C.sale)} (загуба {fmt(-C.margin)}).</div>}
-      {C.short && <div className="note" style={{ color: 'var(--bad)' }}>Недостига репроматеријал на залиха во избраниот објект – проверете ги приемите.</div>}
+      {C.short && <div className="note" style={{ color: 'var(--bad)' }}>⚠ Недостига репроматеријал на залиха во избраниот објект – проверете ги приемите. Фактурата може да се зачува (со потврда); на калкулацијата ќе стои напомена.</div>}
+    </div>
+  );
+}
+
+/** Labour (hours × rate or an amount), other direct costs and overhead % of a main product. */
+export function CostElsBlock({ c, onChange }: { c: EdCostEls; onChange: (c: EdCostEls) => void }) {
+  const set = (x: Partial<EdCostEls>) => onChange({ ...c, ...x });
+  const setO = (j: number, x: Partial<EdCostEls['other'][number]>) => set({ other: c.other.map((o, k) => (k === j ? { ...o, ...x } : o)) });
+  const hr = (Number(c.hours) || 0) * (Number(c.rate) || 0);
+  return (
+    <div className="prodcost" data-testid="prod-cost" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, margin: '8px 0' }}>
+      <fieldset className="fs"><legend>Труд</legend>
+        <div className="row" style={{ gap: 6, flexWrap: 'nowrap', alignItems: 'end' }}>
+          <label className="f" style={{ maxWidth: 90 }}>Часови<input type="number" step="any" min={0} value={c.hours} aria-label="Часови труд" style={{ textAlign: 'right' }} onChange={(e) => set({ hours: e.target.value })} /></label>
+          <span style={{ paddingBottom: 6 }}>×</span>
+          <label className="f" style={{ maxWidth: 110 }}>Цена/час<input type="number" step="any" min={0} value={c.rate} aria-label="Цена на час" style={{ textAlign: 'right' }} onChange={(e) => set({ rate: e.target.value })} /></label>
+        </div>
+        <label className="f" style={{ maxWidth: 200 }}>или износ{hr > 0 ? ` (часови × цена = ${fmt(hr)})` : ''}<input type="number" step="any" min={0} value={c.labour} aria-label="Износ труд" style={{ textAlign: 'right' }} onChange={(e) => set({ labour: e.target.value })} /></label>
+      </fieldset>
+      <fieldset className="fs"><legend>Други директни трошоци</legend>
+        {c.other.map((o, j) => (
+          <div key={j} className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+            <input value={o.label} aria-label="Вид трошок" style={{ flex: 1 }} onChange={(e) => setO(j, { label: e.target.value })} />
+            <input type="number" step="any" min={0} value={o.amount} aria-label={`Износ ${o.label}`} style={{ width: 110, textAlign: 'right' }} onChange={(e) => setO(j, { amount: e.target.value })} />
+            <button type="button" className="btn sm ghost danger" aria-label="Отстрани трошок" onClick={() => set({ other: c.other.filter((_, k) => k !== j) })}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="btn sm" onClick={() => set({ other: [...c.other, { label: '', amount: '' }] })}>+ друг трошок</button>
+      </fieldset>
+      <fieldset className="fs"><legend>Режиски трошоци</legend>
+        <label className="f" style={{ maxWidth: 160 }}>% од директните трошоци<input type="number" step="any" min={0} value={c.ovhPct} aria-label="Режија процент" style={{ textAlign: 'right' }} onChange={(e) => set({ ovhPct: e.target.value })} /></label>
+        <small className="note">Директни = материјали + труд + други директни трошоци.</small>
+      </fieldset>
     </div>
   );
 }

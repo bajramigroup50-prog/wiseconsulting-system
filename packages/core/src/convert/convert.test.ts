@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONV_TARGETS, convApply, convAuto, convCheck, convPresetClean, convPresetFor, convSig, convTarget, xmlToGrid, type ConvTarget } from './index';
+import { CONV_TARGETS, convApply, convAuto, convCheck, convGrid, convPresetClean, convPresetFor, convSig, convTarget, xmlToGrid, type ConvRec, type ConvTarget } from './index';
 
 /** Source as another program exports it: its own headings, „1.234,56“ amounts, d.m.yyyy dates. */
 const SRC: Record<string, { head: string[]; rows: unknown[][]; expect: Record<string, string | number>[] }> = {
@@ -109,6 +109,25 @@ function sample(t: ConvTarget, key: string, i: number): string {
   };
   return S[key] ?? (t.id === 'pay' && key === 'name' ? 'Петар Петровски' : 'Текст ' + key);
 }
+
+describe('contract: the converter\'s own output is always recognised by the target importer', () => {
+  for (const t of CONV_TARGETS) {
+    it(`${t.id}: build → check never says the columns are not recognised when rows exist`, () => {
+      const S = SRC[t.id]!;
+      const res = convApply(t, S.rows, convAuto(t, S.head));
+      expect(res.recs.length).toBeGreaterThan(0);
+      const c = t.check(res.grid);
+      expect(c.error ?? '').not.toMatch(/колон/i);
+      expect(c.rows.length).toBe(res.recs.length);
+    });
+  }
+  it('ob: odd records (zero saldo, class konto, text konto, none) still carry headings the importer recognises', () => {
+    const t = convTarget('ob')!;
+    const cases: ConvRec[][] = [[{ konto: '1000', debit: 0, credit: 0 }], [{ konto: '12', debit: 5 }], [{ konto: 'ABC', saldo: 3 }], [], [{ konto: '0030', debit: 200000 }]];
+    for (const recs of cases) expect(t.check(convGrid(t, recs)).error ?? '').not.toMatch(/Не се најдени колони/);
+    expect(t.check(convGrid(t, [{ konto: '0030', debit: 200000 }])).rows).toEqual([expect.objectContaining({ konto: '0030', debit: 200000, credit: 0 })]);
+  });
+});
 
 describe('converter — mapping, presets, XML', () => {
   it('auto mapping prefers exact headings and keeps one column per field', () => {

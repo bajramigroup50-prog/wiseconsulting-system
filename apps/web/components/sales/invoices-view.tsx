@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { addDays, DT, INV_NOTE0, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
 import {
-  aiDocuments, boms, codes, employees, firmPostingContext, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, stockMoves, type DocPayment, type Invoice,
+  aiDocuments, boms, codes, employees, firmPostingContext, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, productionOrders, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
-import { schemeValue } from '@wise/core';
+import { nextYearNumber, schemeValue } from '@wise/core';
 import { calcInvoiceDraft } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -25,7 +25,7 @@ import { loadDunning } from '@/app/(app)/opomeni/data';
 import { BulkBar, OpGoSel, SelAll, SelBox } from './bulk-select';
 import { ensureScanBuyer } from '@/app/(app)/skan/actions';
 import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-editor';
-import { blankLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
+import { blankLine, mainProdLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
 import { RepostCallout } from '@/components/repost-callout';
 import { ScanUpload } from './scan-upload';
 
@@ -35,7 +35,7 @@ export function PayPill({ paid, total }: { paid: number; total: number }) {
   return st === 'paid' ? <span className="pill good">платена</span> : st === 'part' ? <span className="pill warn">делумно</span> : <span className="pill">отворена</span>;
 }
 
-export type SP = { calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
+export type SP = { prod?: string; calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
 
 const INTRO: Record<DtKey, string> = {
   credit: 'Книжно одобрение (рабат, поврат, корекција на цена) кон купувач. Се книжи како сторно на фактурата (1200, приход и ДДВ со минус – или на обратна страна, според поставката подолу) и го намалува долгот по фактурата. Повратница: стоката се враќа на залиха.',
@@ -86,6 +86,8 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     };
     let init: EdInvoice = newInvoice(kind, nextDocNumber(await used(kind, dflt), year), dflt, revDefault);
     if (dt === 'service') init.svc = true;
+    // „🏭 Нова фактура од производство“ (menu / list button): the invoice opens with an empty main product
+    if (dt === 'invoice' && sp.prod === '1' && sp.nov !== undefined) init = { ...init, data: { ...init.data, prodInv: '1' }, lines: [mainProdLine(schemeValue(ctx, 'revProduct') || revDefault)] };
     let title = DT[dt].nova, sub = '', scanInfo: string | undefined, back = view;
     let nalogNo: string | null = null;
     let buyerBox: { doc: string; i: number; name: string; edb: string } | null = null;
@@ -155,6 +157,16 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     }
     // normativi for the production panel („Производство = Да“)
     const BM = Object.fromEntries((await db().select().from(boms).where(eq(boms.firmId, firm.id))).map((b) => [b.productId, { lines: b.lines, labor: Number(b.labor) }]));
+    // „Работен налог / период“ of production invoices: the work orders already used by the firm and the next number
+    const woNo = sql<string>`${invoices.data}->>'woNo'`, woFrom = sql<string>`coalesce(${invoices.data}->>'woFrom', '')`, woTo = sql<string>`coalesce(${invoices.data}->>'woTo', '')`;
+    const [WO, PON] = kind === 'invoice' ? await Promise.all([
+      db().select({ number: woNo, from: woFrom, to: woTo, n: sql<number>`count(*)::int` }).from(invoices)
+        .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), sql`coalesce(${invoices.data}->>'woNo', '') <> ''`, sql`${invoices.data}->'cancelled' is null`))
+        .groupBy(woNo, woFrom, woTo).orderBy(desc(woFrom)).limit(200),
+      db().select({ number: productionOrders.number, date: productionOrders.date }).from(productionOrders).where(eq(productionOrders.firmId, firm.id)),
+    ]) : [[], []];
+    const workOrders = WO.filter((w, i) => WO.findIndex((x) => x.number === w.number) === i).map((w) => ({ number: w.number, from: w.from, to: w.to, invoices: WO.filter((x) => x.number === w.number).reduce((a, x) => a + x.n, 0) }));
+    const nextWorkOrder = nextYearNumber([...PON, ...workOrders.map((w) => ({ number: w.number, date: w.from || `${year}-01-01` }))], year);
     const lineMap = async (ids: string[]) => {
       if (!ids.length) return new Map<string, EdLine[]>();
       const L = await db().select().from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)).orderBy(asc(invoiceLines.lineNo));
@@ -190,7 +202,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       nalogNo={nalogNo} back={back} firmAddress={firm.address} scanInfo={scanInfo}
       svcOnly={FS.svcOnly === true || (FS.svcOnly !== false && !I.some((i) => i.type !== 'service'))} svcTexts={Array.isArray(FS.svcTexts) ? FS.svcTexts as string[] : []}
       vehicles={VH.map((v) => ({ code: v.code ?? '', name: v.name }))} drivers={[...new Set([...VH.map((v) => String((v.data as Record<string, unknown>)?.driver ?? '')).filter(Boolean), ...EMP.map((e) => e.name)])]}
-      boms={BM} avg={avg} prodRun={prodRun}
+      boms={BM} avg={avg} prodRun={prodRun} workOrders={workOrders} nextWorkOrder={nextWorkOrder}
       nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} /></>;
   }
 
@@ -255,11 +267,13 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         {dt === 'invoice' && settingsOk && <Link className="btn" href={sp.style !== undefined ? view : view + '?style'}>Изглед на фактура…</Link>}
         <DownloadCsv name={`${DT[dt].view}_${year}.csv`} label="Excel" rows={[['Број', 'Налог', 'Датум', 'Валута', 'Комитент', 'Шифра', 'Основица', 'ДДВ', 'Износ', 'Валута/курс'],
           ...list.map(({ i, p }) => [i.number, J.get(i.id) ?? '', dmy(i.date), dmy(i.due), p?.name ?? '', p?.code ?? '', Number(i.base), Number(i.vat), Number(i.total), i.currency === 'MKD' ? '' : `${i.currency} ${i.fx}`])]} />
+        {write && dt === 'invoice' && <Link className="btn" href="/izlez?nov&prod=1" title="Нарачка по мерка: главен производ, калкулација на производство, налог за производство">🏭 Нова фактура од производство</Link>}
         {write && <Link className="btn pri" href={view + '?nov'}>+ {DT[dt].nova}</Link>}
       </Hd>
       {dt === 'invoice' && write && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
         label={<><b>Прочитај излезна фактура од PDF</b> — повлечете ја фактурата (PDF, JPG, PNG) тука или кликнете. Програмот ги чита купувачот, бројот, датумите и ставките и ја отвора фактурата за проверка.</>} />}
-      {sp.saved && <div className="callout good">Документот е зачуван. <Link href={`/print/doc/${sp.saved}`} target="_blank">👁 Преглед / печатење</Link>{sp.w && <><br />{sp.w.split(' | ').map((w, k) => <span key={k}>⚠ {w}<br /></span>)}</>}</div>}
+      {sp.saved && <div className="callout good">Документот е зачуван. <Link href={`/print/doc/${sp.saved}`} target="_blank">👁 Преглед / печатење</Link>
+        {((list.find((r) => r.i.id === sp.saved)?.i.data ?? {}) as InvoiceData).prodRun?.lines?.length ? <> · <Link href={`/print/prodKalk/${sp.saved}`} target="_blank">🖨 Калкулација на производство</Link></> : null}{sp.w && <><br />{sp.w.split(' | ').map((w, k) => <span key={k}>⚠ {w}<br /></span>)}</>}</div>}
       {settingsOk && sp.style !== undefined && (
         <form action={saveInvoiceStyle} className="card">
           <h2>Изглед на фактурата (печатење)</h2>
@@ -324,6 +338,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
               <td>{st(i)}{((i.data ?? {}) as InvoiceData).prodRun?.orders?.map((o) => <Link key={o.id} className="pill info" href={JP.get(o.id) ? `/nalozi?n=${encodeURIComponent(JP.get(o.id)!)}` : '/prod'} title={`Налог за производство бр. ${o.number}${JP.get(o.id) ? ' · налог за книжење ' + JP.get(o.id) : ''}`}> 🏭 {o.number}</Link>)}{i.art32 && <span className="pill info"> 32-а</span>}{i.advance && <span className="pill warn"> авансна</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Преглед и печатење">👁</Link>
+                {kind === 'invoice' && ((i.data ?? {}) as InvoiceData).prodRun?.lines?.length ? <Link className="btn sm" href={`/print/prodKalk/${i.id}`} target="_blank" title="Калкулација на производство (печатење / PDF)">🏭</Link> : null}
                 {inv && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉</Link>}
                 {write && <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Измени">✎</Link>}
                 {write && kind === 'invoice' && !i.advance && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница (купувачот враќа стока) кон оваа фактура">↩ Одобр.</Link>}

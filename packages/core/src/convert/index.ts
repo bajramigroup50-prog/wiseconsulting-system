@@ -13,7 +13,8 @@
 import { readBankTable } from '../bank-parsers';
 import { prepBankGrid, type BankRole } from '../bank/table';
 import { fimpParse, fimpVatFlag, fimpVatPeriod } from '../firms/firmimp';
-import { parseOpeningSheet } from '../ledger';
+import { dropSummaryRows, parseOpeningSheet, type ObRow } from '../ledger';
+import { partnerSplit, tbAmountCols, tbBlocks, tbKontoCol, tbPreferredBlock, tbRebuild, tbTotals, type TbBlock, type TbSkipWhy } from '../tb-rows';
 import { plxParse, PXL_COLS, type PxlKey } from '../payroll/xlsx-import';
 import { IMP_T, impAuto, impDate, impHeaderRow, impN, impNum, impNumFormats, type DecMode, type ImpType } from '../retail/import';
 import { parseXml, type XmlEl } from '../sales/xml';
@@ -137,7 +138,12 @@ const obTarget: ConvTarget = {
   })],
   check: (grid) => {
     const P = parseOpeningSheet(grid, 'excel');
-    if (!P) return { rows: [], error: 'Не се најдени колони „Конто“ и „Салдо / Должи / Побарува“.' };
+    if (!P) {
+      // the headings written by `build` are always recognised: no rows here means no row with a konto and a saldo
+      const head = (grid[0] ?? []).map((c) => String(c ?? '').trim());
+      if (OB_HEAD.every((h, i) => head[i] === h)) return { rows: [], ...(grid.length > 1 ? { error: 'Ниту еден ред нема конто (3–8 цифри) и салдо различно од нула.' } : {}) };
+      return { rows: [], error: 'Не се најдени колони „Конто“ и „Салдо / Должи / Побарува“.' };
+    }
     return { rows: P.rows.map(([konto, name, partner, code, debit, credit]) => ({ konto, name, partner, code, debit: r2(debit), credit: r2(credit) })) };
   },
 };
@@ -336,8 +342,12 @@ export const convSig = (hdr: readonly unknown[]): string => hdr.map(impN).join('
 
 const TOTAL = /^(вкупно|збир|сума|total|gjithsej|toplam|салдо на крај|ново салдо)/i;
 
+/** Why a source row is not in the result although it is not an error. */
+export type ConvSkipWhy = TbSkipWhy | 'нулто салдо';
 export interface ConvResult {
   grid: ConvCell[][]; recs: ConvRec[]; errors: { row: number; msg: string }[]; skipped: number;
+  /** Rows left out on purpose (totals, headings, continuation lines merged into the row above, zero saldo). */
+  skippedRows: { row: number; why: ConvSkipWhy; text: string }[];
   /** Numeric columns with only ambiguous amounts („10.000“) and no „Децимали“ chosen: the result must not be used. */
   ambiguous: string[]; ambExamples: string[]; blocked: boolean;
   /** Statement data carried into the result (bank: number, date, account, balances as numbers). */
@@ -346,13 +356,21 @@ export interface ConvResult {
   notes: { ok: boolean; msg: string }[];
 }
 
+/** Konto / text / amount fields of the targets whose rows are trial-balance or journal lines (row reconstruction). */
+const KONTO_T: Record<string, { k: string; name?: string; partner?: string; code?: string; amt: string[] }> = {
+  ob: { k: 'konto', name: 'name', partner: 'partner', code: 'code', amt: ['debit', 'credit', 'saldo'] },
+  'imp:journal': { k: 'k', name: 'desc', partner: 'partner', amt: ['d', 'p'] },
+};
+
 /**
  * Source rows (below the header) → records of the target fields → target grid. `consts` fills a field with a fixed
  * value (e.g. the date of a stock list). Rows without the required fields are reported and left out; empty rows and
- * total rows are skipped.
+ * total rows are skipped. For the opening balance and the journal the rows are first rebuilt (`tb-rows.ts`): lines
+ * split in two are joined, page headers / class headings / totals are left out (listed in `skippedRows`, not errors).
+ * `pre` = the rows above the header (repeated page headers are recognised by them).
  */
 export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], map: Readonly<Record<string, number | undefined>>, o: {
-  dec?: DecMode; consts?: Readonly<Record<string, string>>; firstRow?: number;
+  dec?: DecMode; consts?: Readonly<Record<string, string>>; firstRow?: number; pre?: readonly (readonly unknown[])[];
   /** Values from the header block for unmapped fields (`ConvPrep.hdr`); a typed constant wins. */
   hdr?: Readonly<Record<string, string>>; meta?: ConvMeta; rowNos?: readonly number[];
 } = {}): ConvResult {
@@ -363,11 +381,25 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
   const decOf = (k: string): DecMode => sel || NF.dec[k] || '';
   const recs: ConvRec[] = [];
   const errors: { row: number; msg: string }[] = [];
+  const skippedRows: ConvResult['skippedRows'] = [];
+  const first = o.firstRow ?? 1;
   let skipped = 0;
-  rows.forEach((r, ri) => {
-    const rowNo = o.rowNos?.[ri] ?? (o.firstRow ?? 1) + ri;
+  // trial balance / journal: rebuild the rows first
+  const KC = KONTO_T[t.id];
+  const kc = KC ? map[KC.k] : undefined;
+  let src: { ri: number; r: readonly unknown[]; sub: string; k: string }[];
+  if (KC && kc != null && kc >= 0) {
+    const fmt = decOf(KC.amt[0]!) === 'dot' ? 'dot' : 'mk';
+    const RB = tbRebuild(rows, { k: kc, name: KC.name ? map[KC.name] : undefined, partner: KC.partner ? map[KC.partner] : undefined, code: KC.code ? map[KC.code] : undefined, amt: KC.amt.map((k) => map[k]) }, { pre: o.pre, fmt });
+    for (const x of RB.skipped) { if (x.why === 'празен') skipped++; else skippedRows.push({ ...x, row: first + x.row }); }
+    src = RB.items.filter((x) => x.kind === 'data').map((x) => ({ ri: x.row, r: x.cells, sub: x.sub, k: x.k }));
+  } else src = rows.map((r, ri) => ({ ri, r, sub: '', k: '' }));
+  let curK = '';
+  const rowOf = new Map<ConvRec, number>();
+  src.forEach(({ ri, r, sub, k }) => {
+    const rowNo = o.rowNos?.[ri] ?? first + ri;
     if (!r.some((c) => String(c ?? '').trim() !== '')) { skipped++; return; }
-    if (r.slice(0, 3).some((c) => TOTAL.test(String(c ?? '').trim()))) { skipped++; return; }
+    if (!KC && r.slice(0, 3).some((c) => TOTAL.test(String(c ?? '').trim()))) { skipped++; return; }
     const rec: ConvRec = {};
     const bad: string[] = [];
     for (const f of t.fields) {
@@ -389,6 +421,22 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
         rec[f.key] = v;
       }
     }
+    if (t.id === 'ob') {
+      const hasAmt = rec.debit !== undefined || rec.credit !== undefined || rec.saldo !== undefined;
+      // analytic rows under an account heading (no konto of their own): the konto above, the text is the partner
+      if (k) curK = k;
+      else if (rec.konto === undefined && curK && hasAmt && (rec.partner || rec.name)) {
+        rec.konto = curK;
+        if (!rec.partner) { rec.partner = rec.name!; delete rec.name; }
+      }
+      // „1029 МАЈАНЦЕ“: partner code + name; „1200-001“: the analytic suffix as the code
+      if (rec.partner && !rec.code) { const ps = partnerSplit(rec.partner); if (ps.code) { rec.partner = ps.name; rec.code = ps.code; } }
+      if (sub && !rec.code) rec.code = sub;
+      if (hasAmt && rec.konto !== undefined && !r2(Number(rec.debit) || 0) && !r2(Number(rec.credit) || 0) && !r2(Number(rec.saldo) || 0)) {
+        skippedRows.push({ row: rowNo, why: 'нулто салдо', text: [rec.konto, rec.name, rec.partner].filter(Boolean).join(' ') });
+        return;
+      }
+    }
     const miss = t.fields.filter((f) => f.req && (rec[f.key] === undefined || rec[f.key] === ''));
     // bank: either in / out or a signed amount; ob: debit / credit or saldo
     const noAmt = t.id === 'bank' ? rec.in === undefined && rec.out === undefined && rec.amount === undefined
@@ -399,8 +447,21 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
       return;
     }
     if (bad.length) errors.push({ row: rowNo, msg: bad.join('; ') });
+    rowOf.set(rec, rowNo);
     recs.push(rec);
   });
+  let out = recs;
+  if (t.id === 'ob') {
+    // synthetic rows that are the sum of their analytic rows (legacy `obDropSums`, the same rule as the import)
+    const R = recs.map((r): ObRow => { const d = obDP(r); return [String(r.konto ?? ''), String(r.name ?? ''), String(r.partner ?? ''), String(r.code ?? ''), d[0], d[1]]; });
+    const keep = new Set(dropSummaryRows(R).rows);
+    out = recs.filter((r, i) => {
+      if (keep.has(R[i]!)) return true;
+      skippedRows.push({ row: rowOf.get(r) ?? 0, why: 'збир', text: [r.konto, r.name, r.partner].filter(Boolean).join(' ') });
+      return false;
+    });
+  }
+  skippedRows.sort((a, b) => a.row - b.row);
   // statement data: balances in the numbers' format; opening + movements = closing
   const notes: ConvResult['notes'] = [];
   let meta: ConvMeta | undefined;
@@ -412,13 +473,75 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
     const op = num(o.meta.opening), cl = num(o.meta.closing);
     meta = { ...o.meta, opening: op == null ? '' : numStr(op), closing: cl == null ? '' : numStr(cl) };
     if (t.id === 'bank' && op != null && cl != null) {
-      const sum = recs.reduce((a, r) => a + Math.round((r.in !== undefined || r.out !== undefined ? (Number(r.in) || 0) - (Number(r.out) || 0) : Number(r.amount) || 0) * 100), 0);
+      const sum = out.reduce((a, r) => a + Math.round((r.in !== undefined || r.out !== undefined ? (Number(r.in) || 0) - (Number(r.out) || 0) : Number(r.amount) || 0) * 100), 0);
       const exp = Math.round(op * 100) + sum, ok = exp === Math.round(cl * 100);
       notes.push({ ok, msg: ok ? `Салдата се совпаѓаат: претходна состојба ${mkC(op * 100)} + промет ${mkC(sum)} = нова состојба ${mkC(cl * 100)}.`
         : `Салдата НЕ се совпаѓаат: претходна состојба ${mkC(op * 100)} + промет ${mkC(sum)} = ${mkC(exp)}, а во изводот новата состојба е ${mkC(cl * 100)} (разлика ${mkC(Math.round(cl * 100) - exp)}). Проверете ги ставките и „Децимали“.` });
     }
   }
-  return { grid: convGrid(t, recs, meta), recs, errors, skipped, ambiguous: NF.ambiguous, ambExamples: NF.examples, blocked: NF.ambiguous.length > 0 && !sel, ...(meta ? { meta } : {}), notes };
+  return { grid: convGrid(t, out, meta), recs: out, errors, skipped, skippedRows, ambiguous: NF.ambiguous, ambExamples: NF.examples, blocked: NF.ambiguous.length > 0 && !sel, ...(meta ? { meta } : {}), notes };
+}
+
+/** Debit / credit of an opening-balance record (a signed saldo split like `obTarget.build`). */
+function obDP(r: ConvRec): [number, number] {
+  let d = Number(r.debit) || 0, p = Number(r.credit) || 0;
+  if (r.saldo !== undefined && r.saldo !== '' && !d && !p) { const s = Number(r.saldo) || 0; d = s > 0 ? s : 0; p = s < 0 ? -s : 0; }
+  return [r2(d), r2(p)];
+}
+
+/**
+ * Debit = credit check and per-class sums of a converted opening balance / journal (null for other targets). Sums in
+ * cents (`tbTotals`).
+ */
+export function convTotals(t: ConvTarget, recs: readonly ConvRec[]): ReturnType<typeof tbTotals> | null {
+  if (t.id === 'ob') return tbTotals(recs.map((r) => { const [d, p] = obDP(r); return { k: String(r.konto ?? ''), d, p }; }));
+  if (t.id === 'imp:journal') return tbTotals(recs.map((r) => ({ k: String(r.k ?? ''), d: Number(r.d) || 0, p: Number(r.p) || 0 })));
+  return null;
+}
+
+/**
+ * Headings of a source grid with a two-row header: a block row („Почетно салдо | Промет | Салдо“, merged cells) above
+ * a „Д | П“ row is combined into one heading per column („Салдо Д“). `start` = first data row.
+ */
+export function convHeads(grid: readonly (readonly unknown[])[], hi: number): { head: string[]; start: number } {
+  const cell = (v: unknown) => (v instanceof Date ? '' : String(v ?? '').trim());
+  const DP = /^(д\.?|п\.?|должи|побарува|dolzi|pobaruva|debit|credit|duguje|potrazuje|dug\.?|pot\.?|d\.?|p\.?)$/i;
+  const isDP = (r: readonly unknown[] | undefined) => {
+    const c = (r ?? []).map(cell).filter(Boolean);
+    return c.length >= 2 && c.filter((x) => DP.test(x)).length >= c.length * 0.6;
+  };
+  const ff = (r: readonly unknown[] | undefined) => { let l = ''; return (r ?? []).map((c) => (cell(c) ? (l = cell(c)) : l)); };
+  const comb = (top: readonly unknown[] | undefined, low: readonly unknown[] | undefined) => {
+    const T = ff(top), L = (low ?? []).map(cell);
+    return Array.from({ length: Math.max(T.length, L.length) }, (_, i) => (L[i] ? ((T[i] ?? '') + ' ' + L[i]).trim() : cell(top?.[i])));
+  };
+  const H = grid[hi] ?? [];
+  if (isDP(grid[hi + 1]) && !isDP(H)) return { head: comb(H, grid[hi + 1]), start: hi + 2 };
+  if (hi > 0 && isDP(H) && (grid[hi - 1] ?? []).some((c) => cell(c))) return { head: comb(grid[hi - 1], H), start: hi + 1 };
+  return { head: H.map(cell), start: hi + 1 };
+}
+
+/** Debit / credit blocks of a trial balance (почетно салдо / промет / вкупно / салдо) for the „Користи“ choice. */
+export const convBlocks = (t: ConvTarget, head: readonly unknown[]): TbBlock[] => (t.id === 'ob' ? tbBlocks(head, latN) : []);
+
+/**
+ * Mapping by headings (`convAuto`) completed from the values: the closing saldo block of a multi-block trial balance,
+ * the konto column (3–8 digit codes) and the amount columns when their headings are not recognised.
+ */
+export function convGuess(t: ConvTarget, head: readonly unknown[], data: readonly (readonly unknown[])[]): Record<string, number> {
+  const map = convAuto(t, head);
+  const KC = KONTO_T[t.id];
+  if (!KC) return map;
+  const B = tbPreferredBlock(convBlocks(t, head));
+  if (B) { map.debit = B.d; map.credit = B.p; delete map.saldo; }
+  const used = () => new Set(Object.values(map));
+  if (map[KC.k] == null) { const k = tbKontoCol(data, used()); if (k >= 0) map[KC.k] = k; }
+  if (KC.amt.every((k) => map[k] == null)) {
+    const N = tbAmountCols(data, used(), 'mk', map[KC.k] != null ? map[KC.k]! + 1 : 0);
+    if (N.length >= 2) { map[KC.amt[0]!] = N[N.length - 2]!; map[KC.amt[1]!] = N[N.length - 1]!; }
+    else if (N.length === 1 && KC.amt[2]) map[KC.amt[2]] = N[0]!;
+  }
+  return map;
 }
 
 /** Cents as „1.234,56“. */

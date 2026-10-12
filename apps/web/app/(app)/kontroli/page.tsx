@@ -15,11 +15,12 @@ import {
   RECOMMEND_LBL, VERDICT_LBL, type DeadlineState, type Recommendation,
 } from '@wise/core/compliance';
 import { klAllowedViews, type KlConfig } from '@wise/core/office';
-import { auditLog, findingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaFindings, kontroli, userFirms, users, type Kontrola, type KontrolaFinding } from '@wise/db';
+import { auditLog, findingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaDue, kontrolaFindings, kontroli, userFirms, users, type Kontrola, type KontrolaFinding } from '@wise/db';
 import { requireUser } from '@/lib/auth';
+import { isOfficeOwner } from '@/lib/office-owner';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
-import { draftParagraphs, kontrolaDraft, toFinding } from '@/lib/kontrola';
+import { draftParagraphs, isKontrolaReadable, kontrolaDraft, pendingKontrolaReads, toFinding } from '@/lib/kontrola';
 import { viewAllowed } from '@/lib/nav';
 import { filesOf, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
@@ -30,7 +31,7 @@ import { NoFirm } from '@/components/no-firm';
 import { PdfButton } from '@/components/pdf-button';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { kAction, kActionDone, kDelete, kDraft, kFinding, kFindingDelete, kRecalc, kSave } from './actions';
+import { kAction, kActionDone, kDelete, kDraft, kFinding, kFindingDelete, kReadFile, kRecalc, kSave } from './actions';
 
 type SP = { id?: string; nov?: string };
 const den = (c: number) => `${fmtCents(c)} ден.`;
@@ -39,7 +40,7 @@ const ST_LBL: Record<DeadlineState, string> = { expired: 'истечен', today
 const REC_CLS: Record<Recommendation, string> = { accept: 'good', object: 'bad', partial: 'warn', review: 'info' };
 const authOf = (k: Pick<Kontrola, 'auth'>) => (isKontrolaAuth(k.auth) ? KONTROLA_AUTH[k.auth] : k.auth);
 const docOf = (k: Pick<Kontrola, 'doc'>) => (isKontrolaDoc(k.doc) ? KONTROLA_DOC[k.doc] : k.doc);
-const deadlinesOf = (k: Kontrola, td: string) => (isKontrolaAuth(k.auth) && isKontrolaDoc(k.doc) ? kontrolaDeadlines(k.auth, k.doc, k.delivered, td, k.dueOverride) : []);
+const deadlinesOf = (k: Kontrola, td: string) => (isKontrolaAuth(k.auth) && isKontrolaDoc(k.doc) ? kontrolaDeadlines(k.auth, k.doc, k.delivered, td, kontrolaDue(k)) : []);
 
 function HeaderFields({ k }: { k?: Kontrola }) {
   return (
@@ -75,7 +76,9 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
   const K = await db().select().from(kontroli).where(and(eq(kontroli.firmId, firm.id), client ? eq(kontroli.clientVisible, true) : undefined)).orderBy(desc(kontroli.docDate), desc(kontroli.createdAt));
   const k = sp.id ? K.find((x) => x.id === sp.id) : undefined;
   if (sp.id && !k) notFound();
-  if (k) return <Detail k={k} firm={firm} edit={edit} client={client} canDel={!client && can(u.principal, 'del', firm.id)} td={td} />;
+  // deleting an inspection case: only the office owner (user decision 2026-10-12)
+  const owner = !client && await isOfficeOwner(u);
+  if (k) return <Detail k={k} firm={firm} edit={edit} client={client} canDel={owner} td={td} />;
 
   const FA = K.length ? await db().select().from(kontrolaFindings).where(inArray(kontrolaFindings.kontrolaId, K.map((x) => x.id))) : [];
   return (
@@ -85,7 +88,7 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
       </Hd>
       {!client && <div className="callout">Внесете го записникот или решението (или прикачете го – наодите ги чита програмата). За секој наод програмата ги покажува доказите од книгите за контролираниот период, кој и кога ги менувал, и пресметува дали износот одговара. Роковите се пресметуваат од датумот на прием (со викенди и празници); <b>рокот од правната поука на актот секогаш има предност</b> – внесете го.</div>}
       <div className="card tw">{K.length ? <table className="dense">
-        <thead><tr><th>Датум</th><th>Орган</th><th>Акт</th><th>Период</th><th>Предмет</th><th>Статус</th><th>Рок</th><th className="n">Утврдено</th><th className="n">Оспорено</th></tr></thead>
+        <thead><tr><th>Датум</th><th>Орган</th><th>Акт</th><th>Период</th><th>Предмет</th><th>Статус</th><th>Рок</th><th className="n">Утврдено</th><th className="n">Оспорено</th>{owner && <th></th>}</tr></thead>
         <tbody>{K.map((x) => {
           const S = kontrolaSummary(FA.filter((f) => f.kontrolaId === x.id).map(toFinding));
           const [d] = deadlinesOf(x, td);
@@ -98,6 +101,7 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
               <td>{KONTROLA_STATUS[x.status as keyof typeof KONTROLA_STATUS] ?? x.status}</td>
               <td>{x.filedOn ? <span className="pill good">поднесено {dmy(x.filedOn)}</span> : d ? <span className={`pill ${ST_CLS[d.state]}`}>{d.remedy.name}: {dmy(d.due)}</span> : '—'}</td>
               <td className="n">{den(S.total)}</td><td className="n">{den(S.disputed)}</td>
+              {owner && <td><RowAction action={kDelete.bind(null, x.id)} label="🗑" title="Избриши (само сопственикот)" confirm="Да се избрише контролата со сите наоди и мерки? (записот останува во дневникот на активности)" className="btn sm ghost" /></td>}
             </tr>
           );
         })}</tbody>
@@ -105,7 +109,8 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
       {edit && <ActionForm action={kSave}>
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>+ Нова контрола / акт</h2>
         <HeaderFields />
-        <UploadField firmId={firm.id} label="📎 Скенираниот акт" />
+        <UploadField firmId={firm.id} label="📎 Скенираниот акт" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.docx,.txt" />
+        <div className="mini">Прикачениот акт (PDF, слика, Word) се чита автоматски по зачувувањето – наодите се додаваат во предметот за проверка.</div>
         <button className="btn pri" style={{ marginTop: 6 }}>Зачувај и отвори</button>
       </ActionForm>}
     </>
@@ -118,6 +123,9 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
     db().select().from(kontrolaActions).where(eq(kontrolaActions.kontrolaId, k.id)).orderBy(asc(kontrolaActions.due)),
     filesOf(KONTROLA_FILE_ENTITY, [k.id]),
   ]);
+  const reads = edit ? await pendingKontrolaReads(k) : [];
+  const readable = (FL.get(k.id) ?? []).filter(isKontrolaReadable);
+  const remedy = (k.data as { remedy?: { n: number; unit: string } }).remedy;
   const S = kontrolaSummary(F.map(toFinding));
   const D = deadlinesOf(k, td);
   const EV = client ? [] : await Promise.all(F.map((f) => findingEvidence(db(), firm.id, k, f)));
@@ -134,7 +142,7 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
       <Hd t={`📑 ${title}`} sub={`${firm.name} · ${k.subject ?? ''}`} exp={false}>
         <Link className="btn" href="/kontroli">← Сите контроли</Link>
         {!client && <a className="btn" href={`/kontroli/word?id=${k.id}&doc=analiza`}>⬇ Анализа (Word)</a>}
-        {canDel && <RowAction action={kDelete.bind(null, k.id)} label="🗑" title="Избриши погрешно внесена контрола" confirm="Да се избрише контролата со сите наоди и мерки? (записот останува во дневникот на активности)" className="btn sm ghost" />}
+        {canDel && <RowAction action={kDelete.bind(null, k.id)} label="🗑 Избриши" title="Избриши (само сопственикот)" confirm="Да се избрише контролата со сите наоди и мерки? (записот останува во дневникот на активности)" className="btn sm ghost" />}
       </Hd>
 
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '0 0 10px', alignItems: 'stretch' }}>
@@ -153,7 +161,7 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
               <td className="mini">{d.remedy.to}</td>
               <td>{d.remedy.suspends ? 'Да' : <b>Не – платете / постапете во рокот од актот</b>}</td>
               <td className="mini">{d.remedy.law}{d.remedy.confirm ? <span className="pill info" title="Читање на програмата – проверете ја правната поука на актот"> провери ја правната поука</span> : null}</td></tr>
-          ))}</tbody></table> : <div className="callout warn">Внесете го датумот на прием на актот за да се пресмета рокот.</div>}
+          ))}</tbody></table> : <div className="callout warn">Внесете го датумот на прием на актот за да се пресмета рокот{remedy ? ` (правна поука: ${remedy.n} ${remedy.unit === 'workdays' ? 'работни ' : ''}дена од приемот)` : ''}.</div>}
         <div style={{ marginTop: 6 }}><FileChips files={FL.get(k.id)} /></div>
       </div>
 
@@ -166,16 +174,22 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
         </ActionForm>
       </details>}
 
-      {edit && <div className="card"><KontrolaAi firmId={firm.id} kid={k.id} /></div>}
+      {edit && <div className="card">
+        <KontrolaAi firmId={firm.id} kid={k.id} initial={reads} />
+        {readable.length > 0 && <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {readable.map((f) => <RowAction key={f.id} action={kReadFile.bind(null, k.id, f.id)} label={readable.length > 1 ? `↻ Прочитај „${f.name}“` : '↻ Прочитај го прикачениот акт'} title={f.name} className="btn sm" />)}
+          <span className="mini">Наодите се додаваат на постоечките – при повторно читање избришете ги старите.</span>
+        </div>}
+      </div>}
 
       <h2 style={{ fontSize: 16, margin: '12px 0 6px' }}>Наоди ({F.length})</h2>
       {F.map((f, i) => <FindingCard key={f.id} f={f} k={k} ev={EV[i]} edit={edit} client={client} />)}
       {!F.length && <div className="card empty">Нема наоди. {edit ? 'Прикачете го актот горе или внесете ги рачно.' : ''}</div>}
-      {edit && <ActionForm action={kFinding.bind(null, k.id)}>
+      {edit && <div id="rachen-vnes"><ActionForm action={kFinding.bind(null, k.id)}>
         <h3 style={{ fontSize: 14, margin: '0 0 6px' }}>+ Нов наод (рачно)</h3>
         <FindingFields />
         <button className="btn sm pri" style={{ marginTop: 6 }}>Додај наод</button>
-      </ActionForm>}
+      </ActionForm></div>}
 
       {draft && <div className="card">
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>📝 Предлог {draft.remedy?.name.toLowerCase() ?? 'поднесок'} {draft.deadline ? `(рок ${dmy(draft.deadline)})` : ''}</h2>
