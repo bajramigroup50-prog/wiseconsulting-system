@@ -26,6 +26,17 @@ describe('📊 Продуктивност на вработените in the men
   });
 });
 
+describe('💲 AI трошок in the menu', () => {
+  it('follows Продуктивност in Систем and is owner-only', () => {
+    const ids = navFlat(NAV.find(([g]) => g === 'Систем')![1]).map(([id]) => id);
+    expect(ids[ids.indexOf('produktivnost') + 1]).toBe('aiTrosok');
+    expect(viewAllowed('admin', 'aiTrosok')).toBe(true);
+    expect(viewAllowed('klient', 'aiTrosok')).toBe(false);
+    expect(OWNER_VIEWS).toContain('aiTrosok');
+    expect(withoutViews(NAV, OWNER_VIEWS).flatMap(([, L]) => navFlat(L).map(([id]) => id))).not.toContain('aiTrosok');
+  });
+});
+
 /** Every literal `audit({ action })` in the code should be in the classification table (unknown ones go to „Друго“). */
 describe('audit action coverage', () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));

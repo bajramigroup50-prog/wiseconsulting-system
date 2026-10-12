@@ -38,7 +38,7 @@ export async function splitInvoicePdf(a: { db: Tx; firmId: string; refId: string
   const blocks: Anthropic.ContentBlockParam[] = [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(a.bytes).toString('base64') } }];
   let G: SplitGroup[] | null = null;
   try {
-    const r = await readContent<unknown>({ db: a.db, firmId: a.firmId, prompt: SPLIT_PROMPT(n), tier: 'quick', purpose: a.purpose + ':split', refId: a.refId, userId: a.userId, maxTokens: 2000 }, { blocks, extra: '' });
+    const r = await readContent<unknown>({ db: a.db, firmId: a.firmId, prompt: SPLIT_PROMPT(n), tier: 'quick', purpose: a.purpose + ':split', refId: a.refId, userId: a.userId, maxTokens: 2000, prune: false }, { blocks, extra: '' });
     G = splitGroups(r.data, n);
   } catch { return null; }
   if (!G) return null;

@@ -15,6 +15,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // owner-only (hidden for everybody else in the layout, `OWNER_VIEWS`)
   ['Систем', 'aktivnost', [['produktivnost', '📊 Продуктивност на вработените']]],
+  // owner-only: AI cost report and monthly AI limit (docs/AI-TROSHOK.md)
+  ['Систем', 'produktivnost', [['aiTrosok', '💲 AI трошок']]],
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
   // owner-only: enrolled computers (device certificates, mutual TLS)
   ['Систем', 'greski', [['uredi', '🔐 Уреди (компјутери)']]],
