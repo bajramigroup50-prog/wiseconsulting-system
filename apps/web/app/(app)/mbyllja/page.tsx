@@ -14,6 +14,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { ActionForm } from '@/components/yearend/action-form';
 import { ZsHead } from '@/components/yearend/ph-bar';
+import { carryState } from '@wise/db';
+import { db } from '@/lib/db';
 import { closeYearAction, importPostCloseTbAction, undoCloseAction } from '../zsProc/actions';
 
 const TAX_SRC: Record<YeTaxSource, [string, string?]> = {
@@ -40,6 +42,9 @@ export default async function MbylljaPage() {
   const tb = L.inputs.tb;
   const D = tb.reduce((s, r) => s + r.debit + (r.openingDebit ?? 0), 0), P = tb.reduce((s, r) => s + r.credit + (r.openingCredit ?? 0), 0);
   const npoChart = L.ent === 'npo' && L.Y.npoChart === 'npo';
+  // the carry-over done by the close (shown on the page, not only in the confirmation message)
+  const carry = cl ? (await carryState(db(), firm.id, year, L)).evidence : null;
+  const nCarried = carry ? carry.rows.filter((r) => r.carried).length : 0;
   return (
     <>
       <ZsHead id="mbyllja" t={`Затворање на година ${year}`} year={year} ent={L.ent} done={phaseDone(L)} />
@@ -63,10 +68,13 @@ export default async function MbylljaPage() {
         <div className="card"><h2>Со еден клик</h2>
           <p className="note">Програмот креира налог 999 за затворање на 31.12.{year}: го затвора секое конто од класите 4 и 7, го книжи данокот, го пренесува резултатот на 8200, а потоа на 951 (добивка) или 961 (загуба). Во истата акција салдата на класите 0, 1, 2, 3, 6 и 9 се пренесуваат во „Почетна состојба {year + 1}“ на 01.01.{year + 1} – конто по конто и партнер по партнер. Може да се пресметува повторно колку што треба додека годината не е заклучена; почетната состојба за {year + 1} секогаш се ажурира, не се дуплира.</p>
           {cl && <div className="callout good">Годината {year} е затворена{L.closing?.closedAt ? ' на ' + dmy(L.closing.closedAt.toISOString()) : ''} (налог {cl.number}{L.closing?.imported ? ', од увезен бруто биланс' : ''}): нето {fmt(L.closing?.net ?? (cl.meta as { net?: number }).net)} ден.</div>}
+          {carry && (L.openJournal && carry.totals.ok
+            ? <div className="callout good" id="carryDone">✓ Салдата се пренесени во „Почетна состојба {year + 1}“ на 01.01.{year + 1} (налог {L.openJournal.number}): {nCarried} ставки, вкупно затворање = вкупно почетна ({fmt(carry.totals.openingDebit)} = {fmt(carry.totals.openingCredit)}). <Link className="btn sm" href="/prenos">Пренос на салда →</Link></div>
+            : <div className="callout bad" id="carryDone">⚠ {L.openJournal ? `${carry.missing} ставки не се пренесени или се разликуваат.` : `Салдата не се пренесени во ${year + 1}.`} <Link className="btn sm" href="/prenos">Пренос на салда →</Link></div>)}
           <div className="row">
             {close && !L.closing?.imported && (
               <RowAction className="btn pri" action={closeYearAction} label={cl ? 'Пресметај го затворањето повторно' : `Затвори ја годината ${year}`}
-                confirm={`Да се ${cl ? 'пресмета повторно' : 'креира'} налогот за затворање на 31.12.${year}? Данок ${fmt(plan.tax)} ден., нето ${fmt(plan.net)} ден. Салдата ќе се пренесат во почетната состојба за ${year + 1}.`} showOk />
+                confirm={`Да се ${cl ? 'пресмета повторно' : 'креира'} налогот за затворање на 31.12.${year}? Данок ${fmt(plan.tax)} ден., нето ${fmt(plan.net)} ден. Салдата ќе се пренесат во почетната состојба за ${year + 1}.`} inline okHref="/prenos" okLink="Пренос на салда →" />
             )}
             {cl && undo && (
               <RowAction className="btn danger" action={undoCloseAction} label="Поништи затворање"

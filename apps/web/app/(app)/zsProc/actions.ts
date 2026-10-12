@@ -9,9 +9,9 @@ import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { prClean } from '@wise/core/yearend/tools';
 import type { ZsRule } from '@wise/core/yearend/aop';
 import { patchFirmSettings } from '@/lib/firms-office';
-import { csvToGrid, DB_F, DE38, DLD_ND, parseCarryKey, parseTurnoverTb } from '@wise/core';
+import { csvToGrid, DB_F, DE38, DLD_ND, parseCarryKey, parseCarryStatPrefixes, parseTurnoverTb } from '@wise/core';
 import {
-  audit, carryOneRow, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
+  audit, carryOneRow, carryStatPrefixesOf, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
   snapshotAop, undoClose, undoOpen, unlockYear, upsertStatement, type StatementPatch,
 } from '@wise/db';
 import { and, asc, eq, sql } from 'drizzle-orm';
@@ -138,6 +138,26 @@ export async function setCarryByDocAction(on: boolean): Promise<ActionState> {
     });
     done();
     return { ok: on ? 'Побарувањата и обврските ќе се пренесуваат по отворен документ – притиснете „Пренеси повторно“.' : 'Побарувањата и обврските ќе се пренесуваат по партнер – притиснете „Пренеси повторно“.' };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * Statistical (memo) accounts that are never carried into the next year (firm setting `carryStatPrefixes`, default
+ * 994 / 999 „Основица за ДДВ“). Audited with the old and the new list.
+ */
+export async function setCarryStatAction(_p: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('settings');
+    const raw = String(form.get('prefixes') ?? '');
+    const next = parseCarryStatPrefixes(raw);
+    if (raw.trim() && !next.length) return { error: 'Внесете префикси на конта (само цифри, на пр. 994, 999).' };
+    const before = carryStatPrefixesOf(firm);
+    await db().transaction(async (tx) => {
+      await patchFirmSettings(tx, firm.id, { carryStatPrefixes: next });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'carryStatPrefixes', entityType: 'firm', entityId: firm.id, data: { before, after: next } });
+    });
+    done();
+    return { ok: `Статистички сметки што не се пренесуваат: ${next.length ? next.join(', ') : 'само контата за основица за ДДВ од шемата за книжење'} – притиснете „Пренеси повторно“.` };
   } catch (e) { return actionError(e); }
 }
 

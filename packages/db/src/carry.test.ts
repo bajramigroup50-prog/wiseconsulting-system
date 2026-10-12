@@ -15,7 +15,7 @@ import { loadLedgerLines } from './ledger-queries';
 import { postJournal, type PostJournalInput } from './posting';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
-import { carryState, closeYear, openNextYear, prevYearCarry, YE_SOURCE } from './yearend';
+import { carryStatPrefixesFor, carryState, closeYear, openNextYear, prevYearCarry, YE_SOURCE } from './yearend';
 
 const db = drizzle(new PGlite(), { schema });
 const act = { userId: null, today: '2027-02-15' };
@@ -30,7 +30,7 @@ const P = (date: string, kind: string, lines: PostJournalInput['lines']) =>
 const balancesOf = (L: { account: string; debit: number; credit: number; partnerId?: string | null; locationId?: string | null }[]) => {
   const m = new Map<string, number>();
   for (const l of L) {
-    if (!/^[012369]/.test(l.account) || /^9[56]/.test(l.account)) continue;
+    if (!/^[012369]/.test(l.account) || /^9[56]/.test(l.account) || /^99[49]/.test(l.account)) continue;
     const k = [l.account, l.partnerId ?? '', l.locationId ?? ''].join('|');
     m.set(k, Math.round(((m.get(k) ?? 0) + l.debit - l.credit) * 100) / 100);
   }
@@ -54,7 +54,11 @@ beforeAll(async () => {
     lines: [{ account: '100005', debit: 100_000 }, { account: '9000', credit: 90_000 }, { account: '950', credit: 10_000 }],
   }));
   // sales
-  await P('2026-02-10', 'izlez', [{ account: '1200', debit: 118_000, partnerId: p.K1, doc: 'F-1' }, { account: '7400', credit: 100_000 }, { account: '230018', credit: 18_000 }]);
+  await P('2026-02-10', 'izlez', [
+    { account: '1200', debit: 118_000, partnerId: p.K1, doc: 'F-1' }, { account: '7400', credit: 100_000 }, { account: '230018', credit: 18_000 },
+    // the VAT-base memo lines of the invoice (class 9 statistical accounts, posted by the VAT scheme)
+    { account: '994018', debit: 100_000 }, { account: '999018', credit: 100_000 },
+  ]);
   await P('2026-02-12', 'izlez', [{ account: '1200', debit: 59_000, partnerId: p.K2, doc: 'F-2' }, { account: '7400', credit: 50_000 }, { account: '230018', credit: 9_000 }]);
   // bank: K2 pays in full, K1 partly
   await P('2026-03-01', 'bank', [{ account: '100005', debit: 59_000 }, { account: '1200', credit: 59_000, partnerId: p.K2, doc: 'F-2' }]);
@@ -103,6 +107,7 @@ describe('year transfer (close → Почетна состојба of the next y
     expect(line('2270', p.K2).map((l) => l.credit)).toEqual([10_000]); // advance per partner
     expect(line('0134').map((l) => l.locationId)).toEqual([loc]);
     expect(neu.some((l) => /^[4578]/.test(l.account))).toBe(false);
+    expect(neu.some((l) => /^99[49]/.test(l.account))).toBe(false); // statistical VAT bases are not balances
     expect(line('951')).toEqual([]);
     // 950 = 10 000 retained + the 2026 net result
     const net = Number(r.plan.net);
@@ -124,6 +129,10 @@ describe('year transfer (close → Почетна состојба of the next y
     expect(why('4000')).toMatch(/класа 4/);
     expect(why('8000')).toMatch(/класа 8/);
     expect(why('1200', p.K2)).toMatch(/нулто салдо/);
+    expect(why('994018')).toBe('статистичка сметка (основица за ДДВ) – не се пренесува');
+    const rule = (a: string, pid?: string) => E.rows.find((r) => r.account === a && (pid === undefined || r.partnerId === pid))?.rule;
+    expect([rule('994018'), rule('999018'), rule('7400'), rule('1200', p.K2), rule('1200', p.K1)]).toEqual(['stat', 'stat', 'class', 'zero', null]);
+    expect(s.statPrefixes).toEqual(['994', '999']);
     expect(why('2200', p.S2)).toMatch(/неактивен/);
     expect(E.rows.find((r) => r.account === '950')?.sources).toEqual(['950', '951']);
   });
@@ -166,5 +175,20 @@ describe('year transfer (close → Почетна состојба of the next y
     expect(neu.filter((l) => l.account === '1200' && l.partnerId === p.K1).map((l) => [l.doc, l.debit])).toEqual([['F-1', 100_000]]);
     const s = await db.transaction((tx) => carryState(tx, firmId, 2026));
     expect(s.evidence.totals.ok).toBe(true);
+  });
+
+  it('statistical accounts: the firm list (setting) plus the VAT-base kontos of its posting scheme', async () => {
+    const [f] = await db.select().from(schema.firms).where(eq(schema.firms.id, firmId));
+    const base = f!.settings as Record<string, unknown>;
+    expect(await db.transaction((tx) => carryStatPrefixesFor(tx, f!))).toEqual(['994', '999']);
+    // a firm scheme with its own VAT-base konto outside 994 / 999, and a custom list
+    const g = { ...f!, settings: { ...base, carryStatPrefixes: ['994'], sch: { vbout18d: '98018', vbout18p: '98118' } } };
+    expect(await db.transaction((tx) => carryStatPrefixesFor(tx, g))).toEqual(['98018', '98118', '994', '9990018', '99900', '99902', '99905', '999010', '999018'].sort());
+    // the setting is used by the plan: with only 994 listed, 999018 (a default scheme konto) is still excluded
+    await db.update(schema.firms).set({ settings: { ...base, carryStatPrefixes: ['994'] } }).where(eq(schema.firms.id, firmId));
+    const s = await db.transaction((tx) => carryState(tx, firmId, 2026));
+    expect(s.statPrefixes).toEqual(['994']);
+    expect(s.plan.lines.some((l) => /^99[49]/.test(l.account))).toBe(false);
+    await db.update(schema.firms).set({ settings: base }).where(eq(schema.firms.id, firmId));
   });
 });

@@ -64,7 +64,9 @@ export function AinbPanel({ items, current }: { items: AinbRow[]; current: strin
   const go = (fid: string) => start(async () => { setOpen(false); if (fid !== current) await selectFirm(fid); router.push('/klInbox'); });
   const done = (id: string) => start(async () => { const r = await ainbDone(id); if (r.ok) setHidden((s) => new Set(s).add(id)); else if (r.error) alert(r.error); });
   return (
-    <div id="ainb" style={{ position: 'fixed', left: 18, bottom: 18, zIndex: 900 }}>
+    <div id="ainb" style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 900 }}>
+      {/* the page keeps room under its last rows so the round button never covers table content */}
+      <style>{'#main{padding-bottom:72px}'}</style>
       {open && (
         <div className="card" style={{ width: 380, maxWidth: 'calc(100vw - 36px)', maxHeight: '60vh', overflow: 'auto', marginBottom: 8, boxShadow: '0 10px 30px rgba(0,0,0,.2)' }}>
           <div className="hd"><b>📨 Дојдовни пораки од клиенти</b><button type="button" className="btn sm" onClick={() => setOpen(false)}>✕</button></div>
@@ -82,9 +84,11 @@ export function AinbPanel({ items, current }: { items: AinbRow[]; current: strin
         </div>
       )}
       <div>
-        <button type="button" className={'btn' + (n ? ' pri' : '')} onClick={() => setOpen((o) => !o)}
-          style={{ borderRadius: 24, padding: '10px 16px', boxShadow: '0 6px 18px rgba(0,0,0,.18)', ...(n ? {} : { opacity: 0.85 }) }}>
-          📨 Дојдовни пораки{n > 0 && <span style={{ background: '#d33', color: '#fff', borderRadius: 12, padding: '1px 8px', marginLeft: 4 }}>{n}</span>}
+        {/* a small round button (the text is in the tooltip); the red badge shows the number of new messages */}
+        <button type="button" className={'btn' + (n ? ' pri' : '')} onClick={() => setOpen((o) => !o)} id="ainbBtn"
+          title={n ? `Дојдовни пораки: ${n} нови` : 'Дојдовни пораки – нема нови'} aria-label="Дојдовни пораки"
+          style={{ position: 'relative', width: 44, height: 44, borderRadius: 22, padding: 0, justifyContent: 'center', fontSize: 20, boxShadow: '0 6px 18px rgba(0,0,0,.18)', ...(n ? {} : { opacity: 0.8 }) }}>
+          📨{n > 0 && <span style={{ position: 'absolute', top: -6, right: -6, background: '#d33', color: '#fff', borderRadius: 12, padding: '1px 7px', fontSize: 12, lineHeight: '18px' }}>{n}</span>}
         </button>
       </div>
     </div>

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { carryCandidateAccounts, carryEvidence, carryOneLine, carryPlan, type CarryLedgerLine } from './carry';
+import {
+  CARRY_STAT_REASON, carryCandidateAccounts, carryEvidence, carryOneLine, carryPlan, carryStatAccount, parseCarryStatPrefixes, type CarryLedgerLine,
+} from './carry';
 
 const L = (account: string, debit: number, credit: number, extra: Partial<CarryLedgerLine> = {}): CarryLedgerLine => ({ account, debit, credit, ...extra });
 
@@ -34,6 +36,31 @@ describe('carry-over plan', () => {
     expect(why('4000')).toMatch(/класа 4/);
     expect(why('8000')).toMatch(/класа 8/);
     expect(P.rows.find((r) => r.account === '1200' && r.partnerId === 'B')?.reason).toMatch(/нулто салдо/);
+  });
+
+  it('statistical VAT-base accounts (994 / 999) are never carried; the rule is marked so the screen shows it as correct', () => {
+    const y = [...year, L('994018', 1000, 0), L('999018', 0, 1000), L('99408', 50, 0), L('9990018', 0, 50)];
+    const P = carryPlan(y);
+    expect(P.lines.some((l) => /^99[49]/.test(l.account))).toBe(false);
+    expect(P.debit).toBe(P.credit);
+    const r = P.rows.find((x) => x.account === '994018')!;
+    expect([r.target, r.rule, r.reason]).toEqual([null, 'stat', CARRY_STAT_REASON]);
+    expect(P.rows.find((x) => x.account === '9990018')?.rule).toBe('stat');
+    expect(P.rows.find((x) => x.account === '7600')?.rule).toBe('class');
+    expect(P.rows.find((x) => x.account === '1200' && x.partnerId === 'B')?.rule).toBe('zero');
+    // a firm with its own list: only 994 → the 999 lines are carried (and the opening is then unbalanced — its choice)
+    expect(carryPlan(y, { statPrefixes: ['994'] }).lines.some((l) => l.account === '999018')).toBe(true);
+    expect(carryCandidateAccounts(y)).not.toContain('994018');
+    expect(parseCarryStatPrefixes('994, 999;x 12 999')).toEqual(['12', '994', '999']);
+    expect(carryStatAccount('9990018')).toBe(true);
+    expect(carryStatAccount('9000')).toBe(false);
+    // evidence: rule-based rows carry their rule; a stat row still in an old opening is a real difference
+    const E = carryEvidence(P, P.lines, { opened: true });
+    expect(E.totals.ok).toBe(true);
+    expect(E.rows.find((x) => x.account === '994018')).toMatchObject({ carried: false, status: 'note', rule: 'stat' });
+    const old = carryEvidence(P, [...P.lines, { account: '994018', debit: 1000, credit: 0 }, { account: '999018', debit: 0, credit: 1000 }], { opened: true });
+    expect(old.rows.find((x) => x.account === '994018')).toMatchObject({ status: 'missing', rule: null, opening: 1000 });
+    expect(old.rows.filter((x) => x.account === '994018')).toHaveLength(1);
   });
 
   it('splits 12x/22x per open document when byDoc is on', () => {

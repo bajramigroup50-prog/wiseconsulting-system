@@ -9,7 +9,7 @@
  */
 import Link from 'next/link';
 import { inArray } from 'drizzle-orm';
-import { carryKeyString, type CarryEvidenceRow } from '@wise/core';
+import { carryKeyString, type CarryEvidenceRow, type CarryRule } from '@wise/core';
 import { carryState, codes } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -21,7 +21,8 @@ import { RowAction } from '@/components/row-action';
 import { ScreenExport } from '@/components/screen-export';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
 import { ZsHead } from '@/components/yearend/ph-bar';
-import { carryRowAction, lockYearAction, openYearAction, setCarryByDocAction, undoOpenAction, unlockYearAction } from '../zsProc/actions';
+import { ActionForm } from '@/components/yearend/action-form';
+import { carryRowAction, lockYearAction, openYearAction, setCarryByDocAction, setCarryStatAction, undoOpenAction, unlockYearAction } from '../zsProc/actions';
 import { setYear } from '../actions';
 
 type Filter = 'all' | 'carried' | 'not';
@@ -31,14 +32,22 @@ const DP = ({ v }: { v: number | null }) => (
   v == null ? <><td className="n mini">—</td><td className="n mini">—</td></> : <><td className="n">{v > 0 ? fmt(v) : ''}</td><td className="n">{v < 0 ? fmt(-v) : ''}</td></>
 );
 
+const RULE_TXT: Record<CarryRule, string> = { class: 'по закон', stat: 'статистичка', zero: 'нулто салдо' };
+
+/**
+ * ✓ carried; a neutral grey „— не се пренесува (…)“ for balances that are correctly left out by rule (classes 4–8,
+ * statistical accounts, zero balances); the orange / red ⚠ only for real gaps and differences.
+ */
 function statusOf(r: CarryEvidenceRow): { cls: string; txt: string } {
   if (r.carried && r.status !== 'missing') return { cls: 'good', txt: '✓ пренесено' };
-  if (r.carried) return { cls: 'bad', txt: '⚠ не е пренесено' };
-  if (r.status === 'missing') return { cls: 'bad', txt: '⚠ не е пренесено' };
-  return { cls: 'warn', txt: '⚠ не е пренесено' };
+  if (r.rule) return { cls: '', txt: `— не се пренесува (${RULE_TXT[r.rule]})` };
+  if (r.carried && r.opening != null && r.opening !== 0) return { cls: 'bad', txt: '⚠ разлика' };
+  return { cls: 'bad', txt: '⚠ не е пренесено' };
 }
+/** a real gap or difference (not a rule-based exclusion) */
+const isGap = (r: CarryEvidenceRow) => (r.carried ? r.status === 'missing' : !r.rule);
 
-export default async function PrenosPage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
+export default async function PrenosPage({ searchParams }: { searchParams: Promise<{ f?: string; ex?: string }> }) {
   const sp = await searchParams;
   const c = await yePage('prenos');
   if (!c) return <NoFirm t="Пренос на почетна состојба" />;
@@ -57,7 +66,10 @@ export default async function PrenosPage({ searchParams }: { searchParams: Promi
   const settings = canDo(u, 'settings', firm.id);
   const blocked = findings.open.length > 0;
   const f: Filter = sp.f === 'all' || sp.f === 'carried' ? sp.f : 'not';
-  const rows = E.rows.filter((r) => f === 'all' || (f === 'carried' ? r.carried : !r.carried || r.status === 'missing'));
+  // „Непренесени и разлики“: the real gaps; the rule-based exclusions (classes 4–8, statistical, zero) only with „ex=1“
+  const ex = sp.ex === '1';
+  const nRule = E.rows.filter((r) => r.rule).length;
+  const rows = E.rows.filter((r) => f === 'all' || (f === 'carried' ? r.carried : isGap(r) || (ex && !!r.rule)));
   const T = E.totals;
   const nCarried = E.rows.filter((r) => r.carried).length;
   const nOk = E.rows.filter((r) => r.carried && r.status !== 'missing').length;
@@ -67,7 +79,7 @@ export default async function PrenosPage({ searchParams }: { searchParams: Promi
       <PrevYearCallout firmId={firm.id} year={year} />
       <div className="card"><h2>Чекори</h2><ul className="steps">
         <li>{closed ? <span className="pill good">✓</span> : <span className="pill warn">1</span>} <span>Затворање на годината {year} (класи 4 и 7 → 8000, данок на добивка, нето резултат → 951 / 961). Со затворањето салдата веднаш се пренесуваат во {N}. {closed ? 'Направено.' : <Link className="btn sm" href="/mbyllja">Затвори ја {year}</Link>}</span></li>
-        <li>{L.openJournal ? <span className="pill good">✓</span> : <span className="pill">2</span>} <span>Пренос на салдата на класите 0, 1, 2, 3, 6 и 9 во налог „Почетна состојба {N}“ (налог 0) на 01.01.{N}: секое аналитичко конто, по партнер за секое конто што има партнери (купувачи, добавувачи, заеми, аванси…), по локација{S.byDoc ? ' и по отворен документ (12x / 22x)' : ''}; 951 → 950 и 961 → 960. Класите 4, 5, 7 и 8 не се пренесуваат.</span></li>
+        <li>{L.openJournal ? <span className="pill good">✓</span> : <span className="pill">2</span>} <span>Пренос на салдата на класите 0, 1, 2, 3, 6 и 9 во налог „Почетна состојба {N}“ (налог 0) на 01.01.{N}: секое аналитичко конто, по партнер за секое конто што има партнери (купувачи, добавувачи, заеми, аванси…), по локација{S.byDoc ? ' и по отворен документ (12x / 22x)' : ''}; 951 → 950 и 961 → 960. Класите 4, 5, 7 и 8 не се пренесуваат, ниту статистичките сметки ({S.statPrefixes.length ? S.statPrefixes.join(', ') + ' – ' : ''}основица за ДДВ).</span></li>
         <li>{L.locked ? <span className="pill good">✓</span> : <span className="pill">3</span>} <span>Заклучување на {year}: документите од затворената година повеќе не може да се менуваат. {L.locked && <>Заклучено до {dmy(firm.lockDate)}.</>} За измена: отклучи → измени → затвори повторно (почетната состојба за {N} се ажурира).</span></li>
         <li><span className="pill">4</span> <span>Изберете година {N}: налогот е во „Налози“ и „Почетна состојба“, картиците и бруто билансот на {N} почнуваат од овие салда.</span></li>
       </ul>
@@ -116,6 +128,10 @@ export default async function PrenosPage({ searchParams }: { searchParams: Promi
         <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0 }}>Салда конто по конто и партнер по партнер</h2>
           <span className="row" style={{ gap: 4 }}>{FILTERS.map(([k, t]) => <Link key={k} className={`btn sm${f === k ? ' pri' : ''}`} href={`/prenos?f=${k}`}>{t}</Link>)}</span>
+          {f === 'not' && nRule > 0 && (
+            <Link className="btn sm ghost" href={ex ? '/prenos?f=not' : '/prenos?f=not&ex=1'} id="carryEx"
+              title="Класи 4–8, статистички сметки и салда нула – по правило не се пренесуваат">{ex ? '☑' : '☐'} Прикажи ги и непренесените по правило ({nRule})</Link>
+          )}
           <ScreenExport title={`Пренос на салда ${year} → ${N}`} selector="#carryEv" landscape />
         </div>
         {rows.length ? (
@@ -146,8 +162,15 @@ export default async function PrenosPage({ searchParams }: { searchParams: Promi
               );
             })}</tbody>
           </table></div>
-        ) : <div className="card empty">{f === 'not' ? (E.rows.length ? 'Сите салда се пренесени.' : `Нема книжења во ${year}.`) : 'Нема ставки.'}</div>}
+        ) : <div className="card empty">{f === 'not' ? (E.rows.length ? (closed && L.openJournal ? 'Нема непренесени салда ни разлики – сè е пренесено.' : 'Сите салда се пренесени.') : `Нема книжења во ${year}.`) : 'Нема ставки.'}</div>}
       </div>
+      {settings && (
+        <ActionForm action={setCarryStatAction} submit="Зачувај" className="card noprint">
+          <h2>Статистички сметки што не се пренесуваат</h2>
+          <p className="note" style={{ margin: '0 0 6px' }}>Контата што почнуваат со овие цифри (класа 9 – основица за ДДВ и слично) се периодични податоци и не се пренесуваат во {N}. Контата за основица за ДДВ од шемата за книжење се исклучуваат секогаш. Промената се запишува во дневникот на активности; потоа „Пренеси повторно“.</p>
+          <label className="f" style={{ maxWidth: 320 }}>Префикси на конта<input name="prefixes" defaultValue={S.statPrefixes.join(', ')} placeholder="994, 999" /></label>
+        </ActionForm>
+      )}
     </>
   );
 }
