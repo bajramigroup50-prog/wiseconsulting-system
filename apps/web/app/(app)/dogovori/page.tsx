@@ -70,7 +70,7 @@ export default async function DogovoriPage({ searchParams }: { searchParams: Pro
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {isLast && write && <Link className="btn sm pri" href={`/vraboteni/${d.employeeId}/dogovor#prodolzi`}>Продолжи</Link>}{' '}
                   <a className="btn sm" href={`/dogovori/${d.id}`} target="_blank" rel="noopener">PDF</a>{' '}
-                  {ownW.has(d.id) && <><a className="btn sm" href={`/dogovori/${d.id}?word=1`} title="Word од сопствениот шаблон">📝 Word</a>{' '}</>}
+                  <a className="btn sm" href={`/dogovori/${d.id}?word=1`} title={ownW.has(d.id) ? 'Word од сопствениот шаблон' : 'Word (документот на програмата)'}>📝 Word</a>{' '}
                   {d.employeeId && <Link className="btn sm" href={d.kind.startsWith('di-') ? `/vraboteni/${d.employeeId}/merki` : `/vraboteni/${d.employeeId}/dogovor`}>Отвори</Link>}
                 </td>
               </tr>

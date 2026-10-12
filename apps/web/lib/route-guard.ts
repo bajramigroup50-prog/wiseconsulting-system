@@ -1,9 +1,8 @@
 /**
  * Route allow-list for the restricted roles (used by `proxy.ts` for every request, page or API).
  *
- * - `klient` may open only the client portal: 🏠 Почетна, Испрати, профил / лозинка, the contract with the office and
- *   the sections the office switched on for the firm (`klAllowedViews`) — plus the print of an outgoing document when
- *   invoices are on, and the shared file / PDF / error endpoints (those check firm access themselves).
+ * - `klient` may open only the client portal: 🏠 Почетна, Испрати, профил / лозинка and the sections the office
+ *   switched on for the firm (`klAllowedViews`) — plus the print of an outgoing document when invoices are on, and the shared file / PDF / error endpoints (those check firm access themselves).
  * - `teren` may open only its tasks and travel orders.
  * Everything else redirects to the role's home (`/klHome`, `/mojzad`); API calls get 403.
  * Pure (no DB, no Next imports) so it is unit-tested.
@@ -33,9 +32,9 @@ const TEREN_VIEWS = ['mojzad', 'mojpn', 'lozinka', 'izlezF'];
  * served to a client unless they uploaded the file themselves.
  */
 export const FILE_ENTITY_VIEWS: Readonly<Record<string, readonly string[]>> = {
-  dossier_doc: ['dosie'], inbox_item: ['klSend'], client_entry: ['klSend'], service_contract: ['kdogovori'],
+  dossier_doc: ['dosie'], inbox_item: ['klSend'], client_entry: ['klSend'],
   purchase: ['vlez'], invoice: ['izlez', 'profakturi', 'ispratnici'], sales_daily: ['kdfi', 'kasa'],
-  payroll_run: ['plati'], employee: ['plati'], hr_doc: ['plati'],
+  payroll_run: ['plati'], employee: ['plati', 'klDogovori'], hr_doc: ['plati', 'klDogovori'],
   hotel_reservation: ['hotel'], rent_rental: ['rent'], work_order: ['servis'], customer_vehicle: ['vozila'],
   construction_project: ['gradba'], construction_situation: ['gradba'], construction_diary: ['gradba'],
   travel_arrangement: ['tura'], travel_booking: ['tura'], appointment: ['termini'], customer_order: ['porachki'],
@@ -52,7 +51,7 @@ export function klFileAllowed(links: readonly { entityType: string; role: string
 
 /**
  * `null` = allowed; otherwise where to send the user (`'403'` for an API call).
- * `views` = the view ids the user may open (klient: `klAllowedViews` + `kdogovori`).
+ * `views` = the view ids the user may open (klient: `klAllowedViews`; never `kdogovori`, the owner's contracts).
  */
 export function routeVerdict(role: GuardRole, pathname: string, views: readonly string[]): string | null {
   const p = pathname.replace(/\/+$/, '') || '/';

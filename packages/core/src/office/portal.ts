@@ -37,6 +37,8 @@ export const KL_SEC: readonly KlSection[] = [
   ['norm', 'Нормативи', '🍽', 'normativ', ['hotel', 'prod'], 'Нормативи за производи / јадења и пијалаци'],
   ['rnal', 'Работни налози', '🏭', 'prod', ['prod'], 'Производство по работни налози'],
   ['plati', 'Плати (листа)', '👥', 'plati', [], 'Пресметаните плати – само ако канцеларијата го овозможи'],
+  // employment contracts of the firm's workers (the client's contract module; never the accounting-service contract)
+  ['vdog', 'Договори за вработување', '✍', 'klDogovori', [], 'Договори, анекси и решенија на вработените (преглед, PDF, Word) – само ако канцеларијата го овозможи'],
   ['ios', 'Купувачи и добавувачи (ИОС)', '🤝', 'analitika', ['wholesale', 'construct', 'prod', 'service', 'auto'], 'Кој колку должи и колку должиме'],
   ['hot', 'Хотел – рецепција', '🏨', 'hotel', ['hotel'], 'Резервации, пријава и одјава на гости, сметка'],
   ['hotk', 'Книга на гости и такса', '📒', 'hotelKniga', ['hotel'], 'Книга на гости, странци, такса за престој, зафатеност'],

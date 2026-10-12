@@ -68,13 +68,13 @@ export function KdEditor({ initial, firm, firmId, O, off, peekNo, offName }: {
       {msg.ok && <div className="callout good">{msg.ok}</div>}
       <div className="row" style={{ gap: 8 }}>
         <span style={{ flex: 1 }} />
-        <a className="btn" href="/kdogovori">Откажи</a>
+        <a className="btn" href={`/kdogovori?f=${firmId}`}>Откажи</a>
         <button type="button" className="btn pri" disabled={busy} onClick={() => {
           if (!Number(E.fee) && !window.confirm('Месечниот надоместок е празен – во договорот ќе остане празна линија (________ денари) за рачно пополнување. Да се зачува така?')) return;
           start(async () => {
-            const r = await saveContract(JSON.stringify(E));
+            const r = await saveContract(firmId, JSON.stringify(E));
             setMsg(r);
-            if (!r.error) router.push('/kdogovori');
+            if (!r.error) router.push(`/kdogovori?f=${firmId}`);
           });
         }}>{busy ? 'Се зачувува…' : 'Зачувај'}</button>
       </div>

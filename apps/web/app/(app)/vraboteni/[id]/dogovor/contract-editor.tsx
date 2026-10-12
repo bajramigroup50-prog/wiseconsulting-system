@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import {
-  g4n, hrAddMonthsEnd, HR_CT_TYPES, HR_DURS, hrCtWarnings, hrExtWarnings, hrFixedTerm, type HrContract, type HrExtension, type PayParams,
+  g4n, hrAddMonthsEnd, HR_CT_TYPES, HR_DURS, HR_LAW_VERIFY, hrCtLawCheck, hrCtWarnings, hrExtWarnings, hrFixedTerm, type HrContract, type HrExtension, type PayParams,
 } from '@wise/core/payroll';
 import { fmt, todayIso } from '@/lib/fmt';
 import { contractHtml, extHtml, type DocEmployee, type DocFirm } from '@/lib/payroll/docs';
@@ -20,6 +20,8 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
   const [x, setX] = useState<HrExtension>({ kind: 'ext', doc: 'annex', date: todayIso(), end: '', reason: '' });
   const set = <K extends keyof HrContract>(k: K, v: HrContract[K]) => { setC({ ...c, [k]: v }); setDirty(true); };
   const W = hrCtWarnings(c, params, taken);
+  const LC = hrCtLawCheck(c, employee, { name: firm.name, address: firm.address, city: firm.city, edb: firm.edb });
+  const lcBad = LC.filter((x) => !x.ok).length;
   const F = (k: keyof HrContract, l: string, type = 'text', extra: Record<string, unknown> = {}) => (
     <label className="f">{l}<input type={type} step={type === 'number' ? 'any' : undefined} value={String(c[k] ?? '')} disabled={!canWrite} {...extra}
       onChange={(ev) => set(k, (type === 'number' ? (ev.target.value === '' ? '' : +ev.target.value) : ev.target.value) as never)} /></label>
@@ -57,6 +59,14 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
             <button className="btn sm" type="button" disabled={!canWrite || !c.net} onClick={() => set('gross', g4n(+c.net * (+c.hours < 40 ? +c.hours / 40 : 1), params, +params.exempt))}>Бруто од нето ({fmt(g4n(+c.net || 0, params, +params.exempt))})</button>
           </div>
           {W.length > 0 ? <div className="callout warn" style={{ marginTop: 8 }}>{W.map((w) => <div key={w}>{w}</div>)}</div> : <div className="callout good" style={{ marginTop: 8 }}>Договорот ги содржи задолжителните елементи.</div>}
+          <details style={{ marginTop: 8 }} open={lcBad > 0}>
+            <summary className="mini"><b>⚖ Задолжителни елементи според Законот за работните односи</b> – {LC.length - lcBad}/{LC.length} {lcBad ? <span className="pill warn">недостасуваат {lcBad}</span> : <span className="pill good">✓</span>}</summary>
+            <table className="dense" style={{ marginTop: 4 }}><tbody>{LC.map((x) => (
+              <tr key={x.k}><td>{x.ok ? '✓' : '✗'}</td><td>{x.label}{x.note && <div className="mini" style={{ color: x.ok ? undefined : 'var(--bad)' }}>{x.note}</div>}</td>
+                <td className="mini" style={{ whiteSpace: 'nowrap' }}>{x.law}{x.verify && <> <span className="pill warn" title="Членот / границата не е проверена со пречистениот текст на законот">{HR_LAW_VERIFY}</span></>}</td></tr>
+            ))}</tbody></table>
+            <p className="note" style={{ margin: '4px 0 0' }}>Броевите на членовите и границите се „{HR_LAW_VERIFY}“ – проверете ги со важечкиот пречистен текст на Законот за работните односи и колективниот договор.</p>
+          </details>
           {canWrite && <div className="row" style={{ marginTop: 8 }}>
             <button className="btn pri" disabled={pending} onClick={() => start(async () => {
               const r = await saveContractAction(employee.id, c);

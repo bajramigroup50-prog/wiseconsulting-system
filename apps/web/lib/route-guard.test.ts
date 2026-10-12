@@ -3,13 +3,20 @@ import { klAllowedViews } from '@wise/core/office';
 import { klFileAllowed, previewVerdict, routeVerdict } from './route-guard';
 
 describe('client file access (klFileAllowed)', () => {
-  const base = [...klAllowedViews({}), 'kdogovori'];
-  const withPay = [...klAllowedViews({ on: { plati: true } }), 'kdogovori'];
-  it('dossier, own uploads, firm images and the contract are allowed', () => {
+  const base = klAllowedViews({});
+  const withPay = klAllowedViews({ on: { plati: true } });
+  const withDog = klAllowedViews({ on: { vdog: true } });
+  it('dossier, own uploads and firm images are allowed; the accounting-service contract never', () => {
     expect(klFileAllowed([{ entityType: 'dossier_doc', role: 'attachment' }], base, false)).toBe(true);
     expect(klFileAllowed([], base, true)).toBe(true);
     expect(klFileAllowed([{ entityType: 'firm', role: 'logo' }], base, false)).toBe(true);
-    expect(klFileAllowed([{ entityType: 'service_contract', role: 'attachment' }], base, false)).toBe(true);
+    expect(klFileAllowed([{ entityType: 'service_contract', role: 'attachment' }], base, false)).toBe(false);
+    expect(klFileAllowed([{ entityType: 'service_contract', role: 'attachment' }], [...withPay, ...withDog, 'kdogovori'], false)).toBe(false);
+  });
+  it('employment documents: only with „Договори за вработување“ (or Плати) on', () => {
+    expect(klFileAllowed([{ entityType: 'hr_doc', role: 'attachment' }], base, false)).toBe(false);
+    expect(klFileAllowed([{ entityType: 'hr_doc', role: 'attachment' }], withDog, false)).toBe(true);
+    expect(klFileAllowed([{ entityType: 'employee', role: 'attachment' }], withDog, false)).toBe(true);
   });
   it('sections the client does not see are refused', () => {
     expect(klFileAllowed([{ entityType: 'payroll_run', role: 'attachment' }], base, false)).toBe(false);
@@ -21,8 +28,8 @@ describe('client file access (klFileAllowed)', () => {
   });
 });
 
-const base = [...klAllowedViews({}), 'kdogovori'];
-const withInv = [...klAllowedViews({ on: { izlez: true } }), 'kdogovori'];
+const base = klAllowedViews({});
+const withInv = klAllowedViews({ on: { izlez: true } });
 
 describe('route guard (klient / teren allow-list)', () => {
   it('client: portal pages yes, books no', () => {
@@ -31,7 +38,14 @@ describe('route guard (klient / teren allow-list)', () => {
     expect(routeVerdict('klient', '/dosie', base)).toBeNull();
     expect(routeVerdict('klient', '/dosie/zip', base)).toBeNull();
     expect(routeVerdict('klient', '/lozinka', base)).toBeNull();
-    expect(routeVerdict('klient', '/kdogovori', base)).toBeNull();
+    // the accounting-service contract is the office owner's — never in the portal
+    expect(routeVerdict('klient', '/kdogovori', base)).toBe('/klHome');
+    expect(routeVerdict('klient', '/kdogovori/pecati', base)).toBe('/klHome');
+    expect(routeVerdict('klient', '/kdogovori', withInv)).toBe('/klHome');
+    // employment contracts only when the office switches the section on
+    expect(routeVerdict('klient', '/klDogovori', base)).toBe('/klHome');
+    expect(routeVerdict('klient', '/klDogovori', klAllowedViews({ on: { vdog: true } }))).toBeNull();
+    expect(routeVerdict('klient', '/klDogovori/00000000-0000-0000-0000-000000000000', klAllowedViews({ on: { vdog: true } }))).toBeNull();
     expect(routeVerdict('klient', '/', base)).toBe('/klHome');
     expect(routeVerdict('klient', '/nalozi', base)).toBe('/klHome');
     expect(routeVerdict('klient', '/izlez', base)).toBe('/klHome');

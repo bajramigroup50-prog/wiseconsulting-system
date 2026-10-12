@@ -1,25 +1,26 @@
 /**
  * Legacy `kdPdf` (+ the `tplRun(['kd'])` wrapper 16126): the accounting-service contract for print / PDF — from the
  * office's own Word template when one is active („📄 Шаблони“), otherwise the program's contract. `?builtin=1` forces
- * the program's contract.
+ * the program's contract. Office OWNER only; the client firm is the contract's own (not the current firm).
  */
 import { notFound } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { KD_SVC } from '@wise/core/firms/kdog';
 import { tplKdVars } from '@wise/core/office';
-import { serviceContracts } from '@wise/db';
+import { firms, serviceContracts } from '@wise/db';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
-import { officePage } from '@/lib/office';
 import { fillOwnTemplate, ownTemplate } from '@/lib/own-template';
-import { contractHtml, loadOffice, rowToContract } from '../../../(app)/kdogovori/lib';
+import { contractHtml, kdOwnerUser, loadProvider, rowToContract } from '../../../(app)/kdogovori/lib';
 
 export default async function KdPrint({ searchParams }: { searchParams: Promise<{ id?: string; builtin?: string }> }) {
   const sp = await searchParams;
-  const { firm } = await officePage('kdogovori');
-  if (!firm || !sp.id || !/^[0-9a-f-]{36}$/i.test(sp.id)) notFound();
-  const [r] = await db().select().from(serviceContracts).where(and(eq(serviceContracts.id, sp.id), eq(serviceContracts.firmId, firm.id))).limit(1);
+  if (!(await kdOwnerUser())) notFound();
+  if (!sp.id || !/^[0-9a-f-]{36}$/i.test(sp.id)) notFound();
+  const [r] = await db().select().from(serviceContracts).where(eq(serviceContracts.id, sp.id)).limit(1);
   if (!r) notFound();
+  const [firm] = await db().select().from(firms).where(eq(firms.id, r.firmId)).limit(1);
+  if (!firm) notFound();
   const k = rowToContract(r);
   const t = sp.builtin ? null : await ownTemplate(['kd']);
   if (t) {
@@ -31,5 +32,5 @@ export default async function KdPrint({ searchParams }: { searchParams: Promise<
       </>
     );
   }
-  return <div dangerouslySetInnerHTML={{ __html: await contractHtml(k, firm, await loadOffice(), { e: !!k.cliSig && !k.cliSig.scan }) }} />;
+  return <div dangerouslySetInnerHTML={{ __html: await contractHtml(k, firm, (await loadProvider()).O, { e: !!k.cliSig && !k.cliSig.scan }) }} />;
 }
