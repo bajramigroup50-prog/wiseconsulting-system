@@ -8,6 +8,7 @@ import { can, type Principal } from '@wise/core';
 import { sessions, userFirms, users, type User } from '@wise/db';
 import { FIRM_CHANGED_MSG, YEAR_CHANGED_MSG } from './firm-guard';
 import { db } from './db';
+import { clientIp } from './login-guard';
 
 export const SESSION_COOKIE = 'wc_sess';
 /** Must match `FIRM_COOKIE` / `YEAR_COOKIE` in `lib/context.ts` (not imported: context imports this module). */
@@ -41,7 +42,7 @@ export async function createSession(userId: string): Promise<void> {
     id: tokenId(token),
     userId,
     expiresAt,
-    ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    ip: clientIp((n) => h.get(n)),
     userAgent: h.get('user-agent')?.slice(0, 300) ?? null,
   });
   const jar = await cookies();

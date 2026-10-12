@@ -8,6 +8,7 @@ import { yearOffNote } from '@/lib/firm-guard';
 import { db } from '@/lib/db';
 import { OWNER_VIEWS, navFor, withoutViews } from '@/lib/nav';
 import { isOfficeOwner } from '@/lib/office-owner';
+import { activeLocks } from '@/lib/login-guard';
 import { filterNavByModules } from '@/lib/nav-industry';
 import { klNav } from '@/lib/kl-nav';
 import { topStatus } from '@/lib/top-status';
@@ -27,9 +28,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // klient: legacy `klNav` — the sections the office switched on for this firm
   // legacy `S.asClient` (👁 Преглед како клиент, `klPrevOn`): an office user sees this firm as its client does
   const preview = !!firm && u.role !== 'klient' && u.role !== 'teren' && (await cookies()).get(PREVIEW_COOKIE)?.value === firm.id;
+  const owner = u.role === 'admin' && await isOfficeOwner(u).catch(() => false);
+  // the owner's alert for login locks (5 failures per username / 20 per IP): 🔒 N in the top bar → Корисници
+  const locks = owner ? (await activeLocks().catch(() => [])).length : 0;
   const groups = u.role === 'klient' || preview ? await klNav(firm, preview)
     // owner-only screens (📊 Продуктивност на вработените) are not in anybody else's menu
-    : withoutViews(filterNavByModules(navFor(u.role), firm, false), u.role === 'admin' && await isOfficeOwner(u).catch(() => false) ? [] : OWNER_VIEWS);
+    : withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
   const [st, [y0], yearNote] = await Promise.all([
     topStatus(u).catch(() => ({ bell: null, ainb: [], law: null })),
@@ -54,7 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           year={year}
           minYear={y0?.y ?? null}
           canFirms={can(u.principal, 'firms')}
-          status={{ bell: st.bell, ainb: st.ainb.length, law: st.law }}
+          status={{ bell: st.bell, ainb: st.ainb.length, law: st.law, locks }}
           firm={firm && {
             id: firm.id, name: firm.name, edb: firm.edb, vatRegistered: firm.vatRegistered,
             lockDate: firm.lockDate,

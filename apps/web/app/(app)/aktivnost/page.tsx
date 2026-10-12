@@ -11,7 +11,7 @@ import { isOfficeOwner } from '@/lib/office-owner';
 import { Hd, dmyHm } from '@/components/hd';
 
 const LBL: Record<string, string> = {
-  login: 'Најава', logout: 'Одјава', newFirm: 'Нова фирма', saveFirm: 'Промена на фирма',
+  login: 'Најава', logout: 'Одјава', loginFail: 'Неуспешна најава', loginLocked: '🔒 Заклучена најава', loginUnlock: '🔓 Отклучена најава', newFirm: 'Нова фирма', saveFirm: 'Промена на фирма',
   uNew: 'Нов корисник', uSave: 'Промена на корисник', uDel: 'Бришење корисник', uMyPass: 'Промена на сопствена лозинка',
   fileUpload: 'Прикачен документ', ownerSet: 'Пренос на сопственост на канцеларијата',
 };
