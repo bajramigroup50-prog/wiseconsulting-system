@@ -1,29 +1,41 @@
 'use server';
 /**
  * Legacy ACT `kdSaveB` / `kdOffSign` / `kdCliSign` / `kdDel` / `kdOffSave` / `kdToDos` / `kdRecSync` / `offFirmSet` and the
- * `[data-kdup]` upload (10384–10397, 13554–13616). ACT_NEED: save, office sign and office data `settings`, delete `del`,
- * the client signs with `write` on its own firm, the monthly invoices need `write` in the office firm.
+ * `[data-kdup]` upload (10384–10397, 13554–13616).
+ *
+ * Owner decision: every action is the office OWNER's only (`kdOwnerAction`) and names the client firm explicitly
+ * (`firmId`) — the owner works on all clients from one screen without switching the current firm. The provider is the
+ * office firm (`loadProvider`). The client no longer signs in the portal: the owner signs, then either uploads the
+ * paper copy signed by the client or lets the client sign on the screen in the office.
  */
 import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { kdIndex, kdNormalize, kdRecFirst, kdStatusCode, kdVat, type KdContract, type KdOffice } from '@wise/core/firms/kdog';
 import {
   audit, contractNumber, fileLinks, files, firms, IndustryError, items, nextOfficeNumber, OFFICE_FILE_ENTITY, OfficeError, partners, patchOfficeProfile,
-  recurringInvoices, serviceContracts, type Firm, type Tx,
+  recurringInvoices, serviceContracts, textMailHtml, type Firm, type Tx,
 } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { nextCode } from '@/lib/codes';
-import { currentFirm } from '@/lib/context';
 import { storeImageDataUrl } from '@/lib/data-url-file';
 import { db } from '@/lib/db';
-import { requireCan, requireUser } from '@/lib/auth';
-import { fv, isUuid, officeAction, officeError, today } from '@/lib/office';
-import { selectFirm } from '../actions';
-import { contractHtml, insertDossierCopy, loadOffice, officeFirm, pdfTo, recPlanFor, removeDossierCopy, rowToContract } from './lib';
+import { splitAddresses, validAddresses } from '@/lib/mail';
+import { fv, isUuid, officeError, today } from '@/lib/office';
+import { dispatchPdfMail, pdfFileTitle, queuePdfMail } from '@/lib/pdf-mail';
+import { contractHtml, inlineImages, insertDossierCopy, kdClientFirm, kdOwnerAction, loadOffice, loadProvider, pdfTo, recPlanFor, removeDossierCopy, rowToContract } from './lib';
 
 type Res = ActionState & { id?: string };
 const nowLoc = () => new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Skopje' }).slice(0, 16).replace(' ', 'T');
 const err = (e: unknown): Res => (e instanceof IndustryError ? { error: e.message } : officeError(e));
+
+/** Owner, provider and the client firm of an action. */
+async function ownerCtx(firmId: unknown) {
+  const u = await kdOwnerAction();
+  const P = await loadProvider();
+  const firm = await kdClientFirm(firmId, P.off);
+  return { u, firm, O: P.O, off: P.off };
+}
+const done = () => { revalidatePath('/kdogovori'); };
 
 async function loadContract(tx: Tx, id: string, firmId: string) {
   if (!isUuid(id)) throw new OfficeError('Договорот не постои.');
@@ -55,13 +67,12 @@ async function draftCopy(tx: Tx, firm: Firm, userId: string, k: KdContract, O: K
 }
 
 /** Legacy `kdSaveB` (+ v419 draft in the dossier). FIX(#8): the number comes from the atomic per-year counter. */
-export async function saveContract(json: string): Promise<Res> {
+export async function saveContract(firmId: string, json: string): Promise<Res> {
   try {
-    const { u, firm } = await officeAction('settings');
+    const { u, firm, O } = await ownerCtx(firmId);
     let raw: Record<string, unknown>;
     try { raw = JSON.parse(json) as Record<string, unknown>; } catch { return { error: 'Неважечки податоци.' }; }
-    const O = await loadOffice();
-    if (!O.name) return { error: 'Прво внесете ги податоците на канцеларијата (давател на услугата).' };
+    if (!O.name) return { error: 'Прво одредете ја фирмата на канцеларијата (давател на услугата).' };
     const rate = kdVat(O);
     const k0 = kdNormalize(raw as Partial<KdContract>, today());
     let k!: KdContract, did = '';
@@ -78,16 +89,15 @@ export async function saveContract(json: string): Promise<Res> {
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdSaveB', entityType: 'service_contract', entityId: k.id, data: { number: k.number, fee: k.fee, feeMode: k.feeMode } });
     });
     await pdfTo(await contractHtml(k, firm, O), `Dogovor_${k.number}_nacrt`, firm.id, u.id, { entityType: OFFICE_FILE_ENTITY.dossier, entityId: did });
-    revalidatePath('/kdogovori');
+    done();
     return { ok: `Договорот ${k.number} е зачуван (и примерок во досието). Следно: „✍ Потпиши и печат“.`, id: k.id };
   } catch (e) { return err(e); }
 }
 
 /** Legacy `kdToDos`: put (again) the unsigned contract in the dossier. */
-export async function contractToDossier(id: string): Promise<Res> {
+export async function contractToDossier(firmId: string, id: string): Promise<Res> {
   try {
-    const { u, firm } = await officeAction('write');
-    const O = await loadOffice();
+    const { u, firm, O } = await ownerCtx(firmId);
     let k!: KdContract, did = '';
     await db().transaction(async (tx) => {
       k = await loadContract(tx, id, firm.id);
@@ -97,16 +107,15 @@ export async function contractToDossier(id: string): Promise<Res> {
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdToDos', entityType: 'service_contract', entityId: id });
     });
     await pdfTo(await contractHtml(k, firm, O), `Dogovor_${k.number}_nacrt`, firm.id, u.id, { entityType: OFFICE_FILE_ENTITY.dossier, entityId: did });
-    revalidatePath('/kdogovori');
+    done();
     return { ok: '📁 Договорот е зачуван во „Документи на фирмата“ (досие).' };
   } catch (e) { return err(e); }
 }
 
 /** Legacy `kdOffSign`: the office's signature and stamp; after this the contract goes to the client's portal. */
-export async function officeSign(id: string): Promise<Res> {
+export async function officeSign(firmId: string, id: string): Promise<Res> {
   try {
-    const { u, firm } = await officeAction('settings');
-    const O = await loadOffice();
+    const { u, firm, O } = await ownerCtx(firmId);
     await db().transaction(async (tx) => {
       const k = await loadContract(tx, id, firm.id);
       if (k.offSig) throw new OfficeError('Договорот е веќе потпишан.');
@@ -115,8 +124,8 @@ export async function officeSign(id: string): Promise<Res> {
       await indexFirm(tx, firm.id, k, kdVat(O));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdOffSign', entityType: 'service_contract', entityId: id, data: { number: k.number, sig: !!O.sig, stamp: !!O.stamp } });
     });
-    revalidatePath('/kdogovori');
-    return { ok: 'Потпишано. Клиентот го гледа договорот во порталот за потпис.' };
+    done();
+    return { ok: 'Потпишано. Следно: потпис на клиентот (на екран во канцеларијата или прикачен скениран потпишан примерок).' };
   } catch (e) { return err(e); }
 }
 
@@ -135,11 +144,10 @@ async function archive(tx: Tx, firm: Firm, userId: string, k: KdContract, O: KdO
 /** Legacy `[data-kdup]`: a scanned copy signed on paper by the client. */
 export async function uploadSignedCopy(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const { u, firm } = await officeAction('settings');
+    const { u, firm, O } = await ownerCtx(f.get('firmId'));
     const id = String(f.get('id') ?? '');
     const fileId = f.getAll('fileIds').find(isUuid);
     if (!fileId) return { error: 'Прикачете го скенираниот потпишан примерок.' };
-    const O = await loadOffice();
     await db().transaction(async (tx) => {
       const k = await loadContract(tx, id, firm.id);
       if (!k.offSig) throw new OfficeError('Прво потпишете го договорот од страна на канцеларијата.');
@@ -150,24 +158,23 @@ export async function uploadSignedCopy(_p: ActionState, f: FormData): Promise<Ac
       await archive(tx, firm, u.id, k, O, fileId);
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdUpSigned', entityType: 'service_contract', entityId: id, data: { number: k.number, fileId } });
     });
-    revalidatePath('/kdogovori');
+    done();
     return { ok: '✅ Договорот е потпишан и архивиран во „Документи на фирмата“.' };
   } catch (e) { return err(e); }
 }
 
-/** Legacy `kdCliSign`: the client signs on the screen in the portal (name, drawn signature, optional stamp image). */
+/**
+ * Legacy `kdCliSign`: the client's representative signs on the screen (name, drawn signature, optional stamp image) —
+ * now in the office, on the owner's session (the contract is never shown in the client portal).
+ */
 export async function clientSign(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const u0 = await requireUser();
-    const firm = await currentFirm(u0);
-    if (!firm) throw new OfficeError('Изберете фирма.');
-    const u = await requireCan('write', firm.id);
+    const { u, firm, O } = await ownerCtx(f.get('firmId'));
     const id = String(f.get('id') ?? '');
     const name = String(f.get('name') ?? '').trim().slice(0, 120);
     if (f.get('ok') !== 'on') return { error: 'Потврдете дека го прочитавте договорот.' };
     if (!String(f.get('sig') ?? '')) return { error: 'Потпишете се во полето.' };
     if (!name) return { error: 'Внесете име и презиме.' };
-    const O = await loadOffice();
     let did: string | null = null, k!: KdContract;
     await db().transaction(async (tx) => {
       k = await loadContract(tx, id, firm.id);
@@ -175,20 +182,20 @@ export async function clientSign(_p: ActionState, f: FormData): Promise<ActionSt
       if (k.cliSig) throw new OfficeError('Договорот е веќе потпишан.');
       const sig = await storeImageDataUrl(tx, { firmId: firm.id, userId: u.id, dataUrl: String(f.get('sig')), name: 'potpis' });
       const stamp = await storeImageDataUrl(tx, { firmId: firm.id, userId: u.id, dataUrl: String(f.get('stamp') ?? ''), name: 'pecat' });
-      k.cliSig = { sig, stamp, name, at: nowLoc(), by: u.name || name };
+      k.cliSig = { sig, stamp, name, at: nowLoc(), by: `на екран во канцеларијата (${u.name})` };
       did = await archive(tx, firm, u.id, k, O, null);
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdCliSign', entityType: 'service_contract', entityId: id, data: { number: k.number, name } });
     });
     if (did) await pdfTo(await contractHtml(k, firm, O, { e: true }), `Dogovor_${k.number}`, firm.id, u.id, { entityType: OFFICE_FILE_ENTITY.dossier, entityId: did });
-    revalidatePath('/kdogovori');
+    done();
     return { ok: '✅ Договорот е потпишан и архивиран во „Документи на фирмата“.' };
   } catch (e) { return err(e); }
 }
 
 /** Legacy `kdDel` (ACT_NEED `del`): only before archiving; the firm summary is cleared. */
-export async function deleteContract(id: string): Promise<Res> {
+export async function deleteContract(firmId: string, id: string): Promise<Res> {
   try {
-    const { u, firm } = await officeAction('del');
+    const { u, firm } = await ownerCtx(firmId);
     await db().transaction(async (tx) => {
       const k = await loadContract(tx, id, firm.id);
       if (k.arch) throw new OfficeError('Архивиран договор не се брише.');
@@ -197,33 +204,41 @@ export async function deleteContract(id: string): Promise<Res> {
       await indexFirm(tx, firm.id, null, 0);
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdDel', entityType: 'service_contract', entityId: id, data: { number: k.number } });
     });
-    revalidatePath('/kdogovori');
+    done();
     return { ok: 'Избришано.' };
   } catch (e) { return err(e); }
 }
 
 /** Mark a signed contract as terminated (server extra kept from the earlier version). */
-export async function endContract(id: string): Promise<Res> {
+export async function endContract(firmId: string, id: string): Promise<Res> {
   try {
-    const { u, firm } = await officeAction('settings');
+    const { u, firm } = await ownerCtx(firmId);
     await db().transaction(async (tx) => {
       await loadContract(tx, id, firm.id);
       await tx.update(serviceContracts).set({ status: 'ended' }).where(eq(serviceContracts.id, id));
       await tx.update(firms).set({ settings: sql`${firms.settings} || jsonb_build_object('kdog', coalesce(${firms.settings}->'kdog','{}'::jsonb) || '{"st":"раскинат"}'::jsonb)` }).where(eq(firms.id, firm.id));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdEnd', entityType: 'service_contract', entityId: id });
     });
-    revalidatePath('/kdogovori');
+    done();
     return { ok: 'Договорот е означен како раскинат.' };
   } catch (e) { return err(e); }
 }
 
-/** Legacy `kdOffSave` (+ signature / stamp upload): the office data used by every contract. */
+/**
+ * Legacy `kdOffSave` (+ signature / stamp upload): the contract defaults used by every contract. The provider's
+ * identity (name, address, ЕДБ, ЕМБС) comes from the office firm and is copied into the office profile here so the
+ * other office documents (templates, ЗЗЛП) say the same; the typed fields are only the fallback without an office firm.
+ */
 export async function saveOffice(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const u = await requireCan('settings', null);
+    const u = await kdOwnerAction();
+    const { off, O: P } = await loadProvider();
     const num = (k: string) => { const v = Number(String(f.get(k) ?? '').replace(',', '.')); return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : ''; };
+    const ident = off
+      ? { name: P.name ?? '', address: P.address ?? '', city: P.city ?? '', edb: P.edb ?? '', embs: P.embs ?? '' }
+      : { name: fv(f, 'name') ?? '', address: fv(f, 'address') ?? '', city: fv(f, 'city') ?? '', edb: fv(f, 'edb') ?? '', embs: fv(f, 'embs') ?? '' };
     const patch: KdOffice = {
-      name: fv(f, 'name') ?? '', address: fv(f, 'address') ?? '', city: fv(f, 'city') ?? '', edb: fv(f, 'edb') ?? '', embs: fv(f, 'embs') ?? '', lic: fv(f, 'lic') ?? '',
+      ...ident, lic: fv(f, 'lic') ?? '',
       rep: fv(f, 'rep') ?? '', repRole: fv(f, 'repRole') ?? 'Управител', fee: num('fee'), docDay: Math.min(28, Math.max(1, Math.round(Number(f.get('docDay')) || 5))),
       feeMode: f.get('feeMode') === 'net' ? 'net' : 'gross', vatOn: f.get('vatOn') === 'on',
     };
@@ -235,27 +250,70 @@ export async function saveOffice(_p: ActionState, f: FormData): Promise<ActionSt
         if (fl) patch[k] = fl.id;
       }
       await patchOfficeProfile(tx, patch as Record<string, unknown>, u.id);
-      await audit(tx, { userId: u.id, action: 'kdOffSave', entityType: 'app_settings', entityId: 'office', data: { name: patch.name, sig: !!patch.sig, stamp: !!patch.stamp } });
+      await audit(tx, { userId: u.id, action: 'kdOffSave', entityType: 'app_settings', entityId: 'office', data: { name: patch.name, sig: !!patch.sig, stamp: !!patch.stamp, officeFirm: off?.id ?? null } });
     });
-    revalidatePath('/kdogovori');
-    return { ok: 'Податоците на канцеларијата се зачувани.' };
+    done();
+    return { ok: 'Податоците за договорите се зачувани.' };
   } catch (e) { return officeError(e); }
 }
 
-/** Legacy `kdPick`: open another firm's contracts. */
-export async function pickFirm(id: string): Promise<void> {
-  await selectFirm(id);
-  revalidatePath('/kdogovori');
+/**
+ * Legacy `offFirmSet` → „Фирма на канцеларијата“: the owner picks the firm record of the office (the provider of every
+ * contract and the firm the monthly invoices are issued from). Its identity is copied into the office profile.
+ */
+export async function setOfficeFirm(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const u = await kdOwnerAction();
+    const id = f.get('officeFirmId');
+    if (!isUuid(id)) return { error: 'Изберете ја фирмата на канцеларијата.' };
+    const [firm] = await db().select().from(firms).where(eq(firms.id, id)).limit(1);
+    if (!firm) return { error: 'Фирмата не постои.' };
+    await db().transaction(async (tx) => {
+      const others = (await tx.select({ id: firms.id, settings: firms.settings }).from(firms)).filter((x) => x.id !== firm.id && (x.settings as { officeFirm?: boolean }).officeFirm);
+      if (others.length) await tx.update(firms).set({ settings: sql`${firms.settings} || '{"officeFirm":false}'::jsonb` }).where(inArray(firms.id, others.map((x) => x.id)));
+      await tx.update(firms).set({ settings: sql`${firms.settings} || '{"officeFirm":true}'::jsonb` }).where(eq(firms.id, firm.id));
+      const dig = (v: string | null) => String(v ?? '').replace(/\D/g, '');
+      await patchOfficeProfile(tx, { name: firm.name, address: firm.address ?? '', city: firm.city ?? '', edb: dig(firm.edb), embs: dig(firm.embs) } as Record<string, unknown>, u.id);
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'offFirmSet', entityType: 'firm', entityId: firm.id });
+    });
+    done();
+    return { ok: `„${firm.name}“ е фирмата на канцеларијата (давател на услугата).` };
+  } catch (e) { return officeError(e); }
 }
 
-/* ---------------- Monthly invoices in the office firm (legacy `kdRecSync`, `offFirmSet`) ---------------- */
+/** E-mail the contract (PDF attachment) to the client — legacy mail of the printed contract. */
+export async function mailContract(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm, O } = await ownerCtx(f.get('firmId'));
+    const to = splitAddresses(String(f.get('to') ?? '') || firm.email || '');
+    if (!to.length || !validAddresses(to)) return { error: 'Внесете точна е-пошта на клиентот.' };
+    const [r] = await db().select().from(serviceContracts).where(and(eq(serviceContracts.id, String(f.get('id') ?? '')), eq(serviceContracts.firmId, firm.id))).limit(1);
+    if (!r) return { error: 'Договорот не постои.' };
+    const k = rowToContract(r);
+    const html = await inlineImages(await contractHtml(k, firm, O, { e: !!k.cliSig && !k.cliSig.scan }));
+    const jobs = await db().transaction(async (tx) => {
+      const job = await queuePdfMail(tx, {
+        firmId: firm.id, to, subject: `Договор за сметководствени услуги ${k.number} – ${O.name ?? ''}`.trim(),
+        html: textMailHtml(`Почитувани,\n\nВо прилог е договорот за сметководствени услуги бр. ${k.number} помеѓу ${O.name ?? ''} и ${firm.name}.\n\nСо почит,\n${u.name}\n${O.name ?? ''}`),
+        entityType: 'service_contract', entityId: k.id!, userId: u.id,
+      }, { html: `<div class="pdfdoc">${html}</div>`, title: pdfFileTitle('Dogovor', k.number) });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'kdMail', entityType: 'service_contract', entityId: k.id, data: { number: k.number, to, mailId: job.logId } });
+      return [job];
+    });
+    const failed = await dispatchPdfMail(jobs);
+    revalidatePath('/mailhist');
+    return failed ? { error: 'Редот за PDF е недостапен – пораката чека; проверете во „Историја на праќања“.' } : { ok: `✉ Договорот (PDF) се испраќа на ${to.join(', ')}.` };
+  } catch (e) { return officeError(e); }
+}
+
+/* ---------------- Monthly invoices in the office firm (legacy `kdRecSync`) ---------------- */
 
 export async function syncRecurring(): Promise<Res> {
   try {
-    const { u, firm } = await officeAction('write');
+    const u = await kdOwnerAction();
     const O = await loadOffice();
-    const off = await officeFirm(O);
-    if (!off || off.id !== firm.id) return { error: 'Отворете ја фирмата на канцеларијата – од неа се фактурираат услугите.' };
+    const { off: firm } = await loadProvider();
+    if (!firm) return { error: 'Прво одредете ја фирмата на канцеларијата – од неа се фактурираат услугите.' };
     const { F, P, plan } = await recPlanFor(firm.id);
     const rate = kdVat(O);
     const [it] = await db().select().from(items).where(and(eq(items.firmId, firm.id), eq(items.active, true), sql`${items.name} ~* 'сметководствени\\s+услуги'`)).limit(1);
@@ -289,23 +347,8 @@ export async function syncRecurring(): Promise<Res> {
         n++;
       }
     });
-    revalidatePath('/kdogovori');
+    done();
     revalidatePath('/periodicni');
-    return { ok: n ? `Ажурирани ${n} периодични фактури од договорите.` : 'Сите договори се веќе внесени.' };
-  } catch (e) { return err(e); }
-}
-
-/** Legacy `offFirmSet`: the current firm is the office's own firm (invoices for the accounting services). */
-export async function setOfficeFirm(): Promise<Res> {
-  try {
-    const { u, firm } = await officeAction('settings');
-    await db().transaction(async (tx) => {
-      const others = (await tx.select({ id: firms.id, settings: firms.settings }).from(firms)).filter((f) => f.id !== firm.id && (f.settings as { officeFirm?: boolean }).officeFirm);
-      if (others.length) await tx.update(firms).set({ settings: sql`${firms.settings} || '{"officeFirm":false}'::jsonb` }).where(inArray(firms.id, others.map((f) => f.id)));
-      await tx.update(firms).set({ settings: sql`${firms.settings} || '{"officeFirm":true}'::jsonb` }).where(eq(firms.id, firm.id));
-      await audit(tx, { userId: u.id, firmId: firm.id, action: 'offFirmSet', entityType: 'firm', entityId: firm.id });
-    });
-    revalidatePath('/kdogovori');
-    return { ok: `„${firm.name}“ е фирмата на канцеларијата.` };
+    return { ok: n ? `Ажурирани ${n} периодични фактури од договорите (во ${firm.name}).` : 'Сите договори се веќе внесени.' };
   } catch (e) { return err(e); }
 }

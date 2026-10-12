@@ -35,7 +35,7 @@ export interface KdOffice {
   name?: string; address?: string; city?: string; edb?: string; embs?: string; lic?: string; rep?: string; repRole?: string;
   fee?: number | string; docDay?: number; feeMode?: 'gross' | 'net'; vatOn?: boolean; vatRate?: number;
   feeEmp?: number | string; empFree?: number; feeYear?: number | string; feeHour?: number | string;
-  sig?: string | null; stamp?: string | null; phone?: string; email?: string; logo?: string | null;
+  sig?: string | null; stamp?: string | null; phone?: string; email?: string; logo?: string | null; bank?: string;
   zzlp?: { subs?: string[][] };
 }
 
@@ -203,11 +203,11 @@ export function kdHtml(k: KdContract, x: KdHtmlCtx): string {
   ${art(`Договорот се склучува ${k.dur === 'indef' ? 'на неопределено време' : `на определено време до ${d(k.end)} година`}, ${k.start && k.date && k.start < k.date ? `и ги уредува односите во соработката меѓу страните која трае од ${d(k.start)} година, со што ги потврдува и сите услуги извршени од тој датум` : `со почеток на примена од ${d(k.start)} година`}. Секоја страна може да го раскине договорот со писмено известување и отказен рок од <b>${esc(k.notice)}</b> дена. Во отказниот рок давателот на услугата е должен да ги заврши започнатите работи за периодот за кој е платен надоместокот.`)}
   ${art('По престанокот на договорот, давателот на услугата ќе му ги предаде на нарачателот сите деловни книги, исправи и електронски податоци, со записник за примопредавање, под услов нарачателот да ги има подмирено обврските по овој договор.')}
   ${art(`За сè што не е уредено со овој договор се применуваат одредбите на Законот за облигационите односи и Законот за вршење на сметководствени работи. Евентуалните спорови страните ќе ги решаваат спогодбено, а доколку тоа не е можно, надлежен е судот во ${b(O.city || k.place)}.`)}
-  ${art(`Договорот е составен во 2 (два) еднакви примероци, по еден за секоја договорна страна. Договорот е потпишан ${x.e ? 'електронски преку порталот (потпис со рака на екран, време и корисник се евидентирани)' : 'од овластените лица на двете страни'}.`)}
+  ${art(`Договорот е составен во 2 (два) еднакви примероци, по еден за секоја договорна страна. Договорот е потпишан ${x.e ? 'електронски на екран (потпис со рака, време и корисник се евидентирани)' : 'од овластените лица на двете страни'}.`)}
   <div class="sigrow" style="page-break-inside:avoid;break-inside:avoid;display:flex;justify-content:space-between;margin-top:34px;gap:30px">${sigBox('ДАВАТЕЛ НА УСЛУГАТА', O.rep, O.name, k.offSig ? k.offSig.sig || O.sig : null, k.offSig ? k.offSig.stamp || O.stamp : null)}${sigBox('НАРАЧАТЕЛ', k.cliSig?.name || k.rep, f.name ?? '', k.cliSig?.sig, k.cliSig?.stamp)}</div>
   ${k.offSig || k.cliSig ? `<p style="font-size:8.5pt;color:#555;margin-top:14px">${k.offSig ? 'Потпишано од давателот: ' + esc(String(k.offSig.at).slice(0, 16).replace('T', ' ')) + ' (' + esc(k.offSig.by || '') + ')' : ''}${k.cliSig ? ' · Потпишано од нарачателот: ' + esc(String(k.cliSig.at).slice(0, 16).replace('T', ' ')) + ' (' + esc(k.cliSig.by || k.cliSig.name || '') + ')' : ''}</p>` : ''}${k.noDpa ? '' : kdDpaAnnex(k, O, x.peekNo)}</div>`;
   const of = x.off ?? {};
-  const memo: KdFirm = { ...of, name: O.name || of.name, address: O.address || of.address, city: O.city || of.city, edb: O.edb || of.edb, embs: O.embs || of.embs };
+  const memo: KdFirm = { ...of, name: O.name || of.name, address: O.address || of.address, city: O.city || of.city, edb: O.edb || of.edb, embs: O.embs || of.embs, bank: O.bank || of.bank, phone: O.phone || of.phone, email: O.email || of.email };
   const logo = O.logo || of.logo;
   const code = kdCode(k, x.firmId);
   const inner = kdDocHead(memo, { conf: true, code, logoSrc: logo ? x.img(logo) : null }) + H + kdDocFoot(code, 'Договор за сметководствени услуги' + (k.number ? ' бр. ' + k.number : '') + '.');
@@ -246,9 +246,46 @@ export interface KdRecExisting { id: string; price: number; end: string | null }
 export type KdRecSt = 'нова' | 'нова цена' | 'крај' | 'ок';
 export interface KdRecRow { firm: KdRecFirm; net: number; start: string; end: string; no: string; partnerId: string | null; existing: KdRecExisting | null; st: KdRecSt }
 
-/** The office firm (legacy `offFirm`): `settings.officeFirm`, else the firm with the office's ЕДБ. */
-export function kdOfficeFirm<T extends { edb?: string | null; settings?: unknown }>(F: readonly T[], O: KdOffice | null | undefined): T | null {
-  return F.find((f) => (f.settings as { officeFirm?: boolean } | null)?.officeFirm) ?? (O?.edb ? F.find((f) => dig(f.edb) && dig(f.edb) === dig(O.edb)) : undefined) ?? null;
+/** Default office firm by name (the owner's own firm „БАЈРАМИ ГРОУП ДООЕЛ Скопје“) until one is picked. */
+export const KD_OFFICE_NAME_RX = /(БАЈРАМИ|BAJRAMI)\s+(ГРОУП|GROUP)/i;
+
+/**
+ * The office firm (legacy `offFirm`) — the service provider of every accounting-service contract: `settings.officeFirm`
+ * (picked by the owner, „Фирма на канцеларијата“), else the firm with the office's ЕДБ, else the (non-example) firm
+ * whose name matches {@link KD_OFFICE_NAME_RX}.
+ */
+export function kdOfficeFirm<T extends { edb?: string | null; name?: string | null; settings?: unknown }>(F: readonly T[], O: KdOffice | null | undefined, nameRx: RegExp | null = KD_OFFICE_NAME_RX): T | null {
+  return F.find((f) => (f.settings as { officeFirm?: boolean } | null)?.officeFirm)
+    ?? (O?.edb ? F.find((f) => dig(f.edb) && dig(f.edb) === dig(O.edb)) : undefined)
+    ?? (nameRx ? F.find((f) => !(f.settings as { example?: boolean } | null)?.example && nameRx.test(String(f.name ?? ''))) : undefined)
+    ?? null;
+}
+
+/** Office firm record as the provider source (`firms` row fields + `settings`). */
+export interface KdProviderFirm {
+  name?: string | null; address?: string | null; city?: string | null; edb?: string | null; embs?: string | null; phone?: string | null; email?: string | null;
+  settings?: unknown;
+}
+
+const fileId = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : null);
+
+/**
+ * The provider (давател на услугата) of the contracts: the office FIRM's record wins (name, address, ЕДБ, ЕМБС,
+ * bank account, signatory, logo / signature / stamp from the firm card); the office settings (`app_settings.office`)
+ * fill only what the firm lacks and keep the contract defaults (fee, VAT, deadlines, licence number).
+ */
+export function kdProvider(O: KdOffice, off: KdProviderFirm | null | undefined): KdOffice {
+  if (!off) return { ...O };
+  const s = (off.settings ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  return {
+    ...O,
+    name: str(off.name) || O.name, address: str(off.address) || O.address, city: str(off.city) || O.city,
+    edb: dig(off.edb) || O.edb, embs: dig(off.embs) || O.embs, phone: str(off.phone) || O.phone, email: str(off.email) || O.email,
+    bank: str(s.bankAccount) || str(s.bank) || O.bank,
+    rep: str(s.signer) || str(s.manager) || O.rep, repRole: str(s.signerRole) || O.repRole || 'Управител',
+    logo: fileId(s.logo) || O.logo || null, sig: fileId(s.sign) || O.sig || null, stamp: fileId(s.stamp) || O.stamp || null,
+  };
 }
 
 /**

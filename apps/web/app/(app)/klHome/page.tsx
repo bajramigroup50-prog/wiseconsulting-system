@@ -1,9 +1,9 @@
 /**
  * Legacy `VIEWS.klHome` 9055 → 10400 — the client's home, exactly as legacy renders it (also with no data):
- * title = firm name · „портал за клиенти · датум“, contract-to-sign callout, tiles of „Мојата состојба“ (when that
+ * title = firm name · „портал за клиенти · датум“, tiles of „Мојата состојба“ (when that
  * section is on: купувачите ни должат, ние должиме, залиха, ДДВ за тековниот период), one card per enabled section,
  * expiring documents, „Испратено до канцеларијата“ (pending entries, last 5 sent items or „Сè уште ништо.“).
- * Server addition: messages from the office.
+ * Server addition: messages from the office. (The accounting-service contract is no longer in the portal — owner-only.)
  */
 import Link from 'next/link';
 import { and, desc, eq } from 'drizzle-orm';
@@ -12,7 +12,6 @@ import { klSections, type KlConfig } from '@wise/core/office';
 import { clientEntries, computeVatPeriod, dossierDocs, inboxItems, loadLedgerLines } from '@wise/db';
 import { db } from '@/lib/db';
 import { officePage, today } from '@/lib/office';
-import { klContracts } from '@/lib/kl-nav';
 import { Hd, dmy, dmyHm } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { hrefFor } from '@/lib/nav';
@@ -25,13 +24,12 @@ export default async function KlHomePage() {
   if (!firm) return <NoFirm t="Мојата фирма" />;
   const td = today(), y = td.slice(0, 4);
   const per = firm.vatPeriod === 'month' ? 'month' : 'quarter';
-  const [msgs, pend, sent, docs, L, K, vat] = await Promise.all([
+  const [msgs, pend, sent, docs, L, vat] = await Promise.all([
     db().select().from(inboxItems).where(and(eq(inboxItems.firmId, firm.id), eq(inboxItems.fromOffice, true))).orderBy(desc(inboxItems.createdAt)).limit(10),
     db().select().from(clientEntries).where(and(eq(clientEntries.firmId, firm.id), eq(clientEntries.status, 'pending'))).orderBy(desc(clientEntries.submittedAt)),
     db().select().from(inboxItems).where(and(eq(inboxItems.firmId, firm.id), eq(inboxItems.fromOffice, false))).orderBy(desc(inboxItems.createdAt)).limit(5),
     db().select().from(dossierDocs).where(eq(dossierDocs.firmId, firm.id)),
     loadLedgerLines(db(), firm.id, `${y}-01-01`, `${y}-12-31`).catch(() => []),
-    klContracts(firm.id),
     firm.vatRegistered ? computeVatPeriod(db(), firm, periodOf(td, per)).then((c) => c.fields['31'] ?? 0).catch(() => null) : Promise.resolve(null),
   ]);
   const B = balances(L);
@@ -44,12 +42,6 @@ export default async function KlHomePage() {
   return (
     <>
       <Hd t={firm.name || 'Мојата фирма'} sub={`портал за клиенти · ${dmy(td)}`} exp={false} />
-      {K.wait.length > 0 && (
-        <div className="callout warn" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <span>✍ Имате договор за сметководствени услуги ({K.wait[0]!.number}) што чека ваш потпис.</span>
-          <Link className="btn pri" href="/kdogovori">Прегледај и потпиши</Link>
-        </div>
-      )}
       {showSt && (
         <div className="tiles">
           {tile('Купувачите ни должат', fmt(rec), 'отворени побарувања')}

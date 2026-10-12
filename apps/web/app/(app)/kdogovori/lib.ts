@@ -3,20 +3,57 @@ import 'server-only';
  * Server helpers of the accounting-service contracts (legacy 10322–10397, 13554–13616): loading the office data
  * (`app_settings.office`), mapping `service_contracts` rows, the contract HTML with inlined images for the server
  * PDF, and the dossier copies (legacy `kdDraftArch` / `kdArchive`).
+ *
+ * Owner decision: the contracts are made BY the office firm (БАЈРАМИ ГРОУП ДООЕЛ Скопје, „Фирма на канцеларијата“)
+ * WITH each client firm, and the whole module is the office OWNER's only (`isOfficeOwner`): page, actions, print and
+ * Word routes. Never in the client portal and never for other office users.
  */
 import { and, eq, inArray } from 'drizzle-orm';
-import { kdHtml, kdNormalize, kdOfficeFirm, kdRecPlan, kdVat, KD_DOS_CAT, type KdContract, type KdFirm, type KdOffice, type KdRecExisting } from '@wise/core/firms/kdog';
+import { kdHtml, kdNormalize, kdOfficeFirm, kdProvider, kdRecPlan, kdVat, KD_DOS_CAT, type KdContract, type KdFirm, type KdOffice, type KdRecExisting } from '@wise/core/firms/kdog';
 import { PDFDOC_CSS } from '@wise/core/print-css';
-import { dossierDocs, fileLinks, files, firms, getOfficeProfile, OFFICE_FILE_ENTITY, partners, recurringInvoices, serviceContracts, type Firm, type Tx } from '@wise/db';
+import { dossierDocs, fileLinks, files, firms, getOfficeProfile, OFFICE_FILE_ENTITY, OfficeError, partners, recurringInvoices, serviceContracts, type Firm, type Tx } from '@wise/db';
+import { getUser, requireUser, type SessionUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { renderPdf } from '@/lib/jobs';
+import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 import { dataUri, fileImageIds, inlineFileImages } from '@/lib/print-pdf';
 import { getObjectBytes } from '@/lib/storage';
-import { today } from '@/lib/office';
+import { isUuid, today } from '@/lib/office';
 
 export type ContractRow = typeof serviceContracts.$inferSelect;
 
 export const loadOffice = async (tx: Tx = db()): Promise<KdOffice> => (await getOfficeProfile(tx)) as KdOffice;
+
+/** The office settings (`raw`), the office firm and the provider data merged from both (firm wins, `kdProvider`). */
+export async function loadProvider(): Promise<{ raw: KdOffice; off: Firm | null; O: KdOffice }> {
+  const raw = await loadOffice();
+  const off = kdOfficeFirm(await db().select().from(firms), raw);
+  return { raw, off, O: kdProvider(raw, off) };
+}
+
+/* ---------------- owner-only guard ---------------- */
+
+/** The signed-in user when they are the office owner, else `null` (pages / routes). */
+export async function kdOwnerUser(): Promise<SessionUser | null> {
+  const u = await getUser();
+  return u && u.role === 'admin' && (await isOfficeOwner(u)) ? u : null;
+}
+
+/** Server-action guard: only the office owner. */
+export async function kdOwnerAction(): Promise<SessionUser> {
+  const u = await requireUser();
+  if (!(await isOfficeOwner(u))) throw new OfficeError(OWNER_ONLY_MSG);
+  return u;
+}
+
+/** The client firm a contract is made with (any firm except the office firm itself). */
+export async function kdClientFirm(id: unknown, off: Pick<Firm, 'id'> | null): Promise<Firm> {
+  if (!isUuid(id)) throw new OfficeError('Изберете клиент (фирма).');
+  const [f] = await db().select().from(firms).where(eq(firms.id, id)).limit(1);
+  if (!f) throw new OfficeError('Фирмата не постои.');
+  if (off && off.id === f.id) throw new OfficeError('Фирмата на канцеларијата е давател на услугата – изберете клиент.');
+  return f;
+}
 
 /** `service_contracts` row → contract (columns win over `data`). */
 export function rowToContract(r: ContractRow): KdContract {

@@ -13,10 +13,11 @@ import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { amlOffice } from '@/lib/aml';
 import { fmt } from '@/lib/fmt';
-import { today } from '@/lib/office';
+import { isUuid, today } from '@/lib/office';
 import { DOCX_MIME, attachmentName, fillOwnTemplate, ownTemplate } from '@/lib/own-template';
 import { fname, htmlResponse, printDoc } from '@/lib/payroll/html';
-import { rowToContract } from '@/app/(app)/kdogovori/lib';
+import { kdOwnerUser, rowToContract } from '@/app/(app)/kdogovori/lib';
+import { OWNER_ONLY_MSG } from '@/lib/office-owner';
 
 const text = (s: string, status = 400) => new Response(s, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
@@ -29,6 +30,14 @@ export async function GET(req: Request) {
   if (!k || !src) return text('Непознат документ.');
   // `firm:<id>` — a document for another client (e.g. the DPA per client in ЗЗЛП), if the user may see that firm.
   let firm0 = await currentFirm(u0);
+  // the accounting-service contract: office OWNER only; the firm is the contract's client (not the current firm)
+  if (src.t === 'kd') {
+    if (!(await kdOwnerUser())) return text(OWNER_ONLY_MSG, 403);
+    const [r] = isUuid(src.id) ? await db().select({ firmId: serviceContracts.firmId }).from(serviceContracts).where(eq(serviceContracts.id, src.id)).limit(1) : [];
+    if (!r) return text('Договорот не постои.', 404);
+    const [kf] = await db().select().from(firms).where(eq(firms.id, r.firmId)).limit(1);
+    firm0 = kf ?? null;
+  }
   if (src.t === 'firm' && src.id) {
     const [f] = await db().select().from(firms).where(eq(firms.id, src.id)).limit(1);
     firm0 = f && firmAllowed(u0.principal, f.id, f.ownerId) ? f : null;

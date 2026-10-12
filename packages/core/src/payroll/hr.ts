@@ -141,6 +141,41 @@ export function hrCtWarnings(c: Partial<HrContract>, P: Pick<PayParams, 'minGros
   return W;
 }
 
+/**
+ * One element of the employment contract required by the Labour Relations Law (Закон за работните односи, ЗРО).
+ * `verify` = the legal reference / rule was NOT verified against the consolidated text of the law in this program
+ * (shown as „за проверка“ — check against the current text in Службен весник before relying on it).
+ */
+export interface HrLawItem { k: string; label: string; ok: boolean; law: string; verify: boolean; note?: string }
+
+/** Labels of the law check on the screen. */
+export const HR_LAW_VERIFY = 'за проверка';
+
+/**
+ * Required elements of a contract of employment (ЗРО — content of the contract, член 28 *за проверка*) checked on the
+ * contract, the employee and the employer. The list follows the law's content article as known to the program; every
+ * article number and limit is marked `verify` until checked against the consolidated text.
+ */
+export function hrCtLawCheck(c: Partial<HrContract>, e: Pick<HrEmployee, 'name' | 'embg' | 'address'>, f: HrFirm): HrLawItem[] {
+  const fixed = hrFixedTerm(c.type);
+  const L: HrLawItem[] = [
+    { k: 'parties', label: 'Договорни страни: работодавач (назив, седиште, ЕДБ) и работник (име, ЕМБГ, живеалиште)', ok: !!(f.name && (f.address || f.city) && f.edb && e.name && e.embg && e.address), law: 'ЗРО чл. 28', verify: true,
+      note: [!f.name || !(f.address || f.city) || !f.edb ? 'податоци за фирмата' : '', !e.embg ? 'ЕМБГ' : '', !e.address ? 'живеалиште на работникот' : ''].filter(Boolean).join(', ') || undefined },
+    { k: 'start', label: 'Датум на започнување со работа', ok: !!c.start, law: 'ЗРО чл. 28', verify: true },
+    { k: 'position', label: 'Работно место (назив) и опис на работите', ok: !!c.position, law: 'ЗРО чл. 28', verify: true, note: c.position && !c.duties ? 'препорачливо: краток опис на работите' : undefined },
+    { k: 'workPlace', label: 'Место на вршење на работата', ok: !!c.workPlace, law: 'ЗРО чл. 28', verify: true },
+    { k: 'term', label: fixed ? 'Времетраење (определено време – до кој датум)' : 'Времетраење (неопределено време)', ok: !fixed || !!c.end, law: 'ЗРО чл. 28; определено време најмногу 5 години – чл. 46', verify: true },
+    { k: 'hours', label: 'Работно време (полно / скратено, часови неделно)', ok: n(c.hours) > 0 && n(c.hours) <= 40, law: 'ЗРО чл. 28; полно работно време до 40 часа неделно – чл. 116', verify: true },
+    { k: 'pay', label: 'Основна плата (бруто) и додатоци, рок на исплата', ok: n(c.gross) > 0, law: 'ЗРО чл. 28', verify: true, note: c.gross && !c.net ? 'препорачливо: и нето износ' : undefined },
+    { k: 'leave', label: 'Годишен одмор (траење)', ok: n(c.leave) >= HR_LEAVE_DAYS, law: `ЗРО чл. 28; најмалку ${HR_LEAVE_DAYS} работни дена – чл. 137`, verify: true, note: c.leave && n(c.leave) < HR_LEAVE_DAYS ? `под законскиот минимум од ${HR_LEAVE_DAYS} дена` : undefined },
+    { k: 'notice', label: 'Отказен рок', ok: n(c.notice) >= 1, law: 'ЗРО чл. 28; отказен рок најмалку 1 месец (до 3 со колективен договор) – чл. 88', verify: true },
+    { k: 'probation', label: 'Пробна работа (ако е договорена) – најмногу 6 месеци', ok: n(c.probation) <= 6, law: 'ЗРО чл. 31', verify: true },
+    { k: 'collective', label: 'Упатување на колективен договор и општи акти на работодавачот', ok: true, law: 'ЗРО чл. 28 (во текстот на договорот – завршна одредба)', verify: true },
+    { k: 'sign', label: 'Застапник на работодавачот (потписник)', ok: !!c.rep, law: 'писмена форма – ЗРО чл. 15', verify: true },
+  ];
+  return L;
+}
+
 /** Extension / transformation of a fixed-term contract (legacy annex/decision `x`). */
 export interface HrExtension {
   kind: 'ext' | 'transform';
