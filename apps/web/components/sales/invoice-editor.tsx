@@ -8,15 +8,16 @@
 import Link from 'next/link';
 import { Fragment, useActionState, useMemo, useRef, useState, useTransition } from 'react';
 import {
-  addDays, CURRENCIES, creditGrossLines, DT, fuelInvoiceCheck, invoiceTotals, PARITY, PAYM, plansFromSavedRun, prodSummary, PTERMS, type DtKey,
+  addDays, CURRENCIES, creditGrossLines, DT, fuelInvoiceCheck, invoiceTotals, PARITY, PAYM, plansFromSavedRun, prodSummary, PTERMS, specText, workOrderLabel, type DtKey,
 } from '@wise/core/sales';
 import type { FuelRule } from '@wise/core/law';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { createProductAction, saveInvoiceAction, setSvcOnlyAction } from '@/app/(app)/izlez/actions';
-import { blankLine, type EdInvoice, type EdLine } from './model';
+import { blankCostEls, blankLine, blankSpec, mainProdLine, OTHER_COSTS, type EdInvoice, type EdLine } from './model';
 import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
-import type { ProdBom } from '@wise/core/sales';
+import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';
+import type { ProdBom, ProdCostInput, ProdSpec } from '@wise/core/sales';
 
 export interface InvItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
 export interface RefInvoice { id: string; number: string; date: string; partnerId: string | null; total: number; art32: boolean; export: boolean; lines: EdLine[];
@@ -61,11 +62,25 @@ export interface InvoiceEditorProps {
   boms?: Record<string, ProdBom>;
   avg?: Record<string, Record<string, number>>;
   prodRun?: InvoiceProdRun | null;
+  /** „🏭 Фактура од производство“: earlier work orders of the firm and the proposed number of a new one. */
+  workOrders?: WorkOrderOpt[];
+  nextWorkOrder?: string;
 }
 export interface InvoiceProdRun {
   wh: string | null; extra: number; saveBom: boolean;
-  lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[]; wh?: string | null; extra?: number | null; saveBom?: boolean }[];
+  lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[]; wh?: string | null; extra?: number | null; saveBom?: boolean; main?: boolean; spec?: ProdSpec | null; calc?: ProdCostInput | null }[];
   orders: { id: string; number: string; productId: string; lineNo: number; lab?: number }[];
+  notes?: string[];
+}
+
+const s0 = (v: unknown) => (v == null ? '' : String(v));
+/** Saved cost elements → editor strings (the standard other-cost rows first). */
+function costEls(c: ProdCostInput | null | undefined) {
+  const B = blankCostEls();
+  if (!c) return B;
+  const other = [...(c.other ?? []).map((o) => ({ label: o.label, amount: s0(o.amount) }))];
+  for (const l of OTHER_COSTS) if (!other.some((o) => o.label === l)) other.push({ label: l, amount: '' });
+  return { hours: s0(c.hours), rate: s0(c.rate), labour: s0(c.labour), ovhPct: s0(c.ovhPct), other };
 }
 
 /**
@@ -80,7 +95,19 @@ function withSavedProd(x: EdInvoice, run: InvoiceProdRun | null | undefined, ite
   return {
     ...x, lines: x.lines.map((l, i) => {
       const P = plans[i];
-      return P ? { ...l, prod: { wh: P.wh ?? '', extra: P.extra ? String(P.extra) : '', saveBom: P.saveBom, materials: P.materials.map((m) => ({ itemId: m.itemId, qty: String(m.qty) })), fromBom: false, open: !P.materials.length } } : l;
+      if (!P) return l;
+      const prod = { wh: P.wh ?? '', extra: P.extra ? String(P.extra) : '', saveBom: P.saveBom, materials: P.materials.map((m) => ({ itemId: m.itemId, qty: String(m.qty) })), fromBom: false, open: !P.materials.length };
+      if (!P.main) return { ...l, prod };
+      // main product of a production invoice: the specification printed after the name goes back to its own fields
+      const sp = P.spec ?? null;
+      const tail = specText(sp);
+      const name = tail && l.name.endsWith(' – ' + tail) ? l.name.slice(0, -(tail.length + 3)) : l.name;
+      return {
+        ...l, name, prod: {
+          ...prod, open: true, main: true, cost: costEls(P.calc),
+          spec: sp ? { text: s0(sp.text), l: s0(sp.l), w: s0(sp.w), h: s0(sp.h), mode: (sp.mode || '') as '' | 'm' | 'm2' | 'm3', pcs: s0(sp.pcs) } : blankSpec(),
+        },
+      };
     }),
   };
 }
@@ -111,6 +138,33 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   // a produced line follows its normativ when the quantity or the product changes
   const setLine = (i: number, x: Partial<EdLine>) => setD((o) => ({ ...o, lines: o.lines.map((l, k) => (k === i ? reProd({ ...l, ...x }, boms, x.itemId !== undefined && x.itemId !== l.itemId) : l)) }));
   const canProd = d.kind === 'invoice' && !d.advance;
+  // „🏭 Фактура од производство“: chosen at the start; the main products open the invoice, the calculation follows them
+  const prodInv = canProd && d.data.prodInv === '1';
+  const isMain = (l: EdLine) => prodInv && !!l.prod?.main;
+  const nonEmpty = (l: EdLine) => !!(l.itemId || l.name.trim() || Number(l.price));
+  const setMode = (on: boolean) => setD((o) => {
+    if (!on) {
+      // back to a normal invoice: typed main products stay as lines marked „🏭“, empty ones go
+      const L = o.lines.filter((l) => !(l.prod?.main && !nonEmpty(l)));
+      return { ...o, data: { ...o.data, prodInv: '' }, lines: L.length ? L : [blankLine(p.revDefault, o.export ? '0' : '18')] };
+    }
+    const has = o.lines.some((l) => l.prod?.main);
+    const rest = o.lines.filter(nonEmpty);
+    return { ...o, data: { ...o.data, prodInv: '1' }, lines: has ? o.lines : [mainProdLine(p.revByType.product || p.revDefault, o.warehouseId, o.export ? '0' : '18'), ...rest] };
+  });
+  const addMain = () => setD((o) => {
+    const L = [...o.lines];
+    const at = L.reduce((a, l, k) => (l.prod?.main ? k + 1 : a), 0);
+    L.splice(at, 0, mainProdLine(p.revByType.product || p.revDefault, o.warehouseId, o.export ? '0' : '18'));
+    return { ...o, lines: L };
+  });
+  /** Typing the main product's name links an existing finished product of the same name; another name = a new variant. */
+  const setMainName = (i: number, v: string) => {
+    const l = d.lines[i]!;
+    const found = items.find((x) => x.type === 'product' && x.name.trim().toLowerCase() === v.trim().toLowerCase());
+    if (found) setLine(i, { name: v, itemId: found.id, code: found.code ?? '', unit: l.unit || found.unit || 'ком', account: found.account || p.revByType.product || l.account, price: l.price || String(priceOf(found)) });
+    else setLine(i, { name: v, ...(l.itemId ? { itemId: '', code: '' } : {}) });
+  };
   const toggleProd = (i: number) => setD((o) => ({ ...o, lines: o.lines.map((l, k) => (k !== i ? l : l.prod ? { ...l, prod: undefined } : { ...l, prod: startProd(l, boms, o.warehouseId) })) }));
   const setProdOf = (i: number, pr: NonNullable<EdLine['prod']>) => setD((o) => ({ ...o, lines: o.lines.map((l, k) => (k === i ? { ...l, prod: pr } : l)) }));
   /** „+ Креирај производ“: the free-text line becomes the finished-product article (name, unit, VAT, price from the line). */
@@ -163,18 +217,35 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
     return (p.prodRun?.orders ?? []).filter((o) => o.productId === l.itemId)[same.indexOf(i)]?.number ?? null;
   };
   /** The payload of the produced lines: `lineNo` = the line's index among the saved (non-empty) lines. */
+  const woRef = prodInv && d.data.woNo?.trim() ? { number: d.data.woNo.trim(), from: d.data.woFrom || null, to: d.data.woTo || null } : null;
   const production = (() => {
     if (!prodLines.length) return null;
-    const keep = d.lines.map((l) => !!(l.itemId || l.name.trim() || Number(l.price)));
+    const keep = d.lines.map(nonEmpty);
     const idx = (i: number) => keep.slice(0, i).filter(Boolean).length;
     return {
-      wh: null, extra: '0', saveBom: false,
-      lines: prodLines.filter(({ l }) => l.itemId && keep[d.lines.indexOf(l)]).map(({ l, i }) => ({
-        lineNo: idx(i), productId: l.itemId, qty: l.qty, wh: l.prod!.wh || null, extra: l.prod!.extra || '0', saveBom: l.prod!.saveBom,
-        materials: l.prod!.materials.filter((m) => m.itemId && Number(m.qty) > 0),
-      })),
+      wh: null, extra: '0', saveBom: false, mode: prodInv ? 'prodInv' as const : null, workOrder: woRef,
+      lines: prodLines.filter(({ l }) => l.itemId && keep[d.lines.indexOf(l)]).map(({ l, i }) => {
+        const main = !!l.prod!.main;
+        const S = l.prod!.spec;
+        return {
+          lineNo: idx(i), productId: l.itemId, qty: l.qty, wh: l.prod!.wh || null, saveBom: l.prod!.saveBom,
+          // a main product's extra cost (labour + other + overhead) is recomputed by the server on the issued materials
+          extra: main ? String(calcs.get(i)?.extra ?? 0) : l.prod!.extra || '0',
+          materials: l.prod!.materials.filter((m) => m.itemId && Number(m.qty) > 0),
+          ...(main ? {
+            main: true, calc: (({ hours, rate, labour, ovhPct, other }) => ({ hours, rate, labour, ovhPct, other: other.filter((o) => Number(o.amount)) }))(l.prod!.cost ?? blankCostEls()),
+            spec: S ? { text: S.text, l: S.l, w: S.w, h: S.h, mode: S.mode, pcs: S.pcs } : null,
+          } : {}),
+        };
+      }),
     };
   })();
+  /** The invoice line of a main product carries its specification after the name. */
+  const lineOut = (l: EdLine) => {
+    if (!l.prod?.main || !canProd) return l;
+    const t = specText(l.prod.spec ? { ...l.prod.spec } : null);
+    return t && l.name.trim() ? { ...l, name: `${l.name.trim()} – ${t}` } : l;
+  };
 
   const qaList = useMemo(() => {
     const q = qa.q.toLowerCase().trim();
@@ -192,11 +263,11 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
     if (sq != null && d.kind !== 'proforma' && q > sq + 1e-9) setToast('Внимание: на залиха има само ' + fq(sq) + ' ' + (it.unit ?? ''));
     setD((o) => {
       const L = [...o.lines];
-      const ex = L.findIndex((l) => l.itemId === it.id && !Number(l.disc));
+      const ex = L.findIndex((l) => l.itemId === it.id && !Number(l.disc) && !l.prod?.main);
       if (ex >= 0) L[ex] = { ...L[ex]!, qty: String(Math.round(((Number(L[ex]!.qty) || 0) + q) * 1e4) / 1e4) };
       else {
         const row = { ...blankLine(p.revDefault), ...fromItem(it), qty: String(q) } as EdLine;
-        const e0 = L.findIndex((l) => !l.itemId && !l.name.trim() && !Number(l.price));
+        const e0 = L.findIndex((l) => !l.prod && !l.itemId && !l.name.trim() && !Number(l.price));
         if (e0 >= 0) L[e0] = row; else L.push(row);
       }
       return { ...o, lines: L };
@@ -208,7 +279,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const addSvc = () => setD((o) => {
     const row: EdLine = { ...blankLine(p.revByType.service || p.revDefault, o.export ? '0' : '18'), unit: 'усл.' };
     const L = [...o.lines];
-    const e0 = L.findIndex((l) => !l.itemId && !l.name.trim() && !Number(l.price));
+    const e0 = L.findIndex((l) => !l.prod && !l.itemId && !l.name.trim() && !Number(l.price));
     if (e0 >= 0) L[e0] = { ...row, qty: L[e0]!.qty || '1' }; else L.push(row);
     return { ...o, lines: L };
   });
@@ -239,21 +310,33 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         setD((o) => ({ ...o, data: { ...o.data, fuelOk: '1' } }));
       }
     }
-    if (canProd && prodLines.length) {
-      const bad = prodLines.filter(({ l }) => !l.itemId || itemById.get(l.itemId)?.type === 'service');
+    if (prodInv && !d.lines.some((l) => l.prod?.main && nonEmpty(l)) && !window.confirm('Фактурата е „🏭 од производство“, но нема внесено главен производ. Сепак да се зачува како обична фактура?')) { e.preventDefault(); return; }
+    const used = prodLines.filter(({ l }) => nonEmpty(l));
+    if (canProd && used.length) {
+      const bad = used.filter(({ l }) => !l.itemId || itemById.get(l.itemId)?.type === 'service');
       if (bad.length) {
         e.preventDefault();
-        setToast('Ставката „' + (bad[0]!.l.name || '…') + '“ е означена за производство, а не е производ од шифрарникот – притиснете „+ Креирај производ“ под ставката или исклучете го 🏭.');
+        const b = bad[0]!.l;
+        setToast(b.prod?.main
+          ? 'Главниот производ „' + (b.name || '…') + '“ уште не е креиран – притиснете „✓ Креирај го производот“ (се креира веднаш, без шифрарник).'
+          : 'Ставката „' + (b.name || '…') + '“ е означена за производство, а не е производ од шифрарникот – притиснете „+ Креирај производ“ под ставката или исклучете го 🏭.');
         return;
       }
-      const empty = prodLines.filter(({ l }) => !l.prod!.materials.some((m) => m.itemId && Number(m.qty) > 0));
-      if (empty.length && !window.confirm('Овие ставки се означени за производство, но немаат репроматеријали – ќе се продадат од залиха без производство:' + NL + empty.map(({ l }) => l.name).join(NL) + NL + NL + 'Сепак да се зачува?')) { e.preventDefault(); return; }
-      if (PS.below && !window.confirm(`${PS.below} ставки за производство се продаваат под цената на чинење (вкупно трошок ${fmt(PS.cost)}, продажба ${fmt(PS.sale)}). Сепак да се зачува?`)) { e.preventDefault(); return; }
+      const empty = used.filter(({ l, i }) => !l.prod!.materials.some((m) => m.itemId && Number(m.qty) > 0) && !((calcs.get(i)?.extra ?? 0) > 0));
+      if (empty.length && !window.confirm('Овие ставки се означени за производство, но немаат ни репроматеријали ни трошоци – ќе се продадат од залиха без производство:' + NL + empty.map(({ l }) => l.name).join(NL) + NL + NL + 'Сепак да се зачува?')) { e.preventDefault(); return; }
+      // warnings, never blocks: materials short at the date (the calculation keeps a note) and selling below cost
+      const short = used.filter(({ i }) => calcs.get(i)?.short);
+      if (short.length && !window.confirm('⚠ Недостига репроматеријал на залиха за:' + NL + short.map(({ l }) => l.name).join(NL) + NL + NL + 'Материјалите ќе се раздолжат во минус (проверете ги приемите); на калкулацијата ќе стои напомена. Сепак да се зачува?')) { e.preventDefault(); return; }
+      if (PS.below && !window.confirm(`⚠ ${PS.below} ставки за производство се продаваат под цената на чинење (вкупно трошок ${fmt(PS.cost)}, продажба ${fmt(PS.sale)}). Сепак да се зачува?`)) { e.preventDefault(); return; }
     }
     if ((d.kind === 'invoice' || d.kind === 'dispatch') && !d.fromDocId) {
       const need = new Map<string, number>();
       // a produced line is received on stock by its production order before the invoice issues it
-      for (const l of d.lines) if (l.itemId && stockOf(l.itemId) != null && itemById.get(l.itemId)?.type !== 'material' && !(canProd && l.prod?.materials.some((m) => m.itemId && Number(m.qty) > 0))) need.set(l.itemId, (need.get(l.itemId) ?? 0) + (Number(l.qty) || 0));
+      // (main products of a production invoice: their stock 0 is no shortage — they are being produced now)
+      d.lines.forEach((l, i) => {
+        const produced = canProd && !!l.prod && (l.prod.materials.some((m) => m.itemId && Number(m.qty) > 0) || (calcs.get(i)?.extra ?? 0) > 0 || !!l.prod.main);
+        if (l.itemId && stockOf(l.itemId) != null && itemById.get(l.itemId)?.type !== 'material' && !produced) need.set(l.itemId, (need.get(l.itemId) ?? 0) + (Number(l.qty) || 0));
+      });
       const short = [...need].filter(([id, q]) => q > (stockOf(id) ?? 0) + 1e-9).map(([id, q]) => `${itemById.get(id)!.name}: се бара ${fq(q)}, на залиха ${fq(stockOf(id) ?? 0)} ${itemById.get(id)!.unit ?? ''}`);
       if (short.length && !window.confirm('Нема доволно залиха во ' + (loc?.name ?? 'Главен магацин') + ':' + NL + short.slice(0, 8).join(NL) + NL + NL + 'Според законот не може да се продаде повеќе отколку што е примено. Проверете дали влезната фактура/преносот е заведен. Сепак да се зачува?')) { e.preventDefault(); return; }
       const free = d.lines.filter((l) => !l.itemId && l.name.trim() && Number(l.qty) && !/услуг|транспорт|превоз|трошок|надомест/i.test(l.name)).map((l) => l.name);
@@ -279,8 +362,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   return (
     <form action={action} ref={formRef} onSubmit={beforeSave}>
       <input type="hidden" name="payload" value={JSON.stringify({
-        ...d, back: p.back, lines: d.lines.map(({ prod: _p, ...l }) => l), production,
-        data: isInv ? { ...d.data, prod: production ? 'Д' : 'Н', prodCost: production ? PS.cost.toFixed(2) : '' } : d.data,
+        ...d, back: p.back, lines: d.lines.map((x) => { const { prod: _p, ...l } = lineOut(x); return l; }), production,
+        data: isInv ? { ...d.data, prod: production ? 'Д' : 'Н', prodCost: production ? PS.cost.toFixed(2) : '', prodInv: prodInv ? '1' : '', ...(prodInv ? {} : { woNo: '', woFrom: '', woTo: '' }) } : d.data,
       })} />
       <div className="hd">
         <h1>{p.title}{p.sub && <span className="mk">{p.sub}</span>}</h1>
@@ -290,6 +373,14 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
       {toast && <div className="callout info" role="status" onClick={() => setToast('')}>{toast}</div>}
       {p.scanInfo && <div className="callout good">{p.scanInfo}</div>}
       {d.status === 'pending' && <div className="callout warn">Внесено од клиентот – чека одобрување (не е прокнижено).</div>}
+      {canProd && !d.svc && <div className="card invmode" data-testid="inv-mode" role="radiogroup" aria-label="Вид на фактура" style={{ padding: '8px 12px', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <b>Вид на фактура:</b>
+        <label className="rb"><input type="radio" name="invMode" checked={!prodInv} onChange={() => setMode(false)} /> 📄 Обична фактура</label>
+        <label className="rb"><input type="radio" name="invMode" checked={prodInv} onChange={() => setMode(true)} /> <b>🏭 Фактура од производство</b></label>
+        <small className="note" style={{ flex: '1 1 280px' }}>{prodInv
+          ? 'Прво заглавието (комитент, датуми, курс, работен налог), потоа главниот производ и калкулацијата на производство. При зачувување: налог за производство, раздолжување на материјалите, прием на производот по цена на чинење и продажба.'
+          : 'За нарачки по мерка (пр. тераса, пергола) изберете „🏭 Фактура од производство“. Кај обична фактура, поединечна ставка може да се означи со „🏭 Производство“.'}</small>
+      </div>}
       <div className="card invhead">
         <div className="ftabs" role="tablist">
           {([['osn', 'Основно'], ['dop', 'Дополнителни'], ['pos', 'Посебни']] as const).map(([id, n]) => (
@@ -316,6 +407,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               )}
               {I('refDoc', 'По документ (бр. нарачка / ф-ра)', { b: true })}
               {isInv && <label className="fl"><span>Дат. на испорака (промет)</span><input type="date" value={d.pdate || d.date} onChange={(e) => set({ pdate: e.target.value })} /></label>}
+              {prodInv && <WorkOrderBox data={d.data} date={d.date} list={p.workOrders ?? []} next={p.nextWorkOrder ?? ''} onChange={(x) => setD((o) => ({ ...o, data: { ...o.data, ...x } }))} />}
               {I('dispNo', 'Испратница бр.')}{I('archNo', 'Архивски број')}
               {d.kind === 'credit' && <>
                 <label className="fl b"><span>Кон фактура</span><select value={d.refInvoiceId} onChange={(e) => {
@@ -419,6 +511,19 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         </div>
       </div>
 
+      {prodInv && <section data-testid="main-products">
+        <datalist id="prodNameList">{items.filter((i) => i.type === 'product').map((i) => <option key={i.id} value={i.name}>{i.code ?? ''}</option>)}</datalist>
+        {d.lines.map((l, i) => ({ l, i })).filter(({ l }) => l.prod?.main).map(({ l, i }, k, all) => (
+          <MainProductCard key={i} k={k} line={l} items={items} stock={p.stock} avg={avgs} boms={boms} locations={p.locations} fx={fxN} cur={cur} rates={RATES} vatLocked={d.art32 || d.export}
+            head={{ number: d.number, date: d.date, partner: p.partners.find((x) => x.id === d.partnerId)?.name ?? '', currency: d.currency, fx: d.fx, workOrder: woRef ? workOrderLabel(woRef) : '' }}
+            onLine={(x) => (x.name !== undefined ? setMainName(i, x.name) : setLine(i, x))} onProd={(pr) => setProdOf(i, pr)}
+            onCreate={() => void createProduct(i)} creating={creating === i} onRemove={all.length > 1 || nonEmpty(l) ? () => set({ lines: d.lines.filter((_, j) => j !== i) }) : null}
+            orderNo={orderNo(i)} printHref={d.id && p.prodRun?.lines.length ? `/print/prodKalk/${d.id}` : null} />
+        ))}
+        <div className="row" style={{ marginTop: 6 }}><button type="button" className="btn" onClick={addMain}>+ Уште еден главен производ</button></div>
+        <h3 className="fh" style={{ marginTop: 14 }}>Други ставки на фактурата (услуги, стока од залиха)</h3>
+      </section>}
+
       {d.kind !== 'dispatch' && <label className="chk"><input type="checkbox" checked={svcOnly} disabled={!p.canSettings} onChange={(e) => {
         const v = e.target.checked;
         setSvcOnly(v);
@@ -457,6 +562,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
       <datalist id="svcItemList">{[...new Set([...(p.svcTexts ?? []), ...items.map((i) => i.name)])].map((x) => <option key={x} value={x} />)}</datalist>
       <div className="tw"><table><thead><tr><th style={{ minWidth: 200 }}>Артикл / опис</th><th>Ед. мерка</th><th className="n">Количина</th><th className="n">Цена без ДДВ{d.currency !== 'MKD' ? ' (' + d.currency + ')' : ''}</th><th className="n">Рабат %</th><th>ДДВ</th><th>Конто</th><th className="n">Износ</th><th></th></tr></thead><tbody>
         {d.lines.map((l, i) => {
+          if (isMain(l)) return null;
           const it = l.itemId ? itemById.get(l.itemId) : undefined;
           const sq = it ? stockOf(it.id) : undefined;
           const tracked = it && sq != null;

@@ -8,7 +8,7 @@ describe('Дејности / Производство menu (legacy runtime NAV p
   it('production is a submenu in Материјално and Малопродажба', () => {
     for (const g of ['Материјално', 'Малопродажба']) {
       const sub = grp(g).find((x) => x[0] === '>' && x[1] === '🏭 Производство');
-      expect(sub && ids(sub[2] ?? [])).toEqual(['normativ', 'prod', 'rasNorm', 'mrp', 'prodCost', 'lotovi']);
+      expect(sub && ids(sub[2] ?? [])).toEqual(['normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi']);
     }
   });
   it('module views live only in Дејности', () => {

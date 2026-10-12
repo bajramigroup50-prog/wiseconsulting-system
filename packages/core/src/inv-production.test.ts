@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bomMaterials, lineProdCalc, materialRows, parseQuickMaterial, perUnitBom, plansFromSavedRun, prodSummary, proposeMaterials, searchStockMaterials, splitExtra,
+  bomMaterials, dimArea, dimVolume, labourAmount, lineProdCalc, materialRows, parseQuickMaterial, perUnitBom, plansFromSavedRun, prodCostCalc, prodSummary, proposeMaterials, qtyFromSpec,
+  searchStockMaterials, specText, specUnit, splitExtra, workOrderLabel, workOrderNumber,
 } from './sales';
 
 describe('production from a sales invoice', () => {
@@ -84,5 +85,48 @@ describe('per-line production on the sales invoice', () => {
     expect(plansFromSavedRun({ lines: [{ lineNo: 2, productId: 'p2', qty: 1, materials: [] }] }, lines).map((x) => !!x)).toEqual([false, false, false, true]);
     // the old flag without materials: product lines are marked too
     expect(plansFromSavedRun(null, lines, { legacyFlag: true, isProduct: (id) => id.startsWith('p') }).map((x) => !!x)).toEqual([false, true, false, true]);
+  });
+});
+
+describe('production invoice („🏭 Фактура од производство“)', () => {
+  it('dimensions give the quantity: m² = Д × Ш, m³ = Д × Ш × В, m = Д, × pieces', () => {
+    expect(dimArea(4, 3.25)).toBe(13);
+    expect(dimVolume('2', '0.5', '0.3')).toBe(0.3);
+    expect(qtyFromSpec({ mode: 'm2', l: 4, w: 3 })).toBe(12);
+    expect(qtyFromSpec({ mode: 'm2', l: '4', w: '3', pcs: '2' })).toBe(24);
+    expect(qtyFromSpec({ mode: 'm3', l: 2, w: 0.5, h: 0.3, pcs: 3 })).toBe(0.9);
+    expect(qtyFromSpec({ mode: 'm', l: 7.35 })).toBe(7.35);
+    expect(qtyFromSpec({ mode: '', l: 4, w: 3 })).toBeNull();
+    expect(qtyFromSpec({ mode: 'm3', l: 4, w: 3 })).toBeNull(); // height missing
+    expect(specUnit('m2')).toBe('m²');
+    expect(specText({ text: 'Алуминиум, антрацит', mode: 'm2', l: 4, w: 3 })).toBe('Алуминиум, антрацит, 4 × 3 m = 12 m²');
+    expect(specText({ mode: 'm3', l: 2, w: 0.5, h: 0.3, pcs: 3 })).toBe('3 × 2 × 0,5 × 0,3 m = 0,9 m³');
+    expect(specText(null)).toBe('');
+  });
+  it('labour: hours × rate, or the typed amount', () => {
+    expect(labourAmount({ hours: 12, rate: 450.5 })).toBe(5406);
+    expect(labourAmount({ hours: 12, rate: 450, labour: '5000' })).toBe(5000);
+    expect(labourAmount({ hours: '', rate: '', labour: '' })).toBe(0);
+    expect(labourAmount(null)).toBe(0);
+  });
+  it('full cost: materials + labour + other direct + overhead % of the direct costs; margin and below-cost', () => {
+    const c = prodCostCalc({ mat: 18_000, hours: 16, rate: 500, other: [{ label: 'Транспорт', amount: 1500 }, { label: 'Монтажа', amount: '2500' }, { label: 'Енергија', amount: '' }], ovhPct: 10, qty: 12, sale: 48_000 });
+    expect(c).toMatchObject({ mat: 18_000, lab: 8000, other: 4000, direct: 30_000, ovhPct: 10, ovh: 3000, extra: 15_000, cost: 33_000, unit: 2750, sale: 48_000, margin: 15_000, pct: 31.25, below: false });
+    const b = prodCostCalc({ mat: 1000.1, labour: 333.33, ovhPct: 7.5, qty: 3, sale: 1200 });
+    expect(b.ovh).toBe(100.01); // 7.5% × 1333.43 = 100.007
+    expect(b.cost).toBe(1433.44);
+    expect(b.below).toBe(true);
+    expect(b.margin).toBe(-233.44);
+  });
+  it('work order: its own number for the first order, then „број-2“…; label with the period', () => {
+    expect(workOrderNumber('007/2026', ['001/2026'])).toBe('007/2026');
+    expect(workOrderNumber('007/2026', ['007/2026', '007/2026-2'])).toBe('007/2026-3');
+    expect(workOrderLabel({ number: '007/2026', from: '2026-03-01', to: '2026-03-31' })).toBe('Работен налог 007/2026 (01.03.2026 – 31.03.2026)');
+    expect(workOrderLabel({ number: ' ' })).toBe('');
+  });
+  it('a saved main product comes back with its specification and cost elements', () => {
+    const run = { lines: [{ lineNo: 0, productId: 'p1', qty: 12, materials: [{ itemId: 'm1', qty: 5 }], extra: 15_000, main: true, spec: { text: 'x', mode: 'm2' as const, l: 4, w: 3 }, calc: { hours: 16, rate: 500, ovhPct: 10 } }] };
+    const [P] = plansFromSavedRun(run, [{ itemId: 'p1' }]);
+    expect(P).toMatchObject({ main: true, extra: 15_000, spec: { mode: 'm2', l: 4 }, calc: { hours: 16 } });
   });
 });
