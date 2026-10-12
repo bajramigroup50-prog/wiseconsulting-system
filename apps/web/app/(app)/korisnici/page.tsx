@@ -11,6 +11,10 @@ import { MyPassword } from './my-password';
 import { UserForm } from './user-form';
 import { DeleteUser } from './delete-user';
 import { FirmGo } from '@/components/firm-go';
+import { RowAction } from '@/components/row-action';
+import { activeLocks } from '@/lib/login-guard';
+import { isOfficeOwner } from '@/lib/office-owner';
+import { unlockLogin } from './actions';
 
 export default async function KorisniciPage({ searchParams }: { searchParams: Promise<{ edit?: string; nov?: string; saved?: string }> }) {
   const sp = await searchParams;
@@ -30,6 +34,14 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
     db().select().from(userFirms),
   ]);
   const fname = new Map(F.map((f) => [f.id, f.name]));
+  // login locks (5 failures per username / 20 per IP → 15 min): the owner sees them and can unlock early
+  const owner = await isOfficeOwner(me);
+  const LOCKS = owner ? await activeLocks() : [];
+  const hm = (ms: number) => new Date(ms).toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Skopje' });
+  const unlockBtn = (key: string, what: string) => (
+    <RowAction action={unlockLogin.bind(null, key)} label="🔓 Отклучи" className="btn sm" confirm={`Да се отклучи најавата за ${what}?`} />
+  );
+  const lockOf = (username: string) => LOCKS.find((l) => l.scope === 'u' && l.id === username.toLowerCase());
   const IZJ_K = 'd:Изјава за доверливост';
   const izjOwn = (await ownTemplateKinds([IZJ_K])).has(IZJ_K);
   // legacy „Изјава · Договор“: the colleague's employment contract in the office's own firm (matched by name)
@@ -48,7 +60,8 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <td>{u.username}</td>
       <td><span className={`pill ${u.role === 'admin' ? 'bad' : u.role === 'view' ? '' : 'info'}`}>{ROLES[u.role]?.n ?? u.role}</span></td>
       <td>{u.allFirms || u.role === 'admin' ? 'сите' : firmsOf(u.id).map((id) => fname.get(id)).filter(Boolean).join(', ') || '—'}</td>
-      <td>{u.active ? <span className="pill good">активен</span> : <span className="pill">неактивен</span>}</td>
+      <td>{u.active ? <span className="pill good">активен</span> : <span className="pill">неактивен</span>}
+        {lockOf(u.username) && <> <span className="pill bad" title="Премногу неуспешни обиди за најава">🔒 заклучен до {hm(lockOf(u.username)!.until)}</span>{' '}{unlockBtn(lockOf(u.username)!.key, u.username)}</>}</td>
       <td>{dmyHm(u.lastLoginAt)}</td>
       {u.role !== 'klient' && <td style={{ whiteSpace: 'nowrap' }}>
         {u.role === 'admin' ? <span className="pill info" title="Изјава за доверливост не е потребна за сопственикот">👑 сопственик</span> : <IzjCell uid={u.id} signed={!!IZJ[u.id]?.signed} at={IZJ[u.id]?.at} fileId={IZJ[u.id]?.fileId} fileName={IZJ[u.id]?.fileName} />}{' '}
@@ -72,6 +85,19 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
         <Link className="btn pri" href="/korisnici?nov">+ Нов корисник</Link>
       </Hd>
       {sp.saved && <div className="callout good" role="status">✓ Корисникот е зачуван.</div>}
+      {LOCKS.length > 0 && (
+        <div className="card" id="zaklucheni"><h2>🔒 Заклучени најави</h2>
+          <p className="note">По 5 неуспешни обиди за едно корисничко име или 20 од една IP-адреса, најавата е заклучена 15 минути.</p>
+          <div className="tw"><table className="dense">
+            <thead><tr><th>Заклучено</th><th>Неуспешни обиди</th><th>До</th><th></th></tr></thead>
+            <tbody>{LOCKS.map((l) => <tr key={l.key}>
+              <td>{l.scope === 'ip' ? <>IP-адреса <b>{l.id}</b></> : <>корисничко име <b>{l.id}</b></>}</td>
+              <td>{l.n}</td><td>{hm(l.until)}</td>
+              <td>{unlockBtn(l.key, l.id)}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </div>
+      )}
       {showForm && (
         <UserForm
           user={editing ? { ...editing, firms: firmsOf(editing.id) } : null}

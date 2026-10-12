@@ -10,6 +10,8 @@ import { zzIzjNext } from '@wise/core/office';
 import { hashPassword, verifyPassword } from '@wise/db/password';
 import { requireCan, requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { unlock as unlockLock } from '@/lib/login-guard';
+import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 
 import { todayIso } from '@/lib/fmt';
 export interface FormState { error?: string; ok?: string }
@@ -136,4 +138,16 @@ export async function zzIzj(uid: string, fileId: string | null = null): Promise<
   revalidatePath('/korisnici');
   revalidatePath('/zzlp');
   return res;
+}
+
+/** „🔓 Отклучи“: the office owner lifts a login lock (username or IP) before its 15 minutes end. Audited. */
+export async function unlockLogin(key: string): Promise<FormState> {
+  const me = await requireCan('users');
+  if (!(await isOfficeOwner(me))) return { error: OWNER_ONLY_MSG };
+  const L = await unlockLock(String(key));
+  if (!L) return { error: 'Заклучувањето веќе истече.' };
+  const data = L.scope === 'ip' ? { scope: 'ip', ip: L.id } : { scope: 'user', username: L.id };
+  await audit(db(), { userId: me.id, action: 'loginUnlock', entityType: 'user', data });
+  revalidatePath('/', 'layout');
+  return { ok: 'Отклучено.' };
 }
