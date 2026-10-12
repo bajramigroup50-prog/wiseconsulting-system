@@ -1,4 +1,8 @@
 /**
+ * Device guard first (🔐 enrolled computers, `lib/device-guard.ts`): with `DEVICE_CERTS=optional|required` a request
+ * whose TLS client certificate (fingerprint from Caddy) is revoked / unknown — or, when required, missing — gets a 403
+ * page with a short closing message; a client user on a device bound to another firm likewise.
+ *
  * Global route guard (Next 16 `proxy`, Node.js runtime) for the restricted roles: a `klient` user reaches only the
  * client portal of their firm and a `teren` user only their tasks — direct URLs, print views and API endpoints
  * included (`lib/route-guard.ts`, unit-tested). Other roles pass through; pages and actions keep their own checks.
@@ -6,7 +10,9 @@
 import { createHash } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import { and, eq, gt } from 'drizzle-orm';
-import { getDb, sessions, users } from '@wise/db';
+import { getDb, sessions, userFirms, users } from '@wise/db';
+import { FP_HEADER, type DeviceRow, deviceMode, devicePage, deviceUserOk, deviceVerdict, normFp } from './lib/device-guard';
+import { deviceByFp, touchDevice } from './lib/device-lookup';
 import { firmKlientViews, klientViews } from './lib/kl-views';
 import { PREVIEW_COOKIE, isGuardRole, previewVerdict, publicPath, routeVerdict } from './lib/route-guard';
 import { FIRM_MISMATCH_HEADER, staleTab } from './lib/firm-guard';
@@ -15,8 +21,20 @@ const SESSION_COOKIE = 'wc_sess';
 const FIRM_COOKIE = 'wc_fid';
 const ABSOLUTE_MS = 8 * 36e5; // = lib/auth.ts
 
+const deny = (reason: Parameters<typeof devicePage>[0]) =>
+  new NextResponse(devicePage(reason), { status: 403, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+
 export async function proxy(req: NextRequest) {
-  const res = await route(req);
+  const mode = deviceMode(process.env.DEVICE_CERTS);
+  let device: DeviceRow | null = null;
+  if (mode !== 'off') {
+    const fp = normFp(req.headers.get(FP_HEADER));
+    const v = deviceVerdict(mode, req.nextUrl.pathname, fp, fp ? await deviceByFp(fp) : null);
+    if (!v.ok) return deny(v.reason);
+    device = v.device;
+    if (device) void touchDevice(device.id, req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null);
+  }
+  const res = await route(req, device);
   // tab / window guard signal: a mutation from a page of another firm / year → that tab shows „освежете ја страницата“
   // (the refusal itself is in `currentFirm` / `currentYear`)
   const stale = staleTab(req.method, (h) => req.headers.get(h), (c) => req.cookies.get(c)?.value);
@@ -24,7 +42,7 @@ export async function proxy(req: NextRequest) {
   return res;
 }
 
-async function route(req: NextRequest): Promise<NextResponse> {
+async function route(req: NextRequest, device: DeviceRow | null): Promise<NextResponse> {
   const p = req.nextUrl.pathname;
   if (publicPath(p)) return NextResponse.next();
   const token = req.cookies.get(SESSION_COOKIE)?.value;
@@ -33,6 +51,10 @@ async function route(req: NextRequest): Promise<NextResponse> {
     .where(and(eq(sessions.id, createHash('sha256').update(token).digest('hex')), gt(sessions.expiresAt, new Date()),
       gt(sessions.createdAt, new Date(Date.now() - ABSOLUTE_MS)), eq(users.active, true))).limit(1);
   if (!u) return NextResponse.next();
+  if (device?.firmId && u.role === 'klient') {
+    const F = (await getDb().select({ f: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))).map((r) => r.f);
+    if (!deviceUserOk(device, u.role, F, req.cookies.get(FIRM_COOKIE)?.value)) return deny('firm');
+  }
   if (!isGuardRole(u.role)) {
     // legacy `S.asClient`: an office user previewing the client portal of the current firm sees only its sections
     // (the cookie only narrows what an office user is shown; the klient guard below is unchanged)

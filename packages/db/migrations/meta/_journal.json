@@ -162,6 +162,13 @@
       "when": 1791742402472,
       "tag": "0022_compliance",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791802607032,
+      "tag": "0023_devices",
+      "breakpoints": true
     }
   ]
 }

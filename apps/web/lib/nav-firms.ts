@@ -2,7 +2,8 @@
  * Firm / office menu items legacy added to `NAV` at runtime (not in the static `NAV` literal):
  * `opomeni` after `izlez` in Материјално (16988), `mailhist` after `opomeni` (13428), `payBatch` as the second item of
  * the Плата submenu (15280). `firmiResh` (10540) was a button on Фирми in legacy; here it is also a menu item after
- * `firmiImp` so the route guard (`viewAllowed`) knows it. `produktivnost` (new, owner-only) follows `aktivnost`.
+ * `firmiImp` so the route guard (`viewAllowed`) knows it. `produktivnost` (new, owner-only) follows `aktivnost`;
+ * `uredi` (new, owner-only, 🔐 enrolled computers) follows `greski`.
  * „🔄 Конвертор на датотеки“ (new, no legacy screen) follows „Увоз од Excel / CSV / XML“ in Систем.
  */
 import type { NavGroup, NavItem } from './nav-data';
@@ -15,6 +16,8 @@ const ADD: [string, string, NavItem[]][] = [
   // owner-only (hidden for everybody else in the layout, `OWNER_VIEWS`)
   ['Систем', 'aktivnost', [['produktivnost', '📊 Продуктивност на вработените']]],
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
+  // owner-only: enrolled computers (device certificates, mutual TLS)
+  ['Систем', 'greski', [['uredi', '🔐 Уреди (компјутери)']]],
 ];
 
 const has = (L: readonly NavItem[], id: string): boolean => L.some((x) => x[0] === id || (x[0] === '>' && has(x[2] ?? [], id)));
