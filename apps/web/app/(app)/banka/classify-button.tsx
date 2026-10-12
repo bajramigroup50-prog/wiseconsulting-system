@@ -1,9 +1,10 @@
 'use client';
-/** „🤖 Препознај ги останатите“ — starts the AI classification (legacy `aiClassify`) and opens its proposals. */
+/** „🤖 Предложи со AI“ (was „Препознај ги останатите“) — after the rules and learned kontos, starts the AI classification (legacy `aiClassify`) of the remaining lines and opens its proposals. */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { aiReadStatus } from '@/app/(app)/_ai/actions';
 import { startBankClassifyAction } from './classify-actions';
+import { AiBadge } from '@/components/ai-badge';
 
 export function ClassifyButton({ base }: { base: string }) {
   const router = useRouter();
@@ -25,7 +26,7 @@ export function ClassifyButton({ base }: { base: string }) {
           }
           setMsg('Препознавањето трае предолго – обидете се повторно.');
         } finally { setBusy(false); }
-      }}>🤖 Препознај ги останатите ставки</button>
+      }} title="Само ставките што ниту едно правило / научено конто не ги препознало – AI предлага фактура или конто">🤖 Предложи со AI<AiBadge /></button>
       {msg && <span className="note">{msg}</span>}
     </span>
   );

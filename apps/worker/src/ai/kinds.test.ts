@@ -98,7 +98,8 @@ describe('ai.read-document result kinds', () => {
       ['blg', BLG_PROMPT, 'quick', '{"receipts":[]}'],
       ['emp', EMP_PROMPT, 'default', '{"name":"Ана","embg":"0101990455001"}'],
       ['bank', BANK_PROMPT, 'default', '{"items":[{"date":"2026-03-02","amount":5}]}'],
-      ['classify', CLASSIFY_PROMPT, 'default', '{"kind":"fiscal","what":"Z извештај"}'],
+      // classification is a short answer: Haiku (cost tiers, ../ai/budget.ts)
+      ['classify', CLASSIFY_PROMPT, 'quick', '{"kind":"fiscal","what":"Z извештај"}'],
     ] as const) {
       const api = fake([ans]);
       setAiClient(api);
@@ -111,7 +112,7 @@ describe('ai.read-document result kinds', () => {
     }
   });
 
-  it('fisk: complex read, FK_SIMPLE second read when the total is 0, normalised result stored', async () => {
+  it('fisk: Sonnet read (Opus only on a detailed read), FK_SIMPLE second read when the total is 0, normalised result stored', async () => {
     const api = fake([
       JSON.stringify({ device: 'AC1', days: [], totals: { gross: {}, total: 0 }, text: '' }),
       JSON.stringify({ total: '12 345.00', group: 'A', vatTotal: 1883.14, to: '31-03-2026', receipts: 10 }),
@@ -120,7 +121,7 @@ describe('ai.read-document result kinds', () => {
     const id = await doc('fisk', { name: 'z.jpg', mime: 'image/jpeg' });
     await runReadDocument(db, id);
     expect(api.calls.map(promptOf)).toEqual([FISK_PROMPT, FK_SIMPLE]);
-    expect(api.calls.map((c) => c.model)).toEqual([AI_MODELS.complex, AI_MODELS.complex]);
+    expect(api.calls.map((c) => c.model)).toEqual([AI_MODELS.default, AI_MODELS.default]);
     const d = await load(id);
     expect(d.status).toBe('done');
     expect(d.result).toMatchObject({ to: '31-03-2026', totals: { total: 12345, gross: { А: 12345 }, cash: 12345, receipts: 10 } });

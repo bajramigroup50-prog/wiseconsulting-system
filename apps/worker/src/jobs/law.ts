@@ -12,11 +12,12 @@
 import { desc, eq } from 'drizzle-orm';
 import { LAW_SOURCES, lawAskPrompt, lawLinks, lawMailHtml, lawNewLinks, lawNorm, lawPageText, lawRaw, lawRobotPrompt, type LawEntry, type LawSource } from '@wise/core/law';
 import { todaySkopje } from '@wise/core/office';
-import { firstMailAddress, getOfficeProfile, lawAsks, lawChanges, lawRuns, lawSources, queueMailRow, type Tx } from '@wise/db';
+import { firstMailAddress, getAiBudget, getOfficeProfile, lawAsks, lawChanges, lawRuns, lawSources, queueMailRow, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { askText } from '../ai/ask';
 import { aiConfigured } from '../ai/client';
 import { readContent } from '../ai/read-document';
+import { AiBudgetError } from '../ai/budget';
 import { sendQueuedMail } from './reminders';
 
 export type Fetcher = (url: string) => Promise<string>;
@@ -32,22 +33,31 @@ export const fetchPage: Fetcher = async (url) => {
 
 const MAX_NEW = 15, MAX_PAGES = 10;
 
-async function entriesFor(db: Tx, src: LawSource, fresh: { url: string; text: string }[], today: string, fetcher: Fetcher, log: (m: string) => void, runId: string): Promise<LawEntry[]> {
-  if (!aiConfigured()) return lawRaw(src, fresh, today);
+async function entriesFor(db: Tx, src: LawSource, fresh: { url: string; text: string }[], today: string, fetcher: Fetcher, log: (m: string) => void, runId: string, ai: boolean): Promise<LawEntry[]> {
+  // without AI (the default for the automatic run — owner opt-in `aiBudget.autoLawAi`): the new links are stored as
+  // entries „⚠ да се потврди“; AI only describes / filters them
+  if (!ai || !aiConfigured()) return lawRaw(src, fresh, today);
   const items = [];
   for (const [i, l] of fresh.entries()) {
     let page = '';
     if (i < MAX_PAGES && !/\.pdf($|\?)/i.test(l.url)) { try { page = lawPageText(await fetcher(l.url), 6000); } catch (e) { log(`${l.url}: ${(e as Error).message}`); } }
     items.push({ ...l, page });
   }
-  const r = await readContent<unknown>({ db, firmId: null, prompt: lawRobotPrompt(src, items, today), tier: 'default', purpose: 'law', refId: runId, maxTokens: 8000 }, { blocks: [], extra: '' });
-  return lawNorm(r.data, src, fresh, today);
+  try {
+    const r = await readContent<unknown>({ db, firmId: null, prompt: lawRobotPrompt(src, items, today), tier: 'default', purpose: 'law', refId: runId, maxTokens: 8000 }, { blocks: [], extra: '' });
+    return lawNorm(r.data, src, fresh, today);
+  } catch (e) {
+    // monthly AI limit reached: the free entries instead of losing the new links
+    if (e instanceof AiBudgetError) { log(e.message); return lawRaw(src, fresh, today); }
+    throw e;
+  }
 }
 
 export interface LawRobotResult { sources: number; found: number; added: number; errors: string[]; mailIds: string[] }
 
-export async function runLawRobot(db: Tx, o: { today?: string; fetcher?: Fetcher; log?: (m: string) => void; sources?: readonly LawSource[] } = {}): Promise<LawRobotResult> {
+export async function runLawRobot(db: Tx, o: { today?: string; fetcher?: Fetcher; log?: (m: string) => void; sources?: readonly LawSource[]; ai?: boolean } = {}): Promise<LawRobotResult> {
   const today = o.today ?? todaySkopje(), fetcher = o.fetcher ?? fetchPage, log = o.log ?? (() => {});
+  const ai = o.ai ?? true;
   const [run] = await db.insert(lawRuns).values({}).returning({ id: lawRuns.id });
   const errors: string[] = [];
   const added: LawEntry[] = [];
@@ -61,7 +71,7 @@ export async function runLawRobot(db: Tx, o: { today?: string; fetcher?: Fetcher
       const fresh = all.slice(0, MAX_NEW);
       found += fresh.length;
       let E: LawEntry[] = [];
-      if (fresh.length) E = await entriesFor(db, src, fresh, today, fetcher, log, run!.id);
+      if (fresh.length) E = await entriesFor(db, src, fresh, today, fetcher, log, run!.id, ai);
       for (const e of E) {
         const [x] = await db.insert(lawChanges).values({ ...e, source: 'robot' }).onConflictDoNothing({ target: lawChanges.key }).returning({ id: lawChanges.id });
         if (x) added.push(e);
@@ -92,11 +102,22 @@ export async function runLawRobot(db: Tx, o: { today?: string; fetcher?: Fetcher
   return { sources: n, found, added: added.length, errors, mailIds };
 }
 
-export const lawRobot = defineJob<{ today?: string }>({
+/**
+ * Whether a robot run may use AI (owner policy: no automatic AI). The daily cron and the dashboard's first check use
+ * AI only when the owner switched on „🤖 AI за роботот за закони“ (`aiBudget.autoLawAi`, 💲 AI трошок); „▶ Провери
+ * сега“ is free; „🤖 Провери со AI“ (`{ manual: true, ai: true }`) uses AI on the user's click.
+ */
+export async function lawRobotUsesAi(db: Tx, data: { manual?: boolean; ai?: boolean } | null | undefined): Promise<boolean> {
+  if (data?.ai === true) return true;
+  if (data?.manual === true) return false;
+  return (await getAiBudget(db)).autoLawAi;
+}
+
+export const lawRobot = defineJob<{ today?: string; manual?: boolean; ai?: boolean }>({
   name: 'law.robot',
   cron: '52 6 * * *',
   async run(data, ctx) {
-    const r = await runLawRobot(ctx.db, { today: data?.today, log: ctx.log });
+    const r = await runLawRobot(ctx.db, { today: data?.today, log: ctx.log, ai: await lawRobotUsesAi(ctx.db, data) });
     await sendQueuedMail(ctx, r.mailIds);
     ctx.log(`sources ${r.sources}, new links ${r.found}, added ${r.added}, errors ${r.errors.length}`);
   },

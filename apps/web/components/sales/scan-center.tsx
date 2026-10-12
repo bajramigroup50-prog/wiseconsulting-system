@@ -127,13 +127,13 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
             const s0 = st(r);
             const [pc, pt] = pills[s0] ?? ['', s0];
             const file = <a href={`/api/files/${r.doc.fileId}`} target="_blank" rel="noreferrer" title={r.fileName}>{r.fileName.slice(0, 34)}</a>;
-            const status = <td><span className={'pill ' + pc}>{pt}</span>{(x?.msg || r.doc.error) && <div className="mini">{x?.msg || r.doc.error}</div>}{r.doc.model && <div className="mini">{r.doc.model}</div>}</td>;
+            const status = <td><span className={'pill ' + pc}>{pt}</span>{(x?.msg || r.doc.error) && <div className="mini">{x?.msg || r.doc.error}</div>}{r.doc.model && <div className="mini">{readVia(r.doc.model, r.doc.options)}</div>}</td>;
             const acts = (
               <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                 {x && !x.savedId && write && <Link className="btn sm" href={`${editor}?scan=${r.doc.id}&i=${r.i}&back=${encodeURIComponent(back)}`}>{kind === 'sale' ? (s0 === 'dup' ? 'Отвори сепак' : 'Провери') : s0 === 'ok' ? 'Прегледај' : 'Отвори и поправи'}</Link>}
                 {x?.savedId && J.get(x.savedId) && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(J.get(x.savedId)!)}`}>Налог</Link>}
                 {x?.savedId && <Link className="btn sm ghost" href={`${editor}?edit=${x.savedId}`}>Отвори</Link>}
-                {kind === 'sale' && x && !x.savedId && s0 === 'check' && !(r.doc.options as { deep?: boolean }).deep && write && <RowAction action={deepScan.bind(null, r.doc.id)} label="🔍 Подетално" title="Повторно читање со подетален модел (побавно, ~1–2 мин.)" />}
+                {kind === 'sale' && x && !x.savedId && s0 === 'check' && !(r.doc.options as { deep?: boolean }).deep && write && <RowAction action={deepScan.bind(null, r.doc.id)} label="🔍 Подетално · 💲 AI" title="Повторно читање со подетален модел (побавно, ~1–2 мин., троши AI-кредит)" />}
                 {write && r.doc.status === 'error' && <RowAction action={retryScan.bind(null, r.doc.id)} label="↻ Повторно" />}
                 {write && r.doc.status !== 'reading' && r.doc.status !== 'saved' && !x?.savedId && <RowAction action={removeScan.bind(null, r.doc.id)} label="✕" title="Отстрани" confirm={kind === 'sale' ? `Да се отстрани „${r.fileName}“ од листата за проверка?` : undefined} />}
               </td>);
@@ -161,4 +161,13 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
       <p className="note">Читањето го прави вештачка интелигенција (брзо читање; ако износите не се совпаѓаат – подетално). Трошокот се евидентира по фирма. UBL XML (е-фактура) се увезува без читање.</p>
     </>
   );
+}
+
+/** How a read was done (cost control, docs/AI-TROSHOK.md): without AI, reused from an earlier read of the same file, or AI and why. */
+function readVia(model: string, o: unknown): string {
+  const x = (o ?? {}) as { aiWhy?: string; cachedFrom?: string };
+  if (model === 'noai') return 'без AI (збировите се совпаѓаат)';
+  if (model === 'ubl') return 'е-фактура (UBL), без AI';
+  if (x.cachedFrom) return `${model} · од претходно читање на истата датотека`;
+  return x.aiWhy ? `${model} · AI: ${x.aiWhy}` : model;
 }

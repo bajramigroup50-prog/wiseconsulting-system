@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { OWNER_VIEWS, navFor, withoutViews } from '@/lib/nav';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { activeLocks } from '@/lib/login-guard';
+import { aiBudgetBadge } from '@/lib/ai-budget-status';
 import { filterNavByModules } from '@/lib/nav-industry';
 import { klNav } from '@/lib/kl-nav';
 import { topStatus } from '@/lib/top-status';
@@ -31,6 +32,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const owner = u.role === 'admin' && await isOfficeOwner(u).catch(() => false);
   // the owner's alert for login locks (5 failures per username / 20 per IP): 🔒 N in the top bar → Корисници
   const locks = owner ? (await activeLocks().catch(() => [])).length : 0;
+  // the owner's AI-budget alert (80 % / 100 % of the monthly AI limit): 💲 in the top bar → 💲 AI трошок
+  const ai = owner ? await aiBudgetBadge().catch(() => null) : null;
   const groups = u.role === 'klient' || preview ? await klNav(firm, preview)
     // owner-only screens (📊 Продуктивност на вработените) are not in anybody else's menu
     : withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS);
@@ -58,7 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           year={year}
           minYear={y0?.y ?? null}
           canFirms={can(u.principal, 'firms')}
-          status={{ bell: st.bell, ainb: st.ainb.length, law: st.law, locks }}
+          status={{ bell: st.bell, ainb: st.ainb.length, law: st.law, locks, ai }}
           firm={firm && {
             id: firm.id, name: firm.name, edb: firm.edb, vatRegistered: firm.vatRegistered,
             lockDate: firm.lockDate,

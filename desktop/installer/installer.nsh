@@ -6,7 +6,7 @@
 
 !macro customInstall
   InitPluginsDir
-  File "/oname=$PLUGINSDIR\wise-device.ps1" "${__FILEDIR__}\wise-device.ps1"
+  File "/oname=$PLUGINSDIR\wise-device.ps1" "${PROJECT_DIR}\installer\wise-device.ps1"
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\wise-device.ps1" -Installer "$EXEPATH"'
   Pop $0
   DetailPrint "WISE device certificate: $0"
