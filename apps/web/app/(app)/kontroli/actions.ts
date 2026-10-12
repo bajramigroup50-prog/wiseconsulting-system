@@ -15,6 +15,7 @@ import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fdate, fv, isUuid, linkFiles, officeAction, officeError, today } from '@/lib/office';
+import { OWNER_ONLY_MSG, isOfficeOwner } from '@/lib/office-owner';
 
 const PATH = '/kontroli';
 const tri = (v: FormDataEntryValue | null): boolean | null => (v === 'yes' ? true : v === 'no' ? false : null);
@@ -44,6 +45,7 @@ export async function kSave(_p: ActionState, f: FormData): Promise<ActionState> 
 export async function kDelete(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await officeAction('del');
+    if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
     await db().transaction((tx) => deleteKontrola(tx, firm.id, id, u.id));
   } catch (e) { return officeError(e); }
   revalidatePath(PATH);

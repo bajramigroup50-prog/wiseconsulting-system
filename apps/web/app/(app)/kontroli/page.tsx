@@ -17,6 +17,7 @@ import {
 import { klAllowedViews, type KlConfig } from '@wise/core/office';
 import { auditLog, findingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaFindings, kontroli, userFirms, users, type Kontrola, type KontrolaFinding } from '@wise/db';
 import { requireUser } from '@/lib/auth';
+import { isOfficeOwner } from '@/lib/office-owner';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { draftParagraphs, kontrolaDraft, toFinding } from '@/lib/kontrola';
@@ -75,7 +76,9 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
   const K = await db().select().from(kontroli).where(and(eq(kontroli.firmId, firm.id), client ? eq(kontroli.clientVisible, true) : undefined)).orderBy(desc(kontroli.docDate), desc(kontroli.createdAt));
   const k = sp.id ? K.find((x) => x.id === sp.id) : undefined;
   if (sp.id && !k) notFound();
-  if (k) return <Detail k={k} firm={firm} edit={edit} client={client} canDel={!client && can(u.principal, 'del', firm.id)} td={td} />;
+  // deleting an inspection case: only the office owner (user decision 2026-10-12)
+  const owner = !client && await isOfficeOwner(u);
+  if (k) return <Detail k={k} firm={firm} edit={edit} client={client} canDel={owner} td={td} />;
 
   const FA = K.length ? await db().select().from(kontrolaFindings).where(inArray(kontrolaFindings.kontrolaId, K.map((x) => x.id))) : [];
   return (
@@ -85,7 +88,7 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
       </Hd>
       {!client && <div className="callout">Внесете го записникот или решението (или прикачете го – наодите ги чита програмата). За секој наод програмата ги покажува доказите од книгите за контролираниот период, кој и кога ги менувал, и пресметува дали износот одговара. Роковите се пресметуваат од датумот на прием (со викенди и празници); <b>рокот од правната поука на актот секогаш има предност</b> – внесете го.</div>}
       <div className="card tw">{K.length ? <table className="dense">
-        <thead><tr><th>Датум</th><th>Орган</th><th>Акт</th><th>Период</th><th>Предмет</th><th>Статус</th><th>Рок</th><th className="n">Утврдено</th><th className="n">Оспорено</th></tr></thead>
+        <thead><tr><th>Датум</th><th>Орган</th><th>Акт</th><th>Период</th><th>Предмет</th><th>Статус</th><th>Рок</th><th className="n">Утврдено</th><th className="n">Оспорено</th>{owner && <th></th>}</tr></thead>
         <tbody>{K.map((x) => {
           const S = kontrolaSummary(FA.filter((f) => f.kontrolaId === x.id).map(toFinding));
           const [d] = deadlinesOf(x, td);
@@ -98,6 +101,7 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
               <td>{KONTROLA_STATUS[x.status as keyof typeof KONTROLA_STATUS] ?? x.status}</td>
               <td>{x.filedOn ? <span className="pill good">поднесено {dmy(x.filedOn)}</span> : d ? <span className={`pill ${ST_CLS[d.state]}`}>{d.remedy.name}: {dmy(d.due)}</span> : '—'}</td>
               <td className="n">{den(S.total)}</td><td className="n">{den(S.disputed)}</td>
+              {owner && <td><RowAction action={kDelete.bind(null, x.id)} label="🗑" title="Избриши (само сопственикот)" confirm="Да се избрише контролата со сите наоди и мерки? (записот останува во дневникот на активности)" className="btn sm ghost" /></td>}
             </tr>
           );
         })}</tbody>
@@ -134,7 +138,7 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
       <Hd t={`📑 ${title}`} sub={`${firm.name} · ${k.subject ?? ''}`} exp={false}>
         <Link className="btn" href="/kontroli">← Сите контроли</Link>
         {!client && <a className="btn" href={`/kontroli/word?id=${k.id}&doc=analiza`}>⬇ Анализа (Word)</a>}
-        {canDel && <RowAction action={kDelete.bind(null, k.id)} label="🗑" title="Избриши погрешно внесена контрола" confirm="Да се избрише контролата со сите наоди и мерки? (записот останува во дневникот на активности)" className="btn sm ghost" />}
+        {canDel && <RowAction action={kDelete.bind(null, k.id)} label="🗑 Избриши" title="Избриши (само сопственикот)" confirm="Да се избрише контролата со сите наоди и мерки? (записот останува во дневникот на активности)" className="btn sm ghost" />}
       </Hd>
 
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '0 0 10px', alignItems: 'stretch' }}>
