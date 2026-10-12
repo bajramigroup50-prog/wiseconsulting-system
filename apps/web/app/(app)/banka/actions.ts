@@ -7,8 +7,8 @@
  */
 import * as XLSX from 'xlsx';
 import {
-  detectStatementFormat, parseBankTable, parseStatementFile, type Statement,
-} from '@wise/core';
+  decodeBankBytes, detectStatementFormat, parseStatementFile, readBankTable, splitCsv, type Statement,
+} from '@wise/core/bank-parsers';
 import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
@@ -32,31 +32,41 @@ const fail = (m: string) => Object.assign(new Error(m), { name: 'BankError' });
 
 /* ---------------- import ---------------- */
 
-async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{ statements: Statement[]; format: string; fileId?: string | null }> {
+async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{ statements: Statement[]; format: string; fileId?: string | null; warnings?: string[] }> {
   if (aiDoc) {
     // PDF / image statement read by the AI job (legacy `importBankImg` 4796, `BANK_PROMPT`) → the normal import pipeline
     const d = await loadAiResult(firmId, aiDoc, 'bank');
     if (!d) throw fail(`„${f.name}“: изводот сè уште не е прочитан.`);
     const st = statementFromRead(d.result);
     if (!st) throw fail(`„${f.name}“: во изводот не се пронајдени ставки.`);
+    // the reader without AI reports rows it left out and balances that do not reconcile
+    const w = (d.result as { warnings?: unknown } | null)?.warnings;
     // legacy `archiveFile(file,{sub:'Извод'})` 4807: the read file stays linked to the statement
-    return { statements: [st], format: 'ai', fileId: d.fileId };
+    return { statements: [st], format: 'ai', fileId: d.fileId, warnings: Array.isArray(w) ? w.map((x) => `„${f.name}“: ${String(x)}`) : [] };
   }
   if (f.size > MAX) throw fail('Датотеката е преголема (најмногу 20 MB).');
   const bytes = new Uint8Array(await f.arrayBuffer());
   const kind = detectStatementFormat(bytes, f.name);
   if (kind === 'excel') {
     const wb = XLSX.read(bytes, { type: 'array', cellDates: true });
+    let why = '';
     for (const name of wb.SheetNames) {
       const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name]!, { header: 1, raw: true, defval: '' });
-      const st = parseBankTable(rows);
-      if (st) return { statements: [st], format: 'excel' };
+      const R = readBankTable(rows);
+      if (R.st) return { statements: [R.st], format: 'excel', warnings: R.warnings.map((w) => `„${f.name}“: ${w}`) };
+      why ||= (wb.SheetNames.length > 1 ? `лист „${name}“: ` : '') + (R.error ?? '');
     }
-    throw fail(`„${f.name}“: не се препознаени колоните (датум, износ / прилив / одлив).`);
+    throw fail(`„${f.name}“: не се препознаени колоните (датум, износ / прилив / одлив)${why ? ' – ' + why : '.'}`);
   }
   if (kind === 'ai') {
     // PDF / images are read by the AI job before the preview (import-box.tsx) and arrive here as `aiDoc`.
     throw fail(`„${f.name}“: форматот не е препознаен. PDF и слики од изводи се читаат автоматски – изберете ја датотеката повторно.`);
+  }
+  if (kind === 'table' && !/^:61:/m.test(decodeBankBytes(bytes))) {
+    // CSV / TXT table: the reason when it is not read (which heading / row)
+    const R = readBankTable(splitCsv(decodeBankBytes(bytes)));
+    if (!R.st) throw fail(`„${f.name}“: форматот не е препознаен или нема ставки – ${R.error ?? ''}`);
+    return { statements: [R.st], format: kind, warnings: R.warnings.map((w) => `„${f.name}“: ${w}`) };
   }
   const S = parseStatementFile(bytes, f.name);
   if (!S || !S.length) throw fail(`„${f.name}“: форматот не е препознаен или нема ставки.`);
@@ -92,8 +102,9 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
     const out: NonNullable<PreviewResult['plans']> = [];
     let others: OwnerFirm[] | null = null;
     for (const { f, ai } of filesOf(form)) {
-      const { statements, format } = await readStatements(f, firm.id, ai);
+      const { statements, format, warnings } = await readStatements(f, firm.id, ai);
       const plan = await db().transaction((tx) => planImport(tx, { firmId: firm.id, userId: null, statements, defaultAccountId: acct }));
+      if (warnings?.length) plan.warnings.push(...warnings);
       // legacy `ownerCheck` 12880: the statement may belong to another firm of the office (by ЕДБ / account / name)
       for (const st of statements) {
         others ??= await ownerFirms(u);

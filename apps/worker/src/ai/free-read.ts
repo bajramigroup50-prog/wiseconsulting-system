@@ -9,9 +9,9 @@
 import { csvToGrid, parseOpeningSheet } from '@wise/core';
 import { parseStatementFile } from '@wise/core/bank-parsers';
 import { fromCents } from '@wise/core/bank/cents';
-import { statementFromPdf } from '@wise/core/noai/bank';
+import { statementFromPdfItems } from '@wise/core/noai/bank';
 import { obFromPdf } from '@wise/core/noai/ob';
-import { pdfLines, type PdfLine } from '@wise/core/noai/pdf-lines';
+import { pdfLines, type PdfItem, type PdfLine } from '@wise/core/noai/pdf-lines';
 import { invoiceFromPdf } from '@wise/core/noai/purchase';
 import type { ScanResult } from '@wise/core/sales';
 import { pdfTextItems } from './pdf-text';
@@ -19,14 +19,18 @@ import { pdfTextItems } from './pdf-text';
 export const NOAI_MODEL = 'noai';
 const isPdf = (f: { name: string; mime: string }) => f.mime === 'application/pdf' || /\.pdf$/i.test(f.name);
 
+async function textItems(bytes: Uint8Array): Promise<PdfItem[]> {
+  try { return await pdfTextItems(bytes); } catch { return []; }
+}
 async function lines(bytes: Uint8Array): Promise<PdfLine[]> {
-  try { return pdfLines(await pdfTextItems(bytes)); } catch { return []; }
+  return pdfLines(await textItems(bytes));
 }
 
 /** Free read of one file for a kind; null when this kind / file cannot be read without AI. */
 export async function freeRead(kind: string, file: { name: string; mime: string }, bytes: Uint8Array, o: { ownEdb?: string | null } = {}): Promise<unknown | null> {
   if (kind === 'bank') {
-    if (isPdf(file)) return statementFromPdf(await lines(bytes));
+    // a table that is found but not readable throws `BankPdfError` with the row / column (shown on the read)
+    if (isPdf(file)) return statementFromPdfItems(await textItems(bytes));
     const S = parseStatementFile(bytes, file.name);
     const st = S?.[0];
     if (!st || !st.lines.length) return null;

@@ -55,7 +55,10 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
     const m = /(?:ддв|данок|vat|стапка)?[^\d]{0,12}(18|10|5|0)\s*%/i.exec(t);
     if (!m) continue;
     const rate = +m[1]!;
-    const ns = numsIn(t.slice(m.index + m[0].length), fmt).filter((n) => n !== rate);
+    // FIX: at 0 % the VAT amount is 0 (it was dropped with the rate, so the 0 % group was lost); a 0 % line with only
+    // the base („ДДВ 0% 70,00“) is the base with no VAT
+    const ns = numsIn(t.slice(m.index + m[0].length), fmt).filter((n) => rate === 0 || n !== rate);
+    if (rate === 0 && ns.length === 1 && ns[0]! > 0) ns.push(0);
     if (ns.length < 2) continue;
     // base, vat[, total]: pick the pair with vat ≈ base × rate
     let found: [number, number] | null = null;

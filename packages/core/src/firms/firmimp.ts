@@ -46,8 +46,9 @@ function fimpVatField(x: string): 'perTxt' | 'ddvTxt' | null {
 export function fimpVatPeriod(v: unknown): 'month' | 'quarter' | null {
   const s = String(v ?? '').trim().toLowerCase();
   if (!s) return null;
-  if (/тромес|три мес|квартал|quarter|^q|^3$|tremuj/.test(s)) return 'quarter';
-  if (/месеч|мјесеч|month|mujor|^m$|^1$|^12$/.test(s)) return 'month';
+  // FIX: Latin spellings of other programs („tromesečno“, „kvartalno“, „3M“, „mesečno“, „1M“)
+  if (/тромес|три мес|квартал|quarter|^q|^3$|^3\s*m|tremuj|tromes|kvartal/.test(s)) return 'quarter';
+  if (/месеч|мјесеч|month|mujor|^m$|^1$|^12$|^1\s*m|^mes|mjesec|mesec/.test(s)) return 'month';
   return null;
 }
 
@@ -56,7 +57,7 @@ export function fimpVatFlag(v: unknown): boolean | null {
   const s = String(v ?? '').trim().toLowerCase();
   if (!s) return null;
   if (/^(не|no|n|0|false|нема|ne|jo)(\s|$|[.,;!])/.test(s) || /^не\s*обврз|^необврз|^нерег/.test(s)) return false;
-  if (/^(д|да|y|yes|1|true|x|х|✓|✔|po|обврз|регистр)/.test(s)) return true;
+  if (/^(д|да|y|yes|1|true|x|х|✓|✔|po|обврз|регистр|da|ja)(\s|$|[.,;!]|обврз|obvrz)?/.test(s) && !/^(day|data|date)/.test(s)) return true;
   if (fimpVatPeriod(s)) return true;
   return null;
 }

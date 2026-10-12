@@ -18,6 +18,7 @@ import { byLocalInDoc, byTagInDoc, descendants, parseXml, textOf, type XmlElemen
 import { toCents } from './bank/cents';
 import { r2 } from './money';
 import { AmbiguousAmountsError, ambExamples, colFormat, parseNumAuto, reconcileFmt, type NumFmt } from './numfmt';
+import { itemCell, prepBankGrid, type BankItem, type BankRole } from './bank/table';
 
 export { decodeBankBytes, decodeCp1251, detectEncoding, isUtf8 } from './bank/text';
 
@@ -435,10 +436,18 @@ export function parseBankDate(s: unknown): string {
     return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate());
   }
   const t = String(s || '').trim();
+  // FIX: an impossible date („31.02.2026“) is not a date (it was booked on 3 March)
+  const ok = (y: string, mo: string, d: string) => {
+    const t0 = new Date(Date.UTC(+y, +mo - 1, +d));
+    return t0.getUTCMonth() === +mo - 1 && t0.getUTCDate() === +d ? `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}` : '';
+  };
   let m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
-  if (m) return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
-  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? m[0] : '';
+  if (m) return ok(m[3]!, m[2]!, m[1]!);
+  // FIX: two-digit years („05.03.26“, ТТК / some e-banking exports) and „2026.03.05“ (КБ)
+  m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2})(?![\d.,])/);
+  if (m) return ok('20' + m[3], m[2]!, m[1]!);
+  m = t.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?!\d)/);
+  return m ? ok(m[1]!, m[2]!, m[3]!) : '';
 }
 
 /** Legacy `findHeader` (4747): first of 40 rows with a date column and an amount column. */
@@ -452,84 +461,114 @@ export function findHeaderRow(rows: unknown[][]): number {
 
 /**
  * Excel/CSV statement rows (sheet as array of rows) → statement. Port of the parsing half of legacy
- * `importRows` (4748): header detection, in/out or signed amount columns, description from
- * name + purpose columns, payment code, reference, statement number and balances from the rows
- * above the header. `null` when the columns are not recognised or no line has an amount.
+ * `importRows` (4748), on the normalised table of `bank/table.ts`: header over 1–3 rows, columns by role, multi-line
+ * transactions merged, page headers / footers / total rows skipped, statement number, date, account and balances
+ * from the header block. FIX: tables without a date column (Халк: the date is in the header „Извод бр. … од …“) take
+ * the statement date; a column with both directions („ИЗНОС задолжува одобрува“) and an amount that slipped into the
+ * next cell are split. `null` when the columns are not recognised or no line has an amount ({@link readBankTable}
+ * says why).
  */
 export function parseBankTable(rows: unknown[][], fmt?: NumFmt): Statement | null {
-  if (fmt) return parseBankTableFmt(rows, fmt);
+  return readBankTable(rows, fmt).st;
+}
+
+export interface BankTableRead {
+  st: Statement | null;
+  /** Why nothing was read (Macedonian, names the row / column). */
+  error?: string;
+  /** Rows that were left out or need a look, and a balance that does not reconcile. */
+  warnings: string[];
+}
+
+/** {@link parseBankTable} with the reasons: what was not recognised, which rows were left out, reconciliation. */
+export function readBankTable(rows: readonly (readonly unknown[])[], fmt?: NumFmt, o: { hi?: number } = {}): BankTableRead {
+  if (fmt) return parseBankTableFmt(rows, fmt, undefined, o.hi);
   // FIX: number format of the amount columns over all lines (`numfmt.ts`). Ambiguous („10.000“ only) → the
   // interpretation for which opening + movements = closing (balances printed above / below the table); otherwise
   // AmbiguousAmountsError (flag for review instead of guessing).
   const cells: unknown[] = [];
-  const first = parseBankTableFmt(rows, 'mk', cells);
-  if (!first) return null;
+  const first = parseBankTableFmt(rows, 'mk', cells, o.hi);
+  if (!first.st) return first;
   const amb = ambExamples(cells);
   if (!amb.length) return first;
   const f = colFormat(cells);
   if (f === 'mk') return first;
-  if (f === 'dot') return parseBankTableFmt(rows, 'dot');
+  if (f === 'dot') return parseBankTableFmt(rows, 'dot', undefined, o.hi);
   const pick = reconcileFmt((x) => {
-    const st = parseBankTableFmt(rows, x);
+    const st = parseBankTableFmt(rows, x, undefined, o.hi).st;
     return !!st && st.opening != null && st.closing != null && st.opening + st.lines.reduce((a, l) => a + l.amount, 0) === st.closing;
   });
   if (!pick) throw new AmbiguousAmountsError('Износите во изводот', amb);
-  return parseBankTableFmt(rows, pick);
+  return parseBankTableFmt(rows, pick, undefined, o.hi);
 }
 
-function parseBankTableFmt(rows: unknown[][], fmt: NumFmt, cells?: unknown[]): Statement | null {
+const DIR_RE = /^(д\s*\/\s*п|d\s*\/\s*c|db\s*\/\s*cr|тип|tip|насока)$/i;
+const fmtC = (c: number) => {
+  const s = (Math.abs(c) / 100).toFixed(2).split('.');
+  return (c < 0 ? '-' : '') + s[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + s[1];
+};
+
+function parseBankTableFmt(rows: readonly (readonly unknown[])[], fmt: NumFmt, cells?: unknown[], hi?: number): BankTableRead {
   const amt = (v: unknown) => { cells?.push(v); return parseBankAmount(v, fmt); };
-  const hi = findHeaderRow(rows);
-  if (hi < 0) return null;
-  const hd = (rows[hi] || []).map((x) => String(x ?? '').toLowerCase().trim());
-  const find = (re: RegExp) => hd.findIndex((x) => re.test(x));
-  const DIR = /прилив|побарув|credit|hyrje|уплат|во корист|в корист|одлив|должи|должув|debit|dalje|исплат|на товар|задолж/;
-  const iD = find(/книжењ|booking/) >= 0 ? find(/книжењ|booking/) : find(/^датум|дат|date|data/);
-  const iIn = find(/прилив|побарув|credit|hyrje|уплат|во корист|в корист/);
-  const iOut = find(/одлив|должи|должув|debit|dalje|исплат|на товар|задолж/);
-  const iAmt = hd.findIndex((x) => /^износ|amount|shuma/.test(x) && !DIR.test(x));
-  const iP = find(/налогодав|примач|партнер|partner|назив|name|корисник/);
-  const iDs = hd.map((x, i) => (/опис|цел|назн|desc|përsh|purpose|намена|детали/.test(x) ? i : -1)).filter((i) => i >= 0);
-  const iRef = find(/референц|reference|број на налог/);
-  const iOs = find(/шифра на (плаќање|основ)|основ на плаќање/);
-  if (iD < 0 || (iAmt < 0 && iIn < 0 && iOut < 0)) return null;
-  const cell = (r: unknown[], i: number) => (i >= 0 ? r[i] : undefined);
-  const str = (v: unknown) => String(v ?? '').trim();
+  const P = prepBankGrid(rows, hi);
+  if (!P) return { st: null, warnings: [], error: 'Не е пронајден редот со насловите на колоните (на пр. „Датум“, „Налогодавач / примач“, „Должи / Побарува“, „Одлив / Прилив“ или „Износ“) во првите 60 реда.' };
+  const has = (r: BankRole) => P.cols.some((c) => c.role === r);
+  const hdrRows = `ред ${P.hi + 1}${P.hn > 1 ? '–' + (P.hi + P.hn) : ''}`;
+  if (!has('amount') && !has('debit') && !has('credit')) return { st: null, warnings: [], error: `Во насловите (${hdrRows}) нема колона за износ („Износ“, „Должи / Побарува“, „Одлив / Прилив“, „Задолжува / Одобрува“).` };
+  if (!has('date') && !P.meta.date) return { st: null, warnings: [], error: `Во насловите (${hdrRows}) нема колона „Датум“, а датумот на изводот не е пронајден во заглавјето („Извод бр. … од дд.мм.гггг“ / „Датум на извод“). Внесете го датумот во 🔄 Конвертор на датотеки.` };
+  const iDir = P.cols.findIndex((c) => c.role === null && DIR_RE.test(c.header.trim()));
+  const purposeCols = P.cols.map((c, i) => (c.role === 'purpose' ? i : -1)).filter((i) => i >= 0);
+  const val = (it: BankItem, r: BankRole): unknown => {
+    for (let i = 0; i < P.cols.length; i++) if (P.cols[i]!.role === r && it.cells[i] !== '') return it.cells[i];
+    return '';
+  };
+  const warnings: string[] = [];
   const lines: StatementLine[] = [];
-  for (const r of rows.slice(hi + 1)) {
-    const row = r || [];
-    const date = parseBankDate(cell(row, iD));
-    if (!date) continue;
-    const amount = iAmt >= 0 ? amt(cell(row, iAmt)) : amt(cell(row, iIn)) - amt(cell(row, iOut));
+  for (const it of P.items) {
+    const rowNo = it.row + 1;
+    if (it.errs.length) { warnings.push(`Ред ${rowNo}: ${it.errs.join('; ')} – ставката е прескокната.`); continue; }
+    const date = parseBankDate(it.rawDate) || (has('date') ? '' : P.meta.date);
+    let amount = has('amount') && val(it, 'amount') !== '' ? amt(val(it, 'amount')) : amt(val(it, 'credit')) - amt(val(it, 'debit'));
+    if (!date) {
+      const raw = it.rawDate instanceof Date ? '' : String(it.rawDate ?? '').trim();
+      // legacy: rows without a date are skipped silently; a row with an amount is reported
+      if (amount) warnings.push(`Ред ${rowNo}: ${raw ? `„${raw}“ во колоната „${P.cols.find((c) => c.role === 'date')!.header}“ не е датум` : 'нема датум'} – ставката е прескокната.`);
+      continue;
+    }
+    if (iDir >= 0 && has('amount')) {
+      const d = String(it.cells[iDir] ?? '').trim();
+      if (/^(д|d|-|дб|db|задолж|должи)/i.test(d)) amount = -Math.abs(amount);
+      else if (/^(п|c|\+|кр|cr|одобр|побар)/i.test(d)) amount = Math.abs(amount);
+    }
     if (!amount) continue;
-    const name = iP >= 0 ? str(row[iP]) : '';
-    const ref = iRef >= 0 ? str(row[iRef]) : '';
-    const osnov = iOs >= 0 ? str(row[iOs]) : '';
-    const purpose = iDs.map((i) => str(row[i])).filter((x, i, A) => x && A.indexOf(x) === i).join(' · ');
-    const desc = [iP >= 0 ? row[iP] : '', ...iDs.map((i) => row[i])].map(str).filter((x, i, A) => x && A.indexOf(x) === i).join(' · ') || (ref ? 'Реф. ' + ref : '');
-    lines.push({ date, amount: toCents(amount), counterparty: name, ref, purpose, desc, ...(osnov ? { osnov } : {}) });
+    const name = itemCell(P, it, 'name', ' ');
+    const ref = itemCell(P, it, 'ref', ' ');
+    const osnov = itemCell(P, it, 'code', ' ');
+    const iban = itemCell(P, it, 'account', ' ');
+    const purp = purposeCols.map((i) => String(it.cells[i] ?? '').trim());
+    const purpose = purp.filter((x, i, A) => x && A.indexOf(x) === i).join(' · ');
+    const desc = [name, ...purp].filter((x, i, A) => x && A.indexOf(x) === i).join(' · ') || (ref ? 'Реф. ' + ref : '');
+    const valDate = parseBankDate(it.rawValDate);
+    lines.push({ date, ...(valDate && valDate !== date ? { valDate } : {}), amount: toCents(amount), counterparty: name, ...(iban ? { iban } : {}), ref, purpose, desc, ...(osnov ? { osnov } : {}) });
   }
-  if (!lines.length) return null;
-  let no = '';
-  for (const r of rows.slice(0, hi)) {
-    const t = (r || []).join(' ');
-    const m = t.match(/бр(?:ој)?\.?\s*(?:на извод)?\s*[:.]?\s*0*(\d{1,8})\s*\/\s*20\d\d/i) || t.match(/извод[^0-9]{0,20}(\d{1,8})/i);
-    if (m) { no = stripYearPrefix(m[1]!); break; }
+  if (!lines.length) return { st: null, warnings, error: `Под насловите (${hdrRows}) нема ниту една ставка со датум и износ.${warnings.length ? ' ' + warnings.slice(0, 3).join(' ') : ''}` };
+  const M = P.meta;
+  const cOf = (v: string | null) => (v == null ? null : toCents(amt(v)));
+  const opening = cOf(M.opening), closing = cOf(M.closing);
+  const debit = cOf(M.debit ?? P.totals.debit), credit = cOf(M.credit ?? P.totals.credit);
+  const st: Statement = {
+    format: 'table', account: M.account, no: M.no, date: M.date || lastDate(lines), currency: M.currency,
+    opening, closing, debit: debit == null ? null : Math.abs(debit), credit: credit == null ? null : Math.abs(credit), lines,
+  };
+  const sum = lines.reduce((a, l) => a + l.amount, 0);
+  if (opening != null && closing != null && opening + sum !== closing) {
+    warnings.push(`Салдата не се совпаѓаат: претходна состојба ${fmtC(opening)} + промет ${fmtC(sum)} = ${fmtC(opening + sum)}, а новата состојба во изводот е ${fmtC(closing)} (разлика ${fmtC(closing - opening - sum)}). Проверете дали се прочитани сите ставки.`);
   }
-  const all = rows.map((r) => (r || []).join(' '));
-  const g = (re: RegExp): number | null => {
-    for (const t of all) { const m = t.match(re); if (m) return amt(m[1]); }
-    return null;
-  };
-  const o = g(/претходна\s+состојба[^0-9\-]*(-?[\d.,]+)/i);
-  const c = g(/нова\s+состојба[^0-9\-]*(-?[\d.,]+)/i);
-  return {
-    format: 'table', account: '', no, date: lastDate(lines), currency: '',
-    opening: o == null ? null : toCents(o), closing: c == null ? null : toCents(c),
-    debit: null, credit: null, lines,
-  };
+  const out = -lines.filter((l) => l.amount < 0).reduce((a, l) => a + l.amount, 0), inn = lines.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
+  if (st.debit != null && st.debit !== out) warnings.push(`Вкупно задолжување во изводот е ${fmtC(st.debit)}, а збирот на прочитаните одливи е ${fmtC(out)}.`);
+  if (st.credit != null && st.credit !== inn) warnings.push(`Вкупно одобрување во изводот е ${fmtC(st.credit)}, а збирот на прочитаните приливи е ${fmtC(inn)}.`);
+  return { st, warnings };
 }
-
 /**
  * Split CSV/TXT text into rows the way legacy did (delimiter = the one of `; \t , |` that splits the
  * first line into most cells). FIX: quoted cells may contain the delimiter (`"1.234,56"` with `,`);
