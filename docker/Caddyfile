@@ -19,6 +19,11 @@
 	request_body {
 		max_size 110MB
 	}
+	# Desktop installer for the office computers (public; the app itself still needs a login): /shkarko/
+	handle_path /shkarko/* {
+		root * /srv/download
+		file_server
+	}
 	reverse_proxy app:3000
 }
 

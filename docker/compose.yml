@@ -101,6 +101,7 @@ services:
     environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}" }
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/wise/download:/srv/download:ro
       - caddydata:/data
       - caddyconfig:/config
 
