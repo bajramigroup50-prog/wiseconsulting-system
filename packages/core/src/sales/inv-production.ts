@@ -11,6 +11,11 @@
  * (materials from the normativ or picked from stock, extra costs, „зачувај како норматив“), with a live cost / margin
  * calculation (`lineProdCalc`, `prodSummary`). Older invoices saved under the invoice-level flag are read back as
  * marked lines (`plansFromSavedRun`).
+ *
+ * Production invoice („🏭 Фактура од производство“, chosen at the start of a new invoice): the invoice opens with its
+ * main product(s) — usually new and custom, with a specification and dimensions (`ProdSpec`, `qtyFromSpec`) — and the
+ * „Калкулација на производство“ per main product: materials + labour (hours × rate or an amount) + other direct costs +
+ * overhead % = cost of production (`prodCostCalc`). Shortages and selling below cost are warnings, never blocks.
  */
 import { r2 as money } from '../money';
 
@@ -119,10 +124,110 @@ export function searchStockMaterials<T extends { id: string; code: string | null
     .slice(0, limit);
 }
 
+/* ---------------- production invoice („🏭 Фактура од производство“): main product, dimensions, full cost calculation ---------------- */
+
+/**
+ * Specification of a custom main product (e.g. „ТЕРАСА ПЕРГОЛА“): free text plus optional dimensions in metres.
+ * `mode` says how the dimensions give the invoice quantity: `m2` = Д × Ш, `m3` = Д × Ш × В, `m` = Д (running metres),
+ * '' = the quantity is typed. `pcs` = number of identical pieces (default 1).
+ */
+export interface ProdSpec { text?: string | null; l?: number | string | null; w?: number | string | null; h?: number | string | null; mode?: '' | 'm' | 'm2' | 'm3' | null; pcs?: number | string | null }
+
+/** Area Д × Ш in m² (rounded to 4 decimals). */
+export const dimArea = (l: number | string | null | undefined, w: number | string | null | undefined): number => r4(num(l) * num(w));
+/** Volume Д × Ш × В in m³ (rounded to 4 decimals). */
+export const dimVolume = (l: number | string | null | undefined, w: number | string | null | undefined, h: number | string | null | undefined): number => r4(num(l) * num(w) * num(h));
+
+/** Invoice quantity from the dimensions × pieces (null when the mode is manual or a needed dimension is missing). */
+export function qtyFromSpec(s: ProdSpec | null | undefined): number | null {
+  if (!s?.mode) return null;
+  const pcs = s.pcs == null || s.pcs === '' ? 1 : num(s.pcs);
+  if (!(pcs > 0)) return null;
+  const v = s.mode === 'm' ? num(s.l) : s.mode === 'm2' ? dimArea(s.l, s.w) : dimVolume(s.l, s.w, s.h);
+  return v > 0 ? r4(v * pcs) : null;
+}
+
+/** Unit of measure that goes with a dimension mode. */
+export const specUnit = (mode: ProdSpec['mode']): string | null => (mode === 'm2' ? 'm²' : mode === 'm3' ? 'm³' : mode === 'm' ? 'm' : null);
+
+/** One-line description of the specification for the invoice line / calculation sheet: „Алуминиум, 4 × 3 m = 12 m²“. */
+export function specText(s: ProdSpec | null | undefined): string {
+  if (!s) return '';
+  const f = (x: unknown) => String(r4(num(x))).replace('.', ',');
+  const dims = s.mode === 'm' ? [s.l] : s.mode === 'm2' ? [s.l, s.w] : s.mode === 'm3' ? [s.l, s.w, s.h] : [s.l, s.w, s.h].filter((x) => num(x) > 0);
+  const q = qtyFromSpec(s);
+  const pcs = num(s.pcs) > 1 ? `${f(s.pcs)} × ` : '';
+  const d = dims.some((x) => num(x) > 0) ? `${pcs}${dims.map(f).join(' × ')} m${q != null && s.mode !== 'm' ? ` = ${f(q)} ${specUnit(s.mode)}` : ''}` : '';
+  return [String(s.text ?? '').trim(), d].filter(Boolean).join(', ');
+}
+
+/**
+ * Cost elements of a produced line besides the materials: labour (hours × rate, or a fixed amount — the amount wins
+ * when given), other direct costs (energy, transport, installation, subcontractors…) and overhead (режиски трошоци) in
+ * % of the direct costs (materials + labour + other). All amounts in denars.
+ */
+export interface ProdCostInput {
+  hours?: number | string | null; rate?: number | string | null; labour?: number | string | null;
+  other?: readonly { label: string; amount: number | string | null }[] | null;
+  ovhPct?: number | string | null;
+}
+
+/** Labour cost: the typed amount, else hours × rate (money). */
+export function labourAmount(x: Pick<ProdCostInput, 'hours' | 'rate' | 'labour'> | null | undefined): number {
+  if (!x) return 0;
+  if (x.labour != null && String(x.labour).trim() !== '') return money(num(x.labour));
+  return money(num(x.hours) * num(x.rate));
+}
+
+/** Full calculation of a produced line: `extra` = labour + other + overhead (what the production order books as labour). */
+export interface ProdCostCalc extends LineProdCalc { lab: number; other: number; direct: number; ovhPct: number; ovh: number }
+
+export function prodCostCalc(x: ProdCostInput & { mat: number | string; qty: number | string; sale: number | string }): ProdCostCalc {
+  const mat = money(num(x.mat));
+  const lab = labourAmount(x);
+  const other = money((x.other ?? []).reduce((a, o) => a + money(num(o.amount)), 0));
+  const direct = money(mat + lab + other);
+  const ovhPct = num(x.ovhPct);
+  const ovh = money((direct * ovhPct) / 100);
+  const base = lineProdCalc({ mat, extra: money(lab + other + ovh), qty: x.qty, sale: x.sale });
+  return { ...base, lab, other, direct, ovhPct, ovh };
+}
+
+/** „Работен налог / период“ of a production invoice. */
+export interface WorkOrderRef { number: string; from?: string | null; to?: string | null }
+
+/** „Работен налог 007/2026 (01.03.2026 – 31.03.2026)“. */
+export function workOrderLabel(w: WorkOrderRef | null | undefined): string {
+  if (!w?.number?.trim()) return '';
+  const d = (x?: string | null) => (x && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x.split('-').reverse().join('.') : '');
+  const per = [d(w.from), d(w.to)].filter(Boolean);
+  return `Работен налог ${w.number.trim()}${per.length ? ` (${per.join(' – ')})` : ''}`;
+}
+
+/**
+ * Number of a production order made under a work order: the work order's own number when free, else „број-2“,
+ * „број-3“… (production order numbers are unique per firm).
+ */
+export function workOrderNumber(wo: string, taken: Iterable<string>): string {
+  const T = new Set(taken);
+  const b = wo.trim();
+  if (!T.has(b)) return b;
+  let k = 2;
+  while (T.has(`${b}-${k}`)) k++;
+  return `${b}-${k}`;
+}
+
+/** Amounts of a booked production line (stored with the invoice, shown on the calculation sheet). */
+export interface ProdLineResult { mat: number; lab: number; other: number; ovh: number; cost: number; unit: number }
+
 /** Production plan of one invoice line as saved in `invoices.data.prodRun.lines` (per-line fields optional: older runs kept them on the invoice). */
-export interface SavedProdLine { lineNo: number; productId: string; qty: number; materials: readonly ProdMaterial[]; wh?: string | null; extra?: number | null; saveBom?: boolean }
+export interface SavedProdLine {
+  lineNo: number; productId: string; qty: number; materials: readonly ProdMaterial[]; wh?: string | null; extra?: number | null; saveBom?: boolean;
+  /** Production invoice: main product of the invoice, its specification and its cost elements. */
+  main?: boolean; spec?: ProdSpec | null; calc?: ProdCostInput | null;
+}
 export interface SavedProdRun { wh?: string | null; extra?: number; saveBom?: boolean; lines: readonly SavedProdLine[]; orders?: readonly { productId: string; lineNo: number; lab?: number }[] }
-export interface LineProdPlan { wh: string; extra: number; saveBom: boolean; materials: ProdMaterial[] }
+export interface LineProdPlan { wh: string; extra: number; saveBom: boolean; materials: ProdMaterial[]; main?: boolean; spec?: ProdSpec | null; calc?: ProdCostInput | null }
 
 /**
  * Backward compatibility: the saved run (per-line, or the older invoice-level „Производство = Да“ with one materials
@@ -141,7 +246,10 @@ export function plansFromSavedRun(run: SavedProdRun | null | undefined, lines: r
     if (i < 0) return;
     const ord = run?.orders?.find((x) => x.lineNo === l.lineNo && x.productId === l.productId);
     const extra = l.extra != null ? num(l.extra) : ord?.lab != null ? num(ord.lab) : share[k] ?? 0;
-    out[i] = { wh: l.wh ?? run?.wh ?? '', extra: money(extra), saveBom: l.saveBom ?? !!run?.saveBom, materials: l.materials.map((m) => ({ itemId: m.itemId, qty: num(m.qty) })) };
+    out[i] = {
+      wh: l.wh ?? run?.wh ?? '', extra: money(extra), saveBom: l.saveBom ?? !!run?.saveBom, materials: l.materials.map((m) => ({ itemId: m.itemId, qty: num(m.qty) })),
+      ...(l.main ? { main: true } : {}), ...(l.spec ? { spec: l.spec } : {}), ...(l.calc ? { calc: l.calc } : {}),
+    };
   });
   if (o.legacyFlag) lines.forEach((l, i) => { if (!out[i] && l.itemId && o.isProduct?.(l.itemId)) out[i] = { wh: run?.wh ?? '', extra: 0, saveBom: !!run?.saveBom, materials: [] }; });
   return out;

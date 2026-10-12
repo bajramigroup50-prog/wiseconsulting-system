@@ -10,7 +10,25 @@ export interface EdLine {
  * Production of one invoice line: materials warehouse ('' = main), materials (from the normativ or picked from stock),
  * extra costs (labour, energy…), „зачувај како норматив“. `fromBom` = the materials follow the normativ × quantity.
  */
-export interface EdLineProd { wh: string; extra: string; saveBom: boolean; materials: { itemId: string; qty: string }[]; fromBom: boolean; open: boolean }
+export interface EdLineProd {
+  wh: string; extra: string; saveBom: boolean; materials: { itemId: string; qty: string }[]; fromBom: boolean; open: boolean;
+  /**
+   * Main product of a „🏭 Фактура од производство“: specification / dimensions and the full cost calculation
+   * (labour hours × rate or an amount, other direct costs, overhead %) instead of the single `extra` field.
+   */
+  main?: boolean;
+  spec?: EdSpec;
+  cost?: EdCostEls;
+}
+export interface EdSpec { text: string; l: string; w: string; h: string; mode: '' | 'm' | 'm2' | 'm3'; pcs: string }
+export interface EdCostEls { hours: string; rate: string; labour: string; other: { label: string; amount: string }[]; ovhPct: string }
+export const OTHER_COSTS = ['Енергија', 'Транспорт', 'Монтажа', 'Подизведувачи'];
+export const blankSpec = (): EdSpec => ({ text: '', l: '', w: '', h: '', mode: '', pcs: '' });
+export const blankCostEls = (): EdCostEls => ({ hours: '', rate: '', labour: '', other: OTHER_COSTS.map((label) => ({ label, amount: '' })), ovhPct: '' });
+/** A new main product line of a production invoice (name typed, product created on the fly). */
+export const mainProdLine = (account: string, wh = '', rate = '18'): EdLine => ({
+  ...blankLine(account, rate), prod: { wh, extra: '', saveBom: false, materials: [], fromBom: false, open: true, main: true, spec: blankSpec(), cost: blankCostEls() },
+});
 export interface EdInvoice {
   id: string | null; kind: DocKind; number: string; date: string; pdate: string; due: string; partnerId: string; warehouseId: string;
   art32: boolean; advance: boolean; export: boolean; svc: boolean; currency: string; fx: string;

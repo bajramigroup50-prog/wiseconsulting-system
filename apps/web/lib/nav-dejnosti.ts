@@ -2,6 +2,7 @@
  * Last menu pass, legacy runtime NAV patches (index.html, after „Сите модули по дејност … на едно место“):
  * 1. Производство: `normativ prod mrp prodCost lotovi` become a „🏭 Производство“ submenu in Материјално (before its
  *    first submenu) and a copy at the end of Малопродажба; `rasNorm` (write-off without a BOM) stays next to `prod`.
+ *    New: `izlezProd` „🏭 Нова фактура од производство“ after `prod` / `rasNorm` (opens `/izlez?nov&prod=1`).
  * 2. `opomeni` right after `izlez` in Материјално.
  * 3. Every view that belongs to an industry module (`MOD_OF`) moves from the other menus to the end of „Дејности“,
  *    except `mrp`, `prodCost`, `lotovi`, which stay with production.
@@ -28,6 +29,9 @@ export function addDejnostiNav(nav: readonly NavGroup[]): readonly NavGroup[] {
     const found = new Map<string, NavItem>();
     mat[1] = strip(mat[1], (it) => (PROD.includes(it[0]) ? (found.set(it[0], it), true) : false));
     const sub = PROD.filter((v) => found.has(v)).map((v) => found.get(v)!);
+    // „🏭 Фактура од производство“ (custom-made products sold on an invoice) opens from the production menu too
+    const pi = Math.max(sub.findIndex((x) => x[0] === 'prod'), sub.findIndex((x) => x[0] === 'rasNorm'));
+    if (sub.length) sub.splice(pi < 0 ? sub.length : pi + 1, 0, ['izlezProd', '🏭 Нова фактура од производство']);
     if (sub.length && !mat[1].some((x) => x[0] === '>' && x[1] === '🏭 Производство')) {
       const i = mat[1].findIndex((x) => x[0] === '>');
       mat[1].splice(i < 0 ? mat[1].length : i, 0, ['>', '🏭 Производство', sub]);

@@ -21,6 +21,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { firms, users } from './foundation';
 import { codes, items, partners } from './books';
+import type { ProdCostInput, ProdLineResult, ProdSpec, WorkOrderRef } from '@wise/core/sales';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 const createdAt = () => ts('created_at').notNull().defaultNow();
@@ -44,8 +45,19 @@ export type InvoiceKind = 'invoice' | 'credit' | 'proforma' | 'dispatch';
  */
 export interface InvoiceProdState {
   wh: string | null; extra: number; saveBom: boolean; mat: number;
-  lines: { lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[]; wh?: string | null; extra?: number | null; saveBom?: boolean }[];
+  lines: {
+    lineNo: number; productId: string; qty: number; materials: { itemId: string; qty: number }[]; wh?: string | null; extra?: number | null; saveBom?: boolean;
+    /** Production invoice: main product, its specification / dimensions and cost elements (labour, other, overhead %). */
+    main?: boolean; spec?: ProdSpec | null; calc?: ProdCostInput | null;
+    /** Booked amounts of the line (materials at issue cost, labour, other, overhead, cost of production, unit cost). */
+    res?: ProdLineResult;
+  }[];
   orders: { id: string; number: string; productId: string; lineNo: number; mat: number; lab: number }[];
+  /** „🏭 Фактура од производство“ (chosen at the start of the invoice) and its „Работен налог / период“. */
+  mode?: 'prodInv';
+  workOrder?: WorkOrderRef | null;
+  /** Warnings kept for the calculation sheet (materials short at the date — saving is never blocked by them). */
+  notes?: string[];
 }
 
 export interface InvoiceData {
@@ -55,6 +67,8 @@ export interface InvoiceData {
   grp1?: string; grp2?: string; costType?: string; placeFrom?: string; placeTo?: string; domestic?: string; repro?: string;
   parity?: string; pay1?: string; pay2?: string; pay3?: string; carrierId?: string; trailer?: string; loadDate?: string;
   unloadDate?: string; dAddr?: string; loadPlace?: string; vehicle?: string; driver?: string;
+  /** „🏭 Фактура од производство“ ('1') and its work order number / period (also in `prodRun.workOrder`). */
+  prodInv?: string; woNo?: string; woFrom?: string; woTo?: string;
   /** Cancelled (сторнирана) instead of deleted — retention lock, `deleteInvoice` (docs/legal/COMPLIANCE.md). `status` = status before. */
   cancelled?: { at: string; by: string | null; reason: string; status: string };
   /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
