@@ -14,7 +14,7 @@ main() {
 	git merge --ff-only origin/main
 	echo "deploying $(git log --oneline -1)"
 
-	docker compose -f docker/compose.yml --env-file /opt/wise/.env up -d --build --remove-orphans
+	GIT_SHA=$(git rev-parse HEAD) docker compose -f docker/compose.yml --env-file /opt/wise/.env up -d --build --remove-orphans
 	docker image prune -f >/dev/null
 	docker compose -f docker/compose.yml --env-file /opt/wise/.env ps --format '{{.Service}}: {{.Status}}'
 	exit 0

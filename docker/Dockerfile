@@ -14,7 +14,9 @@ RUN pnpm --filter @wise/web build
 
 # ---- web: Next.js standalone server ----
 FROM node:24-slim AS web
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
+# commit the image was built from (deploy.sh passes `git rev-parse HEAD`), shown by /api/version next to the Next build id
+ARG GIT_SHA=""
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 GIT_SHA=$GIT_SHA
 WORKDIR /app
 RUN useradd -r -u 1001 wise
 COPY --from=build --chown=wise /repo/apps/web/.next/standalone ./

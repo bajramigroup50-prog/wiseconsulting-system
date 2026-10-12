@@ -3,6 +3,7 @@
  * „📨 Дојдовни пораки од клиенти“ — legacy `ainbRender` (13997, floating button + panel bottom-left), `msgTop` (14015,
  * the envelope in the top bar, v447) and the dashboard chip `#heroMsg` (14010). One panel, opened from any of them.
  */
+import { noteRendered } from '@/components/firm-guard';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import { selectFirm } from '@/app/(app)/actions';
@@ -61,7 +62,7 @@ export function AinbPanel({ items, current }: { items: AinbRow[]; current: strin
   useEffect(() => {
     try { document.title = document.title.replace(/^\(\d+\) /, ''); if (n) document.title = '(' + n + ') ' + document.title; } catch { /* ignore */ }
   });
-  const go = (fid: string) => start(async () => { setOpen(false); if (fid !== current) await selectFirm(fid); router.push('/klInbox'); });
+  const go = (fid: string) => start(async () => { setOpen(false); if (fid !== current) await selectFirm(fid); noteRendered({ firm: fid }); router.push('/klInbox'); });
   const done = (id: string) => start(async () => { const r = await ainbDone(id); if (r.ok) setHidden((s) => new Set(s).add(id)); else if (r.error) alert(r.error); });
   return (
     <div id="ainb" style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 900 }}>

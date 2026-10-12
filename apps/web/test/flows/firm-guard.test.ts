@@ -113,6 +113,29 @@ describe('no mixing between firms / years', () => {
     expect(await currentYear()).toBe(2027);
   });
 
+  it('same-tab switch („⇄ Промени фирма“ → selectFirm → soft navigation): the next action of that tab is allowed', async () => {
+    useFirm(A); useYear(2026);
+    pageFor({ firm: A, year: 2026 }); // the tab shows A and the session is A
+    await selectFirm(B);
+    expect(jar.get('wc_fid')).toBe(B);
+    // the tab now sends B (re-rendered layout / `noteRendered`) with the cookie B: allowed, written into B
+    pageFor({ firm: B, year: 2026 });
+    const u = (await getUser())!;
+    expect((await currentFirm(u))?.id).toBe(B);
+    expect(await newPartner('Истиот таб')).toEqual({ redirect: '/partneri' });
+    expect(await partnersOf(B)).toContain('Истиот таб');
+    expect(await partnersOf(A)).not.toContain('Истиот таб');
+  });
+
+  it('„⬇ PDF“ from a page of another firm gets the clear message (409), not a bare 500 / endless spinner', async () => {
+    const { POST } = await import('@/app/api/pdf/route');
+    useFirm(B); useYear(2026);
+    pageFor({ firm: A, year: 2026 });
+    const r = await POST(new Request('http://wise.test/api/pdf', { method: 'POST', body: '{}' }));
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: FIRM_CHANGED_MSG });
+  });
+
   it('page loads and requests without the headers are not checked', async () => {
     useFirm(B); useYear(2026);
     pageFor(null);

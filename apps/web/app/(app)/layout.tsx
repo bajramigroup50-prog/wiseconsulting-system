@@ -20,6 +20,8 @@ import { FirmGuard } from '@/components/firm-guard';
 import { Nav } from '@/components/nav';
 import { NavBack } from '@/components/nav-back';
 import { TopBar } from '@/components/top-bar';
+import { VersionCheck } from '@/components/version-check';
+import { buildId } from '@/lib/build-id';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const u = await requireUser();
@@ -52,6 +54,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Nav groups={groups} />
       </header>
       <main>
+        {/* after a deploy: „Има нова верзија на програмата – 🔄 Освежи“ (old pages call server actions that no longer exist) */}
+        <VersionCheck build={buildId()} />
         <TopBar
           groups={groups}
           user={{ name: u.name, role: u.role }}

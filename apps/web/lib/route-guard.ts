@@ -18,6 +18,8 @@ export const ROLE_HOME: Record<GuardRole, string> = { klient: '/klHome', teren: 
 export function publicPath(p: string): boolean {
   return p.startsWith('/_next/') || p.startsWith('/login') || p.startsWith('/icons/') || p === '/favicon.ico'
     || p === '/manifest.webmanifest' || p.startsWith('/icon') || p.startsWith('/apple-icon') || p === '/api/health'
+    // the running build only (new-version banner, components/version-check.tsx)
+    || p === '/api/version'
     // public/forms assets and root-level static files only (a dotted segment deeper down is not a free pass)
     || p.startsWith('/forms/') || /^\/[^/]+\.[a-z0-9]{2,5}$/i.test(p);
 }

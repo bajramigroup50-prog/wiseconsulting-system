@@ -8,6 +8,7 @@
  */
 import { useState } from 'react';
 import { uploadFile } from '@/lib/upload';
+import { STALE_ACTION_MSG } from '@/lib/version';
 import { UploadTarget } from '@/components/firm-guard';
 
 async function shrink(f: File): Promise<File> {
@@ -32,12 +33,14 @@ export function UploadField({ firmId, name = 'fileIds', label = '📎 Прика
   async function onFiles(list: FileList | null) {
     if (!list?.length) return;
     setBusy(true);
-    for (const f0 of Array.from(list)) {
-      const f = await shrink(f0);
-      const r = await uploadFile(f, firmId);
-      setItems((p) => [...p, r.ok ? { id: r.id, name: f.name, msg: r.duplicate ? `веќе постои како „${r.name}“` : '✓' } : { name: f.name, msg: `✗ ${r.error}` }]);
-    }
-    setBusy(false);
+    try {
+      for (const f0 of Array.from(list)) {
+        const f = await shrink(f0);
+        // a network failure / restarting server is said on the file, never an endless „Се прикачува…“
+        const r = await uploadFile(f, firmId).catch((): { ok: false; error: string } => ({ ok: false, error: STALE_ACTION_MSG }));
+        setItems((p) => [...p, r.ok ? { id: r.id, name: f.name, msg: r.duplicate ? `веќе постои како „${r.name}“` : '✓' } : { name: f.name, msg: `✗ ${r.error}` }]);
+      }
+    } finally { setBusy(false); }
   }
   return (
     <div className="f wide">

@@ -96,13 +96,23 @@ export const dataUri = (mime: string, bytes: Uint8Array) => `data:${mime};base64
 /**
  * Browser side. Self-contained (no closures, no imports): `serverPdfScript()` serialises it for the static HTML
  * print pages. Opens a tab at once (pop-up blockers allow it only inside the click), renders and polls.
+ * Every way it can end is bounded and said: the server's message (e.g. „Фирмата е променета во друг прозорец…“),
+ * a page from an older deployment / an HTML error page, the network, a timeout. Returns the error message (null =
+ * the PDF opened); with `alert: false` the caller shows it (the „⬇ PDF“ button), otherwise it is alerted.
  */
-export async function serverPdf(o: { selector: string; title: string; landscape?: boolean }): Promise<void> {
+export async function serverPdf(o: { selector: string; title: string; landscape?: boolean; alert?: boolean }): Promise<string | null> {
+  const STALE = 'Страницата е од постара верзија – освежете ја (Ctrl+Shift+R) и обидете се повторно.';
   const el = document.querySelector(o.selector) as HTMLElement | null;
-  if (!el) { window.alert('Нема што да се зачува како PDF.'); return; }
+  if (!el) { const m = 'Нема што да се зачува како PDF.'; if (o.alert !== false) window.alert(m); return m; }
   const w = window.open('', '_blank');
-  if (w) w.document.write('<p style="font:15px sans-serif;padding:20px">PDF се подготвува…</p>');
-  const fail = (m: string) => { if (w) w.close(); window.alert(m); };
+  try { if (w) w.document.write('<p style="font:15px sans-serif;padding:20px">PDF се подготвува…</p>'); } catch { /* popup of another origin */ }
+  const fail = (m: string) => { try { if (w) w.close(); } catch { /* already closed */ } if (o.alert !== false) window.alert(m); return m; };
+  /** fetch with a time limit (a hanging request must never leave the button spinning) */
+  const get = async (url: string, init: RequestInit, ms: number) => {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    try { return await fetch(url, { ...init, signal: c.signal }); } finally { clearTimeout(t); }
+  };
   try {
     const c = el.cloneNode(true) as HTMLElement;
     c.querySelectorAll('.noprint,script').forEach((x) => x.remove());
@@ -112,19 +122,26 @@ export async function serverPdf(o: { selector: string; title: string; landscape?
       try { for (const r of Array.from(s.cssRules)) css += r.cssText + '\n'; } catch { /* cross-origin sheet (web fonts) */ }
     }
     const landscape = o.landscape ?? !!el.querySelector('.pdfdoc.land');
-    const r = await fetch('/api/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html, css, title: o.title, landscape, pkg: new URLSearchParams(window.location.search).get('pkg') }) });
-    const j = await r.json().catch(() => ({})) as { id?: string; error?: string };
-    if (!r.ok || !j.id) { fail(j.error || 'PDF не може да се подготви.'); return; }
+    let r: Response;
+    try {
+      r = await get('/api/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html, css, title: o.title, landscape, pkg: new URLSearchParams(window.location.search).get('pkg') }) }, 60_000);
+    } catch (e) {
+      return fail((e as Error)?.name === 'AbortError' ? 'Серверот не одговори навреме – обидете се повторно.' : 'Серверот не е достапен – проверете ја врската и обидете се повторно.');
+    }
+    const isJson = /json/.test(r.headers.get('content-type') ?? '');
+    const j = (isJson ? await r.json().catch(() => ({})) : {}) as { id?: string; error?: string };
+    if (!r.ok || !j.id) return fail(j.error || (!isJson || r.status === 404 || r.status >= 500 ? STALE : 'PDF не може да се подготви.'));
     const url = '/api/files/' + j.id;
     for (let i = 0; i < 60; i++) {
       await new Promise((ok) => setTimeout(ok, i < 5 ? 1000 : 2000));
-      const x = await fetch(url, { redirect: 'manual', cache: 'no-store' });
-      if (x.type === 'opaqueredirect' || x.ok) { if (w) w.location.href = url; else window.location.href = url; return; }
+      let x: Response;
+      try { x = await get(url, { redirect: 'manual', cache: 'no-store' }, 15_000); } catch { continue; }
+      if (x.type === 'opaqueredirect' || x.ok) { if (w) w.location.href = url; else window.location.href = url; return null; }
       if (x.status !== 404) break;
     }
-    fail('PDF не е подготвен (серверот за PDF не одговара). Обидете се повторно или користете „Печати“.');
+    return fail('PDF не е подготвен (серверот за PDF не одговара). Обидете се повторно или користете „Печати“.');
   } catch (e) {
-    fail('PDF не може да се подготви: ' + ((e as Error)?.message || e));
+    return fail('PDF не може да се подготви: ' + ((e as Error)?.message || e));
   }
 }
 

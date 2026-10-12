@@ -22,7 +22,8 @@ import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
 import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
-import { AiReadError, fileContent, loadFile, readContent } from './read-document';
+import { AiReadError, AiTruncatedError, fileContent, loadFile, readContent } from './read-document';
+import { CHUNK_MAX_TOKENS, chunkNote, mergeBank, mergeOb, pdfRanges, planPdfRead, type ChunkKind } from './chunked';
 import { readObject } from './storage';
 
 import { todaySkopje } from '@wise/core/office/dates';
@@ -38,14 +39,33 @@ export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', '
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
 
+/**
+ * Model tier of a read. Cost rule: no kind uses Opus (complex) on its own any more — the trial balance, fiscal
+ * reports and inspection acts read with Sonnet (default); Opus only when the user asked for „🔍 Детално читање“
+ * (`options.deep`), which reads every kind with it.
+ */
+export function readTier(base: AiTier, deep: boolean): AiTier {
+  if (deep) return 'complex';
+  return base === 'complex' ? 'default' : base;
+}
+
+/** Progress of a long (chunked) read, shown as „дел 2/5…“. */
+export type ReadProgress = (p: string) => Promise<unknown>;
+
 /** Read one document of a result kind; returns the JSON to store in `ai_documents.result`. */
-export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = todaySkopje()): Promise<{ result: unknown; model: string }> {
-  const base = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
+export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = todaySkopje(), progress?: ReadProgress): Promise<{ result: unknown; model: string }> {
+  const deep = !!(doc.options as { deep?: boolean } | null)?.deep;
+  const base0 = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
   let content: Content = { blocks: [], extra: '' };
+  let pdf: Uint8Array | null = null;
+  // every call goes through the tier rule above
+  const readContentT = <T>(a: Omit<Parameters<typeof readContent<T>>[0], 'tier'> & { tier: AiTier }, c: Content) => readContent<T>({ ...a, tier: readTier(a.tier, deep) }, c);
   if (doc.kind !== 'bom' && doc.kind !== 'bankcls') {
     if (!doc.fileId) throw new AiReadError('Датотеката не е пронајдена.');
     const file = await loadFile(db, f.id, doc.fileId);
-    content = fileContent(file, await readObject(file.bucketKey));
+    const bytes = await readObject(file.bucketKey);
+    content = fileContent(file, bytes);
+    if (content.blocks.some((b) => b.type === 'document')) pdf = bytes;
     // legacy `fkTiles` 13005 + `FK_TILE_NOTE` 13010: several photos / pages of ONE fiscal report read together
     const extra = ((doc.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [];
     if (doc.kind === 'fisk' && extra.length) {
@@ -57,7 +77,45 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
       content.extra += '\n\nThe images are CONSECUTIVE PARTS (top → bottom, slightly overlapping) of ONE long fiscal receipt/report – read them together as one document and do not count overlapping lines twice.';
     }
   }
-  const read = async (prompt: string, tier: AiTier) => readContent<unknown>({ ...base, prompt, tier }, content);
+  const base = base0;
+  const read = async (prompt: string, tier: AiTier) => readContentT<unknown>({ ...base, prompt, tier }, content);
+  /**
+   * Trial balance / statement: the size is estimated first; a large PDF is read in page ranges (never one huge call
+   * whose answer cannot fit), a single read cut at max_tokens switches to ranges instead of being repeated.
+   */
+  const readLarge = async (kind: ChunkKind, prompt: string, maxTokens: number): Promise<{ result: unknown; model: string }> => {
+    const plan = pdf ? await planPdfRead(kind, pdf, Math.min(maxTokens, CHUNK_MAX_TOKENS)) : null;
+    if (!plan || plan.ranges.length <= 1) {
+      try {
+        const r = await readContentT<unknown>({ ...base, prompt, tier: 'default', maxTokens }, content);
+        return { result: r.data, model: r.model };
+      } catch (e) {
+        // cut answer: never the same request again — a PDF of several pages goes page by page, anything else fails now
+        if (!(e instanceof AiTruncatedError) || !pdf || !plan || plan.pages < 2) throw e;
+        return chunks(kind, prompt, { ...plan, ranges: Array.from({ length: plan.pages }, (_, i) => ({ from: i + 1, to: i + 1 })) });
+      }
+    }
+    return chunks(kind, prompt, plan);
+  };
+  const chunks = async (kind: ChunkKind, prompt: string, plan: NonNullable<Awaited<ReturnType<typeof planPdfRead>>>): Promise<{ result: unknown; model: string }> => {
+    const parts = await pdfRanges(pdf!, plan.ranges);
+    const out: unknown[] = [];
+    let model = '';
+    for (const [i, bytes] of parts.entries()) {
+      const n = parts.length, r = plan.ranges[i]!;
+      await progress?.(`дел ${i + 1}/${n}`);
+      const c: Content = { blocks: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(bytes).toString('base64') } }], extra: chunkNote(kind, i, n, r, plan.pages) };
+      try {
+        const x = await readContentT<unknown>({ ...base, purpose: `${doc.kind}:chunk`, prompt, tier: 'default', maxTokens: CHUNK_MAX_TOKENS }, c);
+        out.push(x.data); model = x.model;
+      } catch (e) {
+        if (e instanceof AiTruncatedError) throw new AiTruncatedError(`Делот ${i + 1}/${n} (страни ${r.from}–${r.to}) е преголем за едно читање – поделете го документот на помали делови.`);
+        throw e;
+      }
+    }
+    if (kind === 'ob') { const m = mergeOb(out); return { result: { ...m, warnings: m.check.warnings }, model }; }
+    return { result: mergeBank(out), model };
+  };
 
   switch (doc.kind) {
     case 'blg': {
@@ -68,24 +126,20 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
       const r = await read(EMP_PROMPT, 'default');
       return { result: r.data, model: r.model };
     }
-    case 'bank': {
-      const r = await read(BANK_PROMPT, 'default');
-      return { result: r.data, model: r.model };
-    }
-    case 'ob': {
-      // legacy `obAi` 10646 read the text in ~11k parts; one complex-tier read with a large answer here
-      const r = await readContent<unknown>({ ...base, prompt: OB_PROMPT, tier: 'complex', maxTokens: 20000 }, content); // non-streaming limit of the SDK (~21k)
-      return { result: r.data, model: r.model };
-    }
+    case 'bank':
+      return readLarge('bank', BANK_PROMPT, 16000);
+    case 'ob':
+      // legacy `obAi` 10646 read the text in ~11k parts: a large trial balance is read in page ranges (Sonnet)
+      return readLarge('ob', OB_PROMPT, 16000);
     case 'bankcls': {
       // legacy `aiClassify` 4856: the lists were built when the read was started (options), prompt verbatim
       const o = (doc.options ?? {}) as { acc?: string; docs?: string; lines?: string };
       if (!o.lines) throw new AiReadError('Нема непрокнижени ставки.');
-      const r = await readContent<unknown>({ ...base, prompt: BANK_CLASSIFY_PROMPT(f.name, o.acc ?? '', o.docs ?? '(none)', o.lines), tier: 'default', maxTokens: 16000 }, content);
+      const r = await readContentT<unknown>({ ...base, prompt: BANK_CLASSIFY_PROMPT(f.name, o.acc ?? '', o.docs ?? '(none)', o.lines), tier: 'default', maxTokens: 16000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'rec': {
-      const r = await readContent<unknown>({ ...base, prompt: REC_PROMPT, tier: 'default', maxTokens: 16000 }, content);
+      const r = await readContentT<unknown>({ ...base, prompt: REC_PROMPT, tier: 'default', maxTokens: 16000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'classify': {
@@ -100,12 +154,12 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     }
     case 'kontrola': {
       // compliance: the inspection record / decision → structured findings (the office reviews them before use)
-      const r = await readContent<unknown>({ ...base, prompt: KONTROLA_PROMPT, tier: 'complex', maxTokens: 12000 }, content);
+      const r = await readContentT<unknown>({ ...base, prompt: KONTROLA_PROMPT, tier: 'complex', maxTokens: 12000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'zm': {
       // legacy `zmImport` 10960: the filed annual account (PDF / image) → AOP rows of БС / БУ
-      const r = await readContent<unknown>({ ...base, prompt: ZM_PROMPT, tier: 'default', maxTokens: 16000 }, content);
+      const r = await readContentT<unknown>({ ...base, prompt: ZM_PROMPT, tier: 'default', maxTokens: 16000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'tk': {
@@ -143,7 +197,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
       if (!p) throw new AiReadError('Производот не е пронајден.');
       const M = bomMaterials(I, p.id);
       if (!M.length) throw new AiReadError('Нема суровини во шифрарникот – прво внесете ги материјалите (вид „Суровина / материјал“).');
-      const r = await readContent<unknown>({ ...base, prompt: BOM_PROMPT(p, M), tier: 'default', maxTokens: 4000 }, content);
+      const r = await readContentT<unknown>({ ...base, prompt: BOM_PROMPT(p, M), tier: 'default', maxTokens: 4000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'cmp': {

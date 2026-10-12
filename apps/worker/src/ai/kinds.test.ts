@@ -111,7 +111,7 @@ describe('ai.read-document result kinds', () => {
     }
   });
 
-  it('fisk: complex read, FK_SIMPLE second read when the total is 0, normalised result stored', async () => {
+  it('fisk: Sonnet read (Opus only on „🔍 Детално читање“), FK_SIMPLE second read when the total is 0, normalised result stored', async () => {
     const api = fake([
       JSON.stringify({ device: 'AC1', days: [], totals: { gross: {}, total: 0 }, text: '' }),
       JSON.stringify({ total: '12 345.00', group: 'A', vatTotal: 1883.14, to: '31-03-2026', receipts: 10 }),
@@ -120,7 +120,7 @@ describe('ai.read-document result kinds', () => {
     const id = await doc('fisk', { name: 'z.jpg', mime: 'image/jpeg' });
     await runReadDocument(db, id);
     expect(api.calls.map(promptOf)).toEqual([FISK_PROMPT, FK_SIMPLE]);
-    expect(api.calls.map((c) => c.model)).toEqual([AI_MODELS.complex, AI_MODELS.complex]);
+    expect(api.calls.map((c) => c.model)).toEqual([AI_MODELS.default, AI_MODELS.default]);
     const d = await load(id);
     expect(d.status).toBe('done');
     expect(d.result).toMatchObject({ to: '31-03-2026', totals: { total: 12345, gross: { А: 12345 }, cash: 12345, receipts: 10 } });

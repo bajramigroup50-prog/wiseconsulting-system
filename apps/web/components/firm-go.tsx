@@ -3,6 +3,7 @@
  * Switch to a firm and open a screen in it — legacy `alGo` / `recGoFirm` / `ainbGo` / `modPick` (selectFirm → go(view)).
  * Renders a button (or an inline span when `inline`) so it can sit inside tables and task chips.
  */
+import { noteRendered } from '@/components/firm-guard';
 import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 import { selectFirm } from '@/app/(app)/actions';
@@ -13,7 +14,7 @@ export function FirmGo({ fid, to, current, className, title, inline, children, s
   const router = useRouter();
   const [pending, start] = useTransition();
   const go = () => start(async () => {
-    if (fid !== current) await selectFirm(fid);
+    if (fid !== current) await selectFirm(fid); noteRendered({ firm: fid });
     router.push(to);
   });
   if (inline) {

@@ -7,6 +7,7 @@
  * - the visible tables of a screen as an Excel workbook (legacy `anXlsx` / `XLSX.utils.table_to_book`).
  * Client-only (DOM); the request body is validated by `parsePrintPdfRequest` on the server.
  */
+import { STALE_ACTION_MSG } from '@/lib/version';
 import type { PdfSave } from './print-pdf';
 
 /** The page's CSS (legacy print CSS included) as the browser loaded it; cross-origin sheets (web fonts) are skipped. */
@@ -73,10 +74,22 @@ export interface PdfBody {
 
 /** `POST /api/pdf` → the `files.id` (throws with the server's message). */
 export async function requestPdf(b: PdfBody): Promise<string> {
-  const r = await fetch('/api/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
-  const j = await r.json().catch(() => ({})) as { id?: string; error?: string };
-  if (!r.ok || !j.id) throw new Error(j.error || 'PDF не може да се подготви.');
+  let r: Response;
+  try { r = await timed('/api/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }, 60_000); } catch (e) {
+    throw new Error((e as Error)?.name === 'AbortError' ? 'Серверот не одговори навреме – обидете се повторно.' : 'Серверот не е достапен – проверете ја врската и обидете се повторно.');
+  }
+  const isJson = /json/.test(r.headers.get('content-type') ?? '');
+  const j = (isJson ? await r.json().catch(() => ({})) : {}) as { id?: string; error?: string };
+  // an HTML / 404 / 500 answer: the page is from an older deployment (or the server failed) — said, not „PDF…“ forever
+  if (!r.ok || !j.id) throw new Error(j.error || (!isJson || r.status === 404 || r.status >= 500 ? STALE_ACTION_MSG.replace('прикачете', 'обидете се') : 'PDF не може да се подготви.'));
   return j.id;
+}
+
+/** fetch with a time limit. */
+async function timed(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  try { return await fetch(url, { ...init, signal: c.signal }); } finally { clearTimeout(t); }
 }
 
 /** Poll `/api/files/{id}` until the worker stored the PDF (about 2 minutes at most). */
@@ -84,7 +97,8 @@ export async function waitForFile(id: string, tries = 60): Promise<boolean> {
   const url = '/api/files/' + id;
   for (let i = 0; i < tries; i++) {
     await new Promise((ok) => setTimeout(ok, i < 5 ? 1000 : 2000));
-    const x = await fetch(url, { redirect: 'manual', cache: 'no-store' });
+    let x: Response;
+    try { x = await timed(url, { redirect: 'manual', cache: 'no-store' }, 15_000); } catch { continue; }
     if (x.type === 'opaqueredirect' || x.ok) return true;
     if (x.status !== 404) return false;
   }

@@ -59,6 +59,8 @@ export interface AiReadState {
   id: string; kind: string; status: string; error: string | null; model: string | null; result: unknown;
   /** Kind of failure (credit, auth, rate, overloaded, timeout, nokey, off, noai, other) — the list offers the free import paths. */
   errCode?: AiErrCode | null;
+  /** A large document read in parts: „дел 2/5“. */
+  progress?: string | null;
 }
 
 /** Current state of reads (only rows of firms the user may read them for). */
@@ -75,21 +77,32 @@ export async function aiReadStatus(ids: string[]): Promise<AiReadState[]> {
     out.push({
       id: d.id, kind: d.kind, status: d.status, error: d.error ? aiErrText(d.error, ec) : d.error, model: d.model,
       result: d.status === 'done' || d.status === 'saved' ? d.result : null, errCode: d.status === 'error' ? aiErrCodeOf(d.error, ec) : null,
+      progress: d.status === 'reading' ? ((d.options as { progress?: unknown }).progress as string | undefined) ?? null : null,
     });
   }
   return out;
 }
 
-/** „↻ Повторно“ on a failed read: queued again, AI is tried even after a recent credit / key failure. */
-export async function retryAiRead(id: string): Promise<{ error?: string }> {
+/** A read waiting / reading this long may be restarted by the user („↻ Повторно“ on a stuck read). */
+const STUCK_MS = 150_000;
+
+/**
+ * „↻ Повторно“ on a failed read: queued again, AI is tried even after a recent credit / key failure.
+ * With `deep` („🔍 Детално читање“): read again with the detailed model (Opus) — the only way Opus is used.
+ * With `stuck`: also a read still `queued` / `reading` that has not changed for a few minutes (its job was lost in a
+ * worker restart) — a read that is actually progressing is refused, so it is not paid twice.
+ */
+export async function retryAiRead(id: string, o: { stuck?: boolean; deep?: boolean } = {}): Promise<{ error?: string }> {
   try {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Неважечки податоци.' };
     const u = await requireUser();
     const [d] = await db().select().from(aiDocuments).where(eq(aiDocuments.id, id)).limit(1);
-    if (!d || !isAiResultKind(d.kind) || d.status !== 'error') return { error: 'Читањето не е пронајдено.' };
+    const stuck = !!o.stuck && (d?.status === 'queued' || d?.status === 'reading');
+    if (!d || !isAiResultKind(d.kind) || (d.status !== 'error' && !stuck)) return { error: 'Читањето не е пронајдено.' };
+    if (stuck && Date.now() - d.updatedAt.getTime() < STUCK_MS) return { error: 'Читањето сè уште трае – почекајте уште малку.' };
     await requireCan(AI_RESULT_KIND_ACTION[d.kind], d.firmId);
-    await db().update(aiDocuments).set({ status: 'queued', error: null, options: sql`(${aiDocuments.options} - 'errCode' - 'errDetail' - 'cancelled') || '{"retry":true}'::jsonb` }).where(eq(aiDocuments.id, id));
-    await audit(db(), { userId: u.id, firmId: d.firmId, action: 'aiRead', entityType: 'ai_document', entityId: id, data: { retry: true } });
+    await db().update(aiDocuments).set({ status: 'queued', error: null, options: sql`(${aiDocuments.options} - 'errCode' - 'errDetail' - 'cancelled' - 'progress') || ${o.deep ? '{"retry":true,"deep":true}' : '{"retry":true}'}::jsonb` }).where(eq(aiDocuments.id, id));
+    await audit(db(), { userId: u.id, firmId: d.firmId, action: 'aiRead', entityType: 'ai_document', entityId: id, data: { retry: true, ...(stuck ? { stuck: true } : {}), ...(o.deep ? { deep: true } : {}) } });
     await dispatchAiReads([id]);
     return {};
   } catch (e) { return { error: actionError(e).error }; }

@@ -5,6 +5,7 @@
  * tiles / groups / status views, ↑ ↓ Enter Esc, „Прикажи уште“, 🖨 PDF and ⬇ Excel of the shown list.
  * While it is shown the menu and the firm bar are hidden (legacy `body.picking`).
  */
+import { noteRendered } from '@/components/firm-guard';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
@@ -59,7 +60,7 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
       localStorage.setItem(LS.last, id);
       localStorage.setItem(LS.hist, JSON.stringify([id, ...read(LS.hist).filter((x) => x !== id)].slice(0, 8)));
     } catch { /* ignore */ }
-    start(async () => { await selectFirm(id); router.push('/'); router.refresh(); });
+    start(async () => { await selectFirm(id); noteRendered({ firm: id }); router.push('/'); router.refresh(); });
   };
   const badge = (f: FpFirm) => (f.al ? (f.al.n ? <span className={`pill ${f.al.bad ? 'bad' : 'warn'}`} title={f.al.txt.join('\n')}>{f.al.bad ? '🔴' : '🟠'} {f.al.n}</span> : <span className="pill good">✓</span>) : null);
   const th = (key: FpSort, t: string, cls = '') => <th className={cls} onClick={() => setSort(key)} style={{ cursor: 'pointer' }}>{t}{sort === key ? ' ▾' : ''}</th>;

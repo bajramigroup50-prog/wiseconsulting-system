@@ -11,6 +11,13 @@
 	abort @outside
 }
 
+# HTML documents are never served from the browser cache: after a deploy a normal reload gets the new build's page
+# (with the new server-action ids). Hashed assets under /_next/static keep their long cache.
+(fresh_html) {
+	@html_doc header Sec-Fetch-Dest document
+	header @html_doc >Cache-Control "no-store, must-revalidate"
+}
+
 (security) {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -79,6 +86,7 @@
 	import device_strip
 	encode zstd gzip
 	import security
+	import fresh_html
 	request_body {
 		max_size 110MB
 	}
@@ -113,6 +121,7 @@ files.{$DOMAIN} {
 	tls internal
 	import device_strip
 	import security
+	import fresh_html
 	reverse_proxy app:3000 {
 		import device_headers
 	}

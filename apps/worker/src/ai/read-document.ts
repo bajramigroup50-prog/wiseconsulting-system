@@ -17,6 +17,15 @@ export class AiReadError extends Error {
   constructor(message: string) { super(message); this.name = 'AiReadError'; }
 }
 
+export const TRUNCATED_MSG = 'Документот е преголем за едно читање – поделете го на помали делови.';
+/**
+ * The answer was cut at max_tokens. Deterministic: the same request would be cut again, so it is never repeated as
+ * it is — large PDFs are read in parts (`chunked.ts`), anything else fails with this message at once.
+ */
+export class AiTruncatedError extends AiReadError {
+  constructor(message = TRUNCATED_MSG) { super(message); this.name = 'AiTruncatedError'; }
+}
+
 export type Validator<T> = { parse(x: unknown): T } | ((x: unknown) => T);
 
 export interface ReadDocumentArgs<T> {
@@ -89,13 +98,16 @@ export async function readContent<T>(a: Omit<ReadDocumentArgs<T>, 'fileId'>, con
     cacheReadTokens: msg.usage?.cache_read_input_tokens ?? 0, cacheWriteTokens: msg.usage?.cache_creation_input_tokens ?? 0,
   };
   const cost = costUsd(model, usage);
+  // a cut answer is marked in the cost report (`ai_usage.purpose` = `<purpose>:truncated`)
+  const truncated = msg.stop_reason === 'max_tokens';
   await a.db.insert(aiUsage).values({
-    firmId: a.firmId, userId: a.userId ?? null, purpose: a.purpose, tier, model, ...usage, costUsd: cost.toFixed(6), refId: a.refId ?? null,
+    firmId: a.firmId, userId: a.userId ?? null, purpose: truncated ? a.purpose + ':truncated' : a.purpose, tier, model, ...usage, costUsd: cost.toFixed(6), refId: a.refId ?? null,
   });
   if (msg.stop_reason === 'refusal') throw new AiReadError('Моделот одби да го прочита документот.');
   const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
-  if (msg.stop_reason === 'max_tokens' && !text.trim().endsWith('}')) throw new AiReadError('Документот е преголем за едно читање – поделете го на помали делови.');
-  const json = parseModelJson(text);
+  if (truncated && !/[}\]]\s*(```)?\s*$/.test(text.trim())) throw new AiTruncatedError();
+  let json: unknown;
+  try { json = parseModelJson(text); } catch (e) { throw truncated ? new AiTruncatedError() : e; }
   const s = a.schema;
   const data = (s ? (typeof s === 'function' ? s(json) : s.parse(json)) : json) as T;
   return { data, model, usage, costUsd: cost };
