@@ -172,7 +172,7 @@ describe('ЕТ образец за мало (etBook) and moveDoc', () => {
     const docOf = docOfFor(FX);
     for (const m of MOVES_ALL) {
       const { p, pr, ...want } = L.fn.moveDoc(m);
-      const { inTotals, ...got } = docOf(m as any);
+      const { inTotals, inItems: _inItems, ...got } = docOf(m as any);
       expect(got).toEqual({ ...want, ...(want.mo ? { mo: true } : {}) });
       expect(!!inTotals).toBe(!!(p || pr));
     }
@@ -186,35 +186,61 @@ describe('ЕТ образец за мало (etBook) and moveDoc', () => {
     expect(transferBookTotals(portCtx(FX), d)).toEqual({ nab: sum('nabV'), sp: sum('spV'), marg: sum('marg') });
   });
 
+  // DELIBERATE FIX: legacy booked a receipt document's WHOLE total in every location its lines went to (fixture move
+  // `pur-1-0-B-s1`: one line of ПЛТ 5 into store s1 put all of ПЛТ 5 into s1). Strict parity is checked without that
+  // move; the split itself is checked below.
+  const FX1: LegacyFixture = { ...FX, moves: MOVES_ALL.filter((m) => m.id !== 'pur-1-0-B-s1') };
+  const noWh = (rows: readonly { wh: string }[]) => rows.map(({ wh: _wh, ...r }) => r);
+
   it('matches legacy etData per store and for all stores', () => {
     for (const fiskSc of ['', 'usl'])
       for (const wh of ['', 's1', 's2'])
         for (const [from, to] of RANGES) {
-          const fx = { ...FX, firm: { ddv: true, sch: {}, fiskOpt: { sc: fiskSc } } };
+          const fx = { ...FX1, firm: { ddv: true, sch: {}, fiskOpt: { sc: fiskSc } } };
           const L = loadLegacy(fx);
           Object.assign(L.S, { trgWhM: wh, trgFrom: from, trgTo: to });
           const want = L.fn.etData();
           const got = etBook(portCtx(fx), { wh, from, to, sales: SALES, docOf: docOfFor(fx), firmFiskScheme: fiskSc, locationName: (id) => String(id || 'main') });
           expect(got.open).toBe(want.open);
-          expect(got.rows).toEqual(want.rows);
+          expect(noWh(got.rows)).toEqual(want.rows);
         }
   });
 
   it('non-VAT firm: input VAT is part of the purchase value (col. 5)', () => {
-    const fx = { ...FX, firm: { ddv: false, sch: {} } };
+    const fx = { ...FX1, firm: { ddv: false, sch: {} } };
     const L = loadLegacy(fx);
     Object.assign(L.S, { trgWhM: 's1', trgFrom: '2026-01-01', trgTo: '2026-12-31' });
     const got = etBook(portCtx(fx), { wh: 's1', from: '2026-01-01', to: '2026-12-31', sales: SALES, docOf: docOfFor(fx) });
-    expect(got.rows).toEqual(L.fn.etData().rows);
+    expect(noWh(got.rows)).toEqual(L.fn.etData().rows);
   });
 
   it('a store-less firm books every location', () => {
-    const fx = { ...FX, codes: [] };
+    const fx = { ...FX1, codes: [] };
     const L = loadLegacy(fx);
     Object.assign(L.S, { trgWhM: '', trgFrom: '2026-01-01', trgTo: '2026-12-31' });
     const got = etBook(portCtx(fx), { from: '2026-01-01', to: '2026-12-31', sales: SALES, docOf: docOfFor(fx) });
-    expect(got.rows).toEqual(L.fn.etData().rows);
+    expect(noWh(got.rows)).toEqual(L.fn.etData().rows);
     expect(got.totals.close).toBeCloseTo(got.rows[got.rows.length - 1]!.bal, 2);
+  });
+
+  it("DELIBERATE FIX: a ПЛТ with lines in several locations books only each location's part", () => {
+    const fx = { ...FX, codes: [] };
+    const args = { from: '2026-01-01', to: '2026-12-31', sales: SALES, docOf: docOfFor(fx) };
+    const L = loadLegacy(fx);
+    Object.assign(L.S, { trgWhM: '', trgFrom: '2026-01-01', trgTo: '2026-12-31' });
+    const whole = L.fn.etData().rows.filter((r: any) => r.no.startsWith('Од ПЛТ бр. 5'));
+    // legacy: the whole ПЛТ in main AND again in s1
+    expect(whole.length).toBe(2);
+    expect(whole[0].nab).toBe(whole[1].nab);
+    const all = etBook(portCtx(fx), args).rows.filter((r) => r.no.startsWith('Од ПЛТ бр. 5'));
+    expect(all.map((r) => r.wh).sort()).toEqual(['main', 's1']);
+    const c = (x: number) => Math.round(x * 100);
+    expect(all.reduce((s, r) => s + c(r.nab), 0)).toBe(c(whole[0].nab));
+    expect(all.reduce((s, r) => s + c(r.sp), 0)).toBe(c(whole[0].sp));
+    const s1 = etBook(portCtx(FX), { ...args, docOf: docOfFor(FX), wh: 's1' }).rows.find((r) => r.no.startsWith('Од ПЛТ бр. 5'))!;
+    expect(s1.nab).toBeGreaterThan(0);
+    expect(s1.nab).toBeLessThan(whole[0].nab);
+    expect(s1.nab).toBe(all.find((r) => r.wh === 's1')!.nab);
   });
 });
 
