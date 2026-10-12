@@ -5,6 +5,7 @@
  * header's columns by x position — generic column detection instead of a per-bank / per-supplier layout.
  */
 import { colFormat, parseNumAuto, type ColFmt, type NumFmt } from '../numfmt';
+import { tbAnalitika, tbAnalitikaGrid } from './tb-analitika';
 
 /** One text item of a page (x / y in PDF points, y grows upward like pdfjs `transform[5]`). */
 export interface PdfItem { page: number; x: number; y: number; w: number; h?: number; s: string }
@@ -119,9 +120,12 @@ export function pdfTable(L: readonly PdfLine[], isHeader: (cells: string[]) => b
 /**
  * A PDF as a grid for the converter: the header line (≥ 3 cells, mostly text, the widest of the first 60 lines) gives
  * the columns, the lines below are cut into them; text above the table is kept as single-cell rows. Without such a
- * line, the lines as they are.
+ * line, the lines as they are. The old program's „Бруто биланс со аналитика“ comes as its rows (`tb-analitika.ts`),
+ * with the opening / turnover / cumulative / closing blocks as debit-credit column pairs.
  */
 export function pdfAutoGrid(L: readonly PdfLine[]): string[][] {
+  const A = tbAnalitika(L);
+  if (A) return tbAnalitikaGrid(A);
   let at = -1, best = 0;
   L.slice(0, 60).forEach((l, i) => {
     const txt = l.cells.filter((c) => !/\d/.test(c.s)).length;

@@ -22,12 +22,14 @@ import { docxText } from './docx-text';
 export const NOAI_MODEL = 'noai';
 const isPdf = (f: { name: string; mime: string }) => f.mime === 'application/pdf' || /\.pdf$/i.test(f.name);
 
-async function textItems(bytes: Uint8Array): Promise<PdfItem[]> {
-  try { return await pdfTextItems(bytes); } catch { return []; }
+async function textItems(bytes: Uint8Array, maxPages?: number): Promise<PdfItem[]> {
+  try { return await pdfTextItems(bytes, maxPages); } catch { return []; }
 }
-async function lines(bytes: Uint8Array): Promise<PdfLine[]> {
-  return pdfLines(await textItems(bytes));
+async function lines(bytes: Uint8Array, maxPages?: number): Promise<PdfLine[]> {
+  return pdfLines(await textItems(bytes, maxPages));
 }
+/** A trial balance is read whole (a 39-page analytic one takes ~1–2 s); the page count is checked against „Стр. N од M“. */
+const OB_MAX_PAGES = 300;
 
 /** Free read of one file for a kind; null when this kind / file cannot be read without AI. */
 export async function freeRead(kind: string, file: { name: string; mime: string }, bytes: Uint8Array, o: { ownEdb?: string | null } = {}): Promise<unknown | null> {
@@ -45,7 +47,7 @@ export async function freeRead(kind: string, file: { name: string; mime: string 
     };
   }
   if (kind === 'ob') {
-    if (isPdf(file)) return obFromPdf(await lines(bytes));
+    if (isPdf(file)) return obFromPdf(await lines(bytes, OB_MAX_PAGES));
     if (/\.(csv|txt)$/i.test(file.name)) {
       const P = parseOpeningSheet(csvToGrid(new TextDecoder('utf-8').decode(bytes)), 'csv');
       return P ? { rows: P.rows, totals: P.totals, grand: [0, 0] } : null;
@@ -57,6 +59,18 @@ export async function freeRead(kind: string, file: { name: string; mime: string 
     return inv ? (inv as ScanResult) : null;
   }
   return null;
+}
+
+/**
+ * A free read that is exact and fully checked, so AI is not even tried (no tokens, no misread digits, no size limit):
+ * a bank statement whose balances reconcile, a trial balance („Бруто биланс со аналитика“) whose every printed total
+ * matches the rows read.
+ */
+export const FREE_FIRST_KINDS: ReadonlySet<string> = new Set(['bank', 'ob']);
+export function freeAccepted(kind: string, r: unknown): boolean {
+  if (!FREE_FIRST_KINDS.has(kind) || !r || typeof r !== 'object') return false;
+  const R = r as { balanced?: boolean | null; warnings?: unknown[]; blocking?: unknown[] };
+  return R.balanced === true && !R.warnings?.length && !R.blocking?.length;
 }
 
 /** Kinds that have a free reader (the others need AI). */

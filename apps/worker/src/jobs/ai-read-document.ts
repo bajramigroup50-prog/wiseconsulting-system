@@ -27,7 +27,7 @@ import { defineJob } from '../job';
 import { AI_ERR_BLOCKING, AI_ERR_MSG, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
 import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
-import { FREE_KINDS, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
+import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
 import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { fileContent, loadFile, readContent } from '../ai/read-document';
@@ -107,14 +107,14 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   try {
     if (RESULT_KINDS.has(doc.kind)) {
       // a bank statement PDF with a text layer whose balances reconcile (opening + movements = closing) is read
-      // exactly without AI — no tokens, no misread digits; otherwise (scan, no balances, not reconciling) AI reads it
-      if (!noAi && doc.kind === 'bank') {
+      // exactly without AI — no tokens, no misread digits; otherwise (scan, no balances, not reconciling) AI reads it.
+      // The same for a trial balance whose every printed total matches (`freeAccepted`)
+      if (!noAi && FREE_FIRST_KINDS.has(doc.kind)) {
         let r: unknown = null;
         try { r = await free(); } catch { r = null; }
-        const R = r as { balanced?: boolean | null; warnings?: unknown[]; blocking?: unknown[] } | null;
-        if (R && R.balanced === true && !R.warnings?.length && !R.blocking?.length) {
+        if (freeAccepted(doc.kind, r)) {
           await db.update(aiDocuments).set({ status: 'done', result: r, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
-          log(`${docId}: bank statement read from the PDF text (reconciled), no AI`);
+          log(`${docId}: ${doc.kind} read from the PDF text (reconciled), no AI`);
           return;
         }
       }
