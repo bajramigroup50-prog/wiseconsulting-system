@@ -108,3 +108,32 @@ lines, number, account and balances.
    * `fimpVatFlag` / `fimpVatPeriod` accept Latin spellings („DA“, „3M“, „tromesečno“, „mesečno“).
    * Payroll maps a plain „Боледување“ column.
    * The invoice reader keeps 0 % VAT groups.
+
+## Follow-up: Халкбанк statement in production
+
+A real Халкбанк statement PDF, converted with /konvertor, was imported with the „Р. бр.“ row numbers as Прилив
+1,00 … 8,00. It should have been 8 debits totalling 38,779.00. The import also went through even though nothing
+reconciled. Causes and fixes:
+
+1. The sentence above the table („Примивме во корист / на товар на сметка“) joined to the next line looked like a
+   header. A header line on its own is now searched first, and a two-line combination only after that.
+2. The real header has 4 lines (up to 4 are now combined).
+3. The sub-heading „задoлжува“ contains a Latin „o“. Header words are now normalised for Latin look-alike letters.
+4. „ИЗНОС“ is printed over „задолжува | одобрува“ on the 4th line. A parent heading over sub-headings now becomes one
+   column per sub-heading, at the sub-heading's position, so the amounts go to Одлив / Прилив by x.
+5. „Р. бр на нал.“ is always the ordinal. A column whose values are 1, 2, 3 … is never an amount, whatever its
+   heading says.
+6. The counterparty's bank column („Депонент“) is no longer a second name column.
+7. The summary is printed as labels stacked over a line of amounts, and is now read: претходна состојба, дневен
+   промет долгува / побарува, нова состојба.
+8. The „Вкупно денари 38,779.00 0.00“ row under a two-direction column now gives the debit and credit totals.
+9. **Hard block** (`statementProblems`):
+   * The /banka preview shows an error and saving is refused for any format, when opening + credits − debits ≠
+     closing, or when the sum of debits / credits ≠ the printed totals. The message shows both numbers and the
+     difference.
+   * The converter disables the download in the same case.
+   * The reader without AI marks the statement `blocking`, so the worker does not take it without AI.
+
+Fixture: `packages/core/src/noai/halk-layout.test.ts` has synthetic data with the same coordinates and text runs as the
+real file. It checks the 8 debits, the total 38,779.00, opening + movements = closing, and that a 1-denar difference is
+blocked.

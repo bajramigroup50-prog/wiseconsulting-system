@@ -173,7 +173,10 @@ const bankTarget: ConvTarget = {
     if (meta.date) pre.push([`Датум на извод: ${meta.date}`]);
     if (meta.account) pre.push([`Сметка: ${meta.account}`]);
     if (meta.opening) pre.push(['Претходна состојба:', meta.opening]);
-    const post: ConvCell[][] = meta.closing ? [['Нова состојба:', meta.closing]] : [];
+    const post: ConvCell[][] = [
+      ...(meta.debit ? [['Вкупно задолжување:', meta.debit]] : []), ...(meta.credit ? [['Вкупно одобрување:', meta.credit]] : []),
+      ...(meta.closing ? [['Нова состојба:', meta.closing]] : []),
+    ];
     return [...pre, BANK_HEAD, ...R.map((r) => {
       let i = Number(r.in) || 0, o = Number(r.out) || 0;
       if (!i && !o && r.amount !== undefined) { const a = Number(r.amount) || 0; i = a > 0 ? a : 0; o = a < 0 ? -a : 0; }
@@ -206,7 +209,7 @@ const bankTarget: ConvTarget = {
     const M = P.meta;
     const hdr: Record<string, string> = {};
     if (M.date && map.date == null) hdr.date = dmyOf(M.date);
-    const meta: ConvMeta = { no: M.no, date: M.date ? dmyOf(M.date) : '', account: M.account, opening: M.opening, closing: M.closing };
+    const meta: ConvMeta = { no: M.no, date: M.date ? dmyOf(M.date) : '', account: M.account, opening: M.opening, closing: M.closing, debit: M.debit ?? P.totals.debit, credit: M.credit ?? P.totals.credit };
     const note = [
       `Насловот е во ред ${P.hi + 1}${P.hn > 1 ? `–${P.hi + P.hn} (${P.hn} реда споени)` : ''}`,
       `${P.items.length} ставки`,
@@ -467,13 +470,21 @@ export function convApply(t: ConvTarget, rows: readonly (readonly unknown[])[], 
   let meta: ConvMeta | undefined;
   if (o.meta) {
     const numKeys = t.fields.filter((f) => f.kind === 'num').map((f) => f.key);
-    const own = colFormat([o.meta.opening, o.meta.closing].filter(Boolean));
+    const own = colFormat([o.meta.opening, o.meta.closing, o.meta.debit, o.meta.credit].filter(Boolean));
     const dec: DecMode = sel || numKeys.map((k) => NF.dec[k]).find(Boolean) || (own === 'mk' ? 'comma' : own === 'dot' ? 'dot' : '');
     const num = (v: string | null | undefined) => (v ? r2(impNum(v, dec)) : null);
-    const op = num(o.meta.opening), cl = num(o.meta.closing);
-    meta = { ...o.meta, opening: op == null ? '' : numStr(op), closing: cl == null ? '' : numStr(cl) };
+    const op = num(o.meta.opening), cl = num(o.meta.closing), td = num(o.meta.debit), tc = num(o.meta.credit);
+    const ns = (v: number | null) => (v == null ? '' : numStr(v));
+    meta = { ...o.meta, opening: ns(op), closing: ns(cl), debit: ns(td), credit: ns(tc) };
+    const amt = (r: ConvRec) => Math.round((r.in !== undefined || r.out !== undefined ? (Number(r.in) || 0) - (Number(r.out) || 0) : Number(r.amount) || 0) * 100);
+    // HARD CHECK (blocks the download): Σ debits / credits = the printed totals („Вкупно“ row, „Вкупно задолжување“)
+    if (t.id === 'bank') {
+      const sOut = -out.map(amt).filter((a) => a < 0).reduce((a, b) => a + b, 0), sIn = out.map(amt).filter((a) => a > 0).reduce((a, b) => a + b, 0);
+      if (td != null && Math.round(td * 100) !== sOut) notes.push({ ok: false, msg: `Збирот на одливите (задолжување) е ${mkC(sOut)}, а во изводот „Вкупно задолжување“ е ${mkC(td * 100)} (разлика ${mkC(Math.round(td * 100) - sOut)}). Проверете ги колоните „Одлив“ / „Прилив“ / „Износ“.` });
+      if (tc != null && Math.round(tc * 100) !== sIn) notes.push({ ok: false, msg: `Збирот на приливите (одобрување) е ${mkC(sIn)}, а во изводот „Вкупно одобрување“ е ${mkC(tc * 100)} (разлика ${mkC(Math.round(tc * 100) - sIn)}). Проверете ги колоните „Одлив“ / „Прилив“ / „Износ“.` });
+    }
     if (t.id === 'bank' && op != null && cl != null) {
-      const sum = out.reduce((a, r) => a + Math.round((r.in !== undefined || r.out !== undefined ? (Number(r.in) || 0) - (Number(r.out) || 0) : Number(r.amount) || 0) * 100), 0);
+      const sum = out.reduce((a, r) => a + amt(r), 0);
       const exp = Math.round(op * 100) + sum, ok = exp === Math.round(cl * 100);
       notes.push({ ok, msg: ok ? `Салдата се совпаѓаат: претходна состојба ${mkC(op * 100)} + промет ${mkC(sum)} = нова состојба ${mkC(cl * 100)}.`
         : `Салдата НЕ се совпаѓаат: претходна состојба ${mkC(op * 100)} + промет ${mkC(sum)} = ${mkC(exp)}, а во изводот новата состојба е ${mkC(cl * 100)} (разлика ${mkC(Math.round(cl * 100) - exp)}). Проверете ги ставките и „Децимали“.` });

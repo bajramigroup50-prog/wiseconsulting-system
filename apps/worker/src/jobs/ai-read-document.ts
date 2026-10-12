@@ -111,7 +111,8 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       if (!noAi && doc.kind === 'bank') {
         let r: unknown = null;
         try { r = await free(); } catch { r = null; }
-        if (r && (r as { balanced?: boolean | null }).balanced === true && !((r as { warnings?: unknown[] }).warnings?.length)) {
+        const R = r as { balanced?: boolean | null; warnings?: unknown[]; blocking?: unknown[] } | null;
+        if (R && R.balanced === true && !R.warnings?.length && !R.blocking?.length) {
           await db.update(aiDocuments).set({ status: 'done', result: r, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
           log(`${docId}: bank statement read from the PDF text (reconciled), no AI`);
           return;

@@ -241,7 +241,7 @@ export function Converter({ initialPresets, initialTarget }: { initialPresets: C
           <div className="hd">
             <h2 style={{ fontSize: 15 }}>Резултат: {res.recs.length} реда{res.errors.length ? ` · ${res.errors.length} со грешка` : ''}{res.skipped ? ` · ${res.skipped} празни` : ''}{res.skippedRows.length ? ` · ${res.skippedRows.length} прескокнати (збир / наслов / продолжение)` : ''}</h2>
             <div className="row" style={{ gap: 6 }}>
-              <button type="button" className="btn pri" disabled={!res.recs.length || res.blocked || !chk || !!chk.error || chk.diff.length > 0} onClick={() => xlsxDownload(`${t.file}_${(file.replace(/\.[^.]+$/, '') || 'konvertirano').slice(0, 40)}.xlsx`, [{ name: t.title.slice(0, 31), rows: res.grid }])}>⬇ Преземи Excel за увоз</button>
+              <button type="button" className="btn pri" disabled={!res.recs.length || res.blocked || !chk || !!chk.error || chk.diff.length > 0 || res.notes.some((n) => !n.ok)} title={res.notes.some((n) => !n.ok) ? 'Износите не се совпаѓаат со салдата / збировите во изводот – преземањето е оневозможено' : undefined} onClick={() => xlsxDownload(`${t.file}_${(file.replace(/\.[^.]+$/, '') || 'konvertirano').slice(0, 40)}.xlsx`, [{ name: t.title.slice(0, 31), rows: res.grid }])}>⬇ Преземи Excel за увоз</button>
               <a className="btn" href={t.href} target="_blank" rel="noreferrer">↗ {t.where}</a>
             </div>
           </div>

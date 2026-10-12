@@ -23,6 +23,8 @@ export interface PdfStatement extends ReadStatement {
   balanced: boolean | null;
   /** Rows left out, totals that do not agree (shown in the import preview). */
   warnings?: string[];
+  /** The statement does not agree with itself (`statementProblems`): the import refuses it. */
+  blocking?: string[];
 }
 
 /** Why a PDF statement was not read (Macedonian), for the read's error message. */
@@ -50,6 +52,7 @@ export function statementFromPdfItems(items: readonly PdfItem[]): PdfStatement |
     items: st.lines.map((l) => ({ date: l.date, name: l.counterparty, purpose: l.purpose, desc: l.desc, ref: l.ref, code: l.osnov ?? '', amount: fromCents(l.amount) })),
     balanced: st.opening != null && st.closing != null ? st.opening + sum === st.closing : null,
     ...(R.warnings.length ? { warnings: R.warnings } : {}),
+    ...(R.blocking.length ? { blocking: R.blocking } : {}),
   };
 }
 

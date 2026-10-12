@@ -37,7 +37,23 @@ function columnsOf(H: readonly PdfCellPart[][]): PdfCellPart[] {
       }
     }
   });
-  return cols.sort((a, b) => a.x0 - b.x0).map((k) => ({ x0: k.x0, x1: k.x1, s: [...k.top, k.s, ...k.bottom].filter(Boolean).join(' ') }));
+  // a heading over sub-headings of another line („ИЗНОС“ over „задолжува | одобрува“ printed under it): one column per
+  // sub-heading at the sub-heading's position, so the amounts go to their own direction by x
+  const out: { x0: number; x1: number; s: string }[] = [];
+  for (const k of cols) {
+    const subs = H.flatMap((L, li) => (li === bi ? [] : L.filter((c) => ov(k, c) > 0).map((c) => ({ c, li }))));
+    const byLine = new Map<number, PdfCellPart[]>();
+    for (const x of subs) (byLine.get(x.li) ?? byLine.set(x.li, []).get(x.li)!).push(x.c);
+    const split = [...byLine.entries()].find(([li, L]) => li > bi && L.length >= 2 && L.every((a, i) => L.every((b, j) => i === j || ov(a, b) <= 0)) && L.every((c) => cols.filter((q) => ov(q, c) > 0).length === 1));
+    if (split) {
+      const [li, L] = split;
+      const other = subs.filter((x) => x.li !== li).map((x) => x.c.s);
+      for (const c of L.slice().sort((a, b) => a.x0 - b.x0)) out.push({ x0: c.x0, x1: c.x1, s: [...k.top.filter((t) => !L.some((q) => q.s === t)), k.s, ...other.filter((t) => !k.top.includes(t)), c.s].filter(Boolean).join(' ') });
+      continue;
+    }
+    out.push({ x0: k.x0, x1: k.x1, s: [...k.top, k.s, ...k.bottom].filter(Boolean).join(' ') });
+  }
+  return out.sort((a, b) => a.x0 - b.x0);
 }
 
 /**
@@ -134,19 +150,21 @@ export function bankPdfGrid(items: readonly PdfItem[]): BankPdfGrid | null {
   const txt = (i: number) => cells[i]!.map((c) => c.s);
   const noDigits = (i: number) => !cells[i]!.some((c) => /\d{2,}/.test(c.s));
   let at = -1, hn = 1;
+  // a header line on its own first; only then one whose amount headings are on the second line („Датум | Опис“ over
+  // „Должи | Побарува“). FIX: a sentence above the table („Примивме во корист / на товар на сметка“) is not a header.
+  for (let i = 0; i < Math.min(rows.length, 200) && at < 0; i++) if (isBankHeaderRow(txt(i))) at = i;
   for (let i = 0; i < Math.min(rows.length, 200) && at < 0; i++) {
-    if (isBankHeaderRow(txt(i))) at = i;
-    // a header whose amount headings are on the second line („Датум | Опис“ / „Должи | Побарува“)
-    else if (i + 1 < rows.length && rows[i + 1]!.page === rows[i]!.page && noDigits(i) && noDigits(i + 1) && cells[i]!.length >= 1 && isBankHeaderRow([...txt(i), ...txt(i + 1)])) { at = i; hn = 2; }
+    if (i + 1 < rows.length && rows[i + 1]!.page === rows[i]!.page && noDigits(i) && noDigits(i + 1) && cells[i]!.length >= 2 && isBankHeaderRow([...txt(i), ...txt(i + 1)])) { at = i; hn = 2; }
   }
   if (at < 0) return null;
   const close = (a: number, b: number) => rows[b]!.page === rows[a]!.page && rows[a]!.y - rows[b]!.y < rows[a]!.h * 3;
-  while (hn < 3 && at + hn < rows.length && close(at + hn - 1, at + hn) && isHeaderContinuation(txt(at + hn), alignAbove(cells[at + hn - 1]!, cells[at + hn]!))) hn++;
+  while (hn < 4 && at + hn < rows.length && close(at + hn - 1, at + hn) && isHeaderContinuation(txt(at + hn), alignAbove(cells[at + hn - 1]!, cells[at + hn]!))) hn++;
   const H = cells.slice(at, at + hn);
   const cols = columnsOf(H);
   const hsig = new Set(H.map(sigOf));
   const ext = extents(cols, rows.slice(at + hn));
   const paired = pairLabelRows(rows);
+  const stacked = stackedLabels(rows.slice(0, at), paired);
   const hpage = rows[at]!.page;
   // later pages: the repeated header (and the letterhead above it) is skipped
   const repeatAt = new Map<number, number>();
@@ -165,8 +183,46 @@ export function bankPdfGrid(items: readonly PdfItem[]): BankPdfGrid | null {
     (i < at ? pre : body).push(c);
   });
   const header = cols.map((c) => c.s);
-  const grid = [...pre.map((c) => c.cells), header, ...mergeCloseRows(body).map((c) => c.cells)];
-  return { grid, hi: pre.length };
+  const grid = [...stacked.map((t) => [t]), ...pre.map((c) => c.cells), header, ...mergeCloseRows(body).map((c) => c.cells)];
+  return { grid, hi: stacked.length + pre.length };
+}
+
+/**
+ * Balances printed as amounts under labels that are stacked over several lines and not aligned with each other
+ * (Халк: „претходна / состојба“, „дневен промет“ over „долгува | побарува“, „нова состојба“, over
+ * „51,158.00  38,779.00  0.00  12,379.00“): every word above a line of amounts belongs to the nearest number below it
+ * → „претходна состојба: 51,158.00“, „дневен промет долгува: 38,779.00“ … (only labels of balances / turnover).
+ */
+function stackedLabels(rows: readonly PdfRow[], paired: readonly (string[] | null)[]): string[] {
+  const out: string[] = [];
+  const isNum = (s: string) => /^-?\(?[\d.,']+\)?-?$/.test(s) && /\d/.test(s);
+  const money = (s: string) => /[.,]\d{2}\)?-?$/.test(s);
+  rows.forEach((R, i) => {
+    if (paired[i]) return; // already read as a label row over a value row
+    const W = wordsOf(R);
+    const nums = W.filter((w) => isNum(w.s));
+    if (nums.filter((w) => money(w.s)).length < 2) return;
+    const lab = new Map<(typeof nums)[number], { y: number; x: number; s: string }[]>();
+    for (let j = i - 1; j >= 0; j--) {
+      const A = rows[j]!;
+      if (A.page !== R.page || A.y - R.y > 75) break;
+      const AW = rowCells(A, 0.8);
+      if (j < i - 1 && AW.filter((w) => isNum(w.s) && money(w.s)).length >= 2) break;
+      for (const w of AW) {
+        if (isNum(w.s) || !/[\p{L}]/u.test(w.s)) continue;
+        const c = (w.x0 + w.x1) / 2;
+        let best: (typeof nums)[number] | null = null, bd = Infinity;
+        for (const n of nums) { const d = Math.abs((n.x0 + n.x1) / 2 - c); if (d < bd) { bd = d; best = n; } }
+        if (best && bd < 70) (lab.get(best) ?? lab.set(best, []).get(best)!).push({ y: A.y, x: w.x0, s: w.s });
+      }
+    }
+    for (const n of nums) {
+      if (!money(n.s)) continue;
+      const t = (lab.get(n) ?? []).sort((a, b) => b.y - a.y || a.x - b.x).map((w) => w.s).join(' ');
+      if (t && balanceLabels(t).length) out.push(`${t}: ${n.s}`);
+    }
+  });
+  return out;
 }
 
 /** Cells of the line above, placed at the positions of the cells below (for the wrapped-heading test). */

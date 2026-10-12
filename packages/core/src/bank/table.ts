@@ -64,7 +64,9 @@ export interface BankPrep {
 }
 
 const str = (v: unknown): string => (v instanceof Date ? '' : String(v ?? '')).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
-const low = (s: string) => s.toLowerCase();
+/** Lower case; Latin look-alike letters inside Cyrillic words („задoлжува“ with a Latin o, „нa“) made Cyrillic. */
+const HOMO: Record<string, string> = { a: 'а', o: 'о', e: 'е', c: 'с', p: 'р', x: 'х', y: 'у', k: 'к', m: 'м', t: 'т' };
+const low = (s: string) => s.toLowerCase().replace(/[\p{L}]+/gu, (w) => (/[а-яѓѕјљњќџ]/.test(w) ? w.replace(/[aoecpxykmt]/g, (ch) => HOMO[ch] ?? ch) : w));
 
 const R_REF = /повик|референц|reference|број на налог|бр\.? на налог|poziv|referenc/;
 const R_BAL = /салдо|состојба|balance|bilanc|stanje/;
@@ -84,8 +86,11 @@ const R_SEQ = /^(ред\.?\s*бр\.?|р\.?\s*бр\.?|рб\.?|р\.б\.?|бр\.|р
 export function bankColRoles(h0: string): BankRole[] {
   const h = low(str(h0));
   if (!h) return [];
-  if (R_SEQ.test(h)) return ['seq'];
+  // ordinal („Р. бр.“, „Р . бр на нал .“, „Ред. број“): never an amount
+  if (R_SEQ.test(h) || /^(р\.?бр|ред\.?бр|реденброј|рб\.?$|р\.б\.?$|r\.?br)/.test(h.replace(/\s+/g, ''))) return ['seq'];
   if (R_REF.test(h)) return ['ref'];
+  // the counterparty's bank („Депонент на (назив и седиште на банката)“): not the counterparty itself
+  if (/депонент|седиште\s+н[аa]\s+банката|банка\s+на\s+(примач|налогодав)/.test(h)) return [];
   if (R_BAL.test(h) && !R_AMT.test(h)) return ['balance'];
   const d = h.search(R_DEB), c = h.search(R_CRED);
   if (d >= 0 && c >= 0) return d < c ? ['debit', 'credit'] : ['credit', 'debit'];
@@ -163,7 +168,7 @@ export function prepBankGrid(rows: readonly (readonly unknown[])[], hi0?: number
   if (hi < 0) for (let i = 0; i < Math.min(rows.length, 60); i++) if (isBankHeaderRow(rows[i] ?? [])) { hi = i; break; }
   if (hi < 0 || hi >= rows.length) return null;
   let hn = 1;
-  while (hn < 3 && hi + hn < rows.length && isHeaderContinuation(rows[hi + hn] ?? [], rows[hi + hn - 1] ?? [])) hn++;
+  while (hn < 4 && hi + hn < rows.length && isHeaderContinuation(rows[hi + hn] ?? [], rows[hi + hn - 1] ?? [])) hn++;
   const H = rows.slice(hi, hi + hn);
   const heads = combineHeader(H);
   // columns by role; a column with both directions or name + account is split into two logical columns
@@ -179,6 +184,15 @@ export function prepBankGrid(rows: readonly (readonly unknown[])[], hi0?: number
     if (r === 'date') { const b = cols.findIndex((c) => c.role === 'date' && R_BOOK.test(low(c.header))); if (b >= 0) return b; }
     return cols.findIndex((c) => c.role === r);
   };
+  // FIX: a column whose values are the row numbers 1, 2, 3 … is the ordinal, whatever its heading says
+  for (const c of cols) {
+    if (c.role !== 'amount' && c.role !== 'credit' && c.role !== 'debit') continue;
+    if (cols.filter((d) => d.src === c.src).length > 1) continue;
+    const all = rows.slice(hi + hn).map((r) => r?.[c.src]).map((v) => (typeof v === 'number' ? String(v) : str(v))).filter(Boolean);
+    const N = all.filter((v) => /^\d{1,4}\.?$/.test(v)).map((v) => parseInt(v, 10));
+    // 1, 2, 3 … (a new page may start again from its own number); the money values of an amount column are not like this
+    if (N.length >= 2 && N[0] === 1 && N.length >= all.length * 0.8 && N.every((n, i) => i === 0 || n === N[i - 1]! + 1)) c.role = 'seq';
+  }
   const hdrSigs = new Set(H.map((r) => r.map(str).join('|').toLowerCase()));
   const items: BankItem[] = [];
   const meta = metaOf(rows, hi);
@@ -206,9 +220,20 @@ export function prepBankGrid(rows: readonly (readonly unknown[])[], hi0?: number
       // the table's own total row: turnover per direction
       for (const i of amtCols) {
         const v = S[cols[i]!.src];
-        if (!v || dual.has(cols[i]!.src)) continue;
-        if (cols[i]!.role === 'debit' && totals.debit == null) totals.debit = v;
-        if (cols[i]!.role === 'credit' && totals.credit == null) totals.credit = v;
+        if (!v) continue;
+        if (dual.has(cols[i]!.src)) {
+          // „38,779.00 0.00“ under „ИЗНОС задолжува | одобрува“: the amounts in the order of the sub-headings
+          const D = cols.filter((c) => c.src === cols[i]!.src);
+          const k = D.indexOf(cols[i]!);
+          const m = leadMoney(v.replace(/^[^\d-]*/, ''), D.length, false).vals[k];
+          if (m == null) continue;
+          if (cols[i]!.role === 'debit' && totals.debit == null) totals.debit = m;
+          if (cols[i]!.role === 'credit' && totals.credit == null) totals.credit = m;
+          continue;
+        }
+        const m = leadMoney(v.replace(/^[^\d-]*/, ''), 1, false).vals[0] ?? v;
+        if (cols[i]!.role === 'debit' && totals.debit == null) totals.debit = m;
+        if (cols[i]!.role === 'credit' && totals.credit == null) totals.credit = m;
       }
       continue;
     }
@@ -301,7 +326,7 @@ function mergeInto(a: BankItem, b: BankItem, cols: readonly BankCol[]): void {
 
 const L_OPEN = /(претходна|почетна)\s+состојба|претходно\s+салдо|почетно\s+салдо|салдо\s+на\s+почет|состојба\s+на\s+почет|opening\s+balance|prethodno\s+stanje|претходна\s+состојба/i;
 const L_CLOSE = /(нова|крајна|завршна)\s+состојба|ново\s+салдо|крајно\s+салдо|салдо\s+на\s+крај|состојба\s+на\s+крај|closing\s+balance|novo\s+stanje/i;
-const L_DEB = /вкупно\s+(задолжување|задолжено|должи|одлив|исплати)|вкупен\s+промет\s+(должи|задолж)|промет\s+(должи|задолж)|вкупно\s+на\s+товар|dugovni\s+promet|total\s+debit/i;
+const L_DEB = /вкупно\s+(задолжување|задолжено|должи|одлив|исплати)|вкупен\s+промет\s+(должи|задолж)|промет\s+(должи|долгува|задолж)|вкупно\s+на\s+товар|dugovni\s+promet|total\s+debit/i;
 const L_CRED = /вкупно\s+(одобрување|одобрено|побарува|прилив|уплати)|вкупен\s+промет\s+(побарува|одобр)|промет\s+(побарува|одобр)|вкупно\s+во\s+корист|potrazni\s+promet|total\s+credit/i;
 const NUM_AFTER = /-?\(?\d[\d.,' ]*\d\)?-?|-?\d/;
 

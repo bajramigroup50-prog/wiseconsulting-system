@@ -7,7 +7,7 @@
  */
 import * as XLSX from 'xlsx';
 import {
-  decodeBankBytes, detectStatementFormat, parseStatementFile, readBankTable, splitCsv, type Statement,
+  decodeBankBytes, detectStatementFormat, parseStatementFile, readBankTable, splitCsv, statementProblems, type Statement,
 } from '@wise/core/bank-parsers';
 import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
@@ -32,7 +32,19 @@ const fail = (m: string) => Object.assign(new Error(m), { name: 'BankError' });
 
 /* ---------------- import ---------------- */
 
-async function readStatements(f: File, firmId: string, aiDoc: string): Promise<{ statements: Statement[]; format: string; fileId?: string | null; warnings?: string[] }> {
+type ReadStatements = { statements: Statement[]; format: string; fileId?: string | null; warnings?: string[]; blocking?: string[] };
+
+/**
+ * HARD BLOCK: a statement whose opening + credits − debits ≠ closing, or whose sums ≠ the printed totals, is never
+ * imported (a misread column — e.g. the row number taken as the amount — would otherwise be booked).
+ */
+async function readStatements(f: File, firmId: string, aiDoc: string): Promise<ReadStatements> {
+  const r = await readStatements0(f, firmId, aiDoc);
+  const blocking = r.statements.flatMap((st) => statementProblems(st).map((m) => `„${f.name}“${st.no ? ` (извод бр. ${st.no})` : ''}: ${m} Увозот е одбиен – проверете го изводот / конверзијата.`));
+  return { ...r, blocking };
+}
+
+async function readStatements0(f: File, firmId: string, aiDoc: string): Promise<ReadStatements> {
   if (aiDoc) {
     // PDF / image statement read by the AI job (legacy `importBankImg` 4796, `BANK_PROMPT`) → the normal import pipeline
     const d = await loadAiResult(firmId, aiDoc, 'bank');
@@ -102,9 +114,10 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
     const out: NonNullable<PreviewResult['plans']> = [];
     let others: OwnerFirm[] | null = null;
     for (const { f, ai } of filesOf(form)) {
-      const { statements, format, warnings } = await readStatements(f, firm.id, ai);
+      const { statements, format, warnings, blocking } = await readStatements(f, firm.id, ai);
       const plan = await db().transaction((tx) => planImport(tx, { firmId: firm.id, userId: null, statements, defaultAccountId: acct }));
       if (warnings?.length) plan.warnings.push(...warnings);
+      if (blocking?.length) plan.errors.push(...blocking);
       // legacy `ownerCheck` 12880: the statement may belong to another firm of the office (by ЕДБ / account / name)
       for (const st of statements) {
         others ??= await ownerFirms(u);
@@ -131,7 +144,8 @@ export async function saveImportAction(form: FormData): Promise<FormState> {
   const msgs: string[] = [];
   for (const { f, ai } of filesOf(form)) {
     const r = await bankRun('write', P, async ({ tx, u, firm }) => {
-      const { statements, format, fileId } = await readStatements(f, firm.id, ai);
+      const { statements, format, fileId, blocking } = await readStatements(f, firm.id, ai);
+      if (blocking?.length) throw fail(blocking.join(' '));
       const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null, replace });
       if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
       if (!x.statements && x.balances) return `„${f.name}“: водечки слог (КБ) – зачувани салдата и бројот на ${x.balances} извод(и). Ставките се во датотеката „Izvod_stavki_…“.`;

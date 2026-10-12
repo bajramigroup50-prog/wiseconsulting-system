@@ -476,8 +476,31 @@ export interface BankTableRead {
   st: Statement | null;
   /** Why nothing was read (Macedonian, names the row / column). */
   error?: string;
-  /** Rows that were left out or need a look, and a balance that does not reconcile. */
+  /** Rows that were left out or need a look. */
   warnings: string[];
+  /**
+   * The statement does not agree with itself (opening + movements ≠ closing, Σ debits / credits ≠ the printed totals):
+   * the import is refused until it is fixed ({@link statementProblems}).
+   */
+  blocking: string[];
+}
+
+/**
+ * HARD CHECK of a read statement (every format): opening + credits − debits = closing, and the debit / credit sums =
+ * the printed totals („Вкупно задолжување / одобрување“, the table's „Вкупно“ row). Each problem as a message with both
+ * numbers; an empty list = the statement agrees with itself (or prints no balances / totals).
+ */
+export function statementProblems(st: Pick<Statement, 'opening' | 'closing' | 'debit' | 'credit' | 'lines'>): string[] {
+  if (!st.lines.length) return [];
+  const P: string[] = [];
+  const sum = st.lines.reduce((a, l) => a + l.amount, 0);
+  const out = -st.lines.filter((l) => l.amount < 0).reduce((a, l) => a + l.amount, 0), inn = st.lines.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
+  if (st.opening != null && st.closing != null && st.opening + sum !== st.closing) {
+    P.push(`Салдата не се совпаѓаат: претходна состојба ${fmtC(st.opening)} + приливи ${fmtC(inn)} − одливи ${fmtC(out)} = ${fmtC(st.opening + sum)}, а во изводот новата состојба е ${fmtC(st.closing)} (разлика ${fmtC(st.closing - st.opening - sum)}).`);
+  }
+  if (st.debit != null && st.debit !== out) P.push(`Збирот на прочитаните одливи (задолжување) е ${fmtC(out)}, а во изводот „Вкупно задолжување“ е ${fmtC(st.debit)} (разлика ${fmtC(st.debit - out)}).`);
+  if (st.credit != null && st.credit !== inn) P.push(`Збирот на прочитаните приливи (одобрување) е ${fmtC(inn)}, а во изводот „Вкупно одобрување“ е ${fmtC(st.credit)} (разлика ${fmtC(st.credit - inn)}).`);
+  return P;
 }
 
 /** {@link parseBankTable} with the reasons: what was not recognised, which rows were left out, reconciliation. */
@@ -511,11 +534,11 @@ const fmtC = (c: number) => {
 function parseBankTableFmt(rows: readonly (readonly unknown[])[], fmt: NumFmt, cells?: unknown[], hi?: number): BankTableRead {
   const amt = (v: unknown) => { cells?.push(v); return parseBankAmount(v, fmt); };
   const P = prepBankGrid(rows, hi);
-  if (!P) return { st: null, warnings: [], error: 'Не е пронајден редот со насловите на колоните (на пр. „Датум“, „Налогодавач / примач“, „Должи / Побарува“, „Одлив / Прилив“ или „Износ“) во првите 60 реда.' };
+  if (!P) return { st: null, warnings: [], blocking: [], error: 'Не е пронајден редот со насловите на колоните (на пр. „Датум“, „Налогодавач / примач“, „Должи / Побарува“, „Одлив / Прилив“ или „Износ“) во првите 60 реда.' };
   const has = (r: BankRole) => P.cols.some((c) => c.role === r);
   const hdrRows = `ред ${P.hi + 1}${P.hn > 1 ? '–' + (P.hi + P.hn) : ''}`;
-  if (!has('amount') && !has('debit') && !has('credit')) return { st: null, warnings: [], error: `Во насловите (${hdrRows}) нема колона за износ („Износ“, „Должи / Побарува“, „Одлив / Прилив“, „Задолжува / Одобрува“).` };
-  if (!has('date') && !P.meta.date) return { st: null, warnings: [], error: `Во насловите (${hdrRows}) нема колона „Датум“, а датумот на изводот не е пронајден во заглавјето („Извод бр. … од дд.мм.гггг“ / „Датум на извод“). Внесете го датумот во 🔄 Конвертор на датотеки.` };
+  if (!has('amount') && !has('debit') && !has('credit')) return { st: null, warnings: [], blocking: [], error: `Во насловите (${hdrRows}) нема колона за износ („Износ“, „Должи / Побарува“, „Одлив / Прилив“, „Задолжува / Одобрува“).` };
+  if (!has('date') && !P.meta.date) return { st: null, warnings: [], blocking: [], error: `Во насловите (${hdrRows}) нема колона „Датум“, а датумот на изводот не е пронајден во заглавјето („Извод бр. … од дд.мм.гггг“ / „Датум на извод“). Внесете го датумот во 🔄 Конвертор на датотеки.` };
   const iDir = P.cols.findIndex((c) => c.role === null && DIR_RE.test(c.header.trim()));
   const purposeCols = P.cols.map((c, i) => (c.role === 'purpose' ? i : -1)).filter((i) => i >= 0);
   const val = (it: BankItem, r: BankRole): unknown => {
@@ -551,7 +574,7 @@ function parseBankTableFmt(rows: readonly (readonly unknown[])[], fmt: NumFmt, c
     const valDate = parseBankDate(it.rawValDate);
     lines.push({ date, ...(valDate && valDate !== date ? { valDate } : {}), amount: toCents(amount), counterparty: name, ...(iban ? { iban } : {}), ref, purpose, desc, ...(osnov ? { osnov } : {}) });
   }
-  if (!lines.length) return { st: null, warnings, error: `Под насловите (${hdrRows}) нема ниту една ставка со датум и износ.${warnings.length ? ' ' + warnings.slice(0, 3).join(' ') : ''}` };
+  if (!lines.length) return { st: null, warnings, blocking: [], error: `Под насловите (${hdrRows}) нема ниту една ставка со датум и износ.${warnings.length ? ' ' + warnings.slice(0, 3).join(' ') : ''}` };
   const M = P.meta;
   const cOf = (v: string | null) => (v == null ? null : toCents(amt(v)));
   const opening = cOf(M.opening), closing = cOf(M.closing);
@@ -560,14 +583,7 @@ function parseBankTableFmt(rows: readonly (readonly unknown[])[], fmt: NumFmt, c
     format: 'table', account: M.account, no: M.no, date: M.date || lastDate(lines), currency: M.currency,
     opening, closing, debit: debit == null ? null : Math.abs(debit), credit: credit == null ? null : Math.abs(credit), lines,
   };
-  const sum = lines.reduce((a, l) => a + l.amount, 0);
-  if (opening != null && closing != null && opening + sum !== closing) {
-    warnings.push(`Салдата не се совпаѓаат: претходна состојба ${fmtC(opening)} + промет ${fmtC(sum)} = ${fmtC(opening + sum)}, а новата состојба во изводот е ${fmtC(closing)} (разлика ${fmtC(closing - opening - sum)}). Проверете дали се прочитани сите ставки.`);
-  }
-  const out = -lines.filter((l) => l.amount < 0).reduce((a, l) => a + l.amount, 0), inn = lines.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
-  if (st.debit != null && st.debit !== out) warnings.push(`Вкупно задолжување во изводот е ${fmtC(st.debit)}, а збирот на прочитаните одливи е ${fmtC(out)}.`);
-  if (st.credit != null && st.credit !== inn) warnings.push(`Вкупно одобрување во изводот е ${fmtC(st.credit)}, а збирот на прочитаните приливи е ${fmtC(inn)}.`);
-  return { st, warnings };
+  return { st, warnings, blocking: statementProblems(st) };
 }
 /**
  * Split CSV/TXT text into rows the way legacy did (delimiter = the one of `; \t , |` that splits the
