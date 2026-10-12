@@ -75,6 +75,19 @@ const NOT_CARRIED_REASON: Record<string, string> = {
   '8': 'класа 8 (резултат) – се затвора на 951 / 961, не се пренесува',
 };
 
+/**
+ * Why a closing balance is NOT carried into the next year's opening by rule (class 4/5/7/8, statistical 994 / 999,
+ * zero balance) — the same rules as `carryPlan`; null = carried. Used by the readers of other programs' trial
+ * balances (PDF „Бруто биланс со аналитика“) that build the opening from the printed closing saldo.
+ */
+export function carryNotReason(account: string, closing: number, statPrefixes: readonly string[] = DEFAULT_CARRY_STAT_PREFIXES): { rule: CarryRule; reason: string } | null {
+  const cls = String(account).charAt(0);
+  if (!carriedClass(account)) return { rule: 'class', reason: NOT_CARRIED_REASON[cls] ?? `класа ${cls} не се пренесува` };
+  if (carryStatAccount(account, statPrefixes)) return { rule: 'stat', reason: CARRY_STAT_REASON };
+  if (!Math.round((Number(closing) || 0) * 100)) return { rule: 'zero', reason: 'салдо 0 – нема што да се пренесе' };
+  return null;
+}
+
 /** Accounts split per open document when `byDoc` is on. */
 export const DOC_SPLIT_RE = /^(12|22)/;
 
