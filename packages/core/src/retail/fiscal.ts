@@ -2,14 +2,17 @@
  * Fiscal device receipts (фискална сметка) built from a POS sale — the data the WISE desktop app sends to the fiscal
  * printer / cash register (window.wiseFiscal, desktop/fiscal). See docs/FISKALNI-APARATI.md.
  *
- * VAT groups on Macedonian fiscal devices: А = 18 %, Б = 5 %, В = 10 %, Г = exempt / 0 % (a firm that is not a VAT
- * payer sells everything in Г). The device holds the rates; the receipt carries only the letter.
+ * VAT groups on Macedonian fiscal devices: the legal mapping `FISCAL_VAT_GROUPS` (./vat-groups — А = 18 %, Б = 5 %,
+ * В = 10 %, Г = exempt / 0 %; a firm that is not a VAT payer sells everything in Г). The device holds the rates; the
+ * receipt carries only the letter of the LEGAL mapping — the desktop driver remaps it when the device is programmed
+ * differently („Даночни групи на апаратот“).
  * Discounts: the Datecs-family devices refuse negative sale lines, so the POS discount (card / coupon / points) is sent
  * as one percentage over the subtotal; the cash part is "the rest", so device rounding can never block the close.
  */
 import { num, r2 } from '../stock/num';
+import { FISCAL_VAT_GROUPS, vatGroupFor, type FiscalVatGroups, type VatGroup } from './vat-groups';
 
-export type VatGroup = 'А' | 'Б' | 'В' | 'Г';
+export type { VatGroup } from './vat-groups';
 export interface FiscalItem { name: string; qty: number; price: number; vat: VatGroup; mk?: boolean }
 export interface FiscalReceipt { items: FiscalItem[]; discountPct?: number; payments: { card?: number }; ref?: string }
 /** What the device returned for a printed receipt / report (desktop/fiscal driver result). */
@@ -18,10 +21,10 @@ export interface FiscalResult {
   device?: { vendor?: string; model?: string; driver?: string } | null;
 }
 
-/** VAT rate (%) → group letter of the fiscal device. */
-export function vatGroup(rate: number): VatGroup {
-  const r = num(rate);
-  return r === 18 ? 'А' : r === 5 ? 'Б' : r === 10 ? 'В' : 'Г';
+/** VAT rate (%) → group letter of the fiscal device (legal mapping unless `groups` is given; unknown rate → 0 % group). */
+export function vatGroup(rate: number, groups?: FiscalVatGroups | number): VatGroup {
+  // `groups` is ignored unless it is a mapping (safe as an Array.map callback, which passes the index)
+  return vatGroupFor(num(rate), groups && typeof groups === 'object' ? groups : FISCAL_VAT_GROUPS);
 }
 
 /** Item name as the devices accept it: no separators / control characters, at most 32 characters (driver trims more). */

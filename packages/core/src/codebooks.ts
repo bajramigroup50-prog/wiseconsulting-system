@@ -125,11 +125,11 @@ export const SIFRARNIK_GROUPS: readonly (readonly [string, readonly (readonly [s
 /** Screens reachable only from „Сите шифрарници“ (not in the menu); they inherit its permission. */
 export const SIFRARNIK_SUBVIEWS: readonly string[] = [...CB_KEYS.map((k) => `cb_${k}`), 'tarifi', 'terkovi', 'uslugiS', 'banke'];
 
-/** Legacy `VIEWS.tarifi` 6975: VAT tariffs with their accounts and ДДВ-04 fields. FIX: the default analytic kontos (`VAT_OUT_DEFAULT` / `VAT_IN_DEFAULT`) instead of the summary 2300/1300… that `VAT_BAD` rejects. */
+/** Legacy `VIEWS.tarifi` 6975: VAT tariffs with their accounts and ДДВ-04 fields. FIX: the default analytic kontos (`VAT_OUT_DEFAULT` / `VAT_IN_DEFAULT`) instead of the summary 2300/1300… that `VAT_BAD` rejects. FIX: letters as on the fiscal devices (`FISCAL_VAT_GROUPS`: Б 5 %, В 10 %; legacy had Б 10 %, В 5 %). */
 export const TARIFI: readonly (readonly [string, string, string, string, string, string])[] = [
   ['А', '18%', 'Општа стапка', '230018', '130018', '01/02 · 21/22'],
-  ['Б', '10%', 'Угостителство и др. повластени', '230010', '130010', '03/04'],
-  ['В', '5%', 'Храна, лекови, книги и др. повластени', '23005', '13005', '05/06'],
+  ['Б', '5%', 'Храна, лекови, книги и др. повластени', '23005', '13005', '05/06'],
+  ['В', '10%', 'Угостителство и др. повластени', '230010', '130010', '03/04'],
   ['Г', '0%', 'Извоз / ослободен промет', '—', '—', '07 / 08 / 09'],
   ['Чл. 32-а', '18% пренесен', 'Градежништво – пренесување на даночна обврска', '2309', '1309', '11 · 16/17 · 25/26'],
 ];

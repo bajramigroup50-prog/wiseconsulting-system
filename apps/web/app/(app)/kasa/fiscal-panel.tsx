@@ -48,7 +48,9 @@ export function FiscalPanel({ wh, log, canWrite }: { wh: string; log: FiscalLogI
     const r = await safeCall(() => (type === 'Z' ? b.zReport() : b.xReport()));
     if (!r.ok) { setMsg({ ok: false, text: r.error || 'Апаратот не го направи извештајот.' }); return; }
     const s = await fiscalReportAction({ kind: type === 'Z' ? 'z' : 'x', wh, result: r });
-    setMsg(s.ok ? { ok: true, text: s.ok } : { ok: false, text: `Апаратот го испечати извештајот${r.number ? ' бр. ' + r.number : ''}, но записот не е зачуван: ${s.error}` });
+    // X report: the device's VAT rates vs „Даночни групи на апаратот“ (desktop service adds the mismatch warnings)
+    const vw = (r as FiscalStatus).vatMismatch ? ' ⚠ ' + ((r as FiscalStatus).warnings ?? []).join(' ') : '';
+    setMsg(s.ok ? { ok: !vw, text: s.ok + vw } : { ok: false, text: `Апаратот го испечати извештајот${r.number ? ' бр. ' + r.number : ''}, но записот не е зачуван: ${s.error}${vw}` });
   });
   const cash = (dir: 1 | -1) => run(async (b) => {
     const v = Number(String(window.prompt(dir > 0 ? 'Износ што се внесува во касата (ден.):' : 'Износ што се вади од касата (ден.):') ?? '').replace(',', '.'));

@@ -116,7 +116,8 @@ describe('fiscal report (FISK_PROMPT → fiscal rows)', () => {
     expect(R).toMatchObject({ device: 'AC240119487', nonVat: true });
     const X = fiskEditorRows(R, { today: '2026-12-31' });
     expect(X).toEqual({ daily: false, rows: [{ date: '2026-09-29', z: '', gross: { 0: 1880999 }, total: 1880999, card: 0, cash: 1880999, receipts: 420, storno: 50 }] });
-    expect(fiskEditorRows(R, { today: '2026-12-31', nonVat: false }).rows[0]!.gross).toEqual({ 10: 1880999 });
+    // group Г is 0 % by law (FISCAL_VAT_GROUPS; legacy assumed Г 10 %)
+    expect(fiskEditorRows(R, { today: '2026-12-31', nonVat: false }).rows[0]!.gross).toEqual({ 0: 1880999 });
   });
   it('FK_SIMPLE second read fills a zero read', () => {
     const R = fiskAfterRead({ days: [], totals: { gross: { А: 0 }, total: 0 } });

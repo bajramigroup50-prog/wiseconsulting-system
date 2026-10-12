@@ -1,12 +1,13 @@
 'use client';
 /**
  * Legacy `ACT.fkManual` 13048 — „✎ Внеси рачно – фискален извештај“: Вкупен промет, Од / До датум (ДД.ММ.ГГГГ), Од
- * картичка, Даночна група (Г-ставка без ДДВ / А 18% / Б 5% / В 0% / Г 10%), Апарат, „не е ДДВ обврзник“; invalid fields
+ * картичка, Даночна група (Г-ставка без ДДВ / А 18% / Б 5% / В 10% / Г 0%), Апарат, „не е ДДВ обврзник“; invalid fields
  * get a red border. „✓ Внеси“ opens the result card (`?mt=…`) like a read report.
  */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { fmDate } from '@wise/core/retail';
+import { FISCAL_VAT_GROUPS, VAT_GROUP_LETTERS } from '@wise/core/retail/vat-groups';
 
 const num = (v: string) => { const x = Number(v.replace(/[\s ]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return Number.isFinite(x) ? x : 0; };
 const dmy = (iso: string) => (iso ? iso.split('-').reverse().join('.') : '');
@@ -42,7 +43,7 @@ export function FiskManual({ year, today, nonVat0, init }: { year: number; today
         <label className="f">До датум<input inputMode="numeric" placeholder="ДД.ММ.ГГГГ" value={d} onChange={(e) => dt(e.target.value, setD)} onBlur={() => { const x = fmDate(d, year); if (x) setD(dmy(x)); }} style={br('d')} /></label>
         <label className="f">Од картичка (ако има)<input inputMode="decimal" value={c} onChange={(e) => setC(e.target.value)} /></label>
         <label className="f">Даночна група<select value={nv ? 'Г0' : g} onChange={(e) => { setG(e.target.value); if (e.target.value === 'Г0') setNv(true); else setNv(false); }}>
-          <option value="Г0">Г-ставка – не е ДДВ обврзник (без ДДВ)</option>{['А 18%', 'Б 5%', 'В 0%', 'Г 10%'].map((x) => <option key={x} value={x[0]}>{x}</option>)}</select></label>
+          <option value="Г0">Г-ставка – не е ДДВ обврзник (без ДДВ)</option>{VAT_GROUP_LETTERS.map((L) => <option key={L} value={L}>{L} {FISCAL_VAT_GROUPS[L]}%</option>)}</select></label>
         <label className="f">Апарат (рег. број)<input value={a} onChange={(e) => setA(e.target.value)} /></label>
       </div>
       <label style={{ display: 'block', margin: '8px 0' }}><input type="checkbox" checked={nv} onChange={(e) => { setNv(e.target.checked); if (!e.target.checked && g === 'Г0') setG('А'); }} /> фирмата <b>не е ДДВ обврзник</b> (само вкупен промет)</label>

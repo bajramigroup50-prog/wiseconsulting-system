@@ -140,6 +140,12 @@ class DatecsRawDriver {
     return { ok: true, number: String(Number(a.data) || a.data || '').trim() };
   }
 
+  /** The VAT rates programmed in the device (command 97), or null when the firmware does not answer it. */
+  async vatRates() {
+    const a = await this.cmd(P.CMD.VAT_RATES);
+    return P.parseRates(a.data);
+  }
+
   async testPrint() { await this.cmd(P.CMD.DIAG_PRINT); return { ok: true }; }
 }
 

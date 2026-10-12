@@ -8,7 +8,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { schema, type AiDocKind, type Tx } from '@wise/db';
 import { AI_MODELS, setAiClient, type MessagesApi } from './client';
-import { BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE } from './prompts';
+import { BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_GROUPS, FISK_GROUPS_LEGACY, FISK_PROMPT, FK_SIMPLE } from './prompts';
 import { setObjectReader } from './storage';
 import { runReadDocument } from '../jobs/ai-read-document';
 
@@ -62,7 +62,10 @@ describe('legacy inline prompts are verbatim', () => {
   const between = (a: string, b: string) => { const i = L.indexOf(a) + a.length; return L.slice(i, L.indexOf(b, i)); };
   it('bank, fiscal, classify, BOM', () => {
     expect(BANK_PROMPT).toBe(between("S.sample.json('This is a bank statement", "'+inp.extra").replace(/^/, 'This is a bank statement'));
-    expect(FISK_PROMPT).toBe(between("const FISK_PROMPT='", "';"));
+    // the only deviation: the tax-group sentence comes from the shared FISCAL_VAT_GROUPS (legal А 18, Б 5, В 10, Г 0)
+    expect(between("const FISK_PROMPT='", "';")).toContain(FISK_GROUPS_LEGACY);
+    expect(FISK_PROMPT).toBe(between("const FISK_PROMPT='", "';").replace(FISK_GROUPS_LEGACY, FISK_GROUPS));
+    expect(FISK_GROUPS).toContain('А = 18%, Б = 5%, В = 10%, Г = 0%');
     expect(FK_SIMPLE).toBe(between("const FK_SIMPLE='", "';"));
     expect(CLASSIFY_PROMPT).toBe(between("irClassify=async function(file){const inp=await aiInput(file);const r=await sampleDoc('", "',inp,{})"));
     const tpl = between('const r=await S.sample.json(`You are a production technologist', '`);').replace(/^/, 'You are a production technologist');

@@ -188,3 +188,56 @@ test('service with the raw driver over a fake device (factory)', async () => {
   assert.equal(r.ok, true); assert.equal(dev.state.storno, true); assert.equal(r.device.model, 'PF550');
   assert.ok(isLanHost('192.168.1.50') && isLanHost('10.0.0.7') && !isLanHost('172.32.0.1') && !isLanHost('app.example.com'));
 });
+
+test('VAT groups: legal default, per-device override validated and saved', () => {
+  const VG = require('../vat-groups');
+  assert.deepEqual({ ...VG.FISCAL_VAT_GROUPS }, { А: 18, Б: 5, В: 10, Г: 0 });
+  assert.deepEqual({ ...cleanConfig({}).groups }, { А: 18, Б: 5, В: 10, Г: 0 });
+  assert.deepEqual({ ...cleanConfig({ groups: { V: 0, G: '10%' } }).groups }, { А: 18, Б: 5, В: 0, Г: 10 });
+  assert.throws(() => cleanConfig({ groups: { В: 0 } }), /иста стапка/);
+  assert.throws(() => cleanConfig({ groups: { А: 20 } }), /18, 10, 5 или 0/);
+  const dir = tmp();
+  const svc = new FiscalService({ dataDir: dir });
+  svc.setConfig({ vendor: 'sim', groups: { В: 0, Г: 10 } });
+  assert.deepEqual(new FiscalService({ dataDir: dir }).getConfig().config.groups, { А: 18, Б: 5, В: 0, Г: 10 });
+  assert.deepEqual(svc.info().vatGroups, VG.FISCAL_VAT_GROUPS);
+  assert.deepEqual(P.parseRates('18.00%,5.00%,10.00%,0.00%'), { А: 18, Б: 5, В: 10, Г: 0 });
+  assert.deepEqual(P.parseRates('18.00,X,10.00,0.00'), { А: 18, В: 10, Г: 0 });
+  assert.equal(P.parseRates(''), null);
+});
+
+test('VAT groups: receipt letters remapped for a device with another programming; X report rates checked', async () => {
+  const dev = fakeDevice({ rates: '18.00%,5.00%,0.00%,10.00%' }); // device still programmed В 0 %, Г 10 %
+  const svc = new FiscalService({ dataDir: tmp(), driverFactory: () => new DatecsRawDriver({ transport: dev.transport, timeoutMs: 200 }) });
+  svc.setConfig({ vendor: 'accent', model: 'PF550', driver: 'serial', port: 'COM3' });
+  const R = { items: [{ name: 'Кафе', qty: 1, price: 60, vat: 'В' }, { name: 'Ослободено', qty: 1, price: 10, vat: 'Г' }, { name: 'Леб', qty: 1, price: 35, vat: 'Б' }], payments: {} };
+  // legal settings: letters go out unchanged, and the X report warns that the device prints other rates
+  assert.equal((await svc.printReceipt(R)).ok, true);
+  assert.deepEqual(dev.state.lines.map((l) => l.vat), ['В', 'Г', 'Б']);
+  const x = await svc.report('X');
+  assert.equal(x.ok, true); assert.equal(x.vatMismatch, true);
+  assert.deepEqual(x.rates, { А: 18, Б: 5, В: 0, Г: 10 });
+  assert.ok(x.warnings.some((w) => /Група В: на извештајот 0 %, очекувано 10 %/.test(w)));
+  assert.ok(x.warnings.some((w) => /Даночни групи на апаратот/.test(w)));
+  assert.equal((await svc.status()).vatMismatch, true);
+  // settings follow the device: 10 % goes to Г, exempt to В; no warning any more
+  svc.setConfig({ groups: { В: 0, Г: 10 } });
+  assert.equal((await svc.printReceipt(R)).ok, true);
+  assert.deepEqual(dev.state.lines.map((l) => l.vat), ['Г', 'В', 'Б']);
+  const x2 = await svc.report('X');
+  assert.equal(x2.vatMismatch, undefined); assert.deepEqual(x2.rates, { А: 18, Б: 5, В: 0, Г: 10 });
+  // Z report does not ask for rates; firmware without command 97 → no rates, no warning
+  assert.equal((await svc.report('Z')).rates, undefined);
+  const old = fakeDevice({ rates: null });
+  const svc2 = new FiscalService({ dataDir: tmp(), driverFactory: () => new DatecsRawDriver({ transport: old.transport, timeoutMs: 200 }) });
+  svc2.setConfig({ vendor: 'accent', model: 'PF550', driver: 'serial', port: 'COM3' });
+  const x3 = await svc2.report('X');
+  assert.equal(x3.ok, true); assert.equal(x3.rates, undefined);
+});
+
+test('VAT groups: simulator reports its programming', async () => {
+  const svc = new FiscalService({ dataDir: tmp() });
+  svc.setConfig({ vendor: 'sim' });
+  const x = await svc.report('X');
+  assert.deepEqual(x.rates, { А: 18, Б: 5, В: 10, Г: 0 }); assert.equal(x.vatMismatch, undefined);
+});

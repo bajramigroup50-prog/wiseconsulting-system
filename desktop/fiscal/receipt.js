@@ -7,10 +7,12 @@
 //     payments: { card?: number, cash?: number },                            the rest is paid in cash
 //     ref?: string (storno only: number of the original fiscal receipt) }
 //
-// VAT groups (Правилник за означување на даночните стапки во фискалните апарати): А = 18 %, Б = 5 %, В = 10 %,
-// Г = exempt / 0 % (and the group a non-VAT-payer firm uses). The device itself holds the rates; we send letters only.
+// VAT groups: the legal mapping of ./vat-groups (copy of @wise/core/retail/vat-groups — А = 18 %, Б = 5 %, В = 10 %,
+// Г = exempt / 0 %, also the group of a non-VAT-payer firm). The device itself holds the rates; we send letters only
+// (remapped by the service when the device is programmed differently — „Даночни групи на апаратот“).
+const { VAT_GROUP_LETTERS } = require('./vat-groups');
 
-const VAT_GROUPS = Object.freeze(['А', 'Б', 'В', 'Г']); // Cyrillic letters (cp1251 0xC0–0xC3)
+const VAT_GROUPS = VAT_GROUP_LETTERS; // Cyrillic letters (cp1251 0xC0–0xC3)
 const LATIN_TO_CYR = { A: 'А', B: 'Б', V: 'В', G: 'Г', C: 'В', D: 'Г' };
 
 /** Error codes of every driver → message for the cashier (Macedonian). */

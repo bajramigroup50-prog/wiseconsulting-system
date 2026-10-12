@@ -4,20 +4,27 @@
  * Client-side only (no server imports).
  */
 import type { FiscalReceipt, FiscalResult } from '@wise/core/retail/fiscal';
+import type { VatGroup } from '@wise/core/retail/vat-groups';
 
-export interface FiscalStatus extends FiscalResult {
+/** VAT rates the device reported (X report / status) and whether they differ from „Даночни групи на апаратот“. */
+export interface FiscalRates { rates?: Partial<Record<VatGroup, number>>; vatMismatch?: boolean; warnings?: string[] }
+
+export interface FiscalStatus extends FiscalResult, FiscalRates {
   available?: boolean; configured?: boolean; connected?: boolean; fiscal?: boolean; receiptOpen?: boolean;
   errors?: string[]; warnings?: string[]; serial?: string; firmware?: string;
 }
 export interface FiscalConfig {
   vendor: string; model: string; driver: string; port: string; baud: number; host: string; tcpPort: number;
   folder: string; exePath: string; op: number; pwd: string; till: number; fault: string;
+  /** „Даночни групи на апаратот“: letter → VAT rate as programmed in the device (default the legal А 18, Б 5, В 10, Г 0). */
+  groups?: Record<VatGroup, number>;
 }
 export interface FiscalConfigResult { ok: boolean; config?: FiscalConfig; configured?: boolean; code?: string; error?: string }
 export interface FiscalInfo {
   ok: boolean; version?: string;
   vendors: Record<string, { label: string; models: string[]; drivers: string[]; nameMax: number; baud: number }>;
   drivers: Record<string, string>;
+  vatGroups?: Record<VatGroup, number>; vatGroupsOld?: Record<VatGroup, number>;
 }
 
 /** The API the desktop preload exposes (version 1). */
@@ -27,7 +34,7 @@ export interface WiseFiscal {
   status(): Promise<FiscalStatus>;
   printReceipt(r: FiscalReceipt): Promise<FiscalResult>;
   printStorno(r: FiscalReceipt): Promise<FiscalResult>;
-  xReport(): Promise<FiscalResult>;
+  xReport(): Promise<FiscalResult & FiscalRates>;
   zReport(): Promise<FiscalResult>;
   cash(amount: number): Promise<FiscalResult & { cashSum?: number }>;
   lastReceipt(): Promise<FiscalResult>;
