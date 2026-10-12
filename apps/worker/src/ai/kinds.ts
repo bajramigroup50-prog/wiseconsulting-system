@@ -40,7 +40,9 @@ const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
 
 /** Read one document of a result kind; returns the JSON to store in `ai_documents.result`. */
 export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = todaySkopje()): Promise<{ result: unknown; model: string }> {
-  const base = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
+  // model tiers (cost): Haiku for classification / short ID documents, Sonnet for statements / invoices / reports;
+  // the `complex` tier below becomes Sonnet unless the read is an explicit „🔍 Детално читање“ (`options.deep`)
+  const base = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy, deep: !!(doc.options as { deep?: boolean } | null)?.deep };
   let content: Content = { blocks: [], extra: '' };
   if (doc.kind !== 'bom' && doc.kind !== 'bankcls') {
     if (!doc.fileId) throw new AiReadError('Датотеката не е пронајдена.');
@@ -89,13 +91,13 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
       return { result: r.data, model: r.model };
     }
     case 'classify': {
-      const r = await read(CLASSIFY_PROMPT, 'default');
+      const r = await read(CLASSIFY_PROMPT, 'quick');
       return { result: r.data, model: r.model };
     }
     case 'rcdoc':
     case 'rclic': {
       // legacy `rcScanDoc` (rent-a-car customer: passport / ID card / driving licence → contract form)
-      const r = await read(doc.kind === 'rclic' ? RC_DOC_PROMPT_LICENCE : RC_DOC_PROMPT, 'default');
+      const r = await read(doc.kind === 'rclic' ? RC_DOC_PROMPT_LICENCE : RC_DOC_PROMPT, 'quick');
       return { result: r.data, model: r.model };
     }
     case 'kontrola': {
@@ -115,7 +117,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     }
     case 'vreg': {
       // legacy DIG.vreg (сообраќајна дозвола → customer vehicle form)
-      const r = await read(VREG_PROMPT, 'default');
+      const r = await read(VREG_PROMPT, 'quick');
       return { result: r.data, model: r.model };
     }
     case 'fisk': {

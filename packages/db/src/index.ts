@@ -68,4 +68,5 @@ export * from './sales/invoice-nalog';
 export * from './repost';
 export * from './firm-years';
 export * from './ai-settings';
+export * from './ai-budget';
 export * from './compliance';

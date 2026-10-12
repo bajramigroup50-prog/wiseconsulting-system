@@ -11,8 +11,9 @@
  *   nokey      no API key on the server
  *   off        AI reading switched off in Систем (the free reader could not read this file)
  *   noai       read without AI failed (scanned image, unknown layout)
+ *   budget     the monthly AI limit (office or firm) is reached – AI paused, free readers continue (`./cost.ts`)
  */
-export type AiErrCode = 'credit' | 'auth' | 'rate' | 'overloaded' | 'timeout' | 'nokey' | 'off' | 'noai' | 'other';
+export type AiErrCode = 'credit' | 'auth' | 'rate' | 'overloaded' | 'timeout' | 'nokey' | 'off' | 'noai' | 'budget' | 'other';
 
 export interface AiErrInfo { code: AiErrCode; msg: string; detail: string }
 
@@ -27,6 +28,7 @@ export const AI_ERR_MSG: Record<AiErrCode, string> = {
   nokey: 'AI-читањето не е поставено на серверот (нема ANTHROPIC_API_KEY). ' + FREE,
   off: 'AI-читањето е исклучено (Систем › AI читање). ' + FREE,
   noai: 'Документот не може да се прочита без AI. ' + FREE,
+  budget: 'Месечниот лимит за AI е достигнат – AI-читањето е паузирано (Систем › 💲 AI трошок). ' + FREE,
   other: 'AI-читањето не успеа. Кликнете ↻ Повторно. ' + FREE,
 };
 
@@ -50,7 +52,7 @@ export function aiBlockedMsg(code: AiErrCode, at: string): string {
 export const AI_PING_OK = '✓ AI работи – кредитот е во ред.';
 
 /** Codes for which the free import paths are the useful next step. */
-export const AI_ERR_FREE: ReadonlySet<AiErrCode> = new Set(['credit', 'auth', 'nokey', 'off', 'noai', 'other']);
+export const AI_ERR_FREE: ReadonlySet<AiErrCode> = new Set(['credit', 'auth', 'nokey', 'off', 'noai', 'budget', 'other']);
 /** Codes that mean „AI is not usable at all right now“ — later reads go to the free readers until a retry succeeds. */
 export const AI_ERR_BLOCKING: ReadonlySet<AiErrCode> = new Set(['credit', 'auth']);
 

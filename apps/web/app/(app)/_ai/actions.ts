@@ -59,6 +59,10 @@ export interface AiReadState {
   id: string; kind: string; status: string; error: string | null; model: string | null; result: unknown;
   /** Kind of failure (credit, auth, rate, overloaded, timeout, nokey, off, noai, other) — the list offers the free import paths. */
   errCode?: AiErrCode | null;
+  /** Why AI was used instead of the free reader („скенирано – PDF без текст / слика“, „не се совпаѓаат збировите“). */
+  aiWhy?: string | null;
+  /** The result was reused from an earlier read of the same file (sha256), no new AI cost. */
+  cached?: boolean;
 }
 
 /** Current state of reads (only rows of firms the user may read them for). */
@@ -75,6 +79,7 @@ export async function aiReadStatus(ids: string[]): Promise<AiReadState[]> {
     out.push({
       id: d.id, kind: d.kind, status: d.status, error: d.error ? aiErrText(d.error, ec) : d.error, model: d.model,
       result: d.status === 'done' || d.status === 'saved' ? d.result : null, errCode: d.status === 'error' ? aiErrCodeOf(d.error, ec) : null,
+      aiWhy: (d.options as { aiWhy?: string }).aiWhy ?? null, cached: !!(d.options as { cachedFrom?: string }).cachedFrom,
     });
   }
   return out;
