@@ -75,8 +75,8 @@ describe('fiscal report without AI', () => {
     expect(r.why).toBe('');
     expect(r.data).toMatchObject({
       device: 'AC240119487', edb: '4030999111222', from: '2026-09-01', to: '2026-09-30', zFrom: '0101', zTo: '0130', days: [], noai: true, note: NOAI_NOTE,
-      groups: { А: 18, Б: 5, В: 0, Г: 10 },
-      totals: { gross: { А: 118000, Б: 10500, В: 1000, Г: 5500 }, vat: { А: 18000, Б: 500, Г: 500 }, total: 135000, cash: 100000, card: 35000, storno: 590, receipts: 412 },
+      groups: { А: 18, Б: 5, В: 10, Г: 0 },
+      totals: { gross: { А: 118000, Б: 10500, В: 5500, Г: 1000 }, vat: { А: 18000, Б: 500, В: 500 }, total: 135000, cash: 100000, card: 35000, storno: 590, receipts: 412 },
     });
     // the same normalisation as an AI read → editor rows per VAT rate
     const R = fiskFinish(fiskAfterRead(r.data), '2026-10-12');
@@ -89,21 +89,21 @@ describe('fiscal report without AI', () => {
     const r = fiscalReportFromLines(FISK_DAILY);
     expect(r.why).toBe('');
     expect(r.data!.days).toMatchObject([
-      { date: '2026-09-01', z: '0101', gross: { А: 5900, Г: 1100 }, total: 7000, cash: 7000, receipts: 21 },
+      { date: '2026-09-01', z: '0101', gross: { А: 5900, В: 1100 }, total: 7000, cash: 7000, receipts: 21 },
       { date: '2026-09-02', z: '0102', gross: { А: 11800 }, total: 11800, cash: 6800, card: 5000, receipts: 30 },
     ]);
     expect(r.data).toMatchObject({ from: '2026-09-01', to: '2026-09-02', zFrom: '0101', zTo: '0102', totals: { total: 18800, card: 5000 } });
   });
 
   it('a printed rate overrides the default group mapping', () => {
-    const L = swap(FISK_PERIODIC, 'ДДВ Г 10.00%          500.00', 'ДДВ Г 5.00%           261.90');
+    const L = swap(FISK_PERIODIC, 'ДДВ В 10.00%          500.00', 'ДДВ В 5.00%           261.90');
     const r = fiscalReportFromLines(swap(L, 'ДДВ ИЗНОС          19 000.00', 'ДДВ ИЗНОС          18 761.90'));
     expect(r.why).toBe('');
-    expect(r.data!.groups!['Г']).toBe(5);
+    expect(r.data!.groups!['В']).toBe(5);
   });
 
   it('groups that do not add up / wrong VAT / payments ≠ total → not accepted with the reason', () => {
-    expect(fiscalReportFromLines(swap(FISK_PERIODIC, 'ПРОМЕТ В            1 000.00', 'ПРОМЕТ В            1 100.00')).why).toMatch(/Σ групи/);
+    expect(fiscalReportFromLines(swap(FISK_PERIODIC, 'ПРОМЕТ Г            1 000.00', 'ПРОМЕТ Г            1 100.00')).why).toMatch(/Σ групи/);
     expect(fiscalReportFromLines(swap(FISK_PERIODIC, 'ДДВ А 18.00%       18 000.00', 'ДДВ А 18.00%       17 000.00')).why).toMatch(/ДДВ А/);
     expect(fiscalReportFromLines(swap(FISK_PERIODIC, 'КАРТИЧКА           35 000.00', 'КАРТИЧКА           30 000.00')).why).toMatch(/плаќања/);
     expect(fiscalReportFromLines(['Некој текст', 'Вкупно 100,00']).ok).toBe(false);
