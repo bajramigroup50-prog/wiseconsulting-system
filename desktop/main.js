@@ -1,6 +1,7 @@
 // WISE CONSULTING desktop: a window on the server app. Data and updates stay on the server.
 const { app, BrowserWindow, Menu, shell, session } = require('electron');
 const { registerFiscal } = require('./fiscal');
+const { startUpdates } = require('./updater');
 
 const APP_URL = 'https://app.wiseconsulting.com.mk';
 const APP_HOST = new URL(APP_URL).host;
@@ -97,7 +98,7 @@ const clearAppCookies = () => session.defaultSession.clearStorageData({ storages
   .then(() => session.defaultSession.cookies.flushStore()).catch(() => {});
 
 // a second instance only hands over to the running one: it must not touch the shared cookies
-if (primary) app.whenReady().then(() => registerFiscal(sameApp)).then(clearAppCookies).then(createWindow);
+if (primary) app.whenReady().then(() => registerFiscal(sameApp)).then(clearAppCookies).then(createWindow).then(startUpdates);
 app.on('window-all-closed', () => app.quit());
 let cleared = false;
 app.on('before-quit', (e) => {
