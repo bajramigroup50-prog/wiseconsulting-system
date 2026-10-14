@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { aiBlockedMsg, aiProviderError, AI_ERR_BLOCKING } from '@wise/core/ai/errors';
 import { ROBOT_AI_MSG } from '@wise/core/robot';
 import { todaySkopje } from '@wise/core/office';
-import { getAiSettings, noteAiFailure, robotFinish, robotFirmAccess, robotHistory, robotLinkProposals, robotMessages, type Tx } from '@wise/db';
+import { getAiSettings, noteAiFailure, robotFinish, robotFirmAccess, robotHistory, robotIsOwner, robotLinkProposals, robotMessages, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { AiUnavailableError, aiConfigured } from '../ai/client';
 import { AiBudgetError } from '../ai/budget';
@@ -31,7 +31,8 @@ export async function runRobotAsk(db: Tx, id: string, today = todaySkopje()): Pr
     if (S.lastFail) return await fail(aiBlockedMsg(S.lastFail.code, S.lastFail.at), S.lastFail.code);
     if (!aiConfigured()) return await fail(ROBOT_AI_MSG.nokey, 'nokey');
     const history = await robotHistory(db, m.userId, m.firmId, q.createdAt);
-    const r = await runRobotAgent({ db, ctx: { db, firm, year: m.year, userId: m.userId, today }, question: q.text, history, deep: m.deep, refId: id });
+    const owner = await robotIsOwner(db, m.userId);
+    const r = await runRobotAgent({ db, ctx: { db, firm, year: m.year, userId: m.userId, today, owner }, question: q.text, history, deep: m.deep, refId: id });
     await robotLinkProposals(db, firm.id, r.proposals, id);
     await robotFinish(db, id, { text: r.text, tools: r.tools, sources: r.sources, unverified: r.unverified, model: r.model, costUsd: r.costUsd });
   } catch (e) {

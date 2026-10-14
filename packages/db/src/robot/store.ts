@@ -5,7 +5,7 @@ import { and, asc, desc, eq, inArray, lt } from 'drizzle-orm';
 import { firmAllowed, type Role } from '@wise/core';
 import { routeQuestion } from '@wise/core/robot';
 import type { Tx } from '../audit';
-import { firms, robotMessages, robotProposals, userFirms, users, type Firm, type RobotMessage, type RobotProposal } from '../schema/index';
+import { appSettings, firms, robotMessages, robotProposals, userFirms, users, type Firm, type RobotMessage, type RobotProposal } from '../schema/index';
 import { runRobotTool, type RobotCtx, type ToolOut } from './tools';
 
 /**
@@ -19,6 +19,24 @@ export async function robotFirmAccess(tx: Tx, userId: string, firmId: string): P
   if (!f || !f.active) return null;
   const assigned = u.allFirms ? ['*'] : (await tx.select({ f: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, userId))).map((r) => r.f);
   return firmAllowed({ id: u.id, role: u.role as Role, firms: assigned }, f.id, f.ownerId) ? f : null;
+}
+
+/**
+ * Is this user the office owner? Same rule as the web's `lib/office-owner.ts` (`officeOwner`): the admin set as owner
+ * (`app_settings.officeOwner`), else the „Мој извештај“ claim (`mojIzvOwner`), else the first active admin.
+ * Owner-only robot data (fees, the accounting-service contract deadline) depends on it.
+ */
+export async function robotIsOwner(tx: Tx, userId: string): Promise<boolean> {
+  const admin = async (id: unknown) => {
+    if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+    const [u] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, id), eq(users.active, true), eq(users.role, 'admin'))).limit(1);
+    return u?.id ?? null;
+  };
+  const S = await tx.select({ k: appSettings.key, v: appSettings.value }).from(appSettings).where(inArray(appSettings.key, ['officeOwner', 'mojIzvOwner']));
+  const val = (k: string) => (S.find((r) => r.k === k)?.v as { id?: unknown } | undefined)?.id;
+  const owner = (await admin(val('officeOwner'))) ?? (await admin(val('mojIzvOwner')))
+    ?? (await tx.select({ id: users.id }).from(users).where(and(eq(users.active, true), eq(users.role, 'admin'))).orderBy(asc(users.createdAt), asc(users.id)).limit(1))[0]?.id ?? null;
+  return owner === userId;
 }
 
 /** Visible conversation of a user in a firm (oldest first). */

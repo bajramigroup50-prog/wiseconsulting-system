@@ -9,15 +9,23 @@
  * READ-ONLY: the `propose_*` tools only insert a draft into `robot_proposals`; the human confirms it in the web app,
  * which then calls the module's existing server action.
  */
-import { and, asc, between, desc, eq, ilike, inArray, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
-import { accountCard, periodDue, periodOf, periodsOfYear, trialBalance, type BbLevel, type LedgerLine } from '@wise/core';
+import { and, asc, between, desc, eq, ilike, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
+import { accountCard, periodOf, trialBalance, type BbLevel, type LedgerLine } from '@wise/core';
 import { iosStatement, partnerKontoCards } from '@wise/core/finance';
 import { lagerRows, lagerSummary } from '@wise/core/stock-books';
-import { complianceRows, ANNUAL_ACCOUNT_DAY, CASH_LIMIT_EUR, CASH_LIMIT_MONTH, CASH_LIMIT_SINGLE, CIT_ADVANCE_DAY, INVOICE_ISSUE_WORKDAYS, MIN_WAGE_LAW, MPIN_DAY, RETENTION, VAT_FILING_DAYS, VAT_MONTHLY_THRESHOLD, VAT_RATE_PERIODS, VAT_REGISTRATION_THRESHOLD } from '@wise/core/compliance';
+import { complianceRows, CASH_LIMIT_EUR, CASH_LIMIT_MONTH, CASH_LIMIT_SINGLE, CIT_ADVANCE_DAY, INVOICE_ISSUE_WORKDAYS, MIN_WAGE_LAW, MPIN_DAY, RETENTION, VAT_FILING_DAYS, VAT_MONTHLY_THRESHOLD, VAT_RATE_PERIODS, VAT_REGISTRATION_THRESHOLD } from '@wise/core/compliance';
 import { LR_LAWS, LR_RULES, type LrLaw } from '@wise/core/law';
 import { INSP } from '@wise/core/office/inspection';
 import { addDays, alCompute, cashDays, dmy, fmtMk, type FirmSnapshot } from '@wise/core/office';
 import { checkJournalProposal, normQ } from '@wise/core/robot';
+import { fxRate, fxRateSource } from '@wise/core';
+import { LAW_BY_KEY } from '@wise/core/law';
+import { rokGenerate, ROK_SRC } from '@wise/core/office/rokovi';
+import { loadFxSources } from '../bank/context';
+import { computeClientReport } from '../client-report';
+import { feeContext, feeRows } from '../fee-invoices';
+import { searchLawArticles } from '../law-search';
+import { loadRokFirms } from '../rokovi';
 import type { Tx } from '../audit';
 import { complianceFacts, kontrolaDue } from '../compliance';
 import { effectiveChart, loadLedgerLines } from '../ledger-queries';
@@ -26,8 +34,8 @@ import { buildFirmSnapshot } from '../office';
 import { loadStockContext } from '../stock-service';
 import { computeVatPeriod, firmVatPeriodKind } from '../vat-service';
 import {
-  bankStatements, employees, firmDeadlines, invoices, journalLines, journals, kontroli, lawChanges, partners, payrollRuns, purchases,
-  robotProposals, vatPeriods, type Firm, type RobotProposalKind, type RobotSource,
+  bankStatements, invoices, journalLines, journals, kontroli, lawChanges, partners, payrollRuns, purchases,
+  robotProposals, rokovi, vatPeriods, type Firm, type RobotProposalKind, type RobotSource,
 } from '../schema/index';
 
 
@@ -39,6 +47,8 @@ export interface RobotCtx {
   year: number;
   userId: string;
   today: string;
+  /** The office owner (owner-only data: accounting contracts, fees). From the authenticated user, never from the model. */
+  owner?: boolean;
 }
 
 export interface ToolOut {
@@ -292,62 +302,43 @@ const stockSummary: RobotToolDef = {
 
 /* ---------------- deadlines ---------------- */
 
-interface Dl { date: string; what: string; law?: string; href: string; overdue?: boolean }
+interface Dl { date: string; what: string; law?: string; href: string; done?: boolean; auto?: boolean; overdue?: boolean; verified?: boolean }
 
 const deadlinesTool: RobotToolDef = {
   name: 'deadlines',
-  description: 'Даночни и законски рокови за оваа фирма во наредните N дена (ДДВ-04, МПИН, аконтација на данок на добивка, годишна сметка, рокови од досието, рокови по контроли) и пропуштени рокови.',
+  description: 'Даночни и законски рокови за оваа фирма од „📅 Календар на рокови“ (ДДВ-04, МПИН, аконтации, годишна сметка/ДБ, М1/М2, документи што истекуваат, рокови на фирмата) во наредните N дена, со состојба завршено/отворено и пропуштени рокови; плус рокови за правен лек по контроли.',
   input_schema: { type: 'object', properties: { days: { type: 'number', description: 'Број на денови напред (1–120, стандардно 14)' } } },
   async run(c, i) {
     const days = Math.max(1, Math.min(120, Math.round(Number(i.days) || 14)));
-    const from = c.today, to = addDays(c.today, days);
-    const inW = (d: string) => d >= from && d <= to;
+    const from = c.today, to = addDays(c.today, days), back = addDays(c.today, -60);
     const out: Dl[] = [];
-    const st = (c.firm.settings ?? {}) as { akontDD?: number | string };
-    // VAT returns
-    if (c.firm.vatRegistered) {
-      const kind = firmVatPeriodKind(c.firm);
-      const y0 = Number(from.slice(0, 4));
-      const P = [...periodsOfYear(y0 - 1, kind), ...periodsOfYear(y0, kind), ...periodsOfYear(y0 + 1, kind)];
-      const closed = new Set((await c.db.select({ p: vatPeriods.period }).from(vatPeriods).where(and(eq(vatPeriods.firmId, c.firm.id), eq(vatPeriods.status, 'closed')))).map((r) => r.p));
-      for (const p of P) {
-        const due = periodDue(p);
-        if (closed.has(p)) continue;
-        if (inW(due)) out.push({ date: due, what: `ДДВ-04 за ${p} – поднесување и плаќање`, law: VAT_FILING_DAYS.law, href: '/ddv' + qs({ p }) });
-        else if (due < from && due >= addDays(from, -90)) out.push({ date: due, what: `ДДВ-04 за ${p} не е затворена во програмата (рокот поминал)`, law: VAT_FILING_DAYS.law, href: '/ddv' + qs({ p }), overdue: true });
-      }
+    // the deadline calendar: generated for this firm (read-only, same generator as the calendar) + the stored done / auto state
+    const F = await loadRokFirms(c.db, { from: back, to, firmIds: [c.firm.id] });
+    const gen = F.filter((f) => f.id === c.firm.id).flatMap((f) => rokGenerate(f, back, to));
+    const stored = new Map((await c.db.select({ key: rokovi.key, done: rokovi.done, auto: rokovi.auto }).from(rokovi)
+      .where(and(eq(rokovi.firmId, c.firm.id), between(rokovi.due, back, to), eq(rokovi.gone, false)))).map((r) => [r.key, r]));
+    for (const r of gen) {
+      // the accounting-service contract is owner-only
+      if (r.type === 'kdog' && !c.owner) continue;
+      const st = stored.get(r.key);
+      const done = st ? st.done : !!r.done;
+      if ((r.due < from && done) || r.due > to) continue;
+      out.push({ date: r.due, what: r.title, law: ROK_SRC[r.type], href: '/' + r.link, done, auto: !!st?.auto, overdue: r.due < from && !done, verified: r.verified });
     }
-    // monthly: МПИН (if the firm has employees), profit-tax advance (if set on the firm)
-    const [emp] = await c.db.select({ n: sql<number>`count(*)::int` }).from(employees).where(and(eq(employees.firmId, c.firm.id), eq(employees.active, true)));
-    const months: string[] = [];
-    for (let d = from.slice(0, 7); d <= to.slice(0, 7); d = addDays(`${d}-28`, 7).slice(0, 7)) months.push(d);
-    for (const m of months) {
-      const mp = `${m}-${String(MPIN_DAY.value).padStart(2, '0')}`;
-      if ((emp?.n ?? 0) > 0 && inW(mp)) out.push({ date: mp, what: 'МПИН за претходниот месец', law: MPIN_DAY.law, href: '/plati' });
-      const ak = `${m}-${String(CIT_ADVANCE_DAY.value).padStart(2, '0')}`;
-      if (Number(st.akontDD) > 0 && inW(ak)) out.push({ date: ak, what: `Аконтација на данок на добивка за претходниот месец (${den(Number(st.akontDD))} според поставките на фирмата)`, law: CIT_ADVANCE_DAY.law, href: '/ppNal' });
-    }
-    for (const y of [Number(from.slice(0, 4)), Number(to.slice(0, 4))]) {
-      const d = `${y}-${ANNUAL_ACCOUNT_DAY}`;
-      if (inW(d) && !out.some((x) => x.date === d && x.what.startsWith('Годишна'))) out.push({ date: d, what: `Годишна сметка за ${y - 1} (електронски)`, law: 'Закон за трговските друштва; Централен регистар', href: '/zsRok' });
-    }
-    // firm deadlines from the dossier
-    const FD = await c.db.select().from(firmDeadlines).where(and(eq(firmDeadlines.firmId, c.firm.id), eq(firmDeadlines.done, false), lte(firmDeadlines.due, to))).orderBy(asc(firmDeadlines.due)).limit(30);
-    for (const d of FD) out.push({ date: d.due, what: d.title, href: '/dosie', overdue: d.due < from });
-    // inspection remedies
+    // not in the calendar: remedy deadlines of inspection records / decisions
     const K = await c.db.select().from(kontroli).where(and(eq(kontroli.firmId, c.firm.id), ne(kontroli.status, 'closed'))).limit(20);
     for (const k of K) {
       const due = kontrolaDue(k);
-      if (due && due <= to) out.push({ date: due, what: `Рок за правен лек по контрола (${k.auth.toUpperCase()} ${k.docNo ?? ''})`.trim(), href: '/kontroli', overdue: due < from });
+      if (due && due <= to && due >= back) out.push({ date: due, what: `Рок за правен лек по контрола (${k.auth.toUpperCase()} ${k.docNo ?? ''})`.trim(), href: '/kontroli', overdue: due < from });
     }
     out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    const fut = out.filter((x) => !x.overdue), late = out.filter((x) => x.overdue);
-    const line = (x: Dl) => `${dmy(x.date)} – ${x.what}`;
+    const fut = out.filter((x) => x.date >= from), late = out.filter((x) => x.overdue);
+    const line = (x: Dl) => `${dmy(x.date)} – ${x.what}${x.done ? (x.auto ? ' ✓ завршено (автоматски)' : ' ✓ завршено') : ''}${x.verified === false ? ' (рокот е за проверка)' : ''}`;
     return {
       ok: true,
-      summary: `${fut.length ? `Рокови од ${dmy(from)} до ${dmy(to)}: ${fut.map(line).join('; ')}.` : `Нема рокови од ${dmy(from)} до ${dmy(to)}.`}${late.length ? ` ⚠ Пропуштени/отворени: ${late.map(line).join('; ')}.` : ''}`,
+      summary: `${fut.length ? `Рокови од ${dmy(from)} до ${dmy(to)}: ${fut.map(line).join('; ')}.` : `Нема рокови од ${dmy(from)} до ${dmy(to)}.`}${late.length ? ` ⚠ Пропуштени (не се означени како завршени): ${late.map(line).join('; ')}.` : ''}`,
       data: { from, to, deadlines: out },
-      sources: [...new Map(out.map((x) => [x.href, src(x.href === '/dosie' ? 'Досие – рокови' : x.href.startsWith('/ddv') ? 'ДДВ-04' : x.href === '/plati' ? 'Плата / МПИН' : x.href === '/kontroli' ? 'Контроли' : x.href, x.href, 'deadlines')])).values()],
+      sources: [src('Календар на рокови', '/rokovi', 'deadlines'), ...(out.some((x) => x.href === '/kontroli') ? [src('Контроли', '/kontroli', 'deadlines')] : [])],
     };
   },
 };
@@ -464,23 +455,46 @@ export function lawScore(D: readonly LawDoc[], q: string): (LawDoc & { score: nu
 
 const lawSearch: RobotToolDef = {
   name: 'law_search',
-  description: 'Пребарување во законите имплементирани во програмата (ЗДДВ, ЗДД, ЗПДД, ЗДП, готовински плаќања, архива, инспекциски обврски) и во законските промени што ги собира роботот. Враќа член/ознака (ref) што МОРА да се цитира.',
-  input_schema: { type: 'object', properties: { q: { type: 'string', description: 'Прашање или клучни зборови (пр. „репрезентација ДДВ“, „чл. 51“)' } }, required: ['q'] },
+  description: 'Пребарување во законите: (1) целосните текстови на законите зачувани во програмата (член, текст и датум на верзијата важечка на денес или на дадениот датум) и (2) правилата/параметрите имплементирани во програмата (ЗДДВ, ЗДД, ЗПДД, ЗДП, готовински плаќања, архива, инспекциски обврски) и законските промени. Ознаката на членот (ref) и датумот на верзијата МОРА да се цитираат.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      q: { type: 'string', description: 'Прашање или клучни зборови (пр. „репрезентација ДДВ“, „чл. 51 ЗДДВ“)' },
+      date: { type: 'string', description: 'Верзија на законот важечка на овој датум ГГГГ-ММ-ДД (стандардно денес)' },
+    },
+    required: ['q'],
+  },
   async run(c, i) {
     const q = str(i.q, 300);
     if (!q) return { ok: false, summary: 'Внесете прашање за законот.', sources: [] };
+    const date = ISO.test(str(i.date, 10)) ? str(i.date, 10) : c.today;
+    // full texts: the stored consolidated version valid on `date`
+    const A = await searchLawArticles(c.db, q, { date, limit: 5 }).catch(() => []);
+    const art = A.map((h) => ({
+      ref: `${LAW_BY_KEY[h.law]?.abbr ?? h.law.toUpperCase()} чл. ${h.no}`, heading: h.heading, version: h.asOf ?? null, effectiveFrom: h.effectiveFrom ?? null,
+      sourceUrl: h.sourceUrl, text: h.body.length > 1800 ? h.body.slice(0, 1800) + '…' : h.body,
+    }));
     const hits = lawScore(lawCorpus(), q).slice(0, 6);
     // law changes found by the daily law robot (text search)
     const words = normQ(q).split(/\s+/).filter((w) => w.length >= 4 && !STOP.has(w)).slice(0, 5);
     const ch = words.length ? await c.db.select({ title: lawChanges.title, what: lawChanges.what, date: lawChanges.date, urls: lawChanges.urls, verified: lawChanges.verified }).from(lawChanges)
       .where(or(...words.map((w) => or(ilike(lawChanges.title, like(stem(w))), ilike(lawChanges.what, like(stem(w)))))))
       .orderBy(desc(lawChanges.date)).limit(4) : [];
-    if (!hits.length && !ch.length) return { ok: true, summary: `Во имплементираните закони не е пронајдено ништо за „${q}“.`, data: { results: [] }, sources: [src('Законска усогласеност', '/zakon', 'law_search')] };
+    if (!art.length && !hits.length && !ch.length) return { ok: true, summary: `Во законите во програмата не е пронајдено ништо за „${q}“.`, data: { articles: [], results: [] }, sources: [src('Правен асистент', '/lawAi', 'law_search')] };
+    const S: RobotSource[] = [];
+    if (art.length) S.push(src('Правен асистент – текстови на законите', '/lawAi', 'law_search'));
+    for (const h of hits) if (!S.some((x) => x.href === h.href)) S.push(src(h.href === '/lawrep' ? 'Даночен преглед (според законите)' : h.href === '/ujpZakoni' ? 'Закони на УЈП' : 'Законска усогласеност', h.href, 'law_search'));
+    if (ch.length) S.push(src('Законски промени', '/zakoni', 'law_search'));
+    const short = (t: string) => { const x = t.replace(/\s+/g, ' '); return x.length > 220 ? x.slice(0, 220) + '…' : x; };
     return {
       ok: true,
-      summary: [...hits.map((h) => `[${h.ref}] ${h.title}`), ...ch.map((x) => `[Законска промена ${x.date ?? ''}${x.verified ? '' : ', да се потврди'}] ${x.title}`)].join('\n'),
-      data: { results: hits.map((h) => ({ ref: h.ref, title: h.title, text: h.text, url: h.url ?? null })), changes: ch },
-      sources: [...new Map([...hits.map((h) => [h.href, src(h.href === '/lawrep' ? 'Даночен преглед (според законите)' : h.href === '/ujpZakoni' ? 'Закони на УЈП' : 'Законска усогласеност', h.href, 'law_search')] as const), ...(ch.length ? [['/zakoni', src('Законски промени', '/zakoni', 'law_search')] as const] : [])]).values()],
+      summary: [
+        ...art.map((a) => `[${a.ref}, верзија ${a.version ? dmy(a.version) : 'без датум'}]${a.heading ? ` ${a.heading}` : ''}: ${short(a.text)}`),
+        ...hits.map((h) => `[${h.ref}] ${h.title}`),
+        ...ch.map((x) => `[Законска промена ${x.date ?? ''}${x.verified ? '' : ', да се потврди'}] ${x.title}`),
+      ].join('\n'),
+      data: { articles: art, results: hits.map((h) => ({ ref: h.ref, title: h.title, text: h.text, url: h.url ?? null })), changes: ch },
+      sources: S,
     };
   },
 };
@@ -547,6 +561,69 @@ const findDocuments: RobotToolDef = {
       summary: n ? Object.entries(out).filter(([, x]) => x.length).map(([k, x]) => `${label[k]}: ${x.length}${x.length === 10 ? '+' : ''}`).join(', ') + '.' : 'Ништо не е пронајдено.',
       data: out,
       sources: S,
+    };
+  },
+};
+
+/* ---------------- fx, client report, fees ---------------- */
+
+const fxRateTool: RobotToolDef = {
+  name: 'fx_rate',
+  description: 'Курс на валута на датум од курсната листа во програмата (среден курс НБРМ): најновиот курс на или пред датумот, и од каде е курсот.',
+  input_schema: { type: 'object', properties: { currency: { type: 'string', description: 'EUR, USD, CHF…' }, date: { type: 'string', description: 'ГГГГ-ММ-ДД (стандардно денес)' } }, required: ['currency'] },
+  async run(c, i) {
+    const cur = str(i.currency, 3).toUpperCase();
+    if (!/^[A-Z]{3}$/.test(cur)) return { ok: false, summary: 'Внесете ознака на валута (пр. EUR).', sources: [] };
+    const date = ISO.test(str(i.date, 10)) ? str(i.date, 10) : c.today;
+    const S = await loadFxSources(c.db, c.firm.id);
+    const rate = fxRate(cur, date, S);
+    if (!rate) return { ok: false, summary: `Нема курс за ${cur} на ${dmy(date)}.`, sources: [src('Курсна листа', '/kursna', 'fx_rate')] };
+    const from = fxRateSource(cur, date, S);
+    const listed = /^курсна листа/.test(from);
+    return {
+      ok: true,
+      summary: `Курс ${cur} на ${dmy(date)}: ${rate} ден. (извор: ${from}${listed ? '' : ' – ⚠ не е од курсната листа'}).`,
+      data: { currency: cur, date, rate, source: from },
+      sources: [src('Курсна листа', '/kursna', 'fx_rate')],
+    };
+  },
+};
+
+const clientReportTool: RobotToolDef = {
+  name: 'client_report',
+  description: 'Бројките од месечниот извештај за клиентот за месец (ГГГГ-ММ): приходи, расходи, резултат, пари, побарувања (вкупно и над 60 дена), обврски (вкупно и доспеани), ДДВ и промените во однос на претходниот месец.',
+  input_schema: { type: 'object', properties: { month: { type: 'string', description: 'ГГГГ-ММ (стандардно претходниот месец)' } } },
+  async run(c, i) {
+    let m = str(i.month, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) m = addDays(`${c.today.slice(0, 7)}-01`, -1).slice(0, 7);
+    if (Number(m.slice(0, 4)) !== c.year) return { ok: false, summary: `Месецот ${m} не е во работната година ${c.year}.`, sources: [] };
+    const R = await computeClientReport(c.db, c.firm.id, m);
+    const vat = R.vat ? `; ДДВ ${R.vat.period}: ${R.vat.amount >= 0 ? 'за плаќање' : 'поврат'} ${den(Math.abs(R.vat.amount))}, рок ${dmy(R.vat.due)}${R.vat.partial ? ' (дел од периодот)' : ''}` : '';
+    return {
+      ok: true,
+      summary: `Месечен извештај ${m} (${dmy(R.from)}–${dmy(R.to)}): приходи ${den(R.rev)}, расходи ${den(R.exp)}, резултат ${den(R.res)}, пари ${den(R.cash)}; побарувања ${den(R.recv.total)} (над 60 дена ${den(R.recv.over60)}, ${R.recv.n60} документи); обврски ${den(R.pay.total)} (доспеани ${den(R.pay.overdue)})${vat}.`,
+      data: R,
+      sources: [src('Месечен извештај', '/mesIzv', 'client_report')],
+    };
+  },
+};
+
+const feeStatus: RobotToolDef = {
+  name: 'fee_status',
+  description: 'САМО ЗА СОПСТВЕНИКОТ НА КАНЦЕЛАРИЈАТА: неплатени фактури за сметководствен надомест издадени на оваа фирма.',
+  input_schema: { type: 'object', properties: {} },
+  async run(c) {
+    // owner-only: nothing at all for anybody else
+    if (!c.owner) return { ok: false, summary: 'Само за сопственикот на канцеларијата.', sources: [] };
+    const X = await feeContext(c.db);
+    if (!X) return { ok: true, summary: 'Надоместите не се поставени (нема фирма на канцеларијата).', sources: [] };
+    const R = (await feeRows(c.db, { offId: X.off.id, limit: 2000 })).filter((r) => r.clientFirmId === c.firm.id && r.remaining > 0);
+    const tot = R.reduce((s, r) => s + r.remaining, 0) / 100;
+    return {
+      ok: true,
+      summary: R.length ? `Неплатени надоместоци од ${c.firm.name}: ${R.length} фактури, вкупно ${den(tot)}: ${R.slice(0, 8).map((r) => `${r.period} бр. ${r.number ?? '—'} (рок ${dmy(r.due)}, останато ${den(r.remaining / 100)})`).join('; ')}.` : `${c.firm.name} нема неплатени фактури за надомест.`,
+      data: { unpaid: R.map((r) => ({ period: r.period, number: r.number, due: r.due, gross: r.gross / 100, paid: r.paid / 100, remaining: r.remaining / 100, reminders: r.reminders })), total: tot },
+      sources: [src('Фактури за надомест', '/kdfakturi', 'fee_status')],
     };
   },
 };
@@ -680,7 +757,7 @@ const proposeReminder: RobotToolDef = {
 
 export const ROBOT_TOOLS: readonly RobotToolDef[] = [
   accountBalance, trialBalanceTool, partnerCard, cashBank, vatSummary, payrollSummary, stockSummary, deadlinesTool, healthCheck,
-  lawSearch, findDocuments, proposeJournal, proposeDunning, proposeTask, proposeReminder,
+  lawSearch, findDocuments, fxRateTool, clientReportTool, feeStatus, proposeJournal, proposeDunning, proposeTask, proposeReminder,
 ];
 
 export const robotTool = (name: string): RobotToolDef | undefined => ROBOT_TOOLS.find((t) => t.name === name);

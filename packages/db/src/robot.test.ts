@@ -3,7 +3,9 @@
  * router answers, read-only tools on real books, and the journal draft (balanced + konto in the chart, else refused).
  */
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import { storeLawText } from './law-search';
+import { syncRokovi } from './rokovi';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
@@ -79,9 +81,19 @@ describe('free router (no AI)', () => {
     const d = await robotFreeAnswer(ctxA(), 'рокови оваа недела');
     expect(d?.tool).toBe('deadlines');
     expect(d!.out.data).toMatchObject({ from: '2026-10-14', to: '2026-10-21' });
-    // ДДВ-04 for Т3 is due 25.10 → outside one week, inside 14 days
+    // from the deadline calendar: ДДВ-04 for Т3 is due 26.10 (25.10.2026 is a Sunday) → inside 14 days, link to /rokovi
     const d14 = await runRobotTool(ctxA(), 'deadlines', { days: 14 });
-    expect(d14.summary).toContain('25.10.2026 – ДДВ-04 за 2026-Т3');
+    const D = (d14.data as { deadlines: { date: string; href: string; done?: boolean; what: string }[] }).deadlines;
+    const ddv = D.find((x) => x.href === '/ddv' && x.date >= '2026-10-14');
+    expect(ddv?.done).toBe(false);
+    expect(d14.sources[0]!.href).toBe('/rokovi');
+    // the done state comes from the stored calendar row
+    const dd = await runRobotTool(ctxA(), 'deadlines', { days: 14 });
+    expect(dd.summary).not.toContain('✓ завршено');
+    await syncRokovi(db, { from: '2026-08-01', to: '2026-12-31', firmIds: [A.id] });
+    await pg.update(schema.rokovi).set({ done: true }).where(and(eq(schema.rokovi.firmId, A.id), eq(schema.rokovi.type, 'ddv'), eq(schema.rokovi.due, ddv!.date)));
+    const d2 = (await runRobotTool(ctxA(), 'deadlines', { days: 14 })).data as { deadlines: { date: string; href: string; done?: boolean }[] };
+    expect(d2.deadlines.find((x) => x.href === '/ddv' && x.date === ddv!.date)?.done).toBe(true);
     const h = await robotFreeAnswer(ctxA(), 'Провери ја фирмата');
     expect(h?.tool).toBe('health_check');
     expect(h!.out.ok).toBe(true);
@@ -102,6 +114,27 @@ describe('free router (no AI)', () => {
     expect(r.summary).toContain('ЗДДВ чл. 51');
     const g = await runRobotTool(ctxA(), 'law_search', { q: 'готовинско плаќање над 1.000 €' });
     expect(g.summary).toMatch(/чл\. 58/);
+  });
+  it('law search quotes the full text with the article and the version date', async () => {
+    await storeLawText(db, { law: 'zddv', title: 'ЗДДВ (30.12.2025)', asOf: '2025-12-30', text: 'Член 1\nОвој закон го уредува данокот на додадена вредност.\n\nЧлен 53\nДаночниот обврзник е должен да издаде фактура за секој промет на добра и услуги.' });
+    const r = await runRobotTool(ctxA(), 'law_search', { q: 'издаде фактура промет' });
+    expect(r.summary).toContain('[ЗДДВ чл. 53, верзија 30.12.2025]');
+    expect((r.data as { articles: { ref: string; version: string }[] }).articles[0]).toMatchObject({ ref: 'ЗДДВ чл. 53', version: '2025-12-30' });
+    expect(r.sources.map((s) => s.href)).toContain('/lawAi');
+  });
+  it('fx rate from the rate list, client report numbers, fees only for the owner', async () => {
+    await pg.insert(schema.fxRates).values({ date: '2026-10-13', cur: 'EUR', rate: '61.495', source: 'nbrm' });
+    const fx = await runRobotTool(ctxA(), 'fx_rate', { currency: 'eur', date: '2026-10-14' });
+    expect(fx.data).toMatchObject({ currency: 'EUR', rate: 61.495 });
+    expect(fx.summary).toContain('курсна листа 13.10.2026');
+    const cr = await runRobotTool(ctxA(), 'client_report', { month: '2026-03' });
+    expect(cr.ok).toBe(true);
+    expect(cr.data).toMatchObject({ period: '2026-03', rev: 1300 });
+    const fee = await runRobotTool(ctxA(), 'fee_status', {});
+    expect(fee.ok).toBe(false);
+    expect(fee.data).toBeUndefined();
+    const own = await runRobotTool({ ...ctxA(), owner: true }, 'fee_status', {});
+    expect(own.ok).toBe(true);
   });
 });
 

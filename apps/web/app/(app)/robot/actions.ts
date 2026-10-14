@@ -90,7 +90,7 @@ export async function robotAsk(text0: string, deep = false): Promise<{ error?: s
     const { answerId } = await db().transaction((tx) => robotAskRows(tx, { userId: u.id, firmId: firm.id, year, text, deep: !!deep }));
     const blocked = await aiBlocked(firm.id);
     if (!deep) {
-      const c = { db: db(), firm, year, userId: u.id, today: today() };
+      const c = { db: db(), firm, year, userId: u.id, today: today(), owner: await ownerOf(u) };
       const free = await robotFreeAnswer(c, text).catch(() => null);
       // a clear deterministic answer → no AI; an ambiguous lookup goes to the agent when AI is available
       if (free && (free.out.ok || blocked)) {
