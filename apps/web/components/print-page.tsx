@@ -6,6 +6,7 @@
  */
 import { useEffect } from 'react';
 import { PdfButton } from './pdf-button';
+import { SharePdf } from './share-pdf';
 
 export function PrintPage({ children, title, auto, onPrinted, landscape }: {
   children: React.ReactNode; title: string; auto?: boolean; onPrinted?: () => Promise<unknown>; landscape?: boolean;
@@ -19,6 +20,7 @@ export function PrintPage({ children, title, auto, onPrinted, landscape }: {
       <div className="noprint" style={{ padding: 10, display: 'flex', gap: 8, background: 'var(--soft)', borderBottom: '1px solid var(--line)' }}>
         <button className="btn pri" type="button" onClick={async () => { window.print(); if (onPrinted) await onPrinted(); }}>🖨 Печати / PDF</button>
         <PdfButton title={title} landscape={landscape} />
+        <SharePdf title={title} />
         <button className="btn" type="button" onClick={() => window.close()}>Затвори</button>
       </div>
       {landscape && <style>{'@page{size:A4 landscape}'}</style>}
