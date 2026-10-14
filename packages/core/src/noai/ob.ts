@@ -16,6 +16,7 @@ import { parseOpeningSheet } from '../ledger';
 import { carryNotReason, DEFAULT_CARRY_STAT_PREFIXES, carryStatAccount } from '../yearend/carry';
 import { lineText, pdfTable, type PdfLine } from './pdf-lines';
 import { tbAnalitika, tbaOpeningDate, type TbaResult } from './tb-analitika';
+import { finNalogFromLines } from './fin-nalog';
 
 export const isObHeader = (cells: string[]): boolean => {
   const h = cells.join(' | ').toLowerCase();
@@ -73,6 +74,9 @@ export function obFromTba(R: TbaResult, stat: readonly string[] = DEFAULT_CARRY_
 export function obFromPdf(L: readonly PdfLine[]): ObPdfResult | null {
   const A = tbAnalitika(L);
   if (A) return obFromTba(A);
+  // the old program's „Финансов налог“ (opening journal): records by row number, totals line as the control
+  const F = finNalogFromLines(L);
+  if (F) return { rows: F.rows, totals: [], grand: F.sum, balanced: F.balanced, warnings: F.balanced ? [] : [F.printed ? `Збирот на редовите (${F.sum[0].toFixed(2)} / ${F.sum[1].toFixed(2)}) не е еднаков на отпечатениот (${F.printed[0].toFixed(2)} / ${F.printed[1].toFixed(2)}).` : 'Должи ≠ Побарува.'] };
   const T = pdfTable(L, isObHeader);
   if (!T) return null;
   // the lines above the table go along: when they repeat on the next pages (firm, title, „Страна 2“) they are skipped

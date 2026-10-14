@@ -31,7 +31,14 @@ let browser: Promise<Browser> | undefined;
 function getBrowser(): Promise<Browser> {
   const exe = chromiumPath();
   if (!exe) throw new Error('Chromium not found: set CHROMIUM_PATH (the worker Docker image installs /usr/bin/chromium).');
-  browser ??= chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--disable-dev-shm-usage', '--font-render-hinting=none'] })
+  // the worker user has no home directory: Chromium's crashpad handler then dies („--database is required“) and the
+  // browser closes at once. A writable HOME / XDG dir for its profile, config and crash database keeps it alive.
+  const dir = process.env.CHROMIUM_HOME || '/tmp/wise-chromium';
+  browser ??= chromium.launch({
+    executablePath: exe,
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--font-render-hinting=none', '--disable-crash-reporter', '--disable-breakpad'],
+    env: { ...process.env, HOME: dir, XDG_CONFIG_HOME: dir + '/config', XDG_CACHE_HOME: dir + '/cache' },
+  })
     .catch((e) => { browser = undefined; throw e; });
   return browser;
 }

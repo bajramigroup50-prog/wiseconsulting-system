@@ -7,6 +7,7 @@
 import { revalidatePath } from 'next/cache';
 import { convPresetClean, type ConvPreset } from '@wise/core/convert/index';
 import { pdfAutoGrid, pdfLines } from '@wise/core/noai/pdf-lines';
+import { finNalogFromLines, finNalogGrid } from '@wise/core/noai/fin-nalog';
 import { bankPdfGrid } from '@wise/core/noai/bank-grid';
 import { audit, getConvPresets, putConvPresets } from '@wise/db';
 import { Forbidden, requireUser } from '@/lib/auth';
@@ -33,6 +34,9 @@ export async function readPdfGrid(form: FormData): Promise<{ grid?: string[][]; 
     const items = await pdfTextItems(new Uint8Array(await f.arrayBuffer()));
     const L = pdfLines(items);
     if (!L.length) return { error: 'PDF-от нема текст (скениран документ / слика) – без AI не може да се прочита. Побарајте Excel/CSV/XML од програмата или банката.' };
+    // the old program's „Финансов налог“ (e.g. the opening journal): one clean row per record, opening-balance headings
+    const F = finNalogFromLines(L);
+    if (F) return { grid: finNalogGrid(F) };
     const B = bankPdfGrid(items);
     return { grid: pdfAutoGrid(L), ...(B ? { bank: B.grid } : {}) };
   } catch (e) {

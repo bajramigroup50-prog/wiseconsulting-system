@@ -28,7 +28,7 @@ CMD ["node", "apps/web/server.js"]
 FROM build AS worker
 # Server-side PDF (apps/worker/src/pdf): Debian's Chromium driven by playwright-core (no browser download),
 # plus DejaVu/Liberation fonts for Cyrillic. Adds ~250 MB to the worker image only; the web image is unchanged.
-ENV NODE_ENV=production CHROMIUM_PATH=/usr/bin/chromium
+ENV NODE_ENV=production CHROMIUM_PATH=/usr/bin/chromium CHROMIUM_HOME=/tmp/wise-chromium
 RUN apt-get update \
  && apt-get install -y --no-install-recommends chromium fonts-dejavu-core fonts-liberation \
  && rm -rf /var/lib/apt/lists/*
