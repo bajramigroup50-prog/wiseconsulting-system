@@ -73,7 +73,12 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   const setRow = (i: number, p: Partial<ORow>) => setRows((R) => R.map((r, k) => (k === i ? { ...r, ...p } : r)));
 
   /** Rows of a parsed sheet / read → editor rows + control (legacy `importOpen` 10670). */
-  const applySheet = (R: Parameters<typeof buildOpening>[0], x?: Omit<Extra, 'src'>) => {
+  const applySheet = (R0: Parameters<typeof buildOpening>[0], x?: Omit<Extra, 'src'>) => {
+    // opening of a new year: last year's result 951 / 961 goes to 950 / 960 (Правилник за сметковен план), from
+    // every source (Excel, CSV, PDF, AI); the full-year trial balance keeps them as they are
+    let moved = 0;
+    const R = full ? R0 : { ...R0, rows: R0.rows.map((r) => (/^9[56]1/.test(String(r[0])) ? (moved++, [String(r[0]).startsWith('95') ? '950' : '960', r[1], r[2], r[3], r[4], r[5]] as typeof r) : r)) };
+    if (moved) x = { ...(x ?? { netZero: [], grand: [0, 0], remapped: 0 }), remapped: (x?.remapped ?? 0) + moved };
     const b = buildOpening(R, { full, partners });
     if (!b.rows.length) { setMsg('Не се најдени конта со салдо.'); return; }
     setRows((cur) => [...cur.filter((r) => r.account || n(r.debit) || n(r.credit)), ...b.rows.map((r) => ({
