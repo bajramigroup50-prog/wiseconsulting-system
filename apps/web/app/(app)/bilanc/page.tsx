@@ -47,7 +47,8 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <Hd t="Бруто биланс">
-        <a className="btn" href={'/print/bilanc?' + new URLSearchParams(Object.entries({ lvl, from, to, q, p: pf ?? '', close: withClose ? '1' : '', wh }).filter(([, v]) => v) as [string, string][]).toString()} target="_blank" rel="noopener">🖨 Печати / PDF</a>
+        <a className="btn" href={'/print/bilanc?' + new URLSearchParams(Object.entries({ lvl, from, to, q, p: pf ?? '', close: withClose ? '1' : '', wh }).filter(([, v]) => v) as [string, string][]).toString()} target="_blank" rel="noopener">🖨 Печати / PDF{lvl === 'a' ? ' (со комитенти)' : ''}</a>
+        {lvl === 'a' && <a className="btn" href={'/print/bilanc?' + new URLSearchParams(Object.entries({ lvl, from, to, q, p: pf ?? '', close: withClose ? '1' : '', wh, kom: '0' }).filter(([, v]) => v) as [string, string][]).toString()} target="_blank" rel="noopener" title="Сите аналитички конта, без поделба по комитенти">🖨 Само конта (без комитенти)</a>}
         <a className="btn" href="/print/bilanc/zl" target="_blank" rel="noopener" title="Аналитички бруто биланс за целата година пред заклучните книжења, со биланс на состојба и успех">Заклучен лист (PDF)</a>
         <DownloadCsv name={`Bruto_bilans_${year}.csv`} rows={[['Конто', 'Назив', 'Салдо', 'Вк. должи', 'Вк. побарува', 'Поч. сост. должи', 'Поч. сост. побарува', 'Должи од тек. година', 'Побарува од тек. година'],
           ...R.map((r) => [r.k, r.name, r.s, r.vd, r.vp, r.od, r.op, r.td, r.tp])]} />

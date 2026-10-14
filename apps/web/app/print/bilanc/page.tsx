@@ -17,7 +17,7 @@ import { bbAnKOf } from '@/lib/parity-fin';
 
 export const metadata = { title: 'Бруто биланс' };
 
-type SP = { lvl?: string; from?: string; to?: string; q?: string; p?: string; close?: string; wh?: string };
+type SP = { lvl?: string; from?: string; to?: string; q?: string; p?: string; close?: string; wh?: string; kom?: string };
 const F = ['vd', 'vp', 'od', 'op', 'td', 'tp'] as const;
 const BBO_CSS = `@page{size:A4 landscape}
 table.bbo{table-layout:fixed!important;width:100%!important;border-collapse:collapse!important;border:1.5px solid #000!important;font-family:Arial,Helvetica,sans-serif!important;font-size:7.6pt!important;margin:0!important}
@@ -53,7 +53,8 @@ export default async function PrintBilanc({ searchParams }: { searchParams: Prom
   const head = <FirmHead firm={firm} title={`БРУТО БИЛАНС – ${lvlName.toUpperCase()}`} sub={`Период ${dmy(from)} – ${dmy(to)}${q ? ' · филтер: ' + q : ''}`} />;
 
   if (lvl === 'a') {
-    const anK = bbAnKOf(firm.settings);
+    // `kom=0`: every konto without the partner breakdown („🖨 Само конта“)
+    const anK = sp.kom === '0' ? [] : bbAnKOf(firm.settings);
     const withP = new Set(lines.filter((l) => l.partnerId).map((l) => l.account));
     const pm = new Map(P.map((p) => [p.id, (p.code ? p.code + ' ' : '') + p.name]));
     const agg = (rows: Omit<TbRow, 'k' | 'name'>[]) => {
