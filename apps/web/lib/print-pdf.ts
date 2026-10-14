@@ -100,9 +100,8 @@ export const dataUri = (mime: string, bytes: Uint8Array) => `data:${mime};base64
 export async function serverPdf(o: { selector: string; title: string; landscape?: boolean }): Promise<void> {
   const el = document.querySelector(o.selector) as HTMLElement | null;
   if (!el) { window.alert('Нема што да се зачува како PDF.'); return; }
-  const w = window.open('', '_blank');
-  if (w) w.document.write('<p style="font:15px sans-serif;padding:20px">PDF се подготвува…</p>');
-  const fail = (m: string) => { if (w) w.close(); window.alert(m); };
+  // no blank pop-up window: the finished PDF is downloaded (works the same in the desktop app and every browser)
+  const fail = (m: string) => { window.alert(m); };
   try {
     const c = el.cloneNode(true) as HTMLElement;
     c.querySelectorAll('.noprint,script').forEach((x) => x.remove());
@@ -112,14 +111,25 @@ export async function serverPdf(o: { selector: string; title: string; landscape?
       try { for (const r of Array.from(s.cssRules)) css += r.cssText + '\n'; } catch { /* cross-origin sheet (web fonts) */ }
     }
     const landscape = o.landscape ?? !!el.querySelector('.pdfdoc.land');
-    const r = await fetch('/api/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html, css, title: o.title, landscape, pkg: new URLSearchParams(window.location.search).get('pkg') }) });
+    const ctl = new AbortController();
+    const t0 = setTimeout(() => ctl.abort(), 60_000);
+    const r = await fetch('/api/pdf', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html, css, title: o.title, landscape, pkg: new URLSearchParams(window.location.search).get('pkg') }) });
+    clearTimeout(t0);
     const j = await r.json().catch(() => ({})) as { id?: string; error?: string };
     if (!r.ok || !j.id) { fail(j.error || 'PDF не може да се подготви.'); return; }
     const url = '/api/files/' + j.id;
     for (let i = 0; i < 60; i++) {
       await new Promise((ok) => setTimeout(ok, i < 5 ? 1000 : 2000));
-      const x = await fetch(url, { redirect: 'manual', cache: 'no-store' });
-      if (x.type === 'opaqueredirect' || x.ok) { if (w) w.location.href = url; else window.location.href = url; return; }
+      const x = await fetch(url, { cache: 'no-store' });
+      if (x.ok) {
+        const b = await x.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = (o.title || 'dokument').replace(/[\/:*?"<>|]+/g, ' ').trim() + '.pdf';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+        return;
+      }
       if (x.status !== 404) break;
     }
     fail('PDF не е подготвен (серверот за PDF не одговара). Обидете се повторно или користете „Печати“.');
