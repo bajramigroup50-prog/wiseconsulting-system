@@ -27,3 +27,4 @@ export * from './parity-firms';
 export * from './compliance';
 export * from './devices';
 export * from './automations';
+export * from './robot';

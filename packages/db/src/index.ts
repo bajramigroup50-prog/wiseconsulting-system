@@ -77,3 +77,4 @@ export * from './client-report';
 export * from './rokovi';
 export * from './fx-nbrm';
 export * from './fee-invoices';
+export * from './robot/index';
