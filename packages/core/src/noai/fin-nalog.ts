@@ -73,7 +73,8 @@ export function finNalogFromLines(L: readonly PdfLine[]): FinNalogResult | null 
     if (texts.some((t) => H.konto.test(t))) { inTable = true; cur = null; continue; } // header (repeated per page)
     if (!inTable) continue;
     // totals line closes the table: „SALDO 12,059,456.50 12,059,456.50“ / „Вкупно …“
-    if (texts.some((t) => /^(saldo|салдо|vkupno|вкупно)\b/i.test(t)) && l.cells.some((c) => c.x0 < noX + 8)) {
+    // (the label itself is at the left edge — „САЛДО“ in the description column of a record is data)
+    if (l.cells.some((c) => c.x0 < noX + 8 && /^(saldo|салдо|vkupno|вкупно)(?![a-zа-шѓѕјљњќџ])/i.test(c.s.trim()))) {
       const a = l.cells.flatMap((c) => c.s.split(/\s+/)).filter((t) => AMT.test(t)).map(amt);
       if (a.length >= 2) printed = [r2(a[0]!), r2(a[1]!)];
       cur = null; inTable = false; continue;
@@ -115,7 +116,7 @@ export function finNalogFromLines(L: readonly PdfLine[]): FinNalogResult | null 
     }
   }
   const rows: FinNalogRow[] = recs.filter((r) => r.k && (r.d || r.c))
-    .map((r) => [r.k, r.name.join(' ').trim(), r.partner.join(' ').trim(), r.code, r.d, r.c]);
+    .map((r) => [r.k, '', r.partner.join(' ').trim(), r.code, r.d, r.c]); // „Содржина“ is a note, not the konto name
   if (!rows.length) return null;
   const sum: [number, number] = [r2(rows.reduce((s, r) => s + r[4], 0)), r2(rows.reduce((s, r) => s + r[5], 0))];
   const balanced = Math.abs(sum[0] - sum[1]) < 0.005 && (!printed || (Math.abs(printed[0] - sum[0]) < 0.005 && Math.abs(printed[1] - sum[1]) < 0.005));
