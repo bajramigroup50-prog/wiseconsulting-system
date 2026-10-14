@@ -22,6 +22,7 @@ import { Nav } from '@/components/nav';
 import { NavBack } from '@/components/nav-back';
 import { TopBar } from '@/components/top-bar';
 import { VersionCheck } from '@/components/version-check';
+import { RobotPanel } from '@/components/robot/robot-panel';
 import { buildId } from '@/lib/build-id';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -105,6 +106,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </main>
       {office && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
       {office && <AlStartup />}
+      {office && <RobotPanel />}
     </div>
     </FirmGuard>
   );
