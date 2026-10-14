@@ -142,8 +142,37 @@ export const inboxItems = pgTable('inbox_items', {
   /** Where the office routed the item (legacy `irRoute`: purchase, bank, dossier, …). */
   route: text('route'),
   routeRef: text('route_ref'),
+  /** „📷 Испрати документ“: what the client says it is (`CAPTURE_KINDS`: in, out, bank, fisk, contract, other) → suggested route. */
+  docKind: text('doc_kind'),
   createdAt: createdAt(),
 }, (t) => [index('inbox_items_firm_idx').on(t.firmId, t.done, t.createdAt)]);
+
+/**
+ * „📊 Месечен извештај за клиентот“: one row per firm and month. `data` = the deterministic numbers from the books
+ * (`@wise/core/office` `ClientReportData`); `summary` = the optional AI text (worker `client-report.summary`, only from
+ * `data`). `status`: draft (office only) → published (the client sees it in the portal) → sent (also e-mailed).
+ */
+export const clientReports = pgTable('client_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: firmFk().notNull(),
+  /** 'YYYY-MM' */
+  period: text('period').notNull(),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+  /** `mk` | `sq` — the language of the summary (the firm's `kl.lang` when it was asked for). */
+  lang: text('lang').notNull().default('mk'),
+  summary: text('summary'),
+  /** `none` | `queued` | `done` | `error` */
+  aiStatus: text('ai_status').notNull().default('none'),
+  aiError: text('ai_error'),
+  aiModel: text('ai_model'),
+  status: text('status').notNull().default('draft'),
+  publishedAt: ts('published_at'),
+  sentAt: ts('sent_at'),
+  sentTo: text('sent_to'),
+  createdBy: by('created_by'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [uniqueIndex('client_reports_firm_period_uq').on(t.firmId, t.period), index('client_reports_status_idx').on(t.firmId, t.status)]);
 
 /**
  * Entries made by `klient` users (legacy `pend:true` on invoices/purchases/sales/docs, 3301).

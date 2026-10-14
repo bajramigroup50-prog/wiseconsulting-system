@@ -60,3 +60,6 @@ export async function enqueueMail(m: MailMessage): Promise<string> {
   await dispatchMail([id]);
   return id;
 }
+
+/** SMTP is set up on the server (the worker sends only then; compose passes the same variables to the web container). */
+export const smtpConfigured = (): boolean => !!(process.env.SMTP_HOST?.trim() || process.env.SMTP_URL?.trim());

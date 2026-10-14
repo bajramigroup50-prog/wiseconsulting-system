@@ -73,3 +73,4 @@ export * from './ai-settings';
 export * from './ai-budget';
 export * from './compliance';
 export * from './law-search';
+export * from './client-report';

@@ -35,7 +35,7 @@ for (const [, items] of NAV) for (const [id, t] of navFlat(items)) NAV_LBL[id] ?
 export function navFor(role: Role): readonly NavGroup[] {
   if (role === 'teren') return [['Канцеларија', [['mojzad', 'Мои задачи'], ['mojpn', '🚚 Мои патни налози']]]];
   // Client portal menu (legacy `klNav` 9054); the office's per-firm section toggles are enforced by `officePage`.
-  if (role === 'klient') return [['Мојата фирма', [['klHome', '🏠 Почетна'], ['klSend', '📤 Испрати документ'], ['dosie', '📁 Документи на фирмата'], ['arhiva', '📂 Архива на документи']]], ['Излез', [['izlezF', 'Излез']]]];
+  if (role === 'klient') return [['Мојата фирма', [['klHome', '🏠 Почетна'], ['klFoto', '📷 Испрати документ (телефон)'], ['klSend', '📤 Испрати документ'], ['klIzv', '📊 Месечни извештаи'], ['dosie', '📁 Документи на фирмата'], ['arhiva', '📂 Архива на документи']]], ['Излез', [['izlezF', 'Излез']]]];
   return NAV;
 }
 
@@ -56,4 +56,4 @@ export function withoutViews(groups: readonly NavGroup[], ids: readonly string[]
 export const viewAllowed = (role: Role, id: string): boolean =>
   navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka'
   // Office staff may preview the client portal pages (legacy `S.asClient`).
-  || (['klHome', 'klSend'].includes(id) && !['klient', 'teren', 'view'].includes(role));
+  || (['klHome', 'klSend', 'klFoto', 'klIzv'].includes(id) && !['klient', 'teren', 'view'].includes(role));

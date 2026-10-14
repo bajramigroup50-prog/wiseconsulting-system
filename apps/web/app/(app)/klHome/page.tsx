@@ -42,6 +42,10 @@ export default async function KlHomePage() {
   return (
     <>
       <Hd t={firm.name || 'Мојата фирма'} sub={`портал за клиенти · ${dmy(td)}`} exp={false} />
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '0 0 12px' }}>
+        <Link className="btn pri" href="/klFoto" style={{ fontSize: 18, padding: '14px 20px', borderRadius: 14 }}>📷 Испрати документ</Link>
+        <Link className="btn" href="/klIzv" style={{ fontSize: 16, padding: '14px 18px', borderRadius: 14 }}>📊 Месечни извештаи</Link>
+      </div>
       {showSt && (
         <div className="tiles">
           {tile('Купувачите ни должат', fmt(rec), 'отворени побарувања')}

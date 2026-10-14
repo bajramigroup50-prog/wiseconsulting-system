@@ -16,6 +16,8 @@ import { lawCase } from './law-assist';
 import { legacyImport } from './legacy-import';
 import { firmResh } from './firm-resh';
 import { kontrolaAi } from './kontrola-ai';
+import { inboxCombine } from './inbox-combine';
+import { clientReportSummary } from './client-report-summary';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -38,4 +40,6 @@ export const JOBS: JobDef<any>[] = [
   legacyImport,
   firmResh,
   kontrolaAi,
+  inboxCombine,
+  clientReportSummary,
 ];
