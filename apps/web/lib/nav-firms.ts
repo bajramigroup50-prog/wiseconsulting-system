@@ -14,7 +14,7 @@ const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'firmiImp', [['firmiResh', '📷 Нова фирма од решение']]],
   // new: statutory / agreed deadlines of every firm (`@wise/core/office/rokovi`), after the legacy all-firms block
   // (… izvestuvanja, zakoni, zatvoranje, insp, lawrep, ujpZakoni, mpinIn — kept in legacy order)
-  ['Фирми', 'mpinIn', [['rokovi', '📅 Календар на рокови']]],
+  ['Фирми', 'efPrep', [['rokovi', '📅 Календар на рокови']]],
   // new, owner-only: the monthly invoices of the office firm from the contracts (after the contract screen)
   ['Фирми', 'kdogovori', [['kdfakturi', '🧾 Месечна фактура за сметководствени услуги']]],
   ['Материјално', 'izlez', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],

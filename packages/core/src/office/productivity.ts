@@ -96,11 +96,22 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   // monthly client report („📊 Месечен извештај за клиентот“)
   ['kanc', 'c', 'crPrep crAi crMail'],
   ['kanc', 'u', 'crPublish crHide klLang'],
+  // inspection documents / AI legal analysis, legal assistant, deadlines calendar, fee invoices
+  ['kanc', 'c', 'kontrolaDocAuto kontrolaAiStart lawCase lawCaseAttach feeIssue feeRemind'],
+  ['kanc', 'u', 'kontrolaFindingMark kontrolaSubType kontrolaVersionAccept kontrolaVersionDiscard rokDone rokOpen lawCaseDetach lawTextLink lawTextPaste'],
+  ['kanc', 'd', 'lawCaseDel'],
+  ['ai', 'c', 'kontrolaAi'],
+  ['izvodi', 'c', 'ppBatch bankBookAll'],
+  ['firmi', 'c', 'partnerAccLearn fxNbrm'],
+  ['firmi', 'u', 'partnerAccSave'],
+  ['magacin', 'c', 'fiskrNew fiskrReport'],
+  ['magacin', 'u', 'fiskrOk fiskrFail'],
+  ['magacin', 'd', 'delTransfer'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
 const NOISE = new Set((
-  'login logout loginFail loginLocked loginUnlock uMyPass uNew uSave uDel ownerSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip pnLivePos lawSeenAll lawRobotRun '
+  'login logout loginFail loginLocked loginUnlock uMyPass uNew uSave uDel ownerSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '

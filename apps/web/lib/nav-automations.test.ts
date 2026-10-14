@@ -8,7 +8,7 @@ const firmi = () => navFlat(NAV.find(([g]) => g === 'Фирми')![1]).map(([id]
 describe('office automations in the menu', () => {
   it('📅 Календар на рокови after the all-firms block; office staff only', () => {
     const f = firmi();
-    expect(f[f.indexOf('mpinIn') + 1]).toBe('rokovi');
+    expect(f[f.indexOf('efPrep') + 1]).toBe('rokovi');
     expect(NAV_LBL.rokovi).toBe('📅 Календар на рокови');
     expect(viewAllowed('acc', 'rokovi')).toBe(true);
     expect(viewAllowed('klient', 'rokovi')).toBe(false);
