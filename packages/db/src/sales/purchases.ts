@@ -24,6 +24,7 @@ import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } 
 import { deleteTransfer, saveLevelling } from '../stock-docs';
 import { dependentLabel, dependentTransfers } from '../transfer-links';
 import { ensurePartner } from './partners-auto';
+import { learnPartnerAccount } from '../partner-accounts';
 
 import { todaySkopje } from '@wise/core/office/dates';
 export const COST_SLOTS = ['car', 't1', 't2', 'sped', 'trans', 'dr', 'dev'] as const;
@@ -354,6 +355,11 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   }
   await audit(tx, { userId: actor.userId, firmId, action: existing ? 'editPur' : 'savePur', entityType: 'purchase', entityId: pur.id,
     data: { number, date: pur.date, status, total: n(pur.total), stockLines: fin.length } });
+  // the supplier's bank account read from / typed on the invoice → the partner's accounts (for payment orders)
+  const bankAcc = String(input.data?.bankAcc ?? '').trim();
+  if (partnerId && bankAcc && !imp) {
+    if (await learnPartnerAccount(tx, { firmId, userId: actor.userId, partnerId, account: bankAcc, src: 'invoice', at: input.date })) warnings.push('Жиро сметката на добавувачот е запаметена кај комитентот.');
+  }
   return { id: pur.id, status, warnings, createdItems };
 }
 

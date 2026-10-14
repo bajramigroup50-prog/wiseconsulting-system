@@ -9,8 +9,9 @@ import {
   batchStatus, findDuplicate, nextDocNumber, ownerCheck, purchaseDraftFromScan, purchaseTotal, saleDraftFromScan, scanInvoices,
   type MatchItem, type ScanResult,
 } from '@wise/core/sales';
+import { accountKey } from '@wise/core/bank/mk-banks';
 import {
-  firmPostingContext, invoices, itemBarcodes, items, itemSupplierCodes, journals, partners, purchases,
+  bankAccounts, firmPostingContext, invoices, itemBarcodes, items, itemSupplierCodes, journals, partners, purchases,
   type AiDraft, type Firm, type Tx,
 } from '@wise/db';
 
@@ -40,7 +41,11 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     .from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId)).where(eq(purchases.firmId, f.id));
   const cand = prev.map((p) => ({ ...p, partnerEdb: p.edb, total: Number(p.total) }));
   const s = (f.settings ?? {}) as Record<string, unknown>;
-  return scanInvoices(r).map((x) => {
+  // the firm's own accounts printed on the invoice (as the buyer's) are never the supplier's account
+  const own = new Set((await db.select({ a: bankAccounts.account, i: bankAccounts.iban }).from(bankAccounts).where(eq(bankAccounts.firmId, f.id)))
+    .flatMap((b) => [accountKey(b.a), accountKey(b.i)]).filter(Boolean));
+  return scanInvoices(r).map((x0) => {
+    const x = x0.supplierBankAccount && own.has(accountKey(x0.supplierBankAccount)) ? { ...x0, supplierBankAccount: '' } : x0;
     const d = purchaseDraftFromScan(x, {
       ...M, today, cash: opts.cash, warehouseId: opts.warehouseId ?? null, costOnly: opts.costOnly,
       accounts: { goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), other: schemeValue(ctx, 'purDefault') },

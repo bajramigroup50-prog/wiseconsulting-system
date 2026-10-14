@@ -31,6 +31,7 @@ export * from './posting';
 export * from './ledger-queries';
 export { seedReference } from './seed/reference';
 export * from './bank/index';
+export * from './partner-accounts';
 export * from './sales/context';
 export * from './sales/invoices';
 export * from './sales/purchases';

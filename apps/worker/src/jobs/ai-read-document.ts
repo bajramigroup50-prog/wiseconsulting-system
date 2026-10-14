@@ -38,7 +38,7 @@ import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
-import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
+import { PUR_BANK_ADD, PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
 import { readObject } from '../ai/storage';
@@ -221,7 +221,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     }
     if (!result) {
       const content = fileContent(file, bytes);
-      const prompt = doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT;
+      const prompt = doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD;
       const base = { db, firmId: f.id, prompt, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
       let quick: ScanResult | null = null;
       // legacy `outDeep` / `outRunDeep`: a deeper read straight away (no quick read)

@@ -24,7 +24,7 @@ import { ZM_PROMPT } from '@wise/core/yearend/zm-import';
 import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
-import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
+import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_BANK_ADD, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
 import { AiReadError, AiTruncatedError, fileContent, loadFile, readContent } from './read-document';
 import { CHUNK_MAX_TOKENS, chunkNote, mergeBank, mergeOb, pdfRanges, planPdfRead, type ChunkKind } from './chunked';
 import { readObject } from './storage';
@@ -209,7 +209,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     }
     case 'cmp': {
       // legacy `aiCmpGo` (14416): the same invoice read with the quick and the detailed model; nothing is saved
-      const one = async (tier: AiTier) => { try { const r = await read(PUR_PROMPT, tier); return { data: r.data, model: r.model, cost: r.costUsd, error: null }; } catch (e) { if (!(e instanceof AiReadError)) throw e; return { data: null, model: '', cost: 0, error: e.message }; } };
+      const one = async (tier: AiTier) => { try { const r = await read(PUR_PROMPT + PUR_BANK_ADD, tier); return { data: r.data, model: r.model, cost: r.costUsd, error: null }; } catch (e) { if (!(e instanceof AiReadError)) throw e; return { data: null, model: '', cost: 0, error: e.message }; } };
       const quick = await one('quick');
       const deep = await one('default');
       return { result: { quick, deep }, model: [quick.model, deep.model].filter(Boolean).join(' / ') };

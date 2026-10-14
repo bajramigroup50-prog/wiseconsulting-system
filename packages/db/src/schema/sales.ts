@@ -181,6 +181,8 @@ export interface PurchaseData {
   retNo?: string; distrib?: string; odobr?: string; evKurs?: string; evCur?: string; saldo?: string; memo?: string;
   fxAmt?: string; fxMark?: string; ecd?: string; grp1?: string; grp2?: string; costType?: string; driver?: string;
   truck?: string; trailer?: string; withVat?: boolean;
+  /** The supplier's bank account printed on the invoice (learned into the partner's accounts). */
+  bankAcc?: string;
 }
 
 export const purchases = pgTable('purchases', {
