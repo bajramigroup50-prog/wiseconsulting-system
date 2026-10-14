@@ -3,8 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
-import { approvePurchase, audit, createMissingItems, deletePurchase, ensurePartner, firms, markDraftSaved, partners, savePurchase, type PurchaseInput } from '@wise/db';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, ensurePartner, firms, markDraftSaved,
+  partners, savePurchase, transfers, type PurchaseInput,
+} from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -64,13 +67,36 @@ export async function savePurchaseAction(_prev: ActionState, form: FormData): Pr
   redirect(target);
 }
 
-export async function deletePurchaseAction(id: string): Promise<ActionState> {
+/**
+ * Before deleting purchases: the transfers made from them („Ќе се избришат и: Преносница 0001/2026 → GOSTIVAR (66
+ * ставки)“), or why the delete is impossible (a transfer in a locked period / goods already sold in the store).
+ */
+export async function purchaseDeletePreviewAction(ids: string[]): Promise<{ extra?: string; block?: string }> {
+  try {
+    const L = z.array(z.uuid()).max(2000).parse(ids);
+    const { firm } = await firmAction('del');
+    return await db().transaction(async (tx) => {
+      const dep = await dependentTransfers(tx, firm.id, L);
+      if (!dep.length) return {};
+      const rows = await tx.select().from(transfers).where(inArray(transfers.id, dep.map((d) => d.id)));
+      for (const r of rows) {
+        try { await assertTransferRemovable(tx, firm.id, r, dep.map((d) => d.id)); } catch (e) { return { block: e instanceof Error ? e.message : String(e) }; }
+      }
+      const list = dep.map((d) => '• ' + dependentLabel(d)).join('\n');
+      return { extra: `\n\n⚠ Од калкулацијата е направен пренос во продавница. Ќе се избришат и:\n${list}\n(стоката се враќа од продавницата, се бришат и нивните налози)` };
+    });
+  } catch (e) { return { block: e instanceof Error ? e.message : String(e) }; }
+}
+
+/** `cascade`: the user confirmed the dependent transfers (see `purchaseDeletePreviewAction`) — they are deleted too. */
+export async function deletePurchaseAction(id: string, cascade = false): Promise<ActionState> {
+  let n = 0;
   try {
     const { u, firm } = await firmAction('del');
-    await db().transaction((tx) => deletePurchase(tx, firm.id, id, actorOf(u)));
+    n = (await db().transaction((tx) => deletePurchase(tx, firm.id, id, actorOf(u), { cascade }))).transfers.length;
   } catch (e) { return actionError(e); }
   revalidatePath('/', 'layout');
-  return { ok: 'Влезната фактура е избришана.' };
+  return { ok: 'Влезната фактура е избришана.' + (n ? ` Избришани се и ${n} преносници направени од неа.` : '') };
 }
 
 export async function approvePurchaseAction(id: string): Promise<ActionState> {
@@ -86,21 +112,26 @@ export async function approvePurchaseAction(id: string): Promise<ActionState> {
  * Legacy `delPurSel` (17354) / `delPurDups` (7195): delete several purchases with their journals and receipts. Each one
  * in its own transaction with the usual checks (period / VAT lock, linked returns); blocked ones are skipped.
  */
-export async function deletePurchasesAction(ids: string[]): Promise<ActionState> {
+export async function deletePurchasesAction(ids: string[], cascade = false): Promise<ActionState> {
   try {
     const L = z.array(z.uuid()).max(2000).parse(ids);
     const { u, firm } = await firmAction('del');
     let n = 0;
     const bad: string[] = [];
     for (const id of L) {
-      try { await db().transaction((tx) => deletePurchase(tx, firm.id, id, actorOf(u))); n++; } catch (e) { bad.push(e instanceof Error ? e.message : String(e)); }
+      try { await db().transaction((tx) => deletePurchase(tx, firm.id, id, actorOf(u), { cascade })); n++; } catch (e) { bad.push(e instanceof Error ? e.message : String(e)); }
     }
     revalidatePath('/', 'layout');
-    return bad.length ? { error: `Избришани ${n} од ${L.length}. ${bad.length} фактури не може да се избришат (заклучен период / поднесена ДДВ / поврзани документи): ${bad[0]}` } : { ok: `${n} фактури се избришани.` };
+    return bad.length ? { error: `Избришани ${n} од ${L.length}. ${bad.length} фактури не може да се избришат (заклучен период / поднесена ДДВ / поврзани документи / стоката е продадена во продавница): ${bad[0]}` } : { ok: `${n} фактури се избришани.` };
   } catch (e) {
     if (e instanceof z.ZodError) return { error: 'Неважечки податоци.' };
     return actionError(e);
   }
+}
+
+/** Bulk delete after the confirmation listing the dependent transfers (BulkBar passes only the ids). */
+export async function deletePurchasesCascadeAction(ids: string[]): Promise<ActionState> {
+  return deletePurchasesAction(ids, true);
 }
 
 /** Legacy `addSupplier` (7161): add the read supplier to the partners now. */

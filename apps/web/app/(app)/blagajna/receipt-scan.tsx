@@ -51,7 +51,7 @@ export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, c
     for (const d of fresh) {
       const D = receiptDrafts(d.result, { today, kontoFor, fxFor: (c, dt) => Number(rateOf(c, dt)) || 0 });
       if (!D.length) { ai.setDocs((X) => X.map((x) => (x.id === d.id ? { ...x, status: 'error', error: 'Не е пронајдена сметка на сликата.' } : x))); continue; }
-      D.forEach((x, i) => add.push({ ...x, key: d.id + ':' + i, docId: d.id, fileId: d.fileId, fname: d.name + (D.length > 1 ? ' #' + (i + 1) : '') }));
+      D.forEach((x, i) => add.push({ ...x, key: d.id + ':' + i, docId: d.id, fileId: d.fileId, fname: d.name + (D.length > 1 ? ' #' + (i + 1) : '') + ((d.result as { noai?: boolean } | null)?.noai ? ' · прочитано без AI – проверете' : '') }));
     }
     setDone((s) => new Set([...s, ...fresh.map((d) => d.id)]));
     setRows((r) => [...r, ...add]);

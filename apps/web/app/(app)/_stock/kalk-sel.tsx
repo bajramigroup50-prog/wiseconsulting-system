@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { deletePurchaseAction } from '../vlez/actions';
+import { deletePurchaseAction, purchaseDeletePreviewAction } from '../vlez/actions';
 import { mergeCalcsAction } from '../_retail/kalk-actions';
 
 const boxes = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[name="ks"]'));
@@ -53,12 +53,15 @@ export function KsBar({ admin, warehouse, fix = false }: { admin: boolean; wareh
         }}>🔗 Спојување на селектираните</button>}
         <button type="button" className="btn sm" title="Секоја зачувана калкулација/фактура веќе е во книгата на влезни фактури и во налогот 2." onClick={() => router.push('/ddvKnigi?t=in')}>📒 Книга на влезни ф-ри</button>
         <button type="button" className="btn sm" title="Калкулациите во магацин автоматски се во ЕТ (трговска книга на големо)." onClick={() => router.push('/g_trgv')}>📗 ЕТ</button>
-        {admin && <button type="button" className="btn sm ghost" style={{ color: 'var(--bad)' }} disabled={pending} onClick={() => {
+        {admin && <button type="button" className="btn sm ghost" style={{ color: 'var(--bad)' }} disabled={pending} onClick={async () => {
           const L = need(); if (!L.length) return;
-          if (!window.confirm(`Да се избришат ${L.length} калкулации?\nСе бришат и налозите и приемот на залиха.`)) return;
+          // transfers made from the selected calculations are listed and deleted with them
+          const p = await purchaseDeletePreviewAction(L.map((c) => c.value));
+          if (p.block) { window.alert(p.block); return; }
+          if (!window.confirm(`Да се избришат ${L.length} калкулации?\nСе бришат и налозите и приемот на залиха.${p.extra ?? ''}`)) return;
           start(async () => {
             const errs: string[] = [];
-            for (const c of L) { const r = await deletePurchaseAction(c.value); if (r.error) errs.push(r.error); }
+            for (const c of L) { const r = await deletePurchaseAction(c.value, true); if (r.error) errs.push(r.error); }
             if (errs.length) window.alert(`${errs.length} калкулации не се избришани: ${errs.slice(0, 3).join('; ')}`);
             router.refresh();
           });

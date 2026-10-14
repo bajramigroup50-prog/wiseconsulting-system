@@ -79,7 +79,7 @@ describe('PDF text layer', () => {
   it('pdfjs gives positioned items', async () => {
     const it0 = await pdfTextItems(await statementPdf());
     expect(it0.find((x) => x.s === 'ALFA DOOEL')).toMatchObject({ page: 1, x: 120, y: 766 });
-  });
+  }, 30_000); // pdfjs under load (full parallel suite) can exceed the 5 s default
 });
 
 describe('provider errors', () => {

@@ -8,7 +8,7 @@
 import Link from 'next/link';
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 import { calculationRows, transferBookTotals, type PurchaseLike } from '@wise/core';
-import { journals, partners, purchaseCosts, purchases, purchaseStockLines, transfers } from '@wise/db';
+import { journals, partners, purchaseCosts, purchases, purchaseStockLines, transferSources, transfers } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { stockPage } from '@/lib/stock';
@@ -16,10 +16,10 @@ import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deletePurchaseAction } from '../vlez/actions';
+import { deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePreviewAction } from '../vlez/actions';
 import { KsAll, KsBar } from '../_stock/kalk-sel';
+import { deleteTransferAction } from '../_stock/actions';
 import { ScanUpload } from '@/components/sales/scan-upload';
-import { deletePurchasesAction } from '../vlez/actions';
 import { Retail } from '@wise/core';
 import { like } from 'drizzle-orm';
 import { items } from '@wise/db';
@@ -69,6 +69,8 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
   const fxBy: Record<string, number> = {};
   for (const r of rows) if (r.p.imp) fxBy[r.p.currency] = r2((fxBy[r.p.currency] ?? 0) + r.fa);
   const TRs = TR.filter((x) => (md === 'store' ? (!wh || x.toLocationId === wh) && kindOf(x.toLocationId) === 'store' : (!wh || (x.fromLocationId ?? 'main') === wh) && kindOf(x.fromLocationId) === 'warehouse'));
+  const SRC = await transferSources(db(), firm.id, TRs);
+  const prDel = canDo(u, 'prDel', firm.id);
   const newHref = '/vlez?nov';
   // legacy `purDups` callout of the calculations list: same invoice number and date entered twice, the last saved stays
   const nn = (x: string) => x.toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕј]/gi, '');
@@ -86,7 +88,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
       {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null, ...(wh && wh !== 'main' ? { warehouseId: wh } : {}) }} small={false} autoOpen={{ back: '/' + view }} batchView={md === 'store' ? '/masovnoM' : '/masovno'}
         label={<><b>📷 Прочитај фактура од PDF</b> — повлечете една или повеќе фактури од добавувач (PDF, JPG, PNG, XML е-фактура) тука или кликнете; калкулацијата се пополнува автоматски.</>} />}
       {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} калкулации се внесени двапати (иста фактура {[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
-        <RowAction className="btn danger" action={deletePurchasesAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
+        <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="card"><div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
         <label className="mini">Објект (магацин / продавница / маркет) <select name="wh" defaultValue={wh} style={{ width: 'auto' }}>
           <option value="">{md === 'store' ? 'сите продавници' : 'сите магацини'}</option>
@@ -118,7 +120,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
                 <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калк. PDF</Link>
                 <Link className="btn sm" href={`/print/kalk/${p.id}?t=plt`} target="_blank">ПЛТ</Link>
                 {md === 'warehouse' && write && <Link className="btn sm pri" href={`/prenosi?calc=${p.id}`} title="Пренеси ја стоката од оваа калкулација во продавница">→ Продавница</Link>}
-                {del && <RowAction action={deletePurchaseAction.bind(null, p.id)} label="🗑" title="Избриши ја калкулацијата/фактурата заедно со налогот" confirm={`Да се избрише влезната фактура бр. ${p.number || p.calcNo || ''} од ${dmy(p.date)}? Ќе се избрише и налогот и приемот на залиха.`} />}
+                {del && <RowAction action={deletePurchaseAction.bind(null, p.id, true)} preview={purchaseDeletePreviewAction.bind(null, [p.id])} label="🗑" title="Избриши ја калкулацијата/фактурата заедно со налогот" confirm={`Да се избрише влезната фактура бр. ${p.number || p.calcNo || ''} од ${dmy(p.date)}? Ќе се избрише и налогот и приемот на залиха.`} />}
               </td>
             </tr>
           ))}</tbody>
@@ -136,8 +138,11 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
             <thead><tr><th>Датум</th><th>Бр.</th><th>Од магацин</th><th>Во продавница</th><th className="n">Ставки</th><th className="n">Набавна вредност</th><th className="n">Разлика</th><th className="n">Продажна со ДДВ</th><th className="noprint" /></tr></thead>
             <tbody>{TRs.map((x) => {
               const t = transferBookTotals(L.ctx, { id: x.id, number: x.number, date: x.date, from: x.fromLocationId ?? 'main', to: x.toLocationId ?? 'main', lines: x.lines.map((l) => ({ item: l.itemId, qty: l.qty, nabU: l.nabU ?? 0, sp: l.sp ?? null })) });
-              return <tr key={x.id}><td>{dmy(x.date)}</td><td><b>{x.number}</b></td><td>{L.locName(x.fromLocationId)}</td><td>{L.locName(x.toLocationId)}</td><td className="n">{x.lines.length}</td><td className="n">{fmt(t.nab)}</td><td className="n">{fmt(t.marg)}</td><td className="n">{fmt(t.sp)}</td>
-                <td className="row noprint" style={{ gap: 4, flexWrap: 'nowrap' }}><Link className="btn sm" href={`/print/prenos/${x.id}`} target="_blank">Преносница</Link><Link className="btn sm" href={`/print/prenos/${x.id}?t=plt`} target="_blank">ПЛТ</Link></td></tr>;
+              const orphan = !!SRC.get(x.id)?.missing.length;
+              return <tr key={x.id}><td>{dmy(x.date)}</td><td><b>{x.number}</b>{orphan && <> <span className="pill warn" title={x.note ?? ''}>⚠ изворната калкулација е избришана</span></>}</td><td>{L.locName(x.fromLocationId)}</td><td>{L.locName(x.toLocationId)}</td><td className="n">{x.lines.length}</td><td className="n">{fmt(t.nab)}</td><td className="n">{fmt(t.marg)}</td><td className="n">{fmt(t.sp)}</td>
+                <td className="row noprint" style={{ gap: 4, flexWrap: 'nowrap' }}><Link className="btn sm" href={`/print/prenos/${x.id}`} target="_blank">Преносница</Link><Link className="btn sm" href={`/print/prenos/${x.id}?t=plt`} target="_blank">ПЛТ</Link>
+                  {prDel && <RowAction action={deleteTransferAction.bind(null, x.id, ...(orphan ? ['orphan' as const] : []))} label="🗑" title={orphan ? 'Изворната калкулација е избришана – избриши ја и преносницата' : 'Избриши ја преносницата'}
+                    confirm={`${orphan ? 'Изворната калкулација е избришана. ' : ''}Да се избрише преносницата ${x.number} (${x.lines.length} ставки)? Стоката се враќа од ${L.locName(x.toLocationId)} во ${L.locName(x.fromLocationId)}, се брише и налогот.`} />}</td></tr>;
             })}</tbody>
           </table></div>
         ) : <p className="note">{md === 'store' ? 'Нема преноси од магацин во продавница.' : 'Нема излез кон продавница.'}</p>}

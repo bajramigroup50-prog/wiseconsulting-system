@@ -14,7 +14,7 @@ import type { FuelRule } from '@wise/core/law';
 import type { ActionState } from '@/lib/books';
 import { fmt, todayIso } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
-import { addSupplierAction, createItemsAction, deletePurchaseAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
+import { addSupplierAction, createItemsAction, deletePurchaseAction, purchaseDeletePreviewAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
 import { AI_OPEN_FAILED_MSG, AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
@@ -359,9 +359,11 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
     <form action={action} ref={formRef} onSubmit={beforeSave}>
       <input type="hidden" name="payload" value={JSON.stringify({ ...d, allowDuplicate: allowDup, back: p.back })} />
       <div className="hd"><h1>{p.title}</h1><div className="row">
-        {d.id && p.canDel && <button type="button" className="btn danger" onClick={() => {
-          if (!window.confirm(`Да се избрише влезната фактура бр. ${d.number || ''} од ${dmy(d.date)}?\nЌе се избрише и налогот и приемот на залиха.`)) return;
-          start(async () => { const r = await deletePurchaseAction(d.id!); if (r.error) window.alert(r.error); else router.push('/vlez'); });
+        {d.id && p.canDel && <button type="button" className="btn danger" onClick={async () => {
+          const pv = await purchaseDeletePreviewAction([d.id!]);
+          if (pv.block) { window.alert(pv.block); return; }
+          if (!window.confirm(`Да се избрише влезната фактура бр. ${d.number || ''} од ${dmy(d.date)}?\nЌе се избрише и налогот и приемот на залиха.${pv.extra ?? ''}`)) return;
+          start(async () => { const r = await deletePurchaseAction(d.id!, true); if (r.error) window.alert(r.error); else router.push('/vlez'); });
         }}>Избриши</button>}
         <Link className="btn" href={p.back}>Откажи</Link>
         <button className="btn pri" disabled={pending}>{pending ? 'Се зачувува…' : 'Зачувај и прокнижи'}</button></div></div>

@@ -36,7 +36,7 @@ import { AI_ERR_BLOCKING, AI_ERR_MSG, aiBlockedMsg, aiProviderError, type AiErrC
 import { runAiPing, shouldAutoPing } from './ai-ping';
 import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
-import { FREE_KINDS, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
+import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
 import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
@@ -160,12 +160,24 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
         await db.update(aiDocuments).set({ status: 'done', result: hit.result, drafts: [], model: hit.model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
         return;
       }
+      // a bank statement PDF with a text layer whose balances reconcile (opening + movements = closing) is read
+      // exactly without AI — no tokens, no misread digits; otherwise (scan, no balances, not reconciling) AI reads it.
+      // The same for a trial balance whose every printed total matches (`freeAccepted`)
+      let freeR: unknown = null;
+      if (!noAi && FREE_FIRST_KINDS.has(doc.kind)) {
+        try { freeR = await free(); } catch { freeR = null; }
+        if (freeAccepted(doc.kind, freeR)) {
+          await db.update(aiDocuments).set({ status: 'done', result: freeR, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
+          log(`${docId}: ${doc.kind} read from the PDF text (reconciled), no AI`);
+          return;
+        }
+      }
       const { result, model } = noAi ? await fallback(noAi) : (await freeOnly()) ?? await viaAi(async () => {
         try { return await readResultKind(db, doc, f, undefined, progress); } catch (e) {
           // the AI read failed for good (too large, unreadable): a free read of the text layer, even unbalanced, is
           // better than nothing — its warnings say what to check
           if (e instanceof AiReadError) {
-            const fr = await free().catch(() => null);
+            const fr = freeR ?? await free().catch(() => null);
             if (hasRows(fr)) { log(`${docId}: AI read failed (${e.message}), the free read is used`); return { result: fr, model: NOAI_MODEL }; }
           }
           throw e;

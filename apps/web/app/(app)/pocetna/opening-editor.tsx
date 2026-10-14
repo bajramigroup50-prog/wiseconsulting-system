@@ -10,6 +10,8 @@ import {
 } from '@wise/core';
 import { obBankRows, obDiag, obFromAi, type ObDiagRow } from '@wise/core/finpar-ob';
 import { tbTotals } from '@wise/core/tb-rows';
+import type { ObPdfResult } from '@wise/core/noai/ob';
+import { carryStatAccount } from '@wise/core/yearend/carry';
 import { AiReadList, useAiRead } from '@/components/ai-read';
 import { xlsxDownload } from '@/components/parity-fin/export-bar';
 import type { ActionState } from '@/lib/books';
@@ -22,7 +24,9 @@ const blank = (): ORow => ({ account: '', name: '', partnerId: '', partnerName: 
 /** Template of the Excel import (the headings `parseOpeningSheet` recognises). */
 const TEMPLATE = [['Конто', 'Назив на конто', 'Комитент', 'Шифра на комитент / ЕДБ', 'Салдо должи', 'Салдо побарува'],
   ['1200', 'Побарувања од купувачи во земјата', 'ПРИМЕР ДООЕЛ Скопје', '4030000000000', 12000, 0], ['2200', 'Обврски кон добавувачи во земјата', 'ДОБАВУВАЧ ДОО', '4030000000001', 0, 12000]];
-type Extra = { netZero: { k: string; n: number; g: number }[]; grand: [number, number]; remapped: number; src: string };
+/** The old program's „Бруто биланс со аналитика“ read from the PDF text: its checks and the opening by the carry rules. */
+type TbaInfo = Pick<ObPdfResult, 'period' | 'opening' | 'check' | 'warnings' | 'balanced'>;
+type Extra = { netZero: { k: string; n: number; g: number }[]; grand: [number, number]; remapped: number; src: string; tba?: TbaInfo };
 const n = (s: string) => Number(String(s).replace(/\s/g, '').replace(',', '.')) || 0;
 const n0 = n;
 
@@ -87,7 +91,11 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
     ai.setDocs((D) => D.map((x) => (x.id === d.id ? { ...x, status: 'saved' } : x)));
     const r = obFromAi(d.result, { full });
     if (!r.rows.length) { setMsg('Документот не е прочитан. Пробајте Excel/CSV или појасна слика.'); return; }
-    applySheet({ rows: r.rows, totals: r.totals, src: 'csv' }, { netZero: r.netZero, grand: r.grand, remapped: r.remapped });
+    const P = d.result as ObPdfResult;
+    const tba: TbaInfo | undefined = P.source === 'tb-analitika' ? { period: P.period, opening: P.opening, check: P.check, warnings: P.warnings, balanced: P.balanced } : undefined;
+    // opening of the next year: statistical 994 / 999 are not carried (carry rules; they are listed separately)
+    const rowsIn = tba && !full ? r.rows.filter((x) => !carryStatAccount(x[0])) : r.rows;
+    applySheet({ rows: rowsIn, totals: r.totals, src: 'csv' }, { netZero: r.netZero, grand: r.grand, remapped: r.remapped, tba });
   }, [ai.docs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const importFile = (file: File) => startRead(async () => {
@@ -178,6 +186,32 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
           {extra && (extra.grand[0] || extra.grand[1]) ? (Math.abs(extra.grand[0] - ctl.D) < 1 && Math.abs(extra.grand[1] - ctl.P) < 1
             ? <div className="callout good">✓ Вкупното салдо од документот (Д {fmt(extra.grand[0])} / П {fmt(extra.grand[1])}) се совпаѓа со прочитаното.</div>
             : <div className="callout warn">Вкупно на документот: должи {fmt(extra.grand[0])} / побарува {fmt(extra.grand[1])} · прочитано: {fmt(ctl.D)} / {fmt(ctl.P)} – разлика {fmt(ctl.D - extra.grand[0])} / {fmt(ctl.P - extra.grand[1])}.</div>) : null}
+          {extra?.tba && (() => {
+            const T = extra.tba, O = T.opening, C = T.check;
+            return (
+              <>
+                <div className={`callout ${T.balanced ? 'good' : 'warn'}`} style={{ margin: '6px 0' }}>
+                  {T.balanced ? '✓' : '⚠'} Бруто биланс со аналитика{T.period ? ` за ${T.period.from} – ${T.period.to}` : ''}: прочитани {C?.rows} ставки од {C?.pages}{C?.pagesTotal ? ` / ${C.pagesTotal}` : ''} страници
+                  {T.balanced ? ` · сите ${C?.totals} печатени збирови (Сумарно, Синтетика, Група, Класа, ВКУПНО) се совпаѓаат.` : ' · не се совпаѓаат сите печатени збирови:'}
+                  {!!T.warnings?.length && <ul className="mini" style={{ margin: '4px 0 0' }}>{T.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+                </div>
+                {!full && O && (
+                  <div className={`callout ${O.balanced ? 'good' : 'warn'}`} style={{ margin: '6px 0' }}>
+                    Почетна состојба {O.date ? `на ${O.date}` : ''} од крајното салдо: <b>{O.n}</b> ставки · Д {fmt(O.D)} / П {fmt(O.P)}{O.balanced ? ' ✓ Должи = Побарува' : ` · разлика ${fmt(O.diff)} (резултатот на годината не е затворен)`}
+                    {O.date && O.date !== date && <> {' '}<button type="button" className="btn sm" onClick={() => setDate(O.date)}>Датум {O.date}</button></>}
+                    {!!O.excluded.length && (
+                      <details style={{ marginTop: 4 }}><summary className="mini">Не се пренесуваат {O.excluded.length} ставки (по правилата за пренос)</summary>
+                        <div className="tw" style={{ maxHeight: 220, overflow: 'auto' }}><table className="dense">
+                          <thead><tr><th>Конто</th><th>Назив</th><th>Комитент</th><th className="n">Должи</th><th className="n">Побарува</th><th>Причина</th></tr></thead>
+                          <tbody>{O.excluded.map((x, i) => <tr key={i}><td>{x.k}</td><td className="mini">{x.name}</td><td className="mini">{x.partner}</td><td className="n">{x.d ? fmt(x.d) : ''}</td><td className="n">{x.p ? fmt(x.p) : ''}</td><td className="mini">{x.why}</td></tr>)}</tbody>
+                        </table></div>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           {!!extra?.netZero.length && <div className="callout" style={{ margin: '6px 0' }}>Не се пренесуваат конта чии ставки по комитенти се пребиваат на нула (салдо 0): {extra.netZero.map((x) => <span key={x.k}><b>{x.k}</b> {names.get(x.k) ?? ''} ({x.n} ставки, {fmt(x.g)} Д = П) · </span>)}</div>}
           {!!extra?.remapped && <div className="callout" style={{ margin: '6px 0' }}>Добивката/загубата од претходната година (951/961) е пренесена на 950/960.</div>}
           {ctl.bad.length > 0

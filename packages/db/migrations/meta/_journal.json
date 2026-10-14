@@ -169,6 +169,13 @@
       "when": 1791802607032,
       "tag": "0023_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791812377205,
+      "tag": "0024_transfer_sources",
+      "breakpoints": true
     }
   ]
 }
