@@ -2,10 +2,13 @@
  * Payment orders (ПП30 / ПП50 / ПП10) and the office exchange-rate list (Курсна листа).
  */
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { openAmount, ppErrors, PP_T, r2, type PaymentOrder, type PpKind } from '@wise/core';
+import {
+  fixYuscii, mkBankName, openAmount, parseAccount, partnerAccounts, ppBatchOrders, ppErrors, ppIbanOn, ppPartyText, PP_T, r2,
+  type PaymentOrder, type PpBatchItem, type PpKind, type PpOpenInvoice,
+} from '@wise/core';
 import { ppFillBanks, ppMuniCode, ppSortByDue, ppToStamp } from '@wise/core/bank/fin-parity';
 import { audit, type Tx } from '../audit';
-import { bankLines, fxRates, partners, paymentOrders, purchases } from '../schema/index';
+import { bankLines, employees, fxRates, partners, paymentOrders, purchases } from '../schema/index';
 import { den, loadBankAccounts, loadFirm } from './context';
 import { openItemsSource } from './open-items';
 import { toBankRow } from './rows';
@@ -55,43 +58,127 @@ export async function markOrdersPrinted(tx: Tx, a: { firmId: string; userId: str
   return ids.length;
 }
 
-/** The firm as payer (legacy `ppFirmPayer`): first MKD bank account, else `settings.bank`. */
+/**
+ * The firm as payer (legacy `ppFirmPayer`): first MKD bank account, else `settings.bank`. The bank name comes from the
+ * account's bank code (`MK_BANK_CODES`) — the bank-account record's `name` is a label such as „Сметка 270…“ given at
+ * import, not the bank. Name / address / city are repaired from YUSCII leftovers („ДЕЛ^ЕВ“ → „ДЕЛЧЕВ“).
+ */
 export async function payerOf(tx: Tx, firmId: string) {
   const f = await loadFirm(tx, firmId);
-  const A = (await loadBankAccounts(tx, firmId)).filter((a) => a.cur === 'MKD');
+  const A = (await loadBankAccounts(tx, firmId)).filter((a) => a.cur === 'MKD' && a.active !== false);
   const s = (f.settings ?? {}) as Record<string, unknown>;
   // Legacy `ppMuni` 15765: municipality code of the seat = `mpOpsFrom(muni ‖ city ‖ address)`.
   const muni = ppMuniCode({ muni: (s.muni as string) || '', city: f.city, address: f.address });
-  return { name: f.name, address: f.address, city: f.city, edb: f.edb, account: A[0]?.account || (s.bank as string) || '', bankName: A[0]?.name || (s.bankName as string) || '', muni };
+  const ok = A.find((a) => parseAccount(a.account || a.iban));
+  const rec = ok ?? A[0];
+  const acc = (ok ? ok.account || ok.iban : rec?.account) || (s.bank as string) || '';
+  const accDigits = parseAccount(acc)?.acc || String(acc).replace(/\D/g, '');
+  const label = rec?.name || (s.bankName as string) || '';
+  // a label that is only the account / „Сметка …“ / „Банка …“ + digits is not a bank name
+  const bankName = mkBankName(accDigits) || (/\d{6,}/.test(label) ? '' : label);
+  return { name: fixYuscii(f.name), address: fixYuscii(f.address), city: fixYuscii(f.city), edb: f.edb, account: accDigits, bankName, muni };
 }
 
-export interface PpSuggestion { label: string; amount: number; date: string; due: string | null; recip: string; recipAcc: string; refCredit: string; refId: string; warn: string }
+export interface PpSuggestion { label: string; amount: number; date: string; due: string | null; recip: string; recipAcc: string; recipBank: string; refCredit: string; refId: string; partnerId: string; warn: string }
 
-/**
- * Legacy `ppSuggest`: unpaid supplier invoices, oldest first (max 40), as ПП30 drafts. Open amounts come from
- * the open-items source (Phase 3 documents — see open-items.ts) minus bank payments.
- */
-export async function orderSuggestions(tx: Tx, firmId: string, year: number): Promise<PpSuggestion[]> {
+interface OpenPurchase { refId: string; partnerId: string; number: string; date: string; due: string | null; /** denars */ open: number }
+
+/** Unpaid purchase invoices (open-items source minus bank payments), oldest due date first. */
+async function openPurchases(tx: Tx, firmId: string, year: number): Promise<OpenPurchase[]> {
   const items = await openItemsSource().load(tx, firmId, year);
   const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), eq(bankLines.refType, 'purchase')));
   const rows = L.map(toBankRow);
-  const P = await tx.select({ id: partners.id, name: partners.name, address: partners.address, city: partners.city, bank: partners.bankAccount }).from(partners).where(eq(partners.firmId, firmId));
-  const pm = new Map(P.map((p) => [p.id, p]));
   // Legacy `ppSuggest` 15773: oldest due date first (else the document date).
   const D = await tx.select({ id: purchases.id, due: purchases.due }).from(purchases).where(eq(purchases.firmId, firmId));
   const due = new Map(D.map((d) => [d.id, d.due]));
   const open = items.purchases.map((x) => ({ x, o: openAmount(rows, 'purchase', x), date: x.date, due: due.get(x.id) ?? null })).filter((z) => z.o > 0);
-  return ppSortByDue(open)
-    .slice(0, 40)
-    .map(({ x, o, due: dd }) => {
-      const p = x.partner ? pm.get(x.partner) : undefined;
-      const acc = String(p?.bank ?? '').replace(/\D/g, '');
-      return {
-        label: `${p?.name ?? '—'} · ф-ра ${x.number || 'без број'} · ${(dd || x.date).split('-').reverse().join('.')}`, amount: den(o), date: x.date, due: dd,
-        recip: [p?.name, [p?.address, p?.city].filter(Boolean).join(', ')].filter(Boolean).join('\n'), recipAcc: acc,
-        refCredit: x.number || '', refId: x.id, warn: acc.length !== 15 ? 'нема жиро сметка кај добавувачот' : '',
-      };
-    });
+  return ppSortByDue(open).map(({ x, o, due: dd }) => ({ refId: x.id, partnerId: x.partner ?? '', number: x.number || '', date: x.date, due: dd, open: den(o) }));
+}
+
+async function partnerMap(tx: Tx, firmId: string) {
+  const P = await tx.select({ id: partners.id, name: partners.name, address: partners.address, city: partners.city, bankAccount: partners.bankAccount, bankName: partners.bankName, data: partners.data, active: partners.active })
+    .from(partners).where(eq(partners.firmId, firmId));
+  return new Map(P.map((p) => [p.id, { ...p, accounts: partnerAccounts(p) }]));
+}
+
+/**
+ * Legacy `ppSuggest`: unpaid supplier invoices, oldest first (max `limit`, default 40), as ПП30 drafts with the
+ * supplier's default account.
+ */
+export async function orderSuggestions(tx: Tx, firmId: string, year: number, limit = 40): Promise<PpSuggestion[]> {
+  const [open, pm] = await Promise.all([openPurchases(tx, firmId, year), partnerMap(tx, firmId)]);
+  return open.slice(0, limit).map((x) => {
+    const p = x.partnerId ? pm.get(x.partnerId) : undefined;
+    const a = p?.accounts.find((y) => y.def);
+    const acc = a?.acc ?? '';
+    return {
+      label: `${p?.name ?? '—'} · ф-ра ${x.number || 'без број'} · ${(x.due || x.date).split('-').reverse().join('.')}`, amount: x.open, date: x.date, due: x.due,
+      recip: p ? ppPartyText(p) : '', recipAcc: acc, recipBank: a?.bank ?? '',
+      refCredit: x.number, refId: x.refId, partnerId: x.partnerId, warn: acc ? '' : 'нема жиро сметка кај добавувачот',
+    };
+  });
+}
+
+/** One choice of the „Примач“ picker on ПП30 (serializable — passed to the client). */
+export interface PpRecipientOption {
+  key: string; kind: 'partner' | 'employee'; name: string; address: string; city: string;
+  accounts: { acc: string; bank: string; def: boolean }[];
+  invoices: PpOpenInvoice[];
+}
+
+/**
+ * Recipients for ПП30: partners with a bank account or an unpaid purchase invoice (with those invoices), and the active
+ * employees with an account (net salary). Names / addresses repaired from YUSCII leftovers.
+ */
+export async function ppRecipients(tx: Tx, firmId: string, year: number): Promise<PpRecipientOption[]> {
+  const [open, pm, E] = await Promise.all([
+    openPurchases(tx, firmId, year), partnerMap(tx, firmId),
+    tx.select({ id: employees.id, name: employees.name, address: employees.address, city: employees.city, bankAcc: employees.bankAcc, bank: employees.bank })
+      .from(employees).where(and(eq(employees.firmId, firmId), eq(employees.active, true))),
+  ]);
+  const inv = new Map<string, PpOpenInvoice[]>();
+  for (const x of open) if (x.partnerId) inv.set(x.partnerId, [...(inv.get(x.partnerId) ?? []), { refId: x.refId, number: x.number, date: x.date, due: x.due, open: x.open }]);
+  const out: PpRecipientOption[] = [];
+  for (const p of pm.values()) {
+    const I = inv.get(p.id) ?? [];
+    if (!p.accounts.length && !I.length) continue;
+    if (!p.active && !I.length) continue;
+    out.push({ key: 'p:' + p.id, kind: 'partner', name: fixYuscii(p.name), address: fixYuscii(p.address ?? ''), city: fixYuscii(p.city ?? ''),
+      accounts: p.accounts.map((a) => ({ acc: a.acc, bank: a.bank, def: !!a.def })), invoices: I });
+  }
+  for (const e of E) {
+    const a = parseAccount(e.bankAcc);
+    if (!a) continue;
+    out.push({ key: 'e:' + e.id, kind: 'employee', name: fixYuscii(e.name), address: fixYuscii(e.address ?? ''), city: fixYuscii(e.city ?? ''),
+      accounts: [{ acc: a.acc || a.iban, bank: String(e.bank ?? '').trim() || a.bank, def: true }], invoices: [] });
+  }
+  return out.sort((a, b) => (b.invoices.length ? 1 : 0) - (a.invoices.length ? 1 : 0) || a.name.localeCompare(b.name, 'mk'));
+}
+
+/**
+ * „Подготви ПП30 за избраните“: one saved ПП30 per supplier for the picked unpaid invoices (amount = Σ open,
+ * purpose / reference = the invoice numbers). Returns the new order ids (for printing on one PDF) and the suppliers
+ * without an account.
+ */
+export async function createSupplierPaymentOrders(tx: Tx, a: { firmId: string; userId: string | null; year: number; refIds: string[]; date: string }): Promise<{ ids: string[]; missing: string[] }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a.date)) throw new OrderError('Неважечки датум.');
+  const want = new Set(a.refIds);
+  const [open, pm, payer] = await Promise.all([openPurchases(tx, a.firmId, a.year), partnerMap(tx, a.firmId), payerOf(tx, a.firmId)]);
+  const picked = open.filter((x) => want.has(x.refId) && x.partnerId);
+  if (!picked.length) throw new OrderError('Изберете барем една неплатена фактура (со добавувач).');
+  const items: PpBatchItem[] = picked.map((x) => {
+    const p = pm.get(x.partnerId);
+    const d = p?.accounts.find((y) => y.def);
+    return { ...x, party: { name: p?.name ?? '', address: p?.address, city: p?.city, acc: d?.acc ?? '', bank: d?.bank ?? '' } };
+  });
+  const ids: string[] = [];
+  const missing: string[] = [];
+  for (const b of ppBatchOrders(items, payer, a.date, { iban: ppIbanOn(a.date) })) {
+    ids.push(await savePaymentOrder(tx, { firmId: a.firmId, userId: a.userId, order: { ...b.order, refIds: b.refIds }, refId: b.refIds[0] ?? null }));
+    if (b.missing) missing.push(pm.get(b.partnerId)?.name ?? '—');
+  }
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'ppBatch', entityType: 'payment_order', data: { ids, refIds: picked.map((x) => x.refId), missing } });
+  return { ids, missing };
 }
 
 export const ppTitle = (k: PpKind) => PP_T[k];

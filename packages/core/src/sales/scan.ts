@@ -6,6 +6,7 @@
 import { r2 } from '../money';
 import { calcLines } from '../vat';
 import { normDocNo } from './docs';
+import { accountKey } from '../bank/mk-banks';
 
 export interface ScanLine { code?: string; barcode?: string; name?: string; unit?: string; qty?: number | string; price?: number | string; discount?: number | string; amount?: number | string; rate?: number | string }
 export interface ScanGroup { rate?: number | string; base?: number | string; vat?: number | string; kind?: string }
@@ -13,6 +14,8 @@ export interface ScanGroup { rate?: number | string; base?: number | string; vat
 export interface ScanInvoice {
   supplierName?: string; supplierEdb?: string; buyerName?: string; buyerEdb?: string; buyerAddress?: string; buyerCity?: string;
   number?: string; date?: string; dueDate?: string; art32?: boolean;
+  /** The seller's bank account printed on the invoice („жиро / трансакциска сметка“, IBAN). */
+  supplierBankAccount?: string;
   groups?: ScanGroup[]; lines?: ScanLine[]; total?: number | string;
   /** UBL CreditNote (amounts negative). */
   credit?: boolean;
@@ -20,6 +23,7 @@ export interface ScanInvoice {
 }
 /** A prompt result: one invoice, or several (`{invoices:[…]}`). */
 export type ScanResult = ScanInvoice & { invoices?: ScanInvoice[] };
+
 
 const n = (v: unknown) => Number(v) || 0;
 const isoDate = (s: unknown) => (typeof s === 'string' && /^\d{4}-\d\d-\d\d$/.test(s) ? s : '');
@@ -227,6 +231,8 @@ export interface ScanPurchaseDraft {
   /** VAT period of the document date was closed → booked on `date` (legacy `autoShift`). */
   shifted: boolean;
   credit: boolean;
+  /** The supplier's bank account read from the invoice (valid MK account / IBAN, else ''). */
+  bankAcc?: string;
 }
 export interface PurchaseDraftOptions {
   partners: readonly MatchPartner[];
@@ -287,7 +293,7 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
     partnerId: p?.id ?? '', supplierName: String(r.supplierName ?? ''), supplierEdb: String(r.supplierEdb ?? ''),
     art32: !!r.art32, cash: !!o.cash, warehouseId: o.warehouseId ?? null,
     ptype: o.costOnly ? 'cost' : stock.length || goodsInv ? 'stock' : 'cost',
-    groups, stock, credit: !!r.credit,
+    groups, stock, credit: !!r.credit, bankAcc: accountKey(r.supplierBankAccount),
   };
 }
 

@@ -7,6 +7,7 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { bkCore } from '@wise/core';
 import { bookSaldoCur, partnerFixPlan, posBoxState, posFeeLines, posFeeValid, posSaldo, statementNumberSuggestions, type PartnerFixPlan, type PosSaldo } from '@wise/core/bank/parity';
+import { learnAccountsFromStatements } from '../partner-accounts';
 import { audit, type Tx } from '../audit';
 import { postJournal } from '../posting';
 import { bankLines, bankStatements, journalLines, journals, partners } from '../schema/index';
@@ -48,6 +49,7 @@ export async function applyBankPartnerFix(tx: Tx, a: { firmId: string; userId: s
     if (r) touched.add(r.st);
   }
   await postStatements(tx, touched, a.userId);
+  await learnAccountsFromStatements(tx, { firmId: a.firmId, userId: a.userId, lineIds: plan.map((x) => x.id) });
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bkpFix', entityType: 'bank_line', data: { linked: plan.length, created } });
   return { linked: plan.length, created };
 }

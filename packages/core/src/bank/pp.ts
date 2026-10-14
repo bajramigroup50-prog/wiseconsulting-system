@@ -7,6 +7,8 @@
  * are validated now (`mkAccountValid`, `ibanValid`), so a mistyped account is caught before printing.
  */
 import { BANKS_MK, ibanValid, mkAccountValid, ppAccTxt } from './payment-order';
+import { mkBankName } from './mk-banks';
+import { fixYuscii } from '../text/yuscii';
 
 export type PpKind = 'pp30' | 'pp50' | 'pp10';
 
@@ -51,14 +53,17 @@ export interface PaymentOrder {
   taxKey?: string;
   /** Print accounts as IBAN (default: from 2026-11-01). */
   iban?: boolean | null;
+  /** The purchase invoices this order pays (batch / picker). */
+  refIds?: string[];
 }
 
 const dig = (v: unknown) => String(v ?? '').replace(/\D/g, '');
 
-/** Legacy `ppBankName`: bank of an account by its 3-digit code. */
+/** Legacy `ppBankName`: bank of an account (or MK IBAN) by its 3-digit code (`MK_BANK_CODES`). */
 export function ppBankName(acc: unknown): string {
+  const named = mkBankName(acc);
+  if (named) return named;
   const c = dig(acc).slice(0, 3);
-  if (c === '100') return 'Народна банка на РСМ';
   const B = BANKS_MK[c];
   return B ? B.n + ' АД Скопје' : '';
 }
@@ -70,8 +75,8 @@ export function ppNew(kind: PpKind, date: string, firm: PpFirm, o: Partial<Payme
   const acc = dig(firm.account);
   const n: PaymentOrder = {
     kind, date, valDate: date, nacin: kind === 'pp50' ? '1' : '2', code: kind === 'pp50' ? '' : '930',
-    payer: [firm.name, [firm.address, firm.city].filter(Boolean).join(', ')].filter(Boolean).join('\n'),
-    payerAcc: acc, payerBank: firm.bankName || ppBankName(acc), payerTax: firm.edb || '', place: firm.city || '',
+    payer: fixYuscii([firm.name, [firm.address, firm.city].filter(Boolean).join(', ')].filter(Boolean).join('\n')),
+    payerAcc: acc, payerBank: firm.bankName || ppBankName(acc), payerTax: firm.edb || '', place: fixYuscii(firm.city || ''),
     purpose: '', amount: null, recip: '', recipAcc: '', recipBank: '', refDebit: '', refCredit: '', uplSm: '', prihod: '', ...o,
   };
   if (n.recipAcc && !n.recipBank) n.recipBank = ppBankName(n.recipAcc);
@@ -175,5 +180,6 @@ export function ppFieldText(n: PaymentOrder, k: PpField[0], t?: 'acc' | 'amt' | 
   if (t === 'acc') return ppAccTxt(v, n.date, n.iban ?? undefined);
   if (t === 'amt') return ppAmt(v);
   if (t === 'date') return v ? String(v).split('-').reverse().join('.') : '';
-  return v == null ? '' : String(v);
+  // orders saved before the YUSCII repair print with the letters fixed („ДЕЛ^ЕВ“ → „ДЕЛЧЕВ“)
+  return v == null ? '' : fixYuscii(String(v));
 }

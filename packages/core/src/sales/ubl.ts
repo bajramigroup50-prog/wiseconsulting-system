@@ -138,6 +138,7 @@ export function ublToScan(txt: string): ScanInvoice | null {
     number: xmlText(root, 'ID'), date: xmlText(root, 'IssueDate'),
     dueDate: xmlText(root, 'DueDate') || xmlText(root, 'PaymentMeans/PaymentDueDate'),
     art32, credit, groups, lines,
+    ...(xmlText(root, 'PaymentMeans/PayeeFinancialAccount/ID') ? { supplierBankAccount: xmlText(root, 'PaymentMeans/PayeeFinancialAccount/ID') } : {}),
     total: sg * num(xmlText(root, 'LegalMonetaryTotal/PayableAmount')),
     currency: xmlText(root, 'DocumentCurrencyCode') || 'MKD',
   };

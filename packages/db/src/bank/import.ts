@@ -14,6 +14,7 @@ import {
   statementAccount, statementKey, statementOwnerMismatch,
   type BankRow, type ImportClass, type Statement,
 } from '@wise/core';
+import { learnAccountsFromStatements } from '../partner-accounts';
 import { audit, type Tx } from '../audit';
 import { accounts, bankAccounts, bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
 import { bankKontoName, techAccountKonto } from '@wise/core/bank/parity';
@@ -340,6 +341,8 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     book = await bookStatementLines(tx, { firmId: o.firmId, userId: o.userId, statementIds: [...touched], overrides });
     res = book.posted;
   } else res = await postStatements(tx, touched, o.userId);
+  // counterparty accounts of the lines booked to a partner → the partner's bank accounts (for payment orders)
+  await learnAccountsFromStatements(tx, { firmId: o.firmId, userId: o.userId, lineIds: [...lineIds.values()] });
   const posted = [...res.values()].filter((r) => r.status === 'posted').length;
   await audit(tx, {
     userId: o.userId, firmId: o.firmId, action: 'importBank', entityType: 'bank_import', entityId: batch,

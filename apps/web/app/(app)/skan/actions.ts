@@ -110,7 +110,7 @@ export async function draftToPurchase(d: ScanPurchaseDraft, fileId: string | nul
     supplierName: d.supplierName, supplierEdb: d.supplierEdb, ptype: d.ptype, art32: d.art32, cash: d.cash, warehouseId: d.warehouseId,
     groups: d.groups.map((g) => ({ account: g.konto, rate: g.rate, base: g.base, vat: g.vat })),
     stock: d.stock.map((s) => ({ itemId: s.itemId || null, name: s.name, code: s.code, barcode: s.barcode, unit: s.unit, qty: s.qty, price: s.price, amount: s.amount, sp: s.sp === '' ? null : s.sp, type: s.type, rate: s.rate })),
-    fileIds: fileId ? [fileId] : [], scanned: true,
+    fileIds: fileId ? [fileId] : [], scanned: true, ...(d.bankAcc ? { data: { bankAcc: d.bankAcc } } : {}),
   };
 }
 

@@ -7,6 +7,7 @@
  */
 import type { ScanInvoice } from '../sales/scan';
 import { AmbiguousAmountsError, ambExamples, reconcileFmt, type NumFmt } from '../numfmt';
+import { supplierAccountIn } from '../bank/mk-banks';
 import { dateIn, docFmt, lineText, numsIn, numTokens, type PdfLine } from './pdf-lines';
 
 const RATES = [18, 10, 5, 0];
@@ -82,7 +83,7 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
   return {
     inv: {
       number: numM?.[1] ?? '', date, ...(due ? { dueDate: due } : {}),
-      ...(o.kind === 'sale' ? { buyerEdb: edbs[0] ?? '' } : { supplierEdb: edbs[0] ?? '' }),
+      ...(o.kind === 'sale' ? { buyerEdb: edbs[0] ?? '' } : { supplierEdb: edbs[0] ?? '', ...(supplierAccountIn(all) ? { supplierBankAccount: supplierAccountIn(all) } : {}) }),
       groups, lines: [], total: total && near(total, sum) ? total : sum,
     },
     // reconciles: a recapitulation (VAT = base × rate) whose sum is the printed total

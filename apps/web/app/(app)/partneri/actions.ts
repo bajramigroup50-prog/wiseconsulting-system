@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
-import { aiDocuments, audit, fileLinks, journalLines, partners } from '@wise/db';
+import { aiDocuments, audit, fileLinks, journalLines, PartnerAccountError, partners, savePartnerAccounts } from '@wise/db';
 import { fsDig, TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
 import { markAiReadsSaved } from '@/lib/ai';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
@@ -17,10 +17,9 @@ const PartnerInput = z.object({
   code: opt,
   name: z.string().trim().min(1, 'Внесете назив.').max(300),
   edb: opt, embs: opt, address: opt, city: opt, country: opt, email: opt, phone: opt, contact: opt,
-  bankAccount: opt, bankName: opt,
   vatRegistered: z.boolean(), foreign: z.boolean(), active: z.boolean(),
 });
-const TEXT = ['code', 'name', 'edb', 'embs', 'address', 'city', 'country', 'email', 'phone', 'contact', 'bankAccount', 'bankName'] as const;
+const TEXT = ['code', 'name', 'edb', 'embs', 'address', 'city', 'country', 'email', 'phone', 'contact'] as const;
 
 /** Legacy `saveS('partners')` 7401 + base `save` auto-code (3296). Guarded by `write`, audited. */
 export async function savePartner(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -33,6 +32,8 @@ export async function savePartner(_prev: ActionState, form: FormData): Promise<A
     });
     if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Неважечки податоци.' };
     const v = parsed.data;
+    // bank accounts (one or more, one default) — validated (15 digits + control digits / IBAN) by savePartnerAccounts
+    const accs = form.get('accForm') ? form.getAll('acc').map((a, i) => ({ acc: String(a).trim(), bank: String(form.getAll('accBank')[i] ?? '').trim(), def: String(form.get('accDef') ?? '0') === String(i) })) : null;
     await db().transaction(async (tx) => {
       const codes = await tx.select({ code: partners.code }).from(partners).where(eq(partners.firmId, firm.id));
       if (!v.code) v.code = nextCode(codes.map((c) => c.code));
@@ -45,13 +46,15 @@ export async function savePartner(_prev: ActionState, form: FormData): Promise<A
         await tx.update(partners).set(v).where(eq(partners.id, id));
         const changed = Object.fromEntries(Object.entries(v).filter(([k, x]) => before[k as keyof typeof before] !== x));
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveS', entityType: 'partner', entityId: id, data: changed });
+        if (accs) await savePartnerAccounts(tx, { firmId: firm.id, userId: u.id, partnerId: id, accounts: accs });
       } else {
         const [p] = await tx.insert(partners).values({ ...v, firmId: firm.id }).returning({ id: partners.id });
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'newS', entityType: 'partner', entityId: p!.id, data: { name: v.name, code: v.code } });
+        if (accs?.some((a) => a.acc)) await savePartnerAccounts(tx, { firmId: firm.id, userId: u.id, partnerId: p!.id, accounts: accs });
       }
     });
   } catch (e) {
-    if (e instanceof DupError) return { error: e.message };
+    if (e instanceof DupError || e instanceof PartnerAccountError) return { error: e.message };
     return actionError(e);
   }
   revalidatePath('/partneri');

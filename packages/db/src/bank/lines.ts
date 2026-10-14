@@ -9,6 +9,7 @@ import {
   assignStatementNumbers, bankDupKey, counterparty, feeFix, fxRate, fxToMkd, learnOsnov, learnRule, statementGaps, statementKey, transitCloseLines, transitResidue,
   type StatementBalance,
 } from '@wise/core';
+import { learnAccountsFromStatements } from '../partner-accounts';
 import { audit, type Tx } from '../audit';
 import { assertOpenPeriod, missingAccounts, postJournal, unpostSource } from '../posting';
 import { bankKontoName } from '@wise/core/bank/parity';
@@ -60,6 +61,7 @@ export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string |
   }
   await tx.update(bankLines).set({ ...UNBOOKED, konto: a.konto, partnerId: a.partnerId || null, pos: line.pos, own: line.own, conv: line.conv, newPartner: a.partnerId ? null : line.newPartner })
     .where(eq(bankLines.id, line.id));
+  if (a.partnerId) await learnAccountsFromStatements(tx, { firmId: a.firmId, userId: a.userId, lineIds: [line.id] });
   const learned: string[] = [];
   if (a.learn !== false) {
     const env = await loadBankEnv(tx, a.firmId);
@@ -101,6 +103,7 @@ export async function setLinePartner(tx: Tx, a: { firmId: string; userId: string
     if (!p) throw new BankError('Комитентот не постои.');
   }
   await tx.update(bankLines).set({ partnerId: pid, newPartner: pid ? null : line.newPartner }).where(eq(bankLines.id, line.id));
+  if (pid) await learnAccountsFromStatements(tx, { firmId: a.firmId, userId: a.userId, lineIds: [line.id] });
   await postStatement(tx, st.id, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bankPartner', entityType: 'bank_line', entityId: line.id, data: { partnerId: pid } });
   return pid;

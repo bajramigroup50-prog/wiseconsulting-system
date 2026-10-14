@@ -227,6 +227,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const mergeScan = (dr: ScanPurchaseDraft) => setD((o) => ({
     ...o, scanned: true, number: dr.number || o.number, date: dr.date || o.date, docDate: dr.docDate || o.docDate, due: dr.due || o.due,
     partnerId: dr.partnerId || o.partnerId, supplierName: dr.supplierName, supplierEdb: dr.supplierEdb, art32: dr.art32,
+    data: dr.bankAcc ? { ...o.data, bankAcc: dr.bankAcc } : o.data,
     groups: dr.groups.map((g) => ({ account: g.konto, rate: String(g.rate), base: String(g.base), vat: String(g.vat) })),
     stock: dr.stock.length ? dr.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: l.unit ?? 'ком', qty: String(l.qty), price: String(l.price), rab: '', amount: l.amount ? String(l.amount) : '', cn: '', dep: '', sp: l.sp === undefined ? '' : String(l.sp), type: l.type ?? '', rate: String(l.rate ?? ''), isNew: l.isNew })) : o.stock,
   }));
@@ -406,6 +407,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
             {!d.partnerId && d.supplierName && <div className="callout">Добавувачот „{d.supplierName}“ (ЕДБ {d.supplierEdb || '—'}) не е во шифрарникот. <button type="button" className="btn sm" onClick={addSupplier}>Додај го како партнер</button></div>}
             {!d.partnerId && <><label className="fl"><span>или нов добавувач</span><input value={d.supplierName} placeholder="назив (се додава во комитенти)" onChange={(e) => set({ supplierName: e.target.value })} /></label>
               <label className="fl"><span>ЕДБ на добавувач</span><input value={d.supplierEdb} onChange={(e) => set({ supplierEdb: e.target.value })} /></label></>}
+            {!d.imp && pf('bankAcc', 'Жиро сметка на добавувач', { ph: 'се памети кај комитентот' })}
             <label className="fl b"><span>По документ (бр. на ф-ра)</span><input value={d.number} onChange={(e) => set({ number: e.target.value })} /></label>
             <label className="fl b"><span>Датум на прием</span><input type="date" value={d.date} onChange={(e) => set({ date: e.target.value, ...(d.data.days ? { due: addDays(d.docDate || e.target.value, d.data.days) } : {}) })} /></label>
             <label className="fl"><span>Датум на ф-ра (документ)</span><input type="date" value={d.docDate} onChange={(e) => set({ docDate: e.target.value })} /></label>

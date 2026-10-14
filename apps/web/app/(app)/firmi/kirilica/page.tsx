@@ -5,14 +5,17 @@
 import Link from 'next/link';
 import { asc, eq, inArray, or } from 'drizzle-orm';
 import { can } from '@wise/core';
-import { hasCyrillic, hasLatin, kbdToCyr } from '@wise/core/text/kbd-cyr';
+import { hasCyrillic, hasLatin, kbdToCyr as kbd } from '@wise/core/text/kbd-cyr';
+import { fixYuscii, hasYuscii } from '@wise/core/text/yuscii';
 import { firms, userFirms } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { applyCyr } from './actions';
 
-const lat = (s: string | null) => !!s && hasLatin(s) && !hasCyrillic(s);
+const lat = (s: string | null) => !!s && ((hasLatin(s) && !hasCyrillic(s)) || hasYuscii(s));
+/** Latin keyboard text → Cyrillic, and YUSCII leftovers in Cyrillic text („ДЕЛ^ЕВ“ → „ДЕЛЧЕВ“, „^аир“ → „Чаир“). */
+const kbdToCyr = (s: string | null) => fixYuscii(kbd(s));
 
 export default async function KirilicaPage({ searchParams }: { searchParams: Promise<{ done?: string }> }) {
   const sp = await searchParams;
@@ -34,6 +37,7 @@ export default async function KirilicaPage({ searchParams }: { searchParams: Pro
       <div className="callout">Називите, адресите и градовите се претвораат како да се пишувани на македонска тастатура во латиница
         (<b>[</b>→Ш, <b>]</b>→Ѓ, <b>;</b>→Ч, <b>&apos;</b>→Ќ, <b>\</b>→Ж, <b>W</b>→Њ, <b>Q</b>→Љ, <b>X</b>→Џ, <b>Y</b>→Ѕ). Прегледајте, поправете
         каде што треба (странски зборови и брендови) и отштиклирајте ги фирмите што треба да останат на латиница.
+        Остатоци од стариот YUSCII фонт во кирилица се поправаат (<b>^</b>→Ч, <b>~</b>→ч, <b>@</b>→Ж, <b>`</b>→ж, <b>[</b>→Ш, <b>{'{'}</b>→ш, <b>]</b>→Ќ, <b>{'}'}</b>→ќ, <b>\</b>→Ѓ, <b>|</b>→ѓ – пр. „ДЕЛ^ЕВ“ → „ДЕЛЧЕВ“).
         ЕДБ се пополнува од „Даночен број“ што увозот од Excel го зачувал како даночен број на банката.</div>
       {rows.length === 0 ? <div className="callout good">Сите фирми се на кирилица и имаат ЕДБ.</div> : (
         <form action={applyCyr} className="card">
