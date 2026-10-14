@@ -4,7 +4,7 @@ import { nbrmChunks, nbrmUrl, parseNbrm } from './bank/nbrm';
 import { feeAutoPeriod, feeBillingDate, feeDue, feePlan, feeReminderDue, feeReminderText, feeToIssue, feeTotals } from './firms/kdfee';
 import type { KdRecRow } from './firms/kdog';
 import {
-  icsFold, rokClientDue, rokClientText, rokDays, rokGenerate, rokIcs, rokMonthGrid, rokRemindDue, rokState, type RokFirm,
+  icsFold, utf8Len, rokClientDue, rokClientText, rokDays, rokGenerate, rokIcs, rokMonthGrid, rokRemindDue, rokState, type RokFirm,
 } from './office/rokovi';
 
 const base: RokFirm = { id: 'f1', name: 'Фирма ДООЕЛ', vatRegistered: true, vatPeriod: 'month', entity: 'co', employees: [] };
@@ -92,7 +92,7 @@ describe('📅 reminders schedule, states, client reminder, calendar, ICS', () =
     expect(s).toContain('DTSTART;VALUE=DATE:20261026\r\n');
     expect(s).toContain('DTEND;VALUE=DATE:20261027\r\n');
     expect(s.replace(/\r\n /g, '')).toContain('SUMMARY:ДДВ-04 за 09.2026\\, месечно\\; тест – Фирма ДООЕЛ');
-    for (const l of s.split('\r\n')) expect(new TextEncoder().encode(l).length).toBeLessThanOrEqual(75);
+    for (const l of s.split('\r\n')) expect([...l].reduce((n, ch) => n + utf8Len(ch), 0)).toBeLessThanOrEqual(75);
     expect(icsFold('a'.repeat(80)).split('\r\n')).toHaveLength(2);
   });
 });

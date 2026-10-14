@@ -249,12 +249,13 @@ export const rokYmAdd = ymAddN;
 const icsEsc = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 
 /** Fold a content line at 75 octets (RFC 5545 §3.1), never inside a UTF-8 sequence. */
-const enc = new TextEncoder();
+/** UTF-8 length of one code point. */
+export const utf8Len = (ch: string): number => { const c = ch.codePointAt(0) ?? 0; return c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; };
 export function icsFold(line: string): string {
   const out: string[] = [];
   let cur = '', bytes = 0;
   for (const ch of line) {
-    const b = enc.encode(ch).length;
+    const b = utf8Len(ch);
     if (bytes + b > (out.length ? 74 : 75)) { out.push(cur); cur = ''; bytes = 0; }
     cur += ch; bytes += b;
   }

@@ -12,6 +12,11 @@ import type { NavGroup, NavItem } from './nav-data';
 /** [group, anchor id (insert after), items] — the anchor may be inside a submenu. */
 const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'firmiImp', [['firmiResh', '📷 Нова фирма од решение']]],
+  // new: statutory / agreed deadlines of every firm (`@wise/core/office/rokovi`), after the legacy all-firms block
+  // (… izvestuvanja, zakoni, zatvoranje, insp, lawrep, ujpZakoni, mpinIn — kept in legacy order)
+  ['Фирми', 'mpinIn', [['rokovi', '📅 Календар на рокови']]],
+  // new, owner-only: the monthly invoices of the office firm from the contracts (after the contract screen)
+  ['Фирми', 'kdogovori', [['kdfakturi', '🧾 Месечна фактура за сметководствени услуги']]],
   ['Материјално', 'izlez', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // owner-only (hidden for everybody else in the layout, `OWNER_VIEWS`)

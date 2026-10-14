@@ -41,7 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     : withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
   const [st, [y0], yearNote] = await Promise.all([
-    topStatus(u).catch(() => ({ bell: null, ainb: [], law: null })),
+    topStatus(u).catch(() => ({ bell: null, ainb: [], law: null, rok: null })),
     // legacy `dataYears()`: the year list starts at the firm's first booked year
     firm ? db().select({ y: sql<number | null>`min(extract(year from ${journals.date}))::int` }).from(journals).where(eq(journals.firmId, firm.id)).catch(() => [{ y: null }]) : Promise.resolve([{ y: null }]),
     // the selected firm does not work in the selected year (`@wise/core/firms/years`) — said, never shown silently
@@ -65,7 +65,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           year={year}
           minYear={y0?.y ?? null}
           canFirms={can(u.principal, 'firms')}
-          status={{ bell: st.bell, ainb: st.ainb.length, law: st.law, locks, ai }}
+          status={{ bell: st.bell, ainb: st.ainb.length, law: st.law, locks, ai, rok: st.rok ?? null }}
           firm={firm && {
             id: firm.id, name: firm.name, edb: firm.edb, vatRegistered: firm.vatRegistered,
             lockDate: firm.lockDate,

@@ -20,7 +20,9 @@ import { FirmWindow } from './firm-window';
 export interface TopFirm { id: string; name: string; edb: string | null; vatRegistered: boolean; lockDate: string | null }
 export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: string | null } | null; ainb: number; law: number | null; locks?: number;
   /** Owner only: the office's monthly AI limit at 80 % / 100 % (`lib/ai-budget-status.ts`). */
-  ai?: { level: 80 | 100; pct: number; msg: string } | null }
+  ai?: { level: 80 | 100; pct: number; msg: string } | null;
+  /** 📅 open deadlines within the reminder window (late = past due). */
+  rok?: { n: number; late: number } | null }
 
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
@@ -81,6 +83,13 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
         <a className="btn sm" id="aiBudgetTop" href="/aiTrosok" title={status.ai.msg}
           style={status.ai.level === 100 ? { background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 } : { background: '#fef0c7', color: '#93370d', border: '2px solid #dc6803', fontWeight: 700 }}>
           💲 {status.ai.level === 100 ? 'AI паузирано' : `AI ${Math.round(status.ai.pct)}%`}
+        </a>
+      )}
+      {office && !!status.rok?.n && (
+        <a className="btn sm" id="rokTop" href="/rokovi?v=lista"
+          title={`Рокови во наредните денови: ${status.rok.n}${status.rok.late ? ` (поминати: ${status.rok.late})` : ''} – 📅 Календар на рокови`}
+          style={status.rok.late ? { background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 } : { background: '#fef0c7', color: '#93370d', border: '2px solid #dc6803', fontWeight: 700 }}>
+          📅 {status.rok.n}
         </a>
       )}
       {office && <AinbEnvelope n={status.ainb} />}

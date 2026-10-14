@@ -14,6 +14,7 @@ import type { FuelRule } from '@wise/core/law';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { createInvoiceNalogAction, createProductAction, saveInvoiceAction, setSvcOnlyAction } from '@/app/(app)/izlez/actions';
+import { fxDefaultRate } from '@/app/(app)/kursna/actions';
 import { blankCostEls, blankLine, blankSpec, mainProdLine, OTHER_COSTS, type EdInvoice, type EdLine } from './model';
 import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
 import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';
@@ -158,6 +159,12 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const svcMode = svcOnly || d0svc(p.initial);
   const set = (x: Partial<EdInvoice>) => setD((o) => ({ ...o, ...x }));
   const setData = (k: string, v: string) => setD((o) => ({ ...o, data: { ...o.data, [k]: v } }));
+  // 💱 default rate from the rate list (NBRM / manual, the last list on or before the date); a typed rate stays
+  const [fxSrc, setFxSrc] = useState<string | null>(null);
+  const autoFx = (cur: string, date: string) => {
+    if (cur === 'MKD' || !date) { setFxSrc(null); return; }
+    startT(async () => { const r = await fxDefaultRate(cur, date); if (r.rate > 0) { set({ fx: String(r.rate) }); setFxSrc(r.src); } });
+  };
   // a produced line follows its normativ when the quantity or the product changes
   const setLine = (i: number, x: Partial<EdLine>) => setD((o) => ({ ...o, lines: o.lines.map((l, k) => (k === i ? reProd({ ...l, ...x }, boms, x.itemId !== undefined && x.itemId !== l.itemId) : l)) }));
   const canProd = d.kind === 'invoice' && !d.advance;
@@ -488,7 +495,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               </> : <label className="fl"><span>Налог</span><input value={p.nalogNo ? 'бр. ' + p.nalogNo : 'се доделува при зачувување'} disabled /></label>}
               <label className="fl b"><span>Комитент</span><select value={d.partnerId} onChange={(e) => set({ partnerId: e.target.value, ...(d.kind === 'credit' ? { refInvoiceId: '' } : {}) })}>{pOpts}</select></label>
               <label className="fl"><span>Комитент носител</span><select value={d.data.payerId ?? ''} onChange={(e) => setData('payerId', e.target.value)}>{pOpts}</select></label>
-              <label className="fl b"><span>Датум</span><input type="date" value={d.date} onChange={(e) => set({ date: e.target.value, ...(d.data.days ? { due: addDays(e.target.value, d.data.days) } : {}) })} /></label>
+              <label className="fl b"><span>Датум</span><input type="date" value={d.date} onChange={(e) => { set({ date: e.target.value, ...(d.data.days ? { due: addDays(e.target.value, d.data.days) } : {}) }); if (fxSrc && !d.pdate) autoFx(d.currency, e.target.value); }} /></label>
               {d.kind !== 'dispatch' && <label className="fl"><span>{d.kind === 'proforma' ? 'Важи до' : 'Валута (рок на плаќање)'}</span><input type="date" value={d.due} onChange={(e) => set({ due: e.target.value })} /></label>}
               {d.kind !== 'dispatch' && (
                 <label className="fl"><span>Рок за наплата</span><div className="row" style={{ flexWrap: 'nowrap' }}>
@@ -527,9 +534,9 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               </div>{d.export && <small className="note">Извоз: ДДВ 0%, оди во поле 07 на ДДВ-04.</small>}</fieldset>
               {I('priceList', 'Ценовник')}
               <div className="fl"><span>Валута / курс</span><div className="row" style={{ flexWrap: 'nowrap' }}>
-                <select value={d.currency} style={{ maxWidth: 90 }} onChange={(e) => set({ currency: e.target.value, ...(e.target.value === 'MKD' ? { fx: '1' } : {}) })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
-                <input type="number" step="any" value={d.fx} style={{ maxWidth: 110 }} aria-label="Курс" disabled={d.currency === 'MKD'} onChange={(e) => set({ fx: e.target.value })} />
-              </div></div>
+                <select value={d.currency} style={{ maxWidth: 90 }} onChange={(e) => { set({ currency: e.target.value, ...(e.target.value === 'MKD' ? { fx: '1' } : {}) }); autoFx(e.target.value, d.pdate || d.date); }}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
+                <input type="number" step="any" value={d.fx} style={{ maxWidth: 110 }} aria-label="Курс" disabled={d.currency === 'MKD'} onChange={(e) => { set({ fx: e.target.value }); setFxSrc(null); }} />
+              </div>{fxSrc && d.currency !== 'MKD' && <small className="mini">{fxSrc}</small>}</div>
               {d.currency !== 'MKD' && <small className="note">Цените се во {d.currency}; се книжи во денари по курс {d.fx}, а на побарувањето се води и девизниот износ.</small>}
               {I('icd', 'ИЦД (царинска декларација)')}{I('decl', 'Вид декларација')}{I('distrib', 'Дистрибутер')}
               <div className="fl"><span>Генерален рабат %</span><div className="row" style={{ flexWrap: 'nowrap' }}>

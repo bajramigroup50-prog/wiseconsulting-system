@@ -12,6 +12,7 @@ import type { FpFirm } from '@wise/core/firms/picker';
 import type { SessionUser } from './auth';
 import { db } from './db';
 import { allowedFirms, today } from './office';
+import { rokBadge } from './rokovi';
 
 export interface AinbItem { id: string; fid: string; firm: string; at: string; from: string; note: string; nf: number }
 export interface TopStatus {
@@ -21,6 +22,8 @@ export interface TopStatus {
   ainb: AinbItem[];
   /** New law changes for this user (legacy `lawNew().length`); `null` = not shown for the role. */
   law: number | null;
+  /** 📅 open deadlines within the reminder window (`lib/rokovi.ts`); `null` = none for the role. */
+  rok?: { n: number; late: number } | null;
 }
 
 const officeRole = (u: SessionUser) => u.role !== 'klient' && u.role !== 'teren';
@@ -53,6 +56,7 @@ export const topStatus = cache(async (u: SessionUser): Promise<TopStatus> => {
       note: [i.subject, i.note].filter(Boolean).join('\n'), nf: nf.get(i.id) ?? 0,
     })),
     law: lawN?.n ?? 0,
+    rok: await rokBadge(u, ids).catch(() => null),
   };
 });
 

@@ -16,6 +16,7 @@ import { fmt, todayIso } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { addSupplierAction, createItemsAction, deletePurchaseAction, purchaseDeletePreviewAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
+import { fxDefaultRate } from '@/app/(app)/kursna/actions';
 import { AI_OPEN_FAILED_MSG, AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
 import { blankCost, COSTS, type EdPurchase, type EdStock } from './model';
@@ -83,6 +84,13 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const impRef = useRef<HTMLInputElement>(null);
   const bcRef = useRef<HTMLInputElement>(null);
   const set = (x: Partial<EdPurchase>) => setD((o) => ({ ...o, ...x }));
+  // 💱 default rate of the import invoice from the rate list (NBRM / manual) when the rate is empty or was filled here
+  const [fxSrc, setFxSrc] = useState<string | null>(null);
+  const [, startFx] = useTransition();
+  const autoFx = (cur: string, date: string, force = false) => {
+    if (cur === 'MKD' || !date || (!force && n(d.fx) > 0 && n(d.fx) !== 1 && !fxSrc)) return;
+    startFx(async () => { const r = await fxDefaultRate(cur, date); if (r.rate > 0) { set({ fx: String(r.rate) }); setFxSrc(r.src); } });
+  };
   useEffect(() => {
     if (!p.pxInfo) return;
     try {
@@ -393,7 +401,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
             </div></fieldset>}
             <fieldset className="fs"><legend>Вид</legend><div className="row">
               <label className="rb"><input type="radio" checked={!d.imp} onChange={() => set({ imp: false, currency: 'MKD', fx: '1' })} /> Денарска</label>
-              <label className="rb"><input type="radio" checked={d.imp} onChange={() => set({ imp: true, cash: false, currency: d.currency === 'MKD' ? 'EUR' : d.currency, supplierAccount: d.supplierAccount || '2210' })} /> Увозна</label>
+              <label className="rb"><input type="radio" checked={d.imp} onChange={() => { const cur = d.currency === 'MKD' ? 'EUR' : d.currency; set({ imp: true, cash: false, currency: cur, supplierAccount: d.supplierAccount || '2210' }); autoFx(cur, d.docDate || d.date); }} /> Увозна</label>
             </div>{d.imp && <button type="button" className="btn sm" onClick={() => setTab('dev')}>Прочитај увозни документи од PDF →</button>}</fieldset>
             {d.ptype === 'stock' && <label className="fl b"><span>Калкулација бр.</span><input value={d.calcNo} placeholder="автоматски" onChange={(e) => set({ calcNo: e.target.value })} /></label>}
             {pf('oe', 'Орг. ед. (ОЕ)', { w: 120 })}
@@ -433,8 +441,8 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           <div className={d.imp ? 'devgrid' : ''}><div>
             {d.imp && <fieldset className="fs"><legend>Девизна фактура од добавувач</legend><div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
               <label className="mini">Износ во девизи<input type="number" step="any" value={d.data.fxAmt ?? ''} style={{ width: 140, textAlign: 'right' }} onChange={(e) => setData({ fxAmt: e.target.value })} /></label>
-              <label className="mini">Валута<select value={d.currency} style={{ width: 'auto' }} onChange={(e) => set({ currency: e.target.value })}>{CURRENCIES.filter((c) => c !== 'MKD').map((c) => <option key={c}>{c}</option>)}</select></label>
-              <label className="mini">Курс (НБРСМ)<input type="number" step="any" value={d.fx} placeholder="внеси курс" style={{ width: 110, textAlign: 'right', borderColor: n(d.fx) > 0 ? undefined : 'var(--bad)' }} onChange={(e) => set({ fx: e.target.value })} /></label>
+              <label className="mini">Валута<select value={d.currency} style={{ width: 'auto' }} onChange={(e) => { set({ currency: e.target.value }); autoFx(e.target.value, d.docDate || d.date, true); }}>{CURRENCIES.filter((c) => c !== 'MKD').map((c) => <option key={c}>{c}</option>)}</select></label>
+              <label className="mini">Курс (НБРСМ)<input type="number" step="any" value={d.fx} placeholder="внеси курс" style={{ width: 110, textAlign: 'right', borderColor: n(d.fx) > 0 ? undefined : 'var(--bad)' }} onChange={(e) => { set({ fx: e.target.value }); setFxSrc(null); }} />{fxSrc && <small className="mini">{fxSrc} <button type="button" className="btn sm ghost" title="Повторно земи го курсот за датумот на фактурата" onClick={() => autoFx(d.currency, d.docDate || d.date, true)}>↻</button></small>}{!fxSrc && <button type="button" className="btn sm ghost" title="Курс од курсната листа (НБРМ) за датумот на фактурата" onClick={() => autoFx(d.currency, d.docDate || d.date, true)}>💱</button>}</label>
               <label className="mini">Ознака<input value={d.data.fxMark ?? ''} style={{ width: 80 }} onChange={(e) => setData({ fxMark: e.target.value })} /></label>
               <label className="mini">Увоз (ЕЦД бр.)<input value={d.data.ecd ?? ''} style={{ width: 130 }} onChange={(e) => setData({ ecd: e.target.value })} /></label>
               <label className="mini">Конто добавувач<select value={d.supplierAccount || '2210'} style={{ width: 'auto' }} onChange={(e) => set({ supplierAccount: e.target.value })}>{kontoOpts(d.supplierAccount || '2210', (k) => /^22/.test(k))}</select></label>

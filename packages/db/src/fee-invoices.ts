@@ -190,11 +190,13 @@ export async function feeRows(db: Tx, o: { offId: string; periods?: readonly str
  * Send the polite overdue reminders due today (portal message to the client firm + e-mail when `mail`). Returns the
  * queued `mail_log` ids for the caller to dispatch after COMMIT.
  */
-export async function runFeeReminders(db: Tx, o: { today?: string; mail: boolean; userId?: string | null; only?: readonly string[] }): Promise<{ sent: number; mailIds: string[] }> {
+export async function runFeeReminders(db: Tx, o: { today?: string; mail: boolean; userId?: string | null; only?: readonly string[]; force?: boolean }): Promise<{ sent: number; mailIds: string[] }> {
   const today = o.today ?? todaySkopje();
   const ctx = await feeContext(db);
-  if (!ctx || !ctx.S.remind?.on) return { sent: 0, mailIds: [] };
-  const rows = (await feeRows(db, { offId: ctx.off.id })).filter((r) => (!o.only?.length || o.only.includes(r.id)) && feeReminderDue(r, today, ctx.S.remind));
+  if (!ctx || (!ctx.S.remind?.on && !o.force)) return { sent: 0, mailIds: [] };
+  // `force` („✉ Потсетник“ by the owner): any still-open invoice, regardless of the schedule
+  const rows = (await feeRows(db, { offId: ctx.off.id })).filter((r) => (!o.only?.length || o.only.includes(r.id))
+    && (o.force ? r.remaining > 100 : feeReminderDue(r, today, ctx.S.remind)));
   const bank = ((ctx.off.settings ?? {}) as { bankAccount?: string }).bankAccount ?? ctx.O.bank ?? null;
   let sent = 0;
   const mailIds: string[] = [];
