@@ -19,6 +19,7 @@ import { aiConfigured } from '../ai/client';
 import { readContent } from '../ai/read-document';
 import { AiBudgetError } from '../ai/budget';
 import { sendQueuedMail } from './reminders';
+import { weeklyLawTexts } from './law-texts';
 
 export type Fetcher = (url: string) => Promise<string>;
 
@@ -120,6 +121,11 @@ export const lawRobot = defineJob<{ today?: string; manual?: boolean; ai?: boole
     const r = await runLawRobot(ctx.db, { today: data?.today, log: ctx.log, ai: await lawRobotUsesAi(ctx.db, data) });
     await sendQueuedMail(ctx, r.mailIds);
     ctx.log(`sources ${r.sources}, new links ${r.found}, added ${r.added}, errors ${r.errors.length}`);
+    // ⚖ Правен асистент: the consolidated texts of the key laws, weekly (free text parsing, no AI)
+    try {
+      const t = await weeklyLawTexts(ctx.db, ctx.log);
+      if (t) ctx.log(`law texts: checked ${t.checked}, new ${t.stored}, unchanged ${t.unchanged}, errors ${t.errors.length}`);
+    } catch (e) { ctx.log(`law texts: ${(e as Error).message}`); }
   },
 });
 

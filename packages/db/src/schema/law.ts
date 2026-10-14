@@ -156,3 +156,87 @@ export const lawRuns = pgTable('law_runs', {
 });
 
 export type LawChangeRow = typeof lawChanges.$inferSelect;
+
+/* ---------------- ⚖ Правен асистент: stored law texts (article store) and saved cases ---------------- */
+
+/**
+ * One stored version of a law's consolidated text (`@wise/core/law` `LAW_CORPUS` key in `law`). A new row is written
+ * only when the text changed (`hash`); older versions stay for the version ↔ version comparison. `asOf` = version date
+ * of the consolidated text (from its title / file name, else the fetch date); `effectiveFrom` = applies from (when
+ * known, entered by the office). `source` = `robot` (fetched from the official page), `link` (office gave the
+ * official URL) or `manual` (pasted text).
+ */
+export const lawTexts = pgTable('law_texts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  law: text('law').notNull(),
+  title: text('title').notNull(),
+  asOf: text('as_of'),
+  effectiveFrom: text('effective_from'),
+  /** Official gazette numbers found in the text („44/1999“, …). */
+  gazette: jsonb('gazette').$type<string[]>().notNull().default([]),
+  sourceUrl: text('source_url'),
+  fetchedAt: ts('fetched_at').notNull().defaultNow(),
+  hash: text('hash').notNull(),
+  articles: integer('articles').notNull().default(0),
+  source: text('source').$type<'robot' | 'link' | 'manual'>().notNull().default('robot'),
+  createdBy: by('created_by'),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex('law_texts_law_hash_uq').on(t.law, t.hash), index('law_texts_law_idx').on(t.law, t.asOf)]);
+
+/** One article (член) of a stored text. `norm` = lower-cased search text (heading + body) for the full-text index. */
+export const lawArticles = pgTable('law_articles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  textId: uuid('text_id').notNull().references(() => lawTexts.id, { onDelete: 'cascade' }),
+  law: text('law').notNull(),
+  no: text('no').notNull(),
+  num: integer('num').notNull().default(0),
+  ord: integer('ord').notNull(),
+  heading: text('heading'),
+  body: text('body').notNull(),
+  norm: text('norm').notNull(),
+}, (t) => [
+  uniqueIndex('law_articles_text_no_uq').on(t.textId, t.no),
+  index('law_articles_law_no_idx').on(t.law, t.no),
+  index('law_articles_fts_idx').using('gin', sql`to_tsvector('simple', ${t.norm})`),
+]);
+
+/** Per corpus law: the robot's last fetch of the official text (found URL, error). */
+export const lawTextSync = pgTable('law_text_sync', {
+  law: text('law').primaryKey(),
+  url: text('url'),
+  checkedAt: ts('checked_at'),
+  changedAt: ts('changed_at'),
+  error: text('error'),
+});
+
+export type LawCaseStatus = 'queued' | 'done' | 'error';
+
+/**
+ * A saved question / comparison of the law assistant (per firm when one was selected): who asked, the kind
+ * (`ask` | `law` | `ver` | `treat`), the result (articles used, free tables, the AI answer after the citation guard),
+ * model and cost. `kontrolaId` = the inspection case the memo was attached to (link only; the kontroli page owns it).
+ */
+export const lawCases = pgTable('law_cases', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: uuid('firm_id').references(() => firms.id, { onDelete: 'cascade' }),
+  userId: by('user_id'),
+  byName: text('by_name'),
+  kind: text('kind').$type<'ask' | 'law' | 'ver' | 'treat'>().notNull(),
+  question: text('question').notNull(),
+  periodFrom: text('period_from'),
+  periodTo: text('period_to'),
+  /** Inputs: laws compared, article, version ids, date, deep, ai. */
+  params: jsonb('params').$type<Record<string, unknown>>().notNull().default({}),
+  status: text('status').$type<LawCaseStatus>().notNull().default('queued'),
+  result: jsonb('result').$type<Record<string, unknown>>().notNull().default({}),
+  model: text('model'),
+  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+  error: text('error'),
+  kontrolaId: uuid('kontrola_id'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index('law_cases_firm_idx').on(t.firmId, t.createdAt), index('law_cases_kontrola_idx').on(t.kontrolaId)]);
+
+export type LawTextRow = typeof lawTexts.$inferSelect;
+export type LawArticleRow = typeof lawArticles.$inferSelect;
+export type LawCaseRow = typeof lawCases.$inferSelect;

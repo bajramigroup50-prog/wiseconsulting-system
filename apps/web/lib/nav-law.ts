@@ -4,7 +4,7 @@
  *  - `insp` (16569, nav-office.ts) then lands between `zatvoranje` and `mpinIn`;
  *  - `zakoni` (14346): after `izvestuvanja`;
  *  - `lawrep` (16665): after `insp`; `ujpZakoni` (16799): after `lawrep`.
- * Result in Фирми: … izvestuvanja, zakoni, zatvoranje, insp, lawrep, ujpZakoni, mpinIn.
+ * Result in Фирми: … izvestuvanja, zakoni, lawAi, zatvoranje, insp, lawrep, ujpZakoni, mpinIn (`lawAi` = ⚖ Правен асистент, server addition).
  * Inserted by group and anchor id (the first anchor found wins), never by a fixed index.
  */
 import type { NavGroup, NavItem } from './nav-data';
@@ -12,6 +12,8 @@ import type { NavGroup, NavItem } from './nav-data';
 /** [group, anchors (insert after the first one present; none = end), item] */
 const ADD: [string, string[], NavItem][] = [
   ['Фирми', ['izvestuvanja'], ['zakoni', '⚖️ Законски промени']],
+  // server addition (owner priority: laws): the AI law assistant, next to „Законски промени“
+  ['Фирми', ['zakoni'], ['lawAi', '⚖ Правен асистент (AI)']],
   ['Фирми', ['insp', 'zatvoranje'], ['lawrep', '⚖️ Даночен преглед (според законите)']],
   ['Фирми', ['lawrep', 'insp', 'zatvoranje'], ['ujpZakoni', '📚 Закони на УЈП (синхронизирано)']],
   ['Фирми', ['ujpZakoni', 'lawrep', 'insp', 'zatvoranje'], ['mpinIn', '📥 МПИН од УЈП (сите фирми)']],
