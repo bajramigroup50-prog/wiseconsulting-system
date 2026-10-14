@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { complianceRows, kontrolaSummary, toCents, type Finding } from '@wise/core/compliance';
+import { complianceRows, docText, kontrolaSummary, toCents, versionsOf, type Finding } from '@wise/core/compliance';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import { audit } from './audit';
@@ -13,6 +13,7 @@ import type { DocActor } from './sales/context';
 import {
   applyKontrolaAi, auditLogImmutable, complianceFacts, deleteKontrolaFinding, findingEvidence, invoiceLegalCheck, loadKontrola, saveKontrola,
   saveKontrolaAction, saveKontrolaFinding, seedProcessingActivities, setKontrolaActionDone,
+  acceptKontrolaVersion, kontrolaDocs, kontrolaTexts, loadKontrolaCase, saveKontrolaText, setKontrolaSubType, snapshotKontrolaDocs,
 } from './compliance';
 
 const db = drizzle(new PGlite(), { schema });
@@ -129,13 +130,58 @@ describe('inspections register', () => {
   it('tracks deadlines and overdue corrective actions on the dashboard', async () => {
     const a = await tx((t) => saveKontrolaAction(t, firmId, kid, { text: 'Корекција на ДДВ-04', ownerId: userId, due: '2026-10-01' }, userId));
     const F = (await complianceFacts(db, firmId, 2026, '2026-10-11'))!;
-    expect(F).toMatchObject({ kontrolaOpen: 1, kontrolaExpired: 0, actionsOverdue: 1, auditImmutable: true });
+    expect(F).toMatchObject({ kontrolaOpen: 1, kontrolaExpired: 0, actionsOverdue: 1, auditImmutable: true, kontrolaNext: { due: '2026-10-26', days: 15, name: 'Жалба' } });
+    expect(complianceRows(F).find((r) => r.id === 'kontrola')!.txt).toMatch(/Најблизок рок: Жалба до 26\.10\.2026 – уште 15 дена/);
     const late = (await complianceFacts(db, firmId, 2026, '2026-10-27'))!;
     expect(late.kontrolaExpired).toBe(1); // 15 days from 08.10 → 23.10 holiday → 26.10
     await tx((t) => setKontrolaActionDone(t, firmId, a, '2026-10-10', userId));
     await tx((t) => saveKontrola(t, firmId, { id: kid, auth: 'ujp', doc: 'reshenie', delivered: '2026-10-08', docDate: '2026-09-30', filedOn: '2026-10-20', status: 'objected' }, userId));
     const after = (await complianceFacts(db, firmId, 2026, '2026-10-27'))!;
     expect(after).toMatchObject({ kontrolaOpen: 0, actionsOverdue: 0 });
+  });
+});
+
+describe('disputed case: documents, versions, evidence references', () => {
+  let kid = '';
+  it('builds both documents from the case with the references from the books; auto versions only when the text changes', async () => {
+    kid = await tx((t) => saveKontrola(t, firmId, { auth: 'ujp', doc: 'zapisnik', docNo: 'З-7', docDate: '2026-10-01', delivered: '2026-10-05', periodFrom: '2026-01-01', periodTo: '2026-03-31' }, userId));
+    await tx((t) => saveKontrolaFinding(t, firmId, kid, { text: 'Неевидентиран промет', area: 'invoice', account: '1200', claimed: '9000', verdict: 'correct' }, userId));
+    // nothing disputed yet → no version
+    expect(await tx((t) => snapshotKontrolaDocs(t, firmId, kid, userId, '2026-10-06'))).toBe(false);
+    await tx((t) => saveKontrolaFinding(t, firmId, kid, { text: 'Пресметан ДДВ на аванс', area: 'invoice', account: '1200', claimed: '5000', ours: '1000', verdict: 'partly', analysis: 'Авансот е затворен (чл. 14 ЗДДВ).' }, userId));
+    const c = (await loadKontrolaCase(db, firmId, kid, '2026-10-06'))!;
+    expect(c.input.firm).toMatchObject({ name: 'Услуги ДООЕЛ', edb: '4030000000001', address: 'Ул. 1' });
+    expect(c.ev[1]!.refs.some((r) => /^Налог бр\. /.test(r))).toBe(true);
+    expect(c.ev[1]!.refs.some((r) => /^Фактура бр\. 00\d\/2026/.test(r))).toBe(true);
+    const D = kontrolaDocs(c);
+    expect(D.external.choice).toMatchObject({ type: 'zabeleski', deadline: '2026-10-13' });
+    const ext = docText(D.external);
+    expect(ext).toMatch(/Наод под точка 2/);
+    expect(ext).not.toMatch(/Наод под точка 1/);
+    expect(ext).toMatch(/4\.000,00 ден\. помалку/);
+    expect(ext).toMatch(/Докази: .*Налог бр\./);
+    expect(await tx((t) => snapshotKontrolaDocs(t, firmId, kid, userId, '2026-10-06'))).toBe(true);
+    expect(await tx((t) => snapshotKontrolaDocs(t, firmId, kid, userId, '2026-10-06'))).toBe(false); // unchanged
+    await tx((t) => setKontrolaSubType(t, firmId, kid, 'prigovor', userId));
+    expect(await tx((t) => snapshotKontrolaDocs(t, firmId, kid, userId, '2026-10-06'))).toBe(true);
+    const V = versionsOf((await loadKontrola(db, firmId, kid)).k.data);
+    expect(V.map((v) => [v.kind, v.type])).toEqual([['auto', 'zabeleski'], ['auto', 'prigovor']]);
+  });
+  it('the edited text is kept as a version; accepting an older version restores it', async () => {
+    await tx((t) => saveKontrolaText(t, firmId, kid, 'external', 'ПРИГОВОР\nУреден текст', userId));
+    await tx((t) => saveKontrolaText(t, firmId, kid, 'internal', 'Внатрешно уредено', userId));
+    let { k } = await loadKontrola(db, firmId, kid);
+    expect(kontrolaTexts(k)).toEqual({ draft: 'ПРИГОВОР\nУреден текст', internalDraft: 'Внатрешно уредено' });
+    const V = versionsOf(k.data);
+    expect(V.filter((v) => v.kind === 'edit').map((v) => [v.external.slice(0, 8), v.internal])).toEqual([['ПРИГОВОР', expect.stringContaining('ВНАТРЕШНА АНАЛИЗА')], ['ПРИГОВОР', 'Внатрешно уредено']]);
+    await tx((t) => acceptKontrolaVersion(t, firmId, kid, V[0]!.id, userId));
+    ({ k } = await loadKontrola(db, firmId, kid));
+    expect(kontrolaTexts(k).draft).toBe(V[0]!.external);
+    await tx((t) => saveKontrolaText(t, firmId, kid, 'external', '  ', userId)); // empty → generated text again
+    ({ k } = await loadKontrola(db, firmId, kid));
+    expect(kontrolaTexts(k).draft).toBeUndefined();
+    const A = await db.select({ a: schema.auditLog.action }).from(schema.auditLog).where(eq(schema.auditLog.entityId, kid));
+    expect(A.map((x) => x.a)).toEqual(expect.arrayContaining(['kontrolaDocAuto', 'kontrolaSubType', 'kontrolaDraft', 'kontrolaVersionAccept']));
   });
 });
 

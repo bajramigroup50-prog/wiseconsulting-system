@@ -43,6 +43,8 @@ export interface ComplianceFacts {
   auditImmutable: boolean;
   /** Open inspection deadlines: expired / within 3 days. */
   kontrolaExpired: number; kontrolaUrgent: number; kontrolaOpen: number;
+  /** The nearest open inspection deadline (days left, negative = expired). */
+  kontrolaNext?: { due: string; days: number; name: string } | null;
   /** Corrective actions past their due date. */
   actionsOverdue: number;
   /** Inspection readiness score (existing `insp` checklist), null = not computed. */
@@ -128,6 +130,11 @@ export function complianceRows(F: ComplianceFacts): CmpRow[] {
   add('kontrola', 'Контроли', 'Рокови за приговор / жалба по контроли', 'ЗОУП чл. 106 (жалба 15 дена); ЗИН чл. 82, 84; ЗДП чл. 102, 111; ЗЗЛП чл. 107',
     F.kontrolaExpired ? { s: 'bad', txt: `${F.kontrolaExpired} истечени рокови без поднесок.` } : F.kontrolaUrgent ? { s: 'warn', txt: `${F.kontrolaUrgent} рокови истекуваат за ≤ 3 дена.` }
       : F.kontrolaOpen ? ok(`${F.kontrolaOpen} отворени рокови, во рок.`) : ok('Нема отворени рокови.'), 'kontroli');
+  if (F.kontrolaNext) {
+    const r = R[R.length - 1]!;
+    const n = F.kontrolaNext;
+    r.txt += ` Најблизок рок: ${n.name} до ${n.due.split('-').reverse().join('.')} – ${n.days < 0 ? `истекол пред ${-n.days} дена` : n.days === 0 ? 'ДЕНЕС' : `уште ${n.days} ${n.days === 1 ? 'ден' : 'дена'}`}.`;
+  }
   add('actions', 'Контроли', 'Корективни мерки по контроли – навремено извршени', 'Решенија на инспекциските органи (рок за отстранување)',
     F.actionsOverdue ? { s: 'bad', txt: `${F.actionsOverdue} мерки по рокот.` } : ok('Нема задоцнети мерки.'), 'kontroli');
   if (F.inspScore) add('insp', 'Контроли', 'Подготвеност за инспекција (УЈП / ДПИ / ДИТ)', 'види 🕵 Подготвеност за инспекција',

@@ -7,4 +7,5 @@ export * from './compliance/numbering';
 export * from './compliance/retention';
 export * from './compliance/privacy';
 export * from './compliance/kontrola';
+export * from './compliance/kontrola-docs';
 export * from './compliance/dashboard';
