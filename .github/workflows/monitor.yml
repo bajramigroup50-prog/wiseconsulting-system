@@ -1,0 +1,28 @@
+# Uptime monitor: every 10 minutes GitHub checks that the program answers (/api/health) and that the login page loads.
+# A failed run is e-mailed by GitHub to the repository owner (Settings → Notifications → Actions: „Only failures“).
+name: Monitor
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Health
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://app.wiseconsulting.com.mk/api/health || true)
+            [ "$code" = "200" ] && break
+            sleep 20
+          done
+          echo "health: $code"
+          [ "$code" = "200" ] || { echo "::error::WISE не одговара (health $code)"; exit 1; }
+      - name: Login page
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://app.wiseconsulting.com.mk/login)
+          echo "login: $code"
+          [ "$code" = "200" ] || { echo "::error::Страницата за најава не се отвора ($code)"; exit 1; }
