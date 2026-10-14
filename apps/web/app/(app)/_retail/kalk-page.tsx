@@ -63,7 +63,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
     };
     const R = calculationRows(ctxItems, P1);
     const fa = p.imp ? r2(P1.stock!.reduce((a, s) => a + Number(s.qty) * Number(s.price) * (1 - Number(s.rab ?? 0) / 100), 0)) : 0;
-    return { p, pn, n: R.length, nab: r2(R.reduce((a, r) => a + r.nabV, 0)), sp: r2(R.reduce((a, r) => a + r.spV, 0)), mg: r2(R.reduce((a, r) => a + r.marg, 0)), fa };
+    return { p, pn, n: R.length, nab: r2(R.reduce((a, r) => a + r.nabV, 0)), sp: r2(R.reduce((a, r) => a + r.spV, 0)), mg: r2(R.filter((r) => r.spV > 0).reduce((a, r) => a + r.marg, 0)), fa }; // no sale price yet (warehouse): no difference, not −purchase
   }).filter((r) => r.n > 0);
   const T = (k: 'nab' | 'sp' | 'mg') => r2(rows.reduce((a, r) => a + r[k], 0));
   const fxBy: Record<string, number> = {};
@@ -113,7 +113,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
               <td className="noprint"><input type="checkbox" name="ks" value={p.id} data-wh={p.warehouseId ?? 'main'} data-p={p.partnerId ?? p.supplierName ?? ''} data-imp={p.imp ? '1' : '0'} data-no={p.calcNo || p.number || ''} /></td>
               <td>{dmy(p.date)}</td><td><b>{p.calcNo || '—'}</b></td><td>{p.number}</td><td>{pn ?? p.supplierName}{p.status === 'pending' && <> <span className="pill warn">чека одобрување</span></>}</td>
               <td>{p.imp ? <span className="pill info">У</span> : 'Д'}</td><td>{L.locName(p.warehouseId)}</td><td className="n">{n}</td><td className="n">{fmt(nab)}</td>
-              <td className="n">{p.imp ? `${fmt(fa)} ${p.currency}` : ''}</td><td className="n">{fmt(mg)}</td><td className="n">{fmt(spv)}</td>
+              <td className="n">{p.imp ? `${fmt(fa)} ${p.currency}` : ''}</td><td className="n">{spv ? fmt(mg) : '—'}</td><td className="n">{spv ? fmt(spv) : '—'}</td>
               <td>{NM.get(p.id) && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(NM.get(p.id)!)}`}>{NM.get(p.id)}</Link>}</td>
               <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                 <Link className="btn sm" href={`/vlez?edit=${p.id}`}>Отвори</Link>

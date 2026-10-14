@@ -99,7 +99,7 @@ export function TransferEditor({ initial, items, locs, calcs = [], nextNo, round
   let spv = 0;
   for (const l of d.lines) {
     const it = byId.get(l.itemId);
-    nab += n(l.qty) * avgOf(it);
+    nab += Math.round(n(l.qty) * avgOf(it)); // posted at whole denars (legacy `postOut`), shown the same
     spv += n(l.qty) * spOf(l, it);
   }
   const addCalc = (id: string) => {
@@ -173,7 +173,7 @@ export function TransferEditor({ initial, items, locs, calcs = [], nextNo, round
                   <td className={'n' + (n(l.qty) > have + 1e-9 ? ' bad' : '')} style={n(l.qty) > have + 1e-9 ? { color: 'var(--bad)' } : undefined}>{fq(have)}</td>
                   <td><input inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} style={{ width: 90, textAlign: 'right' }} /></td>
                   <td className="n">{avg.toFixed(4).replace('.', ',')}</td>
-                  <td className="n">{fmt(avg * n(l.qty))}</td>
+                  <td className="n">{fmt(Math.round(avg * n(l.qty)))}</td>
                   <td className="n">{rate}%</td>
                   <td><input inputMode="decimal" value={l.sp} placeholder={fmt(it?.sp[d.to] ?? 0)} onChange={(e) => setLine(i, { sp: e.target.value })} style={{ width: 100, textAlign: 'right' }} /></td>
                   <td className="n">{fmt(n(l.qty) * sp)}</td>
