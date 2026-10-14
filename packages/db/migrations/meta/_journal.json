@@ -190,6 +190,13 @@
       "when": 1792004901947,
       "tag": "0026_client_capture_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792005882484,
+      "tag": "0027_automations",
+      "breakpoints": true
     }
   ]
 }

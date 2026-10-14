@@ -178,6 +178,8 @@ export const fxRates = pgTable('fx_rates', {
   date: date('date').notNull(),
   cur: text('cur').notNull(),
   rate: rate('rate').notNull(),
+  /** `manual` (entered / Excel) | `nbrm` (worker `nbrm.rates`). A daily NBRM fetch never overwrites a manual rate. */
+  source: text('source').notNull().default('manual'),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: createdAt(),
 }, (t) => [

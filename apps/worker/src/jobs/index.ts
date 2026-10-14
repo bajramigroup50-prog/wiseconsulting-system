@@ -18,6 +18,7 @@ import { firmResh } from './firm-resh';
 import { kontrolaAi } from './kontrola-ai';
 import { inboxCombine } from './inbox-combine';
 import { clientReportSummary } from './client-report-summary';
+import { feeDeliver, feeInvoicesJob, nbrmRates, rokoviJob } from './automations';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -42,4 +43,8 @@ export const JOBS: JobDef<any>[] = [
   kontrolaAi,
   inboxCombine,
   clientReportSummary,
+  nbrmRates,
+  rokoviJob,
+  feeInvoicesJob,
+  feeDeliver,
 ];

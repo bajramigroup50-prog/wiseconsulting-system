@@ -12,6 +12,8 @@ import {
   alCompute, apExtra, apRisk, CLIENT_ENTRY_KINDS, dmy, DOS_CAT, fmtMk, INBOX_ROUTE_TARGET, recIssue, todaySkopje, type ClientMessage, type DraftInvoice, type Finding,
   type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
 } from '@wise/core/office';
+import type { RokSettings } from '@wise/core/office/rokovi';
+import type { FeeSettings } from '@wise/core/firms/kdfee';
 import { audit, type Tx } from './audit';
 import { firmOpenInSql } from './firm-years';
 import { documentPayments } from './bank/open-items';
@@ -56,6 +58,10 @@ export interface OfficeProfile {
   /** Autopilot: create an office task for new `bad` findings. */
   apTasks?: boolean;
   zzlp?: { chk?: Record<string, boolean>; izj?: Record<string, { signed?: boolean; at?: string; by?: string; fileId?: string; fileName?: string }> };
+  /** „📅 Календар на рокови“ reminders (`@wise/core/office/rokovi` `RokSettings`). */
+  rok?: RokSettings;
+  /** „🧾 Месечна фактура за сметководствени услуги“ (`@wise/core/firms/kdfee` `FeeSettings`). */
+  feeInv?: FeeSettings;
 }
 
 export async function getOfficeProfile(tx: Tx): Promise<OfficeProfile> {

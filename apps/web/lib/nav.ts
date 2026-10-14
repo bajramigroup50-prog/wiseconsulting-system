@@ -43,7 +43,7 @@ export function navFor(role: Role): readonly NavGroup[] {
  * Views only the office owner sees (`lib/office-owner.ts`); hidden from the menu of everybody else. `kdogovori`: the
  * accounting-service contracts are made by the office firm with every client — owner only (page, actions, print, Word).
  */
-export const OWNER_VIEWS: readonly string[] = ['produktivnost', 'uredi', 'aiTrosok', 'kdogovori'];
+export const OWNER_VIEWS: readonly string[] = ['produktivnost', 'uredi', 'aiTrosok', 'kdogovori', 'kdfakturi'];
 
 /** The menu without the given views (empty groups dropped). */
 export function withoutViews(groups: readonly NavGroup[], ids: readonly string[]): readonly NavGroup[] {

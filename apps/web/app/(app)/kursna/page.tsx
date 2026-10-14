@@ -4,8 +4,9 @@
  * statements, cash vouchers and FX documents — no hard-coded EUR 61.5 / `BLG_FX0`.
  */
 import Link from 'next/link';
-import { asc, desc } from 'drizzle-orm';
+import { asc, desc, gte } from 'drizzle-orm';
 import { can, FX_DATE0, FX_DEF, fxRate } from '@wise/core';
+import { addDays } from '@wise/core/office';
 import { FX_IMPORT_TEMPLATE, fxCurrencies, fxExportRows } from '@wise/core/bank/fin-parity';
 import { fxRates, loadFxSources } from '@wise/db';
 import { requireUser } from '@/lib/auth';
@@ -19,7 +20,7 @@ import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { ExportBar } from '@/components/parity-fin/export-bar';
 import { TableImport } from '@/components/parity-fin/table-import';
-import { deleteFxAction, importFxAction, saveFxAction } from './actions';
+import { deleteFxAction, importFxAction, nbrmFetchAction, saveFxAction } from './actions';
 
 const NAME = Object.fromEntries(FX_DEF.map((x) => [x[0], x[1]]));
 
@@ -28,11 +29,14 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
   const u = await requireUser();
   if (!viewAllowed(u.role, 'kursna')) notFound();
   const ed = can(u.principal, 'fxSave');
-  const R = await db().select().from(fxRates).orderBy(desc(fxRates.date), asc(fxRates.cur));
+  const today = todayIso();
+  // NBRM fills a list every day (≈ 30 currencies): the screen shows the last ~13 months; `fxRate` still reads them all
+  const R = await db().select().from(fxRates).where(gte(fxRates.date, addDays(today, -400))).orderBy(desc(fxRates.date), asc(fxRates.cur));
   const curs = fxCurrencies(R);
   const last = (c: string) => R.find((r) => r.cur === c);
   const dates = [...new Set(R.map((r) => r.date))];
-  const today = todayIso();
+  const byKey = new Map(R.map((r) => [`${r.date}|${r.cur}`, r]));
+  const srcOf = (d: string) => { const L = R.filter((r) => r.date === d); return L.every((r) => r.source === 'nbrm') ? 'НБРМ' : L.some((r) => r.source === 'nbrm') ? 'НБРМ + рачно' : 'рачно'; };
   const editDate = sp.edit && dates.includes(sp.edit) ? sp.edit : null;
   // Legacy `fxNew` 7961: every currency, pre-filled with `getFx` (firm codebook → office list → FX_DEF).
   const fxSrc = ed && sp.nov !== undefined && !editDate ? await loadFxSources(db(), (await currentFirm(u))?.id ?? null) : null;
@@ -55,7 +59,20 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
         {ed && <Link className="btn pri" href="/kursna?nov">+ Нова курсна листа</Link>}
       </Hd>
       <div className="callout">Курсевите важат за <b>сите фирми</b>: благајна (странски сметки), девизни изводи, увозни фактури. Секој документ го зема курсот на својот датум (последната листа до тој датум). Ако некоја фирма има свој курс во „Странски валути“, се зема нејзиниот.
-        {!R.length && ` Сè уште нема внесена листа – се користи стандардната од ${dmy(FX_DATE0)}.`}</div>
+        {!R.length && ` Сè уште нема внесена листа – се користи стандардната од ${dmy(FX_DATE0)}.`}
+        {' '}<b>💱 НБРМ:</b> официјалната курсна листа на Народната банка се презема автоматски секој ден (08:30, 13:30, 17:30); за викенд и празник важи последната објавена листа. Рачно внесен курс не се менува.</div>
+
+      {ed && (
+        <BankForm action={nbrmFetchAction} className="card">
+          <div className="row" style={{ gap: '6px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <b>⬇ Преземи од НБРМ</b>
+            <label>од <input type="date" name="from" defaultValue={addDays(today, -30)} required /></label>
+            <label>до <input type="date" name="to" defaultValue={addDays(today, 1)} required /></label>
+            <button className="btn pri">Преземи</button>
+            <span className="mini">за минат период (најмногу 2 години одеднаш)</span>
+          </div>
+        </BankForm>
+      )}
 
       {draft && (
         <BankForm action={saveFxAction} className="card" style={{ borderColor: 'var(--accent)' }}>
@@ -77,13 +94,13 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
       <div id="finArea">
       <div className="card"><h2>Тековни курсеви</h2>
         <div className="tw"><table className="dense">
-          <thead><tr><th>Валута</th><th>Назив</th><th className="n">Среден курс</th><th>Важи од</th><th className="n">100 единици</th></tr></thead>
+          <thead><tr><th>Валута</th><th>Назив</th><th className="n">Среден курс</th><th>Важи од</th><th>Извор</th><th className="n">100 единици</th></tr></thead>
           <tbody>{curs.map((c) => {
             const l = last(c);
             const r = l ? Number(l.rate) : FX_DEF.find((x) => x[0] === c)?.[2];
             return (
               <tr key={c}><td><b>{c}</b></td><td>{NAME[c] ?? ''}</td><td className="n">{r ? r.toFixed(4) : ''}</td>
-                <td>{l ? dmy(l.date) : <span className="mut">стандарден {dmy(FX_DATE0)}</span>}</td><td className="n">{r ? fmt(r * 100) : ''}</td></tr>
+                <td>{l ? dmy(l.date) : <span className="mut">стандарден {dmy(FX_DATE0)}</span>}</td><td className="mini">{l ? (l.source === 'nbrm' ? 'НБРМ' : 'рачно') : ''}</td><td className="n">{r ? fmt(r * 100) : ''}</td></tr>
             );
           })}</tbody>
         </table></div>
@@ -92,10 +109,10 @@ export default async function KursnaPage({ searchParams }: { searchParams: Promi
       {dates.length > 0 && (
         <div className="card"><h2>Историја ({dates.length} листи)</h2>
           <div className="tw" style={{ maxHeight: 340 }}><table className="dense">
-            <thead><tr><th>Датум</th>{curs.slice(0, 8).map((c) => <th key={c} className="n">{c}</th>)}<th></th></tr></thead>
+            <thead><tr><th>Датум</th><th>Извор</th>{curs.slice(0, 8).map((c) => <th key={c} className="n">{c}</th>)}<th></th></tr></thead>
             <tbody>{dates.map((d) => (
-              <tr key={d}><td>{dmy(d)}</td>
-                {curs.slice(0, 8).map((c) => { const x = R.find((y) => y.date === d && y.cur === c); return <td key={c} className="n">{x ? Number(x.rate).toFixed(4) : ''}</td>; })}
+              <tr key={d}><td>{dmy(d)}</td><td className="mini">{srcOf(d)}</td>
+                {curs.slice(0, 8).map((c) => { const x = byKey.get(`${d}|${c}`); return <td key={c} className="n">{x ? Number(x.rate).toFixed(4) : ''}</td>; })}
                 <td className="noprint">{ed && <><Link className="btn sm" href={`/kursna?edit=${d}`}>Измени</Link><RowAction action={deleteFxAction.bind(null, d)} label="🗑" confirm={`Да се избрише курсната листа од ${dmy(d)}?`} className="btn sm ghost danger" /></>}</td></tr>
             ))}</tbody>
           </table></div>
