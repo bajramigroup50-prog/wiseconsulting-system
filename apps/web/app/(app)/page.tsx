@@ -13,8 +13,9 @@ import { can, periodOf } from '@wise/core';
 import { AGE, DASH_PER, EXPG, MON, dashAgg, dashMonthly, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
   autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
-  vatDueEstimate,
+  kontrolaDue, kontroli, vatDueEstimate,
 } from '@wise/db';
+import { isKontrolaAuth, isKontrolaDoc, kontrolaDeadlines } from '@wise/core/compliance';
 import { requireUser } from '@/lib/auth';
 import { LawHome } from './zakoni/law-home';
 import { calendarYear, currentFirm, currentYear, firmYearCallout, yearChosen } from '@/lib/context';
@@ -145,7 +146,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const bal = Math.round(L.reduce((s, l) => s + l.debit - l.credit, 0) * 100) / 100;
   const payMiss = (empAct[0]?.n ?? 0) > 0 && !payPm.length;
   const PD = payDeadline(td);
+  // open inspection cases: the deadline of the remedy (жалба / забелешки / тужба) with the days left
+  const KD = await safe(db().select().from(kontroli).where(and(eq(kontroli.firmId, f.id), isNull(kontroli.filedOn), ne(kontroli.status, 'closed'))), []);
+  const kdl = KD.flatMap((k) => {
+    if (!isKontrolaAuth(k.auth) || !isKontrolaDoc(k.doc)) return [];
+    const [d] = kontrolaDeadlines(k.auth, k.doc, k.delivered, td, kontrolaDue(k));
+    return d ? [{ t: `⚖ ${d.remedy.name} – ${k.docNo ? `акт бр. ${k.docNo}` : 'контрола'}`, d: d.due, go: `kontroli?id=${k.id}` }] : [];
+  });
   const dl = [
+    ...kdl,
     ...(est ? [{ t: `ДДВ-04 за ${est.period}`, d: est.due, v: est.amount, s: est.amount > 0 ? 'за плаќање' : 'за поврат', go: 'ddv' }] : []),
     ...((empAct[0]?.n ?? 0) > 0 ? [{ t: `Плата и МПИН за ${PD.month.split('-').reverse().join('.')}`, d: PD.due, go: 'plati' }] : []),
     { t: `Годишна сметка и ДБ за ${year}`, d: `${year + 1}-03-15`, go: 'zsProc' },

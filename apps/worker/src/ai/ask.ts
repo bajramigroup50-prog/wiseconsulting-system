@@ -8,7 +8,7 @@ import { AI_MODELS, aiMessages, costUsd, type AiTier } from './client';
 import { AiReadError } from './read-document';
 import { aiBudgetGuard, effectiveTier, estimateCost, estimateInputTokens, reserveAiCall, settleAiCall } from './budget';
 
-export async function askText(a: { db: Tx; prompt: string; tier?: AiTier; purpose: string; refId?: string | null; userId?: string | null; firmId?: string | null; maxTokens?: number; /** Opus only on an explicit „🔍 Детално“ (owner policy `opusOnlyDeep`). */ deep?: boolean }): Promise<{ text: string; model: string }> {
+export async function askText(a: { db: Tx; prompt: string; tier?: AiTier; purpose: string; refId?: string | null; userId?: string | null; firmId?: string | null; maxTokens?: number; /** Opus only on an explicit „🔍 Детално“ (owner policy `opusOnlyDeep`). */ deep?: boolean }): Promise<{ text: string; model: string; costUsd: number }> {
   const api = aiMessages();
   const cfg = await aiBudgetGuard(a.db, a.firmId ?? null);
   const tier = effectiveTier(a.tier ?? 'default', a.deep, cfg);
@@ -21,9 +21,10 @@ export async function askText(a: { db: Tx; prompt: string; tier?: AiTier; purpos
     inputTokens: msg.usage?.input_tokens ?? 0, outputTokens: msg.usage?.output_tokens ?? 0,
     cacheReadTokens: msg.usage?.cache_read_input_tokens ?? 0, cacheWriteTokens: msg.usage?.cache_creation_input_tokens ?? 0,
   };
-  await settleAiCall(a.db, rid, a.firmId ?? null, usage, costUsd(model, usage));
+  const cost = costUsd(model, usage);
+  await settleAiCall(a.db, rid, a.firmId ?? null, usage, cost);
   if (msg.stop_reason === 'refusal') throw new AiReadError('Моделот одби да одговори.');
   const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('').trim();
   if (!text) throw new AiReadError('Нема одговор.');
-  return { text, model };
+  return { text, model, costUsd: cost };
 }

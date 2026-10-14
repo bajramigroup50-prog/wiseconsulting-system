@@ -11,16 +11,20 @@ import { notFound } from 'next/navigation';
 import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { can } from '@wise/core';
 import {
-  FINDING_AREA, fmtCents, isKontrolaAuth, isKontrolaDoc, KONTROLA_AUTH, KONTROLA_DOC, KONTROLA_STATUS, kontrolaDeadlines, kontrolaSummary, recommendFinding,
-  RECOMMEND_LBL, VERDICT_LBL, type DeadlineState, type Recommendation,
+  daysLeftText, FINDING_AREA, fmtCents, isDisputed, kontrolaClientData, isKontrolaAuth, isKontrolaDoc, KONTROLA_AUTH, KONTROLA_DOC, KONTROLA_STATUS, kontrolaDeadlines, kontrolaSummary,
+  recommendFinding, RECOMMEND_LBL, SUBMISSION_LBL, VERDICT_LBL, versionsOf, type DeadlineState, type Recommendation,
 } from '@wise/core/compliance';
 import { klAllowedViews, type KlConfig } from '@wise/core/office';
-import { auditLog, findingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaDue, kontrolaFindings, kontroli, userFirms, users, type Kontrola, type KontrolaFinding } from '@wise/db';
+import {
+  auditLog, type FindingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaAiState, kontrolaDue, kontrolaFindings, kontrolaTexts, kontroli, userFirms, users,
+  type Firm, type Kontrola, type KontrolaFinding,
+} from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
-import { draftParagraphs, isKontrolaReadable, kontrolaDraft, pendingKontrolaReads, toFinding } from '@/lib/kontrola';
+import { isKontrolaReadable, kontrolaCaseDocs, pendingKontrolaReads, toFinding } from '@/lib/kontrola';
+import { CaseDocs } from './case-docs';
 import { viewAllowed } from '@/lib/nav';
 import { filesOf, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
@@ -28,10 +32,9 @@ import { FileChips } from '@/components/file-chips';
 import { Hd, dmy, dmyHm } from '@/components/hd';
 import { KontrolaAi } from '@/components/kontrola-ai';
 import { NoFirm } from '@/components/no-firm';
-import { PdfButton } from '@/components/pdf-button';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { kAction, kActionDone, kDelete, kDraft, kFinding, kFindingDelete, kReadFile, kRecalc, kSave } from './actions';
+import { kAction, kActionDone, kDelete, kFinding, kFindingDelete, kMark, kPrepare, kReadFile, kRecalc, kSave } from './actions';
 
 type SP = { id?: string; nov?: string };
 const den = (c: number) => `${fmtCents(c)} ден.`;
@@ -73,7 +76,9 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
   const edit = !client && can(u.principal, 'office', firm.id);
   const td = today();
 
-  const K = await db().select().from(kontroli).where(and(eq(kontroli.firmId, firm.id), client ? eq(kontroli.clientVisible, true) : undefined)).orderBy(desc(kontroli.docDate), desc(kontroli.createdAt));
+  const K0 = await db().select().from(kontroli).where(and(eq(kontroli.firmId, firm.id), client ? eq(kontroli.clientVisible, true) : undefined)).orderBy(desc(kontroli.docDate), desc(kontroli.createdAt));
+  // a client (portal) never receives the office's work on a case: drafts, versions, the internal analysis, AI
+  const K = client ? K0.map((x) => ({ ...x, data: kontrolaClientData(x.data) })) : K0;
   const k = sp.id ? K.find((x) => x.id === sp.id) : undefined;
   if (sp.id && !k) notFound();
   // deleting an inspection case: only the office owner (user decision 2026-10-12)
@@ -117,7 +122,7 @@ export default async function KontroliPage({ searchParams }: { searchParams: Pro
   );
 }
 
-async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm: Parameters<typeof kontrolaDraft>[2]; edit: boolean; client: boolean; canDel: boolean; td: string }) {
+async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm: Firm; edit: boolean; client: boolean; canDel: boolean; td: string }) {
   const [F, A, FL] = await Promise.all([
     db().select().from(kontrolaFindings).where(eq(kontrolaFindings.kontrolaId, k.id)).orderBy(asc(kontrolaFindings.no)),
     db().select().from(kontrolaActions).where(eq(kontrolaActions.kontrolaId, k.id)).orderBy(asc(kontrolaActions.due)),
@@ -128,9 +133,14 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
   const remedy = (k.data as { remedy?: { n: number; unit: string } }).remedy;
   const S = kontrolaSummary(F.map(toFinding));
   const D = deadlinesOf(k, td);
-  const EV = client ? [] : await Promise.all(F.map((f) => findingEvidence(db(), firm.id, k, f)));
-  const draft = client ? null : await kontrolaDraft(k, F, firm);
-  const savedDraft = (k.data as { draft?: string }).draft;
+  // the office's documents (external submission + internal analysis) — never built for a client (portal)
+  const docs = client ? null : await kontrolaCaseDocs(firm.id, k.id);
+  const EV: (FindingEvidence | undefined)[] = docs ? F.map((f) => docs.c.ev[docs.c.F.findIndex((x) => x.id === f.id)]) : [];
+  const texts = client ? {} : kontrolaTexts(k);
+  const versions = client ? [] : versionsOf(k.data);
+  const aiSt = client ? null : kontrolaAiState(k);
+  const disputedN = F.filter((f) => isDisputed(toFinding(f))).length;
+  const ch = docs?.external.choice;
   const staff = client ? [] : await db().selectDistinct({ id: users.id, name: users.name }).from(users).leftJoin(userFirms, eq(userFirms.userId, users.id))
     .where(and(eq(users.active, true), sql`${users.role} not in ('klient','teren')`, or(eq(users.allFirms, true), eq(users.role, 'admin'), eq(userFirms.firmId, firm.id)))).orderBy(asc(users.name));
   const trail = client ? [] : await db().select({ at: auditLog.at, action: auditLog.action, user: users.name, data: auditLog.data }).from(auditLog).leftJoin(users, eq(users.id, auditLog.userId))
@@ -150,6 +160,18 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
           <div key={l} className={`card ${c}`} style={{ flex: 1, minWidth: 150, margin: 0 }}><div className="muted" style={{ fontSize: 12 }}>{l}</div><div style={{ fontSize: 17, fontWeight: 700 }}>{v}</div></div>
         ))}
       </div>
+
+      {ch && disputedN > 0 && !k.filedOn && <div className={`callout ${ch.daysLeft != null && ch.daysLeft <= 3 ? 'bad' : 'warn'}`} id="kPrep" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 22, fontWeight: 800, whiteSpace: 'nowrap' }}>⏰ {ch.daysLeft == null ? '—' : ch.daysLeft < 0 ? 'истечен' : `${ch.daysLeft} ${ch.daysLeft === 1 ? 'ден' : 'дена'}`}</span>
+        <span style={{ flex: 1, minWidth: 240 }}>
+          🧾 <b>{disputedN} {disputedN === 1 ? 'оспорен наод' : 'оспорени наоди'}</b> – програмата подготвува: <b>{SUBMISSION_LBL[ch.type]}</b> до {ch.to}
+          {ch.deadline ? <> · рок <b>{dmy(ch.deadline)}</b> ({daysLeftText(ch.daysLeft)})</> : <> · {daysLeftText(null)}</>}
+          {ch.verify && <span className="pill info" title="Правното средство, органот и рокот – проверете ги во правната поука на актот"> за проверка</span>}
+          <div className="mini">{ch.reason}</div>
+        </span>
+        {edit && <RowAction action={kPrepare.bind(null, k.id)} label={`🧾 Подготви ${SUBMISSION_LBL[ch.type].toLowerCase()}`} className="btn pri" showOk />}
+        <a className="btn" href="#kDocs">↓ Документи</a>
+      </div>}
 
       <div className="card">
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>⏰ Рокови за правна заштита</h2>
@@ -191,27 +213,7 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
         <button className="btn sm pri" style={{ marginTop: 6 }}>Додај наод</button>
       </ActionForm></div>}
 
-      {draft && <div className="card">
-        <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>📝 Предлог {draft.remedy?.name.toLowerCase() ?? 'поднесок'} {draft.deadline ? `(рок ${dmy(draft.deadline)})` : ''}</h2>
-        <div className="row" style={{ gap: 6, marginBottom: 6 }}>
-          <PdfButton selector="#kDraftDoc" title={`${draft.title}_${k.docNo ?? ''}`} className="btn sm" />
-          <a className="btn sm" href={`/kontroli/word?id=${k.id}&doc=draft`}>⬇ Word</a>
-          <span className="mini">Генериран од наодите со препорака „приговор“ / „делумен приговор“. Проверете го, дополнете го со доказите и потпишете. Програмата ништо не поднесува.</span>
-        </div>
-        <div id="kDraftDoc" style={{ border: '1px solid var(--line, #ddd)', padding: 16, background: '#fff', color: '#000', fontFamily: 'serif', lineHeight: 1.45 }}>
-          {savedDraft ? savedDraft.split(/\r?\n/).map((l, i) => <p key={i} style={{ margin: '0 0 4px', minHeight: 8 }}>{l}</p>) : <>
-            <p style={{ margin: 0 }}>До: {draft.to}</p>
-            <h3 style={{ textAlign: 'center', margin: '14px 0' }}>{draft.title}</h3>
-            {draft.blocks.map((b, i) => <div key={i} style={{ marginBottom: 8 }}>{b.h && <b>{b.h}</b>}{b.p.map((p, j) => <p key={j} style={{ margin: '2px 0' }}>{p}</p>)}</div>)}
-          </>}
-        </div>
-        {edit && <details style={{ marginTop: 6 }}><summary>✎ Уреди го текстот</summary>
-          <ActionForm action={kDraft.bind(null, k.id)} reset={false} className="">
-            <textarea name="draft" rows={18} style={{ width: '100%', font: 'inherit' }} defaultValue={savedDraft ?? draftParagraphs(draft).join('\n')} />
-            <div className="row" style={{ gap: 6 }}><button className="btn sm pri">Зачувај текст</button><span className="mini">Празно = повторно генериран текст од наодите.</span></div>
-          </ActionForm>
-        </details>}
-      </div>}
+      {docs && (disputedN > 0 || texts.draft || versions.length > 0) && <CaseDocs k={k} ext={docs.external} int={docs.internal} texts={texts} versions={versions} ai={aiSt} edit={edit} />}
 
       <div className="card">
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>🛠 Корективни мерки</h2>
@@ -267,7 +269,7 @@ function FindingFields({ f }: { f?: KontrolaFinding }) {
   );
 }
 
-function FindingCard({ f, k, ev, edit, client }: { f: KontrolaFinding; k: Kontrola; ev?: Awaited<ReturnType<typeof findingEvidence>>; edit: boolean; client: boolean }) {
+function FindingCard({ f, k, ev, edit, client }: { f: KontrolaFinding; k: Kontrola; ev?: FindingEvidence; edit: boolean; client: boolean }) {
   const x = toFinding(f);
   const rec = recommendFinding(x);
   return (
@@ -289,9 +291,14 @@ function FindingCard({ f, k, ev, edit, client }: { f: KontrolaFinding; k: Kontro
           <div className="row" style={{ gap: 4, flexWrap: 'wrap', margin: '4px 0' }}>{ev.links.map((l) => <Link key={l.href} className="btn sm ghost" href={l.href} target="_blank">{l.label} ↗</Link>)}</div>
           {ev.recalc && <div className="mini">Пресметка од книгите: <b>{den(ev.recalc.cents)}</b> – {ev.recalc.source}</div>}
           {ev.checks.map((c, i) => <div key={i} className="mini"><span className={`pill ${c.s === 'ok' ? 'good' : c.s}`}>{c.s === 'ok' ? '✓' : c.s === 'warn' ? '⚠' : '✗'}</span> Проверка на програмата: {c.txt}</div>)}
+          {ev.refs.length > 0 && <div className="mini">Документи (докази): {ev.refs.join('; ')}</div>}
           <div className="mini">Дневник (кој / кога): {ev.audit.n ? `${ev.audit.n} промени · ${ev.audit.users.map((u) => `${u.name} (${u.n})`).join(', ')} · од ${dmy(ev.audit.first?.slice(0, 10))} до ${dmy(ev.audit.last?.slice(0, 10))}` : 'нема промени во програмата во периодот'}</div>
         </div>}
-        {edit && <div className="row" style={{ gap: 6, marginTop: 6 }}>
+        {edit && <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {([['object', '⚖ Оспори'], ['partial', '½ Делумно'], ['accept', '✓ Прифати']] as const).map(([r, l]) => (
+            <RowAction key={r} action={kMark.bind(null, k.id, f.id, f.recommendation === r ? null : r)} label={l} title={f.recommendation === r ? 'Означено – клик за автоматска препорака' : `Означи: ${RECOMMEND_LBL[r]}`}
+              className={`btn sm ${f.recommendation === r ? 'pri' : 'ghost'}`} />
+          ))}
           {ev?.recalc && <RowAction action={kRecalc.bind(null, k.id, f.id)} label="⇩ Земи износ од книгите" className="btn sm" showOk />}
           <RowAction action={kFindingDelete.bind(null, k.id, f.id)} label="🗑" confirm="Да се избрише наодот?" />
         </div>}

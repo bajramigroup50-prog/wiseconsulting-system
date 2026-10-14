@@ -1,20 +1,25 @@
 /**
- * Word (.docx) export of an inspection case: `?id=<kontrola>&doc=draft` the objection / appeal draft (the edited text
- * if saved, else the generated one), `&doc=analiza` the office's analysis. Same guard as the page (office staff of the
- * firm); the client never gets the drafts.
+ * Word (.docx) export of an inspection case: `?id=<kontrola>&doc=draft` the external document (забелешки / приговор /
+ * жалба / тужба — the office's edited or accepted text if saved, else the generated one), `&doc=analiza` the internal
+ * analysis; `&v=<version id>` a stored version instead of the current text. Same guard as the page (office staff of
+ * the firm): a client (portal) never gets either document.
  */
-import { and, asc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { can } from '@wise/core';
-import { kontrolaFindings, kontroli } from '@wise/db';
+import { docHtml, SUBMISSION_LBL, textHtml, versionsOf } from '@wise/core/compliance';
+import { kontrolaTexts, kontroli } from '@wise/db';
 import { getUser } from '@/lib/auth';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
-import { minimalDocx } from '@/lib/docx';
-import { analysisParagraphs, draftParagraphs, kontrolaDraft } from '@/lib/kontrola';
+import { htmlDocx } from '@/lib/docx';
+import { kontrolaCaseDocs } from '@/lib/kontrola';
+
+const translit = (s: string) => s.replace(/[^\w.-]+/g, '_');
 
 export async function GET(req: Request) {
   const u = await getUser();
   if (!u) return new Response('Unauthorized', { status: 401 });
+  if (u.role === 'klient') return new Response('Forbidden', { status: 403 });
   const firm = await currentFirm(u, { check: false });
   if (!firm || !can(u.principal, 'office', firm.id)) return new Response('Forbidden', { status: 403 });
   const sp = new URL(req.url).searchParams;
@@ -22,23 +27,31 @@ export async function GET(req: Request) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return new Response('Not found', { status: 404 });
   const [k] = await db().select().from(kontroli).where(and(eq(kontroli.id, id), eq(kontroli.firmId, firm.id))).limit(1);
   if (!k) return new Response('Not found', { status: 404 });
-  const F = await db().select().from(kontrolaFindings).where(eq(kontrolaFindings.kontrolaId, id)).orderBy(asc(kontrolaFindings.no));
-  let paras: string[];
+  const internal = sp.get('doc') === 'analiza';
+  const vid = sp.get('v');
+  let html: string;
   let name: string;
-  if (sp.get('doc') === 'analiza') {
-    paras = analysisParagraphs(k, F, firm);
-    name = 'Analiza';
+  if (vid) {
+    const v = versionsOf(k.data).find((x) => x.id === vid);
+    if (!v) return new Response('Not found', { status: 404 });
+    html = textHtml(internal ? v.internal : v.external);
+    name = internal ? 'Vnatreshna_analiza' : SUBMISSION_FILE[v.type];
   } else {
-    const saved = (k.data as { draft?: string }).draft;
-    const d = saved ? null : await kontrolaDraft(k, F, firm);
-    paras = saved ? saved.split(/\r?\n/) : d ? draftParagraphs(d) : [];
-    name = 'Prigovor_zhalba';
+    const t = kontrolaTexts(k);
+    const saved = internal ? t.internalDraft : t.draft;
+    const D = saved ? null : await kontrolaCaseDocs(firm.id, id);
+    if (!saved && !D) return new Response('Not found', { status: 404 });
+    html = saved ? textHtml(saved) : docHtml(internal ? D!.internal : D!.external);
+    name = internal ? 'Vnatreshna_analiza' : SUBMISSION_FILE[D?.external.choice.type ?? 'zhalba'];
   }
-  const out = minimalDocx(paras.map((t) => [t]));
+  const out = htmlDocx(html);
   return new Response(new Uint8Array(out), {
     headers: {
       'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'content-disposition': `attachment; filename="${name}_${(k.docNo ?? k.docDate ?? '').replace(/\W+/g, '_')}.docx"`,
+      'content-disposition': `attachment; filename="${name}_${translit(k.docNo ?? k.docDate ?? '')}.docx"`,
+      'cache-control': 'private, no-store',
     },
   });
 }
+
+const SUBMISSION_FILE: Record<keyof typeof SUBMISSION_LBL, string> = { zabeleski: 'Zabeleshki_na_zapisnik', prigovor: 'Prigovor', zhalba: 'Zhalba', tuzhba: 'Tuzhba' };
