@@ -11,6 +11,8 @@ import { invoiceMail } from './invoice-mail';
 import { pdfMail } from './pdf-mail';
 import { mpinRead } from './mpin-read';
 import { lawAsk, lawRobot } from './law';
+import { lawTexts } from './law-texts';
+import { lawCase } from './law-assist';
 import { legacyImport } from './legacy-import';
 import { firmResh } from './firm-resh';
 
@@ -30,6 +32,8 @@ export const JOBS: JobDef<any>[] = [
   mpinRead,
   lawRobot,
   lawAsk,
+  lawTexts,
+  lawCase,
   legacyImport,
   firmResh,
 ];

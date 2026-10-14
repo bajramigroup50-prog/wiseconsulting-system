@@ -7,3 +7,5 @@ export * from './law/mpin-in';
 export * from './law/lawrep';
 export * from './law/robot';
 export * from './law/ujp';
+export * from './law/texts';
+export * from './law/assist';

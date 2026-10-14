@@ -4,9 +4,9 @@ import { NAV, NAV_LBL, navFlat, viewAllowed } from './nav';
 const ids = (g: string) => navFlat(NAV.find(([x]) => x === g)![1]).map(([id]) => id);
 
 describe('Фирми law / УЈП items (legacy runtime NAV inserts)', () => {
-  it('Фирми: … izvestuvanja, zakoni, zatvoranje, insp, lawrep, ujpZakoni, mpinIn', () => {
+  it('Фирми: … izvestuvanja, zakoni, lawAi, zatvoranje, insp, lawrep, ujpZakoni, mpinIn', () => {
     const f = ids('Фирми');
-    expect(f.slice(f.indexOf('izvestuvanja'), f.indexOf('izvestuvanja') + 7)).toEqual(['izvestuvanja', 'zakoni', 'zatvoranje', 'insp', 'lawrep', 'ujpZakoni', 'mpinIn']);
+    expect(f.slice(f.indexOf('izvestuvanja'), f.indexOf('izvestuvanja') + 8)).toEqual(['izvestuvanja', 'zakoni', 'lawAi', 'zatvoranje', 'insp', 'lawrep', 'ujpZakoni', 'mpinIn']);
     expect(NAV_LBL.ujpZakoni).toBe('📚 Закони на УЈП (синхронизирано)');
     expect(f[f.indexOf('izvestuvanja') + 1]).toBe('zakoni');
     expect(NAV_LBL.zakoni).toBe('⚖️ Законски промени');
@@ -21,6 +21,6 @@ describe('Фирми law / УЈП items (legacy runtime NAV inserts)', () => {
     expect(viewAllowed('acc', 'mpinIn')).toBe(true);
     expect(viewAllowed('klient', 'mpinIn')).toBe(false);
     expect(viewAllowed('teren', 'mpinIn')).toBe(false);
-    for (const v of ['zakoni', 'lawrep', 'ujpZakoni']) { expect(viewAllowed('view', v)).toBe(true); expect(viewAllowed('klient', v)).toBe(false); }
+    for (const v of ['zakoni', 'lawAi', 'lawrep', 'ujpZakoni']) { expect(viewAllowed('view', v)).toBe(true); expect(viewAllowed('klient', v)).toBe(false); }
   });
 });

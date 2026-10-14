@@ -8,10 +8,10 @@ import { AI_MODELS, aiMessages, costUsd, type AiTier } from './client';
 import { AiReadError } from './read-document';
 import { aiBudgetGuard, effectiveTier, estimateCost, estimateInputTokens, reserveAiCall, settleAiCall } from './budget';
 
-export async function askText(a: { db: Tx; prompt: string; tier?: AiTier; purpose: string; refId?: string | null; userId?: string | null; firmId?: string | null; maxTokens?: number }): Promise<{ text: string; model: string }> {
+export async function askText(a: { db: Tx; prompt: string; tier?: AiTier; purpose: string; refId?: string | null; userId?: string | null; firmId?: string | null; maxTokens?: number; /** Opus only on an explicit „🔍 Детално“ (owner policy `opusOnlyDeep`). */ deep?: boolean }): Promise<{ text: string; model: string }> {
   const api = aiMessages();
   const cfg = await aiBudgetGuard(a.db, a.firmId ?? null);
-  const tier = effectiveTier(a.tier ?? 'default', false, cfg);
+  const tier = effectiveTier(a.tier ?? 'default', a.deep, cfg);
   const model = AI_MODELS[tier];
   const maxTokens = a.maxTokens ?? 4000;
   const rid = await reserveAiCall(a.db, { firmId: a.firmId ?? null, userId: a.userId, purpose: a.purpose, tier, model, refId: a.refId }, estimateCost(model, estimateInputTokens([], a.prompt), maxTokens));
