@@ -19,6 +19,8 @@ export function publicPath(p: string): boolean {
     || p === '/manifest.webmanifest' || p.startsWith('/icon') || p.startsWith('/apple-icon') || p === '/api/health'
     // desktop app auto-update (the route itself answers only the app's update header)
     || p.startsWith('/api/desktop-update/')
+    // the running build only (new-version banner, components/version-check.tsx)
+    || p === '/api/version'
     // public/forms assets and root-level static files only (a dotted segment deeper down is not a free pass)
     || p.startsWith('/forms/') || /^\/[^/]+\.[a-z0-9]{2,5}$/i.test(p);
 }

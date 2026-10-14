@@ -19,6 +19,8 @@ interface Rendered { firm: string; year: string }
 
 /** What this tab was rendered for (read by the `fetch` wrapper at send time). */
 const R: Rendered = { firm: '', year: '' };
+/** The props `FirmGuard` was last rendered with (null = never). */
+const P: { firm: string | null; year: string | null } = { firm: null, year: null };
 const listeners = new Set<(k: Stale) => void>();
 const flag = (k: Stale) => { for (const l of listeners) l(k); };
 
@@ -51,6 +53,18 @@ function install() {
 }
 install();
 
+/**
+ * This tab has just chosen a firm / year (`selectFirm` / `setYear` resolved): its next posts go with the new values
+ * right away — not only once the re-rendered layout arrives (a soft navigation whose refresh is late or failed would
+ * otherwise get every following action refused as „променета во друг прозорец“).
+ */
+export function noteRendered(c: { firm?: string; year?: number }): void {
+  if (c.firm) R.firm = c.firm;
+  if (c.year) R.year = String(c.year);
+}
+/** Headers the next mutation of this tab carries (tests). */
+export const renderedNow = (): Readonly<Rendered> => ({ ...R });
+
 export interface GuardFirm { id: string; name: string }
 const Ctx = createContext<{ firm: GuardFirm | null; year: number } | null>(null);
 
@@ -58,9 +72,11 @@ const Ctx = createContext<{ firm: GuardFirm | null; year: number } | null>(null)
 export const useRenderedFirm = () => useContext(Ctx);
 
 export function FirmGuard({ firm, year, children }: { firm: GuardFirm | null; year: number; children: React.ReactNode }) {
-  // set while rendering: the headers must be right before any effect or click of the children sends something
-  R.firm = firm?.id ?? '';
-  R.year = String(year);
+  // set while rendering: the headers must be right before any effect or click of the children sends something —
+  // only when the rendered props change, so a re-render with the old props cannot undo `noteRendered` of a choice
+  const pf = firm?.id ?? '', py = String(year);
+  if (P.firm !== pf) { P.firm = pf; R.firm = pf; }
+  if (P.year !== py) { P.year = py; R.year = py; }
   const [stale, setStale] = useState<Stale | null>(null);
 
   useEffect(() => {

@@ -26,7 +26,7 @@
  * checks pass; an earlier AI read of the same file (sha256) is reused; the monthly AI limit pauses AI (code `budget`)
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { fixRates, scanResultConsistent, scanInvoices, ublToScan, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
@@ -39,7 +39,7 @@ import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
 import { PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
-import { fileContent, loadFile, readContent } from '../ai/read-document';
+import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
 import { readObject } from '../ai/storage';
 import { readResultKind, RESULT_KINDS } from '../ai/kinds';
@@ -53,6 +53,8 @@ const fx = (r: ScanResult | null) => { if (r) for (const x of scanInvoices(r)) f
 class ReadFail extends Error { constructor(public code: AiErrCode, msg: string, public detail = '') { super(msg); } }
 const BLOCK_MS = 15 * 60_000;
 
+const hasRows = (r: unknown) => !!r && (((r as { rows?: unknown[] }).rows?.length ?? 0) > 0 || ((r as { items?: unknown[] }).items?.length ?? 0) > 0);
+
 const has = (r: ScanResult | null) => !!r && scanInvoices(r).some((x) => (x.lines ?? []).length || (x.groups ?? []).length);
 
 /** The work of the job, separated for tests. */
@@ -63,7 +65,10 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   if ((doc.options as { cancelled?: boolean }).cancelled) return;
   const [f] = await db.select().from(firms).where(eq(firms.id, doc.firmId)).limit(1);
   if (!f) return;
-  await db.update(aiDocuments).set({ status: 'reading', error: null }).where(eq(aiDocuments.id, docId));
+  await db.update(aiDocuments).set({ status: 'reading', error: null, options: sql`${aiDocuments.options} - 'progress'` }).where(eq(aiDocuments.id, docId));
+  doc.options = Object.fromEntries(Object.entries(doc.options ?? {}).filter(([k]) => k !== 'progress'));
+  /** „дел 2/5…“ of a read in parts (shown by the screen while it polls); merged in SQL, a concurrent cancel stays. */
+  const progress = (p: string) => db.update(aiDocuments).set({ options: sql`${aiDocuments.options} || jsonb_build_object('progress', ${p}::text)` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
   let S = await getAiSettings(db);
   const retry = !!(doc.options as { retry?: boolean }).retry;
   let blocked = !!S.lastFail && !retry && Date.now() - Date.parse(S.lastFail.at) < BLOCK_MS;
@@ -158,16 +163,26 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       // a bank statement PDF with a text layer whose balances reconcile (opening + movements = closing) is read
       // exactly without AI — no tokens, no misread digits; otherwise (scan, no balances, not reconciling) AI reads it.
       // The same for a trial balance whose every printed total matches (`freeAccepted`)
+      let freeR: unknown = null;
       if (!noAi && FREE_FIRST_KINDS.has(doc.kind)) {
-        let r: unknown = null;
-        try { r = await free(); } catch { r = null; }
-        if (freeAccepted(doc.kind, r)) {
-          await db.update(aiDocuments).set({ status: 'done', result: r, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
+        try { freeR = await free(); } catch { freeR = null; }
+        if (freeAccepted(doc.kind, freeR)) {
+          await db.update(aiDocuments).set({ status: 'done', result: freeR, drafts: [], model: NOAI_MODEL }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
           log(`${docId}: ${doc.kind} read from the PDF text (reconciled), no AI`);
           return;
         }
       }
-      const { result, model } = noAi ? await fallback(noAi) : (await freeOnly()) ?? await viaAi(() => readResultKind(db, doc, f));
+      const { result, model } = noAi ? await fallback(noAi) : (await freeOnly()) ?? await viaAi(async () => {
+        try { return await readResultKind(db, doc, f, undefined, progress); } catch (e) {
+          // the AI read failed for good (too large, unreadable): a free read of the text layer, even unbalanced, is
+          // better than nothing — its warnings say what to check
+          if (e instanceof AiReadError) {
+            const fr = freeR ?? await free().catch(() => null);
+            if (hasRows(fr)) { log(`${docId}: AI read failed (${e.message}), the free read is used`); return { result: fr, model: NOAI_MODEL }; }
+          }
+          throw e;
+        }
+      });
       await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
       log(`${docId}: ${doc.kind} read via ${model}`);
       return;
@@ -244,6 +259,10 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
 
 export const aiReadDocument = defineJob<{ docId: string }>({
   name: AI_READ_DOCUMENT,
+  // failures are stored on the row and never thrown; a job that still fails (DB down) or expires is not repeated by
+  // pg-boss — a repeated read pays for the same tokens again. Reads lost in a restart are queued again by
+  // `requeueStaleReads` on worker startup.
+  queue: { retryLimit: 0, expireInSeconds: 30 * 60 },
   async run(data, { db, log }) {
     if (data?.docId) await runReadDocument(db, data.docId, log);
   },

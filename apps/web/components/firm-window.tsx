@@ -3,6 +3,7 @@
  * "⇄ Промени фирма" window — legacy `VIEWS.firmWin` / `fwPick` (12039–12051): current firm, search, ↑↓ Enter, recent firms
  * first, notification badge per firm, „остани на истиот екран“. Scales to 400+ firms via server search.
  */
+import { noteRendered } from '@/components/firm-guard';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { selectFirm } from '@/app/(app)/actions';
@@ -50,7 +51,7 @@ export function FirmWindow({ currentId, current, canFirms = true, onClose }: {
     if (id === currentId) return onClose();
     try { localStorage.setItem(HIST, JSON.stringify([id, ...readHist().filter((x) => x !== id)].slice(0, 8))); } catch {}
     start(async () => {
-      await selectFirm(id);
+      await selectFirm(id); noteRendered({ firm: id });
       onClose();
       if (!stay) router.push('/');
       const n = document.getElementById('firmName');

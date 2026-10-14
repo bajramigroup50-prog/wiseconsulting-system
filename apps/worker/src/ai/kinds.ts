@@ -25,7 +25,8 @@ import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
 import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
-import { AiReadError, fileContent, loadFile, readContent } from './read-document';
+import { AiReadError, AiTruncatedError, fileContent, loadFile, readContent } from './read-document';
+import { CHUNK_MAX_TOKENS, chunkNote, mergeBank, mergeOb, pdfRanges, planPdfRead, type ChunkKind } from './chunked';
 import { readObject } from './storage';
 import { freeDocRead, type FreeDocKind } from './free-docs';
 import { NOAI_MODEL } from './free-read';
@@ -43,12 +44,16 @@ export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', '
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
 const isImage = (c: Content) => c.blocks.some((b) => b.type === 'image');
 
+/** Progress of a long (chunked) read, shown as „дел 2/5…“. */
+export type ReadProgress = (p: string) => Promise<unknown>;
+
 /** Read one document of a result kind; returns the JSON to store in `ai_documents.result`. */
-export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = todaySkopje()): Promise<{ result: unknown; model: string }> {
+export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = todaySkopje(), progress?: ReadProgress): Promise<{ result: unknown; model: string }> {
   // model tiers (cost): Haiku for classification / short ID documents, Sonnet for statements / invoices / reports;
   // the `complex` tier below becomes Sonnet unless the read is an explicit „🔍 Детално читање“ (`options.deep`)
   const base = { db, firmId: f.id, purpose: doc.kind, refId: doc.id, userId: doc.createdBy, deep: !!(doc.options as { deep?: boolean } | null)?.deep };
   let content: Content = { blocks: [], extra: '' };
+  let pdf: Uint8Array | null = null;
   /** Fiscal report / receipt as text PDF / text export: the free reader first, AI only when its checks fail. */
   let free: (() => Promise<{ result: unknown; why: string }>) | null = null;
   if (doc.kind !== 'bom' && doc.kind !== 'bankcls') {
@@ -56,6 +61,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     const file = await loadFile(db, f.id, doc.fileId);
     const bytes = await readObject(file.bucketKey);
     content = fileContent(file, bytes);
+    if (content.blocks.some((b) => b.type === 'document')) pdf = bytes;
     const o = (doc.options ?? {}) as { extraFileIds?: string[]; deep?: boolean };
     if ((doc.kind === 'fisk' || doc.kind === 'blg') && !o.deep && !o.extraFileIds?.length) free = () => freeDocRead(doc.kind as FreeDocKind, file, bytes, today);
     // legacy `fkTiles` 13005 + `FK_TILE_NOTE` 13010: several photos / pages of ONE fiscal report read together
@@ -70,6 +76,44 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     }
   }
   const read = async (prompt: string, tier: AiTier) => readContent<unknown>({ ...base, prompt, tier }, content);
+  /**
+   * Trial balance / statement: the size is estimated first; a large PDF is read in page ranges (never one huge call
+   * whose answer cannot fit), a single read cut at max_tokens switches to ranges instead of being repeated.
+   * `tier` goes through the one tier rule of `readContent` (`effectiveTier`: Opus only on „🔍 Детално читање“).
+   */
+  const readLarge = async (kind: ChunkKind, prompt: string, tier: AiTier, maxTokens: number): Promise<{ result: unknown; model: string }> => {
+    const plan = pdf ? await planPdfRead(kind, pdf, Math.min(maxTokens, CHUNK_MAX_TOKENS)) : null;
+    if (!plan || plan.ranges.length <= 1) {
+      try {
+        const r = await readContent<unknown>({ ...base, prompt, tier, maxTokens }, content);
+        return { result: r.data, model: r.model };
+      } catch (e) {
+        // cut answer: never the same request again — a PDF of several pages goes page by page, anything else fails now
+        if (!(e instanceof AiTruncatedError) || !pdf || !plan || plan.pages < 2) throw e;
+        return chunks(kind, prompt, tier, { ...plan, ranges: Array.from({ length: plan.pages }, (_, i) => ({ from: i + 1, to: i + 1 })) });
+      }
+    }
+    return chunks(kind, prompt, tier, plan);
+  };
+  const chunks = async (kind: ChunkKind, prompt: string, tier: AiTier, plan: NonNullable<Awaited<ReturnType<typeof planPdfRead>>>): Promise<{ result: unknown; model: string }> => {
+    const parts = await pdfRanges(pdf!, plan.ranges);
+    const out: unknown[] = [];
+    let model = '';
+    for (const [i, bytes] of parts.entries()) {
+      const n = parts.length, r = plan.ranges[i]!;
+      await progress?.(`дел ${i + 1}/${n}`);
+      const c: Content = { blocks: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(bytes).toString('base64') } }], extra: chunkNote(kind, i, n, r, plan.pages) };
+      try {
+        const x = await readContent<unknown>({ ...base, purpose: `${doc.kind}:chunk`, prompt, tier, maxTokens: CHUNK_MAX_TOKENS }, c);
+        out.push(x.data); model = x.model;
+      } catch (e) {
+        if (e instanceof AiTruncatedError) throw new AiTruncatedError(`Делот ${i + 1}/${n} (страни ${r.from}–${r.to}) е преголем за едно читање – поделете го документот на помали делови.`);
+        throw e;
+      }
+    }
+    if (kind === 'ob') { const m = mergeOb(out); return { result: { ...m, warnings: m.check.warnings }, model }; }
+    return { result: mergeBank(out), model };
+  };
   let freeWhy = '';
   if (free) {
     const r = await free();
@@ -88,15 +132,12 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
       const r = await read(EMP_PROMPT, 'default');
       return { result: r.data, model: r.model };
     }
-    case 'bank': {
-      const r = await read(BANK_PROMPT, 'default');
-      return { result: r.data, model: r.model };
-    }
-    case 'ob': {
-      // legacy `obAi` 10646 read the text in ~11k parts; one complex-tier read with a large answer here
-      const r = await readContent<unknown>({ ...base, prompt: OB_PROMPT, tier: 'complex', maxTokens: 20000 }, content); // non-streaming limit of the SDK (~21k)
-      return { result: r.data, model: r.model };
-    }
+    case 'bank':
+      return readLarge('bank', BANK_PROMPT, 'default', 16000);
+    case 'ob':
+      // legacy `obAi` 10646 read the text in ~11k parts: a large trial balance is read in page ranges (Sonnet; the
+      // `complex` tier is Opus only on „🔍 Детално читање“)
+      return readLarge('ob', OB_PROMPT, 'complex', 16000);
     case 'bankcls': {
       // legacy `aiClassify` 4856: the lists were built when the read was started (options), prompt verbatim
       const o = (doc.options ?? {}) as { acc?: string; docs?: string; lines?: string };

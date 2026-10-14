@@ -19,7 +19,7 @@ import { can, firmAllowed } from '@wise/core';
 import { ZY_ROLES } from '@wise/core/firms/zsdos';
 import { DOS_CAT } from '@wise/core/office';
 import { audit, docPackages, dossierDocs, fileLinks, files, OFFICE_FILE_ENTITY, YE_DOSSIER_ENTITY, type PdfFileLink } from '@wise/db';
-import { getUser } from '@/lib/auth';
+import { FirmChanged, getUser, YearChanged } from '@/lib/auth';
 import { klientViews } from '@/lib/kl-views';
 import { klFileAllowed } from '@/lib/route-guard';
 import { currentFirm } from '@/lib/context';
@@ -33,7 +33,12 @@ const ROLES = ZY_ROLES.map(([r]) => r).filter((r) => r !== 'oth');
 export async function POST(req: Request) {
   const u = await getUser();
   if (!u) return Response.json({ error: 'Најавете се повторно.' }, { status: 401 });
-  const firm = await currentFirm(u);
+  let firm: Awaited<ReturnType<typeof currentFirm>>;
+  // a page of another firm / year (another window switched): the clear message for the button, never a bare 500
+  try { firm = await currentFirm(u); } catch (e) {
+    if (e instanceof FirmChanged || e instanceof YearChanged) return Response.json({ error: e.message }, { status: 409 });
+    throw e;
+  }
   if (firm && !firmAllowed(u.principal, firm.id, firm.ownerId)) return Response.json({ error: 'Немате пристап до фирмата.' }, { status: 403 });
   const p = parsePrintPdfRequest(await req.json().catch(() => null), { categories: DOS_CAT, roles: ROLES });
   if ('error' in p) return Response.json(p, { status: 400 });

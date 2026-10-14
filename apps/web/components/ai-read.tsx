@@ -10,6 +10,7 @@ import { AI_ERR_FREE, aiErrCodeOf } from '@wise/core/ai/errors';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
 import { aiReadStatus, retryAiRead, startAiRead, type AiReadState } from '@/app/(app)/_ai/actions';
+import { readStuck, safeAction, STALE_ACTION_MSG } from '@/lib/version';
 
 export interface AiReadDoc extends AiReadState { name: string; fileId: string | null }
 type StartKind = 'blg' | 'emp' | 'bank' | 'fisk' | 'bom' | 'cmp' | 'imp' | 'scr' | 'ob' | 'rec'
@@ -26,23 +27,32 @@ export function useAiPoll(initial: AiReadDoc[] = []) {
   const ref = useRef(docs);
   ref.current = docs;
   const busy = docs.some(pending);
+  /** The status action keeps failing (page from an older deployment, server unreachable): said, not an endless spinner. */
+  const [pollErr, setPollErr] = useState('');
   useEffect(() => {
     if (!busy) return;
+    let fails = 0;
     const t = setInterval(async () => {
       const ids = ref.current.filter(pending).map((d) => d.id);
       if (!ids.length) return;
       try {
-        const S = new Map((await aiReadStatus(ids)).map((s) => [s.id, s]));
+        const R = await aiReadStatus(ids);
+        if (!Array.isArray(R)) throw new Error('unexpected response');
+        const S = new Map(R.map((s) => [s.id, s]));
         setDocs((D) => D.map((d) => (S.has(d.id) ? { ...d, ...S.get(d.id)! } : d)));
-      } catch { /* keep polling */ }
+        fails = 0; setPollErr('');
+      } catch {
+        // one failure may be a network blip; the second in a row is shown (polling goes on and clears it)
+        if (++fails >= 2) setPollErr(STALE_ACTION_MSG);
+      }
     }, 2500);
     return () => clearInterval(t);
   }, [busy]);
-  return { docs, setDocs, busy };
+  return { docs, setDocs, busy, pollErr };
 }
 
 export function useAiRead(firmId: string) {
-  const { docs, setDocs, busy } = useAiPoll();
+  const { docs, setDocs, busy, pollErr } = useAiPoll();
   const [msg, setMsg] = useState('');
   const [uploading, setUploading] = useState(false);
 
@@ -54,31 +64,35 @@ export function useAiRead(firmId: string) {
     if (!fs.length) { setMsg(txt ? 'Изберете PDF, слика, XML, CSV или TXT.' : 'Изберете слики (JPG/PNG) или PDF.'); return; }
     setUploading(true);
     const up: { id: string; name: string }[] = [], err: string[] = [];
-    for (const [i, f] of fs.entries()) {
-      setMsg(`Се прикачува ${i + 1}/${fs.length}: ${f.name}`);
-      const r = await uploadFile(f, firmId);
-      if (r.ok) up.push({ id: r.id, name: f.name }); else err.push(`${f.name}: ${r.error}`);
+    try {
+      for (const [i, f] of fs.entries()) {
+        setMsg(`Се прикачува ${i + 1}/${fs.length}: ${f.name}`);
+        const r = await uploadFile(f, firmId).catch((): { ok: false; error: string } => ({ ok: false, error: 'Серверот не одговара – проверете ја врската и обидете се повторно.' }));
+        if (r.ok) up.push({ id: r.id, name: f.name }); else err.push(`${f.name}: ${r.error}`);
+      }
+      if (up.length) {
+        // a page from an older deployment: the action id is gone → said right away (never „се чита…“ forever)
+        const r: { ids?: string[]; error?: string } = await safeAction(() => startAiRead({ kind, fileIds: up.map((x) => x.id), ...(group ? { group: true } : {}) }));
+        if (r.error) err.push(r.error);
+        const add: AiReadDoc[] = (r.ids ?? []).map((id, i) => ({ id, kind, status: 'queued', error: null, model: null, result: null, name: up[i]!.name, fileId: up[i]!.id }));
+        setDocs((D) => [...D, ...add]);
+      }
+    } finally {
+      setMsg(err.join(' · '));
+      setUploading(false);
     }
-    if (up.length) {
-      const r = await startAiRead({ kind, fileIds: up.map((x) => x.id), ...(group ? { group: true } : {}) });
-      if (r.error) err.push(r.error);
-      const add: AiReadDoc[] = (r.ids ?? []).map((id, i) => ({ id, kind, status: 'queued', error: null, model: null, result: null, name: up[i]!.name, fileId: up[i]!.id }));
-      setDocs((D) => [...D, ...add]);
-    }
-    setMsg(err.join(' · '));
-    setUploading(false);
   }, [firmId, setDocs]);
 
   /** Start a read without a file (BOM suggestion). */
   const suggest = useCallback(async (productId: string) => {
     setUploading(true);
-    const r = await startAiRead({ kind: 'bom', productId });
+    const r: { ids?: string[]; error?: string } = await safeAction(() => startAiRead({ kind: 'bom', productId }));
     setMsg(r.error ?? '');
     if (r.ids) setDocs((D) => [...D, ...r.ids!.map((id) => ({ id, kind: 'bom', status: 'queued', error: null, model: null, result: null, name: '', fileId: null }))]);
     setUploading(false);
   }, [setDocs]);
 
-  return { docs, setDocs, msg, setMsg, busy: busy || uploading, read, suggest, reset: () => { setDocs([]); setMsg(''); } };
+  return { docs, setDocs, msg: pollErr && !msg.includes(pollErr) ? (msg ? msg + ' · ' : '') + pollErr : msg, setMsg, busy: busy || uploading, read, suggest, reset: () => { setDocs([]); setMsg(''); } };
 }
 
 /** Drop zone + file picker (legacy `.drop` label). */
@@ -107,6 +121,22 @@ export function AiReadList({ docs, msg, doneHint, setDocs }: {
   setDocs?: React.Dispatch<React.SetStateAction<AiReadDoc[]>>;
 }) {
   const L = docs.filter((d) => d.status !== 'done' && d.status !== 'saved');
+  // since when each read has had its current status (client clock): a read stuck for 3 min offers „↻ Повторно“
+  const since = useRef(new Map<string, { status: string; at: number }>());
+  const [now, setNow] = useState(() => Date.now());
+  const anyPending = docs.some(pending);
+  useEffect(() => {
+    if (!anyPending) return;
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, [anyPending]);
+  for (const d of docs) {
+    const s = since.current.get(d.id);
+    // a new part („дел 3/5“) is progress too: the 3-minute clock starts again
+    const st = d.status + (d.progress ?? '');
+    if (!s || s.status !== st) since.current.set(d.id, { status: st, at: Date.now() });
+  }
+  const stuck = (d: AiReadDoc) => readStuck(d.status, since.current.get(d.id)?.at ?? now, now);
   const done = doneHint && !docs.some(pending) ? docs.filter((d) => d.status === 'done' || d.status === 'saved') : [];
   if (!L.length && !msg && !done.length) return null;
   return (
@@ -114,11 +144,30 @@ export function AiReadList({ docs, msg, doneHint, setDocs }: {
       {L.map((d) => (
         <div key={d.id} className="mini">{d.name ? d.name + ': ' : ''}{d.status === 'error'
           ? <AiErrLine d={d} onRetry={setDocs ? () => setDocs((D) => D.map((x) => (x.id === d.id ? { ...x, status: 'queued', error: null, errCode: null } : x))) : undefined} />
-          : <span className="pill info">{d.status === 'reading' ? 'се чита…' : 'чека…'}</span>}</div>
+          : <>
+            <span className="pill info">{d.status === 'reading' ? (d.progress ? `се чита… ${d.progress}` : 'се чита…') : 'чека…'}</span>
+            {setDocs && stuck(d) && <AiRetryStuck id={d.id} onRetry={() => { since.current.delete(d.id); setDocs((D) => D.map((x) => (x.id === d.id ? { ...x, status: 'queued', error: null, errCode: null } : x))); }} />}
+          </>}</div>
       ))}
       {done.length > 0 && <div className="callout good">{aiReadDoneMsg(done.map((d) => d.name || 'документ'), doneHint)}</div>}
       {msg && <div className="note">{msg}</div>}
     </div>
+  );
+}
+
+/** „↻ Повторно“ on a read that has been waiting / reading for more than 3 minutes (worker restarted, job lost). */
+function AiRetryStuck({ id, onRetry }: { id: string; onRetry: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  return (
+    <>
+      <span className="mini" style={{ marginLeft: 6 }}>трае подолго од вообичаено</span>
+      <button type="button" className="btn sm ghost" disabled={busy} style={{ marginLeft: 6 }} onClick={async () => {
+        setBusy(true); const r = await safeAction(() => retryAiRead(id, { stuck: true })); setBusy(false);
+        if (r.error) setErr(r.error); else { setErr(''); onRetry(); }
+      }}>↻ Повторно</button>
+      {err && <span className="mini" style={{ marginLeft: 6 }}>{err}</span>}
+    </>
   );
 }
 
@@ -136,9 +185,16 @@ export function AiErrLine({ d, onRetry }: { d: Pick<AiReadDoc, 'id' | 'error' | 
       <span className="pill bad">{text}</span>
       {onRetry && code !== 'off' && (
         <button type="button" className="btn sm ghost" disabled={busy} style={{ marginLeft: 6 }} onClick={async () => {
-          setBusy(true); const r = await retryAiRead(d.id); setBusy(false);
+          setBusy(true); const r = await safeAction(() => retryAiRead(d.id)); setBusy(false);
           if (r.error) setErr(r.error); else onRetry();
         }}>↻ Повторно</button>
+      )}
+      {onRetry && !(code && ['off', 'nokey', 'credit', 'auth', 'budget'].includes(code)) && (
+        // the only way the detailed (Opus, more expensive) model reads a document
+        <button type="button" className="btn sm ghost" disabled={busy} style={{ marginLeft: 6 }} title="Повторно читање со подетален модел (поскапо, побавно)" onClick={async () => {
+          setBusy(true); const r = await safeAction(() => retryAiRead(d.id, { deep: true })); setBusy(false);
+          if (r.error) setErr(r.error); else onRetry();
+        }}>🔍 Детално читање</button>
       )}
       {code && AI_ERR_FREE.has(code) && <a className="btn sm ghost" style={{ marginLeft: 6 }} href="/konvertor" target="_blank" rel="noreferrer">🔄 Конвертор на датотеки</a>}
       {err && <span className="mini" style={{ marginLeft: 6 }}>{err}</span>}

@@ -4,6 +4,7 @@
  * (12906), the law robot badge (`lawBadge` 14321 → robot 14392), the client-messages envelope (`msgTop` 14015), the
  * big notifications button (`alBell` 8607), the database pill (`#conn`) and the `teren` restrictions (CSS 166).
  */
+import { noteRendered } from '@/components/firm-guard';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { ROLES, type Role } from '@wise/core';
@@ -40,7 +41,7 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
   const B = status.bell ? alBellState(status.bell.bad, status.bell.warn) : null;
   const bell = () => {
     const fid = status.bell?.firstFirm;
-    if (!firm && fid) start(async () => { await selectFirm(fid); router.push('/izvestuvanja'); });
+    if (!firm && fid) start(async () => { await selectFirm(fid); noteRendered({ firm: fid }); router.push('/izvestuvanja'); });
     else router.push('/izvestuvanja');
   };
 
@@ -96,7 +97,7 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
             // never silently (a year chosen by accident sent the entries into the wrong year): confirm first
             const v = Number(e.target.value);
             if (v === year || !window.confirm(yearSwitchQuestion(v))) { e.target.value = String(year); return; }
-            start(() => setYear(v));
+            start(async () => { await setYear(v); noteRendered({ year: v }); });
           }}>
           {years.map((v) => <option key={v}>{v}</option>)}
         </select>

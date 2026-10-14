@@ -9,6 +9,7 @@
  */
 import { useActionState, useState } from 'react';
 import { serverPdf } from '@/lib/print-pdf';
+import { pdfWithTimeout } from '@/lib/version';
 import type { FormState } from './bank-form';
 
 export type Cell = string | number | null | undefined;
@@ -47,11 +48,16 @@ export function ExportXlsx({ name, sheets, rows, label = '⬇ Excel', className 
 /** „⬇ PDF“ of the element `#id` (server PDF, A4; `landscape` for wide tables). */
 export function ListPdf({ target, title, landscape, label = '⬇ PDF', className = 'btn' }: { target: string; title: string; landscape?: boolean; label?: string; className?: string }) {
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
   return (
-    <button type="button" className={className} disabled={busy} title="PDF изработен на серверот (A4)" onClick={async () => {
-      setBusy(true);
-      try { await serverPdf({ selector: target.startsWith('#') ? target : '#' + target, title, landscape }); } finally { setBusy(false); }
-    }}>{busy ? 'PDF…' : label}</button>
+    <>
+      <button type="button" className={className} disabled={busy} title="PDF изработен на серверот (A4)" onClick={async () => {
+        setBusy(true); setErr('');
+        // never „PDF…“ forever: the refusal / stale page / network / time limit is shown next to the button
+        try { setErr((await pdfWithTimeout(() => serverPdf({ selector: target.startsWith('#') ? target : '#' + target, title, landscape, alert: false }))) ?? ''); } finally { setBusy(false); }
+      }}>{busy ? 'PDF…' : label}</button>
+      {err && <span className="pill bad noprint" role="alert" style={{ marginLeft: 6 }}>{err}</span>}
+    </>
   );
 }
 

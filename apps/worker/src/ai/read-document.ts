@@ -10,13 +10,22 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
-import { files, type Tx } from '@wise/db';
+import { aiUsage, files, type Tx } from '@wise/db';
 import { AI_MODELS, aiMessages, costUsd, type AiTier, type AiUsage } from './client';
 import { readObject } from './storage';
 import { aiBudgetGuard, effectiveTier, estimateCost, estimateInputTokens, pagesMsg, prepareBlocks, reserveAiCall, settleAiCall } from './budget';
 
 export class AiReadError extends Error {
   constructor(message: string) { super(message); this.name = 'AiReadError'; }
+}
+
+export const TRUNCATED_MSG = 'Документот е преголем за едно читање – поделете го на помали делови.';
+/**
+ * The answer was cut at max_tokens. Deterministic: the same request would be cut again, so it is never repeated as
+ * it is — large PDFs are read in parts (`chunked.ts`), anything else fails with this message at once.
+ */
+export class AiTruncatedError extends AiReadError {
+  constructor(message = TRUNCATED_MSG) { super(message); this.name = 'AiTruncatedError'; }
 }
 
 export type Validator<T> = { parse(x: unknown): T } | ((x: unknown) => T);
@@ -113,10 +122,15 @@ export async function readContent<T>(a: Omit<ReadDocumentArgs<T>, 'fileId'>, con
   };
   const cost = costUsd(model, usage);
   await settleAiCall(a.db, rid, a.firmId, usage, cost);
+  // a cut answer is marked in the cost report (`ai_usage.purpose` = `<purpose>:truncated`)
+  const truncated = msg.stop_reason === 'max_tokens';
+  if (truncated) await a.db.update(aiUsage).set({ purpose: a.purpose + ':truncated' }).where(eq(aiUsage.id, rid));
   if (msg.stop_reason === 'refusal') throw new AiReadError('Моделот одби да го прочита документот.');
   const out = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
-  if (msg.stop_reason === 'max_tokens' && !out.trim().endsWith('}')) throw new AiReadError('Документот е преголем за едно читање – поделете го на помали делови.');
-  const json = parseModelJson(out);
+  // deterministic: never repeated as it is (large PDFs are read in parts by the caller, `chunked.ts`)
+  if (truncated && !/[}\]]\s*(```)?\s*$/.test(out.trim())) throw new AiTruncatedError();
+  let json: unknown;
+  try { json = parseModelJson(out); } catch (e) { throw truncated ? new AiTruncatedError() : e; }
   const s = a.schema;
   const data = (s ? (typeof s === 'function' ? s(json) : s.parse(json)) : json) as T;
   return { data, model, usage, costUsd: cost };

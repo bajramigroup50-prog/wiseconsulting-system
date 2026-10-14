@@ -79,7 +79,7 @@ services:
     restart: "no"
 
   app:
-    build: { context: .., dockerfile: docker/Dockerfile, target: web }
+    build: { context: .., dockerfile: docker/Dockerfile, target: web, args: { GIT_SHA: "${GIT_SHA:-}" } }
     image: wise-web
     restart: unless-stopped
     depends_on:

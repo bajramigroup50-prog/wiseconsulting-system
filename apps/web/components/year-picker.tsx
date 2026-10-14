@@ -3,6 +3,7 @@
  * „Изберете година“ — the first screen after the login (then the firm list of that year): the working year is chosen
  * deliberately, never left from an earlier session or changed by an accidental select. Default: the calendar year.
  */
+import { noteRendered } from '@/components/firm-guard';
 import { useRouter } from 'next/navigation';
 import { useEffect, useTransition } from 'react';
 import { setYear } from '@/app/(app)/actions';
@@ -19,7 +20,7 @@ export function YearPicker({ year, calendar, minYear, chosen, user }: {
   const y0 = Math.min(2012, calendar - 10, minYear ?? calendar);
   const years = Array.from({ length: calendar + 2 - y0 }, (_, i) => calendar + 1 - i);
   const sel = chosen ? year : calendar;
-  const pick = (y: number) => start(async () => { await setYear(y); router.push('/'); router.refresh(); });
+  const pick = (y: number) => start(async () => { await setYear(y); noteRendered({ year: y }); router.push('/'); router.refresh(); });
 
   useEffect(() => {
     document.body.classList.add('picking');

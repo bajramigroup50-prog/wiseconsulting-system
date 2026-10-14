@@ -96,12 +96,16 @@ export const dataUri = (mime: string, bytes: Uint8Array) => `data:${mime};base64
 /**
  * Browser side. Self-contained (no closures, no imports): `serverPdfScript()` serialises it for the static HTML
  * print pages. Opens a tab at once (pop-up blockers allow it only inside the click), renders and polls.
+ * Every way it can end is bounded and said: the server's message (e.g. „Фирмата е променета во друг прозорец…“),
+ * a page from an older deployment / an HTML error page, the network, a timeout. Returns the error message (null =
+ * the PDF opened); with `alert: false` the caller shows it (the „⬇ PDF“ button), otherwise it is alerted.
  */
-export async function serverPdf(o: { selector: string; title: string; landscape?: boolean }): Promise<void> {
+export async function serverPdf(o: { selector: string; title: string; landscape?: boolean; alert?: boolean }): Promise<string | null> {
+  const STALE = 'Страницата е од постара верзија – освежете ја (Ctrl+Shift+R) и обидете се повторно.';
+  const fail = (m: string): string => { if (o.alert !== false) window.alert(m); return m; };
   const el = document.querySelector(o.selector) as HTMLElement | null;
-  if (!el) { window.alert('Нема што да се зачува како PDF.'); return; }
+  if (!el) return fail('Нема што да се зачува како PDF.');
   // no blank pop-up window: the finished PDF is downloaded (works the same in the desktop app and every browser)
-  const fail = (m: string) => { window.alert(m); };
   try {
     const c = el.cloneNode(true) as HTMLElement;
     c.querySelectorAll('.noprint,script').forEach((x) => x.remove());
@@ -115,26 +119,27 @@ export async function serverPdf(o: { selector: string; title: string; landscape?
     const t0 = setTimeout(() => ctl.abort(), 60_000);
     const r = await fetch('/api/pdf', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html, css, title: o.title, landscape, pkg: new URLSearchParams(window.location.search).get('pkg') }) });
     clearTimeout(t0);
+    if (!(r.headers.get('content-type') || '').includes('json')) return fail(STALE);
     const j = await r.json().catch(() => ({})) as { id?: string; error?: string };
-    if (!r.ok || !j.id) { fail(j.error || 'PDF не може да се подготви.'); return; }
+    if (!r.ok || !j.id) return fail(j.error || 'PDF не може да се подготви.');
     const url = '/api/files/' + j.id;
     for (let i = 0; i < 60; i++) {
       await new Promise((ok) => setTimeout(ok, i < 5 ? 1000 : 2000));
       const x = await fetch(url, { cache: 'no-store' });
       if (x.ok) {
-        const b = await x.blob();
+        const blob = await x.blob();
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(b);
+        a.href = URL.createObjectURL(blob);
         a.download = (o.title || 'dokument').replace(/[\/:*?"<>|]+/g, ' ').trim() + '.pdf';
         document.body.appendChild(a); a.click();
         setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
-        return;
+        return null;
       }
       if (x.status !== 404) break;
     }
-    fail('PDF не е подготвен (серверот за PDF не одговара). Обидете се повторно или користете „Печати“.');
+    return fail('PDF не е подготвен (серверот за PDF не одговара). Обидете се повторно или користете „Печати“.');
   } catch (e) {
-    fail('PDF не може да се подготви: ' + ((e as Error)?.message || e));
+    return fail((e as Error)?.name === 'AbortError' ? 'PDF: серверот не одговори навреме. Обидете се повторно.' : 'PDF не може да се подготви: ' + ((e as Error)?.message || e));
   }
 }
 

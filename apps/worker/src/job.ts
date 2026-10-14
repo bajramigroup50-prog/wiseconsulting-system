@@ -6,6 +6,8 @@ export interface JobDef<T = unknown> {
   /** Cron (Europe/Skopje) for recurring jobs. */
   cron?: string;
   run(data: T, ctx: JobCtx): Promise<void>;
+  /** pg-boss queue options (retries, expiry), applied on every start. */
+  queue?: { retryLimit?: number; expireInSeconds?: number };
 }
 
 export interface JobCtx {

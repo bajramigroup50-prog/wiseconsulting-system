@@ -2,6 +2,7 @@
 /** Legacy `recParse` 12923: PDF / image partner cards are read by AI (kind `rec`) before the comparison runs. */
 import { uploadFile } from '@/lib/upload';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
+import { safeAction, STALE_ACTION_MSG } from '@/lib/version';
 
 const isAi = (f: File) => /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || /^image\/|pdf/.test(f.type);
 
@@ -13,13 +14,14 @@ export async function readCardsAi(fd: FormData, names: string[], firmId: string,
     note(`Се прикачува „${f.name}“…`);
     const up = await uploadFile(f, firmId);
     if (!up.ok) return `„${f.name}“: ${up.error}`;
-    const s = await startAiRead({ kind: 'rec', fileIds: [up.id] });
+    const s: { ids?: string[]; error?: string } = await safeAction(() => startAiRead({ kind: 'rec', fileIds: [up.id] }));
     if (!s.ids?.[0]) return s.error ?? 'Картицата не е прочитана.';
     note(`Се чита картицата „${f.name}“… (10–60 секунди)`);
     let ok = false;
     for (let t = 0; t < 120 && !ok; t++) {
       await new Promise((r) => setTimeout(r, 2500));
-      const [x] = await aiReadStatus([s.ids[0]]);
+      let x: Awaited<ReturnType<typeof aiReadStatus>>[number] | undefined;
+      try { [x] = await aiReadStatus([s.ids[0]]); } catch { return STALE_ACTION_MSG; }
       if (x?.status === 'error') return 'Картицата не е прочитана: ' + (x.error ?? '');
       ok = x?.status === 'done' || x?.status === 'saved';
     }

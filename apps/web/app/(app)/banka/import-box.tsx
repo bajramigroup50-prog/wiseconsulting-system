@@ -9,7 +9,8 @@ import { fmt, dmy } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
-import { previewImportAction, previewNalogImportAction, saveImportAction, saveNalogImportAction, type NalogPreviewResult } from './actions';
+import { previewImportAction, previewNalogImportAction, saveImportAction, saveNalogImportAction, type NalogPreviewResult, type PreviewResult } from './actions';
+import { safeAction, STALE_ACTION_MSG } from '@/lib/version';
 
 /** Import inside a nalog (Налози → ИЗВОДИ): the statements are booked and posted into this nalog. */
 export interface NalogTarget {
@@ -53,13 +54,14 @@ async function readAiStatements(L: File[], firmId: string, note: (m: string) => 
     up.push({ i, id: r.id });
   }
   if (!up.length) return { ids };
-  const s = await startAiRead({ kind: 'bank', fileIds: up.map((x) => x.id) });
+  const s: { ids?: string[]; error?: string } = await safeAction(() => startAiRead({ kind: 'bank', fileIds: up.map((x) => x.id) }));
   if (s.error || !s.ids) return { ids, error: s.error ?? 'Изводот не е прочитан.' };
   s.ids.forEach((id, k) => { ids[up[k]!.i] = id; });
   note('Се чита изводот… (10–60 секунди)');
   for (let t = 0; t < 120; t++) {
     await new Promise((ok) => setTimeout(ok, 2500));
-    const S = await aiReadStatus(s.ids);
+    let S: Awaited<ReturnType<typeof aiReadStatus>>;
+    try { S = await aiReadStatus(s.ids); } catch { return { ids, error: STALE_ACTION_MSG }; }
     const bad = S.find((x) => x.status === 'error');
     if (bad) return { ids, error: 'Изводот не е прочитан: ' + (bad.error || '') };
     if (S.length === s.ids.length && S.every((x) => x.status === 'done' || x.status === 'saved')) return { ids };
