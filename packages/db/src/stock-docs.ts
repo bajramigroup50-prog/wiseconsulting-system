@@ -563,7 +563,7 @@ export async function saveBom(tx: Tx, a: Actor, input: { productId: string; labo
 
 /**
  * Run a work order (legacy `runProd` 5669): refuse when material is short, issue the components at average cost and
- * receive the product at material + labour cost; one stock journal (D 6000 / C stock, D 6000 / C 4900, D 6300 / C 6000).
+ * receive the product at material + labour cost; one stock journal (D 4000 / C stock, D 6000 / C 4900 the whole cost, D 6300 / C 6000).
  */
 export async function runProductionOrder(tx: Tx, a: Actor, input: { date: string; productId: string; qty: number; wh?: string | null; note?: string | null }): Promise<{ id: string; number: string; unitCost: number }> {
   needDate(input.date);

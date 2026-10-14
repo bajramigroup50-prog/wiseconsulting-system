@@ -6,7 +6,7 @@
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
-import { postIn, postOut, priceAt, promotionPrice, stockAt, type StockMove } from '@wise/core';
+import { postIn, postOut, priceAt, productionLines, promotionPrice, stockAt, stockScheme, type StockMove } from '@wise/core';
 import { nextPrefixedNo, orderRest, type LoyaltyRules } from '@wise/core/retail';
 import { audit, type Tx } from './audit';
 import { assertOpenPeriod } from './posting';
@@ -469,8 +469,10 @@ export interface WriteoffInput {
 }
 
 /**
- * Legacy `rnPost` (13888): materials issued at average cost (`mat-out`, Д 4000 or Д 6000 when a product is made),
- * the product received at the material value (Д 6300 / П 6000). One `writeoff_docs` row, moves as its source.
+ * Legacy `rnPost` (13888): materials issued at average cost (`mat-out`, Д 4000), the product received at the
+ * material value (Д 6000 / П 4900, Д 6300 / П 6000 — `productionLines`). One `writeoff_docs` row, moves as its source.
+ * FIX: legacy debited 6000 directly when a product was made, so the materials never reached class 4 and the ЦРМ
+ * income statement (by nature + change of 60/63) did not match the ledger.
  */
 export async function saveWriteoff(tx: Tx, a: Actor, x: WriteoffInput): Promise<{ id: string; total: number }> {
   needDate(x.to);
@@ -484,8 +486,8 @@ export async function saveWriteoff(tx: Tx, a: Actor, x: WriteoffInput): Promise<
   if (P && !(n(x.productQty) > 0)) throw new StockDocError('Внесете ја произведената количина.');
   const lines = x.lines.filter((l) => r4(l.qty) > 0);
   if (!lines.length) throw new StockDocError('Нема ништо за раздолжување.');
-  const sch = L.ctx.scheme ?? {};
-  const dk = P ? (sch.prodWip || '6000') : '4000';
+  const sch = stockScheme(L.ctx);
+  const dk = sch.prodMat || '4000';
   const id = crypto.randomUUID();
   const src = 'writeoff_doc-' + id;
   const label = 'Раздолжување суровини ' + (x.mode === 'pct' ? '(' + n(x.pct) + '% од продажба)' : '(попис)') + ' ' + x.from.split('-').reverse().join('.') + '–' + x.to.split('-').reverse().join('.');
@@ -503,8 +505,8 @@ export async function saveWriteoff(tx: Tx, a: Actor, x: WriteoffInput): Promise<
   }
   mat = r2(mat);
   if (P) {
-    const r = postIn(ctx, { item: P, qty: r4(n(x.productQty)), date: x.to, src, label: 'Производство ' + (P.name ?? '') + ' (без норматив)', creditAccount: sch.prodWip || '6000', wh, type: 'prod-in', value: mat });
-    moves.push({ ...r.move, lines: [{ account: sch.product || '6300', debit: mat, credit: 0 }, { account: sch.prodWip || '6000', debit: 0, credit: mat }] });
+    const r = postIn(ctx, { item: P, qty: r4(n(x.productQty)), date: x.to, src, label: 'Производство ' + (P.name ?? '') + ' (без норматив)', creditAccount: sch.prodWip, wh, type: 'prod-in', value: mat });
+    moves.push({ ...r.move, lines: productionLines(sch, mat) });
   }
   await tx.insert(writeoffDocs).values({
     id, firmId: a.firmId, date: x.to, dateFrom: x.from, dateTo: x.to, mode: x.mode, pct: x.mode === 'pct' ? String(n(x.pct)) : null, total: String(mat),

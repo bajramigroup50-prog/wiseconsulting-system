@@ -4,7 +4,7 @@
  * and the six AOP cross-checks.
  */
 import type { YeTrialBalanceRow } from './balances';
-import type { ZsRule } from './aop';
+import { ZS_BY_NATURE_SKIP, type ZsRule } from './aop';
 
 /** Expected side per class (legacy `ZK_SIDE`): d = debit (+), p = credit (−). */
 export const ZK_SIDE: Readonly<Record<string, 'd' | 'p'>> = { 0: 'd', 1: 'd', 2: 'p', 3: 'd', 4: 'd', 6: 'd', 7: 'p', 9: 'p' };
@@ -17,6 +17,8 @@ export function zkExpect(k: string, name: string): 'd' | 'p' | null {
   if (/исправк|акумулирана амортиз|отпис на вредн/.test(n)) return c === '0' || c === '1' ? 'p' : ZK_SIDE[c] ?? null;
   if (c === '9' && (/^90[12]/.test(k) || /^96/.test(k) || /загуба|откупени|неуплатен/.test(n))) return 'd';
   if (c === '7' && /^70/.test(k)) return 'd';
+  // 49 „Пренос на расходи“ (4900 „Распоред на директни трошоци“) is a credit: costs moved from class 4 into production
+  if (/^49/.test(k)) return 'p';
   if (c === '2' && /^(13|23)/.test(k)) return null;
   return ZK_SIDE[c] ?? null;
 }
@@ -51,7 +53,8 @@ export function zkData(tb: readonly YeTrialBalanceRow[], names: Readonly<Record<
     if (Math.abs(s) < 0.5) continue;
     const e = zkExpect(r.account, names[r.account] ?? '');
     if (e && ((e === 'd' && s < 0) || (e === 'p' && s > 0))) sign.push({ k: r.account, s, e });
-    if (/^[0-79]/.test(r.account) && !zkMapped(r.account, rules)) unm.push({ k: r.account, s });
+    // 49 / 700 are left out of the income statement by design (their difference is the stock change, AOP 204 / 205)
+    if (/^[0-79]/.test(r.account) && !zkMapped(r.account, rules) && !ZS_BY_NATURE_SKIP.some((p) => r.account.startsWith(p))) unm.push({ k: r.account, s });
   }
   const byK = (a: { k: string }, b: { k: string }) => a.k.localeCompare(b.k);
   return { TD: r2(TD), TP: r2(TP), sign: sign.sort(byK), unm: unm.sort(byK) };

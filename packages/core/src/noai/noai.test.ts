@@ -5,7 +5,8 @@ import { obFromAi } from '../finpar-ob';
 import { statementFromPdf } from './bank';
 import { obFromPdf } from './ob';
 import { dateIn, mkNum, numsIn, pdfLines, type PdfItem } from './pdf-lines';
-import { invoiceFromPdf } from './purchase';
+import { invoiceFromPdf, invoiceNoIn, notInvoiceNo } from './purchase';
+import { invoicePrintHtml } from '../sales/invoice-print';
 
 /** Text items of one page: rows of [x, text], top to bottom (14 pt apart), 5 pt per character. */
 const page = (rows: [number, string][][], page = 1, top = 800): PdfItem[] =>
@@ -88,6 +89,83 @@ describe('invoice PDF without AI', () => {
       number: '123/2026', date: '2026-09-15', dueDate: '2026-10-15', supplierEdb: '4030999000111',
       groups: [{ rate: 18, base: 1000, vat: 180, kind: 'other' }, { rate: 5, base: 200, vat: 10, kind: 'other' }], lines: [], total: 1390,
     });
+  });
+  // the text of an invoice printed by WISE itself (`invoicePrintHtml`): the firm head with „Жиро сметка“ comes before
+  // the title „ФАКТУРА“ and the „Број | …“ cell
+  const wise = (bank: string, twoCol = false) => pdfLines(page(twoCol ? [
+    [[50, 'ДЕМО ТРГОВИЈА ДООЕЛ'], [400, 'ФАКТУРА']],
+    [[50, 'бул. Партизански одреди 100'], [400, 'Број'], [470, '0042/2026']],
+    [[50, 'ЕДБ: 4030026777001 · ЕМБС: 7777001'], [400, 'Датум'], [470, '05.10.2026']],
+    [[50, `Жиро сметка: ${bank} · Комерцијална банка`], [400, 'Рок на плаќање'], [470, '04.11.2026']],
+    [[50, 'Купувач'], [300, 'Повикување на број: 0042/2026']],
+    [[50, 'ДЕМО ХОТЕЛ ДОО Охрид, ЕДБ: 4020026700014']],
+    [[50, 'Стапка'], [200, 'Основица'], [300, 'ДДВ']],
+    [[50, '18%'], [200, '8.500,00'], [300, '1.530,00']],
+    [[50, 'ЗА ПЛАЌАЊЕ'], [300, '10.030,00 ден.']],
+  ] : [
+    [[50, 'ДЕМО ТРГОВИЈА ДООЕЛ']],
+    [[50, 'бул. Партизански одреди 100']],
+    [[50, 'ЕДБ: 4030026777001 · ЕМБС: 7777001']],
+    [[50, 'Тел.: 02 3200 200 · info@demo-trgovija.mk']],
+    [[50, `Жиро сметка: ${bank} · Комерцијална банка`]],
+    [[50, 'ФАКТУРА']],
+    [[50, 'Број'], [150, '0042/2026']],
+    [[50, 'Датум'], [150, '05.10.2026']],
+    [[50, 'Датум на промет'], [150, '05.10.2026']],
+    [[50, 'Рок на плаќање'], [150, '04.11.2026']],
+    [[50, 'Купувач']],
+    [[50, 'ДЕМО ХОТЕЛ ДОО Охрид']],
+    [[50, 'ЕДБ: 4020026700014']],
+    [[50, 'Повикување на број: 0042/2026']],
+    [[50, 'Стапка'], [200, 'Основица'], [300, 'ДДВ']],
+    [[50, '18%'], [200, '8.500,00'], [300, '1.530,00']],
+    [[50, 'Износ без ДДВ'], [300, '8.500,00']],
+    [[50, 'ЗА ПЛАЌАЊЕ'], [300, '10.030,00 ден.']],
+    [[50, `Плаќање до 04.11.2026 на жиро сметка ${bank} кај Комерцијална банка, со повикување на број 0042/2026.`]],
+  ]));
+  it('an invoice printed by WISE: the number is „Број“, never the жиро сметка (valid, invalid control, IBAN)', () => {
+    for (const bank of ['300000000777006', '300000000777001', '300-0000007770-06', 'MK07 3000 0000 0777 006']) {
+      for (const two of [false, true]) {
+        const r = invoiceFromPdf(wise(bank, two), { ownEdb: '4020026700014' })!;
+        expect(r.number, `${bank} ${two}`).toBe('0042/2026');
+        expect(r).toMatchObject({ date: '2026-10-05', supplierEdb: '4030026777001', total: 10_030 });
+      }
+    }
+  });
+  it('the print template itself (`invoicePrintHtml`) read back as text lines', () => {
+    const html = invoicePrintHtml({
+      kind: 'invoice',
+      doc: { kind: 'invoice', number: '0042/2026', date: '2026-10-05', due: '2026-11-04', currency: 'MKD', fx: 1, note: null, data: null },
+      firm: { name: 'ДЕМО ТРГОВИЈА ДООЕЛ', address: 'бул. Партизански одреди 100', city: 'Скопје', edb: '4030026777001', embs: '7777001', vatRegistered: true, settings: { bank: '300000000777006', bankName: 'Комерцијална банка' } },
+      partner: { name: 'ДЕМО ХОТЕЛ ДОО Охрид', city: 'Охрид', edb: '4020026700014' },
+      lines: [{ name: 'Кафе', qty: 10, price: 850, disc: 0, rate: 18, unit: 'kg' }],
+    });
+    // rows of cells as a PDF text layer gives them: block ends are new lines, table cells sit side by side
+    const rows = html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<(br|\/div|\/tr|\/p|\/h\d)[^>]*>/gi, '\n').replace(/<\/t[dh]>/gi, '\t')
+      .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').split('\n')
+      .map((r) => r.split('\t').map((c) => c.replace(/\s+/g, ' ').trim()).filter(Boolean)).filter((r) => r.length)
+      .map((r) => r.map((c, i): [number, string] => [50 + i * 120, c]));
+    expect(rows.some((r) => r.some(([, c]) => c.includes('Жиро сметка: 300000000777006')))).toBe(true);
+    const r = invoiceFromPdf(pdfLines(page(rows)), { ownEdb: '4020026700014' })!;
+    expect(r).toMatchObject({ number: '0042/2026', date: '2026-10-05', supplierEdb: '4030026777001', total: 10_030 });
+  });
+  it('the number comes from the label, not from accounts / ЕДБ / ЕМБС / dates', () => {
+    expect(invoiceNoIn(['Жиро сметка: 300000000777006', 'Фактура бр. 15/2026'])).toBe('15/2026');
+    expect(invoiceNoIn(['IBAN: MK07300000000777006', 'Број на фактура: F-77'])).toBe('F-77');
+    expect(invoiceNoIn(['ФАКТУРА', 'ЕДБ: MK4030026777001', 'Фактура број', '2026-0815'])).toBe('2026-0815');
+    expect(invoiceNoIn(['Сметка бр. 300000000777006', 'Invoice no. INV-9'])).toBe('INV-9');
+    expect(invoiceNoIn(['ЕМБС: 7777001', 'Фактура 7777001', 'Број 12'])).toBe('12');
+    expect(invoiceNoIn(['ФАКТУРА бр. 5'])).toBe('5');
+    expect(invoiceNoIn(['Сметка-фактура бр. 0099'])).toBe('0099');
+    expect(invoiceNoIn(['Фактура', 'Жиро сметка 300000000777001'])).toBe('');
+    expect(notInvoiceNo('300000000777006')).toBe(true);
+    expect(notInvoiceNo('MK07 3000 0000 0777 006')).toBe(true);
+    expect(notInvoiceNo('MK4030026777001')).toBe(true);
+    expect(notInvoiceNo('4030026777001')).toBe(true);
+    expect(notInvoiceNo('05.10.2026')).toBe(true);
+    expect(notInvoiceNo('7777001', 'ЕМБС: 7777001')).toBe(true);
+    expect(notInvoiceNo('7777001')).toBe(false);
+    expect(notInvoiceNo('0042/2026')).toBe(false);
   });
   it('no recapitulation: the total is split with the printed rate', () => {
     const L = pdfLines(page([[[50, 'Фактура број F-77']], [[50, 'Датум: 01.02.2026']], [[50, 'Сите цени се со ДДВ 18%']], [[50, 'Вкупно за плаќање'], [300, '1.180,00']]]));

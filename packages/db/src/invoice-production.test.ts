@@ -146,9 +146,11 @@ describe('production invoice („🏭 Фактура од производств
     const PJ = await journalOf('stock:production', o!.id);
     const D = (x: typeof PJ) => Math.round(x.reduce((a, l) => a + Number(l.debit), 0) * 100) / 100;
     expect(D(PJ)).toBe(Math.round(PJ.reduce((a, l) => a + Number(l.credit), 0) * 100) / 100);
-    expect(PJ.some((l) => Number(l.debit) === 8800)).toBe(true); // product received at cost
-    expect(PJ.some((l) => Number(l.credit) === 6300)).toBe(true); // labour + other + overhead
-    expect(PJ.some((l) => Number(l.credit) === 2500)).toBe(true); // materials issued (one stock account)
+    const S = (k: string) => Math.round(PJ.filter((l) => l.account === k).reduce((a, l) => a + Number(l.debit) - Number(l.credit), 0) * 100) / 100;
+    expect(S('6300')).toBe(8800); // product received at cost
+    expect(S('4900')).toBe(-8800); // the whole cost transferred into production (materials + labour + other + overhead)
+    expect(S('4000')).toBe(2500); // materials issued: a cost by nature
+    expect(S('6000')).toBe(0);
     const SJ = await journalOf('stock:invoice', id);
     expect(SJ.some((l) => Number(l.debit) === 8800) && SJ.some((l) => Number(l.credit) === 8800)).toBe(true); // cost of sales
     const IJ = await journalOf('invoice', id);

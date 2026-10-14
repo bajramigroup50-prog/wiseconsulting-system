@@ -127,8 +127,14 @@ export interface StockScheme {
   whVat: string;
   /** Production in progress (legacy hard-coded 6000). */
   prodWip: string;
-  /** Labour absorbed into production (legacy hard-coded 4900). */
+  /**
+   * „Распоред на директни трошоци на производи“ (legacy hard-coded 4900): credited with EVERY cost transferred into
+   * production (materials consumed + labour / other / overhead) — D prodWip / C prodLabour. The key keeps its legacy
+   * name; it is no longer labour only.
+   */
   prodLabour: string;
+  /** Materials consumed in production, cost by nature (class 4, default 4000 „Потрошени основни материјали и суровини“). */
+  prodMat: string;
 }
 
 export interface StockContext {

@@ -105,11 +105,11 @@ describe('stock journal lines balance', () => {
     expect(stockLinesBalanced(r)).toBe(true);
   });
 
-  it('production lines: labour first, then product receipt', () => {
+  it('production lines: the whole cost through 4900 (materials were a class-4 cost), then product receipt', () => {
     const l = productionLines(stockScheme({}), 260, 60);
     expect(l.map((x) => [x.account, x.debit, x.credit])).toEqual([
-      ['6000', 60, 0],
-      ['4900', 0, 60],
+      ['6000', 260, 0],
+      ['4900', 0, 260],
       ['6300', 260, 0],
       ['6000', 0, 260],
     ]);

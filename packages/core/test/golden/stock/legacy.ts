@@ -188,6 +188,16 @@ export function loadLegacy(fx: LegacyFixture, variant: 'shipped' | 'intended' = 
 
 /** Legacy `{k,d,p}` lines → port lines. */
 export const toPortLines = (L: any[] = []) => L.map(({ k, d, p, ...r }) => ({ ...r, account: String(k), debit: d, credit: p }));
+/**
+ * DELIBERATE FIX (production by nature, see `productionLines`): the legacy production posting as the port books it —
+ * materials D 4000 instead of D 6000; the receipt transfers the whole cost D 6000 / C 4900, then D 6300 / C 6000.
+ */
+export const byNatureLines = (m: { type?: string; value?: number }, lines: { account: string; debit: number; credit: number }[]) =>
+  m.type === 'prod-out' || m.type === 'mat-out'
+    ? lines.map((l) => (l.account === '6000' && l.debit ? { ...l, account: '4000' } : l))
+    : m.type === 'prod-in' && lines.length
+      ? [{ account: '6000', debit: m.value, credit: 0 }, { account: '4900', debit: 0, credit: m.value }, { account: '6300', debit: m.value, credit: 0 }, { account: '6000', debit: 0, credit: m.value }]
+      : lines;
 /** Legacy moves → port moves (lines converted). */
 export const toPortMoves = (M: any[] = []) => M.map((m) => ({ ...m, ...(m.lines ? { lines: toPortLines(m.lines) } : {}) }));
 /** Legacy `codes` rows (cb warehouse/store) → port locations. */

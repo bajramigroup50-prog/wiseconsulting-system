@@ -150,7 +150,10 @@ export function zcFindings(inp: ZcInput): ZcFinding[] {
       (g[k] ??= []).push({ qty: mv.qty, date: mv.date });
     }
     for (const [k, M] of Object.entries(g)) {
-      M.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      // receipts before issues within a day — the order of the stock engine (`reaverage`, stock card, trade book).
+      // FIX: the moves come from the database in no order, so a product produced and sold on the same day (production
+      // invoice) went „во минус“ when the sale happened to be read before the production receipt.
+      M.sort((a, b) => String(a.date).localeCompare(String(b.date)) || +(b.qty > 0) - +(a.qty > 0));
       let q = 0;
       let min = 0;
       let minD = '';

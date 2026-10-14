@@ -4,8 +4,8 @@
  * one production order per produced line (dated the invoice date, numbered like the production screen), the
  * materials issued at average cost from the materials warehouse and the product received at the materials cost
  * (+ the line's share of the extra costs) into the invoice's warehouse, through the existing production engine
- * (`runProduction`) and `replaceSourceMoves` (stock journal with the production scheme: D prodWip / C stock,
- * D product / C prodWip). The link lives in `invoices.data.prodRun` (orders) and in the order's note.
+ * (`runProduction`) and `replaceSourceMoves` (stock journal with the production scheme: D prodMat 4000 / C stock,
+ * D prodWip / C prodLabour 4900, D product / C prodWip). The link lives in `invoices.data.prodRun` (orders) and in the order's note.
  *
  * Production invoice („🏭 Фактура од производство“): the main products carry their cost elements (`calc`: labour,
  * other direct costs, overhead %); the server recomputes them on the materials value actually issued, so the product

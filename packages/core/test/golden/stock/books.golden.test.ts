@@ -18,7 +18,7 @@ import {
   type LagerView,
 } from '../../../src/stock-books';
 import { bomCycle, productionNeeds, runProduction, unitCost, type StockMove } from '../../../src/stock';
-import { loadLegacy, toPortLines, type LegacyFixture } from './legacy';
+import { byNatureLines, loadLegacy, toPortLines, type LegacyFixture } from './legacy';
 import { CODES, ITEMS, MOVES, PEND_MOVE, portCtx } from './fixtures';
 
 const PARTNERS = [{ id: 'P1', name: 'Добавувач ДОО' }, { id: 'K1', name: 'Купувач ДООЕЛ' }];
@@ -295,7 +295,7 @@ describe('production (unitCost / runProduction)', () => {
       await L.fn.runProd();
       const ctx = portCtx(PFX);
       const r = runProduction(ctx, { id: 'prod-u1', product: PROD_ITEMS.find((i) => i.id === prod) as any, qty, date: '2026-03-01', wh });
-      const wantMoves = L.saved.filter(([c]) => c === 'moves').map(([, m]) => ({ ...m, lines: toPortLines(m.lines) }));
+      const wantMoves = L.saved.filter(([c]) => c === 'moves').map(([, m]) => ({ ...m, lines: byNatureLines(m, toPortLines(m.lines)) }));
       expect(r.moves).toEqual(wantMoves);
       expect(r.record).toEqual(L.saved.find(([c]) => c === 'production')![1]);
     }
@@ -309,9 +309,9 @@ describe('production (unitCost / runProduction)', () => {
   });
 
   it('runProduction uses the scheme accounts (DELIBERATE FIX: no hard-coded 6000/4900/6300)', () => {
-    const ctx = { ...portCtx(PFX), scheme: { prodWip: '6010', prodLabour: '4901', product: '6310' } };
+    const ctx = { ...portCtx(PFX), scheme: { prodWip: '6010', prodLabour: '4901', product: '6310', prodMat: '4001' } };
     const r = runProduction(ctx, { id: 'prod-1', product: PROD_ITEMS.find((i) => i.id === 'P2') as any, qty: 1, date: '2026-03-01' });
-    expect(r.moves[0]!.lines!.map((l) => l.account)).toEqual(['6010', '3100']);
+    expect(r.moves[0]!.lines!.map((l) => l.account)).toEqual(['4001', '3100']);
     expect(r.moves.at(-1)!.lines!.map((l) => l.account)).toEqual(['6010', '4901', '6310', '6010']);
   });
 });

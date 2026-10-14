@@ -5,6 +5,8 @@ import { cents, fromCents, num } from './num';
  * Defaults = legacy `SCH0` stock keys (index.html 3174), with two deliberate fixes:
  * - `whStock` was the 3-digit typo `'660'`; it is `'6600'` here.
  * - production accounts `prodWip`/`prodLabour` were hard-coded 6000/4900 in `runProd`/`reaverage`; they are scheme keys now.
+ * - `prodMat` (4000): materials issued to production are a cost by nature (class 4), not a direct D 6000 / C 3100 —
+ *   see `productionLines` for the whole production posting.
  */
 export const STOCK_SCHEME_DEFAULTS: Readonly<StockScheme> = Object.freeze({
   stock: '6600',
@@ -22,6 +24,7 @@ export const STOCK_SCHEME_DEFAULTS: Readonly<StockScheme> = Object.freeze({
   whVat: '6640',
   prodWip: '6000',
   prodLabour: '4900',
+  prodMat: '4000',
 });
 
 export function stockScheme(ctx: Pick<StockContext, 'scheme'>): StockScheme {

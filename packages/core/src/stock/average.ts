@@ -340,6 +340,8 @@ export interface ReaverageResult {
  * - each item is iterated until stable, so a destination location processed before its source still gets the new
  *   transfer value (legacy single pass depended on move order).
  * - journal lines stay balanced (`revalueLines`); production uses scheme accounts, not hard-coded 6300/6000/4900.
+ * - production moves still carrying the legacy posting (D 6000 / C stock for the materials) are re-posted with the
+ *   current one (`productionLines`), so „Упросечување“ also repairs older production for the ЦРМ statements.
  */
 export function reaverage(ctx: StockContext, production: readonly ProductionRecord[] = []): ReaverageResult {
   const moves = ctx.moves.map((m) => ({ ...m }));
@@ -412,6 +414,25 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
     changedP.push(p.id);
   }
   pass(['product']);
+  // Production posted by the legacy scheme (materials D 6000 / C stock, only the labour through 4900) is re-posted by
+  // the current one (materials D prodMat 4000, the whole cost D 6000 / C 4900 — see `productionLines`).
+  for (const m of moves) {
+    if (m.pend || !(m.lines ?? []).length) continue;
+    if ((m.type === 'prod-out' || m.type === 'mat-out') && sch.prodMat !== sch.prodWip && m.lines!.some((l) => l.account === sch.prodWip && num(l.debit))) {
+      m.lines = m.lines!.map((l) => (l.account === sch.prodWip && num(l.debit) ? { ...l, account: sch.prodMat } : l));
+      changed.add(m.id);
+    } else if (m.type === 'prod-in') {
+      const want = productionLines(sch, num(m.value));
+      const same = want.length === m.lines!.length && want.every((w, i) => {
+        const l = m.lines![i]!;
+        return l.account === w.account && Math.abs(num(l.debit) - w.debit) < 0.005 && Math.abs(num(l.credit) - w.credit) < 0.005;
+      });
+      if (!same) {
+        m.lines = want;
+        changed.add(m.id);
+      }
+    }
+  }
   return { moves, production: prods, changedMoves: [...changed], changedProduction: changedP };
 }
 

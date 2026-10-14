@@ -263,7 +263,7 @@ describe('production (normativ / prod)', () => {
     const r = await tx((t) => runProductionOrder(t, A, { date: '2026-03-10', productId: I['200']!, qty: 10 }));
     expect(r.unitCost).toBe(15);
     const j = await journal('stock:production', r.id);
-    expect(j!.lines).toEqual([['6000', 150, 0], ['3100', 0, 125], ['4900', 0, 25], ['6300', 150, 0], ['6000', 0, 150]]); // D 6000 = material 125 + labour 25
+    expect(j!.lines).toEqual([['4000', 125, 0], ['3100', 0, 125], ['6000', 150, 0], ['4900', 0, 150], ['6300', 150, 0], ['6000', 0, 150]]); // materials a class-4 cost; the whole cost 150 (material 125 + labour 25) through 4900
     expect(qtyAt(await ctx(), I['200']!, 'main')).toBe(10);
     await tx((t) => deleteProductionOrder(t, A, r.id));
     expect(qtyAt(await ctx(), I['200']!, 'main')).toBe(0);

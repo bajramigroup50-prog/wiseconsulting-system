@@ -8,17 +8,27 @@ import { locationKind, normalizeLines, retailAccount, retailOn, stockAccount, wh
 import { itemById, postingRate } from './retail';
 
 /**
- * Production receipt (legacy `runProd` 5669 / `reaverage` 5108): D product / C production-in-progress for the
- * total cost, preceded by D in-progress / C labour for the labour part.
- * DELIBERATE FIX: accounts come from the scheme (`product`, `prodWip`, `prodLabour`) instead of hard-coded 6300/6000/4900.
+ * Production receipt (legacy `runProd` 5669 / `reaverage` 5108), Macedonian chart practice (costs by nature):
+ *   1. the materials were issued as a cost by nature: D prodMat 4000 / C stock (the `prod-out` moves, see `runProduction`);
+ *   2. every cost of the order (materials + labour / other / overhead) is transferred into production:
+ *      D prodWip 6000 / C prodLabour 4900 „Распоред на директни трошоци на производи“;
+ *   3. the finished product is received: D product 6300 / C prodWip 6000.
+ * At the year close 4000 (debit) and 4900 (credit) both go to 8000; the ЦРМ income statement (by nature) shows 4000
+ * in AOP 208 and the stock change of 60/63 in AOP 204/205, while 49 and 700 stay out of it (see `ZS_BY_NATURE_SKIP`),
+ * so the income statement equals the ledger result and the balance sheet balances.
+ *
+ * FIX (production firm could not close its year): legacy posted D 6000 / C 3100 for the materials and only the labour
+ * to 4900. The materials never reached class 4, so the ЦРМ income statement (by nature + stock change) differed from
+ * the ledger by the materials value and АОП 063 ≠ АОП 111.
+ * `labour` is kept for the callers' signature; the transfer is always the total.
  */
-export function productionLines(sch: Pick<StockScheme, 'product' | 'prodWip' | 'prodLabour'>, total: number, labour: number): StockJournalLine[] {
-  const lines: StockJournalLine[] = [
+export function productionLines(sch: Pick<StockScheme, 'product' | 'prodWip' | 'prodLabour'>, total: number, _labour?: number): StockJournalLine[] {
+  return [
+    { account: sch.prodWip, debit: total, credit: 0 },
+    { account: sch.prodLabour, debit: 0, credit: total },
     { account: sch.product, debit: total, credit: 0 },
     { account: sch.prodWip, debit: 0, credit: total },
   ];
-  if (labour) lines.unshift({ account: sch.prodWip, debit: labour, credit: 0 }, { account: sch.prodLabour, debit: 0, credit: labour });
-  return lines;
 }
 
 export interface TransferLineArgs {

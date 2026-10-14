@@ -34,6 +34,30 @@ export interface ZsRule {
 }
 
 type ZsTuple = [string, string, string, string, number, string];
+
+/**
+ * Accounts the ЦРМ income statement (expenses BY NATURE) leaves out when the firm transfers its costs into production:
+ *  - 49 „Пренос на расходи“ (4900 „Распоред на директни трошоци на производи“, credit) — the costs moved from class 4
+ *    into production (D 6000 / C 4900, see `productionLines`);
+ *  - 700 „Расходи врз основа на продадени добра (производи) и услуги“ (7000, debit) — the cost of the products sold
+ *    (D 7000 / C 6300).
+ * Their difference is exactly the change of the stock of products (60 / 63), which the statement shows in AOP 204 /
+ * 205 (`INV0` / `INV1`); counting 700 in AOP 209 as well counts production twice, the income statement no longer
+ * equals the ledger result (the close takes every class 4 / 7 balance to 8000) and АОП 063 ≠ АОП 111.
+ *
+ * FIX (a production firm could not close its year): when the year has 49 turnover (= costs transferred into
+ * production), every non-custom „bu“ rule skips 49 and 700. Without 49 the legacy mapping stays (700 in AOP 209), so
+ * firms that book the cost of GOODS sold to 7000 keep their statements unchanged.
+ * ЗА ПРОВЕРКА: a production firm that ALSO books goods sold to 7000 (instead of 701 / 7010, the scheme default)
+ * loses those goods from AOP 209 — the control then shows АОП 063 ≠ АОП 111; such goods belong on 701.
+ * The year control („Контрола на завршна сметка“) never reports 49 / 700 as „конта надвор од АОП“.
+ */
+export const ZS_BY_NATURE_SKIP: readonly string[] = ['49', '700'];
+
+/** Does the year transfer costs into production (any 49 turnover)? */
+export const zsByNature = (pre: YeBalances): boolean =>
+  Object.entries(pre).some(([k, v]) => k.startsWith('49') && (Math.abs(v.d) >= 0.005 || Math.abs(v.p) >= 0.005));
+
 /** Default AOP rules (legacy `ZS_DEF`, 205 rows). */
 export const ZS_DEF: readonly ZsRule[] = (zsData.rows as ZsTuple[]).map(([r, aop, n, k, s, f]) => ({ r: r as ZsReport, aop, n, k, s, f }));
 /** Totals whose formula is forced unless the firm rule is marked `custom` (legacy `ZS_FIX`). */
@@ -181,11 +205,13 @@ function zsBase(inp: ZsInput, R: readonly ZsRule[], profit: number, kontaPart: R
   const cl = !!inp.close;
   const V: Record<string, number> = {};
   const P = inp.payroll ?? [];
+  // costs transferred into production: 49 / 700 stay out of the income statement (see ZS_BY_NATURE_SKIP)
+  const skip = !inp.legacy && zsByNature(inp.pre) ? ZS_BY_NATURE_SKIP.map((p) => '!' + p) : [];
   for (let pass = 0; pass < 4; pass++)
     for (const x of R) {
       const B = x.r === 'bs' && cl ? inp.all : inp.pre;
       let v = 0;
-      if (x.k) v = yeSumPref(B, yeSplitKonta(x.k), +x.s || 1);
+      if (x.k) v = yeSumPref(B, x.r === 'bu' && !x.custom && skip.length ? [...yeSplitKonta(x.k), ...skip] : yeSplitKonta(x.k), +x.s || 1);
       if (x.r === 'bu' && ['214', '215', '216'].includes(x.aop) && !x.custom) {
         const split = yeSumPref(B, ['4201', '4202', '4211', '4212'], 1);
         if (!split && P.length) {

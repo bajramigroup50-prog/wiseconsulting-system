@@ -97,7 +97,7 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
               {pnb.short > 0.5 && <div className="mini" style={{ color: 'var(--bad)' }}>Залихата не е доволна – недостигаат {fmt(pnb.short)} ден. суровини.</div>}
               {!(Number(p.price) > 0) && <div className="mini" style={{ color: 'var(--bad)' }}>Производот нема продажна цена – внесете ја во Артикли.</div>}
               {write && <div className="row" style={{ gap: 8, marginTop: 6 }}><PnbRun productId={p.id} qty={q} date={date} wh={wh} pct={rnPct} disabled={!pnb.lines.length || !(Number(p.price) > 0)}
-                label={`⚡ Раздолжи и заведи ${fq(q)} ${p.unit ?? ''} (${fmt(pnb.lines.reduce((a, x) => a + x.value, 0))})`} /><span className="mini">Д 6000 / П 3100 за суровините · производот на залиха 6300 / 6000 по цена на чинење.</span></div>}
+                label={`⚡ Раздолжи и заведи ${fq(q)} ${p.unit ?? ''} (${fmt(pnb.lines.reduce((a, x) => a + x.value, 0))})`} /><span className="mini">Д 4000 / П 3100 за суровините · Д 6000 / П 4900 · производот на залиха 6300 / 6000 по цена на чинење.</span></div>}
             </div>
           )}
           {p && q > 0 && write && sp.pc === '1' && (
@@ -123,7 +123,7 @@ export default async function ProdPage({ searchParams }: { searchParams: Promise
                     {short.length > 0 && <span className="note">Недостига материјал на залиха. Внесете приемница пред производството.</span>}</div>
                 </ActionForm>
               )}
-              <p className="note">Автоматски: се раздолжуваат материјалите (Должи 6000 – Побарува залиха), се пренесува трудот (6000 – 4900) и производот се заведува на залиха (6300 – 6000) по реална цена на чинење.</p>
+              <p className="note">Автоматски: се раздолжуваат материјалите како трошок (Должи 4000 – Побарува залиха), целата цена на чинење (материјал + труд) се пренесува во производство (6000 – 4900) и производот се заведува на залиха (6300 – 6000) по реална цена на чинење.</p>
             </>
           )}
         </div>

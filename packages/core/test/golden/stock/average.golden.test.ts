@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { postOut, reaverage, stock, stockAt, stockLinesBalanced } from '../../../src/stock';
-import { loadLegacy, toPortLines, type LegacyFixture } from './legacy';
+import { byNatureLines, loadLegacy, toPortLines, type LegacyFixture } from './legacy';
 import { CODES, ITEMS, MOVES, PEND_MOVE, portCtx } from './fixtures';
 
 const FX: LegacyFixture = { items: ITEMS, codes: CODES, moves: MOVES, firm: { ddv: true, sch: {} } };
@@ -215,7 +215,7 @@ describe('reaverage() — re-run weighted average by date', () => {
     for (const lm of L.S.data.moves) {
       const pm = got.moves.find((m) => m.id === lm.id)!;
       expect(pm.value).toBe(lm.value);
-      expect(pm.lines).toEqual(toPortLines(lm.lines));
+      expect(pm.lines).toEqual(byNatureLines(lm, toPortLines(lm.lines)));
     }
     expect(got.production[0]).toEqual(L.S.data.production[0]);
     expect(got.moves.find((m) => m.id === 'o-P')!.value).toBe(-124);

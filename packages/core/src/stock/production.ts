@@ -88,8 +88,9 @@ export interface RunProductionResult {
 }
 
 /**
- * Legacy `runProd` (5669): issue every BOM component at weighted average (D production-in-progress / C stock), then
- * receive the product at material + labour cost (D product / C in-progress, D in-progress / C labour).
+ * Legacy `runProd` (5669): issue every BOM component at weighted average, then receive the product at material +
+ * labour cost. Posting (see `productionLines`): D prodMat 4000 / C stock per component, D prodWip 6000 / C prodLabour
+ * 4900 for the total, D product 6300 / C prodWip 6000. (Legacy: D 6000 / C stock, D 6000 / C 4900 labour only.)
  *
  * DELIBERATE FIX (LEGACY-MAP §7.4 item 8): the accounts come from the scheme (`prodWip`, `prodLabour`, `product`)
  * instead of hard-coded 6000 / 4900 / 6300. Components are issued one after another against the running stock, like
@@ -107,7 +108,7 @@ export function runProduction(ctx: StockContext, a: RunProductionArgs): RunProdu
   for (const b of p.bom ?? []) {
     const it = itemById(ctx, b.item);
     if (!it) continue;
-    const r = postOut(live, { item: it, qty: r4(num(b.qty) * q), date: a.date, type: 'prod-out', src: a.id, label, debitAccount: sch.prodWip, wh: a.wh });
+    const r = postOut(live, { item: it, qty: r4(num(b.qty) * q), date: a.date, type: 'prod-out', src: a.id, label, debitAccount: sch.prodMat, wh: a.wh });
     if (r.warning) warnings.push({ item: it.id, warning: r.warning });
     mat += r.value;
     // Same id for the same component twice: legacy `save` overwrote the earlier move; keep both by suffixing.
@@ -129,7 +130,7 @@ export function runProduction(ctx: StockContext, a: RunProductionArgs): RunProdu
     type: 'prod-in',
     src: a.id,
     label,
-    lines: productionLines(sch, tot, lab),
+    lines: productionLines(sch, tot),
   });
   return { moves, record: { id: a.id, date: a.date, product: p.id, qty: q, mat, lab, unit: q ? r2(tot / q) : 0 }, warnings };
 }
