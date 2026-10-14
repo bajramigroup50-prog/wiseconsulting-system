@@ -75,7 +75,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['firmi', 'c', 'newFirm fimpGo fsGo ncCreateFirm legacyImport legacyImportStart newS partnerNew addPartner addSupplier obMkP bkpMkP scanBuyer posEnsure accImport importAcc cbNew cbImport cbSeedCity paySifSeed fxImport bankAccountAuto addBankAcct'],
   ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct'],
   ['firmi', 'd', 'delFirm delS slDel delAcc cbDelRow fxDel rmBankAcct'],
-  ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend lnAtt'],
+  ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend klFoto lnAtt'],
   ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave fileMove'],
   ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear fileDelete'],
   ['ai', 'c', 'aiRead aiClassify scanStart scanDeep scanRetry scanIntoDraft fsRead mpinRead mpinReread pnScan lawAsk inspCodesScan'],
@@ -93,6 +93,9 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'c', 'amlUfrNew amlScan kontrolaNew kontrolaFindingNew kontrolaActionNew kontrolaAiApply kontrolaDraft dsrNew ropaSeed'],
   ['kanc', 'u', 'amlDecide amlUfrSave amlUfrSubmit kontrolaEdit kontrolaRecalc kontrolaFindingEdit kontrolaActionEdit kontrolaActionDone ropaSave dsrClose'],
   ['kanc', 'd', 'amlPurge kontrolaDel kontrolaFindingDel kontrolaActionDel'],
+  // monthly client report („📊 Месечен извештај за клиентот“)
+  ['kanc', 'c', 'crPrep crAi crMail'],
+  ['kanc', 'u', 'crPublish crHide klLang'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */

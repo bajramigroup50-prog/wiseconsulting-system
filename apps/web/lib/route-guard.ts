@@ -36,7 +36,7 @@ const TEREN_VIEWS = ['mojzad', 'mojpn', 'lozinka', 'izlezF'];
  * served to a client unless they uploaded the file themselves.
  */
 export const FILE_ENTITY_VIEWS: Readonly<Record<string, readonly string[]>> = {
-  dossier_doc: ['dosie'], inbox_item: ['klSend'], client_entry: ['klSend'],
+  dossier_doc: ['dosie'], inbox_item: ['klSend', 'klFoto'], client_entry: ['klSend'],
   purchase: ['vlez'], invoice: ['izlez', 'profakturi', 'ispratnici'], sales_daily: ['kdfi', 'kasa'],
   payroll_run: ['plati'], employee: ['plati', 'klDogovori'], hr_doc: ['plati', 'klDogovori'],
   hotel_reservation: ['hotel'], rent_rental: ['rent'], work_order: ['servis'], customer_vehicle: ['vozila'],

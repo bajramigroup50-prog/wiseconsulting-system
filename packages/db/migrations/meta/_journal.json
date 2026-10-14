@@ -176,6 +176,13 @@
       "when": 1791812377205,
       "tag": "0024_transfer_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792002863770,
+      "tag": "0025_client_capture_reports",
+      "breakpoints": true
     }
   ]
 }

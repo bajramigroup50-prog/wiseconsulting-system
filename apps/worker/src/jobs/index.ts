@@ -13,6 +13,8 @@ import { mpinRead } from './mpin-read';
 import { lawAsk, lawRobot } from './law';
 import { legacyImport } from './legacy-import';
 import { firmResh } from './firm-resh';
+import { inboxCombine } from './inbox-combine';
+import { clientReportSummary } from './client-report-summary';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -32,4 +34,6 @@ export const JOBS: JobDef<any>[] = [
   lawAsk,
   legacyImport,
   firmResh,
+  inboxCombine,
+  clientReportSummary,
 ];

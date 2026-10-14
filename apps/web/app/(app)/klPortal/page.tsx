@@ -6,7 +6,7 @@
  */
 import Link from 'next/link';
 import { and, eq, sql } from 'drizzle-orm';
-import { KL_BASEC, KL_PROF, KL_SEC, firmProfiles, klModuleOff, klRecommended, klSections, profilesAuto, type KlConfig } from '@wise/core/office';
+import { KL_BASEC, KL_PROF, KL_SEC, firmProfiles, klLang, klModuleOff, klRecommended, klSections, profilesAuto, REPORT_LANGS, type KlConfig } from '@wise/core/office';
 import { KL_INSP, klInspDefault } from '@wise/core/firms/klnote';
 import { nkdOf } from '@wise/core/industry/modules';
 import { appSettings, clientEntries, inboxItems, users, userFirms } from '@wise/db';
@@ -17,7 +17,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { addRecommended, klPrevOn, onlyBase,removeNoticeImage, saveNote, saveProfiles, saveSections, setNoticeImage } from './actions';
+import { addRecommended, klPrevOn, onlyBase,removeNoticeImage, saveLang, saveNote, saveProfiles, saveSections, setNoticeImage } from './actions';
 
 export default async function KlPortalPage() {
   const { firm } = await officePage('klPortal', { perm: 'office' });
@@ -49,6 +49,16 @@ export default async function KlPortalPage() {
         </div>
         <p className="mini" style={{ margin: '8px 0 0' }}>{profilesAuto(kl) ? `✓ Автоматски од шифрата на дејност ${nkdOf(firm.activity)?.c ?? '—'}.` : 'Поставено рачно.'} Секој дел може рачно да се вклучи или исклучи подолу. Модулите (хотел, сервис, градежништво…) се во <Link href="/moduli">🧩 Модули по дејност</Link>.</p>
         <div className="row" style={{ marginTop: 8 }}><button className="btn sm pri">Зачувај дејност</button></div>
+      </ActionForm>
+      <ActionForm action={saveLang} reset={false}>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <b>Јазик на клиентот</b>
+          <select name="lang" defaultValue={klLang(kl)} style={{ width: 'auto' }}>
+            {Object.entries(REPORT_LANGS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <button className="btn sm">Зачувај</button>
+          <span className="mini">За „📊 Месечен извештај“ и неговиот AI преглед.</span>
+        </div>
       </ActionForm>
       <ActionForm action={saveSections} reset={false}>
         <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>Што гледа клиентот</h2>

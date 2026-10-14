@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { PREVIEW_COOKIE } from '@/lib/route-guard';
 import { eq, sql } from 'drizzle-orm';
-import { firmProfiles, KL_PROF, KL_SEC, klAddRecommended, klModuleOff, type KlConfig, type KlNote } from '@wise/core/office';
+import { firmProfiles, isReportLang, KL_PROF, KL_SEC, klAddRecommended, klModuleOff, type KlConfig, type KlNote } from '@wise/core/office';
 import { klNoteClean } from '@wise/core/firms/klnote';
 import { appSettings, audit, files, firms, type Tx } from '@wise/db';
 import type { ActionState } from '@/lib/books';
@@ -36,6 +36,21 @@ export async function saveProfiles(_p: ActionState, f: FormData): Promise<Action
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'klProf', entityType: 'firm', entityId: firm.id, data: { prof } });
     });
     return done('Дејноста е зачувана.');
+  } catch (e) { return officeError(e); }
+}
+
+/** The client's language (`kl.lang`): the monthly report and its AI summary are written in it (mk / sq). */
+export async function saveLang(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await officeAction('office');
+    const lang = fv(f, 'lang');
+    if (!isReportLang(lang)) return { error: 'Изберете јазик.' };
+    await db().transaction(async (tx) => {
+      await patchKl(tx, firm.id, { lang });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'klLang', entityType: 'firm', entityId: firm.id, data: { lang } });
+    });
+    revalidatePath('/mesIzv');
+    return done('Јазикот е зачуван.');
   } catch (e) { return officeError(e); }
 }
 

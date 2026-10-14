@@ -1,7 +1,7 @@
 /** Legacy `VIEWS.klInbox` 9072 → **14035** — what clients sent: pending entries to approve, documents/messages to route. */
 import Link from 'next/link';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { CLIENT_ENTRY_KINDS, DOS_CAT, INBOX_ROUTES } from '@wise/core/office';
+import { CAPTURE_KINDS, captureRoute, CLIENT_ENTRY_KINDS, DOS_CAT, INBOX_ROUTES, isCaptureKind, type InboxRoute } from '@wise/core/office';
 import { clientEntries, inboxItems, OFFICE_FILE_ENTITY, users } from '@wise/db';
 import { db } from '@/lib/db';
 import { allowedFirms, filesOf, officePage } from '@/lib/office';
@@ -78,6 +78,7 @@ export default async function KlInboxPage({ searchParams }: { searchParams: Prom
             </div>
             {i.note && <div style={{ whiteSpace: 'pre-line' }}>{i.note}</div>}
             <FileChips files={IF.get(i.id)} />
+            {!i.done && (IF.get(i.id)?.length ?? 0) > 0 && <QuickRoutes id={i.id} kind={i.docKind} />}
             {!i.done && (
               <ActionForm action={routeInbox} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
                 <input type="hidden" name="id" value={i.id} />
@@ -108,5 +109,27 @@ export default async function KlInboxPage({ searchParams }: { searchParams: Prom
         <div className="row"><button className="btn pri">Испрати</button> <Link className="btn ghost" href="/klPortal">Поставки на порталот</Link></div>
       </ActionForm>
     </>
+  );
+}
+
+/** One-click routing: the route the client's 📷 kind suggests first, then purchases scan / bank statements / archive. */
+const QUICK: readonly [InboxRoute, string][] = [['purchase', '🧾 Набавки (скен)'], ['bank', '🏦 Изводи'], ['dossier', '🗂 Архива (досие)']];
+function QuickRoutes({ id, kind }: { id: string; kind: string | null }) {
+  const s = captureRoute(kind);
+  const L: [InboxRoute, string, string | null][] = [
+    ...(s ? [[s.route, INBOX_ROUTES[s.route], s.category] as [InboxRoute, string, string | null]] : []),
+    ...QUICK.filter(([r]) => r !== s?.route).map(([r, l]): [InboxRoute, string, string | null] => [r, l, null]),
+  ];
+  return (
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+      {isCaptureKind(kind) && <span className="pill info">📷 {CAPTURE_KINDS[kind].label}</span>}
+      {L.map(([r, l, cat], j) => (
+        <ActionForm key={r} action={routeInbox} reset={false} className="" style={{ display: 'inline' }}>
+          <input type="hidden" name="id" value={id} /><input type="hidden" name="route" value={r} />
+          {cat && <input type="hidden" name="category" value={cat} />}
+          <button className={`btn sm${j === 0 && s ? ' pri' : ''}`} title={r === 'purchase' || r === 'sale' ? 'Се чита бесплатно прво (PDF со текст, XML); фотографија – со AI' : 'Без AI'}>→ {l}</button>
+        </ActionForm>
+      ))}
+    </div>
   );
 }

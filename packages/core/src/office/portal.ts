@@ -75,7 +75,13 @@ export const KL_BASEC: readonly string[] = ['docs', 'send', 'kdfi', 'metg'];
 export interface KlNote { obj?: string; hrs?: string; ujp?: string; ujp2?: string; insp?: string[]; sq?: boolean }
 
 /** Firm portal config (legacy `firm.kl`). */
-export interface KlConfig { on?: Record<string, boolean>; prof?: string[]; profSet?: boolean; note?: KlNote }
+export interface KlConfig { on?: Record<string, boolean>; prof?: string[]; profSet?: boolean; note?: KlNote; lang?: 'mk' | 'sq' }
+
+/** The client's language for the monthly report and its AI summary (`kl.lang`, portal screen; default Macedonian). */
+export const klLang = (c: KlConfig | null | undefined): 'mk' | 'sq' => (c?.lang === 'sq' ? 'sq' : 'mk');
+
+/** Portal views every client has, whatever sections are on: 📷 phone capture and the published monthly reports. */
+export const KL_ALWAYS_VIEWS: readonly string[] = ['klHome', 'klSend', 'klFoto', 'klIzv', 'lozinka'];
 
 /** Section's industry module is switched off for the firm (legacy `MOD_OF[view] && !modOnF`). */
 export const klModuleOff = (s: KlSection, mods: readonly string[] | null | undefined): boolean => {
@@ -111,7 +117,7 @@ export function klAddRecommended(c: KlConfig | null | undefined, prof: readonly 
 
 /** Views a client may open (legacy `klAllowed`) — enforced server-side by the page guard, not only in the menu. */
 export function klAllowedViews(c: KlConfig | null | undefined, mods?: readonly string[] | null): string[] {
-  return [...new Set(['klHome', 'klSend', 'lozinka', ...klSections(c, mods).map((s) => s[3])])];
+  return [...new Set([...KL_ALWAYS_VIEWS, ...klSections(c, mods).map((s) => s[3])])];
 }
 
 /**

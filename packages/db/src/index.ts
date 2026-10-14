@@ -71,3 +71,4 @@ export * from './firm-years';
 export * from './ai-settings';
 export * from './ai-budget';
 export * from './compliance';
+export * from './client-report';
