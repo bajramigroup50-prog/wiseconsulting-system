@@ -94,7 +94,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'u', 'amlDecide amlUfrSave amlUfrSubmit kontrolaEdit kontrolaRecalc kontrolaFindingEdit kontrolaActionEdit kontrolaActionDone ropaSave dsrClose'],
   ['kanc', 'd', 'amlPurge kontrolaDel kontrolaFindingDel kontrolaActionDel'],
   // monthly client report („📊 Месечен извештај за клиентот“)
-  ['kanc', 'c', 'crPrep crAi crMail'],
+  ['kanc', 'c', 'crPrep crAi crMail frAi'],
   ['kanc', 'u', 'crPublish crHide klLang'],
   // inspection documents / AI legal analysis, legal assistant, deadlines calendar, fee invoices
   ['kanc', 'c', 'kontrolaDocAuto kontrolaAiStart lawCase lawCaseAttach feeIssue feeRemind'],

@@ -20,6 +20,7 @@ import { inboxCombine } from './inbox-combine';
 import { clientReportSummary } from './client-report-summary';
 import { feeDeliver, feeInvoicesJob, nbrmRates, rokoviJob } from './automations';
 import { robotAsk } from './robot';
+import { firmReportAi } from './firm-report-ai';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -49,4 +50,5 @@ export const JOBS: JobDef<any>[] = [
   feeInvoicesJob,
   feeDeliver,
   robotAsk,
+  firmReportAi,
 ];
