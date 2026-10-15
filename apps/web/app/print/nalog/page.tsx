@@ -32,7 +32,12 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
     .where(inArray(journalLines.journalId, J.map((j) => j.id))).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo));
   const D = L.reduce((s, x) => s + Number(x.l.debit), 0), P = L.reduce((s, x) => s + Number(x.l.credit), 0);
   const date = J.map((j) => j.date).sort().at(-1)!;
-  const label = t ? t.slice(0, 120) : J.length === 1 ? J[0]!.description ?? '' : (J[0]!.description ?? '') + ` и уште ${J.length - 1}`;
+  // a bank nalog collects many statements over its period: the title names the bank, never one statement („Извод бр. 201 …“)
+  const bankJ = J.filter((j) => j.kind === 'bank' || j.sourceType === 'bank_statement');
+  const bankName = [...new Set(bankJ.map((j) => /\s[–-]\s(.+)$/.exec(j.description ?? '')?.[1]?.trim()).filter((x): x is string => !!x))];
+  const label = t ? t.slice(0, 120)
+    : bankJ.length ? 'Изводи' + (bankName.length === 1 ? ' – ' + bankName[0] : '')
+    : J.length === 1 ? J[0]!.description ?? '' : (J[0]!.description ?? '') + ` и уште ${J.length - 1}`;
   const izb = (x: (typeof L)[number]) => {
     if (x.j.kind !== 'bank') return '';
     const m = (x.j.meta ?? {}) as { statementNo?: string };

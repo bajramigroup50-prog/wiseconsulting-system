@@ -21,7 +21,7 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { BankForm } from '@/components/bank-form';
 import { ExportBar } from '@/components/parity-fin/export-bar';
-import { deleteJournalAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
+import { deleteJournalAction, deleteNalogAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
 import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
@@ -182,6 +182,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           {/* a statement's nalog is deleted together with its statement (the journal alone would leave the statement unbooked) */}
           {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки? Ова не може да се врати.`} />}
           {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши го налогот на платата" confirm={`Да се избрише налогот бр. ${g.no}? Пресметката на платата останува зачувана во Плати (може повторно да се прокнижи).`} />}
+          {!one && del && !g.journals.some(locked) && <RowAction className="btn danger" action={deleteNalogAction.bind(null, g.no, year)} label="🗑 Избриши го целиот налог" confirm={`Да се избрише целиот налог бр. ${g.no} (${g.journals.length} дела – изводите со сите ставки)? Ова не може да се врати.`} />}
         </Hd>
         {one && empty && manualLike(one) && (
           <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -390,6 +391,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     {one && del && manualLike(one) && !locked(one) && <RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} />}
                     {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} />}
                     {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Го брише налогот на платата; пресметката останува зачувана во Плати" confirm={`Да се избрише налогот бр. ${g.no} на платата? Пресметката на платата останува зачувана (може повторно да се прокнижи).`} />}
+                    {!one && del && !g.journals.some(locked) && <RowAction className="btn sm danger" action={deleteNalogAction.bind(null, g.no, year)} label="🗑 Избриши" title="Го брише целиот налог: изводите во него со ставките, налогот на платата (пресметката останува) и празните налози" confirm={`Да се избрише целиот налог бр. ${g.no} (${g.journals.length} дела – изводите со сите ставки)? Ова не може да се врати.`} />}
                   </td>
                 </tr>
               );

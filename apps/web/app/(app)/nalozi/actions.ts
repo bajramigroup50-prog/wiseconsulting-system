@@ -1,10 +1,10 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { needsPartner } from '@wise/core';
-import { audit, bankAccounts, deleteJournal, firms, isIsoDate, journals, postJournal, resetJournalOverride, saveJournalOverride, syncFirmBanks, updateJournal } from '@wise/db';
+import { audit, bankAccounts, deleteJournal, deleteStatement, firms, unpostRun, isIsoDate, journals, postJournal, resetJournalOverride, saveJournalOverride, syncFirmBanks, updateJournal } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 
@@ -83,6 +83,35 @@ export async function deleteJournalAction(id: string): Promise<ActionState> {
   } catch (e) { return actionError(e); }
   revalidatePath('/nalozi');
   return { ok: 'Налогот е избришан.' };
+}
+
+/**
+ * Delete a whole nalog (all journals with this number in the year): every bank statement in it with its lines, a
+ * payroll run's journal (the calculation stays in Плати), and the manual / empty journals. A nalog that holds
+ * invoices, purchases or other documents is refused — those are deleted (or cancelled) on their own document.
+ */
+export async function deleteNalogAction(no: string, year: number): Promise<ActionState> {
+  let n = 0;
+  try {
+    const { u, firm } = await firmAction('nalDel');
+    const J = await db().select().from(journals)
+      .where(and(eq(journals.firmId, firm.id), eq(journals.number, no), sql`${journals.date} between ${`${year}-01-01`} and ${`${year}-12-31`}`));
+    if (!J.length) return { error: 'Налогот не постои.' };
+    const other = J.filter((j) => fromDocument(j.sourceType) && !['bank_statement', 'payroll'].includes(j.sourceType!));
+    if (other.length) return { error: `Налогот содржи ${other.length} документи (фактури / калкулации…) – избришете ги или сторнирајте ги на самиот документ.` };
+    const lock = firm.lockDate;
+    if (J.some((j) => j.locked || (lock && j.date <= lock))) return { error: 'Налогот е во заклучен период – не може да се брише.' };
+    await db().transaction(async (tx) => {
+      for (const j of J) {
+        if (j.sourceType === 'bank_statement' && j.sourceId) await deleteStatement(tx, { firmId: firm.id, userId: u.id, statementId: j.sourceId });
+        else if (j.sourceType === 'payroll' && j.sourceId) await unpostRun(tx, { firmId: firm.id, runId: j.sourceId, userId: u.id });
+        else await deleteJournal(tx, { firmId: firm.id, journalId: j.id, userId: u.id });
+        n++;
+      }
+    });
+  } catch (e) { return actionError(e); }
+  revalidatePath('/nalozi');
+  return { ok: `Налогот ${no} е избришан (${n} ${n === 1 ? 'дел' : 'делови'}).` };
 }
 
 /**
