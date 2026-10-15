@@ -61,8 +61,14 @@ export interface Principal {
  * users by the users screen). Every other office-wide check (`office`, `settings`, `firms`, `close`) is refused.
  */
 export const DEMO_GLOBAL_PERMS: readonly Perm[] = ['write', 'del', 'fix', 'users'];
-/** Named actions never available to a demo user (a new firm would be a real, non-demo firm). */
-export const DEMO_DENIED_ACTIONS: readonly string[] = ['newFirm', 'pickNew', 'delFirm', 'ncCreateFirm'];
+/** Named actions never available to a demo user (they would create a real, non-demo firm). */
+export const DEMO_DENIED_ACTIONS: readonly string[] = ['pickNew', 'ncCreateFirm'];
+/**
+ * Firm actions a demo user (any role with `write`, not a client) may do in the demo office: create a firm (`newFirm`,
+ * no firm — the server action always makes it a demo firm „ДЕМО – …“) and edit one of its demo firms (`saveFirm`).
+ * `delFirm` keeps its normal permission (`firms`) and, like everything with a firm, reaches demo firms only.
+ */
+export const DEMO_FIRM_ACTIONS: readonly string[] = ['newFirm', 'saveFirm'];
 
 export const isRole = (r: unknown): r is Role => typeof r === 'string' && (ROLE_IDS as readonly string[]).includes(r);
 
@@ -78,6 +84,10 @@ export const firmAllowed = (u: Principal | null | undefined, firmId: string, own
  */
 export function can(u: Principal | null | undefined, action: Perm | string, firmId?: string | null): boolean {
   if (!u) return false;
+  if (u.demo && DEMO_FIRM_ACTIONS.includes(action)) {
+    if (!hasPerm(u, 'write') || u.role === 'klient') return false;
+    return firmId == null ? action === 'newFirm' : action === 'saveFirm' && firmAllowed(u, firmId);
+  }
   const perm: Perm = (PERMS as readonly string[]).includes(action) ? (action as Perm) : (ACT_NEED[action] ?? 'write');
   if (!hasPerm(u, perm)) return false;
   if (u.demo && (DEMO_DENIED_ACTIONS.includes(action) || (firmId == null && !DEMO_GLOBAL_PERMS.includes(perm)))) return false;

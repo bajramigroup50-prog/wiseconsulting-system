@@ -7,9 +7,10 @@
 import Link from 'next/link';
 import { asc, eq, ilike, inArray, or, sql, and } from 'drizzle-orm';
 import { can } from '@wise/core';
+import { DEMO_MAX_FIRMS } from '@wise/core/demo';
 import { FR_F, frList, isFrFilter } from '@wise/core/firms/firmform';
 import { firmActiveIn, firmFromYear, firmToYear } from '@wise/core/firms/years';
-import { demoFirmSql, firmFirstDataYears, firmInYearSql, firmLastDataYears, firms } from '@wise/db';
+import { demoFirmCount, demoFirmSql, firmFirstDataYears, firmInYearSql, firmLastDataYears, firms } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -34,6 +35,9 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const admin = u.role === 'admin';
   // the archive of deleted firms is the real office's — never for a demo admin
   const realAdmin = admin && !isDemoUser(u);
+  // 🎭 a demo user creates demo firms only („ДЕМО – …“), at most DEMO_MAX_FIRMS in total; they go away at the demo reset
+  const meDemo = isDemoUser(u);
+  const nDemo = meDemo ? await demoFirmCount(db()) : 0;
 
   // 🎭 demo firms are never in the normal list (a demo user sees only them); the owner gets them in a separate „ДЕМО“ group
   const scoped = firmListSql(u);
@@ -76,8 +80,11 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
           <Link className="btn pri" href="/firmiResh" title="Скенирајте решение од ЦРМ – фирмата се внесува сама">📷 Нова фирма од решение</Link>
           <Link className="btn" href="/firmi/kirilica">🔧 Поправка на увезени фирми</Link>
         </>}
-        {can(u.principal, 'newFirm') && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
+        {can(u.principal, 'newFirm') && (meDemo
+          ? nDemo < DEMO_MAX_FIRMS && <Link className="btn pri" href="/firmi?nova">+ Нова фирма (демо)</Link>
+          : <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>)}
       </Hd>
+      {meDemo && <div className="callout warn">🎭 Демо фирми: <b>{nDemo} / {DEMO_MAX_FIRMS}</b>. Новата фирма се зачувува како „ДЕМО – …“ и се брише при ресетирање на демото (секоја ноќ или рачно).</div>}
       {showForm && <FirmForm key={draft?.id ?? 'new'} firm={draft ?? null} fromYearDef={draftFrom} withFee={withFee} feeNote={feeNote} canDelete={admin} canResh={can(u.principal, 'firms')} />}
       {!showForm && <>
         <div className="row" style={{ gap: 8, alignItems: 'center', margin: '0 0 8px', flexWrap: 'wrap' }}>

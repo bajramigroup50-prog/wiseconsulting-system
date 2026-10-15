@@ -25,7 +25,7 @@ import {
   levellingDocs, missingAccounts, partners, paymentOrders, payrollEmp, payrollLines, payrollRuns, postJournal, productionOrders,
   purchaseCosts, purchaseStockLines, purchaseVatGroups, purchases, recurringInvoices, rentRentals, salesDaily, serviceContracts,
   stockCounts, stockMoves, supplierCreditLines, supplierCredits, transfers, travelArrangements, travelBookings, updateJournal,
-  userFirms, users, vatPeriods, yearClosings, type Tx,
+  userFirms, users, vatPeriods, yearClosings, realFirmSql, type Tx,
 } from '@wise/db';
 import { LEGACY_COLS, collectionCounts, type LDoc, type LegacyBundle, type LegacyFirmBackup, type LegacyUser } from './format';
 import { compareTrialBalances, legacyLedger, trialBalanceOf, type LegacySource, type TbDiff, type TbRow } from './ledger';
@@ -262,7 +262,7 @@ class FirmImport {
       firmId = byLegacy?.id ?? null;
     }
     if (!firmId && firmVals.edb) {
-      const [byEdb] = await this.tx.select({ id: firms.id }).from(firms).where(and(eq(firms.edb, firmVals.edb), isNull(firms.legacyId))).limit(1);
+      const [byEdb] = await this.tx.select({ id: firms.id }).from(firms).where(and(eq(firms.edb, firmVals.edb), isNull(firms.legacyId), realFirmSql)).limit(1); // 🎭 never a demo firm
       if (byEdb) { firmId = byEdb.id; this.rep.warnings.push(`Фирмата е поврзана со постоечка фирма на серверот според ЕДБ ${firmVals.edb}.`); }
     }
     const lockDate = firmVals.lockDate;

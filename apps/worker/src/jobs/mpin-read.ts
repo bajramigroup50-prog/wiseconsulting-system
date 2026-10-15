@@ -6,9 +6,9 @@
  * „прочитано без AI – проверете“) when its sums check (@wise/core/noai/mpin); otherwise AI, as before.
  * Errors are stored on the row (no throw → no pg-boss retry spending tokens again).
  */
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { mpinFirmOf, mpinNorm, mpinOk } from '@wise/core/law';
-import { firms, files, mpinInbox, mpinInboxFallback, type Tx } from '@wise/db';
+import { firms, files, mpinInbox, mpinInboxFallback, realFirmSql, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { MPIN_ASK, MPIN_ASK_PDF } from '../ai/prompts';
@@ -45,7 +45,7 @@ export async function runMpinRead(db: Tx, rowId: string, log: (m: string) => voi
     }
     const M = mpinNorm(r.data);
     M.how = how;
-    const F = await db.select({ id: firms.id, name: firms.name, edb: firms.edb }).from(firms).where(eq(firms.active, true));
+    const F = await db.select({ id: firms.id, name: firms.name, edb: firms.edb }).from(firms).where(and(eq(firms.active, true), realFirmSql)); // 🎭 never routed to a demo firm by ЕДБ
     const firm = row.firmId ? null : mpinFirmOf(F, M.edb, M.name);
     await db.update(mpinInbox).set({
       status: mpinOk(M) ? 'ok' : 'notm', result: M as unknown as Record<string, unknown>, model: r.model, ...(firm ? { firmId: firm.id } : {}),

@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 import { can } from '@wise/core';
 import { fimpFind, fimpParse, fimpPatch, fimpToFirm, type FimpRecord } from '@wise/core/firms/firmimp';
 import type { KlCred } from '@wise/core/firms/klprofili';
-import { audit, firms } from '@wise/db';
+import { audit, firms, realFirmSql } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { db } from '@/lib/db';
@@ -18,7 +18,8 @@ import { db } from '@/lib/db';
 export interface FimpPreview { error?: string; file?: string; cols?: string[]; rows?: { f: FimpRecord; ex: string; exName: string }[] }
 export interface FimpResult { error?: string; ok?: string; creds?: KlCred[] }
 
-const allFirms = () => db().select({ id: firms.id, name: firms.name, edb: firms.edb, embs: firms.embs }).from(firms);
+// 🎭 never a demo firm: an imported real client is never matched to (or named after) a demo firm with the same ЕДБ
+const allFirms = () => db().select({ id: firms.id, name: firms.name, edb: firms.edb, embs: firms.embs }).from(firms).where(realFirmSql);
 
 export async function readFirmsFile(form: FormData): Promise<FimpPreview> {
   try { await requireCan('firms'); } catch (e) { if (e instanceof Forbidden) return { error: e.message }; throw e; }
@@ -47,7 +48,7 @@ export async function importFirms(recs: FimpRecord[], opts: { ddv: boolean; prof
   if (!L.length) return { error: 'Изберете барем една фирма.' };
   const profiles = opts.profiles && can(u.principal, 'users');
   const r = await db().transaction(async (tx) => {
-    const ex = await tx.select().from(firms);
+    const ex = await tx.select().from(firms).where(realFirmSql);
     let n = 0, up = 0;
     const creds: KlCred[] = [];
     const used = profiles ? await takenUsernames(tx) : new Set<string>();

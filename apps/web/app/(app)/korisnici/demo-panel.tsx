@@ -1,7 +1,7 @@
 'use client';
 /** 🎭 The owner's demo card (Корисници): demo firms + login, reset, demo links, demo AI / nightly reset. */
 import { useActionState, useEffect, useState } from 'react';
-import { DEMO_LINK_DAYS, type DemoSettings } from '@wise/core/demo';
+import { DEMO_LINK_DAYS, DEMO_MAX_FIRMS, type DemoSettings } from '@wise/core/demo';
 import { RowAction } from '@/components/row-action';
 import {
   createDemoAction, demoPasswordAction, demoSettingsAction, newDemoLinkAction, resetDemoAction, revokeDemoLinkAction, type DemoState,
@@ -23,7 +23,7 @@ function Result({ st }: { st: DemoState }) {
   );
 }
 
-export function DemoPanel({ firms, hasLogin, links, settings }: { firms: string[]; hasLogin: boolean; links: DemoLinkRow[]; settings: DemoSettings }) {
+export function DemoPanel({ firms, total = firms.length, created = 0, hasLogin, links, settings }: { firms: string[]; total?: number; created?: number; hasLogin: boolean; links: DemoLinkRow[]; settings: DemoSettings }) {
   const [c, create, cp] = useActionState(createDemoAction, {});
   const [r, reset, rp] = useActionState(resetDemoAction, {});
   const [p, pass, pp] = useActionState(demoPasswordAction, {});
@@ -36,6 +36,7 @@ export function DemoPanel({ firms, hasLogin, links, settings }: { firms: string[
       <h2>🎭 Демо за презентација</h2>
       <p className="note">Демо корисникот гледа само ДЕМО фирми (измислени податоци), без пошта, УЈП, фискален апарат, резервни копии и (освен ако дозволите) AI. Вистинските фирми и колеги никогаш не се гледаат.</p>
       <p>Демо фирми: {firms.length ? firms.join(' · ') : <span className="mut">нема</span>}</p>
+      {total > 0 && <p className="callout warn" data-testid="demo-count">Демо фирми: <b>{total} / {DEMO_MAX_FIRMS}</b>{created > 0 && <> · од нив <b>{created}</b> ги креирал демо корисникот</>}. Фирмите што ги креира демо корисникот („ДЕМО – …“) се бришат при ресетирање на демото (рачно или ноќно).</p>}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         {!firms.length && <form action={create}><button className="btn pri" disabled={cp}>{cp ? 'Се креира…' : '🎭 Креирај демо фирми'}</button></form>}
         {firms.length > 0 && <form action={reset} onSubmit={(e) => { if (!window.confirm('Да се избришат демо фирмите (само оние со ознака ДЕМО) и да се креираат одново?')) e.preventDefault(); }}>

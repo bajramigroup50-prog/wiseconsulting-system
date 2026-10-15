@@ -6,7 +6,6 @@ import { audit, users } from '@wise/db';
 import { hashPassword, verifyPassword } from '@wise/db/password';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { DEMO_OFF_MSG, isDemoUser } from '@/lib/demo';
 
 export interface FormState { error?: string; ok?: string }
 
@@ -14,8 +13,8 @@ const MIN_PW = 10;
 
 export async function changeMyPassword(_prev: FormState, form: FormData): Promise<FormState> {
   const me = await requireUser();
-  // 🎭 the shared demo login keeps its password (the owner sets it)
-  if (isDemoUser(me)) return { error: DEMO_OFF_MSG };
+  // 🎭 a demo user may change its OWN password too (the owner's rule, 15.10.2026) — only its own row (`me.id`), with the
+  // current password, audited; the owner still resets any demo password (Корисници → Измени, 🎭 Демо → 🔑 Нова лозинка)
   const old = String(form.get('old') ?? ''), pw = String(form.get('new') ?? ''), pw2 = String(form.get('new2') ?? '');
   if (pw.length < MIN_PW) return { error: `Новата лозинка мора да има најмалку ${MIN_PW} знаци.` };
   if (pw !== pw2) return { error: 'Лозинките не се исти.' };

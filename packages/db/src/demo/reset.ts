@@ -51,6 +51,48 @@ export function firmScopedTables(): { name: string; table: PgTable; col: PgColum
   return out;
 }
 
+/**
+ * Delete the rows of every firm-scoped table of these firms, then the firms — in dependency order found by retrying a
+ * failed table (each attempt in a savepoint). Callers MUST have checked that every id is a demo firm.
+ */
+async function deleteFirmRows(tx: Tx, firmIds: string[]): Promise<Record<string, number>> {
+  const rows: Record<string, number> = {};
+  let todo = firmScopedTables();
+  let lastErr: unknown = null;
+  while (todo.length) {
+    const failed: typeof todo = [];
+    for (const t of todo) {
+      try {
+        const n = await tx.transaction(async (sp) => (await sp.delete(t.table).where(inArray(t.col, firmIds)).returning({ x: t.col })).length);
+        if (n) rows[t.name] = (rows[t.name] ?? 0) + n;
+      } catch (e) {
+        failed.push(t);
+        lastErr = e;
+      }
+    }
+    if (failed.length === todo.length) {
+      const cause = (lastErr as { cause?: { message?: string } })?.cause?.message ?? (lastErr as Error)?.message ?? String(lastErr);
+      throw new DemoResetError(`Демо податоците не можат да се избришат (${failed.map((t) => t.name).join(', ')}): ${cause}`);
+    }
+    todo = failed;
+  }
+  rows.firms = (await tx.delete(firms).where(and(inArray(firms.id, firmIds), demoFirmSql)).returning({ id: firms.id })).length;
+  return rows;
+}
+
+/**
+ * Delete ONE demo firm with all its data (a demo user's „Избриши“ of a demo firm): the row is locked and must pass the
+ * flag + „ДЕМО“ check (`isDemoFirm`) — anything else throws before a row is touched. The demo office firm is refused.
+ * Run it inside a transaction.
+ */
+export async function deleteDemoFirm(tx: Tx, firmId: string): Promise<{ name: string; rows: Record<string, number> }> {
+  const [f] = await tx.select({ id: firms.id, name: firms.name, settings: firms.settings }).from(firms).where(and(eq(firms.id, firmId), demoFirmSql)).for('update');
+  if (!f) throw new DemoResetError('Фирмата не постои.');
+  assertDemoFirms([f]);
+  if ((f.settings as { demoOffice?: boolean }).demoOffice) throw new DemoResetError('Фирмата на демо канцеларијата не може да се избрише (само со ресетирање на демото).');
+  return { name: f.name, rows: await deleteFirmRows(tx, [f.id]) };
+}
+
 export interface DeleteDemoResult { firmIds: string[]; userIds: string[]; rows: Record<string, number> }
 
 /**
@@ -73,29 +115,8 @@ export async function deleteDemoData(tx: Tx, opts: { keepUserIds: string[]; cand
   const userIds = U.map((u) => u.id);
   const rows: Record<string, number> = {};
 
-  // 2. per-firm tables, in dependency order found by retrying (each attempt in a savepoint)
-  if (firmIds.length) {
-    let todo = firmScopedTables();
-    let lastErr: unknown = null;
-    while (todo.length) {
-      const failed: typeof todo = [];
-      for (const t of todo) {
-        try {
-          const n = await tx.transaction(async (sp) => (await sp.delete(t.table).where(inArray(t.col, firmIds)).returning({ x: t.col })).length);
-          if (n) rows[t.name] = (rows[t.name] ?? 0) + n;
-        } catch (e) {
-          failed.push(t);
-          lastErr = e;
-        }
-      }
-      if (failed.length === todo.length) {
-        const cause = (lastErr as { cause?: { message?: string } })?.cause?.message ?? (lastErr as Error)?.message ?? String(lastErr);
-        throw new DemoResetError(`Демо податоците не можат да се избришат (${failed.map((t) => t.name).join(', ')}): ${cause}`);
-      }
-      todo = failed;
-    }
-    rows.firms = (await tx.delete(firms).where(inArray(firms.id, firmIds)).returning({ id: firms.id })).length;
-  }
+  // 2. per-firm tables, then the firms
+  if (firmIds.length) Object.assign(rows, await deleteFirmRows(tx, firmIds));
   // 3. demo users (sessions, demo links, user_firms cascade; audit rows and other references go to null)
   if (userIds.length) {
     rows.users = (await tx.delete(users).where(and(inArray(users.id, userIds), eq(users.demo, true))).returning({ id: users.id })).length;
