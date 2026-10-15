@@ -32,6 +32,15 @@ export function demoSettingsClean(v: unknown): DemoSettings {
   return { ai: false, aiLimitUsd: Number.isFinite(lim) && lim >= 0 && lim <= 100 ? lim : DEMO_AI_DEFAULT_LIMIT, nightly: o.nightly === true };
 }
 
+/** At most this many demo firms in total (the seeded ones and the demo office firm included). */
+export const DEMO_MAX_FIRMS = 10;
+export const DEMO_LIMIT_MSG = `Дозволени се најмногу ${DEMO_MAX_FIRMS} демо фирми – избришете некоја или ресетирајте го демото.`;
+/** The stored name of a firm a demo user creates: „ДЕМО – <name>“ unless it already starts with „ДЕМО“. */
+export function demoFirmName(name: string): string {
+  const n = name.trim();
+  return hasDemoPrefix(n) ? n : `${DEMO_PREFIX} – ${n}`;
+}
+
 /** Does the name start with „ДЕМО“ (exactly — the same test as the SQL `name like 'ДЕМО%'` in `@wise/db`)? */
 export const hasDemoPrefix = (name: string | null | undefined): boolean => (name ?? '').startsWith(DEMO_PREFIX);
 

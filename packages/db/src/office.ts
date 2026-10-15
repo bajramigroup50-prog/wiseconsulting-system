@@ -263,7 +263,7 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
   const runId = run!.id;
   // only the firms working this year (`firm-years.ts`): a closed firm (`toYear`) is no longer checked
   const F = (await db.select().from(firms).where(and(eq(firms.active, true), firmOpenInSql(Number(today.slice(0, 4))))).orderBy(asc(firms.name)))
-    .filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm);
+    .filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm && !isDemoFirm(f)); // 🎭 the autopilot never checks / mails a demo firm
   const rows: { id: string; m: Record<string, number | string | null> }[] = [];
   let findings = 0, newBad = 0, messages = 0, autoSent = 0;
   const mailIds: string[] = [];

@@ -7,11 +7,12 @@ import { z } from 'zod';
 import { FIRM_VAT_RATES, firmSettingsFrom, unlockTo } from '@wise/core/firms/firmform';
 import { fyOnDeactivate, fyOnRestore } from '@wise/core/firms/years';
 import { todaySkopje } from '@wise/core/office';
-import { audit, firms, type NewFirm } from '@wise/db';
+import { audit, createDemoFirm, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
 import { hasDemoPrefix, isDemoFirm } from '@wise/core/demo';
 import { requireCan, requireUser } from '@/lib/auth';
+import { isDemoUser } from '@/lib/demo';
 import { FIRM_COOKIE } from '@/lib/context';
 import { db } from '@/lib/db';
 import { selectFirm } from '../actions';
@@ -62,12 +63,30 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
   if (vatFrom) sr.settings.vatFrom = vatFrom; else delete sr.settings.vatFrom;
   // 🎭 the demo flag is never set or cleared through the form: a demo firm stays demo (and keeps the „ДЕМО“ name), a real
   // firm can never become one here (only the owner's „🎭 Креирај демо фирми“ creates them)
+  // a 🎭 demo user only ever creates demo firms (`createDemoFirm`: flag + „ДЕМО – “ prefix, limit) and edits demo firms
+  const meDemo = isDemoUser(u);
+  if (meDemo && before && !isDemoFirm(before)) return { error: 'Фирмата не постои.' };
   const wasDemo = isDemoFirm(before);
   if (wasDemo) {
     if (!hasDemoPrefix(parsed.data.name)) return { error: 'Името на демо фирма мора да почнува со „ДЕМО“.' };
     sr.settings.demo = true;
   } else delete sr.settings.demo;
   const v: Partial<NewFirm> = { ...parsed.data, settings: sr.settings };
+
+  if (meDemo && !id) {
+    let f;
+    try {
+      f = await db().transaction((tx) => createDemoFirm(tx as never, { values: { ...parsed.data, settings: sr.settings }, userId: u.id }));
+    } catch (e) {
+      if (e instanceof DemoFirmError) return { error: e.message };
+      throw e;
+    }
+    // the principal of this request was read before the firm existed: open it by cookie (a demo firm of the demo office)
+    (await cookies()).set(FIRM_COOKIE, f.id, { httpOnly: true, sameSite: 'lax', path: '/', secure: process.env.NODE_ENV === 'production' });
+    revalidatePath('/firmi');
+    revalidatePath('/', 'layout');
+    redirect('/');
+  }
 
   const res = await db().transaction(async (tx) => {
     if (id && before) {
@@ -104,6 +123,22 @@ export async function deleteFirm(_p: FirmFormState, form: FormData): Promise<Fir
   const id = String(form.get('id') ?? '');
   const u = await requireCan('delFirm', id);
   if (u.role !== 'admin') return { error: 'Бришење на фирма може само администраторот.' };
+  // 🎭 a demo admin deletes only a demo firm (flag + „ДЕМО“ re-checked on the locked row), for good — never a real firm
+  if (isDemoUser(u)) {
+    try {
+      await db().transaction(async (tx) => {
+        const r = await deleteDemoFirm(tx as never, id);
+        await audit(tx, { userId: u.id, action: 'delFirm', entityType: 'firm', entityId: id, data: { name: r.name, demo: true } });
+      });
+    } catch (e) {
+      if (e instanceof DemoResetError) return { error: e.message };
+      throw e;
+    }
+    const jar = await cookies();
+    if (jar.get(FIRM_COOKIE)?.value === id) jar.delete(FIRM_COOKIE);
+    revalidatePath('/', 'layout');
+    redirect('/firmi');
+  }
   await db().transaction(async (tx) => {
     const [b] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, id)).for('update');
     if (!b) throw new Error('Фирмата не постои.');
@@ -121,7 +156,7 @@ export async function deleteFirm(_p: FirmFormState, form: FormData): Promise<Fir
 export async function restoreFirm(form: FormData): Promise<void> {
   const id = String(form.get('id') ?? '');
   const u = await requireCan('delFirm', id);
-  if (u.role !== 'admin') return;
+  if (u.role !== 'admin' || isDemoUser(u)) return;
   await db().transaction(async (tx) => {
     const [b] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, id)).for('update');
     if (!b) return;

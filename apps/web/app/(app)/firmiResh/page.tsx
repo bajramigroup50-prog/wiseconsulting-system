@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { can, YE_ENTITY_NAMES, YE_LEGAL_FORMS, YE_LF_ENT } from '@wise/core';
 import { nkdProfiles, profileName, suggestedModules } from '@wise/core/industry';
 import { FS_CAT, fsDup, type ReshData } from '@wise/core/firms/resh';
-import { firmReshReads, firms } from '@wise/db';
+import { firmReshReads, firms, realFirmSql } from '@wise/db';
 import { db } from '@/lib/db';
 import { officePage } from '@/lib/office';
 import { Hd } from '@/components/hd';
@@ -23,7 +23,7 @@ export default async function FirmiReshPage({ searchParams }: { searchParams: Pr
   const [read] = sp.r && /^[0-9a-f-]{36}$/i.test(sp.r) ? await db().select().from(firmReshReads).where(eq(firmReshReads.id, sp.r)).limit(1) : [];
   const busy = !!read && (read.status === 'queued' || read.status === 'reading');
   const r: ReshData | null = read?.status === 'done' ? { ...EMPTY, ...(read.result as ReshData) } : sp.man !== undefined || read?.status === 'error' ? EMPTY : null;
-  const dup = r && r.name ? fsDup(r, await db().select({ id: firms.id, name: firms.name, edb: firms.edb, embs: firms.embs }).from(firms)) : undefined;
+  const dup = r && r.name ? fsDup(r, await db().select({ id: firms.id, name: firms.name, edb: firms.edb, embs: firms.embs }).from(firms).where(realFirmSql)) : undefined;
   const lfOpts = YE_LEGAL_FORMS.flatMap(([g, L]) => L.map(([k, n]) => [k, g + ' – ' + n] as const));
   const I = (k: keyof ReshData, l: string, o: { wide?: boolean; date?: boolean } = {}) => (
     <label className="f" style={o.wide ? { gridColumn: '1/-1' } : undefined}>{l}<input name={k} type={o.date ? 'date' : 'text'} defaultValue={String(r?.[k] ?? '')} /></label>

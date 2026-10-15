@@ -102,8 +102,7 @@ describe('demo user sees only demo firms', () => {
     await expect(saveFirm({}, form({ id: R1, name: 'ПРОМЕНА', vatPeriod: 'quarter' }))).rejects.toThrow(/дозвола/);
     const [f] = await pg.select().from(schema.firms).where(eq(schema.firms.id, R1));
     expect(f!.name).toBe('БАЈРАМИ КЛИЕНТ ДООЕЛ');
-    // a new firm (would be a real one) is refused
-    await expect(saveFirm({}, form({ name: 'НОВА', vatPeriod: 'quarter' }))).rejects.toThrow(/дозвола/);
+    // a new firm is always a demo firm „ДЕМО – …“: `demo-firm-create.test.ts`
   });
 
   it('the demo admin is never the office owner', async () => {

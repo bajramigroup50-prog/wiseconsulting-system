@@ -142,7 +142,7 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
         {UK.length ? UK.map(urow) : <tr><td colSpan={7} className="mut">Нема клиенти со пристап.</td></tr>}
       </tbody></table></div></div>
       {owner && UD.length > 0 && <div className="card"><h2>🎭 Демо корисници</h2><div className="tw"><table>{uth}<tbody>{UD.map(urow)}</tbody></table></div></div>}
-      {owner && demoSet && <DemoPanel firms={FD.filter((f) => !(f.settings as { demoOffice?: boolean }).demoOffice).map((f) => f.name)} hasLogin={UD.some((u) => u.username === 'demo' && u.role === 'admin' && u.active)} settings={demoSet}
+      {owner && demoSet && <DemoPanel firms={FD.filter((f) => !(f.settings as { demoOffice?: boolean }).demoOffice).map((f) => f.name)} total={FD.length} created={FD.filter((f) => (f.settings as { demoCreated?: boolean }).demoCreated).length} hasLogin={UD.some((u) => u.username === 'demo' && u.role === 'admin' && u.active)} settings={demoSet}
         links={DL.map((x) => ({ id: x.id, note: x.note, createdAt: x.createdAt.toISOString(), expiresAt: x.expiresAt.toISOString(), lastUsedAt: x.lastUsedAt?.toISOString() ?? null, uses: x.uses, revoked: !!x.revokedAt, expired: x.expiresAt.getTime() <= Date.now() }))} />}
       <div className="card"><h2>Улоги</h2><div className="tw"><table>
         <thead><tr><th>Улога</th><th>Што може</th></tr></thead>

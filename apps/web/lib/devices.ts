@@ -4,8 +4,8 @@ import 'server-only';
  * Only the office owner (`lib/office-owner.ts`) sees or changes enrolled devices.
  */
 import { stat } from 'node:fs/promises';
-import { asc, desc, eq } from 'drizzle-orm';
-import { devices, firms } from '@wise/db';
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { devices, firms, realFirmSql } from '@wise/db';
 import { getUser, requireUser, type SessionUser } from './auth';
 import { db } from './db';
 import { DEVICE_CA_CN, installerPath, loadCa } from './device-certs';
@@ -77,5 +77,5 @@ export async function deviceSetup(): Promise<DeviceSetup> {
 
 export async function firmChoices(): Promise<{ id: string; name: string; city: string | null; edb: string | null }[]> {
   return db().select({ id: firms.id, name: firms.name, city: firms.city, edb: firms.edb }).from(firms)
-    .where(eq(firms.active, true)).orderBy(asc(firms.name));
+    .where(and(eq(firms.active, true), realFirmSql)).orderBy(asc(firms.name));
 }

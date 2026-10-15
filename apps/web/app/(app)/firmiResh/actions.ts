@@ -12,7 +12,7 @@ import { can } from '@wise/core';
 import { nkdProfiles, suggestedModules } from '@wise/core/industry';
 import type { KlCred } from '@wise/core/firms/klprofili';
 import { FS_CAT, fsDig, fsDup, fsNorm, otherNkd } from '@wise/core/firms/resh';
-import { audit, dossierDocs, fileLinks, files, firmReshReads, firms, formationCases, OFFICE_FILE_ENTITY } from '@wise/db';
+import { audit, dossierDocs, fileLinks, files, firmReshReads, firms, formationCases, OFFICE_FILE_ENTITY, realFirmSql } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { db } from '@/lib/db';
@@ -68,7 +68,8 @@ export async function saveResh(_p: ReshResult, f: FormData): Promise<ReshResult>
   const log: string[] = [];
   let res: { fid: string; creds: KlCred[] };
   try { res = await db().transaction(async (tx) => {
-    const all = await tx.select().from(firms);
+    // 🎭 never a demo firm (a demo firm with the same ЕДБ is not this client)
+    const all = await tx.select().from(firms).where(realFirmSql);
     const ex = isUuid(exId) ? all.find((x) => x.id === exId) : fsDup({ name, edb, embs }, all);
     let fid: string;
     if (ex) {

@@ -83,7 +83,8 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
     if (id) {
       await tx.update(users).set({
         ...base,
-        ...(v.password ? { passwordHash: await hashPassword(v.password), legacySalt: null, mustChangePassword: true } : {}),
+        // a 🎭 demo login's password set by the owner is ready to hand to the buyer (no forced change)
+        ...(v.password ? { passwordHash: await hashPassword(v.password), legacySalt: null, mustChangePassword: !demo } : {}),
       }).where(eq(users.id, id));
       // Role, status or password change → sign the user out everywhere.
       if (v.password || !v.active || demo !== target!.demo) await tx.delete(sessions).where(eq(sessions.userId, id));

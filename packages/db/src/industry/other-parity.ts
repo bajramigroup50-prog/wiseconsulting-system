@@ -14,6 +14,7 @@ import {
   type EntityKind, type OxCell,
 } from '@wise/core/industry';
 import { firstLastWorkingDay, recNext, type RecEvery } from '@wise/core/office';
+import { isDemoFirm } from '@wise/core/demo';
 import { audit, type Tx } from '../audit';
 import {
   constructionDiary, constructionProjects, fileLinks, files, firmDocs, firms, items, partners, recurringInvoices, serviceContracts, travelArrangements, type Firm,
@@ -282,7 +283,7 @@ const ACC_ITEM = /сметководствени\s+услуги/i;
  * user may see.
  */
 export async function accFeePlan(tx: Tx, office: Firm, firmIds: readonly string[] | null) {
-  const F = (await tx.select().from(firms).where(and(eq(firms.active, true), ne(firms.id, office.id)))).filter((f) => !firmIds || firmIds.includes(f.id));
+  const F = (await tx.select().from(firms).where(and(eq(firms.active, true), ne(firms.id, office.id)))).filter((f) => (!firmIds || firmIds.includes(f.id)) && isDemoFirm(f) === isDemoFirm(office)); // 🎭 one side only
   const C = F.length ? await tx.select().from(serviceContracts).where(and(inArray(serviceContracts.firmId, F.map((f) => f.id)), ne(serviceContracts.status, 'ended'))) : [];
   const P = await tx.select().from(partners).where(eq(partners.firmId, office.id));
   const R0 = await tx.select().from(recurringInvoices).where(eq(recurringInvoices.firmId, office.id));
