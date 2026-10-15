@@ -24,12 +24,12 @@ export const DEMO_AI_DEFAULT_LIMIT = 5;
 /** `ai_usage.purpose` prefix of every AI call made for a demo firm. */
 export const DEMO_AI_PURPOSE = 'demo';
 
-/** `ai`: AI allowed for demo users (default off) under `aiLimitUsd` a month; `nightly`: the 03:30 reset of the demo. */
+/** `ai`: always off — a demo never spends the AI budget (owner's rule); `nightly`: the 03:30 reset of the demo. */
 export interface DemoSettings { ai: boolean; aiLimitUsd: number; nightly: boolean }
 export function demoSettingsClean(v: unknown): DemoSettings {
   const o = (v && typeof v === 'object' ? v : {}) as Partial<DemoSettings>;
   const lim = Number(o.aiLimitUsd);
-  return { ai: o.ai === true, aiLimitUsd: Number.isFinite(lim) && lim >= 0 && lim <= 100 ? lim : DEMO_AI_DEFAULT_LIMIT, nightly: o.nightly === true };
+  return { ai: false, aiLimitUsd: Number.isFinite(lim) && lim >= 0 && lim <= 100 ? lim : DEMO_AI_DEFAULT_LIMIT, nightly: o.nightly === true };
 }
 
 /** Does the name start with „ДЕМО“ (exactly — the same test as the SQL `name like 'ДЕМО%'` in `@wise/db`)? */
@@ -42,9 +42,9 @@ export const isDemoFirm = (f: { name: string | null | undefined; settings?: unkn
 /** Demo job policy: which background jobs a demo user may start (everything else — mail, УЈП, NBRM, imports… — is off). */
 export const DEMO_AI_JOBS: readonly string[] = ['ai.read-document', 'ai.read-firm-resh', 'robot.ask', 'kontrola.ai', 'law.ask', 'law.case', 'firm-report.ai', 'client-report.summary', 'inbox.combine'];
 export const DEMO_FREE_JOBS: readonly string[] = ['pdf.render'];
-export function demoJobAllowed(name: string, aiOn: boolean): boolean {
-  if (DEMO_FREE_JOBS.includes(name)) return true;
-  return aiOn && DEMO_AI_JOBS.includes(name);
+export function demoJobAllowed(name: string, _aiOn?: boolean): boolean {
+  // no AI job for a demo user, whatever the settings say: the demo never spends the AI budget
+  return DEMO_FREE_JOBS.includes(name);
 }
 
 /** Random demo password: 20 chars from an unambiguous alphabet (≈ 115 bits). `rnd(n)` returns n random bytes. */

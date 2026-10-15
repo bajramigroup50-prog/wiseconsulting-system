@@ -63,8 +63,7 @@ export function DemoPanel({ firms, hasLogin, links, settings }: { firms: string[
 
       <h3 style={{ margin: '14px 0 6px' }}>Поставки</h3>
       <form action={save} className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label className="chk"><input type="checkbox" name="ai" defaultChecked={settings.ai} style={{ width: 'auto' }} /> Дозволи AI за демо</label>
-        <label>до <input name="aiLimitUsd" defaultValue={String(settings.aiLimitUsd)} style={{ width: 70 }} /> $ месечно</label>
+        <span className="muted">AI во демо: секогаш исклучено (не троши буџет)</span>
         <label className="chk"><input type="checkbox" name="nightly" defaultChecked={settings.nightly} style={{ width: 'auto' }} /> Ресетирај го демото секоја ноќ во 03:30</label>
         <button className="btn" disabled={sp}>Зачувај</button>
       </form>

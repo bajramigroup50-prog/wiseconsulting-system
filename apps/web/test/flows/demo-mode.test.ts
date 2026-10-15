@@ -252,14 +252,12 @@ describe('outward side effects are refused', () => {
     expect(fiscalOffMsg(w)).toBe(DEMO_OFF_MSG);
     expect(fiscalBridge({ ...w, document: { querySelector: () => null } })).not.toBeNull();
   });
-  it('AI is refused by default for demo firms, allowed under the cap only when the owner turns it on', async () => {
+  it('AI is always refused for demo firms, even when a setting says otherwise (the demo never spends the AI budget)', async () => {
     const s0 = await aiBudgetStatus(pg as never, D1);
     expect(s0.paused).toBe(true);
     expect(s0.msg).toBe(DEMO_AI_OFF_MSG);
     expect((await aiBudgetStatus(pg as never, R1)).paused).toBe(false);
     await putDemoSettings(pg as never, { ai: true, aiLimitUsd: 5 }, null);
-    expect((await aiBudgetStatus(pg as never, D1)).paused).toBe(false);
-    await pg.insert(schema.aiUsage).values({ firmId: D1, purpose: 'demo:x', tier: 'default', model: 'm', costUsd: '5' });
     expect((await aiBudgetStatus(pg as never, D1)).paused).toBe(true);
     await putDemoSettings(pg as never, { ai: false }, null);
   });

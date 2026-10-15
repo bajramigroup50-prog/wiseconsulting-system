@@ -34,7 +34,8 @@ describe('demo rules', () => {
   it('jobs: pdf always; AI only when allowed; mail / УЈП / NBRM / imports never', () => {
     expect(demoJobAllowed('pdf.render', false)).toBe(true);
     expect(demoJobAllowed('ai.read-document', false)).toBe(false);
-    expect(demoJobAllowed('ai.read-document', true)).toBe(true);
+    expect(demoJobAllowed('ai.read-document', true)).toBe(false); // never AI in the demo, even if a setting says so
+    expect(demoSettingsClean({ ai: true }).ai).toBe(false);
     for (const j of ['mail.send', 'invoice.mail', 'pdf.mail', 'fee.deliver', 'law.texts', 'legacy.import', 'mpin.read', 'demo.reset']) expect(demoJobAllowed(j, true), j).toBe(false);
   });
   it('settings, tokens, links, passwords', () => {
