@@ -7,7 +7,7 @@ import { auditLog, firms, users } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { isUuid } from '@/lib/office';
-import { isOfficeOwner } from '@/lib/office-owner';
+import { firmSideSql, ownerContext, scopeAuditSql, userSideSql } from '@/lib/demo-office';
 import { Hd, dmyHm } from '@/components/hd';
 
 const LBL: Record<string, string> = {
@@ -21,19 +21,22 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * Legacy `aktivnost`: the audit log, newest first, 100 per page. Admin-only (users permission), as the log shows
  * everyone's activity. Filters: firm, Од / До; the per-user filter (drill-down from 📊 Продуктивност на вработените)
- * only for the office owner.
+ * only for the office owner — and for a 🎭 demo admin, the owner of the demo office (`lib/demo-office.ts`).
+ * 🎭 Scoped by side (`scopeAuditSql`): a demo user sees only rows of demo users / demo firms; real users never see a
+ * demo row. The firm / user filters list only the user's side.
  */
 export default async function AktivnostPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const me = await requireUser();
   if (!can(me.principal, 'users')) return <><Hd t="Дневник на активности" /><div className="card empty">Само за администратор.</div></>;
   const sp = await searchParams;
-  const owner = await isOfficeOwner(me);
+  const owner = !!(await ownerContext(me));
   const od = DATE_RE.test(sp.od ?? '') ? sp.od! : '', dd = DATE_RE.test(sp.do ?? '') ? sp.do! : '';
   const fu = owner && (sp.u === '-' || isUuid(sp.u)) ? sp.u! : '';
   const ff = isUuid(sp.f) ? sp.f! : '';
   const pg = Math.max(1, Math.floor(Number(sp.pg) || 1));
   // Од / До are Skopje days
   const where: (SQL | undefined)[] = [
+    scopeAuditSql(me),
     od ? gte(auditLog.at, skopjeDayStart(od)) : undefined,
     dd ? lt(auditLog.at, skopjeDayStart(addDays(dd, 1))) : undefined,
     fu === '-' ? isNull(auditLog.userId) : fu ? eq(auditLog.userId, fu) : undefined,
@@ -49,8 +52,8 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
       .orderBy(desc(auditLog.at), desc(auditLog.id))
       .limit(PAGE).offset((pg - 1) * PAGE),
     db().select({ n: count() }).from(auditLog).where(W),
-    owner ? db().select({ id: users.id, name: users.name }).from(users).orderBy(asc(users.name)) : Promise.resolve([]),
-    db().select({ id: firms.id, name: firms.name }).from(firms).orderBy(asc(firms.name)),
+    owner ? db().select({ id: users.id, name: users.name }).from(users).where(userSideSql(me)).orderBy(asc(users.name)) : Promise.resolve([]),
+    db().select({ id: firms.id, name: firms.name }).from(firms).where(firmSideSql(me)).orderBy(asc(firms.name)),
   ]);
   const n = cnt?.n ?? 0;
   const pages = Math.max(1, Math.ceil(n / PAGE));

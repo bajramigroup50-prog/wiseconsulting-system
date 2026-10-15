@@ -20,9 +20,10 @@ import {
   type Rok, type RokFirm, type RokPayLine, type RokSettings,
 } from '@wise/core/office/rokovi';
 import { addDays, todaySkopje } from '@wise/core/office';
-import { kdOfficeFirm } from '@wise/core/firms/kdog';
+import { isDemoFirm } from '@wise/core/demo';
 import { audit, type Tx } from './audit';
-import { getOfficeProfile, OfficeError } from './office';
+import { getOfficeProfile, officeFirmOf, OfficeError } from './office';
+import { realFirmSql, realUserSql } from './demo/filters';
 import { loadPayScheme } from './payroll';
 import { firmEntity } from './yearend';
 import {
@@ -49,7 +50,8 @@ export async function loadRokFirms(db: Tx, o: { from: string; to: string; firmId
     db.select().from(firmDeadlines).where(and(inArray(firmDeadlines.firmId, ids), gte(firmDeadlines.due, o.from), lte(firmDeadlines.due, o.to))),
   ]);
   const O = await getOfficeProfile(db);
-  const off = kdOfficeFirm(F, O as never);
+  // the real office firm (real firms only) and the 🎭 demo office firm: neither has a contract with itself
+  const offs = new Set([officeFirmOf(F, O)?.id, officeFirmOf(F, null, { demo: true })?.id].filter(Boolean));
   return F.map((f) => {
     const s = (f.settings ?? {}) as { akont?: boolean };
     const k = C.filter((c) => c.firmId === f.id && c.status !== 'draft' && c.end).sort((a, b) => String(b.end).localeCompare(String(a.end)))[0];
@@ -59,7 +61,7 @@ export async function loadRokFirms(db: Tx, o: { from: string; to: string; firmId
       employees: E.filter((e) => e.firmId === f.id && (e.active || e.end)).map((e) => ({ id: e.id, name: e.name, start: e.start, end: e.end, m1Date: e.m1Date })),
       docs: D.filter((d) => d.firmId === f.id && d.validTo).map((d) => ({ id: d.id, title: d.title || d.category, validTo: d.validTo! })),
       // the office firm has no contract with itself; the contract rows are shown only on the owner's calendar
-      contract: k && f.id !== off?.id ? { no: k.number, end: k.end! } : null,
+      contract: k && !offs.has(f.id) ? { no: k.number, end: k.end! } : null,
       manual: M.filter((m) => m.firmId === f.id).map((m) => ({ id: m.id, title: m.title, due: m.due, done: m.done, note: m.note })),
     };
   });
@@ -222,11 +224,13 @@ export async function dispatchRokReminders(db: Tx, o: { today?: string; mail: bo
   const days = rokDays(S);
   let colleague = 0, client = 0;
   if (o.mail && S.mail !== false) {
-    const R = (await db.select().from(rokovi).where(and(eq(rokovi.done, false), eq(rokovi.gone, false), gte(rokovi.due, addDays(today, -30)), lte(rokovi.due, addDays(today, days)))))
-      .filter((r) => rokRemindDue(today, r, days));
+    // 🎭 never a reminder for a demo firm (nor to a demo user): the real office's colleagues and clients only
+    const R = (await db.select({ r: rokovi }).from(rokovi).innerJoin(firms, eq(firms.id, rokovi.firmId))
+      .where(and(eq(rokovi.done, false), eq(rokovi.gone, false), gte(rokovi.due, addDays(today, -30)), lte(rokovi.due, addDays(today, days)), realFirmSql)))
+      .map((x) => x.r).filter((r) => rokRemindDue(today, r, days));
     const ids = [...new Set(R.map((r) => r.firmId))];
     const U = ids.length ? await db.select({ firmId: userFirms.firmId, userId: users.id, email: users.email, role: users.role, active: users.active }).from(userFirms)
-      .innerJoin(users, eq(users.id, userFirms.userId)).where(inArray(userFirms.firmId, ids)) : [];
+      .innerJoin(users, eq(users.id, userFirms.userId)).where(and(inArray(userFirms.firmId, ids), realUserSql)) : [];
     const N = ids.length ? new Map((await db.select({ id: firms.id, name: firms.name }).from(firms).where(inArray(firms.id, ids))).map((f) => [f.id, f.name])) : new Map<string, string>();
     for (const r of R) {
       for (const u of U.filter((x) => x.firmId === r.firmId && x.email && x.active !== false && x.role !== 'klient' && x.role !== 'teren')) {
@@ -239,8 +243,8 @@ export async function dispatchRokReminders(db: Tx, o: { today?: string; mail: bo
   }
   const ym = rokClientDue(today, S);
   if (ym) {
-    const F = (await db.select().from(firms).where(eq(firms.active, true))).filter((f) => !isExample(f.settings) && (f.settings as { rokClient?: boolean }).rokClient !== false);
-    const off = kdOfficeFirm(F, P as never);
+    const F = (await db.select().from(firms).where(and(eq(firms.active, true), realFirmSql))).filter((f) => !isExample(f.settings) && !isDemoFirm(f) && (f.settings as { rokClient?: boolean }).rokClient !== false);
+    const off = officeFirmOf(F, P);
     for (const f of F) {
       if (f.id === off?.id) continue;
       const t = rokClientText(ym, { firm: f.name, office: P.name ?? off?.name ?? null });

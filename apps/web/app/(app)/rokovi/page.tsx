@@ -15,7 +15,9 @@ import { addDays } from '@wise/core/office';
 import {
   ROK_SRC, ROK_STATE_LBL, ROK_TYPE_IDS, ROK_TYPES, rokClientDay, rokDays, rokMonthGrid, rokMonthName, rokState, rokYmAdd, type RokSettings, type RokType,
 } from '@wise/core/office/rokovi';
-import { getOfficeProfile, rokovi, syncRokovi } from '@wise/db';
+import { rokovi, syncRokovi } from '@wise/db';
+import { isDemoUser } from '@/lib/demo';
+import { officeProfileFor } from '@/lib/demo-office';
 import { db } from '@/lib/db';
 import { officePage, today } from '@/lib/office';
 import { rokColleagues, rokRows, type RokView } from '@/lib/rokovi';
@@ -31,7 +33,8 @@ const WD = ['Пон', 'Вто', 'Сре', 'Чет', 'Пет', 'Саб', 'Нед'
 const wd = (d: string) => WD[(new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7];
 
 export default async function RokoviPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const { u, firm } = await officePage('rokovi', { perm: 'office' });
+  const { u, firm } = await officePage('rokovi', { perm: 'office', demoGlobal: true });
+  const demo = isDemoUser(u);
   const sp = await searchParams;
   const td = today();
   const list = sp.v === 'lista';
@@ -39,7 +42,7 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
   // the list without a month: from 30 days back to 60 days ahead
   const [from, to] = list && !sp.m ? [addDays(td, -30), addDays(td, 60)] : [`${ym}-01`, addDays(`${rokYmAdd(ym, 1)}-01`, -1)];
   const st = sp.st === 'open' || sp.st === 'done' ? sp.st : 'all';
-  const S = ((await getOfficeProfile(db())) as { rok?: RokSettings }).rok ?? {};
+  const S = ((await officeProfileFor(u)) as { rok?: RokSettings }).rok ?? {};
   const days = rokDays(S);
   let res = await rokRows(u, { from, to, fid: sp.fid, uid: sp.uid, t: sp.t, st });
   // first visit of a month nobody has generated yet: generate it now (the worker covers only its own window)
@@ -49,7 +52,7 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
     if (!c?.n) { await syncRokovi(db(), { from, to, firmIds: ids }); res = await rokRows(u, { from, to, fid: sp.fid, uid: sp.uid, t: sp.t, st }); }
   }
   const { rows, firms } = res;
-  const users = await rokColleagues();
+  const users = await rokColleagues(u);
   const qs = (o: Partial<SP>) => '?' + new URLSearchParams(Object.entries({ ...sp, ...o }).filter(([, v]) => v) as [string, string][]).toString();
   const icsQs = new URLSearchParams(Object.entries({ from, to, fid: sp.fid ?? '', uid: sp.uid ?? '', t: sp.t ?? '', st: st === 'all' ? 'open' : st }).filter(([, v]) => v)).toString();
   const stOf = (r: RokView) => rokState(td, r.due, r.done, days);
@@ -129,23 +132,26 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
         </div>
       )}
 
-      <details className="card">
-        <summary><b>⚙ Потсетници</b> <span className="mini">— {days} дена пред рокот{S.mail !== false ? ' · е-пошта до колегата' : ''}{S.client?.on ? ` · клиенти на ${rokClientDay(S)}-ти` : ''}</span></summary>
-        <ActionForm action={saveRokSettings} className="" reset={false}>
-          <div className="row" style={{ gap: '8px 16px', flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-            <label>Потсети <input type="number" name="days" min={0} max={60} defaultValue={days} style={{ width: 70 }} /> дена пред рокот</label>
-            <label className="chk"><input type="checkbox" name="mail" defaultChecked={S.mail !== false} /> е-пошта до одговорниот колега (кога е подесена е-поштата / SMTP)</label>
-          </div>
-          <div className="mini" style={{ margin: '4px 0 8px' }}>Во програмата: 📅 бројот горе десно ги покажува отворените рокови во овие денови (и поминатите). Одговорен колега = корисникот доделен на фирмата во „Корисници“.</div>
-          <div className="row" style={{ gap: '8px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <label className="chk"><input type="checkbox" name="clOn" defaultChecked={!!S.client?.on} /> Потсетник до клиентите „Ве молиме доставете ги изводите / фактурите за месец …“</label>
-            <label>на <input type="number" name="clDay" min={1} max={28} defaultValue={rokClientDay(S)} style={{ width: 60 }} />-ти во месецот</label>
-            <label className="chk"><input type="checkbox" name="clPortal" defaultChecked={S.client?.portal !== false} /> порака во порталот</label>
-            <label className="chk"><input type="checkbox" name="clMail" defaultChecked={S.client?.mail !== false} /> е-пошта до фирмата</label>
-            <button className="btn pri">Зачувај</button>
-          </div>
-        </ActionForm>
-      </details>
+      {/* 🎭 no reminder settings in the demo (the e-mails / client reminders are off there) */}
+      {!demo && (
+        <details className="card">
+          <summary><b>⚙ Потсетници</b> <span className="mini">— {days} дена пред рокот{S.mail !== false ? ' · е-пошта до колегата' : ''}{S.client?.on ? ` · клиенти на ${rokClientDay(S)}-ти` : ''}</span></summary>
+          <ActionForm action={saveRokSettings} className="" reset={false}>
+            <div className="row" style={{ gap: '8px 16px', flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+              <label>Потсети <input type="number" name="days" min={0} max={60} defaultValue={days} style={{ width: 70 }} /> дена пред рокот</label>
+              <label className="chk"><input type="checkbox" name="mail" defaultChecked={S.mail !== false} /> е-пошта до одговорниот колега (кога е подесена е-поштата / SMTP)</label>
+            </div>
+            <div className="mini" style={{ margin: '4px 0 8px' }}>Во програмата: 📅 бројот горе десно ги покажува отворените рокови во овие денови (и поминатите). Одговорен колега = корисникот доделен на фирмата во „Корисници“.</div>
+            <div className="row" style={{ gap: '8px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <label className="chk"><input type="checkbox" name="clOn" defaultChecked={!!S.client?.on} /> Потсетник до клиентите „Ве молиме доставете ги изводите / фактурите за месец …“</label>
+              <label>на <input type="number" name="clDay" min={1} max={28} defaultValue={rokClientDay(S)} style={{ width: 60 }} />-ти во месецот</label>
+              <label className="chk"><input type="checkbox" name="clPortal" defaultChecked={S.client?.portal !== false} /> порака во порталот</label>
+              <label className="chk"><input type="checkbox" name="clMail" defaultChecked={S.client?.mail !== false} /> е-пошта до фирмата</label>
+              <button className="btn pri">Зачувај</button>
+            </div>
+          </ActionForm>
+        </details>
+      )}
     </>
   );
 }

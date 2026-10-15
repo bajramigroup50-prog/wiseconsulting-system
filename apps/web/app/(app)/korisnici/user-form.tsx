@@ -5,9 +5,13 @@ import { useActionState, useState } from 'react';
 import { ROLES, ROLE_IDS, type Role } from '@wise/core';
 import { saveUser, type FormState } from './actions';
 
-interface EditUser { id: string; name: string; username: string; email: string | null; role: Role; active: boolean; allFirms: boolean; firms: string[] }
+interface EditUser { id: string; name: string; username: string; email: string | null; role: Role; active: boolean; allFirms: boolean; firms: string[]; demo?: boolean }
 
-export function UserForm({ user: d, allFirms, isSelf }: { user: EditUser | null; allFirms: { id: string; name: string }[]; isSelf: boolean }) {
+/**
+ * `demoBox`: the office owner's „🎭 Демо корисник“ checkbox. `demoMode`: the form of a demo admin (its colleagues are
+ * always demo users with access to the demo firms only — no „Сите фирми“).
+ */
+export function UserForm({ user: d, allFirms, isSelf, demoBox = false, demoMode = false }: { user: EditUser | null; allFirms: { id: string; name: string }[]; isSelf: boolean; demoBox?: boolean; demoMode?: boolean }) {
   const [st, action, pending] = useActionState<FormState, FormData>(saveUser, {});
   const [role, setRole] = useState<Role>(d?.role ?? 'acc');
   const [all, setAll] = useState(d?.allFirms ?? false);
@@ -48,9 +52,16 @@ export function UserForm({ user: d, allFirms, isSelf }: { user: EditUser | null;
           {isSelf && <input type="hidden" name="active" value="on" />}
         </label>
       </div>
+      {demoBox && !isSelf && (
+        <label className="chk" style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 600, margin: '8px 0', background: '#fef9c3', padding: '6px 10px', borderRadius: 8 }}>
+          <input type="checkbox" name="demo" defaultChecked={d?.demo ?? false} style={{ width: 'auto' }} /> 🎭 Демо корисник
+          <span className="mini mut" style={{ fontWeight: 400 }}>– гледа само ДЕМО фирми; праќање пошта, УЈП, фискален апарат, резервни копии и AI се исклучени.</span>
+        </label>
+      )}
+      {demoMode && <p className="note">🎭 Демо корисник – пристап само до демо фирмите.</p>}
       <p className="note">{ROLES[role].d}</p>
       <h3 style={{ margin: '12px 0 6px' }}>Фирми до кои има пристап</h3>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 600 }}>
+      <label style={{ display: demoMode ? 'none' : 'flex', gap: 8, alignItems: 'center', fontWeight: 600 }}>
         <input type="checkbox" name="allFirms" checked={all} onChange={(e) => setAll(e.target.checked)} style={{ width: 'auto' }} /> Сите фирми (и идните)
       </label>
       <div hidden={all}>

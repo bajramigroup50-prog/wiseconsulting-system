@@ -5,7 +5,7 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { and, eq, gt, lt } from 'drizzle-orm';
 import { can, type Principal } from '@wise/core';
-import { sessions, userFirms, users, type User } from '@wise/db';
+import { demoFirmIds, demoLinks, sessions, userFirms, users, type User } from '@wise/db';
 import { FIRM_CHANGED_MSG, YEAR_CHANGED_MSG } from './firm-guard';
 import { db } from './db';
 import { clientIp } from './login-guard';
@@ -32,9 +32,12 @@ const tokenId = (token: string) => createHash('sha256').update(token).digest('he
 
 export type SessionUser = Pick<User, 'id' | 'username' | 'name' | 'email' | 'role' | 'allFirms' | 'mustChangePassword'> & {
   principal: Principal;
+  /** 🎭 Demo user (`users.demo`): `principal.firms` = the demo firms only, `principal.demo` set (see `lib/demo.ts`). */
+  demo?: boolean;
 };
 
-export async function createSession(userId: string): Promise<void> {
+/** `demoLinkId`: the session is opened by a 🔗 demo link (`app/demo/[token]`); revoking the link ends it. */
+export async function createSession(userId: string, o: { demoLinkId?: string } = {}): Promise<void> {
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + IDLE_MS);
   const h = await headers();
@@ -44,6 +47,7 @@ export async function createSession(userId: string): Promise<void> {
     expiresAt,
     ip: clientIp((n) => h.get(n)),
     userAgent: h.get('user-agent')?.slice(0, 300) ?? null,
+    demoLinkId: o.demoLinkId ?? null,
   });
   const jar = await cookies();
   // session cookie: no `expires` / `maxAge` — it ends with the browser
@@ -72,12 +76,17 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
   if (!token) return null;
   const id = tokenId(token);
   const [row] = await db()
-    .select({ u: users, exp: sessions.expiresAt, created: sessions.createdAt })
+    .select({ u: users, exp: sessions.expiresAt, created: sessions.createdAt, link: sessions.demoLinkId })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date()), gt(sessions.createdAt, new Date(Date.now() - ABSOLUTE_MS)), eq(users.active, true)))
     .limit(1);
   if (!row) return null;
+  // a 🔗 demo-link session lives only while the link is valid (revoked / expired → signed out) and only for a demo user
+  if (row.link) {
+    const [l] = await db().select({ exp: demoLinks.expiresAt, rev: demoLinks.revokedAt, user: demoLinks.userId }).from(demoLinks).where(eq(demoLinks.id, row.link)).limit(1);
+    if (!l || l.rev || l.exp.getTime() <= Date.now() || l.user !== row.u.id || !row.u.demo) return null;
+  }
   // idle timeout: activity pushes the expiry (throttled), never past the absolute limit
   const now = Date.now();
   const next = slideExpiry(row.created, now);
@@ -85,6 +94,14 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
     await db().update(sessions).set({ expiresAt: next }).where(eq(sessions.id, id)).catch(() => {});
   }
   const u = row.u;
+  // 🎭 a demo user: exactly the demo firms (flag + „ДЕМО“ prefix), whatever its role, user_firms or all-firms flag
+  if (u.demo) {
+    return {
+      id: u.id, username: u.username, name: u.name, email: u.email, role: u.role,
+      allFirms: false, mustChangePassword: u.mustChangePassword, demo: true,
+      principal: { id: u.id, role: u.role, firms: await demoFirmIds(db()), demo: true },
+    };
+  }
   const firmIds = u.allFirms || u.role === 'admin'
     ? ['*']
     : (await db().select({ f: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))).map((r) => r.f);

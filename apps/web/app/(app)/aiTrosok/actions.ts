@@ -5,6 +5,7 @@ import { audit, getAiBudget, putAiBudget } from '@wise/db';
 import { AI_BUDGET_KEY } from '@wise/core/ai/cost';
 import type { RowResult } from '@/components/row-action';
 import { requireUser } from '@/lib/auth';
+import { DEMO_OFF_MSG, isDemoUser } from '@/lib/demo';
 import { db } from '@/lib/db';
 import { isUuid } from '@/lib/office';
 import { OWNER_ONLY_MSG, isOfficeOwner } from '@/lib/office-owner';
@@ -18,6 +19,8 @@ const usd = (v: FormDataEntryValue | null): number | null | 'bad' => {
 
 export async function saveAiBudget(_prev: RowResult, form: FormData): Promise<RowResult> {
   const u = await requireUser();
+  // 🎭 read-only in the demo (and `isOfficeOwner` is never true for a demo user)
+  if (isDemoUser(u)) return { error: DEMO_OFF_MSG };
   if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
   const monthlyUsd = usd(form.get('monthly'));
   if (monthlyUsd === 'bad') return { error: 'Внесете лимит во USD (на пр. 50) или оставете празно за без лимит.' };
@@ -38,6 +41,7 @@ export async function saveAiBudget(_prev: RowResult, form: FormData): Promise<Ro
 
 export async function saveFirmAiLimit(_prev: RowResult, form: FormData): Promise<RowResult> {
   const u = await requireUser();
+  if (isDemoUser(u)) return { error: DEMO_OFF_MSG };
   if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
   const firmId = String(form.get('firm') ?? '');
   if (!isUuid(firmId)) return { error: 'Изберете фирма.' };

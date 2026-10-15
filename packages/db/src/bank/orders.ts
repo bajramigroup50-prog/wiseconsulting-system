@@ -13,6 +13,7 @@ import { den, loadBankAccounts, loadFirm } from './context';
 import { openItemsSource } from './open-items';
 import { toBankRow } from './rows';
 import { getOfficeProfile, patchOfficeProfile } from '../office';
+import { isDemoFirmId } from '../demo/filters';
 
 export class OrderError extends Error {
   constructor(m: string) { super(m); this.name = 'OrderError'; }
@@ -213,9 +214,11 @@ export async function deleteFxList(tx: Tx, a: { userId: string | null; date: str
  */
 export async function savePpCalibration(tx: Tx, a: { userId: string | null; firmId?: string | null; kind: PpKind; dx: number; dy: number }): Promise<void> {
   if (!KINDS.includes(a.kind)) throw new OrderError('Непознат вид налог.');
-  const off = (await getOfficeProfile(tx)) as Record<string, unknown>;
+  // 🎭 a demo firm's calibration goes to the demo office's copy, never the real office profile
+  const demo = await isDemoFirmId(tx, a.firmId);
+  const off = (await getOfficeProfile(tx, { demo })) as Record<string, unknown>;
   const all = { ...((off.ppCal ?? {}) as Record<string, { dx?: number; dy?: number }>) };
   all[a.kind] = { dx: a.dx, dy: a.dy };
-  await patchOfficeProfile(tx, { ppCal: all } as never, a.userId);
+  await patchOfficeProfile(tx, { ppCal: all } as never, a.userId, { demo });
   await audit(tx, { userId: a.userId, firmId: a.firmId ?? null, action: 'ppCal', entityType: 'app_settings', entityId: 'office', data: { kind: a.kind, dx: a.dx, dy: a.dy } });
 }

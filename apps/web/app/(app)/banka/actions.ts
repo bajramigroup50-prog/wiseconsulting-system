@@ -26,6 +26,8 @@ import { bankError, bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
 import { runPayNotes } from './paynotes';
 import type { FormState } from '@/components/bank-form';
+import { firmListSql } from '@/lib/demo';
+import type { SessionUser } from '@/lib/auth';
 
 const P = ['/banka', '/devizni', '/bkAdv', '/nalozi'];
 const MAX = 20 * 1024 * 1024;
@@ -89,9 +91,8 @@ async function readStatements0(f: File, firmId: string, aiDoc: string): Promise<
 }
 
 /** The user's firms with their bank account numbers (for the owner check across firms). */
-async function ownerFirms(u: { id: string; principal: { firms: readonly string[] } }): Promise<OwnerFirm[]> {
-  const scoped = u.principal.firms.includes('*') ? undefined
-    : or(inArray(firms.id, db().select({ id: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))), eq(firms.ownerId, u.id));
+async function ownerFirms(u: Pick<SessionUser, 'id' | 'principal'>): Promise<OwnerFirm[]> {
+  const scoped = firmListSql(u);
   const F = await db().select({ id: firms.id, name: firms.name, edb: firms.edb }).from(firms).where(scoped);
   const B = F.length ? await db().select({ firmId: bankAccounts.firmId, account: bankAccounts.account, iban: bankAccounts.iban }).from(bankAccounts).where(inArray(bankAccounts.firmId, F.map((f) => f.id))) : [];
   return F.map((f) => ({ ...f, accounts: B.filter((b) => b.firmId === f.id).flatMap((b) => [b.account, b.iban]) }));

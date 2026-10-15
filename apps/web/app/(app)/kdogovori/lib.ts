@@ -7,11 +7,18 @@ import 'server-only';
  * Owner decision: the contracts are made BY the office firm (БАЈРАМИ ГРОУП ДООЕЛ Скопје, „Фирма на канцеларијата“)
  * WITH each client firm, and the whole module is the office OWNER's only (`isOfficeOwner`): page, actions, print and
  * Word routes. Never in the client portal and never for other office users.
+ *
+ * 🎭 A demo admin is the owner of the sandboxed DEMO office (`lib/demo-office.ts`): its provider is the demo office firm
+ * „ДЕМО СМЕТКОВОДСТВО ДООЕЛ“ with the demo office profile (`demoOffice`), its clients the demo firms only — never the
+ * real office (`settings.officeFirm`, БАЈРАМИ ГРОУП) and never a real client (`kdClientFirm` re-checks the side).
  */
 import { and, eq, inArray } from 'drizzle-orm';
-import { kdHtml, kdNormalize, kdOfficeFirm, kdProvider, kdRecPlan, kdVat, KD_DOS_CAT, type KdContract, type KdFirm, type KdOffice, type KdRecExisting } from '@wise/core/firms/kdog';
+import { kdHtml, kdNormalize, kdProvider, kdRecPlan, kdVat, KD_DOS_CAT, type KdContract, type KdFirm, type KdOffice, type KdRecExisting } from '@wise/core/firms/kdog';
+import { isDemoFirm } from '@wise/core/demo';
 import { PDFDOC_CSS } from '@wise/core/print-css';
-import { dossierDocs, fileLinks, files, firms, getOfficeProfile, OFFICE_FILE_ENTITY, OfficeError, partners, recurringInvoices, serviceContracts, type Firm, type Tx } from '@wise/db';
+import { dossierDocs, fileLinks, files, firms, getOfficeProfile, officeFirmOf, OFFICE_FILE_ENTITY, OfficeError, partners, recurringInvoices, serviceContracts, type Firm, type Tx } from '@wise/db';
+import { assertFirmSide, firmOnSide, isDemoOwner, officeFirmFor, officeProfileFor } from '@/lib/demo-office';
+import { isDemoUser } from '@/lib/demo';
 import { getUser, requireUser, type SessionUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { renderPdf } from '@/lib/jobs';
@@ -22,38 +29,50 @@ import { isUuid, today } from '@/lib/office';
 
 export type ContractRow = typeof serviceContracts.$inferSelect;
 
-export const loadOffice = async (tx: Tx = db()): Promise<KdOffice> => (await getOfficeProfile(tx)) as KdOffice;
+/** Contract-number counter (`office_counters.key`): the 🎭 demo office has its own (numbers „ДЕМО-СУ-001/2026“), never touching the real office's numbers. */
+export const kdCounterKey = (demo: boolean): string => (demo ? 'demo:kdog' : 'kdog');
 
-/** The office settings (`raw`), the office firm and the provider data merged from both (firm wins, `kdProvider`). */
-export async function loadProvider(): Promise<{ raw: KdOffice; off: Firm | null; O: KdOffice }> {
-  const raw = await loadOffice();
-  const off = kdOfficeFirm(await db().select().from(firms), raw);
-  return { raw, off, O: kdProvider(raw, off) };
+/** The office settings of a side (`demo`: the 🎭 demo office's copy). */
+export const loadOffice = async (tx: Tx = db(), demo = false): Promise<KdOffice> => (await getOfficeProfile(tx, { demo })) as KdOffice;
+
+/**
+ * The office settings (`raw`), the office firm and the provider data merged from both (firm wins, `kdProvider`) —
+ * of the user's side: the real office, or for a 🎭 demo user the demo office (`officeProfileFor` / `officeFirmFor`).
+ */
+export async function loadProvider(u: SessionUser): Promise<{ raw: KdOffice; off: Firm | null; O: KdOffice; demo: boolean }> {
+  const raw = (await officeProfileFor(u)) as KdOffice;
+  const off = await officeFirmFor(u, raw);
+  return { raw, off, O: kdProvider(raw, off), demo: isDemoUser(u) };
 }
 
 /* ---------------- owner-only guard ---------------- */
 
-/** The signed-in user when they are the office owner, else `null` (pages / routes). */
+/** The signed-in user when they are the office owner (or 🎭 the demo office's owner, a demo admin), else `null`. */
 export async function kdOwnerUser(): Promise<SessionUser | null> {
   const u = await getUser();
-  return u && u.role === 'admin' && (await isOfficeOwner(u)) ? u : null;
+  return u && u.role === 'admin' && (isDemoOwner(u) || (await isOfficeOwner(u))) ? u : null;
 }
 
-/** Server-action guard: only the office owner. */
+/** Server-action guard: only the office owner (or 🎭 the demo office's owner — then on demo data only). */
 export async function kdOwnerAction(): Promise<SessionUser> {
   const u = await requireUser();
-  if (!(await isOfficeOwner(u))) throw new OfficeError(OWNER_ONLY_MSG);
+  if (!isDemoOwner(u) && !(await isOfficeOwner(u))) throw new OfficeError(OWNER_ONLY_MSG);
   return u;
 }
 
-/** The client firm a contract is made with (any firm except the office firm itself). */
-export async function kdClientFirm(id: unknown, off: Pick<Firm, 'id'> | null): Promise<Firm> {
+/**
+ * The client firm a contract is made with (any firm of the user's side except the office firm itself): a 🎭 demo
+ * user only ever a demo firm, a real user never a demo firm — an id of the other side (forged form) is refused.
+ */
+export async function kdClientFirm(id: unknown, off: Pick<Firm, 'id'> | null, u: SessionUser): Promise<Firm> {
   if (!isUuid(id)) throw new OfficeError('Изберете клиент (фирма).');
-  const [f] = await db().select().from(firms).where(eq(firms.id, id)).limit(1);
-  if (!f) throw new OfficeError('Фирмата не постои.');
+  const f = await assertFirmSide(u, id);
   if (off && off.id === f.id) throw new OfficeError('Фирмата на канцеларијата е давател на услугата – изберете клиент.');
   return f;
 }
+
+/** Is the firm a client of this user's side (for the page / print view: never the other side's firm)? */
+export const kdOnSide = (u: SessionUser, f: Firm | null | undefined): f is Firm => !!f && firmOnSide(u, f);
 
 /** `service_contracts` row → contract (columns win over `data`). */
 export function rowToContract(r: ContractRow): KdContract {
@@ -66,16 +85,16 @@ export const firmOf = (f: Firm): KdFirm & { signer?: string; rep?: string } => {
   return { name: f.name, address: f.address, city: f.city, edb: f.edb, embs: f.embs, phone: f.phone, email: f.email, bank: s.bankAccount ?? null, logo: s.logo ?? null, signer: s.signer ?? s.manager, rep: s.rep, manager: s.manager ?? s.signer ?? null };
 };
 
-/** The office firm (legacy `offFirm`). */
-export async function officeFirm(O: KdOffice): Promise<Firm | null> {
-  return kdOfficeFirm(await db().select().from(firms), O);
+/** The office firm (legacy `offFirm`) of the CLIENT firm's side: the demo office firm for a demo client, the real one otherwise. */
+export async function officeFirm(O: KdOffice, client?: Pick<Firm, 'name' | 'settings'>): Promise<Firm | null> {
+  return officeFirmOf(await db().select().from(firms), O, { demo: isDemoFirm(client) });
 }
 
 export const imgUrl = (id: string) => `/api/files/${id}`;
 
 /** Contract HTML for the screen / print view (images through `/api/files`). */
 export async function contractHtml(k: KdContract, firm: Firm, O: KdOffice, opts: { peekNo?: string; e?: boolean } = {}): Promise<string> {
-  const off = await officeFirm(O);
+  const off = await officeFirm(O, firm);
   return kdHtml(k, { firm: firmOf(firm), firmId: firm.id, O, off: off ? firmOf(off) : null, peekNo: opts.peekNo, e: opts.e, img: imgUrl, draftMark: true });
 }
 
@@ -112,15 +131,16 @@ export async function removeDossierCopy(tx: Tx, firmId: string, id: string | nul
   await tx.delete(fileLinks).where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.dossier), eq(fileLinks.entityId, id)));
 }
 
-/** Legacy `kdRecPlan` for the office firm (rows, partners, recurring definitions). */
-export async function recPlanFor(officeFirmId: string) {
-  const O = await loadOffice();
-  const [F, P, R] = await Promise.all([
+/** Legacy `kdRecPlan` for the office firm (rows, partners, recurring definitions) — the clients of its side only. */
+export async function recPlanFor(officeFirmId: string, demo = false) {
+  const O = await loadOffice(db(), demo);
+  const [F0, P, R] = await Promise.all([
     db().select({ id: firms.id, name: firms.name, edb: firms.edb, embs: firms.embs, active: firms.active, settings: firms.settings, address: firms.address, city: firms.city, email: firms.email, phone: firms.phone, vatRegistered: firms.vatRegistered }).from(firms),
     db().select({ id: partners.id, edb: partners.edb, embs: partners.embs, code: partners.code }).from(partners).where(eq(partners.firmId, officeFirmId)),
     db().select().from(recurringInvoices).where(eq(recurringInvoices.firmId, officeFirmId)),
   ]);
   const ex = new Map<string, KdRecExisting>(R.map((r) => [r.id, { id: r.id, price: Number(r.items[0]?.price) || 0, end: r.end }]));
+  const F = F0.filter((f) => isDemoFirm(f) === demo);
   return { O, F, P, R, plan: kdRecPlan(F, officeFirmId, P, ex, kdVat(O)) };
 }
 

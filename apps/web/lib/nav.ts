@@ -58,3 +58,9 @@ export const viewAllowed = (role: Role, id: string): boolean =>
   navFor(role).some(([, items]) => navFlat(items).some(([v]) => v === id)) || id === 'lozinka'
   // Office staff may preview the client portal pages (legacy `S.asClient`).
   || (['klHome', 'klSend', 'klFoto', 'klIzv'].includes(id) && !['klient', 'teren', 'view'].includes(role));
+
+/** 🎭 The menu limited to the given views (the demo allow-list, `lib/route-guard.ts` `demoViews`); empty groups dropped. */
+export function onlyViews(groups: readonly NavGroup[], keep: ReadonlySet<string>): readonly NavGroup[] {
+  const pick = (L: readonly NavItem[]): NavItem[] => L.flatMap((x): NavItem[] => (x[0] === '-' ? [x] : x[0] === '>' ? [[x[0], x[1], pick(x[2] ?? [])] as NavItem] : x[0] === 'home' || keep.has(x[0]) ? [x] : []));
+  return groups.map(([g, L]) => [g, pick(L)] as NavGroup).filter(([, L]) => L.some((x) => x[0] !== '-' && (x[0] !== '>' || (x[2] ?? []).length > 0)));
+}

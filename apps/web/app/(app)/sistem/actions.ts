@@ -11,6 +11,7 @@ import {
   audit, BACKUP_FILE_PREFIX, exportFirm, FirmDataError, files, firms, parseFirmBackup, PRE_RESTORE_PREFIX, restoreFirm, setAiEnabled,
 } from '@wise/db';
 import { Forbidden, requireCan, requireUser } from '@/lib/auth';
+import { refuseDemo } from '@/lib/demo';
 import { actionError, type ActionState } from '@/lib/books';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -23,6 +24,7 @@ const err = (e: unknown): ActionState => (e instanceof FirmDataError ? { error: 
 export async function setAiEnabledAction(on: boolean): Promise<ActionState> {
   try {
     const u = await requireUser();
+    await refuseDemo(u, 'aiSwitch');
     if (u.role !== 'admin') throw new Forbidden('aiSwitch');
     await db().transaction(async (tx) => {
       await setAiEnabled(tx, on, u.id);
@@ -37,6 +39,7 @@ export async function setAiEnabledAction(on: boolean): Promise<ActionState> {
 export async function backupNowAction(): Promise<ActionState> {
   try {
     const u0 = await requireUser();
+    await refuseDemo(u0, 'backup');
     const firm = await currentFirm(u0);
     if (!firm) return { error: 'Изберете фирма.' };
     const u = await requireCan('settings', firm.id);
@@ -53,6 +56,7 @@ export async function backupNowAction(): Promise<ActionState> {
 
 /** After uploading a backup file: open the restore confirmation for it. */
 export async function pickRestoreAction(_p: ActionState, form: FormData): Promise<ActionState> {
+  await refuseDemo(await requireUser(), 'restore');
   await requireCan('settings');
   const id = String(form.getAll('fileIds').at(-1) ?? '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Прикачете ја датотеката со копијата (JSON).' };
@@ -63,6 +67,7 @@ export async function pickRestoreAction(_p: ActionState, form: FormData): Promis
 export async function restoreAction(fileId: string): Promise<ActionState> {
   try {
     const u0 = await requireUser();
+    await refuseDemo(u0, 'restore');
     const firm = await currentFirm(u0);
     if (!firm) return { error: 'Изберете фирма.' };
     const u = await requireCan('del', firm.id);

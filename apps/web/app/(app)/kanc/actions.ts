@@ -3,26 +3,38 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { INST, isTaskStatus, taskTransition, TEREN_STATUSES, TTYPE, type TaskStatus } from '@wise/core/office';
-import { audit, firms, firstMailAddress, OFFICE_FILE_ENTITY, officeTasks, textMailHtml, users } from '@wise/db';
+import { audit, firms, OfficeError, firstMailAddress, OFFICE_FILE_ENTITY, officeTasks, textMailHtml, users } from '@wise/db';
 import { dispatchMail, queueMail } from '@/lib/mail';
 import { firmAllowed } from '@wise/core';
-import { requireCan, type SessionUser } from '@/lib/auth';
+import { type SessionUser } from '@/lib/auth';
+import { isDemoUser } from '@/lib/demo';
+import { assertFirmSide, assertTaskSide, assertUserSide, sideFileIds, taskScopeSql } from '@/lib/demo-office';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
-import { fdate, fv, isUuid, linkFiles, officeError } from '@/lib/office';
+import { fdate, fv, isUuid, linkFiles, officeError, officeGlobalSide } from '@/lib/office';
 
+/**
+ * 🎭 By side (`lib/demo-office.ts`): a demo user works on demo tasks only (`taskScopeSql`: demo firm / demo creator /
+ * demo assignee), names only demo firms and demo users, attaches only files a demo user uploaded and e-mails nobody;
+ * real users never touch a demo task, firm or user.
+ */
 const pick = <T extends string>(v: string | null, L: readonly T[], d: T): T => (v && (L as readonly string[]).includes(v) ? (v as T) : d);
 
 /** Legacy `tSave` (ACT_NEED `office`): create or edit a task. */
 export async function saveTask(_p: ActionState, f: FormData): Promise<ActionState> {
   let id = fv(f, 'id');
   try {
-    const u = await requireCan('office');
+    const u = await officeGlobalSide('office');
+    const demo = isDemoUser(u);
     const title = fv(f, 'title');
     if (!title) return { error: 'Внесете наслов.' };
     const firmId = fv(f, 'firmId');
     if (firmId && (!isUuid(firmId) || !firmAllowed(u.principal, firmId))) return { error: 'Немате пристап до фирмата.' };
+    if (firmId) await assertFirmSide(u, firmId);
     const assigneeId = fv(f, 'assigneeId');
+    if (isUuid(assigneeId)) await assertUserSide(u, assigneeId);
+    if (id) await assertTaskSide(u, id);
+    const fileIds = await sideFileIds(u, f.getAll('fileIds'));
     const v = {
       title, type: pick(fv(f, 'type'), TTYPE, 'Друго'), inst: pick(fv(f, 'inst'), INST, 'Друго'),
       firmId: firmId || null, assigneeId: isUuid(assigneeId) ? assigneeId : null, due: fdate(f, 'due'),
@@ -46,9 +58,9 @@ export async function saveTask(_p: ActionState, f: FormData): Promise<ActionStat
         newAssignee = v.assigneeId;
         await audit(tx, { userId: u.id, firmId: v.firmId, action: 'tNew', entityType: 'office_task', entityId: id, data: { title } });
       }
-      await linkFiles(tx, f.getAll('fileIds'), null, OFFICE_FILE_ENTITY.task, id!);
-      // notify a newly assigned colleague by e-mail (not when assigning to oneself)
-      if (!newAssignee || newAssignee === u.id) return [];
+      await linkFiles(tx, fileIds, null, OFFICE_FILE_ENTITY.task, id!);
+      // notify a newly assigned colleague by e-mail (not when assigning to oneself; 🎭 never in the demo)
+      if (!newAssignee || newAssignee === u.id || demo) return [];
       const [a] = await tx.select({ email: users.email }).from(users).where(eq(users.id, newAssignee)).limit(1);
       const to = firstMailAddress(a?.email);
       const [fm] = v.firmId ? await tx.select({ name: firms.name }).from(firms).where(eq(firms.id, v.firmId)).limit(1) : [];
@@ -66,7 +78,7 @@ export async function saveTask(_p: ActionState, f: FormData): Promise<ActionStat
 /** Legacy `tSt`: office changes the status. */
 export async function setTaskStatus(id: string, st: string, note = ''): Promise<ActionState> {
   try {
-    const u = await requireCan('office');
+    const u = await officeGlobalSide('office');
     if (!isTaskStatus(st)) return { error: 'Непознат статус.' };
     await move(u, id, st, note);
   } catch (e) { return officeError(e); }
@@ -77,9 +89,9 @@ export async function setTaskStatus(id: string, st: string, note = ''): Promise<
 /** Legacy `tDel`. */
 export async function deleteTask(id: string): Promise<ActionState> {
   try {
-    const u = await requireCan('office');
+    const u = await officeGlobalSide('office');
     await db().transaction(async (tx) => {
-      const [t] = await tx.delete(officeTasks).where(eq(officeTasks.id, id)).returning();
+      const [t] = isUuid(id) ? await tx.delete(officeTasks).where(and(eq(officeTasks.id, id), taskScopeSql(u))).returning() : [];
       if (t) await audit(tx, { userId: u.id, firmId: t.firmId, action: 'tDel', entityType: 'office_task', entityId: id, data: { title: t.title } });
     });
   } catch (e) { return officeError(e); }
@@ -89,8 +101,9 @@ export async function deleteTask(id: string): Promise<ActionState> {
 
 async function move(u: SessionUser, id: string, st: TaskStatus, note: string, extra: { assigneeId?: string; onlyMine?: boolean; onlyFree?: boolean } = {}) {
   await db().transaction(async (tx) => {
-    const [t] = await tx.select().from(officeTasks).where(eq(officeTasks.id, id)).for('update');
-    if (!t) throw new Error('Задачата не постои.');
+    // 🎭 a task of the user's side only (a forged id of the other side „не постои“)
+    const [t] = isUuid(id) ? await tx.select().from(officeTasks).where(and(eq(officeTasks.id, id), taskScopeSql(u))).for('update') : [];
+    if (!t) throw new OfficeError('Задачата не постои.');
     if (extra.onlyMine && t.assigneeId !== u.id) throw new Error('Задачата не е ваша.');
     if (extra.onlyFree && (t.assigneeId || t.status !== 'new')) throw new Error('Задачата е веќе преземена.');
     const tr = taskTransition(t, st, u.name, note);
@@ -105,7 +118,7 @@ async function move(u: SessionUser, id: string, st: TaskStatus, note: string, ex
  */
 export async function terenAction(id: string, op: 'take' | 'progress' | 'done' | 'problem', note = ''): Promise<ActionState> {
   try {
-    const u = await requireCan('office').catch(() => requireCan('teren'));
+    const u = await officeGlobalSide('office').catch(() => officeGlobalSide('teren'));
     if (op === 'take') await move(u, id, 'progress', 'преземена', { assigneeId: u.id, onlyFree: true });
     else if ((TEREN_STATUSES as readonly string[]).includes(op)) await move(u, id, op as TaskStatus, note, { onlyMine: u.role === 'teren' });
   } catch (e) {
@@ -119,14 +132,14 @@ export async function terenAction(id: string, op: 'take' | 'progress' | 'done' |
 /** Field worker attaches scanned documents to the task (legacy `data-up` handler in `mojzad`). */
 export async function attachTaskFiles(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const u = await requireCan('office').catch(() => requireCan('teren'));
+    const u = await officeGlobalSide('office').catch(() => officeGlobalSide('teren'));
     const id = fv(f, 'id');
     if (!isUuid(id)) return { error: 'Непозната задача.' };
     await db().transaction(async (tx) => {
       const [t] = await tx.select().from(officeTasks)
-        .where(and(eq(officeTasks.id, id), u.role === 'teren' ? eq(officeTasks.assigneeId, u.id) : undefined)).for('update');
+        .where(and(eq(officeTasks.id, id), taskScopeSql(u), u.role === 'teren' ? eq(officeTasks.assigneeId, u.id) : undefined)).for('update');
       if (!t) throw new Error('Задачата не е ваша.');
-      const n = await linkFiles(tx, f.getAll('fileIds'), null, OFFICE_FILE_ENTITY.task, id);
+      const n = await linkFiles(tx, await sideFileIds(u, f.getAll('fileIds'), tx), null, OFFICE_FILE_ENTITY.task, id);
       const received = fv(f, 'received');
       await tx.update(officeTasks).set({
         hist: [...t.hist, { at: new Date().toISOString(), by: u.name, st: t.status, note: `прикачени ${n} документи` }],

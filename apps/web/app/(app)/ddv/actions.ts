@@ -92,7 +92,7 @@ export async function saveVatAccountsAction(_prev: ActionState, form: FormData):
   try {
     const all = form.get('scope') === 'g';
     const { u, firm } = await firmAction('settings');
-    if (all && u.role !== 'admin') return { error: 'За сите фирми може само администраторот.' };
+    if (all && (u.role !== 'admin' || u.principal.demo)) return { error: 'За сите фирми може само администраторот.' };
     const g = (k: string) => String(form.get(k) ?? '').trim();
     const map = (p: string): VatAccountMap => Object.fromEntries(RATES.map((r) => [r, g(`${p}${r}`)]).filter(([, v]) => v));
     const vatOut = map('o'), vatIn = map('i'), vatImp = map('m');

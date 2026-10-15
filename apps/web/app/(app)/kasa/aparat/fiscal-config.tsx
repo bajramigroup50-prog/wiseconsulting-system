@@ -2,7 +2,7 @@
 /** Device configuration form (talks only to the desktop app through `window.wiseFiscal`). */
 import { useEffect, useState } from 'react';
 import { FISCAL_VAT_GROUPS, FISCAL_VAT_GROUPS_OLD, FISCAL_VAT_RATES, VAT_GROUP_LETTERS, cleanVatGroups, vatGroupsLabel, type FiscalVatGroups } from '@wise/core/retail/vat-groups';
-import { DESKTOP_ONLY, fiscalBridge, safeCall, type FiscalConfig, type FiscalInfo, type FiscalStatus, type WiseFiscal } from '@/lib/fiscal-bridge';
+import { fiscalOffMsg, fiscalBridge, safeCall, type FiscalConfig, type FiscalInfo, type FiscalStatus, type WiseFiscal } from '@/lib/fiscal-bridge';
 
 const HELP: Record<string, string> = {
   serial: 'Апаратот е поврзан со кабел (RS232 или USB-сериски адаптер). Изберете ја COM портата (Управител на уреди → Порти).',
@@ -31,7 +31,7 @@ export function FiscalConfigForm() {
   }, []);
 
   if (b === undefined) return null;
-  if (!b) return <div className="card"><div className="callout warn" data-testid="fiscal-desktop-only">{DESKTOP_ONLY}</div></div>;
+  if (!b) return <div className="card"><div className="callout warn" data-testid="fiscal-desktop-only">{fiscalOffMsg()}</div></div>;
   if (!info || !c) return <div className="card"><div className="empty">Се вчитува…</div></div>;
 
   const V = info.vendors[c.vendor];

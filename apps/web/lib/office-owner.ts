@@ -21,7 +21,7 @@ export interface OfficeOwner { id: string; name: string; source: 'set' | 'mojIzv
 async function activeAdmin(id: unknown): Promise<{ id: string; name: string } | null> {
   if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return null;
   const [u] = await db().select({ id: users.id, name: users.name }).from(users)
-    .where(and(eq(users.id, id), eq(users.active, true), eq(users.role, 'admin'))).limit(1);
+    .where(and(eq(users.id, id), eq(users.active, true), eq(users.role, 'admin'), eq(users.demo, false))).limit(1);
   return u ?? null;
 }
 
@@ -33,11 +33,12 @@ export async function officeOwner(): Promise<OfficeOwner | null> {
   const mi = await activeAdmin(val(MOJIZV_OWNER_KEY));
   if (mi) return { ...mi, source: 'mojIzv' };
   const [first] = await db().select({ id: users.id, name: users.name }).from(users)
-    .where(and(eq(users.active, true), eq(users.role, 'admin'))).orderBy(asc(users.createdAt), asc(users.id)).limit(1);
+    .where(and(eq(users.active, true), eq(users.role, 'admin'), eq(users.demo, false))).orderBy(asc(users.createdAt), asc(users.id)).limit(1);
   return first ? { ...first, source: 'first' } : null;
 }
 
-export const isOfficeOwner = async (u: Pick<SessionUser, 'id' | 'role'> | null | undefined): Promise<boolean> =>
-  !!u && u.role === 'admin' && (await officeOwner())?.id === u.id;
+/** Never true for a 🎭 demo user (a demo admin has its own demo-owner context, `lib/demo.ts` `isDemoOwner`). */
+export const isOfficeOwner = async (u: Pick<SessionUser, 'id' | 'role'> & { demo?: boolean } | null | undefined): Promise<boolean> =>
+  !!u && !u.demo && u.role === 'admin' && (await officeOwner())?.id === u.id;
 
 export const OWNER_ONLY_MSG = 'Само за сопственикот на канцеларијата.';

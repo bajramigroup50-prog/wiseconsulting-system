@@ -67,6 +67,8 @@ export const users = pgTable('users', {
   legacySalt: text('legacy_salt'),
   mustChangePassword: boolean('must_change_password').notNull().default(false),
   active: boolean('active').notNull().default(true),
+  /** 🎭 Demo user (`@wise/core/demo`): sees only demo firms / the demo office, outward side effects off. Set by the owner. */
+  demo: boolean('demo').notNull().default(false),
   lastLoginAt: ts('last_login_at'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -79,6 +81,8 @@ export const sessions = pgTable('sessions', {
   expiresAt: ts('expires_at').notNull(),
   ip: text('ip'),
   userAgent: text('user_agent'),
+  /** Session opened by a 🔗 demo link (`demo_links.id`): revoking the link ends it. */
+  demoLinkId: uuid('demo_link_id'),
   createdAt: createdAt(),
 }, (t) => [index('sessions_user_idx').on(t.userId)]);
 

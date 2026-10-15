@@ -4,7 +4,8 @@
  * missing attachment, SMTP error), so pg-boss does not retry blindly and the UI can offer "send again".
  */
 import { and, eq, inArray } from 'drizzle-orm';
-import { files, mailLog, type DB, type MailLog } from '@wise/db';
+import { DEMO_OFF_MSG } from '@wise/core/demo';
+import { files, isDemoFirmId, isDemoUserId, mailLog, type DB, type MailLog } from '@wise/db';
 import type { MailAttachment, Mailer } from './mailer';
 
 /** Job payload of `mail.send`. Either `logId` (row created by the web helper) or the message itself. */
@@ -54,6 +55,8 @@ export async function sendLoggedMail(db: DB, d: MailSendData, deps: MailDeps): P
   if (row.status === 'sent') return row; // idempotent: a retried job does not send twice
   const attempts = row.attempts + 1;
   const fail = (error: string) => finish(db, row.id, { status: 'failed', error, attempts });
+  // 🎭 never mail anything of a demo firm or a demo user (second line of defence; the web refuses to queue it)
+  if (await isDemoFirmId(db, row.firmId) || await isDemoUserId(db, row.createdBy)) return fail(DEMO_OFF_MSG);
   if (!deps.mailer) return fail('Е-поштата не е подесена (SMTP_HOST / SMTP_URL) – пораката не е испратена.');
   if (!deps.mailer.from) return fail('Недостасува адреса на испраќачот (MAIL_FROM).');
   const to = row.to.filter(Boolean);

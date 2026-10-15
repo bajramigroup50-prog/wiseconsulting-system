@@ -12,6 +12,7 @@ import { appSettings, audit, firms, missingAccounts, SCHEMES_SETTINGS_KEY, type 
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { SCH_FIELD_KEYS, SCH_FLAGS, VAT_RATES } from './schema';
+import { refuseDemo } from '@/lib/demo';
 
 const KONTO = /^\d{3,10}$/;
 
@@ -31,6 +32,8 @@ async function clearFirmOverrides(tx: Tx): Promise<number> {
 export async function saveSchemesAction(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('schSaveAll');
+    // 🎭 the schemes are office-wide (every firm) — never for a demo user
+    await refuseDemo(u, 'semi');
     const g = (k: string) => String(f.get(k) ?? '').trim();
     const sch: Record<string, string | boolean> = {};
     const errs: string[] = [];
@@ -80,6 +83,7 @@ export async function saveSchemesAction(_p: ActionState, f: FormData): Promise<A
 export async function resetSchemesAction(): Promise<ActionState> {
   try {
     const { u } = await firmAction('schReset');
+    await refuseDemo(u, 'semi');
     await db().transaction(async (tx) => {
       const [row] = await tx.select().from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);
       const custom = ((row?.value ?? {}) as { custom?: unknown }).custom ?? [];
@@ -97,6 +101,7 @@ export async function resetSchemesAction(): Promise<ActionState> {
 export async function deleteCustomSchemeAction(id: string): Promise<ActionState> {
   try {
     const { u } = await firmAction('schSaveAll');
+    await refuseDemo(u, 'semi');
     let name = '';
     await db().transaction(async (tx) => {
       const [row] = await tx.select().from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);

@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { and, eq } from 'drizzle-orm';
 import { INSP_G, inspCheck, inspCtx, type InspGroup, type InspManual, type InspProfile, type InspRow } from '@wise/core/office';
 import { INSP_FILE_ENTITY, INSP_IC, INSP_PDF_MARK, inspAskMessage, inspFileKey, inspGroupScore } from '@wise/core/office/insp-extra';
-import { buildFirmSnapshot, firmReshReads, getOfficeProfile, inspectionStates } from '@wise/db';
+import { buildFirmSnapshot, firmReshReads, getOfficeProfile, inspectionStates, officeProfileForFirm } from '@wise/db';
 import { db } from '@/lib/db';
 import { filesOf, officePage, today } from '@/lib/office';
 import { hrefFor } from '@/lib/nav';
@@ -37,7 +37,7 @@ export default async function InspPage({ searchParams }: { searchParams: Promise
   const [snap, man, O] = await Promise.all([
     buildFirmSnapshot(db(), firm.id),
     db().select().from(inspectionStates).where(eq(inspectionStates.firmId, firm.id)),
-    getOfficeProfile(db()),
+    officeProfileForFirm(db(), firm), // 🎭 demo firm → demo office
   ]);
   const M: Record<string, InspManual> = Object.fromEntries(man.map((m) => [m.itemId, { d: m.doneDate, na: m.na, by: m.byName, note: m.note }]));
   const c = inspCtx(snap!, prof, other);

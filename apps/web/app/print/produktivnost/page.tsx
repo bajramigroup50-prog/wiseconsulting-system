@@ -12,7 +12,7 @@ export default async function PrintProduktivnost({ searchParams }: { searchParam
   if (u.role === 'klient' || u.role === 'teren') notFound();
   if (!ok) return <div className="pdfdoc"><p>{OWNER_ONLY_MSG}</p></div>;
   const f = prodFilter(await searchParams);
-  const D = await loadProductivity(f);
+  const D = await loadProductivity(f, u);
   const fl = [f.user ? `корисник: ${userName(D, f.user === '-' ? null : f.user)}` : '', f.firm ? `фирма: ${D.firms.get(f.firm) ?? ''}` : ''].filter(Boolean).join(' · ');
   return (
     <div className="pdfdoc land">

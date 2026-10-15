@@ -11,7 +11,8 @@ import { clientReports, firmMail } from '@wise/db';
 import { db } from '@/lib/db';
 import { smtpConfigured } from '@/lib/mail';
 import { officePage, today } from '@/lib/office';
-import { isOfficeOwner } from '@/lib/office-owner';
+import { isDemoUser } from '@/lib/demo';
+import { ownerContext } from '@/lib/demo-office';
 import { ActionForm } from '@/components/action-form';
 import { AiBadge, AI_COST_TAG } from '@/components/ai-badge';
 import { AutoRefresh } from '@/components/auto-refresh';
@@ -22,10 +23,12 @@ import { mailClientReport, prepareAll, prepareReport, publishReport, reportAi } 
 
 export default async function MesIzvPage({ searchParams }: { searchParams: Promise<{ id?: string; p?: string }> }) {
   const sp = await searchParams;
-  const { u, firm } = await officePage('mesIzv', { perm: 'office' });
+  const { u, firm } = await officePage('mesIzv', { perm: 'office', demoGlobal: true });
   const td = today();
   const def = isReportPeriod(sp.p) ? sp.p : lastFinishedMonth(td);
-  const owner = await isOfficeOwner(u);
+  // the office owner, or 🎭 the demo office's owner (its batch covers the demo firms only)
+  const owner = !!(await ownerContext(u));
+  const demo = isDemoUser(u);
   const batch = owner && (
     <ActionForm action={prepareAll} reset={false}>
       <h2 style={{ fontSize: 15, margin: '0 0 8px' }}>Подготви за сите клиенти</h2>
@@ -43,7 +46,7 @@ export default async function MesIzvPage({ searchParams }: { searchParams: Promi
     firmMail(db(), firm.id),
   ]);
   const sel = (sp.id && L.find((r) => r.id === sp.id)) || L.find((r) => r.period === def) || L[0];
-  const smtp = smtpConfigured();
+  const smtp = smtpConfigured() && !demo;
   const rl = sel && isReportLang(sel.lang) ? sel.lang : lang;
   return (
     <>

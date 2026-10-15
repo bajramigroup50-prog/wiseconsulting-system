@@ -7,14 +7,19 @@
  * (`firmId`) — the owner works on all clients from one screen without switching the current firm. The provider is the
  * office firm (`loadProvider`). The client no longer signs in the portal: the owner signs, then either uploads the
  * paper copy signed by the client or lets the client sign on the screen in the office.
+ *
+ * 🎭 A demo admin (owner of the demo office, `lib/demo-office.ts`) works the same screen on demo data only: the provider
+ * is the demo office firm, every client firm id is re-checked to be a demo firm (`kdClientFirm`), the office settings go
+ * to the demo office's copy (`demoOffice`), the e-mail is off and the real office firm can never be chosen.
  */
 import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { kdIndex, kdNormalize, kdRecFirst, kdStatusCode, kdVat, type KdContract, type KdOffice } from '@wise/core/firms/kdog';
 import {
-  audit, contractNumber, fileLinks, files, firms, IndustryError, items, nextOfficeNumber, OFFICE_FILE_ENTITY, OfficeError, partners, patchOfficeProfile,
-  recurringInvoices, serviceContracts, textMailHtml, type Firm, type Tx,
+  audit, contractNumber, fileLinks, files, firms, IndustryError, items, nextOfficeNumber, OFFICE_FILE_ENTITY, OfficeError, officeProfileKey, partners, patchOfficeProfile,
+  realFirmSql, recurringInvoices, serviceContracts, textMailHtml, users, type Firm, type Tx,
 } from '@wise/db';
+import { refuseDemo } from '@/lib/demo';
 import type { ActionState } from '@/lib/books';
 import { nextCode } from '@/lib/codes';
 import { storeImageDataUrl } from '@/lib/data-url-file';
@@ -22,18 +27,18 @@ import { db } from '@/lib/db';
 import { splitAddresses, validAddresses } from '@/lib/mail';
 import { fv, isUuid, officeError, today } from '@/lib/office';
 import { dispatchPdfMail, pdfFileTitle, queuePdfMail } from '@/lib/pdf-mail';
-import { contractHtml, inlineImages, insertDossierCopy, kdClientFirm, kdOwnerAction, loadOffice, loadProvider, pdfTo, recPlanFor, removeDossierCopy, rowToContract } from './lib';
+import { contractHtml, inlineImages, kdCounterKey, insertDossierCopy, kdClientFirm, kdOwnerAction, loadOffice, loadProvider, pdfTo, recPlanFor, removeDossierCopy, rowToContract } from './lib';
 
 type Res = ActionState & { id?: string };
 const nowLoc = () => new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Skopje' }).slice(0, 16).replace(' ', 'T');
 const err = (e: unknown): Res => (e instanceof IndustryError ? { error: e.message } : officeError(e));
 
-/** Owner, provider and the client firm of an action. */
+/** Owner, provider and the client firm of an action (all of the owner's side — 🎭 demo or real). */
 async function ownerCtx(firmId: unknown) {
   const u = await kdOwnerAction();
-  const P = await loadProvider();
-  const firm = await kdClientFirm(firmId, P.off);
-  return { u, firm, O: P.O, off: P.off };
+  const P = await loadProvider(u);
+  const firm = await kdClientFirm(firmId, P.off, u);
+  return { u, firm, O: P.O, off: P.off, demo: P.demo };
 }
 const done = () => { revalidatePath('/kdogovori'); };
 
@@ -69,7 +74,7 @@ async function draftCopy(tx: Tx, firm: Firm, userId: string, k: KdContract, O: K
 /** Legacy `kdSaveB` (+ v419 draft in the dossier). FIX(#8): the number comes from the atomic per-year counter. */
 export async function saveContract(firmId: string, json: string): Promise<Res> {
   try {
-    const { u, firm, O } = await ownerCtx(firmId);
+    const { u, firm, O, demo } = await ownerCtx(firmId);
     let raw: Record<string, unknown>;
     try { raw = JSON.parse(json) as Record<string, unknown>; } catch { return { error: 'Неважечки податоци.' }; }
     if (!O.name) return { error: 'Прво одредете ја фирмата на канцеларијата (давател на услугата).' };
@@ -81,7 +86,14 @@ export async function saveContract(firmId: string, json: string): Promise<Res> {
       if (k0.id) cur = await loadContract(tx, k0.id, firm.id);
       if (cur?.offSig) throw new OfficeError('Договорот е потпишан од канцеларијата и не може да се менува.');
       k = { ...k0, number: cur?.number || '', offSig: null, cliSig: null, arch: null, draftArch: cur?.draftArch ?? null };
-      if (!k.number) { const y = Number(k.date.slice(0, 4)); k.number = contractNumber(await nextOfficeNumber(tx, 'kdog', y), y); }
+      if (!k.number) {
+        const y = Number(k.date.slice(0, 4));
+        k.number = contractNumber(await nextOfficeNumber(tx, kdCounterKey(demo), y), y, demo ? 'ДЕМО-СУ' : undefined);
+        // 🎭 the demo counter may lag behind the seeded demo contracts (reset every night): skip numbers already used
+        for (let i = 0; demo && i < 200 && (await tx.select({ id: serviceContracts.id }).from(serviceContracts).where(eq(serviceContracts.number, k.number)).limit(1)).length; i++) {
+          k.number = contractNumber(await nextOfficeNumber(tx, kdCounterKey(demo), y), y, 'ДЕМО-СУ');
+        }
+      }
       did = await draftCopy(tx, firm, u.id, k, O);
       if (cur) await tx.update(serviceContracts).set(cols(k, rate)).where(eq(serviceContracts.id, cur.id!));
       else { const [r] = await tx.insert(serviceContracts).values({ ...cols(k, rate), firmId: firm.id, createdBy: u.id }).returning({ id: serviceContracts.id }); k.id = r!.id; }
@@ -232,7 +244,7 @@ export async function endContract(firmId: string, id: string): Promise<Res> {
 export async function saveOffice(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
     const u = await kdOwnerAction();
-    const { off, O: P } = await loadProvider();
+    const { off, O: P, demo } = await loadProvider(u);
     const num = (k: string) => { const v = Number(String(f.get(k) ?? '').replace(',', '.')); return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : ''; };
     const ident = off
       ? { name: P.name ?? '', address: P.address ?? '', city: P.city ?? '', edb: P.edb ?? '', embs: P.embs ?? '' }
@@ -246,11 +258,14 @@ export async function saveOffice(_p: ActionState, f: FormData): Promise<ActionSt
     await db().transaction(async (tx) => {
       for (const [k, id] of Object.entries(want) as ['sig' | 'stamp', string | undefined][]) {
         if (!id) continue;
-        const [fl] = await tx.select({ id: files.id }).from(files).where(and(eq(files.id, id), isNull(files.firmId), eq(files.status, 'ready'))).limit(1);
+        // 🎭 a demo user may only use an image a demo user uploaded (never the real office's signature / stamp by id)
+        const [fl] = await tx.select({ id: files.id }).from(files).where(and(eq(files.id, id), isNull(files.firmId), eq(files.status, 'ready'),
+          demo ? inArray(files.uploadedBy, tx.select({ id: users.id }).from(users).where(eq(users.demo, true))) : undefined)).limit(1);
         if (fl) patch[k] = fl.id;
       }
-      await patchOfficeProfile(tx, patch as Record<string, unknown>, u.id);
-      await audit(tx, { userId: u.id, action: 'kdOffSave', entityType: 'app_settings', entityId: 'office', data: { name: patch.name, sig: !!patch.sig, stamp: !!patch.stamp, officeFirm: off?.id ?? null } });
+      // 🎭 a demo user writes the demo office's copy only (`demoOffice`), never the real office profile
+      await patchOfficeProfile(tx, patch as Record<string, unknown>, u.id, { demo });
+      await audit(tx, { userId: u.id, action: 'kdOffSave', entityType: 'app_settings', entityId: officeProfileKey(demo), data: { name: patch.name, sig: !!patch.sig, stamp: !!patch.stamp, officeFirm: off?.id ?? null } });
     });
     done();
     return { ok: 'Податоците за договорите се зачувани.' };
@@ -264,9 +279,11 @@ export async function saveOffice(_p: ActionState, f: FormData): Promise<ActionSt
 export async function setOfficeFirm(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
     const u = await kdOwnerAction();
+    // 🎭 the demo office firm is fixed (seeded); a demo user never re-points the office firm
+    await refuseDemo(u, 'offFirmSet');
     const id = f.get('officeFirmId');
     if (!isUuid(id)) return { error: 'Изберете ја фирмата на канцеларијата.' };
-    const [firm] = await db().select().from(firms).where(eq(firms.id, id)).limit(1);
+    const [firm] = await db().select().from(firms).where(and(eq(firms.id, id), realFirmSql)).limit(1);
     if (!firm) return { error: 'Фирмата не постои.' };
     await db().transaction(async (tx) => {
       const others = (await tx.select({ id: firms.id, settings: firms.settings }).from(firms)).filter((x) => x.id !== firm.id && (x.settings as { officeFirm?: boolean }).officeFirm);
@@ -285,6 +302,7 @@ export async function setOfficeFirm(_p: ActionState, f: FormData): Promise<Actio
 export async function mailContract(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
     const { u, firm, O } = await ownerCtx(f.get('firmId'));
+    await refuseDemo(u, 'kdMail');
     const to = splitAddresses(String(f.get('to') ?? '') || firm.email || '');
     if (!to.length || !validAddresses(to)) return { error: 'Внесете точна е-пошта на клиентот.' };
     const [r] = await db().select().from(serviceContracts).where(and(eq(serviceContracts.id, String(f.get('id') ?? '')), eq(serviceContracts.firmId, firm.id))).limit(1);
@@ -311,10 +329,10 @@ export async function mailContract(_p: ActionState, f: FormData): Promise<Action
 export async function syncRecurring(): Promise<Res> {
   try {
     const u = await kdOwnerAction();
-    const O = await loadOffice();
-    const { off: firm } = await loadProvider();
+    const { off: firm, demo } = await loadProvider(u);
+    const O = await loadOffice(db(), demo);
     if (!firm) return { error: 'Прво одредете ја фирмата на канцеларијата – од неа се фактурираат услугите.' };
-    const { F, P, plan } = await recPlanFor(firm.id);
+    const { F, P, plan } = await recPlanFor(firm.id, demo);
     const rate = kdVat(O);
     const [it] = await db().select().from(items).where(and(eq(items.firmId, firm.id), eq(items.active, true), sql`${items.name} ~* 'сметководствени\\s+услуги'`)).limit(1);
     const recItem = (firm.settings as { recItem?: string }).recItem;

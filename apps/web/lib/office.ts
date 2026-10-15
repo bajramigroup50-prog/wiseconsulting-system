@@ -8,26 +8,33 @@ import 'server-only';
  */
 import { notFound } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
-import { can, firmAllowed } from '@wise/core';
+import { can, firmAllowed, hasPerm, type Perm } from '@wise/core';
 import { klAllowedViews, todaySkopje, tplVars, type KlConfig } from '@wise/core/office';
-import { fileLinks, files, firmListedIn, firms, getOfficeProfile, OfficeError, PostingError, StockDocError, type Firm, type Tx } from '@wise/db';
+import { demoFirmSql, fileLinks, files, firmListedIn, firms, officeProfileForFirm, OfficeError, PostingError, realFirmSql, StockDocError, type Firm, type Tx } from '@wise/db';
+import { isDemoUser } from './demo';
 import { Forbidden, requireCan, requireUser, type SessionUser } from './auth';
 import { currentFirm, currentYear } from './context';
 import { db } from './db';
 import { viewAllowed } from './nav';
 import type { ActionState } from './books';
+import { isDemoFirm } from '@wise/core/demo';
 
 export const today = () => todaySkopje();
 
 export interface OfficeCtx { u: SessionUser; firm: Firm | null }
 
-/** Page guard: signed in, view allowed for the role, and for clients only the sections the office enabled. */
-export async function officePage(view: string, opts: { perm?: string } = {}): Promise<OfficeCtx> {
+/**
+ * Page guard: signed in, view allowed for the role, and for clients only the sections the office enabled.
+ * `demoGlobal`: an office-wide view whose data is scoped by side (`lib/demo-office.ts`) — a 🎭 demo user with the
+ * role's permission opens it without a selected firm (its office-wide `can(…, null)` is otherwise refused).
+ */
+export async function officePage(view: string, opts: { perm?: string; demoGlobal?: boolean } = {}): Promise<OfficeCtx> {
   const u = await requireUser();
   if (!viewAllowed(u.role, view)) notFound();
   const firm = await currentFirm(u);
   if (u.role === 'klient' && firm && !klAllowedViews((firm.settings as { kl?: KlConfig }).kl, firm.mods).includes(view)) notFound();
-  if (opts.perm && !can(u.principal, opts.perm, firm?.id ?? null)) notFound();
+  if (opts.perm && !can(u.principal, opts.perm, firm?.id ?? null)
+    && !(opts.demoGlobal && !firm && isDemoUser(u) && hasPerm(u.principal, opts.perm as Perm))) notFound();
   return { u, firm };
 }
 
@@ -42,6 +49,20 @@ export async function officeAction(perm: string): Promise<{ u: SessionUser; firm
 
 /** Server-action guard for office-wide work (no firm). */
 export const officeGlobal = (perm = 'office') => requireCan(perm, null);
+
+/**
+ * Office-wide work whose rows are scoped by side (`lib/demo-office.ts`): a 🎭 demo user passes on the role's permission
+ * (it then works on demo firms / demo users only — every caller re-checks the rows it touches); everybody else
+ * `requireCan(perm, null)`.
+ */
+export async function officeGlobalSide(perm = 'office'): Promise<SessionUser> {
+  const u = await requireUser();
+  if (isDemoUser(u)) {
+    if (!hasPerm(u.principal, perm as Perm)) throw new Forbidden(perm);
+    return u;
+  }
+  return requireCan(perm, null);
+}
 
 export function officeError(e: unknown): ActionState {
   // PostingError covers the document services' DocumentError (approving a client entry books it); StockDocError the daily sales
@@ -83,12 +104,15 @@ export async function filesOf(entityType: string, ids: string[]) {
 
 /**
  * Firms the user may see, for office-wide lists: only the firms working in the selected year (`wc_year`,
- * `@wise/core/firms/years`) unless `year: 'all'`.
+ * `@wise/core/firms/years`) unless `year: 'all'`. 🎭 By side: a demo user gets the demo firms only (also by
+ * `principal.firms`), a real user never a demo firm (`realFirmSql`; the owner sees them only in the firm list's „ДЕМО“ group).
  */
 export async function allowedFirms(u: SessionUser, o: { year?: number | 'all' } = {}) {
   const y = o.year ?? await currentYear();
-  const L = await db().select().from(firms).where(y === 'all' ? eq(firms.active, true) : firmListedIn(y));
-  return L.filter((f) => firmAllowed(u.principal, f.id, f.ownerId)).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
+  const L = await db().select().from(firms).where(and(y === 'all' ? eq(firms.active, true) : firmListedIn(y), isDemoUser(u) ? demoFirmSql : realFirmSql));
+  // 🎭 a demo user: only its demo firms (`firmAllowed`); everybody else: never a demo firm in an office-wide list
+  const demo = !!u.principal.demo;
+  return L.filter((f) => firmAllowed(u.principal, f.id, f.ownerId) && (demo ? isDemoFirm(f) : !isDemoFirm(f))).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
 }
 
 /** Firm settings fields the office documents use (kept in `firms.settings` until a module owns them). */
@@ -96,7 +120,8 @@ export interface FirmOfficeSettings { short?: string; nkd?: string; manager?: st
 
 /** Template variables for a firm (legacy `tplVars` common part) + extra document values. */
 export async function firmTemplateVars(firm: Firm, extra: Record<string, string | number | null | undefined> = {}) {
-  const O = await getOfficeProfile(db());
+  // 🎭 a demo firm's documents name the demo office, never the real one
+  const O = await officeProfileForFirm(db(), firm);
   const s = firm.settings as FirmOfficeSettings;
   return tplVars(
     { name: firm.name, edb: firm.edb, embs: firm.embs, address: firm.address, city: firm.city, email: firm.email, activity: firm.activity, nkd: s.nkd, manager: s.manager ?? s.signer, bankAccount: s.bankAccount, bankName: s.bankName },

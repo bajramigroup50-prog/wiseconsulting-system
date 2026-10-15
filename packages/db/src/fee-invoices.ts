@@ -13,38 +13,50 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
   FEE_DEF, feeDue, feeInvoiceText, feeLineName, feePlan, feeReminderDue, feeReminderText, feeToIssue, type FeePlanRow, type FeeSettings,
 } from '@wise/core/firms/kdfee';
-import { kdOfficeFirm, kdRecPlan, kdVat, KD_SVC, type KdOffice, type KdRecExisting } from '@wise/core/firms/kdog';
+import { kdRecPlan, kdVat, KD_SVC, type KdOffice, type KdRecExisting } from '@wise/core/firms/kdog';
+import { isDemoFirm } from '@wise/core/demo';
 import { todaySkopje } from '@wise/core/office';
 import { audit, type Tx } from './audit';
 import { documentPayments } from './bank/open-items';
 import { firstMailAddress, queueMailRow, textMailHtml } from './mail-queue';
-import { getOfficeProfile, OfficeError } from './office';
+import { getOfficeProfile, officeFirmOf, OfficeError } from './office';
 import { saveInvoice } from './sales/invoices';
 import { feeInvoices, firms, inboxItems, invoices, items, partners, recurringInvoices, serviceContracts, type Firm } from './schema/index';
 
 export const FEE_DELIVER_JOB = 'fee.deliver';
 
-export interface FeeCtx { O: KdOffice; off: Firm; rate: number; S: FeeSettings }
+/** `demo`: the 🎭 demo office (demo office firm → demo firms only); otherwise the real office and real firms only. */
+export interface FeeCtx { O: KdOffice; off: Firm; rate: number; S: FeeSettings; demo: boolean }
 
-/** Office settings, the office firm and the VAT rate; null when the office firm is not set. */
-export async function feeContext(db: Tx): Promise<FeeCtx | null> {
-  const O = (await getOfficeProfile(db)) as KdOffice & { feeInv?: FeeSettings };
-  const off = kdOfficeFirm(await db.select().from(firms), O);
+/**
+ * Office settings, the office firm and the VAT rate; null when the office firm is not set. `demo`: the 🎭 demo office
+ * (its own profile copy and the demo office firm) — the two never mix (`officeFirmOf`).
+ */
+export async function feeContext(db: Tx, o: { demo?: boolean } = {}): Promise<FeeCtx | null> {
+  const demo = !!o.demo;
+  const O = (await getOfficeProfile(db, { demo })) as KdOffice & { feeInv?: FeeSettings };
+  const off = officeFirmOf(await db.select().from(firms), O, { demo });
   if (!off) return null;
-  return { O, off, rate: kdVat(O), S: { ...FEE_DEF, ...(O.feeInv ?? {}), remind: { ...FEE_DEF.remind, ...(O.feeInv?.remind ?? {}) } } };
+  const S: FeeSettings = { ...FEE_DEF, ...(O.feeInv ?? {}), remind: { ...FEE_DEF.remind, ...(O.feeInv?.remind ?? {}) } };
+  // 🎭 the demo office never sends anything automatically
+  return { O, off, rate: kdVat(O), demo, S: demo ? { ...S, auto: false, mail: false, remind: { ...S.remind, on: false } } : S };
 }
+
+/** The firms of one side only: the demo firms for the demo office, the real firms for the real office. */
+const sideOf = <T extends { name: string; settings?: unknown }>(F: readonly T[], demo: boolean): T[] => F.filter((f) => isDemoFirm(f) === demo);
 
 /** The plan of month `ym`. */
 export async function feePreview(db: Tx, ym: string, ctx?: FeeCtx | null): Promise<{ ctx: FeeCtx; plan: FeePlanRow[]; noFee: number } | null> {
   const c = ctx ?? await feeContext(db);
   if (!c) return null;
-  const [F, P, R, I] = await Promise.all([
+  const [F0, P, R, I] = await Promise.all([
     db.select({ id: firms.id, name: firms.name, edb: firms.edb, embs: firms.embs, active: firms.active, settings: firms.settings }).from(firms),
     db.select({ id: partners.id, edb: partners.edb, embs: partners.embs }).from(partners).where(eq(partners.firmId, c.off.id)),
     db.select().from(recurringInvoices).where(eq(recurringInvoices.firmId, c.off.id)),
     db.select({ client: feeInvoices.clientFirmId, id: feeInvoices.invoiceId, number: feeInvoices.number }).from(feeInvoices).where(eq(feeInvoices.period, ym)),
   ]);
   const ex = new Map<string, KdRecExisting>(R.map((r) => [r.id, { id: r.id, price: Number(r.items[0]?.price) || 0, end: r.end }]));
+  const F = sideOf(F0, c.demo);
   const rows = kdRecPlan(F, c.off.id, P, ex, c.rate);
   const active = new Set(R.filter((r) => r.active).map((r) => r.id));
   const rec = new Map<string, string>();
@@ -93,11 +105,13 @@ export interface FeeIssueResult { issued: FeeIssued[]; errors: { firmId: string;
  */
 export async function issueFeeInvoices(db: Tx, a: {
   ym: string; date?: string; userId: string | null; role?: string; only?: readonly string[]; includeRecurring?: boolean; source?: 'manual' | 'auto';
+  /** 🎭 the demo office (demo office firm → demo firms only). */
+  demo?: boolean;
 }): Promise<FeeIssueResult> {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(a.ym)) throw new OfficeError('Неважечки месец.');
   const date = a.date ?? todaySkopje();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new OfficeError('Неважечки датум на фактурата.');
-  const pv = await feePreview(db, a.ym);
+  const pv = await feePreview(db, a.ym, await feeContext(db, { demo: a.demo }));
   if (!pv) throw new OfficeError('Прво одредете ја фирмата на канцеларијата – од неа се фактурираат услугите.');
   const { ctx, plan } = pv;
   const todo = feeToIssue(plan, { includeRecurring: a.includeRecurring, only: a.only });
@@ -109,7 +123,7 @@ export async function issueFeeInvoices(db: Tx, a: {
         const [ex] = await tx.select({ id: feeInvoices.id }).from(feeInvoices).where(and(eq(feeInvoices.clientFirmId, r.firmId), eq(feeInvoices.period, a.ym))).limit(1);
         if (ex) return null;
         const [client] = await tx.select().from(firms).where(eq(firms.id, r.firmId)).limit(1);
-        if (!client) throw new OfficeError('Фирмата не постои.');
+        if (!client || isDemoFirm(client) !== ctx.demo) throw new OfficeError('Фирмата не постои.');
         const pid = r.partnerId ?? await clientPartner(tx, ctx.off.id, client, a.userId);
         const it = await feeItem(tx, ctx.off);
         const kd = ((client.settings ?? {}) as { kdog?: { payDay?: number | string; no?: string } }).kdog ?? {};
@@ -151,9 +165,10 @@ export async function issueFeeInvoices(db: Tx, a: {
 export async function feePortalItem(tx: Tx, feeId: string): Promise<{ itemId: string | null; invoiceId: string; clientFirmId: string; to: string | null; subject: string; body: string } | null> {
   const [f] = await tx.select().from(feeInvoices).where(eq(feeInvoices.id, feeId)).for('update').limit(1);
   if (!f?.invoiceId) return null;
-  const ctx = await feeContext(tx);
   const [client] = await tx.select().from(firms).where(eq(firms.id, f.clientFirmId)).limit(1);
-  if (!ctx || !client) return null;
+  // 🎭 a demo client belongs to the demo office only (never the real office's name / bank account)
+  const ctx = client ? await feeContext(tx, { demo: isDemoFirm(client) }) : null;
+  if (!ctx || !client || ctx.off.id !== f.officeFirmId) return null;
   const bank = ((ctx.off.settings ?? {}) as { bankAccount?: string }).bankAccount ?? ctx.O.bank ?? null;
   const t = feeInvoiceText({ number: f.number ?? '', date: f.date, due: f.due, gross: Math.round(Number(f.gross) * 100), ym: f.period, office: ctx.off.name, bank });
   let itemId = f.portalItemId;
@@ -192,6 +207,7 @@ export async function feeRows(db: Tx, o: { offId: string; periods?: readonly str
  */
 export async function runFeeReminders(db: Tx, o: { today?: string; mail: boolean; userId?: string | null; only?: readonly string[]; force?: boolean }): Promise<{ sent: number; mailIds: string[] }> {
   const today = o.today ?? todaySkopje();
+  // the real office only (its fee rows are real clients); the 🎭 demo office sends no reminders
   const ctx = await feeContext(db);
   if (!ctx || (!ctx.S.remind?.on && !o.force)) return { sent: 0, mailIds: [] };
   // `force` („✉ Потсетник“ by the owner): any still-open invoice, regardless of the schedule

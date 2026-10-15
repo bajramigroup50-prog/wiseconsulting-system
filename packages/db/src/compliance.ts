@@ -18,7 +18,7 @@ import {
 import { addDays, addMonths, cashDays, inspCheck, inspCtx, inspScore, todaySkopje, vatPeriodRange, ymAdd, type InspManual, type InspProfile } from '@wise/core/office';
 import { randomUUID } from 'node:crypto';
 import { audit, type Tx } from './audit';
-import { buildFirmSnapshot, getOfficeProfile, OfficeError } from './office';
+import { buildFirmSnapshot, officeProfileForFirm, OfficeError } from './office';
 import { loadInvoicePrintData } from './sales/invoice-print';
 import {
   amlRecords, auditLog, bankStatements, employees, firms, gdprRecords, inspectionStates, invoiceLines, invoices, journalLines, journals, kontrolaActions,
@@ -536,7 +536,8 @@ export async function loadKontrolaCase(tx: Tx, firmId: string, kid: string, toda
   const F = await tx.select().from(kontrolaFindings).where(eq(kontrolaFindings.kontrolaId, kid)).orderBy(asc(kontrolaFindings.no));
   const ev: FindingEvidence[] = [];
   for (const f of F) ev.push(await findingEvidence(tx, firmId, k, f));
-  const O = await getOfficeProfile(tx);
+  // 🎭 a demo firm's полномошник is the demo office, never the real one
+  const O = await officeProfileForFirm(tx, firm);
   const st = (firm.settings ?? {}) as { manager?: string; signer?: string; officeFirm?: boolean };
   const input: CaseInput = {
     auth: k.auth, doc: k.doc, docNo: k.docNo, docDate: k.docDate, delivered: k.delivered, dueOverride: kontrolaDue(k), periodFrom: k.periodFrom, periodTo: k.periodTo,

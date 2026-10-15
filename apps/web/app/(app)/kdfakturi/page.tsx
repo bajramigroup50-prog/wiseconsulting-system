@@ -10,7 +10,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { FEE_ST_PILL, feeBillingDate, feeMonth, feeToIssue, feeTotals } from '@wise/core/firms/kdfee';
 import { rokYmAdd } from '@wise/core/office/rokovi';
-import { feePreview, feeRows } from '@wise/db';
+import { feeContext, feePreview, feeRows } from '@wise/db';
+import { isDemoUser } from '@/lib/demo';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { today } from '@/lib/office';
@@ -36,7 +37,9 @@ export default async function KdFakturiPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const td = today();
   const ym = sp.m && YM.test(sp.m) ? sp.m : td.slice(0, 7);
-  const pv = await feePreview(db(), ym);
+  // 🎭 a demo admin: the demo office firm → demo firms only (never the real office or its clients)
+  const demo = isDemoUser(u);
+  const pv = await feePreview(db(), ym, await feeContext(db(), { demo }));
   if (!pv) {
     return (
       <>
@@ -103,8 +106,8 @@ export default async function KdFakturiPage({ searchParams }: { searchParams: Pr
                 <td className="mini">{[r.portal ? 'портал' : '', r.mailedAt ? 'е-пошта' : ''].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="mini">{r.reminders ? `${r.reminders} · ${dmy(r.lastReminder)}` : ''}</td>
                 <td className="noprint" style={{ whiteSpace: 'nowrap' }}>
-                  {r.remaining > 100 && <RowAction action={remindFeeAction.bind(null, r.id)} label="✉ Потсетник" confirm={`Да се испрати љубезен потсетник до ${r.client}?`} />}
-                  <RowAction action={redeliverFeeAction.bind(null, r.id)} label="↻" title="Испрати ја фактурата пак (портал / е-пошта)" />
+                  {!demo && r.remaining > 100 && <RowAction action={remindFeeAction.bind(null, r.id)} label="✉ Потсетник" confirm={`Да се испрати љубезен потсетник до ${r.client}?`} />}
+                  {!demo && <RowAction action={redeliverFeeAction.bind(null, r.id)} label="↻" title="Испрати ја фактурата пак (портал / е-пошта)" />}
                 </td>
               </tr>
             );

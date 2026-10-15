@@ -6,13 +6,12 @@ import { FIMP_TEMPLATE } from '@wise/core/firms/firmimp';
 import { firms, userFirms } from '@wise/db';
 import { getUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { firmListSql } from '@/lib/demo';
 
 export async function GET() {
   const u = await getUser();
   if (!u || !can(u.principal, 'firms')) return new Response('Forbidden', { status: 403 });
-  const scoped = u.principal.firms.includes('*')
-    ? undefined
-    : or(inArray(firms.id, db().select({ id: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))), eq(firms.ownerId, u.id));
+  const scoped = firmListSql(u);
   const rows = await db().select().from(firms).where(scoped).orderBy(asc(firms.name));
   const str = (v: unknown) => (v == null ? '' : String(v));
   const data = rows.map((f) => {

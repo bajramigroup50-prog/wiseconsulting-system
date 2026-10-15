@@ -1,7 +1,10 @@
 import Link from 'next/link';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { can, ROLES } from '@wise/core';
-import { employees, firms, getOfficeProfile, userFirms, users } from '@wise/db';
+import { demoFirmSql, employees, firms, getDemoSettings, getOfficeProfile, realFirmSql, userFirms, users } from '@wise/db';
+import { isDemoUser } from '@/lib/demo';
+import { listDemoLinks } from '@/lib/demo-links';
+import { DemoPanel } from './demo-panel';
 import { IzjCell } from './izj-cell';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -28,14 +31,23 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
   );
   if (!can(me.principal, 'users')) return <><Hd t="Мојот профил" />{selfBox}</>;
 
-  const [U, F, UF] = await Promise.all([
+  // 🎭 a demo admin sees only the demo office: demo users and demo firms; real users never see demo users / firms here
+  // (the owner gets them in the „🎭 Демо“ card)
+  const meDemo = isDemoUser(me);
+  const [U0, FR, FD, UF0] = await Promise.all([
     db().select().from(users).orderBy(asc(users.name)),
-    db().select({ id: firms.id, name: firms.name }).from(firms).orderBy(asc(firms.name)),
+    meDemo ? Promise.resolve([]) : db().select({ id: firms.id, name: firms.name }).from(firms).where(realFirmSql).orderBy(asc(firms.name)),
+    db().select({ id: firms.id, name: firms.name, settings: firms.settings }).from(firms).where(and(demoFirmSql, eq(firms.active, true))).orderBy(asc(firms.name)),
     db().select().from(userFirms),
   ]);
+  const U = U0.filter((u) => u.demo === meDemo);
+  const UD = meDemo ? [] : U0.filter((u) => u.demo);
+  const editDemo = !!sp.edit && UD.some((u) => u.id === sp.edit);
+  const F = meDemo || editDemo ? FD.map((f) => ({ id: f.id, name: f.name })) : FR;
+  const UF = UF0.filter((x) => U0.some((u) => u.id === x.userId && u.demo === (meDemo || editDemo)));
   const fname = new Map(F.map((f) => [f.id, f.name]));
   // login locks (5 failures per username / 20 per IP → 15 min): the owner sees them and can unlock early
-  const owner = await isOfficeOwner(me);
+  const owner = !meDemo && await isOfficeOwner(me);
   const LOCKS = owner ? await activeLocks() : [];
   const hm = (ms: number) => new Date(ms).toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Skopje' });
   const unlockBtn = (key: string, what: string) => (
@@ -43,20 +55,23 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
   );
   const lockOf = (username: string) => LOCKS.find((l) => l.scope === 'u' && l.id === username.toLowerCase());
   const IZJ_K = 'd:Изјава за доверливост';
-  const izjOwn = (await ownTemplateKinds([IZJ_K])).has(IZJ_K);
+  const izjOwn = !meDemo && (await ownTemplateKinds([IZJ_K])).has(IZJ_K);
   // legacy „Изјава · Договор“: the colleague's employment contract in the office's own firm (matched by name)
-  const office = (await db().select({ id: firms.id, settings: firms.settings }).from(firms)).find((f) => (f.settings as { officeFirm?: boolean }).officeFirm);
+  // (the real office's firm, contracts and ЗЗЛП statements — never for a demo admin)
+  const office = meDemo ? undefined : (await db().select({ id: firms.id, settings: firms.settings }).from(firms)).find((f) => (f.settings as { officeFirm?: boolean }).officeFirm);
   const EMP = office ? await db().select({ id: employees.id, name: employees.name }).from(employees).where(eq(employees.firmId, office.id)) : [];
-  const IZJ = (await getOfficeProfile(db())).zzlp?.izj ?? {};
+  const IZJ = meDemo ? {} : (await getOfficeProfile(db())).zzlp?.izj ?? {};
+  const DL = owner ? await listDemoLinks() : [];
+  const demoSet = owner ? await getDemoSettings(db()) : null;
   const empOf = (n: string) => EMP.find((e) => e.name.trim().toLowerCase() === n.trim().toLowerCase());
   const firmsOf = (uid: string) => UF.filter((x) => x.userId === uid).map((x) => x.firmId);
 
-  const editing = sp.edit ? U.find((u) => u.id === sp.edit) : undefined;
+  const editing = sp.edit ? [...U, ...UD].find((u) => u.id === sp.edit) : undefined;
   const showForm = sp.nov !== undefined || !!editing;
 
   const urow = (u: (typeof U)[number]) => (
     <tr key={u.id}>
-      <td><b>{u.name}</b>{u.id === me.id && <> <span className="pill info">вие</span></>}</td>
+      <td><b>{u.name}</b>{u.id === me.id && <> <span className="pill info">вие</span></>}{u.demo && !meDemo && <> <span className="pill warn">🎭 демо</span></>}</td>
       <td>{u.username}</td>
       <td><span className={`pill ${u.role === 'admin' ? 'bad' : u.role === 'view' ? '' : 'info'}`}>{ROLES[u.role]?.n ?? u.role}</span></td>
       <td>{u.allFirms || u.role === 'admin' ? 'сите' : firmsOf(u.id).map((id) => fname.get(id)).filter(Boolean).join(', ') || '—'}</td>
@@ -64,8 +79,8 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
         {lockOf(u.username) && <> <span className="pill bad" title="Премногу неуспешни обиди за најава">🔒 заклучен до {hm(lockOf(u.username)!.until)}</span>{' '}{unlockBtn(lockOf(u.username)!.key, u.username)}</>}</td>
       <td>{dmyHm(u.lastLoginAt)}</td>
       {u.role !== 'klient' && <td style={{ whiteSpace: 'nowrap' }}>
-        {u.role === 'admin' ? <span className="pill info" title="Изјава за доверливост не е потребна за сопственикот">👑 сопственик</span> : <IzjCell uid={u.id} signed={!!IZJ[u.id]?.signed} at={IZJ[u.id]?.at} fileId={IZJ[u.id]?.fileId} fileName={IZJ[u.id]?.fileName} />}{' '}
-        <a className="btn sm" href={`/print/izjava?u=${u.id}`} target="_blank" title="Изјава за доверливост (ЗЗЛП)">📄 Изјава</a>{' '}
+        {meDemo || u.demo ? <span className="mut">—</span> : u.role === 'admin' ? <span className="pill info" title="Изјава за доверливост не е потребна за сопственикот">👑 сопственик</span> : <IzjCell uid={u.id} signed={!!IZJ[u.id]?.signed} at={IZJ[u.id]?.at} fileId={IZJ[u.id]?.fileId} fileName={IZJ[u.id]?.fileName} />}{' '}
+        {!meDemo && <><a className="btn sm" href={`/print/izjava?u=${u.id}`} target="_blank" title="Изјава за доверливост (ЗЗЛП)">📄 Изјава</a>{' '}</>}
         {izjOwn && <><a className="btn sm" href={`/api/office/tpl/own?${new URLSearchParams({ k: IZJ_K, src: `user:${u.id}`, fmt: 'word' })}`} title="Word од сопствениот шаблон">📝 Word</a>{' '}</>}
         {empOf(u.name) && <FirmGo fid={office!.id} to={`/vraboteni/${empOf(u.name)!.id}/dogovor`} className="btn sm" title="Договор за вработување (фирма на канцеларијата)">📄 Договор</FirmGo>}
       </td>}
@@ -103,6 +118,8 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
           user={editing ? { ...editing, firms: firmsOf(editing.id) } : null}
           allFirms={F}
           isSelf={editing?.id === me.id}
+          demoBox={owner}
+          demoMode={meDemo}
         />
       )}
       <div className="card"><h2>👥 Колеги во канцеларијата</h2><div className="tw"><table>{uth}<tbody>
@@ -111,6 +128,9 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <div className="card"><h2>🏢 Компании (клиенти – портал)</h2><div className="tw"><table>{uthK}<tbody>
         {UK.length ? UK.map(urow) : <tr><td colSpan={7} className="mut">Нема клиенти со пристап.</td></tr>}
       </tbody></table></div></div>
+      {owner && UD.length > 0 && <div className="card"><h2>🎭 Демо корисници</h2><div className="tw"><table>{uth}<tbody>{UD.map(urow)}</tbody></table></div></div>}
+      {owner && demoSet && <DemoPanel firms={FD.filter((f) => !(f.settings as { demoOffice?: boolean }).demoOffice).map((f) => f.name)} hasLogin={UD.some((u) => u.username === 'demo' && u.role === 'admin' && u.active)} settings={demoSet}
+        links={DL.map((x) => ({ id: x.id, note: x.note, createdAt: x.createdAt.toISOString(), expiresAt: x.expiresAt.toISOString(), lastUsedAt: x.lastUsedAt?.toISOString() ?? null, uses: x.uses, revoked: !!x.revokedAt, expired: x.expiresAt.getTime() <= Date.now() }))} />}
       <div className="card"><h2>Улоги</h2><div className="tw"><table>
         <thead><tr><th>Улога</th><th>Што може</th></tr></thead>
         <tbody>{Object.values(ROLES).map((r) => <tr key={r.n}><td><b>{r.n}</b></td><td>{r.d}</td></tr>)}</tbody>

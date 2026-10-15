@@ -1,6 +1,6 @@
 /** Legacy `kdRepPdf` (14981): the business report for the client, printed / saved as PDF. */
 import { isKdPer, kdRange } from '@wise/core/firms/dash';
-import { getOfficeProfile } from '@wise/db';
+import { getOfficeProfile, officeProfileForFirm } from '@wise/db';
 import { currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { officePage, today } from '@/lib/office';
@@ -13,6 +13,6 @@ export default async function KdReportPrint({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const year = await currentYear();
   const [from, to, pl] = kdRange(year, isKdPer(sp.p) ? sp.p : 'ytd', today(), sp.f, sp.t);
-  const [R, O] = await Promise.all([kdData(firm, year, from, to), getOfficeProfile(db())]);
+  const [R, O] = await Promise.all([kdData(firm, year, from, to), officeProfileForFirm(db(), firm)]);
   return <div dangerouslySetInnerHTML={{ __html: kdReportHtml(R, firm, pl, from, to, [O.name, u.name].filter(Boolean).join(' – '), today()) }} />;
 }

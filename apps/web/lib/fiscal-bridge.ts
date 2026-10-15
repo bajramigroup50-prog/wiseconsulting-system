@@ -48,8 +48,17 @@ export interface WiseFiscal {
 
 export const DESKTOP_ONLY = 'Фискалниот апарат работи само во WISE десктоп апликацијата (инсталирана на компјутерот на касата). Во прелистувач продажбата се евидентира без фискална сметка.';
 
+const demoPage = (w: unknown): boolean =>
+  !!(w as { document?: { querySelector?: (s: string) => unknown } } | undefined)?.document?.querySelector?.('[data-wise-demo]');
+
+/** Why there is no fiscal device: demo mode („Во демо режим оваа функција е исклучена“) or a plain browser. */
+export const fiscalOffMsg = (w: unknown = typeof window === 'undefined' ? undefined : window): string =>
+  demoPage(w) ? 'Во демо режим оваа функција е исклучена' : DESKTOP_ONLY;
+
 /** The bridge if this page runs inside the WISE desktop app, else null. `w` = window (tests pass a fake). */
 export function fiscalBridge(w: unknown = typeof window === 'undefined' ? undefined : window): WiseFiscal | null {
+  // 🎭 demo mode (the yellow band of the layout carries `data-wise-demo`): never print to a real fiscal device
+  if (demoPage(w)) return null;
   const f = (w as { wiseFiscal?: Partial<WiseFiscal> } | undefined)?.wiseFiscal;
   if (!f || typeof f !== 'object' || typeof f.version !== 'number' || f.version < 1) return null;
   if (typeof f.printReceipt !== 'function' || typeof f.status !== 'function') return null;

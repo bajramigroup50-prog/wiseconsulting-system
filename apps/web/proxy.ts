@@ -14,7 +14,9 @@ import { getDb, sessions, userFirms, users } from '@wise/db';
 import { FP_HEADER, type DeviceRow, deviceMode, devicePage, deviceUserOk, deviceVerdict, normFp } from './lib/device-guard';
 import { deviceByFp, touchDevice } from './lib/device-lookup';
 import { firmKlientViews, klientViews } from './lib/kl-views';
-import { PREVIEW_COOKIE, isGuardRole, previewVerdict, publicPath, routeVerdict } from './lib/route-guard';
+import { DEMO_OFF_MSG } from '@wise/core/demo';
+import { actionFile } from './lib/action-manifest';
+import { PREVIEW_COOKIE, demoActionAllowed, demoVerdict, isGuardRole, previewVerdict, publicPath, routeVerdict } from './lib/route-guard';
 import { FIRM_MISMATCH_HEADER, staleTab } from './lib/firm-guard';
 
 const SESSION_COOKIE = 'wc_sess';
@@ -30,8 +32,10 @@ export async function proxy(req: NextRequest) {
   if (mode !== 'off') {
     const fp = normFp(req.headers.get(FP_HEADER));
     const v = deviceVerdict(mode, req.nextUrl.pathname, fp, fp ? await deviceByFp(fp) : null);
-    if (!v.ok) return deny(v.reason);
-    device = v.device;
+    // 🎭 a buyer opens the demo in an ordinary browser (no enrolled certificate): only the demo link and a demo
+    // user's session pass without one — a revoked / unknown certificate is still refused
+    if (!v.ok && !(v.reason === 'none' && await demoRequest(req))) return deny(v.reason);
+    device = v.ok ? v.device : null;
     if (device) void touchDevice(device.id, req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null);
   }
   const res = await route(req, device);
@@ -44,13 +48,26 @@ export async function proxy(req: NextRequest) {
 
 async function route(req: NextRequest, device: DeviceRow | null): Promise<NextResponse> {
   const p = req.nextUrl.pathname;
-  if (publicPath(p)) return NextResponse.next();
+  // a server action posted to a public page still goes through the user checks below (🎭 demo action gate)
+  if (publicPath(p) && !req.headers.get('next-action')) return NextResponse.next();
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return NextResponse.next();
-  const [u] = await getDb().select({ id: users.id, role: users.role }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
+  const [u] = await getDb().select({ id: users.id, role: users.role, demo: users.demo }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.id, createHash('sha256').update(token).digest('hex')), gt(sessions.expiresAt, new Date()),
       gt(sessions.createdAt, new Date(Date.now() - ABSOLUTE_MS)), eq(users.active, true))).limit(1);
   if (!u) return NextResponse.next();
+  // 🎭 demo user: the demo allow-list of views (`lib/route-guard.ts` `demoVerdict`), whatever the role
+  if (u.demo) {
+    // a server action is refused unless it is defined by an allowed view (an action id can be posted to any page)
+    const action = req.headers.get('next-action');
+    if (action && req.method === 'POST' && !demoActionAllowed(await actionFile(action))) {
+      return NextResponse.json({ error: DEMO_OFF_MSG }, { status: 403 });
+    }
+    const dv = demoVerdict(p);
+    if (!dv) return NextResponse.next();
+    if (dv === '403') return NextResponse.json({ error: 'Немате пристап.' }, { status: 403 });
+    return NextResponse.redirect(new URL(dv, req.url));
+  }
   if (device?.firmId && u.role === 'klient') {
     const F = (await getDb().select({ f: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))).map((r) => r.f);
     if (!deviceUserOk(device, u.role, F, req.cookies.get(FIRM_COOKIE)?.value)) return deny('firm');
@@ -68,6 +85,16 @@ async function route(req: NextRequest, device: DeviceRow | null): Promise<NextRe
   if (!v) return NextResponse.next();
   if (v === '403') return NextResponse.json({ error: 'Немате пристап.' }, { status: 403 });
   return NextResponse.redirect(new URL(v, req.url));
+}
+
+/** The demo link itself, or a request of a live demo user's session (for the device guard without a certificate). */
+async function demoRequest(req: NextRequest): Promise<boolean> {
+  if (req.nextUrl.pathname.startsWith('/demo/')) return true;
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return false;
+  const [u] = await getDb().select({ demo: users.demo }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
+    .where(and(eq(sessions.id, createHash('sha256').update(token).digest('hex')), gt(sessions.expiresAt, new Date()), eq(users.active, true))).limit(1);
+  return !!u?.demo;
 }
 
 export const config = {

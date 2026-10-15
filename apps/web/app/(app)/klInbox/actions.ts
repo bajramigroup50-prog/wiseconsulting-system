@@ -8,6 +8,7 @@ import { dispatchAiReads, queueAiReads } from '@/lib/ai';
 import { enqueue } from '@/lib/jobs';
 import { selectFirm } from '@/app/(app)/actions';
 import { requireCan } from '@/lib/auth';
+import { isDemoUser } from '@/lib/demo';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dispatchMail, queueMail } from '@/lib/mail';
@@ -24,7 +25,9 @@ export async function decideEntry(id: string, decision: 'approve' | 'reject', no
     if (!e) return { error: 'Записот не постои.' };
     const u = await requireCan('office', e.firmId);
     const r = await db().transaction((tx) => decideClientEntry(tx, id, e.firmId, decision, u.id, note));
-    await dispatchMail(r.mailIds); // the client is notified by e-mail (after COMMIT; `mail.flush` retries)
+    // the client is notified by e-mail (after COMMIT; `mail.flush` retries) — 🎭 never for a demo user (the worker
+    // also refuses every mail of a demo firm)
+    if (!isDemoUser(u)) await dispatchMail(r.mailIds);
   } catch (e) { return officeError(e); }
   revalidatePath('/klInbox');
   return { ok: decision === 'approve' ? 'Одобрено и прокнижено.' : 'Документот е одбиен; клиентот ќе ја види причината.' };
@@ -124,7 +127,8 @@ export async function replyToClient(_p: ActionState, f: FormData): Promise<Actio
     const ids = await db().transaction(async (tx) => {
       const [m] = await tx.insert(inboxItems).values({ firmId, fromOffice: true, done: true, subject, note, fromUserId: u.id, fromName: u.name })
         .returning({ id: inboxItems.id });
-      const to = await firmMail(tx, firmId);
+      // 🎭 a demo user: the portal message only, never an e-mail
+      const to = isDemoUser(u) ? null : await firmMail(tx, firmId);
       const [fm] = await tx.select({ name: firms.name }).from(firms).where(eq(firms.id, firmId)).limit(1);
       const ids = to ? [await queueMail(tx, {
         firmId, to, subject: subject || `Порака од сметководствената канцеларија – ${fm?.name ?? ''}`, html: textMailHtml(note),

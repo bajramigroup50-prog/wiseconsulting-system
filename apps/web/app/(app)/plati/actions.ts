@@ -8,9 +8,7 @@ import { redirect } from 'next/navigation';
 import { and, asc, desc, eq, like, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { payCopyPrev, payDraft, type PayEmp, type PayParams } from '@wise/core';
-import {
-  audit, deleteRun, employees, getOfficeProfile, loadRun, payrollNotes, payrollRuns, payrollSettings, postRun, saveRun, setRunLocked, textMailHtml, unpostRun, type PdfMailJob,
-} from '@wise/db';
+import { audit, deleteRun, employees, getOfficeProfile, loadRun, payrollNotes, payrollRuns, payrollSettings, postRun, saveRun, setRunLocked, textMailHtml, unpostRun, type PdfMailJob, officeProfileForFirm } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dispatchMail, queueMail, splitAddresses, validAddresses } from '@/lib/mail';
@@ -219,7 +217,7 @@ export async function mailSlipsAction(input: MailSlipsInput): Promise<ActionStat
       const ctx = await payCtx(firm, tx);
       const E = new Map((await firmEmployees(firm.id, tx)).map((e) => [e.id, e]));
       const mm = mmYYYY(run.month);
-      const O = (await getOfficeProfile(tx)) as { rep?: string; brand?: string; name?: string; sig?: string | null };
+      const O = (await officeProfileForFirm(tx, firm)) as { rep?: string; brand?: string; name?: string; sig?: string | null };
       const slip = (e: PayEmp) => slipHtml(run, e, ctx.firm, E.get(e.empId) ?? null, { rep: O.rep, brand: O.brand || O.name, sig: O.sig, user: u.name });
       const pdf = (title: string, emps: PayEmp[]) => ({ title, html: `<div class="pdfdoc">${emps.map((e, i) => (i ? '<div style="page-break-before:always"></div>' : '') + slip(e)).join('')}</div>` });
       const out: PdfMailJob[] = [];

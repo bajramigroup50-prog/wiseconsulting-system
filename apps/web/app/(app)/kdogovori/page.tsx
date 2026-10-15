@@ -28,14 +28,15 @@ import { PdfButton } from '@/components/pdf-button';
 import { SignaturePad, PhotoField } from '@/components/driver-form';
 import { clientSign, contractToDossier, deleteContract, endContract, mailContract, officeSign, saveOffice, setOfficeFirm, syncRecurring, uploadSignedCopy } from './actions';
 import { KdEditor } from './editor';
-import { firmOf, kdOwnerUser, loadProvider, recPlanFor, rowToContract } from './lib';
+import { firmOf, kdCounterKey, kdOwnerUser, loadProvider, recPlanFor, rowToContract } from './lib';
+import { firmSideSql } from '@/lib/demo-office';
 
 const T = 'Договор за сметководствени услуги';
 
-async function peekNo(date: string) {
+async function peekNo(date: string, demo: boolean) {
   const y = Number(date.slice(0, 4));
-  const [c] = await db().select().from(officeCounters).where(and(eq(officeCounters.key, 'kdog'), eq(officeCounters.year, y))).limit(1);
-  return kdNumber((c?.value ?? 0) + 1, y);
+  const [c] = await db().select().from(officeCounters).where(and(eq(officeCounters.key, kdCounterKey(demo)), eq(officeCounters.year, y))).limit(1);
+  return (demo ? 'ДЕМО-' : '') + kdNumber((c?.value ?? 0) + 1, y);
 }
 
 type KdogSum = { no?: string; date?: string; fee?: number; st?: string };
@@ -48,9 +49,10 @@ export default async function KdogovoriPage({ searchParams }: { searchParams: Pr
     return <><Hd t={`✍ ${T}`} exp={false} /><div className="card empty">{OWNER_ONLY_MSG}</div></>;
   }
   const sp = await searchParams;
-  const { raw, off, O } = await loadProvider();
+  const { raw, off, O, demo } = await loadProvider(u);
   const rate = kdVat(O);
-  const all = (await db().select().from(firms)).filter((f) => !(f.settings as { example?: boolean }).example).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
+  // 🎭 the firms of the owner's side only: demo firms for the demo office, never a demo firm for the real office
+  const all = (await db().select().from(firms).where(firmSideSql(u))).filter((f) => !(f.settings as { example?: boolean }).example).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
   const clients = all.filter((f) => f.id !== off?.id);
   const cur = await currentFirm(u);
   const fid = isUuid(sp.f) ? sp.f : cur && cur.id !== off?.id ? cur.id : '';
@@ -71,17 +73,18 @@ export default async function KdogovoriPage({ searchParams }: { searchParams: Pr
       <>
         <Hd t={k.id ? `Договор ${k.number}` : 'Нов договор за сметководствени услуги'} sub={`${O.name || 'канцеларија'} → ${firm.name}`}><Link className="btn" href={q({})}>← Листа</Link></Hd>
         {!O.name && <div className="callout warn">Прво одредете ја „Фирмата на канцеларијата“ (давател на услугата) во листата.</div>}
-        <KdEditor initial={k} firm={firmOf(firm)} firmId={firm.id} O={O} off={off ? firmOf(off) : null} peekNo={k.number ? '' : await peekNo(k.date)} offName={off?.name ?? null} />
+        <KdEditor initial={k} firm={firmOf(firm)} firmId={firm.id} O={O} off={off ? firmOf(off) : null} peekNo={k.number ? '' : await peekNo(k.date, demo)} offName={off?.name ?? null} />
       </>
     );
   }
 
   const [rows, Tp] = await Promise.all([
     firm ? db().select().from(serviceContracts).where(eq(serviceContracts.firmId, firm.id)).orderBy(desc(serviceContracts.date)) : Promise.resolve([]),
-    db().select().from(wordTemplates).where(and(eq(wordTemplates.kind, 'kd'), eq(wordTemplates.active, true))),
+    // the office's own Word templates are the real office's (and served by an API a demo user cannot call)
+    demo ? Promise.resolve([]) : db().select().from(wordTemplates).where(and(eq(wordTemplates.kind, 'kd'), eq(wordTemplates.active, true))),
   ]);
   const K = rows.map((r) => ({ k: rowToContract(r), ended: r.status === 'ended' }));
-  const rec = off ? await recPlanFor(off.id) : null;
+  const rec = off ? await recPlanFor(off.id, demo) : null;
   const todo = rec?.plan.filter((x) => x.st !== 'ок') ?? [];
   const missSig = [!O.sig ? 'потпис' : '', !O.stamp ? 'печат' : ''].filter(Boolean).join(' и ');
   const offS = (off?.settings ?? {}) as Record<string, unknown>;
@@ -125,11 +128,11 @@ export default async function KdogovoriPage({ searchParams }: { searchParams: Pr
                       {!k.arch && (k.draftArch ? <span className="pill info" title="Нацртот е во досието; по потпишувањето се заменува">📁 во досие</span> : <RowAction className="btn sm" action={contractToDossier.bind(null, firm.id, k.id!)} label="📁 Во досие" />)}
                       {!k.arch && <RowAction action={deleteContract.bind(null, firm.id, k.id!)} label="🗑" style={{ color: 'var(--bad)' }} confirm={`Да се избрише договорот ${k.number}?`} />}
                       {k.arch && !ended && <RowAction action={endContract.bind(null, firm.id, k.id!)} label="Раскини" confirm="Да се означи договорот како раскинат?" />}
-                      <ActionForm action={mailContract} className="row" style={{ display: 'flex', gap: 4, marginTop: 4 }} reset={false}>
+                      {!demo && <ActionForm action={mailContract} className="row" style={{ display: 'flex', gap: 4, marginTop: 4 }} reset={false}>
                         <input type="hidden" name="firmId" value={firm.id} /><input type="hidden" name="id" value={k.id} />
                         <input name="to" defaultValue={firm.email ?? ''} placeholder="е-пошта на клиентот" style={{ width: 200 }} />
                         <button className="btn sm">✉ Испрати PDF</button>
-                      </ActionForm>
+                      </ActionForm>}
                       {k.offSig && !k.cliSig && (
                         <>
                           <ActionForm action={uploadSignedCopy} className="row" style={{ display: 'flex', gap: 4, marginTop: 4 }}>
@@ -159,31 +162,38 @@ export default async function KdogovoriPage({ searchParams }: { searchParams: Pr
             </tbody>
           </table></div>
           <p className="note">Тек: 1) креирајте го договорот (податоците на клиентот и на {O.name || 'канцеларијата'} се пополнуваат автоматски) → 2) „✍ Потпиши и печат“ → 3) клиентот потпишува на екран во канцеларијата или прикачете скениран потпишан примерок → 4) договорот автоматски се архивира како PDF во „Документи на фирмата“ на клиентот.</p>
-          {!Tp.length && <p className="note">За Word верзија прикачете шаблон од вид „Договор за сметководствени услуги“ во <a href="/tpl">Шаблони</a>.</p>}
+          {!Tp.length && !demo && <p className="note">За Word верзија прикачете шаблон од вид „Договор за сметководствени услуги“ во <a href="/tpl">Шаблони</a>.</p>}
         </>
       )}
 
       {/* „Фирма на канцеларијата“ = the provider */}
-      <ActionForm action={setOfficeFirm} reset={false}>
-        <h2 style={{ fontSize: 15, margin: '0 0 8px' }}>🏢 Фирма на канцеларијата (давател на услугата во сите договори)</h2>
-        <div className="row" style={{ gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
-          <label className="f" style={{ minWidth: 320 }}>Фирма
-            <select name="officeFirmId" defaultValue={off?.id ?? ''}>
-              <option value="">— изберете —</option>
-              {all.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-          </label>
-          <button className="btn pri">Зачувај</button>
-          {off && !(offS.officeFirm) && <span className="pill warn">автоматски препознаена – потврдете</span>}
+      {/* 🎭 the demo office firm is fixed: a demo admin sees it, never the picker (and never a real firm) */}
+      {demo ? (
+        <div className="card mini" style={{ lineHeight: 1.6 }}>
+          🏢 Фирма на канцеларијата: <b>{off?.name ?? '—'}</b> · {[O.address, O.city].filter(Boolean).join(', ')} · ЕДБ {O.edb || '—'}
         </div>
-        {off ? (
-          <div className="mini" style={{ marginTop: 8, lineHeight: 1.6 }}>
-            <b>{O.name}</b> · {[O.address, O.city].filter(Boolean).join(', ') || <span className="pill warn">нема адреса</span>} · ЕДБ {O.edb || '—'} · ЕМБС {O.embs || '—'} · Ж-сметка {O.bank || '—'}<br />
-            Потписник: {O.rep || '—'}{O.repRole ? `, ${O.repRole}` : ''} · лого {O.logo ? '✓' : '—'} · потпис {O.sig ? '✓' : '—'}{O.sig && !fromFirm('sign') ? ' (од подесувањата подолу)' : ''} · печат {O.stamp ? '✓' : '—'}{O.stamp && !fromFirm('stamp') ? ' (од подесувањата подолу)' : ''}
-            <br />Податоците (назив, адреса, ЕДБ, ЕМБС, сметка, потписник, лого, потпис, печат) се земаат од картичката на фирмата – менувајте ги во <Link href="/firmi">Фирми</Link>.
+      ) : (
+        <ActionForm action={setOfficeFirm} reset={false}>
+          <h2 style={{ fontSize: 15, margin: '0 0 8px' }}>🏢 Фирма на канцеларијата (давател на услугата во сите договори)</h2>
+          <div className="row" style={{ gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
+            <label className="f" style={{ minWidth: 320 }}>Фирма
+              <select name="officeFirmId" defaultValue={off?.id ?? ''}>
+                <option value="">— изберете —</option>
+                {all.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </label>
+            <button className="btn pri">Зачувај</button>
+            {off && !(offS.officeFirm) && <span className="pill warn">автоматски препознаена – потврдете</span>}
           </div>
-        ) : <div className="callout warn" style={{ marginTop: 8 }}>Не е одредена фирмата на канцеларијата (БАЈРАМИ ГРОУП ДООЕЛ Скопје) – изберете ја погоре.</div>}
-      </ActionForm>
+          {off ? (
+            <div className="mini" style={{ marginTop: 8, lineHeight: 1.6 }}>
+              <b>{O.name}</b> · {[O.address, O.city].filter(Boolean).join(', ') || <span className="pill warn">нема адреса</span>} · ЕДБ {O.edb || '—'} · ЕМБС {O.embs || '—'} · Ж-сметка {O.bank || '—'}<br />
+              Потписник: {O.rep || '—'}{O.repRole ? `, ${O.repRole}` : ''} · лого {O.logo ? '✓' : '—'} · потпис {O.sig ? '✓' : '—'}{O.sig && !fromFirm('sign') ? ' (од подесувањата подолу)' : ''} · печат {O.stamp ? '✓' : '—'}{O.stamp && !fromFirm('stamp') ? ' (од подесувањата подолу)' : ''}
+              <br />Податоците (назив, адреса, ЕДБ, ЕМБС, сметка, потписник, лого, потпис, печат) се земаат од картичката на фирмата – менувајте ги во <Link href="/firmi">Фирми</Link>.
+            </div>
+          ) : <div className="callout warn" style={{ marginTop: 8 }}>Не е одредена фирмата на канцеларијата – изберете ја погоре.</div>}
+        </ActionForm>
+      )}
 
       {/* legacy kdRecPlan panel (periodicni 13567–13575) */}
       {off && rec && (

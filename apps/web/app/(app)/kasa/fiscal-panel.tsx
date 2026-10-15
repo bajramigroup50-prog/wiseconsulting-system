@@ -7,7 +7,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { DESKTOP_ONLY, fiscalBridge, safeCall, type FiscalStatus, type WiseFiscal } from '@/lib/fiscal-bridge';
+import { fiscalOffMsg, fiscalBridge, safeCall, type FiscalStatus, type WiseFiscal } from '@/lib/fiscal-bridge';
 import { fmt } from '@/lib/fmt';
 import { fiscalReportAction, fiscalReprintAction, fiscalResultAction, fiscalStornoAction } from './fiscal-actions';
 import { printFiscal, saveAgain, type FiscalOutcome } from './fiscal-flow';
@@ -34,7 +34,7 @@ export function FiscalPanel({ wh, log, canWrite }: { wh: string; log: FiscalLogI
   const refreshStatus = async (b: WiseFiscal) => setSt(await safeCall(() => b.status()) as FiscalStatus);
   useEffect(() => { if (bridge) void refreshStatus(bridge); }, [bridge]);
 
-  const need = (): WiseFiscal | null => { if (!bridge) { setMsg({ ok: false, text: DESKTOP_ONLY }); return null; } return bridge; };
+  const need = (): WiseFiscal | null => { if (!bridge) { setMsg({ ok: false, text: fiscalOffMsg() }); return null; } return bridge; };
   const run = async (f: (b: WiseFiscal) => Promise<void>) => {
     const b = need();
     if (!b || busy) return;
@@ -79,7 +79,7 @@ export function FiscalPanel({ wh, log, canWrite }: { wh: string; log: FiscalLogI
       <div className="hd"><h2>🧾 Фискален апарат</h2>
         <div className="row noprint" style={{ gap: 6 }}><Link className="btn sm" href="/kasa/aparat">⚙️ Поставки</Link></div>
       </div>
-      {bridge === null && <div className="callout warn" data-testid="fiscal-desktop-only">{DESKTOP_ONLY}</div>}
+      {bridge === null && <div className="callout warn" data-testid="fiscal-desktop-only">{fiscalOffMsg()}</div>}
       {bridge && st && (
         <div className={'callout ' + (st.ok ? 'good' : 'bad')} data-testid="fiscal-status">
           {st.ok ? '✅ Апаратот е поврзан' : `⚠️ ${st.error || (st.errors ?? []).join(' ') || 'Апаратот не е подготвен.'}`}

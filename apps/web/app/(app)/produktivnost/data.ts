@@ -13,7 +13,7 @@ import { getUser, requireUser, type SessionUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { viewAllowed } from '@/lib/nav';
 import { isUuid, today } from '@/lib/office';
-import { isOfficeOwner } from '@/lib/office-owner';
+import { firmSideSql, ownerContext, scopeAuditSql, userSideSql } from '@/lib/demo-office';
 
 /** `u` = a user id, `-` = automatic jobs (no user), empty = everybody. */
 export interface ProdFilter { from: string; to: string; preset: PeriodPreset | ''; user: string; firm: string }
@@ -48,10 +48,14 @@ export interface ProdData {
   firmList: { id: string; name: string }[];
 }
 
-export async function loadProductivity(f: ProdFilter): Promise<ProdData> {
+/**
+ * 🎭 `me`: the viewer — a demo admin (owner of the demo office) gets only demo users / demo firms / their audit rows;
+ * the real owner (and `null`, the default) never gets a demo user, firm or row (`lib/demo-office.ts`).
+ */
+export async function loadProductivity(f: ProdFilter, me: Pick<SessionUser, 'principal' | 'role'> | null = null): Promise<ProdData> {
   // a day either side: the Skopje day of a row is decided in the aggregation
   const lo = new Date(`${addDays(f.from, -1)}T00:00:00Z`), hi = new Date(`${addDays(f.to, 2)}T00:00:00Z`);
-  const where: (SQL | undefined)[] = [gte(auditLog.at, lo), lt(auditLog.at, hi), or(isNull(auditLog.userId), ne(users.role, 'klient'))];
+  const where: (SQL | undefined)[] = [gte(auditLog.at, lo), lt(auditLog.at, hi), or(isNull(auditLog.userId), ne(users.role, 'klient')), scopeAuditSql(me)];
   if (f.user === '-') where.push(isNull(auditLog.userId));
   else if (f.user) where.push(eq(auditLog.userId, f.user));
   if (f.firm) where.push(eq(auditLog.firmId, f.firm));
@@ -60,8 +64,8 @@ export async function loadProductivity(f: ProdFilter): Promise<ProdData> {
       at: auditLog.at, userId: auditLog.userId, firmId: auditLog.firmId, action: auditLog.action, entityType: auditLog.entityType, entityId: auditLog.entityId,
       data: sql<Record<string, unknown> | null>`case when ${or(inArray(auditLog.action, DATA_ACTIONS), eq(auditLog.entityType, 'journal'))} then ${auditLog.data} else null end`,
     }).from(auditLog).leftJoin(users, eq(users.id, auditLog.userId)).where(and(...where)),
-    db().select({ id: users.id, name: users.name, role: users.role, active: users.active }).from(users).where(ne(users.role, 'klient')).orderBy(asc(users.name)),
-    db().select({ id: firms.id, name: firms.name }).from(firms).orderBy(asc(firms.name)),
+    db().select({ id: users.id, name: users.name, role: users.role, active: users.active }).from(users).where(and(ne(users.role, 'klient'), userSideSql(me))).orderBy(asc(users.name)),
+    db().select({ id: firms.id, name: firms.name }).from(firms).where(firmSideSql(me)).orderBy(asc(firms.name)),
   ]);
   const report = aggregateProductivity(rows.map((r): AuditRowIn => ({ ...r, at: r.at instanceof Date ? r.at : new Date(r.at), data: typeof r.data === 'string' ? JSON.parse(r.data) : r.data })), f);
   return { report, users: new Map(U.map((u) => [u.id, u])), firms: new Map(F.map((x) => [x.id, x.name])), userList: U, firmList: F };
@@ -72,13 +76,14 @@ export const firmName = (D: ProdData, id: string | null): string => (id ? D.firm
 
 /**
  * Guard of the screen, print view and export: office users only (the route guard already keeps clients and field
- * workers out), and of those only the office owner.
+ * workers out), and of those only the office owner — or 🎭 a demo admin for the demo office (`ownerContext`, `demo`).
  */
-export async function ownerGate(): Promise<{ u: SessionUser; ok: boolean }> {
+export async function ownerGate(): Promise<{ u: SessionUser; ok: boolean; demo: boolean }> {
   const u = await requireUser();
-  return { u, ok: viewAllowed(u.role, 'produktivnost') && await isOfficeOwner(u) };
+  const c = viewAllowed(u.role, 'produktivnost') ? await ownerContext(u) : null;
+  return { u, ok: !!c, demo: !!c?.demo };
 }
 export async function ownerGateApi(): Promise<SessionUser | null> {
   const u = await getUser();
-  return u && viewAllowed(u.role, 'produktivnost') && await isOfficeOwner(u) ? u : null;
+  return u && viewAllowed(u.role, 'produktivnost') && await ownerContext(u) ? u : null;
 }

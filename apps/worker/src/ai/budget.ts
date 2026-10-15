@@ -14,7 +14,8 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { eq } from 'drizzle-orm';
 import { PDFArray, PDFDocument, PDFName, PDFStream, type PDFDict } from 'pdf-lib';
 import { type AiBudgetCfg } from '@wise/core/ai/cost';
-import { aiBudgetStatus, aiUsage, noteAiBudgetAlert, type Tx } from '@wise/db';
+import { DEMO_AI_PURPOSE } from '@wise/core/demo';
+import { aiBudgetStatus, aiUsage, isDemoFirmId, noteAiBudgetAlert, type Tx } from '@wise/db';
 import { AI_PRICES, costUsd, type AiTier, type AiUsage } from './client';
 
 export class AiBudgetError extends Error {
@@ -85,7 +86,9 @@ export interface CallRow { firmId: string | null; userId?: string | null; purpos
 
 /** Write the call's `ai_usage` row with the estimated cost BEFORE the call. */
 export async function reserveAiCall(db: Tx, r: CallRow, estUsd: number): Promise<number> {
-  const [x] = await db.insert(aiUsage).values({ firmId: r.firmId, userId: r.userId ?? null, purpose: r.purpose, tier: r.tier, model: r.model, costUsd: estUsd.toFixed(6), refId: r.refId ?? null }).returning({ id: aiUsage.id });
+  // 🎭 calls for a demo firm are tagged `demo:<purpose>` (the demo cap and the report tell them apart)
+  const purpose = r.firmId && !r.purpose.startsWith(DEMO_AI_PURPOSE + ':') && await isDemoFirmId(db, r.firmId) ? `${DEMO_AI_PURPOSE}:${r.purpose}` : r.purpose;
+  const [x] = await db.insert(aiUsage).values({ firmId: r.firmId, userId: r.userId ?? null, purpose, tier: r.tier, model: r.model, costUsd: estUsd.toFixed(6), refId: r.refId ?? null }).returning({ id: aiUsage.id });
   return x!.id;
 }
 

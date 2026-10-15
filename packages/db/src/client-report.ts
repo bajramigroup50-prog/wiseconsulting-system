@@ -14,6 +14,7 @@ import { documentPayments } from './bank/open-items';
 import { loadLedgerLines } from './ledger-queries';
 import { firstMailAddress } from './mail-queue';
 import { getOfficeProfile } from './office';
+import { isDemoFirm } from '@wise/core/demo';
 import { clientReports, firms, invoices, purchases, userFirms, users, vatPeriods, type Firm } from './schema/index';
 import { computeVatPeriod, firmVatPeriodKind } from './vat-service';
 import { defaultVatSource } from './vat-source';
@@ -83,7 +84,9 @@ export async function saveClientReport(tx: Tx, a: { firmId: string; period: stri
  * e-mail from the office profile (legacy `alBell` mail).
  */
 export async function inboxRecipients(tx: Tx, firmId: string): Promise<string[]> {
-  const [f] = await tx.select({ ownerId: firms.ownerId }).from(firms).where(eq(firms.id, firmId)).limit(1);
+  const [f] = await tx.select({ ownerId: firms.ownerId, name: firms.name, settings: firms.settings }).from(firms).where(eq(firms.id, firmId)).limit(1);
+  // 🎭 nobody is e-mailed about a demo firm (never the real office's address)
+  if (isDemoFirm(f)) return [];
   const assigned = (await tx.select({ id: userFirms.userId }).from(userFirms).where(eq(userFirms.firmId, firmId))).map((r) => r.id);
   const ids = [...new Set([...(f?.ownerId ? [f.ownerId] : []), ...assigned])];
   const U = ids.length

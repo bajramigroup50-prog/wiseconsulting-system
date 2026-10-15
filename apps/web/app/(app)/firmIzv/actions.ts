@@ -12,12 +12,15 @@ import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
 import { officeError } from '@/lib/office';
 import { fiOwnerAction, fiParams, fiReport } from './lib';
+import { assertFirmSide } from '@/lib/demo-office';
 
 export async function firmReportAiAction(firmId: string, year: number, to: string | null): Promise<ActionState> {
   try {
     const u = await fiOwnerAction();
     const p = fiParams({ f: firmId, y: String(year), do: to ?? undefined });
     if (!p.f) return { error: 'Изберете фирма.' };
+    // 🎭 the firm must be of the owner's side (a demo admin: a demo firm) before anything is read about it
+    await assertFirmSide(u, p.f);
     const cur = await firmReportAiState(db(), p.f, p.y);
     if (cur?.status === 'queued' && cur.at && Date.now() - Date.parse(cur.at) < 10 * 60_000) return { ok: 'AI анализата веќе се пишува…' };
     const b = await aiBudgetStatus(db(), p.f);

@@ -8,6 +8,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { PgBoss } from 'pg-boss';
 import type { PdfFileLink } from '@wise/db';
+import { demoJobGate } from './demo';
 
 let boss: Promise<PgBoss> | undefined;
 
@@ -24,6 +25,8 @@ function getBoss(): Promise<PgBoss> {
 }
 
 export async function enqueue(name: string, data: object): Promise<string | null> {
+  // 🎭 a demo user starts no outward job (mail, УЈП, NBRM, imports…); AI only when the owner allowed it (`lib/demo.ts`)
+  await demoJobGate(name);
   const b = await getBoss();
   return b.send(name, data);
 }

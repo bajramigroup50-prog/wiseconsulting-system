@@ -17,6 +17,7 @@ import { isUuid, today } from '@/lib/office';
 import { DOCX_MIME, attachmentName, fillOwnTemplate, ownTemplate } from '@/lib/own-template';
 import { fname, htmlResponse, printDoc } from '@/lib/payroll/html';
 import { kdOwnerUser, rowToContract } from '@/app/(app)/kdogovori/lib';
+import { isDemoUser } from '@/lib/demo';
 import { OWNER_ONLY_MSG } from '@/lib/office-owner';
 
 const text = (s: string, status = 400) => new Response(s, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
@@ -32,7 +33,8 @@ export async function GET(req: Request) {
   let firm0 = await currentFirm(u0);
   // the accounting-service contract: office OWNER only; the firm is the contract's client (not the current firm)
   if (src.t === 'kd') {
-    if (!(await kdOwnerUser())) return text(OWNER_ONLY_MSG, 403);
+    // 🎭 never for a demo user (the office's own templates are the real office's; the route guard blocks it too)
+    if (!(await kdOwnerUser()) || isDemoUser(u0)) return text(OWNER_ONLY_MSG, 403);
     const [r] = isUuid(src.id) ? await db().select({ firmId: serviceContracts.firmId }).from(serviceContracts).where(eq(serviceContracts.id, src.id)).limit(1) : [];
     if (!r) return text('Договорот не постои.', 404);
     const [kf] = await db().select().from(firms).where(eq(firms.id, r.firmId)).limit(1);

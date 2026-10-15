@@ -4,19 +4,23 @@
  * projection for the month; plus the monthly AI limit (office and per firm), the page cap and the Opus policy.
  * Data: `ai_usage` (every model call, reserved before / settled after) and `ai_documents` (every read).
  * How it works: docs/AI-TROSHOK.md.
+ * 🎭 A demo admin (owner of the demo office): the demo firms' reads / calls only, the demo AI cap (`demoAiState`) and no
+ * settings (read-only; the real office's limits and every real firm stay hidden). The real owner's report leaves the
+ * demo firms (and the `demo:` calls) out.
  */
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { costReport, monthProjection, pct, type CostLine } from '@wise/core/ai/cost';
 import { MON_MK, todaySkopje, ymAdd } from '@wise/core/office/dates';
-import { aiBudgetStatus, aiDocAgg, aiUsageAgg } from '@wise/db';
+import { aiBudgetStatus, aiDocAgg, aiUsageAgg, demoAiState, demoFirmIds } from '@wise/db';
 import { ActionForm, Submit } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { viewAllowed } from '@/lib/nav';
 import { allowedFirms } from '@/lib/office';
-import { OWNER_ONLY_MSG, isOfficeOwner } from '@/lib/office-owner';
+import { OWNER_ONLY_MSG } from '@/lib/office-owner';
+import { ownerContext } from '@/lib/demo-office';
 import { saveAiBudget, saveFirmAiLimit } from './actions';
 
 const T = '💲 AI трошок';
@@ -50,14 +54,20 @@ function Table({ title, rows, first }: { title: string; rows: CostLine[]; first:
 export default async function AiTrosokPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const u = await requireUser();
   if (u.role === 'klient' || u.role === 'teren') notFound();
-  if (!viewAllowed(u.role, 'aiTrosok') || !(await isOfficeOwner(u))) return <><Hd t={T} exp={false} /><div className="card empty">{OWNER_ONLY_MSG}</div></>;
+  const oc = viewAllowed(u.role, 'aiTrosok') ? await ownerContext(u) : null;
+  if (!oc) return <><Hd t={T} exp={false} /><div className="card empty">{OWNER_ONLY_MSG}</div></>;
+  const demo = oc.demo;
   const today = todaySkopje();
   const cur = today.slice(0, 7);
   const sp = await searchParams;
   const m = sp.m && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.m) && sp.m <= cur ? sp.m : cur;
   const F = await allowedFirms(u, { year: 'all' });
   const name = new Map(F.map((f) => [f.id, f.name]));
-  const [U, D, S] = await Promise.all([aiUsageAgg(db(), m), aiDocAgg(db(), m), aiBudgetStatus(db(), null, cur)]);
+  // 🎭 demo: only the demo firms' rows (no office-wide rows) and the demo cap; real: everything but the demo firms
+  const dIds = await demoFirmIds(db(), { all: true });
+  const rows = (mm: string) => (demo ? aiUsageAgg(db(), mm, dIds) : aiUsageAgg(db(), mm, null, { exclude: dIds }));
+  const [U, D, S0] = await Promise.all([rows(m), demo ? aiDocAgg(db(), m, dIds) : aiDocAgg(db(), m, null, { exclude: dIds }), aiBudgetStatus(db(), null, cur)]);
+  const S = demo ? { ...S0, ...(await demoAiState(db(), cur)), cfg: { ...S0.cfg, firms: {} } } : S0;
   const R = costReport(m, today, U, D, (id) => (id ? name.get(id) ?? '(друга фирма)' : 'Канцеларија (без фирма)'));
   const B = S.cfg;
   const p = pct(S.spent, S.limit);
@@ -65,7 +75,7 @@ export default async function AiTrosokPage({ searchParams }: { searchParams: Pro
   const months = Array.from({ length: 12 }, (_, i) => ymAdd(cur, -i));
   const firmLimits = Object.entries(B.firms).map(([id, v]) => ({ id, v, name: name.get(id) ?? '(фирма)' })).sort((a, b) => a.name.localeCompare(b.name, 'mk'));
   const firmSpent = new Map(R.byFirm.map((x) => [x.key, x.costUsd]));
-  const curFirmSpent = m === cur ? firmSpent : new Map((await aiUsageAgg(db(), cur)).reduce((M, r) => M.set(r.firmId ?? '-', (M.get(r.firmId ?? '-') ?? 0) + r.costUsd), new Map<string, number>()));
+  const curFirmSpent = m === cur ? firmSpent : new Map((await rows(cur)).reduce((M, r) => M.set(r.firmId ?? '-', (M.get(r.firmId ?? '-') ?? 0) + r.costUsd), new Map<string, number>()));
   return (
     <>
       <Hd t={T} sub={ml(m)} exp={false} />
@@ -100,6 +110,7 @@ export default async function AiTrosokPage({ searchParams }: { searchParams: Pro
       <Table title="По модел" rows={R.byModel} first="Модел" />
       {!R.byKind.length && <div className="card empty">Нема читања во {ml(m)}.</div>}
 
+      {demo ? <p className="note">🎭 Демо: AI за демо фирмите е под посебен месечен лимит што го поставува сопственикот на канцеларијата; поставките не се менуваат во демо.</p> : <>
       <ActionForm action={saveAiBudget} className="card" reset={false}>
         <h3 style={{ marginTop: 0 }}>Лимит и правила</h3>
         <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'end' }}>
@@ -141,7 +152,8 @@ export default async function AiTrosokPage({ searchParams }: { searchParams: Pro
           <Submit className="btn">Постави</Submit>
         </div>
       </ActionForm>
-      <p className="note"><Link href="/sistem">← Систем</Link></p>
+      </>}
+      {!demo && <p className="note"><Link href="/sistem">← Систем</Link></p>}
     </>
   );
 }

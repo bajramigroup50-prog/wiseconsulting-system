@@ -1,6 +1,12 @@
-/** Legacy `VIEWS.kanc` 3886 — office task board (requests to institutions, field work). */
+/**
+ * Legacy `VIEWS.kanc` 3886 — office task board (requests to institutions, field work).
+ * 🎭 By side (`taskScopeSql`, `userSideSql`, `allowedFirms`): a demo user sees demo tasks / demo colleagues / demo firms
+ * only (no firm needed), real users never a demo task, colleague or firm.
+ */
 import Link from 'next/link';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import { isDemoUser } from '@/lib/demo';
+import { taskScopeSql, userSideSql } from '@/lib/demo-office';
 import { INST, TASK_STATUS, TST, TTYPE, taskLate, type TaskStatus } from '@wise/core/office';
 import { firms, formationCases, OFFICE_FILE_ENTITY, officeTasks, users } from '@wise/db';
 import { db } from '@/lib/db';
@@ -16,14 +22,16 @@ type SP = { st?: string; who?: string; inst?: string; t?: string; nov?: string }
 
 export default async function KancPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
-  const { u } = await officePage('kanc', { perm: 'office' });
+  const { u } = await officePage('kanc', { perm: 'office', demoGlobal: true });
+  const demo = isDemoUser(u);
   const st = sp.st ?? 'open';
   const [all, people, F, NC] = await Promise.all([
-    db().select({ t: officeTasks, firm: firms.name }).from(officeTasks).leftJoin(firms, eq(firms.id, officeTasks.firmId)).orderBy(sql`${officeTasks.due} asc nulls last`),
+    db().select({ t: officeTasks, firm: firms.name }).from(officeTasks).leftJoin(firms, eq(firms.id, officeTasks.firmId)).where(taskScopeSql(u)).orderBy(sql`${officeTasks.due} asc nulls last`),
     // Only id / name / role — never password data (FIX #2).
-    db().select({ id: users.id, name: users.name, role: users.role }).from(users).where(eq(users.active, true)).orderBy(asc(users.name)),
+    db().select({ id: users.id, name: users.name, role: users.role }).from(users).where(and(eq(users.active, true), userSideSql(u))).orderBy(asc(users.name)),
     allowedFirms(u),
-    db().select({ id: formationCases.id, name: formationCases.name }).from(formationCases),
+    // firm formations are the real office's work (a demo task is never a formation task)
+    demo ? Promise.resolve([]) : db().select({ id: formationCases.id, name: formationCases.name }).from(formationCases),
   ]);
   const visible = all.filter(({ t }) => !t.firmId || F.some((f) => f.id === t.firmId));
   const L = visible.filter(({ t }) => (st === 'open' ? t.status !== 'done' : st === 'all' ? true : t.status === st)

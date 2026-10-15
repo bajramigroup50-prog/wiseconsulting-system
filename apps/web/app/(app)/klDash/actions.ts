@@ -5,7 +5,7 @@
  */
 import { revalidatePath } from 'next/cache';
 import { isKdPer, kdRange } from '@wise/core/firms/dash';
-import { audit, getOfficeProfile, textMailHtml } from '@wise/db';
+import { audit, getOfficeProfile, textMailHtml, officeProfileForFirm } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -24,7 +24,7 @@ export async function mailReport(_p: ActionState, f: FormData): Promise<ActionSt
     const p = String(f.get('p') ?? 'ytd');
     const [from, t2, pl] = kdRange(year, isKdPer(p) ? p : 'ytd', today(), String(f.get('f') ?? ''), String(f.get('t') ?? ''));
     const R = await kdData(firm, year, from, t2);
-    const O = await getOfficeProfile(db());
+    const O = await officeProfileForFirm(db(), firm); // 🎭 demo firm → demo office
     const html = kdReportHtml(R, firm, pl, from, t2, [O.name, u.name].filter(Boolean).join(' – '), today());
     const dm = (d: string) => d.split('-').reverse().join('.');
     const jobs = await db().transaction(async (tx) => {

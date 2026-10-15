@@ -15,7 +15,8 @@ import { AutoRoute } from './auto-route';
 
 export default async function KlInboxPage({ searchParams }: { searchParams: Promise<{ firm?: string; all?: string }> }) {
   const sp = await searchParams;
-  const { u, firm } = await officePage('klInbox', { perm: 'office' });
+  // 🎭 office-wide by side: a demo user sees the demo firms' messages only (`allowedFirms`), real users never a demo firm's
+  const { u, firm } = await officePage('klInbox', { perm: 'office', demoGlobal: true });
   const F = await allowedFirms(u);
   const only = sp.firm === 'all' ? null : (sp.firm && F.some((f) => f.id === sp.firm) ? sp.firm : null);
   const ids = only ? [only] : F.map((f) => f.id);

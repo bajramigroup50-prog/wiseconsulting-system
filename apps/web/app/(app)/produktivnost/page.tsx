@@ -18,15 +18,16 @@ import { ReportView } from './report-view';
 const T = '📊 Продуктивност на вработените';
 
 export default async function ProduktivnostPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const { u, ok } = await ownerGate();
+  const { u, ok, demo } = await ownerGate();
   if (u.role === 'klient' || u.role === 'teren') notFound();
   if (!ok) return <><Hd t={T} exp={false} /><div className="card empty">{OWNER_ONLY_MSG}</div></>;
   const f = prodFilter(await searchParams);
-  const D = await loadProductivity(f);
-  const owner = await officeOwner();
+  const D = await loadProductivity(f, u);
+  // 🎭 the demo office's owner is the demo admin itself; ownership is never transferred in the demo
+  const owner = demo ? { name: u.name } : await officeOwner();
   const qs = prodQs(f);
   const keep = (o: Record<string, string>) => { const q = new URLSearchParams(o); if (f.user) q.set('u', f.user); if (f.firm) q.set('f', f.firm); return `/produktivnost?${q}`; };
-  const admins = D.userList.filter((x) => x.role === 'admin' && x.active && x.id !== u.id);
+  const admins = demo ? [] : D.userList.filter((x) => x.role === 'admin' && x.active && x.id !== u.id);
   return (
     <>
       <Hd t={T} sub={`${dmy(f.from)} – ${dmy(f.to)}`} exp={false}>

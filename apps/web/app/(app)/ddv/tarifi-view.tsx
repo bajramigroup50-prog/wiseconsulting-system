@@ -24,7 +24,7 @@ export async function TarifiView({ firm, u, back }: { firm: Firm; u: SessionUser
     <>
       <Hd t="Даночни тарифи" sub="ДДВ – конта"><Link className="btn" href={back.href}>{back.label}</Link></Hd>
       {!can && <div className="callout">Само преглед – за промена е потребна дозвола „поставки“.</div>}
-      <VatAccountsForm values={values} names={names} firmName={firm.name} canGlobal={u.role === 'admin'}
+      <VatAccountsForm values={values} names={names} firmName={firm.name} canGlobal={u.role === 'admin' && !u.principal.demo}
         options={chart.filter((a) => /^(13|23)/.test(a.code)).map((a) => [a.code, a.name])} />
     </>
   );

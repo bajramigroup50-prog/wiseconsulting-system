@@ -5,6 +5,8 @@
  * „Објави“ shows the report in the client's portal (`/klIzv`) with a portal message; „Испрати“ e-mails it as a PDF
  * (only with SMTP configured). „Подготви за сите клиенти“ is the office owner's batch. Every change: `requireCan('office',
  * firm)` on the report's own firm + `audit_log`.
+ * 🎭 A demo user: its reports are of demo firms only (`requireCan` on the report's firm = the demo firms), the batch is
+ * the demo office owner's (a demo admin) over the demo firms, and nothing is e-mailed (`refuseDemo`).
  */
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
@@ -16,7 +18,9 @@ import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
 import { smtpConfigured, splitAddresses, validAddresses } from '@/lib/mail';
 import { allowedFirms, fv, isUuid, officeAction, officeError, today } from '@/lib/office';
-import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
+import { OWNER_ONLY_MSG } from '@/lib/office-owner';
+import { refuseDemo } from '@/lib/demo';
+import { ownerContext } from '@/lib/demo-office';
 import { dispatchPdfMail, pdfFileTitle, queuePdfMail } from '@/lib/pdf-mail';
 
 const langOf = (f: Pick<Firm, 'settings'>) => klLang((f.settings as { kl?: KlConfig }).kl);
@@ -46,8 +50,10 @@ export async function prepareReport(_p: ActionState, f: FormData): Promise<Actio
 export async function prepareAll(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
     const u = await requireUser();
-    if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
-    await requireCan('office', null);
+    const c = await ownerContext(u);
+    if (!c) return { error: OWNER_ONLY_MSG };
+    // the real owner: the office-wide permission; 🎭 the demo office's owner: its demo firms only (`allowedFirms` by side)
+    if (!c.demo) await requireCan('office', null);
     const period = fv(f, 'period');
     if (!periodOk(period)) return { error: 'Изберете месец (не во иднина).' };
     const F = (await allowedFirms(u)).filter((x) => x.active);
@@ -122,6 +128,7 @@ export async function publishReport(id: string, on: boolean): Promise<ActionStat
 /** E-mail the report as a PDF (worker `pdf.mail`) — only when SMTP is set up; also publishes it in the portal. */
 export async function mailClientReport(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
+    await refuseDemo(undefined, 'crMail');
     if (!smtpConfigured()) return { error: 'Е-пошта не е поставена на серверот (SMTP).' };
     const x = await loadFor(fv(f, 'id') ?? '');
     if (!x) return { error: 'Извештајот не постои.' };

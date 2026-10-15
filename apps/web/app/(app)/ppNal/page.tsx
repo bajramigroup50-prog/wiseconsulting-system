@@ -10,7 +10,7 @@ import {
   hasYuscii,
 } from '@wise/core';
 import { ppExportRows } from '@wise/core/bank/fin-parity';
-import { getOfficeProfile, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate } from '@wise/db';
+import { getOfficeProfile, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate, officeProfileForFirm } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
@@ -40,7 +40,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
     db().transaction((tx) => orderSuggestions(tx, firm.id, year, 200)),
     // ДДВ of the last finished VAT period (legacy 15772 `ddvFor(prevPeriod)`; filed figure when closed).
     vatDueEstimate(db(), firm.id, today),
-    getOfficeProfile(db()),
+    officeProfileForFirm(db(), firm), // 🎭 demo firm → the demo office's calibration
     // „Примач“ picker: partners with accounts / unpaid invoices, employees with an account
     db().transaction((tx) => ppRecipients(tx, firm.id, year)),
   ]);

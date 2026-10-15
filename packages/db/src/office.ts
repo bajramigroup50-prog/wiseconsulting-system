@@ -13,6 +13,9 @@ import {
   type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
 } from '@wise/core/office';
 import type { RokSettings } from '@wise/core/office/rokovi';
+import { DEMO_OFFICE_KEY, DEMO_OFFICE_NAME, isDemoFirm } from '@wise/core/demo';
+import { isDemoFirmId } from './demo/filters';
+import { kdOfficeFirm } from '@wise/core/firms/kdog';
 import type { FeeSettings } from '@wise/core/firms/kdfee';
 import { audit, type Tx } from './audit';
 import { firmOpenInSql } from './firm-years';
@@ -64,18 +67,45 @@ export interface OfficeProfile {
   feeInv?: FeeSettings;
 }
 
-export async function getOfficeProfile(tx: Tx): Promise<OfficeProfile> {
-  const [r] = await tx.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'office')).limit(1);
-  return (r?.v as OfficeProfile | undefined) ?? {};
+/**
+ * 🎭 The office profile. `demo`: the demo office's copy (`app_settings[DEMO_OFFICE_KEY]`, never the real `office` row) —
+ * invented defaults, the name is always „ДЕМО СМЕТКОВОДСТВО ДООЕЛ“ and it has no e-mail (nothing is ever sent from it).
+ */
+export async function getOfficeProfile(tx: Tx, o: { demo?: boolean } = {}): Promise<OfficeProfile> {
+  const [r] = await tx.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, officeProfileKey(o.demo))).limit(1);
+  const v = (r?.v as OfficeProfile | undefined) ?? {};
+  return o.demo ? { ...DEMO_OFFICE_DEFAULTS, ...v, name: DEMO_OFFICE_NAME, email: '' } : v;
+}
+
+/** `app_settings` key of the office profile: the real office, or the 🎭 demo office's copy. */
+export const officeProfileKey = (demo?: boolean): string => (demo ? DEMO_OFFICE_KEY : 'office');
+
+/** Invented data of the 🎭 demo office (until the demo admin edits its own copy). */
+export const DEMO_OFFICE_DEFAULTS: Readonly<OfficeProfile> = {
+  name: DEMO_OFFICE_NAME, address: 'ул. Демо бр. 1', city: 'Скопје', edb: '4099999999999', rep: 'Демо Демоски', repRole: 'Управител', email: '', phone: '',
+};
+
+/** The office profile a document of this firm shows: the 🎭 demo office for a demo firm, else the real office. */
+export const officeProfileForFirm = (tx: Tx, firm: { name: string | null | undefined; settings?: unknown } | null | undefined): Promise<OfficeProfile> =>
+  getOfficeProfile(tx, { demo: isDemoFirm(firm) });
+
+/**
+ * The office FIRM (provider of the contracts and the fee invoices): for the real office `kdOfficeFirm` over the real
+ * firms only (never a demo firm); for the 🎭 demo office the demo firm marked `settings.demoOffice` (never a real firm,
+ * never matched by name / ЕДБ).
+ */
+export function officeFirmOf<T extends { edb?: string | null; name: string | null; settings?: unknown }>(F: readonly T[], O: { edb?: string | null } | null | undefined, o: { demo?: boolean } = {}): T | null {
+  if (o.demo) return F.find((f) => isDemoFirm(f) && (f.settings as { demoOffice?: unknown } | null)?.demoOffice === true) ?? null;
+  return kdOfficeFirm(F.filter((f) => !isDemoFirm(f)), O as never);
 }
 
 /**
  * Merge a patch into the office profile with a single `jsonb ||` statement. Legacy overwrote the whole
  * `appsettings/office` document from 12 writers, so concurrent edits clobbered each other.
  */
-export async function patchOfficeProfile(tx: Tx, patch: Partial<OfficeProfile>, userId: string | null): Promise<void> {
+export async function patchOfficeProfile(tx: Tx, patch: Partial<OfficeProfile>, userId: string | null, o: { demo?: boolean } = {}): Promise<void> {
   const p = JSON.stringify(patch);
-  await tx.insert(appSettings).values({ key: 'office', value: patch, updatedBy: userId })
+  await tx.insert(appSettings).values({ key: officeProfileKey(o.demo), value: patch, updatedBy: userId })
     .onConflictDoUpdate({ target: appSettings.key, set: { value: sql`${appSettings.value} || ${p}::jsonb`, updatedBy: userId } });
 }
 
@@ -669,7 +699,8 @@ export async function dispatchReminders(db: Tx, now = new Date()): Promise<{ cre
       if (r.channel === 'mail') {
         const [u] = r.userId ? await tx.select({ email: users.email }).from(users).where(eq(users.id, r.userId)).limit(1) : [];
         const to = firstMailAddress(u?.email) ?? (r.firmId ? await firmMail(tx, r.firmId) : null);
-        if (to) mailIds.push(await queueMailRow(tx, { firmId: r.firmId, to, subject: r.title, html: textMailHtml(r.body ?? r.title), entityType: 'reminder', entityId: r.id, userId: null }));
+        // 🎭 never an e-mail about a demo firm
+        if (to && !(await isDemoFirmId(tx, r.firmId))) mailIds.push(await queueMailRow(tx, { firmId: r.firmId, to, subject: r.title, html: textMailHtml(r.body ?? r.title), entityType: 'reminder', entityId: r.id, userId: null }));
       }
       await tx.update(reminders).set({ status: 'sent', sentAt: now }).where(eq(reminders.id, r.id));
     });

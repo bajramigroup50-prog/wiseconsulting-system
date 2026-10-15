@@ -2,7 +2,7 @@
 import { notFound } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { PaymentOrder } from '@wise/core';
-import { appSettings, paymentOrders } from '@wise/db';
+import { appSettings, paymentOrders, officeProfileForFirm } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { PpSlip } from '@/components/pp-slip';
@@ -18,8 +18,9 @@ export default async function PpPrint({ searchParams }: { searchParams: Promise<
   if (!L.length) return <PrintPage title="Налози"><p>Нема налози за печатење.</p></PrintPage>;
   const mode = sp.m === 'data1' ? 'data1' : sp.m === 'data' ? 'data' : 'full';
   // calibration for pre-printed forms (legacy `ppCal`, office setting `ppCal[kind] = {dx, dy}`)
-  const [off] = await db().select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'office')).limit(1);
-  const cal = ((off?.v as Record<string, unknown> | undefined)?.ppCal ?? {}) as Record<string, { dx?: number; dy?: number }>;
+  // 🎭 a demo firm: the demo office's calibration (never the real office profile)
+  const off = await officeProfileForFirm(db(), firm);
+  const cal = ((off as Record<string, unknown>).ppCal ?? {}) as Record<string, { dx?: number; dy?: number }>;
   const per = mode === 'data1' ? 1 : 3;
   const pages: (typeof L)[] = [];
   for (let i = 0; i < L.length; i += per) pages.push(L.slice(i, i + per));

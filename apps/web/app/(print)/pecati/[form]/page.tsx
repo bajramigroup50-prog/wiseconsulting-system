@@ -5,7 +5,7 @@
 import { notFound } from 'next/navigation';
 import { npoDbRows } from '@wise/core/yearend/books';
 import { eq } from 'drizzle-orm';
-import { appSettings, depreciationFor } from '@wise/db';
+import { appSettings, depreciationFor, officeProfileForFirm } from '@wise/db';
 import { db } from '@/lib/db';
 import { fmt, dmy } from '@/lib/fmt';
 import { yePage } from '@/lib/yearend';
@@ -24,8 +24,8 @@ export default async function PrintPage({ params }: { params: Promise<{ form: st
   const c = await yePage(view, GUARD[form] ?? 'zsProc');
   if (!c) return <p>Изберете фирма.</p>;
   const { L, firm, year, u } = c;
-  const [off] = await db().select().from(appSettings).where(eq(appSettings.key, 'office')).limit(1);
-  const O = (off?.value ?? {}) as Record<string, string | undefined>;
+  // 🎭 a demo firm's forms are signed by the demo office, never the real one
+  const O = (await officeProfileForFirm(db(), firm)) as Record<string, string | undefined>;
   const fs = (firm.settings ?? {}) as Record<string, string | undefined>;
   const sig: Signers = {
     rep: O.rep || u.name, office: O.name || '', lic: O.lic || fs.accReg || '', officeEdb: O.edb || '', signer: fs.signer || '', signerRole: fs.signerRole || 'Управител',

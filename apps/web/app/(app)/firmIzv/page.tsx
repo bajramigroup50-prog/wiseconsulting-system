@@ -28,7 +28,7 @@ export default async function FirmIzvPage({ searchParams }: { searchParams: Prom
   const p = fiParams(await searchParams);
   const cy = calendarYear();
   const years = Array.from({ length: cy - 2015 + 2 }, (_, i) => cy + 1 - i);
-  const F = await fiFirms();
+  const F = await fiFirms(u);
   const head = <Hd t={FI_TITLE} sub="само за сопственикот" exp={false} />;
   if (!p.f) {
     return (

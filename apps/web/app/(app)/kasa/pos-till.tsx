@@ -13,7 +13,7 @@ import * as Retail from '@wise/core/retail';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { posSellAction } from '../_stock/actions';
-import { DESKTOP_ONLY } from '@/lib/fiscal-bridge';
+import { fiscalOffMsg } from '@/lib/fiscal-bridge';
 import { fiscalResultAction, posSellFiscalAction } from './fiscal-actions';
 import { printFiscal, saveAgain, type FiscalOutcome } from './fiscal-flow';
 import { useFiscalBridge } from './fiscal-panel';
@@ -96,7 +96,7 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
   const reset = () => { setCart([]); setCardId(''); setCardQ(''); setCoupon(''); setUsePts(false); setPayCard(''); };
   /** 🧾 sale + fiscal receipt: the sale is recorded first (pending receipt), then printed; fiscalised only on the device's number. */
   const fiscal = async () => {
-    if (!bridge) { setFMsg({ ok: false, text: DESKTOP_ONLY }); return; }
+    if (!bridge) { setFMsg({ ok: false, text: fiscalOffMsg() }); return; }
     if (fBusy || !cart.length) return;
     setFBusy(true); setFMsg(null); setUnsaved(undefined);
     try {
@@ -163,7 +163,7 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
           <label className="f">Од тоа со картичка<input inputMode="decimal" value={payCard} onChange={(e) => setPayCard(e.target.value)} style={{ width: 120 }} /></label>
           <div className="savebar"><button className="btn pri" disabled={pending || fBusy || (!!cp && 'err' in cp)}>Евидентирај продажба</button></div>
           <button type="button" className="btn pri" data-testid="fiscal-sell" disabled={pending || fBusy || (!!cp && 'err' in cp)} onClick={fiscal}
-            title={bridge ? 'Евидентирај и печати фискална сметка' : DESKTOP_ONLY}>{fBusy ? 'Се печати…' : '🧾 Фискална сметка'}</button>
+            title={bridge ? 'Евидентирај и печати фискална сметка' : fiscalOffMsg()}>{fBusy ? 'Се печати…' : '🧾 Фискална сметка'}</button>
           <button type="button" className="btn" onClick={inp}>Преземи сметка за апаратот</button>
         </div>
       </> : <div className="empty">Додадете артикли во сметката.</div>}

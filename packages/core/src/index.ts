@@ -45,3 +45,4 @@ export * as Law from './law';
 export * as Finance from './finance';
 export * as Retail from './retail';
 export * from './vat-bases';
+export * from './demo';

@@ -73,6 +73,11 @@ export interface FirmReportOpts {
   owner: boolean;
   /** The current user (for `bookChecks` context only). */
   userId?: string | null;
+  /**
+   * 🎭 The demo office's owner (a demo admin) reports on a demo firm: the contract / fees of the DEMO office, and only
+   * demo users as colleagues / workers (a real user who touched the firm is never named).
+   */
+  demo?: boolean;
 }
 
 /** The report window: [year-01-01, to] and the same period last year. */
@@ -145,7 +150,7 @@ export async function computeFirmReport(db: Tx, o: FirmReportOpts): Promise<Firm
     section<FrStock>('zalihi', () => stockSection(db, firm, Y, to)),
     section<FrDeadlines>('rokovi', () => deadlineSection(db, firm, Y, o.today, o.owner)),
     section<FrLegal>('zakon', () => legalSection(db, firm, Y, from, to, o.today)),
-    section<FrDocs>('dokumenti', () => docsSection(db, firm, from, to)),
+    section<FrDocs>('dokumenti', () => docsSection(db, firm, from, to, !!o.demo)),
     section<FrAiCost>('ai', () => aiSection(db, firm, from, to)),
   ]);
   // the cited articles from the stored law texts (the version valid on the report date), for every section's findings
@@ -163,14 +168,15 @@ export async function computeFirmReport(db: Tx, o: FirmReportOpts): Promise<Firm
 
 async function basicSection(db: Tx, f: Firm, o: FirmReportOpts, to: string) {
   const st = (f.settings ?? {}) as Record<string, unknown>;
-  const [resp] = f.ownerId ? await db.select({ name: users.name }).from(users).where(eq(users.id, f.ownerId)).limit(1) : [];
+  const side = o.demo ? eq(users.demo, true) : undefined;
+  const [resp] = f.ownerId ? await db.select({ name: users.name }).from(users).where(and(eq(users.id, f.ownerId), side)).limit(1) : [];
   const A = await db.select({ name: users.name }).from(userFirms).innerJoin(users, eq(users.id, userFirms.userId))
-    .where(and(eq(userFirms.firmId, f.id), eq(users.active, true), notInArray(users.role, ['klient'] as never[])));
+    .where(and(eq(userFirms.firmId, f.id), eq(users.active, true), notInArray(users.role, ['klient'] as never[]), side));
   const issues: FrFinding[] = [];
   let contract: FrBasic['contract'] = null, fees: FrBasic['fees'] = null;
   if (o.owner) {
     const [c] = await db.select().from(serviceContracts).where(eq(serviceContracts.firmId, f.id)).orderBy(desc(serviceContracts.date), desc(serviceContracts.createdAt)).limit(1);
-    const X = await feeContext(db).catch(() => null);
+    const X = await feeContext(db, { demo: !!o.demo }).catch(() => null);
     if (c) {
       const k: KdContract = kdNormalize({ ...((c.data ?? {}) as Record<string, unknown>), id: c.id, number: c.number, date: c.date, start: c.start ?? undefined, end: c.end ?? undefined, fee: (c.data as { fee?: unknown } | null)?.fee ?? c.fee } as Partial<KdContract> & Record<string, unknown>, o.today);
       const amt = kdAmt(k.feeMode, k.fee, X?.rate ?? 18);
@@ -509,7 +515,7 @@ async function legalSection(db: Tx, f: Firm, Y: number, from: string, to: string
 
 /* ---------------- 9. documents and activity ---------------- */
 
-async function docsSection(db: Tx, f: Firm, from: string, to: string) {
+async function docsSection(db: Tx, f: Firm, from: string, to: string, demo = false) {
   const ym = (c: Parameters<typeof sql>[1]) => sql<string>`to_char(${c}, 'YYYY-MM')`;
   const [I, P, J, S, IB, pend, U] = await Promise.all([
     db.select({ m: ym(invoices.date), n: sql<number>`count(*)::int` }).from(invoices).where(and(eq(invoices.firmId, f.id), ne(invoices.status, 'draft'), between(invoices.date, from, to))).groupBy(ym(invoices.date)),
@@ -520,7 +526,7 @@ async function docsSection(db: Tx, f: Firm, from: string, to: string) {
     pendingClientCount(db, f.id),
     db.select({ id: auditLog.userId, name: users.name, role: users.role, n: sql<number>`count(*)::int`, first: sql<string>`min(${auditLog.at})`, last: sql<string>`max(${auditLog.at})` })
       .from(auditLog).innerJoin(users, eq(users.id, auditLog.userId))
-      .where(and(eq(auditLog.firmId, f.id), gte(auditLog.at, new Date(`${from}T00:00:00Z`)), lte(auditLog.at, new Date(`${addDays(to, 1)}T00:00:00Z`))))
+      .where(and(eq(auditLog.firmId, f.id), gte(auditLog.at, new Date(`${from}T00:00:00Z`)), lte(auditLog.at, new Date(`${addDays(to, 1)}T00:00:00Z`)), demo ? eq(users.demo, true) : undefined))
       .groupBy(auditLog.userId, users.name, users.role).orderBy(desc(sql`count(*)`)).limit(30),
   ]);
   const M = new Map<string, { m: string; inv: number; pur: number; jour: number; stmt: number }>();

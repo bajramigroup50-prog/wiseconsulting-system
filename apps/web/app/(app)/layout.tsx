@@ -6,7 +6,10 @@ import { requireUser } from '@/lib/auth';
 import { calendarYear, currentFirm, currentYear, firmYearCallout } from '@/lib/context';
 import { yearOffNote } from '@/lib/firm-guard';
 import { db } from '@/lib/db';
-import { OWNER_VIEWS, navFor, withoutViews } from '@/lib/nav';
+import { OWNER_VIEWS, navFor, onlyViews, withoutViews } from '@/lib/nav';
+import { DEMO_BANNER } from '@wise/core/demo';
+import { isDemoUser } from '@/lib/demo';
+import { demoViews } from '@/lib/route-guard';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { activeLocks } from '@/lib/login-guard';
 import { aiBudgetBadge } from '@/lib/ai-budget-status';
@@ -37,7 +40,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const locks = owner ? (await activeLocks().catch(() => [])).length : 0;
   // the owner's AI-budget alert (80 % / 100 % of the monthly AI limit): 💲 in the top bar → 💲 AI трошок
   const ai = owner ? await aiBudgetBadge().catch(() => null) : null;
-  const groups = u.role === 'klient' || preview ? await klNav(firm, preview)
+  // 🎭 demo user: the menu is the demo allow-list only (the same list `proxy.ts` enforces)
+  const demo = isDemoUser(u);
+  const groups = demo ? onlyViews(filterNavByModules(navFor(u.role === 'klient' || u.role === 'teren' ? 'acc' : u.role), firm, false), demoViews())
+    : u.role === 'klient' || preview ? await klNav(firm, preview)
     // owner-only screens (📊 Продуктивност на вработените) are not in anybody else's menu
     : withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
@@ -58,6 +64,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Nav groups={groups} />
       </header>
       <main>
+        {demo && (
+          // 🎭 on every page of a demo session (also the marker `lib/fiscal-bridge.ts` reads: no fiscal printing)
+          <div data-wise-demo="1" role="status" style={{
+            background: '#fde047', color: '#422006', borderBottom: '2px solid #ca8a04', padding: '6px 16px', fontWeight: 700, textAlign: 'center',
+          }}>{DEMO_BANNER}</div>
+        )}
         {/* after a deploy: „Има нова верзија на програмата – 🔄 Освежи“ (old pages call server actions that no longer exist) */}
         <VersionCheck build={buildId()} />
         <TopBar
@@ -104,9 +116,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </main>
-      {office && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
-      {office && <AlStartup />}
-      {office && <RobotPanel />}
+      {office && !demo && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
+      {office && !demo && <AlStartup />}
+      {office && !demo && <RobotPanel />}
     </div>
     </FirmGuard>
   );

@@ -5,9 +5,10 @@ import { ROLES } from '@wise/core';
 import { firmName, loadProductivity, ownerGateApi, prodFilter, userName } from '../data';
 
 export async function GET(req: Request) {
-  if (!(await ownerGateApi())) return new Response('Forbidden', { status: 403 });
+  const me = await ownerGateApi();
+  if (!me) return new Response('Forbidden', { status: 403 });
   const f = prodFilter(Object.fromEntries(new URL(req.url).searchParams));
-  const D = await loadProductivity(f);
+  const D = await loadProductivity(f, me);
   const W = D.report.users.filter((w) => w.total > 0);
   const r2c = (c: number) => Math.round(c) / 100;
   const sum: (string | number)[][] = [[`Продуктивност на вработените ${f.from} – ${f.to}`], [],

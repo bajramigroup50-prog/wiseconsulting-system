@@ -21,6 +21,8 @@ export function publicPath(p: string): boolean {
     || p.startsWith('/api/desktop-update/')
     // the running build only (new-version banner, components/version-check.tsx)
     || p === '/api/version'
+    // 🎭 the demo link (`app/demo/[token]`): signs in as the demo user only (token checked and rate-limited there)
+    || p.startsWith('/demo/')
     // public/forms assets and root-level static files only (a dotted segment deeper down is not a free pass)
     || p.startsWith('/forms/') || /^\/[^/]+\.[a-z0-9]{2,5}$/i.test(p);
 }
@@ -85,4 +87,91 @@ export function previewVerdict(pathname: string, views: readonly string[]): stri
   const p = pathname.replace(/\/+$/, '') || '/';
   if (p.startsWith('/api/')) return null;
   return routeVerdict('klient', p, [...views, 'klExit']);
+}
+
+/* ---------------- 🎭 demo users ---------------- */
+
+/**
+ * The views a demo user may open (`users.demo`, `lib/demo.ts`): an ALLOW-list — every view not listed here (office-wide,
+ * cross-firm, system, mail history, devices, backups, the AML office register, mass mail, the all-firms checks…) is
+ * refused. Bookkeeping screens of the selected demo firm (the firm itself is limited to the demo firms by
+ * `principal.firms`), plus `DEMO_OFFICE_VIEWS`.
+ */
+export const DEMO_BOOK_VIEWS: readonly string[] = [
+  // firms / start
+  'firmi', 'izlezF', 'lozinka', 'pomos', 'kontroli', 'zakon', 'insp', 'lawrep', 'dosie', 'paket', 'moduli',
+  // finance
+  'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
+  'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
+  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pozajmici', 'prenos',
+  // year end
+  'zsProc', 'zsDos', 'zsNPO', 'zsTP', 'zsRok', 'zsBel', 'zsKontrola', 'zsXml', 'zs_aop', 'zs_bs', 'zs_bu', 'zs_db', 'zs_de', 'zs_pr', 'zs_skr', 'zs_sp', 'zs_vp',
+  'mbyllja', 'vjetore', 'pecati',
+  // archive
+  'arhiva', 'arNewNav',
+  // goods / production
+  'skan', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
+  'normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi', 'kalkG', 'prenosi', 'zaliha', 'profakturi', 'ispratnici', 'g_trg', 'kalkCalc',
+  'g_trgv', 'uprosek',
+  // retail
+  'uvozMalo', 'kalkM', 'masovnoM', 'm_izlez', 'm_trg', 'kdfi', 'm_kartica', 'm_lager', 'm_lagerp', 'nivel', 'm_akcii', 'kasa',
+  // industries
+  'hotel', 'hotelSoby', 'hotelKniga', 'servis', 'vozila', 'delovi', 'potsetnici', 'rent', 'flota', 'rentIzv', 'gradba', 'gradbaIzv', 'tura', 'turaIzv',
+  'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni', 'porachki', 'nabavki', 'dopolnuvanje', 'pnalozi', 'pnGorivo',
+  'lojalnost', 'restoran', 'kujna',
+  // analyses, fixed assets, interest
+  'klDash', 'analizi', 'os', 'kamati',
+  // codebooks of the firm (office-wide rows are read-only for demo, `sifrarnik/actions.ts`)
+  'sifrarnik', 'partneri', 'artikli', 'uslugiS', 'artNames', 'artQ', 'artKonta', 'barkodi', 'konto', 'tarifi', 'terkovi',
+  'cb_cash', 'cb_cenovnik', 'cb_country', 'cb_currency', 'cb_fgroup', 'cb_hall', 'cb_location', 'cb_municipality', 'cb_oe', 'cb_route', 'cb_store', 'cb_vehicle', 'cb_warehouse',
+  // imports into the firm, AI reading (AI itself is off unless the owner allows it)
+  'uvoz', 'aiCitanje',
+];
+
+/**
+ * Office views a demo ADMIN sees as the owner of the sandboxed demo office — each one scoped to demo users / demo firms /
+ * the demo office profile only (`lib/demo.ts`, `lib/demo-office.ts`). Views that are not provably scoped stay out.
+ */
+export const DEMO_OFFICE_VIEWS: readonly string[] = [
+  'korisnici', 'aktivnost', 'produktivnost', 'kdogovori', 'kdfakturi', 'firmIzv', 'rokovi', 'mesIzv', 'kanc', 'mojzad', 'klInbox', 'aiTrosok',
+];
+
+/** `/print/<x>` documents of the demo firm. */
+export const DEMO_PRINT: readonly string[] = [
+  'analizi', 'bilanc', 'cenovnik', 'ddv04', 'ddvKniga', 'ddvKnigi', 'ddvTab', 'dnevnik', 'doc', 'fin', 'firmi', 'kalk', 'kartice', 'kkart', 'metg', 'nalog', 'prenos', 'prodKalk', 'scr',
+];
+
+/** API endpoints a demo user may call (each checks the firm itself; the firm list is the demo firms only). */
+export const DEMO_API: readonly string[] = [...SHARED_API, '/api/firms', '/api/ubl'];
+
+export const demoViews = (): ReadonlySet<string> => new Set([...DEMO_BOOK_VIEWS, ...DEMO_OFFICE_VIEWS]);
+
+/** `null` = allowed; `'/'` = back to the demo dashboard; `'403'` for an API call. */
+export function demoVerdict(pathname: string): string | null {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  if (publicPath(p) || p === '/') return null;
+  if (p.startsWith('/api/')) return DEMO_API.some((a) => p === a || p.startsWith(a + '/')) ? null : '403';
+  const [, seg = '', sub = ''] = p.split('/');
+  if (seg === 'print') return DEMO_PRINT.includes(sub) ? null : '/';
+  return demoViews().has(seg) ? null : '/';
+}
+
+/**
+ * 🎭 Server actions a demo user may call, by the source file that defines them (Next's server-reference manifest maps
+ * every action id to its `filename`, read by `proxy.ts`): the actions of the allowed views, the shared private folders
+ * (`_ai`, `_stock`, `_retail`, `_repost`), the firm / year picker (`app/(app)/actions.ts`), the top bar, the login and the
+ * document print. Anything else — the actions of every blocked office-wide view — is refused before it runs, even when
+ * its id is posted to an allowed page. Unknown files are refused (fail closed).
+ */
+export function demoActionAllowed(filename: string | null | undefined): boolean {
+  const f = (filename ?? '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^apps\/web\//, '');
+  if (!f) return false;
+  if (f === 'app/login/actions.ts' || f.startsWith('app/print/doc/')) return true;
+  const m = /^app\/\(app\)\/(.+)$/.exec(f);
+  if (!m) return false;
+  const rest = m[1]!;
+  if (rest === 'actions.ts' || rest === 'top-actions.ts') return true;
+  const seg = rest.split('/')[0]!;
+  if (['_ai', '_stock', '_retail', '_repost'].includes(seg)) return true;
+  return demoViews().has(seg);
 }

@@ -47,7 +47,21 @@ export interface Principal {
   role: Role;
   /** Firm ids the user is assigned to; `'*'` means all firms. */
   firms: readonly string[];
+  /**
+   * 🎭 Demo user (`@wise/core/demo`): `firms` is exactly the list of demo firms (never `'*'`), the role / owner
+   * shortcuts never widen it, and office-wide checks (no firm) are refused except the ones in `DEMO_GLOBAL_PERMS`.
+   */
+  demo?: boolean;
 }
+
+/**
+ * Permissions a demo user may use WITHOUT a firm (`can(u, p, null)`): the bookkeeping writes that resolve the firm
+ * themselves (`requireCan('write')` → `currentFirm`) and the demo office's own user administration (scoped to demo
+ * users by the users screen). Every other office-wide check (`office`, `settings`, `firms`, `close`) is refused.
+ */
+export const DEMO_GLOBAL_PERMS: readonly Perm[] = ['write', 'del', 'fix', 'users'];
+/** Named actions never available to a demo user (a new firm would be a real, non-demo firm). */
+export const DEMO_DENIED_ACTIONS: readonly string[] = ['newFirm', 'pickNew', 'delFirm', 'ncCreateFirm'];
 
 export const isRole = (r: unknown): r is Role => typeof r === 'string' && (ROLE_IDS as readonly string[]).includes(r);
 
@@ -55,7 +69,7 @@ export const hasPerm = (u: Principal | null | undefined, p: Perm): boolean => !!
 
 /** Legacy `firmAllowed`: admin and `*` see every firm, others only assigned ones (or firms they own). */
 export const firmAllowed = (u: Principal | null | undefined, firmId: string, ownerId?: string | null): boolean =>
-  !!u && (u.role === 'admin' || u.firms.includes('*') || u.firms.includes(firmId) || (!!ownerId && ownerId === u.id));
+  !!u && (u.demo ? u.firms.includes(firmId) && firmId !== '*' : u.role === 'admin' || u.firms.includes('*') || u.firms.includes(firmId) || (!!ownerId && ownerId === u.id));
 
 /**
  * The single guard. `action` is a permission or a named legacy action.
@@ -65,6 +79,7 @@ export function can(u: Principal | null | undefined, action: Perm | string, firm
   if (!u) return false;
   const perm: Perm = (PERMS as readonly string[]).includes(action) ? (action as Perm) : (ACT_NEED[action] ?? 'write');
   if (!hasPerm(u, perm)) return false;
+  if (u.demo && (DEMO_DENIED_ACTIONS.includes(action) || (firmId == null && !DEMO_GLOBAL_PERMS.includes(perm)))) return false;
   return firmId == null || firmAllowed(u, firmId);
 }
 

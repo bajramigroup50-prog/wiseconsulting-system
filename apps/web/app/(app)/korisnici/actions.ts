@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { ROLE_IDS } from '@wise/core';
-import { audit, fileLinks, files, getOfficeProfile, patchOfficeZz, sessions, userFirms, users } from '@wise/db';
+import { audit, demoFirmIds, fileLinks, files, getOfficeProfile, patchOfficeZz, sessions, userFirms, users } from '@wise/db';
 import { can } from '@wise/core';
 import { zzIzjNext } from '@wise/core/office';
 import { hashPassword, verifyPassword } from '@wise/db/password';
@@ -12,6 +12,7 @@ import { requireCan, requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { unlock as unlockLock } from '@/lib/login-guard';
 import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
+import { DEMO_OFF_MSG, isDemoUser } from '@/lib/demo';
 
 import { todayIso } from '@/lib/fmt';
 export interface FormState { error?: string; ok?: string }
@@ -45,17 +46,30 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
   if (id && v.password && v.password.length < MIN_PW) return { error: `Лозинката мора да има најмалку ${MIN_PW} знаци.` };
   if (id === me.id && (v.role !== 'admin' || !v.active)) return { error: 'Не можете да си ја одземете администраторската улога или да се деактивирате.' };
 
+  // 🎭 demo: a demo admin manages only demo users (every user it creates is demo, with the demo firms only) and never
+  // touches a real user; the „🎭 Демо корисник“ flag is set only by the office owner (never on themselves)
+  const meDemo = isDemoUser(me);
+  const [target] = id ? await db().select({ demo: users.demo }).from(users).where(eq(users.id, id)).limit(1) : [];
+  if (id && !target) return { error: 'Корисникот не постои.' };
+  if (meDemo && target && !target.demo) return { error: DEMO_OFF_MSG };
+  const owner = !meDemo && await isOfficeOwner(me);
+  const demo = meDemo ? true : owner && id !== me.id ? form.get('demo') === 'on' : target?.demo ?? false;
+  const allFirms = demo ? false : v.allFirms;
+  const demoIds = demo ? new Set(await demoFirmIds(db())) : null;
+  const firmSel = demoIds ? v.firms.filter((f) => demoIds.has(f)) : v.firms;
+
   const [dupe] = await db().select({ id: users.id }).from(users)
     .where(and(eq(sql`lower(${users.username})`, v.username), id ? ne(users.id, id) : undefined)).limit(1);
   if (dupe) return { error: 'Корисничкото име веќе постои.' };
   // legacy `uSave`: the program must keep at least one active administrator
-  if (id && (v.role !== 'admin' || !v.active)) {
-    const [o] = await db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
+  // (counted among the real users — a demo admin never keeps the program administered; for a demo admin: among demo users)
+  if (id && (v.role !== 'admin' || !v.active || (demo && !target!.demo))) {
+    const [o] = await db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id), eq(users.demo, meDemo)));
     if (!o?.n) return { error: 'Мора да остане барем еден активен администратор.' };
   }
 
   await db().transaction(async (tx) => {
-    const base = { name: v.name, username: v.username, email: v.email, role: v.role, active: v.active, allFirms: v.allFirms };
+    const base = { name: v.name, username: v.username, email: v.email, role: v.role, active: v.active, allFirms, demo };
     let uid = id;
     if (id) {
       await tx.update(users).set({
@@ -63,17 +77,18 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
         ...(v.password ? { passwordHash: await hashPassword(v.password), legacySalt: null, mustChangePassword: true } : {}),
       }).where(eq(users.id, id));
       // Role, status or password change → sign the user out everywhere.
-      if (v.password || !v.active) await tx.delete(sessions).where(eq(sessions.userId, id));
+      if (v.password || !v.active || demo !== target!.demo) await tx.delete(sessions).where(eq(sessions.userId, id));
     } else {
       const [n] = await tx.insert(users).values({ ...base, passwordHash: await hashPassword(v.password), mustChangePassword: true })
         .returning({ id: users.id });
       uid = n!.id;
     }
     await tx.delete(userFirms).where(eq(userFirms.userId, uid!));
-    if (!v.allFirms && v.firms.length) await tx.insert(userFirms).values(v.firms.map((firmId) => ({ userId: uid!, firmId })));
+    if (!allFirms && firmSel.length) await tx.insert(userFirms).values(firmSel.map((firmId) => ({ userId: uid!, firmId })));
+    if (demo !== (target?.demo ?? false) && !meDemo) await audit(tx, { userId: me.id, action: 'demoUserSet', entityType: 'user', entityId: uid!, data: { username: v.username, demo } });
     await audit(tx, {
       userId: me.id, action: id ? 'uSave' : 'uNew', entityType: 'user', entityId: uid!,
-      data: { username: v.username, role: v.role, active: v.active, allFirms: v.allFirms, firms: v.firms.length, passwordChanged: !!v.password },
+      data: { username: v.username, role: v.role, active: v.active, allFirms, firms: firmSel.length, passwordChanged: !!v.password, ...(demo ? { demo } : {}) },
     });
   });
   revalidatePath('/korisnici');
@@ -83,10 +98,15 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
 export async function deleteUser(id: string): Promise<FormState> {
   const me = await requireCan('uDel');
   if (id === me.id) return { error: 'Не можете да се избришете себеси.' };
-  const [o] = await db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
+  // 🎭 a demo admin deletes only demo users
+  const meDemo = isDemoUser(me);
+  const [t] = await db().select({ demo: users.demo }).from(users).where(eq(users.id, id)).limit(1);
+  if (!t) return {};
+  if (meDemo && !t.demo) return { error: DEMO_OFF_MSG };
+  const [o] = await db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id), eq(users.demo, meDemo)));
   if (!o?.n) return { error: 'Мора да остане барем еден активен администратор.' };
   await db().transaction(async (tx) => {
-    const [u] = await tx.delete(users).where(eq(users.id, id)).returning({ username: users.username });
+    const [u] = await tx.delete(users).where(meDemo ? and(eq(users.id, id), eq(users.demo, true)) : eq(users.id, id)).returning({ username: users.username });
     if (u) await audit(tx, { userId: me.id, action: 'uDel', entityType: 'user', entityId: id, data: { username: u.username } });
   });
   revalidatePath('/korisnici');
@@ -95,6 +115,8 @@ export async function deleteUser(id: string): Promise<FormState> {
 
 export async function changeMyPassword(_prev: FormState, form: FormData): Promise<FormState> {
   const me = await requireUser();
+  // 🎭 the shared demo login keeps its password (the owner sets it)
+  if (isDemoUser(me)) return { error: DEMO_OFF_MSG };
   const old = String(form.get('old') ?? ''), pw = String(form.get('new') ?? ''), pw2 = String(form.get('new2') ?? '');
   if (pw.length < MIN_PW) return { error: `Новата лозинка мора да има најмалку ${MIN_PW} знаци.` };
   if (pw !== pw2) return { error: 'Лозинките не се исти.' };
@@ -116,6 +138,8 @@ export async function changeMyPassword(_prev: FormState, form: FormData): Promis
  */
 export async function zzIzj(uid: string, fileId: string | null = null): Promise<FormState> {
   const me = await requireCan('users');
+  // 🎭 the confidentiality statements are the real office's ЗЗЛП register
+  if (isDemoUser(me)) return { error: DEMO_OFF_MSG };
   const [t] = await db().select({ id: users.id, name: users.name }).from(users).where(eq(users.id, uid)).limit(1);
   if (!t) return { error: 'Корисникот не постои.' };
   let file: { id: string; name: string } | null = null;

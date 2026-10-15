@@ -9,6 +9,7 @@ import { redirect } from 'next/navigation';
 import { cbInput, cbIsGlobal, cbPerm, isCbKey, CB, type CbKey } from '@wise/core/codebooks';
 import { codeScope, CodebookError, deleteCode, saveCode, seedCities, seedPaySif } from '@wise/db';
 import { requireCan, requireUser } from '@/lib/auth';
+import { refuseDemo } from '@/lib/demo';
 import { actionError, type ActionState } from '@/lib/books';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -27,6 +28,8 @@ async function guard(k: CbKey, id: string | null, del = false) {
     if (!global && r.firmId !== firm?.id) throw new CodebookError('Записот не постои.');
   }
   if (!global && !firm) throw new Error('Изберете фирма.');
+  // 🎭 office-wide codebook rows are the real office's — a demo user changes only its demo firm's own rows
+  if (global) await refuseDemo(u0, 'codebook');
   const perm = del && !global ? 'del' : cbPerm(k, global);
   const u = await requireCan(perm, global ? null : firm!.id);
   if (del && global) await requireCan('del');

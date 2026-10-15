@@ -73,11 +73,11 @@ export const cacheModule = {
   updateTag: () => {},
 };
 
-/** A signed-in user (role, firm access) with a live session cookie. Returns the user id. */
-export async function signIn(role: string, opts: { firms?: string[]; allFirms?: boolean; username?: string } = {}): Promise<string> {
+/** A signed-in user (role, firm access, 🎭 `demo` sets `users.demo`) with a live session cookie. Returns the user id. */
+export async function signIn(role: string, opts: { firms?: string[]; allFirms?: boolean; username?: string; demo?: boolean } = {}): Promise<string> {
   const username = opts.username ?? `${role}-${randomBytes(3).toString('hex')}`;
   const [u] = await pg.insert(schema.users).values({
-    username, name: username, role: role as never, allFirms: opts.allFirms ?? role === 'admin', passwordHash: 'x', mustChangePassword: false,
+    username, name: username, role: role as never, allFirms: opts.allFirms ?? role === 'admin', passwordHash: 'x', mustChangePassword: false, demo: opts.demo ?? false,
   }).returning();
   if (opts.firms?.length) await pg.insert(schema.userFirms).values(opts.firms.map((firmId) => ({ userId: u!.id, firmId })));
   const token = randomBytes(24).toString('base64url');

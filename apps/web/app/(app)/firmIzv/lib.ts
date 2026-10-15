@@ -4,6 +4,9 @@ import 'server-only';
  * action), the query parameters, and loading the report of the CHOSEN firm. The firm is read by its id explicitly,
  * after the owner check, never from the selected-firm cookie (the owner sees every firm; the cookie, the firm guard and
  * its headers stay as they are).
+ *
+ * 🎭 A demo admin is the owner of the demo office (`lib/demo-office.ts`): it picks and reports on DEMO firms only (a real
+ * firm id gives „Фирмата не постои.“), the contract / fees are the demo office's, and only demo users are named.
  */
 import { asc, eq } from 'drizzle-orm';
 import { firmReportHtml, type FirmReport, type FrAiView, type FrMode } from '@wise/core/office/firm-report';
@@ -14,19 +17,21 @@ import { db } from '@/lib/db';
 import { NAV_LBL } from '@/lib/nav';
 import { isUuid, today } from '@/lib/office';
 import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
+import { isDemoUser } from '@/lib/demo';
+import { firmOnSide, firmSideSql, isDemoOwner } from '@/lib/demo-office';
 
 export const FI_TITLE = '🗂 Целосен извештај за фирма';
 
-/** The signed-in user when they are the office owner, else `null` (page, print view, Word route). */
+/** The signed-in user when they are the office owner (or 🎭 the demo office's owner), else `null` (page, print view, Word route). */
 export async function fiOwnerUser(): Promise<SessionUser | null> {
   const u = await getUser();
-  return u && u.role === 'admin' && (await isOfficeOwner(u)) ? u : null;
+  return u && u.role === 'admin' && (isDemoOwner(u) || (await isOfficeOwner(u))) ? u : null;
 }
 
-/** Server-action guard: only the office owner. */
+/** Server-action guard: only the office owner (or 🎭 the demo office's owner, on demo firms only). */
 export async function fiOwnerAction(): Promise<SessionUser> {
   const u = await requireUser();
-  if (!(await isOfficeOwner(u))) throw new OfficeError(OWNER_ONLY_MSG);
+  if (!isDemoOwner(u) && !(await isOfficeOwner(u))) throw new OfficeError(OWNER_ONLY_MSG);
   return u;
 }
 
@@ -43,17 +48,17 @@ export function fiParams(sp: Record<string, string | string[] | undefined>): FiP
 
 export const fiQuery = (p: { f: string; y: number; to?: string | null }) => `f=${p.f}&y=${p.y}${p.to ? `&do=${p.to}` : ''}`;
 
-/** Every firm (active first), for the searchable picker. */
-export async function fiFirms() {
-  const F = await db().select({ id: firms.id, name: firms.name, edb: firms.edb, city: firms.city, active: firms.active }).from(firms).orderBy(asc(firms.name));
+/** Every firm of the owner's side (active first), for the searchable picker: 🎭 demo firms for a demo admin, real firms otherwise. */
+export async function fiFirms(u: SessionUser) {
+  const F = await db().select({ id: firms.id, name: firms.name, edb: firms.edb, city: firms.city, active: firms.active }).from(firms).where(firmSideSql(u)).orderBy(asc(firms.name));
   return F.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name, 'mk'));
 }
 
-/** The report of the chosen firm (owner already checked by the caller). */
+/** The report of the chosen firm (owner already checked by the caller) — a firm of the owner's side only. */
 export async function fiReport(u: SessionUser, p: FiParams & { f: string }): Promise<FirmReport | null> {
-  const [f] = await db().select({ id: firms.id }).from(firms).where(eq(firms.id, p.f)).limit(1);
-  if (!f) return null;
-  return computeFirmReport(db(), { firmId: p.f, year: p.y, to: p.to, today: today(), owner: true, userId: u.id });
+  const [f] = await db().select({ id: firms.id, name: firms.name, settings: firms.settings }).from(firms).where(eq(firms.id, p.f)).limit(1);
+  if (!f || !firmOnSide(u, f)) return null;
+  return computeFirmReport(db(), { firmId: p.f, year: p.y, to: p.to, today: today(), owner: true, userId: u.id, demo: isDemoUser(u) });
 }
 
 /** The stored AI analysis, as the report shows it (without the request payload). */

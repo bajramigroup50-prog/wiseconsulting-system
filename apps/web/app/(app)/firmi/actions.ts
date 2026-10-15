@@ -10,6 +10,7 @@ import { todaySkopje } from '@wise/core/office';
 import { audit, firms, type NewFirm } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
+import { hasDemoPrefix, isDemoFirm } from '@wise/core/demo';
 import { requireCan, requireUser } from '@/lib/auth';
 import { FIRM_COOKIE } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -59,6 +60,13 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
   if (!sr.ok) return { error: sr.error };
   const vatFrom = (str(form, 'vatFrom') ?? '').trim();
   if (vatFrom) sr.settings.vatFrom = vatFrom; else delete sr.settings.vatFrom;
+  // 🎭 the demo flag is never set or cleared through the form: a demo firm stays demo (and keeps the „ДЕМО“ name), a real
+  // firm can never become one here (only the owner's „🎭 Креирај демо фирми“ creates them)
+  const wasDemo = isDemoFirm(before);
+  if (wasDemo) {
+    if (!hasDemoPrefix(parsed.data.name)) return { error: 'Името на демо фирма мора да почнува со „ДЕМО“.' };
+    sr.settings.demo = true;
+  } else delete sr.settings.demo;
   const v: Partial<NewFirm> = { ...parsed.data, settings: sr.settings };
 
   const res = await db().transaction(async (tx) => {

@@ -9,7 +9,7 @@ import { asc, eq, ilike, inArray, or, sql, and } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { FR_F, frList, isFrFilter } from '@wise/core/firms/firmform';
 import { firmActiveIn, firmFromYear, firmToYear } from '@wise/core/firms/years';
-import { firmFirstDataYears, firmInYearSql, firmLastDataYears, firms, userFirms } from '@wise/db';
+import { demoFirmSql, firmFirstDataYears, firmInYearSql, firmLastDataYears, firms } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -17,6 +17,8 @@ import { Hd, dmy } from '@/components/hd';
 import { FirmForm } from './firm-form';
 import { openFirm, restoreFirm, unlockFirm } from './actions';
 import { ConfirmButton } from './confirm-button';
+import { firmListSql, isDemoUser } from '@/lib/demo';
+import { isOfficeOwner } from '@/lib/office-owner';
 
 type Sp = { q?: string; edit?: string; nova?: string; f?: string; ex?: string; arh?: string; sve?: string };
 
@@ -30,10 +32,14 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const fk = isFrFilter(sp.f) ? sp.f : 'all';
   const withEx = sp.ex !== '0';
   const admin = u.role === 'admin';
+  // the archive of deleted firms is the real office's — never for a demo admin
+  const realAdmin = admin && !isDemoUser(u);
 
-  const scoped = u.principal.firms.includes('*')
-    ? undefined
-    : or(inArray(firms.id, db().select({ id: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))), eq(firms.ownerId, u.id));
+  // 🎭 demo firms are never in the normal list (a demo user sees only them); the owner gets them in a separate „ДЕМО“ group
+  const scoped = firmListSql(u);
+  const demoGroup = await isOfficeOwner(u).catch(() => false)
+    ? await db().select().from(firms).where(and(demoFirmSql, eq(firms.active, true))).orderBy(asc(firms.name))
+    : [];
   const search = q ? or(ilike(firms.name, `%${q}%`), ilike(firms.edb, `%${q}%`), ilike(firms.embs, `%${q}%`), ilike(firms.city, `%${q}%`), ilike(firms.code, `%${q}%`)) : undefined;
 
   const all = await db().select().from(firms).where(and(scoped, eq(firms.active, true), allYears ? undefined : firmInYearSql(year))).orderBy(asc(firms.name));
@@ -41,8 +47,8 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const fdy = await firmFirstDataYears(db(), all.map((f) => f.id));
   const ldy = allYears ? await firmLastDataYears(db(), all.map((f) => f.id)) : new Map<string, number>();
   const yrs = (f: typeof all[number]) => { const a = firmFromYear(f, fdy.get(f.id)), b = firmToYear(f); return `${a}–${b ?? ''}`; };
-  const archived = admin && sp.arh !== undefined ? await db().select().from(firms).where(eq(firms.active, false)).orderBy(asc(firms.name)) : [];
-  const nArch = admin ? (await db().select({ n: sql<number>`count(*)::int` }).from(firms).where(eq(firms.active, false)))[0]?.n ?? 0 : 0;
+  const archived = realAdmin && sp.arh !== undefined ? await db().select().from(firms).where(eq(firms.active, false)).orderBy(asc(firms.name)) : [];
+  const nArch = realAdmin ? (await db().select({ n: sql<number>`count(*)::int` }).from(firms).where(eq(firms.active, false)))[0]?.n ?? 0 : 0;
   const ex = (f: typeof all[number]) => (f.settings as { example?: boolean }).example === true;
   const R = all.map((f) => ({ ...f, example: ex(f) }));
   const shown = new Set(frList(R, fk, withEx).map((f) => f.id));
@@ -130,7 +136,14 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
         ) : nOther > 0
           ? <div className="card empty">Нема фирми активни во {year}. <Link href={`/firmi${qs({ sve: '1' })}`}>Прикажи ги сите години ({nOther})</Link> и кај фирмата внесете „Активна од година“.</div>
           : <div className="card empty">Додадете ја вашата фирма. Сметководствено биро тука ги додава сите клиенти.</div>}
-        {admin && nArch > 0 && (
+        {demoGroup.length > 0 && (
+          <div className="card" style={{ marginTop: 10 }}><h2>🎭 ДЕМО</h2><p className="note">Демо фирмите за презентација – не се дел од канцеларијата (извештаи, рокови, фактурирање).</p>
+            <div className="tw"><table><tbody>
+              {demoGroup.map((f) => <tr key={f.id}><td>{f.name}</td><td>{f.edb ?? ''}</td><td><form action={openFirm}><input type="hidden" name="id" value={f.id} /><button className="btn sm">Отвори</button></form></td></tr>)}
+            </tbody></table></div>
+          </div>
+        )}
+        {realAdmin && nArch > 0 && (
           <div style={{ marginTop: 10 }}>
             {sp.arh === undefined ? <Link className="btn sm ghost" href="/firmi?arh">🗄 Неактивни фирми ({nArch})</Link> : (
               <div className="card"><h2>🗄 Неактивни фирми</h2><p className="note">Неактивните фирми не се гледаат во работата – книгите и документите се чуваат и фирмата може повторно да се активира.</p>

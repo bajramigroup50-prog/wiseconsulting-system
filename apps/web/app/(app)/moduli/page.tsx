@@ -17,6 +17,7 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { FirmGo } from '@/components/firm-go';
 import { autoProfilesAction, saveEntityAction, saveModuleSetupAction } from './actions';
+import { isDemoFirm } from '@wise/core/demo';
 
 export default async function ModuliPage() {
   const { u, firm } = await booksPage('moduli');
@@ -28,7 +29,7 @@ export default async function ModuliPage() {
   const P = st.profiles;
   const ent = yeEntityOf({ ent: (firm.settings as Record<string, unknown> | null)?.ent, legalForm: firm.legalForm, name: firm.name });
   const all = (await db().select({ id: firms.id, name: firms.name, mods: firms.mods, activity: firms.activity, ownerId: firms.ownerId, settings: firms.settings }).from(firms).orderBy(asc(firms.name)))
-    .filter((f) => firmAllowed(u.principal, f.id, f.ownerId)).slice(0, 500);
+    .filter((f) => firmAllowed(u.principal, f.id, f.ownerId) && isDemoFirm(f) === !!u.principal.demo).slice(0, 500);
   const kl = (f: { settings: unknown }) => ((f.settings ?? {}) as { kl?: { prof?: string[] | null; profSet?: boolean } }).kl;
   return (
     <>

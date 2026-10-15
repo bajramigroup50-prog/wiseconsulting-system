@@ -5,6 +5,7 @@ import { getUser } from '@/lib/auth';
 import { currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { firmBadges } from '@/lib/top-status';
+import { firmListSql } from '@/lib/demo';
 
 /** Firm search for the "⇄ Промени фирма" window: firms the user can access that work in the selected year, max 50, with the open notifications (legacy `alFirmBadge`). */
 export async function GET(req: NextRequest) {
@@ -12,9 +13,7 @@ export async function GET(req: NextRequest) {
   if (!u) return Response.json({ error: 'unauthorized' }, { status: 401 });
   const year = await currentYear();
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim().slice(0, 100);
-  const scoped = u.principal.firms.includes('*')
-    ? undefined
-    : or(inArray(firms.id, db().select({ id: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))), eq(firms.ownerId, u.id));
+  const scoped = firmListSql(u);
   const search = q
     ? and(...q.split(/\s+/).map((w) => `%${w}%`).map((w) => or(ilike(firms.name, w), ilike(firms.edb, w), ilike(firms.embs, w), ilike(firms.city, w))))
     : undefined;

@@ -12,6 +12,7 @@ import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { applyCyr } from './actions';
+import { firmListSql } from '@/lib/demo';
 
 const lat = (s: string | null) => !!s && ((hasLatin(s) && !hasCyrillic(s)) || hasYuscii(s));
 /** Latin keyboard text → Cyrillic, and YUSCII leftovers in Cyrillic text („ДЕЛ^ЕВ“ → „ДЕЛЧЕВ“, „^аир“ → „Чаир“). */
@@ -21,9 +22,7 @@ export default async function KirilicaPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const u = await requireUser();
   if (!can(u.principal, 'saveFirm')) return <><Hd t="Поправка на увезени фирми" /><div className="callout warn">Немате право да менувате фирми.</div></>;
-  const scoped = u.principal.firms.includes('*')
-    ? undefined
-    : or(inArray(firms.id, db().select({ id: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, u.id))), eq(firms.ownerId, u.id));
+  const scoped = firmListSql(u);
   const all = await db().select({ id: firms.id, name: firms.name, address: firms.address, city: firms.city, edb: firms.edb, settings: firms.settings }).from(firms).where(scoped).orderBy(asc(firms.name));
   const edbOf = (f: (typeof all)[number]) => {
     const b = String(((f.settings ?? {}) as Record<string, unknown>).bankEdb ?? '').replace(/\s/g, '').replace(/^MK/i, '');

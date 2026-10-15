@@ -21,6 +21,7 @@ import { LawHome } from './zakoni/law-home';
 import { calendarYear, currentFirm, currentYear, firmYearCallout, yearChosen } from '@/lib/context';
 import { acctMonths, cashKontos, stockSummary } from '@/lib/dash';
 import { db } from '@/lib/db';
+import { officeProfileFor } from '@/lib/demo-office';
 import { invoicesWithPayments, partnerNames, purchasesWithPayments } from '@/lib/firms-office';
 import { fmt } from '@/lib/fmt';
 import { navFor, navFlat } from '@/lib/nav';
@@ -88,7 +89,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   // a firm outside the selected year (the layout shows „Фирмата не е активна во …“): the picker of that year instead of its dashboard
   if (!f || await firmYearCallout(f, year)) {
     // legacy: no firm → `S.chooser` → full-screen `firmPicker` (menu and firm bar hidden, `body.picking`)
-    const [P, O] = await Promise.all([pickerFirms(u), getOfficeProfile(db()).catch(() => ({ name: '' }))]);
+    const [P, O] = await Promise.all([pickerFirms(u), officeProfileFor(u).catch(() => ({ name: '' }))]);
     return <FirmPicker rows={P.rows} canNew={can(u.principal, 'newFirm')} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} year={year} />;
   }
   const P = isDashPer(sp.per) ? sp.per : 'year';

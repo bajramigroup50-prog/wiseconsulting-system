@@ -3,6 +3,7 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { TST, taskLate, type TaskStatus } from '@wise/core/office';
 import { firms, OFFICE_FILE_ENTITY, officeTasks } from '@wise/db';
 import { db } from '@/lib/db';
+import { taskScopeSql } from '@/lib/demo-office';
 import { filesOf, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { FileChips, Pill } from '@/components/file-chips';
@@ -15,7 +16,8 @@ export default async function MojzadPage() {
   const { u } = await officePage('mojzad');
   const rows = await db().select({ t: officeTasks, f: { name: firms.name, edb: firms.edb, address: firms.address, city: firms.city, phone: firms.phone } })
     .from(officeTasks).leftJoin(firms, eq(firms.id, officeTasks.firmId))
-    .where(or(eq(officeTasks.assigneeId, u.id), and(isNull(officeTasks.assigneeId), eq(officeTasks.status, 'new'))))
+    // 🎭 by side: a demo user sees demo tasks only (also among the free ones), a real user never a demo task
+    .where(and(or(eq(officeTasks.assigneeId, u.id), and(isNull(officeTasks.assigneeId), eq(officeTasks.status, 'new'))), taskScopeSql(u)))
     .orderBy(sql`${officeTasks.due} asc nulls last`);
   const mine = rows.filter((r) => r.t.assigneeId === u.id);
   const open = mine.filter((r) => r.t.status !== 'done');

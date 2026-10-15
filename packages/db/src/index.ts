@@ -79,3 +79,6 @@ export * from './fx-nbrm';
 export * from './fee-invoices';
 export * from './robot/index';
 export * from './firm-report';
+export * from './demo/filters';
+export * from './demo/seed';
+export * from './demo/reset';

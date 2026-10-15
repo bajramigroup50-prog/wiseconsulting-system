@@ -8,14 +8,17 @@ import { db } from '@/lib/db';
 import { isUuid } from '@/lib/office';
 import { OFFICE_OWNER_KEY, OWNER_ONLY_MSG, isOfficeOwner } from '@/lib/office-owner';
 
-/** „Пренеси сопственост“: only the current owner hands the office over to another active administrator (audited). */
+/**
+ * „Пренеси сопственост“: only the current owner hands the office over to another active administrator (audited) —
+ * never to a 🎭 demo admin; a demo admin is never the owner (`isOfficeOwner`), so it can never transfer anything.
+ */
 export async function transferOwner(_prev: RowResult, form: FormData): Promise<RowResult> {
   const u = await requireUser();
   if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
   const to = String(form.get('to') ?? '');
   if (!isUuid(to) || to === u.id) return { error: 'Изберете друг администратор.' };
   if (!form.get('ok')) return { error: 'Потврдете го преносот.' };
-  const [t] = await db().select({ id: users.id, name: users.name }).from(users).where(and(eq(users.id, to), eq(users.active, true), eq(users.role, 'admin'))).limit(1);
+  const [t] = await db().select({ id: users.id, name: users.name }).from(users).where(and(eq(users.id, to), eq(users.active, true), eq(users.role, 'admin'), eq(users.demo, false))).limit(1);
   if (!t) return { error: 'Сопственик може да биде само активен администратор.' };
   await db().transaction(async (tx) => {
     const value = { id: t.id, name: t.name, at: new Date().toISOString(), by: u.id };
