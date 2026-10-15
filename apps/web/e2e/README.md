@@ -6,6 +6,7 @@ Real-browser checks of the screens against a running dev server:
 |---|---|
 | `nav-smoke.spec.ts` | Log in, create + open a firm, open every menu group and every submenu (flyouts must stay inside the window) and click through every item (~160 screens); fails on console / hydration errors, page errors, 5xx responses and the error boundary „Се појави грешка“. Firm editor: PNG upload to logo / signature / stamp and the file served back. |
 | `safety.spec.ts` | Login is the first screen → year screen → firm list; two tabs of different firms: the stale tab shows „освежете ја страницата“ and its save is refused (nothing in the other firm); top-bar year change needs a confirmation and shows the „Работите во …“ strip; a new browser context has no session. |
+| `smoke-all-views.spec.ts` | Every admin view opened by URL in a firm with data: time per view (fails over `E2E_MAX_MS`, default 2 s), console / hydration / page errors, failed requests, busy markers that never end — see „Smoke of every view“ below. |
 | `flows.spec.ts` | Partner and item forms → invoice editor (18 % + 5 %) → print view → credit note → VAT book; bank statement (camt.053 XML) for a firm without a bank account → account opened → automatic booking review; opening balance from Excel in the editor → Бруто биланс totals. |
 
 The amounts per konto of the same workflows are asserted by the vitest suites (no browser):
@@ -58,6 +59,27 @@ Everything is local: PGlite instead of Postgres, an in-memory S3 stand-in instea
    `E2E_HEADED=1` to watch.
 
 Each run creates its own firms (names with a time stamp), so it can be repeated on the same database.
+
+## Smoke of every view (speed + errors)
+
+`smoke-all-views.spec.ts` opens every view of the admin menu (`lib/nav.ts`) by its URL in an existing firm with data and
+fails on a console / page error, a React hydration warning, a failed or 5xx request, the error boundary, a busy marker
+(`aria-busy`, „Се вчитува…“) that stays on screen, or a page slower than `E2E_MAX_MS` (default 2000 ms). The per-view
+table (`ttfbMs`, `readyMs`, problems) goes to `test-results/smoke-all-views.json`.
+
+Time it against the production build, not `next dev` (the dev server compiles every screen on its first open):
+
+```sh
+pnpm --filter @wise/web build
+pnpm --filter @wise/web exec next start -p 3107                  # with the database of step 2 (with data in it)
+E2E_FIRM="ДЕМО ТРГОВИЈА ДООЕЛ" pnpm --filter @wise/web e2e e2e/smoke-all-views.spec.ts
+E2E_VIEWS=banka,nalozi,izlez pnpm --filter @wise/web e2e e2e/smoke-all-views.spec.ts   # only these view ids
+```
+
+`E2E_FIRM` (default: the first firm of the picker), `E2E_YEAR`, `E2E_MAX_MS`, `E2E_VIEWS`, `E2E_SKIP`. Data for it: the
+demo seed (`seedDemo` in `packages/db/src/demo/seed.ts`); for realistic volume add a few thousand documents to one firm.
+On the PGlite dev database the home page (`/`) can fail with „unnamed prepared statement does not exist“ (its many
+parallel queries, see the note below) — that is the dev database, not the app.
 
 ## Notes
 

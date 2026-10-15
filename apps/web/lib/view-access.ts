@@ -43,9 +43,9 @@ export async function ownerState(d: Db, userId: string): Promise<OwnerState> {
  */
 export async function viewsOf(d: Db, u: { id: string; role: string; demo?: boolean | null }, access?: unknown): Promise<ReadonlySet<string> | null> {
   if (u.demo || u.role === 'klient' || u.role === 'teren') return null;
-  const on = await bookOnlySetting(d).catch(() => true);
+  // read together: this runs in `proxy.ts` on every request (also every link prefetch)
+  const [on, owner] = await Promise.all([bookOnlySetting(d).catch(() => true), ownerState(d, u.id)]);
   if (!on) return null;
-  const owner = await ownerState(d, u.id);
   const acc = access !== undefined ? access
     : (await d.select({ a: users.viewAccess }).from(users).where(eq(users.id, u.id)).limit(1))[0]?.a;
   return restrictedViews(u, { on, owner, access: acc });

@@ -91,7 +91,7 @@ export default async function PlatiPage({ searchParams }: { searchParams: Promis
                 <td className="n">{r.totals.emps ?? 0}</td><td className="n">{fmt(r.totals.gross)}</td><td className="n">{fmt(r.totals.net)}</td>
                 <td>{number ?? ''}</td>
                 <td>{(() => { const a = ackOf(r.month); return a ? <><span className="pill good" title={`${a.status ?? ''}${a.date ? ' · ' + dmy(a.date) : ''}`}>✓ {a.no || 'прифатен'}</span>{a.fileId && <> <a className="btn sm ghost" href={`/api/files/${a.fileId}`} target="_blank" rel="noopener">PDF</a></>}{mpinDel(r.month)}</> : <span className="note">—</span>; })()}</td>
-                <td><Link className="btn sm ghost" href={`/plati/${r.month}/pecati?d=rec`} target="_blank" title="Преглед (F10) – рекапитулар">Преглед</Link></td>
+                <td>{/* a route handler (HTML print), not a page: a plain link — `<Link>` prefetched it as RSC and the request hung */}<a className="btn sm ghost" href={`/plati/${r.month}/pecati?d=rec`} target="_blank" rel="noopener" title="Преглед (F10) – рекапитулар">Преглед</a></td>
               </tr>
             ))}
             {!runs.length && <tr><td colSpan={10} className="note">Нема пресметани месеци за {year}. Креирајте нов месец.</td></tr>}

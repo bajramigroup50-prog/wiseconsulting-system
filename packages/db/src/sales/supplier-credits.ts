@@ -26,7 +26,7 @@ const n = (v: unknown) => Number(v) || 0;
 export async function nextSupplierCreditNo(tx: Tx, firmId: string, date: string, exceptId?: string | null): Promise<string> {
   const y = date.slice(0, 4);
   const rows = await tx.select({ n: supplierCredits.number }).from(supplierCredits).where(and(eq(supplierCredits.firmId, firmId),
-    sql`extract(year from ${supplierCredits.date}) = ${Number(y)}`, exceptId ? ne(supplierCredits.id, exceptId) : undefined));
+    sql`${supplierCredits.date} between ${String(Number(y)) + '-01-01'} and ${String(Number(y)) + '-12-31'}`, exceptId ? ne(supplierCredits.id, exceptId) : undefined));
   const mx = rows.reduce((m, r) => Math.max(m, parseInt(r.n.replace(/\/.*$/, '').replace(/\D/g, ''), 10) || 0), 0);
   return String(mx + 1).padStart(3, '0') + '/' + y;
 }
@@ -80,7 +80,7 @@ export async function saveSupplierCredit(tx: Tx, firmId: string, input: Supplier
 
   let number = String(input.number ?? '').trim();
   const clash = number ? (await tx.select({ id: supplierCredits.id }).from(supplierCredits).where(and(eq(supplierCredits.firmId, firmId), eq(supplierCredits.number, number),
-    sql`extract(year from ${supplierCredits.date}) = ${Number(input.date.slice(0, 4))}`, existing ? ne(supplierCredits.id, existing.id) : undefined)).limit(1)).length : 0;
+    sql`${supplierCredits.date} between ${String(Number(input.date.slice(0, 4))) + '-01-01'} and ${String(Number(input.date.slice(0, 4))) + '-12-31'}`, existing ? ne(supplierCredits.id, existing.id) : undefined)).limit(1)).length : 0;
   if (!number || clash) {
     const nn = await nextSupplierCreditNo(tx, firmId, input.date, existing?.id);
     if (clash) warnings.push(`Бројот ${number} веќе постои – доделен е следниот: ${nn}.`);

@@ -16,7 +16,7 @@ export default async function EfakturaPage() {
   const { u, firm, year } = await booksPage('efaktura');
   if (!firm) return <NoFirm t="Е-Фактура" />;
   const L = await db().select({ i: invoices, p: { name: partners.name, edb: partners.edb } }).from(invoices).leftJoin(partners, eq(partners.id, invoices.partnerId))
-    .where(and(eq(invoices.firmId, firm.id), inArray(invoices.kind, ['invoice', 'credit']), sql`extract(year from ${invoices.date}) = ${year}`)).orderBy(desc(invoices.date));
+    .where(and(eq(invoices.firmId, firm.id), inArray(invoices.kind, ['invoice', 'credit']), sql`${invoices.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(invoices.date));
   const edb = (x: string | null | undefined) => String(x ?? '').replace(/^MK/i, '').replace(/\D/g, '');
   const issues = [
     edb(firm.edb).length !== 13 && 'ЕДБ на фирмата нема 13 цифри.',

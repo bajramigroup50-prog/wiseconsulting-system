@@ -118,7 +118,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
 
   const q = (sp.q ?? '').toLowerCase().trim();
   const rows = await db().select({ p: purchases, name: partners.name, edb: partners.edb }).from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
-    .where(and(eq(purchases.firmId, firm.id), sql`extract(year from ${purchases.date}) = ${year}`)).orderBy(desc(purchases.date));
+    .where(and(eq(purchases.firmId, firm.id), sql`${purchases.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(purchases.date));
   const list = rows.filter(({ p, name }) => !q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
   const ids = list.map((r) => r.p.id);

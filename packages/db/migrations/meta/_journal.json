@@ -218,6 +218,13 @@
       "when": 1792073661210,
       "tag": "0030_user_views",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792081020093,
+      "tag": "0031_perf_indexes",
+      "breakpoints": true
     }
   ]
 }

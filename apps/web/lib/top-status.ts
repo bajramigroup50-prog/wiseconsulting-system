@@ -35,6 +35,8 @@ export const topStatus = cache(async (u: SessionUser): Promise<TopStatus> => {
   const F = await firmScope(u);
   const ids = F.map((f) => f.id);
   const name = new Map(F.map((f) => [f.id, f.name]));
+  // the deadlines badge needs only the firm ids: started now, awaited at the end
+  const rokP = rokBadge(u, ids).catch(() => null);
   const [run, find, inbox, seen] = await Promise.all([
     db().select({ id: autopilotRuns.id }).from(autopilotRuns).orderBy(desc(autopilotRuns.startedAt)).limit(1),
     ids.length ? db().select({ f: autopilotFindings.firmId, lvl: autopilotFindings.lvl }).from(autopilotFindings)
@@ -43,11 +45,14 @@ export const topStatus = cache(async (u: SessionUser): Promise<TopStatus> => {
       .orderBy(desc(inboxItems.createdAt)).limit(200) : Promise.resolve([]),
     db().select({ at: lawSeen.seenAt }).from(lawSeen).where(eq(lawSeen.userId, u.id)).limit(1),
   ]);
-  const [lawN] = await db().select({ n: sql<number>`count(*)::int` }).from(lawChanges).where(seen[0] ? gt(lawChanges.createdAt, seen[0].at) : undefined);
-  const nf = inbox.length
-    ? new Map((await db().select({ id: fileLinks.entityId, n: sql<number>`count(*)::int` }).from(fileLinks)
-      .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.inbox), inArray(fileLinks.entityId, inbox.map((i) => i.id)))).groupBy(fileLinks.entityId)).map((r) => [r.id, r.n]))
-    : new Map<string, number>();
+  const [[lawN], NF] = await Promise.all([
+    db().select({ n: sql<number>`count(*)::int` }).from(lawChanges).where(seen[0] ? gt(lawChanges.createdAt, seen[0].at) : undefined),
+    inbox.length
+      ? db().select({ id: fileLinks.entityId, n: sql<number>`count(*)::int` }).from(fileLinks)
+        .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.inbox), inArray(fileLinks.entityId, inbox.map((i) => i.id)))).groupBy(fileLinks.entityId)
+      : Promise.resolve([]),
+  ]);
+  const nf = new Map<string, number>(NF.map((r) => [r.id, r.n]));
   const bad = find.filter((x) => x.lvl === 'bad');
   return {
     bell: run[0] ? { bad: bad.length, warn: find.length - bad.length, firstFirm: (bad[0] ?? find[0])?.f ?? null } : null,
@@ -56,7 +61,7 @@ export const topStatus = cache(async (u: SessionUser): Promise<TopStatus> => {
       note: [i.subject, i.note].filter(Boolean).join('\n'), nf: nf.get(i.id) ?? 0,
     })),
     law: lawN?.n ?? 0,
-    rok: await rokBadge(u, ids).catch(() => null),
+    rok: await rokP,
   };
 });
 

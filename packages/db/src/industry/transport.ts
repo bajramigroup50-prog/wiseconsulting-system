@@ -118,7 +118,7 @@ export async function saveTravelOrder(tx: Tx, a: IndActor, x: TravelOrderInput):
   if (!x.stops.length) fail('Додајте барем едно застанување.');
   if (x.retKm != null && x.depKm != null && x.retKm < x.depKm) fail('Км при враќање е помал од км при тргнување.');
   const y = x.date.slice(0, 4);
-  const used = (await tx.select({ n: travelOrders.number }).from(travelOrders).where(and(eq(travelOrders.firmId, a.firmId), sql`extract(year from ${travelOrders.date}) = ${Number(y)}`, prev ? ne(travelOrders.id, prev.id) : undefined))).map((r) => r.n);
+  const used = (await tx.select({ n: travelOrders.number }).from(travelOrders).where(and(eq(travelOrders.firmId, a.firmId), sql`${travelOrders.date} between ${String(Number(y)) + '-01-01'} and ${String(Number(y)) + '-12-31'}`, prev ? ne(travelOrders.id, prev.id) : undefined))).map((r) => r.n);
   let number = x.number?.trim() || prev?.number || '';
   if (!number || used.includes(number)) number = travelOrderNo(used, y);
   const row = {

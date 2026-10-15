@@ -1,13 +1,15 @@
 'use client';
 /** Top-bar dropdown menu — same markup/classes as legacy `renderNav` / `navDD`. */
 import { usePathname, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useTransition } from 'react';
 import { hrefFor, NAV_MINI, NAV_SHORT, navFlat, type NavGroup, type NavItem } from '@/lib/nav';
 
 /** Route handlers (not pages) need a full navigation. */
 const HARD = new Set(['izlezF', 'klExit']);
 const go = (router: ReturnType<typeof useRouter>, id: string) =>
   HARD.has(id) ? window.location.assign(hrefFor(id)) : router.push(hrefFor(id));
+/** Opens a view inside a transition: the menu closes at once and a thin bar shows that the next screen is loading. */
+const GoCtx = createContext<(id: string) => void>(() => {});
 
 const viewOf = (path: string) => (path === '/' ? 'home' : path.split('/')[1] ?? 'home');
 
@@ -16,6 +18,8 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
   const ref = useRef<HTMLElement>(null);
+  const [pending, startNav] = useTransition();
+  const open1 = useCallback((id: string) => { setOpen(null); if (HARD.has(id)) go(router, id); else startNav(() => go(router, id)); }, [router]);
 
   useEffect(() => {
     const click = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(null); };
@@ -27,7 +31,9 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
   useEffect(() => setOpen(null), [view]);
 
   return (
-    <nav id="nav" aria-label="Главно мени" ref={ref}>
+    <GoCtx.Provider value={open1}>
+    <nav id="nav" aria-label="Главно мени" ref={ref} aria-busy={pending || undefined}>
+      {pending && <div className="navbusy" role="progressbar" aria-label="Се отвора…" />}
       {groups.map(([g, items0]) => {
         const items = navFlat(items0);
         const cur = items.some(([id]) => id === view);
@@ -36,7 +42,7 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
           const [id, t] = items[0]!;
           return (
             <div className="mg" key={g}>
-              <button className={cur ? 'cur' : ''} aria-current={cur} title={t} onClick={() => go(router, id)}>{lab}</button>
+              <button className={cur ? 'cur' : ''} aria-current={cur} title={t} onClick={() => open1(id)}>{lab}</button>
             </div>
           );
         }
@@ -51,6 +57,7 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
         );
       })}
     </nav>
+    </GoCtx.Provider>
   );
 }
 
@@ -113,6 +120,6 @@ function Sub({ label, items, view, open, setOpen }: { label: string; items: read
 
 /** Menu item: a <button> like legacy `data-go` (the legacy CSS styles `.dd button`). */
 function Go({ id, current, className, children, onHover }: { id: string; current: boolean; className?: string; children: React.ReactNode; onHover?: () => void }) {
-  const router = useRouter();
-  return <button role="menuitem" className={className} aria-current={current} onMouseEnter={onHover} onClick={() => go(router, id)}>{children}</button>;
+  const open = useContext(GoCtx);
+  return <button role="menuitem" className={className} aria-current={current} onMouseEnter={onHover} onClick={() => open(id)}>{children}</button>;
 }

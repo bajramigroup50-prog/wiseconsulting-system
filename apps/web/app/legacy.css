@@ -290,3 +290,8 @@ body.picking .mbar #nav,body.picking .topbar,body.picking #navMob{display:none!i
 /* parity pass: long forms keep their save button in view (sticky at the bottom of the form) */
 .savebar{position:sticky;bottom:0;z-index:5;background:var(--panel);padding:8px 0;margin-top:8px;border-top:1px solid var(--line)}
 @media print{.savebar{display:none}}
+
+/* menu click → next screen still loading on the server: a thin moving bar at the top (components/nav.tsx) */
+.navbusy{position:fixed;left:0;top:0;height:3px;width:100%;z-index:60;pointer-events:none;background:linear-gradient(90deg,transparent 0,var(--accent,#2563eb) 40%,transparent 80%);background-size:50% 100%;background-repeat:no-repeat;animation:navbusy 1s linear infinite}
+@keyframes navbusy{from{background-position:-50% 0}to{background-position:150% 0}}
+@media (prefers-reduced-motion:reduce){.navbusy{animation:none;background:var(--accent,#2563eb);opacity:.6}}

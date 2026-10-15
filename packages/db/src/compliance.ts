@@ -81,7 +81,7 @@ export async function complianceFacts(tx: Tx, firmId: string, year: number, toda
   const asOf = today.slice(0, 4) === y ? today : `${y}-12-31` < today ? `${y}-12-31` : today;
 
   // invoices of the year: numbering over every document of the series, mandatory elements over the issued ones
-  const I = await tx.select().from(invoices).where(and(eq(invoices.firmId, firmId), inArray(invoices.kind, ['invoice', 'credit']), sql`extract(year from ${invoices.date}) = ${year}`))
+  const I = await tx.select().from(invoices).where(and(eq(invoices.firmId, firmId), inArray(invoices.kind, ['invoice', 'credit']), sql`${invoices.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`))
     .orderBy(asc(invoices.date));
   const issued = I.filter((i) => i.status !== 'draft' || (i.data as InvoiceData).cancelled);
   const real = issued.filter((i) => !(i.data as InvoiceData).cancelled);
