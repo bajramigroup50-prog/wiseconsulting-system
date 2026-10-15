@@ -77,13 +77,15 @@ beforeAll(async () => {
 describe('the allow-list (pure)', () => {
   it('one exported constant; the hidden office views are not in it', () => {
     for (const v of ['banka', 'devizni', 'banke', 'blagajna', 'nalozi', 'kartici', 'kkart', 'recFree', 'recon', 'kompenzacii', 'ppNal', 'pocetna', 'bilanc', 'bbPart',
-      'pozajmici', 'kamati', 'izlez', 'vlez', 'profakturi', 'porachki', 'ispratnici', 'kalkG', 'nabavki', 'povratDob', 'plati', 'vraboteni', 'payPredlog', 'payGod',
-      'payM4', 'pnalozi', 'ddv', 'ddvKnigi', 'ddvTab', 'pdd', 'os', 'partneri', 'artikli', 'uslugiS', 'konto', 'tarifi', 'konvertor', 'aiCitanje', 'lozinka', 'pomos', 'izlezF']) {
+      'pozajmici', 'kamati', 'izlez', 'vlez', 'profakturi', 'ispratnici', 'kalkG', 'povratDob', 'plati', 'vraboteni', 'payPredlog', 'payGod',
+      'payM4', 'ddv', 'ddvKnigi', 'ddvTab', 'pdd', 'os', 'partneri', 'artikli', 'uslugiS', 'konto', 'tarifi', 'konvertor', 'aiCitanje', 'lozinka', 'pomos', 'izlezF']) {
       expect(RG.BOOK_ONLY_VIEWS, v).toContain(v);
     }
     for (const v of ['sistem', 'uredi', 'greski', 'korisnici', 'kanc', 'klInbox', 'klPortal', 'klDogovori', 'kdogovori', 'kdfakturi', 'produktivnost', 'aktivnost', 'firmIzv',
       'aiTrosok', 'robot', 'lawAi', 'zakoni', 'ujpZakoni', 'zakon', 'lawrep', 'kontroli', 'aml', 'zzlp', 'rokovi', 'mesIzv', 'firmi', 'firmiImp', 'firmiResh', 'osnovanje',
-      'zatvoranje', 'zsProc', 'efPrep', 'mpinIn', 'izvestuvanja', 'uvozStara', 'kursna', 'dosie', 'analizi', 'klDash', 'analitika', 'poobjekti', 'mailhist', 'semi']) {
+      'zatvoranje', 'zsProc', 'efPrep', 'mpinIn', 'izvestuvanja', 'uvozStara', 'kursna', 'dosie', 'analizi', 'klDash', 'analitika', 'poobjekti', 'mailhist', 'semi',
+      // Дејности (industry modules) are hidden from colleagues too — the owner's rule
+      'hotel', 'servis', 'rent', 'gradba', 'tura', 'frTuri', 'termini', 'kartoni', 'periodicni', 'porachki', 'nabavki', 'pnalozi', 'restoran']) {
       expect(RG.BOOK_ONLY_VIEWS, v).not.toContain(v);
     }
   });

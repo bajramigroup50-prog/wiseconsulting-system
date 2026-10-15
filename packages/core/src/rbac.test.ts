@@ -8,8 +8,10 @@ describe('rbac (legacy RP / ACT_NEED parity)', () => {
     expect(can(u('admin', []), 'nalDel', 'fX')).toBe(true);
     expect(can(u('admin', []), 'uNew')).toBe(true);
   });
-  it('senior cannot delete, fix journals or manage users', () => {
-    expect(can(u('senior'), 'nalDel', 'f1')).toBe(false);
+  it('senior deletes (owner rule 15.10.2026) but cannot fix journals or manage users', () => {
+    expect(can(u('senior'), 'nalDel', 'f1')).toBe(true);
+    expect(can(u('acc'), 'nalDel', 'f1')).toBe(true);
+    expect(can(u('oper'), 'nalDel', 'f1')).toBe(false);
     expect(can(u('senior'), 'nalEdit', 'f1')).toBe(false);
     expect(can(u('senior'), 'uSave')).toBe(false);
     expect(can(u('senior'), 'closeYear', 'f1')).toBe(true);

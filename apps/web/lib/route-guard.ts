@@ -7,6 +7,7 @@
  * Everything else redirects to the role's home (`/klHome`, `/mojzad`); API calls get 403.
  * Pure (no DB, no Next imports) so it is unit-tested.
  */
+import { MODULE_OF_VIEW } from '@wise/core/industry/modules';
 
 export type GuardRole = 'klient' | 'teren';
 export const isGuardRole = (r: unknown): r is GuardRole => r === 'klient' || r === 'teren';
@@ -220,7 +221,7 @@ export const BOOK_ONLY_MSG = 'Немате пристап до овој дел �
  * zatvoranje, efPrep, mpinIn, payBatch, zakoni), the legacy import (uvozStara), kursna, bankFmt, mailhist, pnLive.
  * The owner can grant any of them per user („Прилагодено“).
  */
-export const BOOK_ONLY_VIEWS: readonly string[] = [
+const BOOK_ONLY_LIST: readonly string[] = [
   // Финансово: statements and banks, cash, payment orders, the journal (+ dnevnik print), cards, reconciliation, trial balance
   'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi',
   'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'kamati',
@@ -234,9 +235,7 @@ export const BOOK_ONLY_VIEWS: readonly string[] = [
   'g_trgv', 'uprosek', 'porachki', 'nabavki', 'dopolnuvanje',
   // Малопродажба
   'uvozMalo', 'kalkM', 'masovnoM', 'm_izlez', 'm_trg', 'kdfi', 'm_kartica', 'm_lager', 'm_lagerp', 'nivel', 'm_akcii', 'kasa', 'lojalnost', 'restoran', 'kujna',
-  // Дејности (the industry modules of the firm)
-  'hotel', 'hotelSoby', 'hotelKniga', 'servis', 'vozila', 'delovi', 'potsetnici', 'rent', 'flota', 'rentIzv', 'gradba', 'gradbaIzv', 'tura', 'turaIzv',
-  'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni',
+  // (Дејности – the industry modules – are not bookkeeping for colleagues, the owner's rule: filtered below)
   // Основни средства
   'os',
   // Шифрарник of the firm (konto: the chart; office-wide rows keep their own rights)
@@ -247,6 +246,9 @@ export const BOOK_ONLY_VIEWS: readonly string[] = [
   // firm selection (the top-bar picker; the firms are still only the user's own), own password, help
   'izlezF', 'lozinka', 'pomos',
 ];
+/** Every view the menu shows under „Дејности“ (industry modules, `nav-dejnosti.ts`) stays hidden from colleagues (grantable under „Прилагодено“). */
+const DEJ_KEEP = new Set(['mrp', 'prodCost', 'lotovi']);
+export const BOOK_ONLY_VIEWS: readonly string[] = BOOK_ONLY_LIST.filter((v) => !MODULE_OF_VIEW[v] || DEJ_KEEP.has(v));
 
 /** Always in a restricted set (also with „Прилагодено“): leaving the firm, the own password, the help. */
 export const BOOK_ALWAYS_VIEWS: readonly string[] = ['izlezF', 'lozinka', 'pomos'];
