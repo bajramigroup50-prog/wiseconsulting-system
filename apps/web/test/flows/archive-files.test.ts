@@ -34,9 +34,9 @@ beforeAll(async () => {
 beforeEach(() => { removed.length = 0; useFirm(A); });
 
 describe('🗑 delete a loose file', () => {
-  it('needs `del` on the firm (an accountant has none)', async () => {
+  it('needs `del` on the firm (an operator has none; acc / senior may delete since 15.10.2026)', async () => {
     const f = await file(A);
-    await signIn('acc', { firms: [A, B] });
+    await signIn('oper', { firms: [A, B] });
     const r = await arFileDel([f.id]);
     expect(r.error).toMatch(/дозвола/);
     expect(await get(f.id)).toBeTruthy();
