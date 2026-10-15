@@ -267,7 +267,8 @@ describe('flow 3 — bank, cash, compensation, payment orders', () => {
 <RmtInf><Ustrd>Плаќање фактура 501/2026</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>
 </Stmt></BkToCstmrStmt></Document>`;
 
-  it('statement of a firm without a bank account: the account opens on konto 1000 and the lines are imported', async () => {
+  // the owner: a new account takes the analytic konto of its bank from the chart (300 Комерцијална → 100002), not 1000
+  it('statement of a firm without a bank account: the account opens on the bank\'s analytic konto and the lines are imported', async () => {
     expect(await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.firmId, firmId))).toHaveLength(0);
     // the credit note left 1 705 − 236 = 1 469 open on the invoice; supplier invoice 501/2026 is 12 010
     const S = parseStatementFile(new TextEncoder().encode(camt('1469.00', '12010.00')), 'izvod.xml');
@@ -276,7 +277,7 @@ describe('flow 3 — bank, cash, compensation, payment orders', () => {
     expect(r.statements).toBe(1);
     expect(r.lines).toBe(2);
     const B = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.firmId, firmId));
-    expect(B.map((b) => [b.account, b.konto, b.cur])).toEqual([['300000000012355', '1000', 'MKD']]);
+    expect(B.map((b) => [b.account, b.konto, b.cur])).toEqual([['300000000012355', '100002', 'MKD']]);
   });
 
   it('auto-match closes the invoice and the purchase', async () => {
@@ -287,9 +288,9 @@ describe('flow 3 — bank, cash, compensation, payment orders', () => {
     expect(pay.get(ids.inv!)).toMatchObject({ total: 1705, remaining: 0 });
     expect(pay.get(ids.pur!)).toMatchObject({ total: 12010, remaining: 0 });
     expect(pay.get(ids.pur2!)).toMatchObject({ remaining: 13570 });
-    // the statement journal: D 1000 1 469, C 1000 12 010
+    // the statement journal: D 100002 1 469, C 100002 12 010 (the bank konto once per side)
     const T = await H.trial(firmId);
-    expect(T.by['1000']).toBe(r2(1469 - 12010));
+    expect(T.by['100002']).toBe(r2(1469 - 12010));
   });
 
   it('cash voucher: receipt from the customer for a new invoice', async () => {

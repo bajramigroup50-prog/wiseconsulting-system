@@ -114,7 +114,8 @@ describe('statement from /banka: suggestions, per-line and all posting', () => {
     await T((tx) => setLineKonto(tx, { firmId: F.firmId, userId: null, lineId: L[0]!.id, konto: '4460', learn: false }));
     const [j] = await journalsOf(F.firmId);
     expect(j).toMatchObject({ date: '2026-06-01', kind: 'bank', number: '6/4-6' });
-    expect((await linesOf(j!.id)).map((l) => [l.account, l.debit, l.credit])).toEqual([['4460', '72.00', '0.00'], ['1000', '0.00', '72.00']]);
+    // layout „збирно“: the bank konto first, then the counter line
+    expect((await linesOf(j!.id)).map((l) => [l.account, l.debit, l.credit])).toEqual([['1000', '0.00', '72.00'], ['4460', '72.00', '0.00']]);
     const [st] = await db.select().from(schema.bankStatements).where(eq(schema.bankStatements.id, stId));
     expect(st!.status).toBe('draft');
   });
@@ -180,7 +181,8 @@ describe('import inside a nalog (Налози → ИЗВОДИ → „📥 Ув�
     expect(J).toHaveLength(1);
     expect(J[0]).toMatchObject({ number: '6/4-6', date: '2026-06-01' });
     const JL = await linesOf(J[0]!.id);
-    expect(JL).toHaveLength(16);
+    // layout „збирно“: 8 counter lines + the bank konto once (all outflows → one P line); per line it was 16
+    expect(JL).toHaveLength(9);
     expect(JL.some((l) => l.account === '2341' && l.debit === '7239.00')).toBe(true);
   });
 

@@ -24,7 +24,7 @@ export interface NalogTarget {
 }
 type LK = { konto: string; partnerId?: string | null; createPartner?: string | null };
 
-const CLS: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија', tech: 'посебна сметка' };
+const CLS: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија', tech: 'посебна сметка', turnover: 'дневен промет', cash: 'подигање готовина' };
 
 /** PDF / image statements are read by the AI job (legacy `importBankImg`); everything else is parsed on the server. */
 const isAiFile = (f: File) => /\.(pdf|jpe?g|png|webp)$/i.test(f.name) || /^image\/|pdf/.test(f.type);

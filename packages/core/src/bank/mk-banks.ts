@@ -115,3 +115,39 @@ export function supplierAccountIn(text: string, exclude: readonly string[] = [])
   const a = L.find((x) => x.labelled) ?? L[0];
   return a ? a.acc || a.iban : '';
 }
+
+/* ------------------------------------------------------------------ bank konto by bank */
+
+/** How each bank is named in the chart of accounts (analytics of 1000: „Жиро сметка халк банка“, „Под сметка халк банка“ …). */
+const CHART_BANK_RE: Record<string, RegExp> = {
+  '200': /стопанска(?!\s+банка\s+битола)/i, '210': /тутунска|нлб/i, '240': /уни\s*банка/i, '250': /шпаркасе/i, '270': /халк/i,
+  '280': /силк\s*ро|алфа\s*банка|кредитна\s*банка/i, '290': /ттк/i, '300': /комерцијална/i, '320': /централна\s+кооперативна|цкб/i,
+  '380': /прокредит/i, '500': /алта|стопанска\s+банка\s+битола/i, '530': /шпаркасе|охридска/i,
+};
+const SUB_RE = /под\s*-?\s*сметка|подсметка/i;
+/** Purpose / savings accounts of a bank are never picked automatically. */
+const SPECIAL_RE = /наменска|совест|разговор|почеток|депозит|штедн/i;
+
+/**
+ * Analytic bank konto (under 1000) for a new denar account by its bank: the 3-digit code of the account → the chart
+ * konto whose name names that bank — the main „Жиро сметка … банка“ for the firm's first account of that bank, then
+ * an unused „Под сметка … банка“ for the next ones. Firm-specific chart entries (`own`) first. null = nothing matches
+ * (the caller falls back to 1000).
+ */
+export function pickBankKonto(acc: unknown, chart: readonly { code: string; name: string; own?: boolean }[], used: readonly string[] = []): string | null {
+  const b = mkBankOf(acc);
+  const re = b ? CHART_BANK_RE[b.code] : undefined;
+  if (!re) return null;
+  const C = chart.filter((a) => /^1000\d+$/.test(a.code) && re.test(a.name) && !SPECIAL_RE.test(a.name))
+    .sort((x, y) => (Number(!!y.own) - Number(!!x.own)) || x.code.length - y.code.length || (x.code < y.code ? -1 : x.code > y.code ? 1 : 0));
+  const U = new Set(used);
+  const main = C.filter((a) => !SUB_RE.test(a.name));
+  const sub = C.filter((a) => SUB_RE.test(a.name));
+  const m = main[0];
+  if (m && !U.has(m.code)) return m.code;
+  const s = sub.find((a) => !U.has(a.code)) ?? main.find((a) => !U.has(a.code));
+  return s ? s.code : null;
+}
+
+/** A generic bank konto (the synthetic 1000 / 100) that an analytic per bank should replace. */
+export const genericBankKonto = (k: string | null | undefined): boolean => k === '1000' || k === '100';

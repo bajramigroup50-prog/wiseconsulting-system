@@ -30,7 +30,7 @@ export async function matchContext(tx: Tx, env: BankEnv, year: number): Promise<
   const payMatch = await payrollMatcher(tx, env, year);
   return {
     rows: L.map(toBankRow), accounts: env.accounts, invoices: items.invoices, purchases: items.purchases, partners: env.partners,
-    year, firmName: env.firm.name, rules: env.rules, osnovK: env.osnovK, posPartner: env.posPartner, konta: env.konta,
+    year, firmName: env.firm.name, firmEdb: env.firm.edb ?? undefined, rules: env.rules, osnovK: env.osnovK, posPartner: env.posPartner, konta: env.konta,
     ...(payMatch ? { payMatch } : {}),
     lineStatement: new Map(L.map((l) => [l.id, l.statementId])),
   };

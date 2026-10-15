@@ -26,6 +26,7 @@ import {
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
 import { ImportBox } from './import-box';
+import { KontaPanel } from './konta-panel';
 import { ClassifyButton } from './classify-button';
 import type { PnLast } from './paynotes';
 import { applyBankClassifyAction } from './classify-actions';
@@ -238,13 +239,14 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
               <input name="account" placeholder="Жиро сметка" style={{ maxWidth: 190 }} />
               <input name="iban" placeholder="IBAN (девизна)" style={{ maxWidth: 200 }} />
               <select name="cur" defaultValue={fx ? 'EUR' : 'MKD'}>{CURS.filter((c) => (c !== 'MKD') === fx).map((c) => <option key={c}>{c}</option>)}</select>
-              <input name="konto" list="bkK" placeholder={fx ? 'Конто, на пр. 1030' : 'Конто, на пр. 100005'} style={{ maxWidth: 160 }} required />
+              <input name="konto" list="bkK" placeholder={fx ? 'Конто, на пр. 1030' : 'Конто (празно = според банката)'} title="Празно: аналитичкото конто на банката од контниот план (на пр. Халк 270… → 100005, втора сметка → 1000051), инаку 1000" style={{ maxWidth: 200 }} />
               <button className="btn">Додај сметка</button>
             </BankForm>
           )}
           <p className="note">За девизна сметка изберете валута (EUR, USD…) и посебно конто. Износите се внесуваат во валута, а во денари се пресметуваат по курсот на изводот; разликата при плаќање на фактура оди на курсни разлики (4810 / 7810). Секоја банка има свое аналитичко конто. Сметка со изводи не може да се отстрани.</p>
         </div>
       )}
+      {(sp.banks || !BK.length) && canDo(u, 'settings', firm.id) && <KontaPanel firmId={firm.id} year={year} chart={chart} fx={fx} />}
 
       {gaps.length > 0 && (
         <div className="callout warn"><b>Недостасува извод?</b> {gaps.filter((g) => BK.some((b) => b.id === g.accountId)).map((g) => (

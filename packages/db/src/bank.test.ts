@@ -105,10 +105,10 @@ describe('statement import → match → post', () => {
     const j = await journalOf('bank_statement', stId);
     expect(j!.kind).toBe('bank');
     expect(j!.number).toBe('6/1-3');
+    // layout „збирно“ (default): the bank konto once at the top (Σ приливи / Σ одливи), then the counter lines in order
     expect(j!.lines).toEqual([
-      ['1000', '11800.00', '0.00', '', '', ''], ['1200', '0.00', '11800.00', 'P', '', ''],
-      ['4460', '150.00', '0.00', '', '', ''], ['1000', '0.00', '150.00', '', '', ''],
-      ['2200', '6000.00', '0.00', 'P', '', ''], ['1000', '0.00', '6000.00', '', '', ''],
+      ['1000', '11800.00', '0.00', '', '', ''], ['1000', '0.00', '6150.00', '', '', ''],
+      ['1200', '0.00', '11800.00', 'P', '', ''], ['4460', '150.00', '0.00', '', '', ''], ['2200', '6000.00', '0.00', 'P', '', ''],
     ]);
     const L = await stLines(stId);
     expect(L[2]!.refs).toEqual([{ type: 'purchase', id: expect.stringMatching(/^L\|2200\|/), label: '77', amt: 5000 }]);
@@ -189,7 +189,8 @@ describe('FX statements, conversions, transit', () => {
     // rate correction recomputes the denar amount and the FX difference
     await T((tx) => updateStatement(tx, { firmId, userId: null, statementId: s!.id, rate: 61.7 }));
     const j2 = await journalOf('bank_statement', s!.id);
-    expect(j2!.lines).toEqual([['2210', '6150.00', '0.00', 'P', '', ''], ['1030', '0.00', '6170.00', '', 'EUR', '100.00'], ['4810', '20.00', '0.00', '', '', '']].map((x) => x));
+    // layout „збирно“: the bank konto (with the currency amount) first; the FX difference stays on its line
+    expect(j2!.lines).toEqual([['1030', '0.00', '6170.00', '', 'EUR', '100.00'], ['2210', '6150.00', '0.00', 'P', '', ''], ['4810', '20.00', '0.00', '', '', '']]);
   });
 
   it('currency purchase: MKD side to the FX bank konto, FX side neutral; transit residue closes to 4810/7810', async () => {
@@ -205,7 +206,7 @@ describe('FX statements, conversions, transit', () => {
     expect(m).toMatchObject({ konto: '1030', conv: true });
     expect(f).toMatchObject({ konto: '1030', conv: true, own: true }); // paired by pairConversions
     const jm = await journalOf('bank_statement', m.statementId);
-    expect(jm!.lines).toEqual([['1030', '6150.00', '0.00', '', '', ''], ['1000', '0.00', '6150.00', '', '', '']]);
+    expect(jm!.lines).toEqual([['1000', '0.00', '6150.00', '', '', ''], ['1030', '6150.00', '0.00', '', '', '']]); // bank konto first („збирно“)
     const [sf] = await db.select().from(schema.bankStatements).where(eq(schema.bankStatements.id, f.statementId));
     expect(sf!.status).toBe('posted'); // FX side books nothing
     expect(await journalOf('bank_statement', f.statementId)).toBeNull();
@@ -290,7 +291,8 @@ describe('compensations', () => {
 describe('КБ KBFileFormat (.300): special account and leading record (legacy 12668–12690)', () => {
   const items = '30000000099990000001 MKD0010122026.03.102026.03.10+0.00+0.00+500.00+500.00 123456 210000000000123\n';
   const head = '30000000099990000001 MKD0010122026.03.10+1000.00+1000.00+1500.00+1500.00\n';
-  it('an unknown account becomes „Посебна сметка“ on 108x; its lines go to 1009', async () => {
+  // the owner: a transfer goes to 10091 „Пренос на средства од сметка на сметка денари“ (in the seeded chart), not 1009
+  it('an unknown account becomes „Посебна сметка“ on 108x; its lines go to the transfer konto 10091', async () => {
     const st = parseKB(items)!;
     expect(st.lines).toHaveLength(1);
     const r = await T((tx) => saveImport(tx, { firmId, userId: null, statements: [st], format: 'kb' }));
@@ -299,7 +301,7 @@ describe('КБ KBFileFormat (.300): special account and leading record (legacy 1
     expect(a!.name).toBe('Посебна сметка 3000000009999');
     expect(a!.konto).toMatch(/^108\d$/);
     const [s1] = await db.select().from(schema.bankStatements).where(eq(schema.bankStatements.bankAccountId, a!.id));
-    expect((await stLines(s1!.id))[0]).toMatchObject({ konto: '1009', auto: 'tech' });
+    expect((await stLines(s1!.id))[0]).toMatchObject({ konto: '10091', auto: 'tech' });
   });
   it('a leading record (balances only) stores the balances and number of the statement', async () => {
     const st = parseKB(head)!;

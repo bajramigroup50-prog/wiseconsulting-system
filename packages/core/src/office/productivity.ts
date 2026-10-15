@@ -54,7 +54,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost lnSave'],
   ['nalozi', 'd', 'unpostJournal deleteJournal kompDel lnDel'],
   ['izvodi', 'c', 'importBank importReplace izvSave mbSave addRule pnRun ppSave trClose'],
-  ['izvodi', 'u', 'bankKonto bankPartner bkPickSave autoMatch aiClassifyApply bkpFix feeFix flipBank izvFill numIzv unlinkBank lnLinkBank lnMisK ppPrint'],
+  ['izvodi', 'u', 'bankKonto bankPartner bkPickSave autoMatch aiClassifyApply bkpFix feeFix flipBank izvFill numIzv unlinkBank lnLinkBank lnMisK ppPrint bankTransitMove bankRepostLayout bankAcctKonto'],
   ['izvodi', 'd', 'delBank delStatement undoImp rmRule ppDel'],
   ['blagajna', 'c', 'blgNew blgSetAdd'],
   ['blagajna', 'u', 'blgSave blgSetSave'],
@@ -115,7 +115,7 @@ const NOISE = new Set((
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
-  + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify offFirmSet amlOffSet mpinTplImport '
+  + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet offFirmSet amlOffSet mpinTplImport '
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
   + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
