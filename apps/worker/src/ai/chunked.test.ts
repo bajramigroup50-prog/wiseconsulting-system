@@ -126,6 +126,16 @@ describe('merge + checks', () => {
     expect(b.items).toHaveLength(2);
     expect(checkBank({ openingBalance: 1000, closingBalance: 1400, items: [{ amount: 500 }, { amount: -200 }] }).balanced).toBe(false);
   });
+  it('several daily statements in the parts: kept apart with their own numbers, one cut by a part boundary joined', () => {
+    const b = mergeBank([
+      { statements: [{ number: '161', openingBalance: 100, closingBalance: 150, items: [{ date: '2026-10-07', amount: 50 }] }, { number: '162', openingBalance: 150, closingBalance: 0, items: [{ date: '2026-10-09', amount: -20 }] }] },
+      { statements: [{ number: '162', openingBalance: 0, closingBalance: 120, items: [{ date: '2026-10-09', amount: -10 }] }, { number: '163', openingBalance: 120, closingBalance: 119, items: [{ date: '2026-10-10', amount: -1 }] }] },
+    ]);
+    expect(b.number).toBe('');
+    expect(b.statements!.map((s) => [s.number, s.openingBalance, s.closingBalance, s.items.length])).toEqual([['161', 100, 150, 1], ['162', 150, 120, 2], ['163', 120, 119, 1]]);
+    expect(b.items.map((x) => x.stmtNo)).toEqual(['161', '162', '162', '163']);
+    expect(b).toMatchObject({ balanced: true, warnings: [] });
+  });
 });
 
 describe('ai.read-document: large trial balance (kind ob)', { timeout: 60_000 }, () => {

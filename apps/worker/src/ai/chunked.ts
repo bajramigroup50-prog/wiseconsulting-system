@@ -142,14 +142,42 @@ export function checkOb(r: Pick<ObRead, 'rows' | 'grand'>): ObCheck {
   return { debit, credit, balanced, grandOk, warnings };
 }
 
-export interface BankItem { date?: string; desc?: string; name?: string; purpose?: string; ref?: string; code?: string; amount: number; amountMkd?: number }
+export interface BankItem { date?: string; desc?: string; name?: string; purpose?: string; ref?: string; code?: string; amount: number; amountMkd?: number; stmtNo?: string }
 export interface BankRead {
   number: string; totalDebit: number; totalCredit: number; openingBalance: number; closingBalance: number;
   account: string; owner: string; currency: string; rate: number; items: BankItem[];
 }
 
-export function mergeBank(parts: readonly unknown[]): BankRead & { balanced: boolean | null; warnings: string[]; chunks: number } {
-  const P = parts.map((p) => (p ?? {}) as Partial<BankRead>);
+export function mergeBank(parts: readonly unknown[]): BankRead & { balanced: boolean | null; warnings: string[]; chunks: number; statements?: BankRead[] } {
+  const P = parts.map((p) => (p ?? {}) as Partial<BankRead> & { statements?: Partial<BankRead>[] });
+  // several statements in the PDF (BANK_MULTI_NOTE): the statements of all parts, a statement cut by a part boundary
+  // (same number in two parts) joined — each keeps its own number, balances and lines
+  if (P.some((p) => Array.isArray(p.statements) && p.statements.length)) {
+    const S: BankRead[] = [];
+    for (const p of P) {
+      for (const s0 of Array.isArray(p.statements) && p.statements.length ? p.statements : p.items?.length ? [p] : []) {
+        const s = mergeBank([s0]);
+        const prev = S[S.length - 1];
+        if (prev && s.number && prev.number === s.number) {
+          prev.items.push(...s.items);
+          if (s.closingBalance) prev.closingBalance = s.closingBalance;
+          if (s.totalDebit) prev.totalDebit = s.totalDebit;
+          if (s.totalCredit) prev.totalCredit = s.totalCredit;
+        } else S.push({ number: s.number, account: s.account, owner: s.owner, currency: s.currency, rate: s.rate, openingBalance: s.openingBalance, closingBalance: s.closingBalance, totalDebit: s.totalDebit, totalCredit: s.totalCredit, items: s.items });
+      }
+    }
+    const C = S.map(checkBank);
+    const first = S[0];
+    return {
+      number: '', account: first?.account ?? '', owner: first?.owner ?? '', currency: first?.currency ?? 'MKD', rate: first?.rate ?? 0,
+      openingBalance: first?.openingBalance ?? 0, closingBalance: S[S.length - 1]?.closingBalance ?? 0, totalDebit: 0, totalCredit: 0,
+      items: S.flatMap((s) => s.items.map((it) => ({ ...it, ...(s.number ? { stmtNo: s.number } : {}) }))),
+      statements: S,
+      balanced: C.every((c) => c.balanced === true) ? true : C.some((c) => c.balanced === false) ? false : null,
+      warnings: C.flatMap((c, i) => c.warnings.map((w) => (S[i]!.number ? `Извод бр. ${S[i]!.number}: ${w}` : w))),
+      chunks: parts.length,
+    };
+  }
   const first = <K extends keyof BankRead>(k: K) => P.map((p) => p[k]).find((v) => v != null && v !== '' && v !== 0);
   const last = <K extends keyof BankRead>(k: K) => [...P].reverse().map((p) => p[k]).find((v) => v != null && v !== '' && v !== 0);
   const items: BankItem[] = [];

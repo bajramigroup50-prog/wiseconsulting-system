@@ -17,7 +17,7 @@ import {
   saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
 } from '@wise/db';
 import { BANK_KONTA_FIELDS } from '@wise/core';
-import { statementFromRead } from '@wise/core/ai/bank';
+import { statementsFromRead } from '@wise/core/ai/bank';
 import { ownerCheck, withNote, type OwnerFirm } from '@wise/core/bank/parity';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
@@ -47,8 +47,11 @@ type ReadStatements = { statements: Statement[]; format: string; fileId?: string
  */
 async function readStatements(f: File, firmId: string, aiDoc: string): Promise<ReadStatements> {
   const r = await readStatements0(f, firmId, aiDoc);
-  const blocking = r.statements.flatMap((st) => statementProblems(st).map((m) => `„${f.name}“${st.no ? ` (извод бр. ${st.no})` : ''}: ${m} Увозот е одбиен – проверете го изводот / конверзијата.`));
-  return { ...r, blocking };
+  const blocking = [
+    ...(r.blocking ?? []).map((m) => `„${f.name}“: ${m} Увозот е одбиен – проверете го изводот / конверзијата.`),
+    ...r.statements.flatMap((st) => statementProblems(st).map((m) => `„${f.name}“${st.no ? ` (извод бр. ${st.no})` : ''}: ${m} Увозот е одбиен – проверете го изводот / конверзијата.`)),
+  ];
+  return { ...r, blocking: [...new Set(blocking)] };
 }
 
 async function readStatements0(f: File, firmId: string, aiDoc: string): Promise<ReadStatements> {
@@ -56,12 +59,18 @@ async function readStatements0(f: File, firmId: string, aiDoc: string): Promise<
     // PDF / image statement read by the AI job (legacy `importBankImg` 4796, `BANK_PROMPT`) → the normal import pipeline
     const d = await loadAiResult(firmId, aiDoc, 'bank');
     if (!d) throw fail(`„${f.name}“: изводот сè уште не е прочитан.`);
-    const st = statementFromRead(d.result);
-    if (!st) throw fail(`„${f.name}“: во изводот не се пронајдени ставки.`);
+    // a PDF with several statements (daily statements of an e-banking export) → one statement each, with the bank's
+    // own number (never a range „161-163“ on the last day and 1, 2 … on the others)
+    const S = statementsFromRead(d.result);
+    if (!S.length) throw fail(`„${f.name}“: во изводот не се пронајдени ставки.`);
     // the reader without AI reports rows it left out and balances that do not reconcile
-    const w = (d.result as { warnings?: unknown } | null)?.warnings;
+    const R = (d.result ?? {}) as { warnings?: unknown; blocking?: unknown };
+    const w = R.warnings, b = R.blocking;
     // legacy `archiveFile(file,{sub:'Извод'})` 4807: the read file stays linked to the statement
-    return { statements: [st], format: 'ai', fileId: d.fileId, warnings: Array.isArray(w) ? w.map((x) => `„${f.name}“: ${String(x)}`) : [] };
+    return {
+      statements: S, format: 'ai', fileId: d.fileId, warnings: Array.isArray(w) ? w.map((x) => `„${f.name}“: ${String(x)}`) : [],
+      ...(Array.isArray(b) && b.length ? { blocking: b.map(String) } : {}),
+    };
   }
   if (f.size > MAX) throw fail('Датотеката е преголема (најмногу 20 MB).');
   const bytes = new Uint8Array(await f.arrayBuffer());

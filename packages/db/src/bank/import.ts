@@ -196,6 +196,9 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
       for (const l of lines) l.dup = seen.has(l.dupKey);
       const allDup = lines.length > 0 && lines.every((l) => l.dup);
       let no = ex?.number || '';
+      // the existing statement keeps its number; a different number printed by the bank is pointed out (an earlier
+      // import may have numbered it 1, 2 … or with a range) — corrected on the statement header („Извод бр.“)
+      if (ex?.number && day.no && ex.number !== day.no) warnings.push(`Изводот од ${day.date} („${acct.name}“) е веќе внесен со број ${ex.number}, а банката го води како бр. ${day.no} – поправете го бројот во заглавјето на изводот (налогот се прекнижува).`);
       if (!no && !allDup) {
         const add = assignStatementNumbers(nums, acct.id, [day.date], day.no || undefined);
         no = Object.values(add)[0] ?? day.no ?? '';

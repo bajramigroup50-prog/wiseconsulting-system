@@ -17,7 +17,7 @@
  */
 import { parseBankDate, stripYearPrefix } from '../bank-parsers';
 
-export type BankRole = 'date' | 'valDate' | 'name' | 'account' | 'purpose' | 'ref' | 'code' | 'debit' | 'credit' | 'amount' | 'balance' | 'seq';
+export type BankRole = 'date' | 'valDate' | 'name' | 'account' | 'purpose' | 'ref' | 'code' | 'debit' | 'credit' | 'amount' | 'balance' | 'seq' | 'fee';
 
 export interface BankCol {
   /** Source column. */
@@ -68,7 +68,8 @@ const str = (v: unknown): string => (v instanceof Date ? '' : String(v ?? '')).r
 const HOMO: Record<string, string> = { a: 'а', o: 'о', e: 'е', c: 'с', p: 'р', x: 'х', y: 'у', k: 'к', m: 'м', t: 'т' };
 const low = (s: string) => s.toLowerCase().replace(/[\p{L}]+/gu, (w) => (/[а-яѓѕјљњќџ]/.test(w) ? w.replace(/[aoecpxykmt]/g, (ch) => HOMO[ch] ?? ch) : w));
 
-const R_REF = /повик|референц|reference|број на налог|бр\.? на налог|poziv|referenc/;
+// „ПБО/ПБЗ“ (Комерцијална: повикување на број одобрување / задолжување)
+const R_REF = /повик|референц|reference|број на налог|бр\.? на налог|poziv|referenc|пбо|пбз|(^|[\s/])пнб([\s/]|$)/;
 const R_BAL = /салдо|состојба|balance|bilanc|stanje/;
 const R_BOOK = /книж|booking|обработ|knizenj/;
 const R_VAL = /валута|вал\.|value date|valuta/;
@@ -79,7 +80,9 @@ const R_AMT = /износ|amount|shuma|iznos|vlera/;
 const R_NAME = /налогодав|примач|партнер|partner|назив|name|корисник|комитент|nalogodav|primac|emri|klient/;
 const R_ACC = /сметк|account|iban|racun|smetk|llogari/;
 const R_PURP = /опис|цел|назн|desc|përsh|pershk|purpose|намена|детали|opis|svrha|qellim/;
-const R_CODE = /шифр|основ|code|sifr|kod/;
+const R_CODE = /шифр|(^|\s)шиф\.?($|\s)|основ|code|sifr|kod/;
+/** Bank fee charged on the line, printed beside the amount („Износ … пров.“, „Провизија“): not a movement of the account. */
+const R_FEE = /(^|\s)пров\.?($|\s)|провизиј|надомест|commission|(^|\s)fee($|\s)|provizij/;
 const R_SEQ = /^(ред\.?\s*бр\.?|р\.?\s*бр\.?|рб\.?|р\.б\.?|бр\.|ред\.?|no\.?|nr\.?|#|r\.?\s*br\.?)$/;
 
 /** Roles of a column from its (combined) heading; a heading with both directions gives [debit, credit] in its order. */
@@ -89,6 +92,7 @@ export function bankColRoles(h0: string): BankRole[] {
   // ordinal („Р. бр.“, „Р . бр на нал .“, „Ред. број“): never an amount
   if (R_SEQ.test(h) || /^(р\.?бр|ред\.?бр|реденброј|рб\.?$|р\.б\.?$|r\.?br)/.test(h.replace(/\s+/g, ''))) return ['seq'];
   if (R_REF.test(h)) return ['ref'];
+  if (R_FEE.test(h) && !(R_DEB.test(h) || R_CRED.test(h))) return ['fee'];
   // the counterparty's bank („Депонент на (назив и седиште на банката)“): not the counterparty itself
   if (/депонент|седиште\s+н[аa]\s+банката|банка\s+на\s+(примач|налогодав)/.test(h)) return [];
   if (R_BAL.test(h) && !R_AMT.test(h)) return ['balance'];
@@ -148,7 +152,8 @@ function combineHeader(H: readonly (readonly unknown[])[]): string[] {
 }
 
 const TOTAL = /^(вкупно|вкупен промет|збир|промет (должи|побарува|задолж|одобр)|пренос (од|на) |ново салдо|нова состојба|крајна состојба|завршна состојба|салдо на крај|претходна состојба|почетна состојба|total|gjithsej|ukupno)/i;
-const FOOTER = /^(страна|стр\.|page|faqe)\s*:?\s*\d+(\s*(од|\/|of|nga)\s*\d+)?$|^\d+\s*(\/|од|of)\s*\d+$/i;
+// a bare „2 / 3“ is a page number; „0310/2026“ (a reference wrapped onto its own line) is not
+const FOOTER = /^(страна|стр\.|page|faqe)\s*:?\s*\d+(\s*(од|\/|of|nga)\s*\d+)?$|^\d{1,3}\s*(\/|од|of)\s*\d{1,3}$/i;
 const ACC_RE = /(?<![\d])(?:MK\s?\d{2}\s?)?(\d{3})[-\s]?(\d{10})[-\s]?(\d{2})(?!\d)/;
 
 /** Leading amounts of a text („1.500,00 0,00 666“ → [„1.500,00“, „0,00“], rest „666“). */
@@ -306,7 +311,7 @@ export function prepBankGrid(rows: readonly (readonly unknown[])[], hi0?: number
 
 const ROLE_MK: Record<BankRole, string> = {
   date: 'датум', valDate: 'валута', name: 'назив', account: 'сметка', purpose: 'цел', ref: 'повикување на број', code: 'шифра',
-  debit: 'задолжување', credit: 'одобрување', amount: 'износ', balance: 'салдо', seq: 'ред. бр.',
+  debit: 'задолжување', credit: 'одобрување', amount: 'износ', balance: 'салдо', seq: 'ред. бр.', fee: 'провизија',
 };
 
 /** Append a continuation row to an item (text joined, empty cells filled). */
@@ -394,10 +399,14 @@ function metaOf(rows: readonly (readonly unknown[])[], hi: number): BankMetaRaw 
   // statement date: labelled, „Извод … од dd.mm.yyyy“, the end of a period, or the only date above the table
   const dates = (s: string) => [...s.matchAll(/(?<!\d)(\d{1,2}[./-]\d{1,2}[./-](?:\d{4}|\d{2}))(?!\d)|(\d{4}-\d{2}-\d{2})/g)].map((x) => x[0]);
   const iso = (s: string) => parseBankDate(s.replace(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2})$/, (_, d, mo, y) => `${d}.${mo}.20${y}`));
-  for (const t of preTxt) {
-    if (/печат|отпечат|print|креиран|изработ/i.test(t) && !/извод/i.test(t)) continue;
-    const lab = /(датум\s+на\s+извод|датум\s+на\s+изводот|извод.*?\sод\s|на\s+ден|состојба\s+на\s+ден|за\s+ден|датум\s+на\s+(обработка|книжење|промет)|statement\s+date|датум\s*:)/i.exec(t);
-    if (lab) { const d = dates(t.slice(lab.index)); if (d.length) { m.date = iso(d[0]!); break; } }
+  // FIX: a labelled statement date („за ден 07.10.2026“) before a bare „Датум: 15.10.2026“ (the print date above it)
+  for (const strong of [true, false]) {
+    if (m.date) break;
+    for (const t of preTxt) {
+      if (/печат|отпечат|print|креиран|изработ/i.test(t) && !/извод/i.test(t)) continue;
+      const lab = (strong ? /(датум\s+на\s+извод|датум\s+на\s+изводот|извод.*?\sод\s|на\s+ден|состојба\s+на\s+ден|за\s+ден|датум\s+на\s+(обработка|книжење|промет)|statement\s+date)/i : /датум\s*:/i).exec(t);
+      if (lab) { const d = dates(t.slice(lab.index)); if (d.length) { m.date = iso(d[0]!); break; } }
+    }
   }
   if (!m.date) for (const t of preTxt) {
     const p = /(?:период|period|од)\s*:?\s*(\S+)\s*(?:до|-|–|to)\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})/i.exec(t);
