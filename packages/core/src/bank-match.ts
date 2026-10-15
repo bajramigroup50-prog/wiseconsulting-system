@@ -832,6 +832,8 @@ export function isOwnTransfer(b: BankRow, ctx: Pick<MatchContext, 'firmName' | '
 export function ownTransferBy(b: BankRow, ctx: Pick<MatchContext, 'firmName' | 'firmEdb' | 'accounts' | 'partners' | 'konta'>): SelfBy | null {
   const by = selfCounterparty(b, ctx);
   if (by === 'name' && keywordKonto(b, ctx.accounts, ctx.konta)) return null;
+  // payment code 903 = „Пренос од средства на делот на правно лице и обратно“ — a transfer between the firm's own accounts
+  if (!by && String(b.osnov ?? '').trim() === '903' && !isFxAccount(ctx.accounts, b.acct)) return 'name';
   return by;
 }
 
@@ -878,7 +880,7 @@ export type ImportClass = 'pos' | 'conv' | 'own' | 'turnover' | 'cash' | null;
  * Deposit of the daily turnover (уплата на дневен промет / пазар). Only what the description says outright — the
  * statement's own „дневен промет“ total rows never reach here (the parsers drop them).
  */
-export const TURNOVER_RE = /дневен\s+(промет|пазар)|(уплата|полог|депонирање)\s+(на\s+)?(дневен\s+|дневниот\s+)?(промет|пазар)|dneven\s+(promet|pazar)|(uplata|polog)\s+(na\s+)?(dneven\s+)?(promet|pazar)/i;
+export const TURNOVER_RE = /дневен\s+(промет|пазар)|днев\.?\s+(промет|пазар)|(уплата|полог|депонирање)\s+(на\s+)?(дневен\s+|дневниот\s+)?(промет|пазар)|dneven\s+(promet|pazar)|(uplata|polog)\s+(na\s+)?(dneven\s+)?(promet|pazar)/i;
 /**
  * Cash withdrawn for the cash box (legacy classification prompt 4865: „подигнување готовина, исплата на готово,
  * банкомат → 1020“; the owner: „материјални трошоци“ → 1020).
@@ -892,7 +894,8 @@ export function keywordKonto(b: BankRow, accounts: BankAccount[], konta?: Partia
   if (isFxAccount(accounts, b.acct) || b.conv) return null;
   const K = { ...BANK_KONTA, ...(konta || {}) };
   const t = rowText(b);
-  if (+b.amount > 0 && TURNOVER_RE.test(t)) return { konto: K.dailyTurnover, cls: 'turnover' };
+  // payment code 800 = „Уплата во готово на сопствена сметка од дневен пазар“ (НБРСМ шифри на плаќање)
+  if (+b.amount > 0 && (TURNOVER_RE.test(t) || String(b.osnov ?? '').trim() === '800')) return { konto: K.dailyTurnover, cls: 'turnover' };
   if (+b.amount < 0 && CASH_WD_RE.test(t)) return { konto: K.cashWithdraw, cls: 'cash' };
   return null;
 }

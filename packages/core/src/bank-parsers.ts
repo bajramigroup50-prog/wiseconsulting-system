@@ -219,8 +219,8 @@ export function parseBankXml(input: Uint8Array | string): Statement[] | null {
   if (!root) return null;
   const out: Statement[] = [];
 
-  /* 1) RacunPrivredaIzvod (Halk) */
-  for (const rootEl of byTagInDoc(root, 'RacunPrivredaIzvod')) {
+  /* 1) RacunPrivredaIzvod (Halk FX / older) and TransakcioniRacunPrivredaIzvod (Halk denar account, 2026 e-banking) */
+  for (const rootEl of [...byTagInDoc(root, 'RacunPrivredaIzvod'), ...byTagInDoc(root, 'TransakcioniRacunPrivredaIzvod')]) {
     const H = byTagInDoc(rootEl, 'Zaglavlje').filter((e) => e !== rootEl)[0];
     if (!H) continue;
     const a = (k: string) => H.attrs[k] || '';
@@ -231,14 +231,16 @@ export function parseBankXml(input: Uint8Array | string): Statement[] | null {
       const pot = xNum(g('Potrazuje'));
       if (!dug && !pot) continue;
       const amt = r2(pot - dug);
-      const name = g('NalogKorisnik');
-      const purpose = [g('Opis'), g('Napomena'), g('TekstOsnova')].filter(Boolean).filter((x, i, A) => A.indexOf(x) === i).join(' – ');
+      // the denar layout names the counterparty `KomitentNaziv` and the payment code `SifraPlacanja` (+ its text)
+      const name = g('NalogKorisnik') || g('KomitentNaziv');
+      const purpose = [g('Opis'), g('Napomena'), g('TekstOsnova'), g('SifraPlacanjaOpis')].filter(Boolean).filter((x, i, A) => A.indexOf(x) === i).join(' – ');
       const mkd = xNum(g('DinarskaProtivvrednost'));
       const nom = Math.abs(xNum(g('NominalniIznosPriliva')));
       const fee = r2(xNum(g('Provizija')) + xNum(g('ProvizijaInoBanke')) + xNum(g('InoTrosak')));
       const valDate = xDate(g('DatumValute'));
-      const cp = g('RacunNalogodavacKorisnik');
-      const osnov = g('OsnovPlacanja');
+      const cp = g('RacunNalogodavacKorisnik') || g('BrojRacunaPrimaocaPosiljaoca');
+      const osnov = g('OsnovPlacanja') || g('SifraPlacanja');
+      const poziv = g('PozivNaBrojZaduzenjaOdobrenja') || g('PozivNaBrojKorisnika');
       const nalog = g('VasBrojNaloga');
       items.push({
         date: xDate(g('DatumObrade')) || valDate || xDate(a('DatumIzvoda')),
@@ -247,7 +249,7 @@ export function parseBankXml(input: Uint8Array | string): Statement[] | null {
         amountMkd: mkd ? toCents(Math.sign(amt) * Math.abs(mkd)) : 0,
         counterparty: name,
         ...(cp ? { iban: cp } : {}),
-        ref: g('Referenca'),
+        ref: g('Referenca') || poziv,
         purpose,
         desc: (name ? name + ' – ' : '') + (purpose || 'Налог ' + nalog),
         ...(osnov ? { osnov } : {}),
@@ -263,7 +265,7 @@ export function parseBankXml(input: Uint8Array | string): Statement[] | null {
       format: 'halk-xml',
       account: a('Partija') || a('SkracenaPartija'),
       ...(iban ? { iban } : {}),
-      owner: a('KomitentNaziv').trim(),
+      owner: (a('KomitentNaziv') || a('NAZIV_NALOGODAVCA')).trim(),
       no: no === '0' ? '' : no,
       date: xDate(a('DatumIzvoda')) || lastDate(items),
       currency: a('OznakaValute') || '',
@@ -641,7 +643,7 @@ export function detectStatementFormat(input: Uint8Array | string, fileName: stri
   }
   if (/\.xml$/.test(nm) || /\.xls$/.test(nm)) {
     const t = txt().slice(0, 4000);
-    if (/<RacunPrivredaIzvod/i.test(t)) return 'halk-xml';
+    if (/<(Transakcioni)?RacunPrivredaIzvod/i.test(t)) return 'halk-xml';
     if (/BkToCstmrStmt|camt\.053/i.test(t)) return 'camt.053';
   }
   if (/\.(xlsx|xls)$/.test(nm)) return 'excel';
