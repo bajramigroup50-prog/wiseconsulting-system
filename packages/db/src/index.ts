@@ -78,3 +78,4 @@ export * from './rokovi';
 export * from './fx-nbrm';
 export * from './fee-invoices';
 export * from './robot/index';
+export * from './firm-report';

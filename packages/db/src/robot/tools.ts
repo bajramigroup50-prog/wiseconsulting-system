@@ -72,7 +72,7 @@ export interface RobotToolDef {
 /* ---------------- helpers ---------------- */
 
 /** Owner-only screens (web `OWNER_VIEWS`): the robot never reports on them. */
-export const ROBOT_OWNER_ONLY: readonly string[] = ['kdogovori', 'produktivnost', 'aiTrosok', 'uredi'];
+export const ROBOT_OWNER_ONLY: readonly string[] = ['kdogovori', 'produktivnost', 'aiTrosok', 'uredi', 'kdfakturi', 'firmIzv'];
 
 const ISO = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const str = (v: unknown, max = 200): string => (typeof v === 'string' ? v.trim().slice(0, max) : typeof v === 'number' ? String(v) : '');
@@ -346,7 +346,7 @@ const deadlinesTool: RobotToolDef = {
 
 /* ---------------- health check ---------------- */
 
-interface HFind { lvl: 'bad' | 'warn' | 'info'; area: string; txt: string; law?: string; href: string }
+export interface HFind { lvl: 'bad' | 'warn' | 'info'; area: string; txt: string; law?: string; href: string }
 
 const healthCheck: RobotToolDef = {
   name: 'health_check',
@@ -372,29 +372,10 @@ const healthCheck: RobotToolDef = {
       const CF = await complianceFacts(c.db, c.firm.id, c.year, today);
       if (CF) for (const r of complianceRows(CF)) if (r.s === 'bad' || r.s === 'warn') F.push({ lvl: r.s, area: r.area, txt: `${r.title}: ${r.txt}`, law: r.law, href: r.go ? '/' + r.go.replace(/^\//, '') : '/zakon' });
     } catch (e) { failed.push('законска усогласеност: ' + (e as Error).message); }
-    // 4. unbalanced journals
-    try {
-      const U = await c.db.select({ number: journals.number, date: journals.date, d: sql<string>`sum(${journalLines.debit})`, p: sql<string>`sum(${journalLines.credit})` })
-        .from(journals).innerJoin(journalLines, eq(journalLines.journalId, journals.id))
-        .where(and(eq(journals.firmId, c.firm.id), between(journals.date, from, to)))
-        .groupBy(journals.id, journals.number, journals.date)
-        .having(sql`abs(sum(${journalLines.debit}) - sum(${journalLines.credit})) >= 0.01`).limit(20);
-      for (const u of U) F.push({ lvl: 'bad', area: 'Налози', txt: `Налог ${u.number} од ${dmy(u.date)} не е изедначен: должи ${den(Number(u.d))}, побарува ${den(Number(u.p))}.`, href: '/nalozi' + qs({ n: u.number }) });
-    } catch (e) { failed.push('неизедначени налози: ' + (e as Error).message); }
-    // 5. duplicate purchase invoices (same supplier + number)
-    try {
-      const D = await c.db.select({ number: purchases.number, partnerId: purchases.partnerId, name: sql<string>`max(coalesce(${partners.name}, ${purchases.supplierName}, ''))`, n: sql<number>`count(*)::int` })
-        .from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
-        .where(and(eq(purchases.firmId, c.firm.id), between(purchases.date, from, to), ne(purchases.number, '')))
-        .groupBy(purchases.partnerId, purchases.number).having(sql`count(*) > 1`).limit(20);
-      for (const d of D) F.push({ lvl: 'bad', area: 'Влезни фактури', txt: `Дупла влезна фактура бр. ${d.number} од ${d.name || 'добавувач'} (${d.n} пати).`, href: '/vlez' + qs({ q: d.number }) });
-    } catch (e) { failed.push('дупли фактури: ' + (e as Error).message); }
-    // 6. bank statements not posted
-    try {
-      const B = await c.db.select({ date: bankStatements.date, number: bankStatements.number }).from(bankStatements)
-        .where(and(eq(bankStatements.firmId, c.firm.id), eq(bankStatements.status, 'draft'), between(bankStatements.date, from, to))).orderBy(asc(bankStatements.date)).limit(50);
-      if (B.length) F.push({ lvl: 'warn', area: 'Изводи', txt: `${B.length} изводи не се книжени (${B.slice(0, 6).map((b) => dmy(b.date)).join(', ')}${B.length > 6 ? '…' : ''}).`, href: '/banka' });
-    } catch (e) { failed.push('изводи: ' + (e as Error).message); }
+    // 4–6. unbalanced journals, duplicate purchase invoices, unposted bank statements
+    const B = await bookChecks(c, from, to);
+    F.push(...B.findings);
+    failed.push(...B.failed);
     const order = { bad: 0, warn: 1, info: 2 } as const;
     // the same text from two controls once; owner-only areas (accounting contracts, productivity, AI cost) are left out
     const seen = new Set<string>();
@@ -411,6 +392,40 @@ const healthCheck: RobotToolDef = {
     };
   },
 };
+
+/**
+ * The book checks of „Провери ја фирмата“ that are not a separate control: unbalanced journals, duplicate purchase
+ * invoices (same supplier + number) and bank statements not posted, in [from, to]. Shared with the office owner's
+ * „🗂 Целосен извештај за фирма“.
+ */
+export async function bookChecks(c: Pick<RobotCtx, 'db' | 'firm'>, from: string, to: string): Promise<{ findings: HFind[]; failed: string[] }> {
+  const F: HFind[] = [];
+  const failed: string[] = [];
+  // 4. unbalanced journals
+  try {
+    const U = await c.db.select({ number: journals.number, date: journals.date, d: sql<string>`sum(${journalLines.debit})`, p: sql<string>`sum(${journalLines.credit})` })
+      .from(journals).innerJoin(journalLines, eq(journalLines.journalId, journals.id))
+      .where(and(eq(journals.firmId, c.firm.id), between(journals.date, from, to)))
+      .groupBy(journals.id, journals.number, journals.date)
+      .having(sql`abs(sum(${journalLines.debit}) - sum(${journalLines.credit})) >= 0.01`).limit(20);
+    for (const u of U) F.push({ lvl: 'bad', area: 'Налози', txt: `Налог ${u.number} од ${dmy(u.date)} не е изедначен: должи ${den(Number(u.d))}, побарува ${den(Number(u.p))}.`, href: '/nalozi' + qs({ n: u.number }) });
+  } catch (e) { failed.push('неизедначени налози: ' + (e as Error).message); }
+  // 5. duplicate purchase invoices (same supplier + number)
+  try {
+    const D = await c.db.select({ number: purchases.number, partnerId: purchases.partnerId, name: sql<string>`max(coalesce(${partners.name}, ${purchases.supplierName}, ''))`, n: sql<number>`count(*)::int` })
+      .from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
+      .where(and(eq(purchases.firmId, c.firm.id), between(purchases.date, from, to), ne(purchases.number, '')))
+      .groupBy(purchases.partnerId, purchases.number).having(sql`count(*) > 1`).limit(20);
+    for (const d of D) F.push({ lvl: 'bad', area: 'Влезни фактури', txt: `Дупла влезна фактура бр. ${d.number} од ${d.name || 'добавувач'} (${d.n} пати).`, href: '/vlez' + qs({ q: d.number }) });
+  } catch (e) { failed.push('дупли фактури: ' + (e as Error).message); }
+  // 6. bank statements not posted
+  try {
+    const B = await c.db.select({ date: bankStatements.date, number: bankStatements.number }).from(bankStatements)
+      .where(and(eq(bankStatements.firmId, c.firm.id), eq(bankStatements.status, 'draft'), between(bankStatements.date, from, to))).orderBy(asc(bankStatements.date)).limit(50);
+    if (B.length) F.push({ lvl: 'warn', area: 'Изводи', txt: `${B.length} изводи не се книжени (${B.slice(0, 6).map((b) => dmy(b.date)).join(', ')}${B.length > 6 ? '…' : ''}).`, href: '/banka' });
+  } catch (e) { failed.push('изводи: ' + (e as Error).message); }
+  return { findings: F, failed };
+}
 
 /* ---------------- law ---------------- */
 
