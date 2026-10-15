@@ -16,10 +16,10 @@ import { bankKontoName } from '@wise/core/bank/parity';
 import { accounts } from '../schema/index';
 import { loadLedgerLines } from '../ledger-queries';
 import { bankAccounts, bankLines, bankRules, bankStatements, partners, type BankLine, type BankStatement } from '../schema/index';
-import { BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, loadFxSources, syncFirmBanks } from './context';
+import { autoBankKonto, BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, loadFxSources, markKontoManual, syncFirmBanks } from './context';
 
 import { BANK_SOURCE_TYPE } from './open-items';
-import { assertStatementOpen, postStatement, postStatements } from './posting';
+import { assertStatementOpen, postStatement, postStatements, repostAccountStatements, type AccountRepost } from './posting';
 import { toBankRow, UNBOOKED } from './rows';
 
 const KONTO_RE = /^\d{2,10}$/;
@@ -333,12 +333,28 @@ export async function closeTransit(tx: Tx, a: { firmId: string; userId: string |
 
 export interface BankAccountInput { id?: string | null; name: string; account?: string | null; iban?: string | null; cur: string; konto: string; nal?: string | null }
 
-export async function saveBankAccount(tx: Tx, a: { firmId: string; userId: string | null; input: BankAccountInput }): Promise<string> {
-  const v = a.input;
-  if (!v.name.trim()) throw new BankError('Внесете назив на банката.');
-  if (!KONTO_RE.test(v.konto)) throw new BankError('Неважечко конто.');
-  const cur = (v.cur || 'MKD').toUpperCase();
+/**
+ * Add / edit a bank account. An empty konto: a new account gets the analytic konto of its bank from the chart
+ * (`autoBankKonto`: 270… → 100005 „Жиро сметка халк банка“, the next Halk account → 1000051 „Под сметка …“; else
+ * 1000 / 1030), an edited one keeps its konto. A konto typed by hand is remembered as manual
+ * (`firms.settings.bankKontoManual`) and never changed automatically. A changed konto re-posts the account's
+ * statements in OPEN periods (`repostAccountStatements`; the report — skipped locked periods — goes to `a.report`).
+ */
+export async function saveBankAccount(tx: Tx, a: { firmId: string; userId: string | null; input: BankAccountInput; report?: { repost?: AccountRepost } }): Promise<string> {
+  const v0 = a.input;
+  if (!v0.name.trim()) throw new BankError('Внесете назив на банката.');
+  const cur = (v0.cur || 'MKD').toUpperCase();
   if (!/^[A-Z]{3}$/.test(cur)) throw new BankError('Неважечка валута.');
+  const typed = !!v0.konto?.trim();
+  let kontoIn = v0.konto?.trim() ?? '';
+  if (!typed) {
+    if (v0.id) {
+      const [b] = await tx.select({ konto: bankAccounts.konto }).from(bankAccounts).where(and(eq(bankAccounts.id, v0.id), eq(bankAccounts.firmId, a.firmId))).limit(1);
+      kontoIn = b?.konto ?? '';
+    } else kontoIn = await autoBankKonto(tx, a.firmId, v0.account || v0.iban, cur);
+  }
+  const v = { ...v0, konto: kontoIn };
+  if (!KONTO_RE.test(v.konto)) throw new BankError('Неважечко конто.');
   const data = { name: v.name.trim(), account: v.account?.trim() || null, iban: v.iban?.replace(/\s+/g, '').toUpperCase() || null, cur, konto: v.konto, nal: v.nal?.trim() || null };
   let id = v.id ?? null;
   // legacy `addBankAcct` 7204: one konto per bank account
@@ -358,17 +374,19 @@ export async function saveBankAccount(tx: Tx, a: { firmId: string; userId: strin
     if (n && before.cur !== cur) throw new BankError('Сметката има ставки од изводи – валутата не може да се менува.');
     await tx.update(bankAccounts).set(data).where(eq(bankAccounts.id, id));
     await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'saveBankAcct', entityType: 'bank_account', entityId: id, data });
-    // legacy change listener 4846: a new konto re-books every statement of the account on it
+    if (typed && before.konto !== v.konto) await markKontoManual(tx, a.firmId, id);
+    // legacy change listener 4846: a new konto re-books the statements of the account on it (open periods only)
     if (n && before.konto !== v.konto) {
       await syncFirmBanks(tx, a.firmId);
-      const St = await tx.select({ id: bankStatements.id }).from(bankStatements).where(eq(bankStatements.bankAccountId, id));
-      await postStatements(tx, St.map((s) => s.id), a.userId);
+      const r = await repostAccountStatements(tx, { firmId: a.firmId, userId: a.userId, accountId: id });
+      if (a.report) a.report.repost = r;
     }
   } else {
     const [{ mx }] = (await tx.select({ mx: sql<number>`coalesce(max(${bankAccounts.sort}), 0)::int` }).from(bankAccounts).where(eq(bankAccounts.firmId, a.firmId))) as [{ mx: number }];
     const [r] = await tx.insert(bankAccounts).values({ firmId: a.firmId, ...data, sort: mx + 1 }).returning({ id: bankAccounts.id });
     id = r!.id;
-    await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'addBankAcct', entityType: 'bank_account', entityId: id, data });
+    if (typed) await markKontoManual(tx, a.firmId, id);
+    await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'addBankAcct', entityType: 'bank_account', entityId: id, data: { ...data, ...(typed ? {} : { auto: true }) } });
   }
   await syncFirmBanks(tx, a.firmId);
   return id;

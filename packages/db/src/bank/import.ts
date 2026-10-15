@@ -18,7 +18,7 @@ import { learnAccountsFromStatements } from '../partner-accounts';
 import { audit, type Tx } from '../audit';
 import { accounts, bankAccounts, bankLines, bankStatements, partners, type BankAccountRow } from '../schema/index';
 import { bankKontoName, techAccountKonto } from '@wise/core/bank/parity';
-import { dec, loadBankEnv, loadFxSources, POS_PARTNER_NAME, type BankEnv } from './context';
+import { autoBankKonto, dec, loadBankEnv, loadFxSources, POS_PARTNER_NAME, type BankEnv } from './context';
 import { postStatements, type PostStatementResult } from './posting';
 import { bookStatementLines, type BookAllResult } from './suggest';
 import { toBankRow } from './rows';
@@ -97,7 +97,11 @@ export interface PreviewDay {
   allDup: boolean;
 }
 
-export interface ImportPlan { days: PreviewDay[]; warnings: string[]; errors: string[]; needPosPartner: boolean }
+export interface ImportPlan {
+  days: PreviewDay[]; warnings: string[]; errors: string[]; needPosPartner: boolean;
+  /** Counterparty accounts recognised as the firm itself (name / ЕДБ) that are not registered as its bank accounts. */
+  ownAccounts?: string[];
+}
 
 const FOREIGN_FEE_DESC = 'Провизија на странска банка';
 
@@ -105,6 +109,8 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
   const env = env0 ?? (await loadBankEnv(tx, o.firmId));
   const fxs = await loadFxSources(tx, o.firmId);
   const warnings: string[] = [];
+  // the firm itself (by name / ЕДБ) from a bank account that is not registered as its own
+  const ownAccts = new Set<string>();
   const errors: string[] = [];
   const days: PreviewDay[] = [];
   let needPosPartner = false;
@@ -128,6 +134,7 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
     // No account yet (e.g. a new firm): the statement's own account is opened on save — preview it as a new account.
     if (!acct && (st.account || st.iban)) {
       acct = newAccountFor(st, o.firmId, accts.map((a) => a.konto));
+      if (st.format !== 'kb' && acct.cur === 'MKD') acct = { ...acct, konto: await autoBankKonto(tx, o.firmId, acct.account || acct.iban, 'MKD') };
       warnings.push(`Банкарската сметка ${st.iban || st.account} не постои – ќе се отвори при зачувување (конто ${acct.konto}).`);
     }
     if (!acct) { errors.push(`Не е пронајдена банкарска сметка за изводот${st.account ? ' ' + st.account : ''} – додадете ја сметката или изберете ја.`); continue; }
@@ -159,18 +166,20 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
           const row: BankRow = {
             id: 'new', acct: acct.id, date: base.date, amount, desc: p.desc, ...(base.name ? { name: base.name } : {}),
             ...(base.purpose ? { purpose: base.purpose } : {}), ...(base.osnov ? { osnov: base.osnov } : {}),
-            ...(fx ? { amountCur: p.amt, cur: acct.cur } : {}),
+            ...(fx ? { amountCur: p.amt, cur: acct.cur } : {}), ...(base.counterAccount ? { counterAccount: base.counterAccount } : {}),
           };
           const dupKey = bankDupKey(row);
           let cls: PreviewLine['cls'] = null;
           let booked: BankRow = row;
           let newPartner: string | undefined;
           if (p.fee) { cls = 'fee'; booked = { ...row, konto: env.konta.fee }; }
-          // legacy 12684: a КБ special account (konto 108x) books every line against the transfer konto 1009
-          else if (/^108/.test(String(acct.konto ?? ''))) { cls = 'tech'; booked = { ...row, konto: '1009' }; }
+          // legacy 12684: a КБ special account (konto 108x) books every line against the transfer konto (legacy 1009;
+          // now the own-transfer transit `konta.transit` — 10091 when the chart has it)
+          else if (/^108/.test(String(acct.konto ?? ''))) { cls = 'tech'; booked = { ...row, konto: env.konta.transit }; }
           else {
-            const c = classifyImported(row, { accounts: env.accounts, partners: env.partners, invoices: [], purchases: [], firmName: env.firm.name, posPartner: env.posPartner, konta: env.konta });
+            const c = classifyImported(row, { accounts: env.accounts, partners: env.partners, invoices: [], purchases: [], firmName: env.firm.name, firmEdb: env.firm.edb ?? undefined, posPartner: env.posPartner, konta: env.konta });
             cls = c.cls; booked = c.row; newPartner = c.newPartner;
+            if (c.newOwnAccount) ownAccts.add(c.newOwnAccount);
             if (c.needPosPartner) needPosPartner = true;
           }
           lines.push({
@@ -200,7 +209,8 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
       });
     }
   }
-  return { days, warnings: [...new Set(warnings)], errors, needPosPartner };
+  for (const a of ownAccts) warnings.push(`Сметката ${a} е на самата фирма (по назив / ЕДБ), а не е внесена меѓу банкарските сметки – ставките се книжат како пренос меѓу сопствени сметки (${env.konta.transit}). Внесете ја сметката во „Банкарски сметки…“.`);
+  return { days, warnings: [...new Set(warnings)], errors, needPosPartner, ...(ownAccts.size ? { ownAccounts: [...ownAccts] } : {}) };
 }
 
 export interface ImportResult {
@@ -240,6 +250,8 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     for (const st of o.statements) {
       if (!(st.account || st.iban) || statementAccount(st, rows) || fallback) continue;
       const n = newAccountFor(st, o.firmId, rows.map((r) => r.konto));
+      // denar account: the analytic konto of its bank (270… → 100005, the next Halk account → 1000051 …), else 1000
+      if (st.format !== 'kb' && n.cur === 'MKD') n.konto = await autoBankKonto(tx, o.firmId, n.account || n.iban, 'MKD', rows.map((r) => r.konto));
       const [a] = await tx.insert(bankAccounts).values({ firmId: o.firmId, name: n.name, account: n.account, iban: n.iban, cur: n.cur, konto: n.konto, sort: rows.length }).returning();
       rows.push({ ...a!, account: a!.account ?? '' });
       // the konto of the new account must be in the chart (legacy `addBankAcct` created it)

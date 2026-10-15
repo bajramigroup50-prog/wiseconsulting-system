@@ -19,6 +19,7 @@ export function toBankRow(l: BankLine): BankRow {
   if (l.purpose) r.purpose = l.purpose;
   if (l.osnov) r.osnov = l.osnov;
   if (l.bref) r.bref = l.bref;
+  if (l.counterAccount) r.counterAccount = l.counterAccount;
   if (l.konto) r.konto = l.konto;
   if (l.partnerId) r.partner = l.partnerId;
   if (l.refType && l.refId) r.ref = { type: l.refType, id: l.refId, label: l.refLabel ?? '' };

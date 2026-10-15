@@ -14,7 +14,9 @@ import {
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
+  saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
 } from '@wise/db';
+import { BANK_KONTA_FIELDS } from '@wise/core';
 import { statementFromRead } from '@wise/core/ai/bank';
 import { ownerCheck, withNote, type OwnerFirm } from '@wise/core/bank/parity';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
@@ -395,14 +397,18 @@ export async function closeTransitAction(konto: string, date: string): Promise<F
 export async function saveBankAccountAction(_p: FormState, form: FormData): Promise<FormState> {
   return bankRun('addBankAcct', [...P, '/bankFmt'], async ({ tx, u, firm }) => {
     const isNew = !str(form.get('id'));
-    await saveBankAccount(tx, {
-      firmId: firm.id, userId: u.id,
+    const report: { repost?: AccountRepost } = {};
+    const id = await saveBankAccount(tx, {
+      firmId: firm.id, userId: u.id, report,
       input: {
         id: str(form.get('id')) || null, name: str(form.get('name')), account: str(form.get('account')) || null, iban: str(form.get('iban')) || null,
         cur: str(form.get('cur')) || 'MKD', konto: str(form.get('konto')).split(/\s/)[0]!, nal: str(form.get('nal')) || null,
       },
     });
-    return isNew ? `Сметката е додадена. Изводите од оваа банка ќе се книжат на ${str(form.get('konto')).split(/\s/)[0]}.` : 'Сметката е зачувана.';
+    const [acc] = await tx.select({ konto: bankAccounts.konto }).from(bankAccounts).where(eq(bankAccounts.id, id)).limit(1);
+    const r = report.repost;
+    const rp = r ? ` Прекнижани ${r.statements} изводи на ${acc?.konto}.${r.skipped.length ? ` Прескокнати (заклучен период / налог): ${r.skipped.map((s) => `извод ${s.number ?? '—'} од ${dmyS(s.date)}`).join(', ')}.` : ''}` : '';
+    return isNew ? `Сметката е додадена. Изводите од оваа банка ќе се книжат на ${acc?.konto}.` : `Сметката е зачувана.${rp}`;
   });
 }
 /* ---------------- finance parity ---------------- */
@@ -461,4 +467,51 @@ export async function posFeeAction(_p: FormState, form: FormData): Promise<FormS
 
 export async function removeBankAccountAction(id: string): Promise<FormState> {
   return bankRun('rmBankAcct', [...P, '/bankFmt'], ({ tx, u, firm }) => removeBankAccount(tx, { firmId: firm.id, userId: u.id, id }).then(() => 'Сметката е отстранета.'));
+}
+
+/* ---------------- „Конта за изводи“ (owner / chief accountant: `settings`) ---------------- */
+
+const dmyS = (d: string) => d.split('-').reverse().join('.');
+
+/** Per-firm bank kontos and the bank konto layout of the statement journal; validated against the chart, audited `bankKontaSet`. */
+export async function saveBankKontaAction(_p: FormState, form: FormData): Promise<FormState> {
+  return bankRun('settings', [...P, '/bankFmt'], async ({ tx, u, firm }) => {
+    const input = Object.fromEntries(BANK_KONTA_FIELDS.map((f) => [f.key, str(form.get(f.key))]));
+    const layout = form.get('layout') === 'line' ? 'line' : 'sum';
+    await saveBankKonta(tx, { firmId: firm.id, userId: u.id, input, layout });
+    return 'Контата за изводи се зачувани. Важат за новите книжења; постоечките ставки / налози префрлете ги со копчињата подолу.';
+  });
+}
+
+/** „↻ Префрли постоечки ставки 1009 → 10091“ (current firm and year, open periods only). Audited `bankTransitMove`. */
+export async function moveTransitAction(): Promise<FormState> {
+  return bankRun('settings', P, async ({ tx, u, firm, year }) => {
+    const r = await moveTransitLines(tx, { firmId: firm.id, userId: u.id, year });
+    const sk = r.skipped.length ? ` Прескокнати (заклучен период / налог): ${r.skipped.map((s) => `извод ${s.number ?? '—'} од ${dmyS(s.date)} (${s.lines} ст.)`).join(', ')}.` : '';
+    return r.lines ? `Префрлени ${r.lines} ставки од ${r.from} на ${r.to} во ${r.statements} изводи (прекнижени).${sk}` : `Нема ставки за префрлање.${sk}`;
+  });
+}
+
+/** Konto of one bank account set by hand („Примени и прекнижи“): manual from now on, statements re-posted in open periods. Audited `bankAcctKonto`. */
+export async function setBankAccountKontoAction(accountId: string, konto: string): Promise<FormState> {
+  return bankRun('settings', [...P, '/bankFmt'], async ({ tx, u, firm }) => {
+    const r = await setBankAccountKonto(tx, { firmId: firm.id, userId: u.id, accountId, konto });
+    if (r.from === r.to) return `Контото ${r.to} е потврдено (рачно – не се менува автоматски).`;
+    const sk = r.skipped.length ? ` Прескокнати (заклучен период / налог): ${r.skipped.map((s) => `извод ${s.number ?? '—'} од ${dmyS(s.date)}`).join(', ')}.` : '';
+    return `Сметката е префрлена од ${r.from} на ${r.to}; прекнижани ${r.statements} изводи.${sk}`;
+  });
+}
+
+/** Same, from the konto field of the panel. */
+export async function setBankAccountKontoFormAction(_p: FormState, form: FormData): Promise<FormState> {
+  return setBankAccountKontoAction(str(form.get('id')), str(form.get('konto')));
+}
+
+/** „↻ Прекнижи ги изводите збирно“ (current firm and year, open periods only). Audited `bankRepostLayout`. */
+export async function repostLayoutAction(): Promise<FormState> {
+  return bankRun('settings', P, async ({ tx, u, firm, year }) => {
+    const r = await repostStatementsLayout(tx, { firmId: firm.id, userId: u.id, year });
+    const sk = r.skipped.length ? ` Прескокнати (заклучен период / налог): ${r.skipped.map((s) => `извод ${s.number ?? '—'} од ${dmyS(s.date)}`).join(', ')}.` : '';
+    return `Прекнижани ${r.statements} изводи (${r.layout === 'sum' ? 'збирно' : 'по ставка'}): ставки во налозите ${r.linesBefore} → ${r.linesAfter}.${sk}`;
+  });
 }

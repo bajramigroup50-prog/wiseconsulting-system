@@ -4,11 +4,12 @@
  */
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import {
-  BANK_KONTA, r2, schemeValue,
-  type BankAccount, type BankKonta, type BankRule, type FxRateRow, type Partner as MatchPartner, type PostingContext,
+  BANK_KONTA, bankTransitDefaults, pickBankKonto, r2, schemeValue,
+  type BankAccount, type BankChartEntry, type BankKonta, type BankRule, type FxRateRow, type Partner as MatchPartner, type PostingContext,
 } from '@wise/core';
 import type { Tx } from '../audit';
 import { loadVatPostingContext } from '../vat-context';
+import { effectiveChart } from '../ledger-queries';
 import { bankAccounts, bankRules, codes, firms, fxRates, partners, type BankAccountRow, type Firm } from '../schema/index';
 
 /** Domain error of the bank / cash services (message is shown to the user). */
@@ -41,12 +42,14 @@ export async function firmPostingContext(tx: Tx, f: Firm, posPartnerId?: string 
 /**
  * Bank kontos used by matching / classification. FIX(4.4 #10, #11): legacy hard-coded 1030/1039/1009 and
  * `sch('ddvPay')||'23008'` (dead fallback); here customer/supplier/FX/VAT/POS come from the posting scheme
- * and the rest can be overridden per firm in `firms.settings.bankKonta`.
+ * and the rest can be overridden per firm in `firms.settings.bankKonta` („Конта за изводи“, `saveBankKonta`).
+ * With the chart, the own-transfer transit defaults to the analytic 10091 (`bankTransitDefaults`; 1009 is the fallback).
  */
-export function bankKontaFor(f: Firm, ctx: PostingContext): BankKonta {
+export function bankKontaFor(f: Firm, ctx: PostingContext, chart?: readonly BankChartEntry[]): BankKonta {
   const s = settingsOf(f);
   return {
     ...BANK_KONTA,
+    ...bankTransitDefaults(chart),
     customer: schemeValue(ctx, 'customer') || BANK_KONTA.customer,
     supplier: schemeValue(ctx, 'supplier') || BANK_KONTA.supplier,
     importSupplier: schemeValue(ctx, 'supplierFx') || BANK_KONTA.importSupplier,
@@ -90,10 +93,11 @@ export async function loadBankAccounts(tx: Tx, firmId: string): Promise<BankAcco
 
 export async function loadBankEnv(tx: Tx, firmId: string): Promise<BankEnv> {
   const firm = await loadFirm(tx, firmId);
-  const [accountRows, R, P] = await Promise.all([
+  const [accountRows, R, P, chart] = await Promise.all([
     loadBankAccounts(tx, firmId),
     tx.select().from(bankRules).where(eq(bankRules.firmId, firmId)).orderBy(asc(bankRules.createdAt)),
     tx.select({ id: partners.id, name: partners.name, edb: partners.edb, embs: partners.embs, code: partners.code }).from(partners).where(eq(partners.firmId, firmId)),
+    effectiveChart(tx, firmId),
   ]);
   const s = settingsOf(firm);
   const posPartner = (s.posP as string) && P.some((p) => p.id === s.posP) ? (s.posP as string) : P.find((p) => p.name === POS_PARTNER_NAME)?.id;
@@ -106,7 +110,7 @@ export async function loadBankEnv(tx: Tx, firmId: string): Promise<BankEnv> {
     osnovK: Object.fromEntries(R.filter((r) => r.kind === 'osnov').map((r) => [r.match, r.konto])),
     partners: P.map((p) => ({ id: p.id, name: p.name, edb: p.edb ?? undefined, embs: p.embs ?? undefined, code: p.code ?? undefined })),
     posting,
-    konta: bankKontaFor(firm, posting),
+    konta: bankKontaFor(firm, posting, chart),
     ...(posPartner ? { posPartner } : {}),
   };
 }
@@ -136,6 +140,36 @@ export async function syncFirmBanks(tx: Tx, firmId: string): Promise<void> {
   const f = await loadFirm(tx, firmId);
   const banks = A.map((a) => ({ id: a.id, name: a.name, cur: a.cur, ...(a.nal ? { nal: a.nal } : {}) }));
   await tx.update(firms).set({ settings: { ...settingsOf(f), banks } }).where(eq(firms.id, firmId));
+}
+
+/* ---------------- bank konto of an account ---------------- */
+
+/** Bank accounts whose konto was set by hand (`firms.settings.bankKontoManual`): never changed automatically. */
+export const kontoManualIds = (f: Pick<Firm, 'settings'>): string[] => {
+  const v = settingsOf(f).bankKontoManual;
+  return Array.isArray(v) ? v.map(String) : [];
+};
+
+export async function markKontoManual(tx: Tx, firmId: string, accountId: string): Promise<void> {
+  const f = await loadFirm(tx, firmId);
+  const ids = kontoManualIds(f);
+  if (ids.includes(accountId)) return;
+  await tx.update(firms).set({ settings: { ...settingsOf(f), bankKontoManual: [...ids, accountId] } }).where(eq(firms.id, firmId));
+}
+
+/** Chart in the form `pickBankKonto` takes: firm-specific entries flagged `own` (they win over the global ones). */
+export async function bankKontoChart(tx: Tx, firmId: string): Promise<{ code: string; name: string; own: boolean }[]> {
+  return (await effectiveChart(tx, firmId)).map((a) => ({ code: a.code, name: a.name, own: a.overridden }));
+}
+
+/**
+ * Konto of a NEW bank account picked by its bank (`pickBankKonto`, the kontos the firm's accounts already use are
+ * skipped); 1000 (denars) / 1030 (foreign currency) when nothing in the chart matches.
+ */
+export async function autoBankKonto(tx: Tx, firmId: string, account: string | null | undefined, cur: string, usedExtra: readonly string[] = []): Promise<string> {
+  if ((cur || 'MKD').toUpperCase() !== 'MKD') return '1030';
+  const used = [...(await loadBankAccounts(tx, firmId)).map((a) => a.konto), ...usedExtra];
+  return pickBankKonto(account, await bankKontoChart(tx, firmId), used) ?? '1000';
 }
 
 /** Global codebook rows are not firm-specific; helper for the currency list in the UI. */

@@ -24,10 +24,27 @@ export function lineProblem(l: BankLine, fx: boolean): string {
   return '';
 }
 
-/** Journal lines of a statement (exported for tests / the nalog preview). */
-export function statementJournalLines(env: BankEnv, acct: { konto: string; cur: string }, lines: BankLine[]): PostLineInput[] {
+/** Bank konto layout of the statement journal (`firms.settings.bankJournal`): `sum` (default) or `line` (legacy, per line). */
+export type BankJournalLayout = 'sum' | 'line';
+export const bankJournalLayout = (f: Pick<BankEnv['firm'], 'settings'>): BankJournalLayout =>
+  ((f.settings ?? {}) as { bankJournal?: unknown }).bankJournal === 'line' ? 'line' : 'sum';
+
+const C = (v: unknown) => Math.round((Number(v ?? 0) || 0) * 100);
+
+/**
+ * Journal lines of a statement (exported for tests / the nalog preview).
+ *
+ * Layout `sum` (the classic nalog, default): FIRST the bank konto once: „D = Σ приливи“ and „P = Σ одливи“ (one
+ * line when there is only one side), noted „Извод бр. X од DD.MM.YYYY“; then every counter line in statement order
+ * (konto, partner, document, note, its own side). FX accounts: per currency, Σ amount_cur and Σ of the lines' MKD amounts
+ * (cents), so the journal balances exactly and the bank konto balance (MKD and currency) equals the per-line layout.
+ * Layout `line` (legacy): every statement line paired with its own bank konto line.
+ */
+export function statementJournalLines(env: BankEnv, acct: { konto: string; cur: string }, lines: BankLine[], st?: { number?: string | null; date: string }, layout: BankJournalLayout = bankJournalLayout(env.firm)): PostLineInput[] {
   const fx = (acct.cur || 'MKD') !== 'MKD';
   const out: PostLineInput[] = [];
+  // aggregated bank lines per currency ('' = denars only) and side, in cents
+  const agg = new Map<string, { d: number; p: number; dCur: number; pCur: number; nd: number; np: number }>();
   for (const l of lines) {
     const r = toBankRow(l);
     const txn: BankTxn = {
@@ -37,14 +54,36 @@ export function statementJournalLines(env: BankEnv, acct: { konto: string; cur: 
     };
     const J = bankEntries(txn, env.posting, { konto: acct.konto, cur: acct.cur });
     const note = (l.name || l.description || '').slice(0, 200);
-    for (const j of J) {
-      const onBank = j.account === acct.konto;
+    // the bank side of the line: the first bank-konto row of an inflow / the last of an outflow (a counter konto may equal it)
+    const bi = r.amount >= 0 ? J.findIndex((j) => j.account === acct.konto) : J.map((j) => j.account).lastIndexOf(acct.konto);
+    J.forEach((j, i) => {
+      const onBank = i === bi;
+      const withCur = fx && onBank && l.amountCur != null;
+      if (onBank && layout === 'sum') {
+        const key = withCur ? acct.cur : '';
+        const a = agg.get(key) ?? { d: 0, p: 0, dCur: 0, pCur: 0, nd: 0, np: 0 };
+        const cur = withCur ? C(Math.abs(Number(l.amountCur))) : 0;
+        if (C(j.debit)) { a.d += C(j.debit); a.dCur += cur; a.nd++; }
+        if (C(j.credit)) { a.p += C(j.credit); a.pCur += cur; a.np++; }
+        agg.set(key, a);
+        return;
+      }
       out.push({
         account: j.account, debit: j.debit, credit: j.credit, partnerId: j.partnerId || null,
         note: j.note || note, doc: l.refLabel || l.bref || null,
-        ...(fx && onBank && l.amountCur != null ? { currency: acct.cur, amountCur: Math.abs(Number(l.amountCur)) } : {}),
+        ...(withCur ? { currency: acct.cur, amountCur: Math.abs(Number(l.amountCur)) } : {}),
       });
+    });
+  }
+  if (layout === 'sum') {
+    const izv = st ? `Извод бр. ${st.number || '—'} од ${dmy(st.date)}` : 'Извод';
+    const head: PostLineInput[] = [];
+    for (const [cur, a] of agg) {
+      const c = cur ? { currency: cur } : {};
+      if (a.nd) head.push({ account: acct.konto, debit: a.d / 100, credit: 0, partnerId: null, note: izv, doc: st?.number || null, ...c, ...(cur ? { amountCur: a.dCur / 100 } : {}) });
+      if (a.np) head.push({ account: acct.konto, debit: 0, credit: a.p / 100, partnerId: null, note: izv, doc: st?.number || null, ...c, ...(cur ? { amountCur: a.pCur / 100 } : {}) });
     }
+    return [...head, ...out];
   }
   return out;
 }
@@ -79,7 +118,7 @@ export async function postStatement(tx: Tx, statementId: string, userId: string 
   const bad = new Set(problems.map((p) => p.lineId));
   const ok = L.filter((l) => !bad.has(l.id));
   const src = { firmId: st.firmId, sourceType: BANK_SOURCE_TYPE, sourceId: st.id, userId };
-  const lines = statementJournalLines(E, { konto: acct!.konto, cur: acct!.cur }, ok);
+  const lines = statementJournalLines(E, { konto: acct!.konto, cur: acct!.cur }, ok, st);
   const status = problems.length ? 'draft' : 'posted';
   if (!lines.length) {
     await unpostSource(tx, src);
@@ -112,6 +151,32 @@ export async function assertStatementOpen(tx: Tx, st: Pick<BankStatement, 'id' |
   const [j] = await tx.select({ locked: journals.locked, number: journals.number }).from(journals)
     .where(and(eq(journals.firmId, st.firmId), eq(journals.sourceType, BANK_SOURCE_TYPE), eq(journals.sourceId, st.id))).limit(1);
   if (j?.locked) throw new PostingError('locked', `Налогот ${j.number} е заклучен.`);
+}
+
+export interface AccountRepost {
+  statements: number;
+  skipped: { statementId: string; number: string | null; date: string; why: string }[];
+}
+
+/**
+ * Re-post the statements of one bank account (after its konto changed — „Прекнижи ги изводите на оваа сметка“):
+ * only statements with a journal or booked lines in OPEN periods; a locked period / locked nalog is skipped and listed.
+ */
+export async function repostAccountStatements(tx: Tx, a: { firmId: string; userId: string | null; accountId: string }): Promise<AccountRepost> {
+  const out: AccountRepost = { statements: 0, skipped: [] };
+  const S = await tx.select().from(bankStatements).where(and(eq(bankStatements.firmId, a.firmId), eq(bankStatements.bankAccountId, a.accountId))).orderBy(asc(bankStatements.date));
+  if (!S.length) return out;
+  const env = await loadBankEnv(tx, a.firmId);
+  for (const st of S) {
+    try { await assertStatementOpen(tx, st); } catch (e) {
+      if (!(e instanceof PostingError)) throw e;
+      out.skipped.push({ statementId: st.id, number: st.number, date: st.date, why: e.message });
+      continue;
+    }
+    await postStatement(tx, st.id, a.userId, env);
+    out.statements++;
+  }
+  return out;
 }
 
 /** FX difference of a line in denars for display (7810 / 4810). */

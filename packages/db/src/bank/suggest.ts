@@ -8,7 +8,7 @@
  */
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import {
-  autoMatch, Bank, BANK_FEE, BKPK_RE, bankName, isOwnTransfer, isVatPayment, schemeValue,
+  autoMatch, Bank, BANK_FEE, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, ownTransferBy, schemeValue,
   type BankRow,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
@@ -93,9 +93,15 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
       return { konto: '', why: 'плаќање на јавни приходи без шифра – изберете го контото на давачката', how: '' };
     }
   }
-  const own = isOwnTransfer({ id: '', date: x.date ?? '', amount: x.amount, desc: x.desc ?? '', ...(x.name ? { name: x.name } : {}), ...(x.acct ? { acct: x.acct } : {}) },
-    { firmName: env.firm.name, accounts: env.accounts, partners: env.partners });
-  if (own) return { konto: '', why: 'пренос меѓу сопствени сметки – изберете ја преодната сметка', how: '' };
+  const r0: BankRow = { id: '', date: x.date ?? '', amount: x.amount, desc: x.desc ?? '', ...(x.name ? { name: x.name } : {}), ...(x.purpose ? { purpose: x.purpose } : {}),
+    ...(x.acct ? { acct: x.acct } : {}), ...(x.counterAccount ? { counterAccount: x.counterAccount } : {}) };
+  const own = ownTransferBy(r0, { firmName: env.firm.name, firmEdb: env.firm.edb ?? undefined, accounts: env.accounts, partners: env.partners, konta: env.konta });
+  if (own) {
+    const fxA = isFxAccount(env.accounts, x.acct);
+    return { konto: fxA ? env.konta.transitFx : env.konta.transit, why: 'пренос меѓу сопствени сметки (комитентот е самата фирма)', how: 'own' };
+  }
+  const kw = keywordKonto(r0, env.accounts, env.konta);
+  if (kw) return { konto: kw.konto, why: kw.cls === 'turnover' ? 'уплата на дневен промет / пазар' : 'подигање готовина', how: kw.cls };
   const nm = bankName({ id: '', date: '', amount: x.amount, desc: x.desc ?? '', ...(x.name ? { name: x.name } : {}), ...(x.purpose ? { purpose: x.purpose } : {}) }, env.partners);
   const konto = out ? env.konta.supplier : env.konta.customer;
   const pid = Bank.matchPartner(env.partners, nm, '');

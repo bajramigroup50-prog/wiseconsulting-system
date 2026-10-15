@@ -75,7 +75,7 @@ Helper indexes used to build this (regenerate with grep if needed): every top-le
 | 12772 | bank | after save: `convPair()` (loops all bank rows) |
 | 12758 | bank | currency purchase/sale ("откуп") → FX konto, `conv:true` |
 | 12645 | bank | learn `firm.osnovK` (payment-basis code → konto) |
-| 12568 | bank | own-account transfer → transit 1009/1039, `own:true` |
+| 12568 | bank | own-account transfer → transit 1009/1039, `own:true` (port: the denar transit is the analytic 10091 when the chart has it, 1009 only as the fallback; configurable in „Конта за изводи“) |
 | 12540 | all | clear `bkVirt` cache |
 | 12504 | bank | drop stale `refs` |
 | 12421 | bank / journal / invoices / purchases | partner required on 12x/22x (`BKPK_RE`); bank: find/**create** partner; invoices & non-cash purchases must have a partner |
@@ -737,7 +737,7 @@ Journal kinds created here: `kr` (transit FX difference, 12573), `pos` (POS fee,
 7. **`paidFor` has hidden state** (12538): virtual advance allocation unless `S._noVirt` — open amounts differ between callers.
 8. `bmRun`/`bmLink` can over-allocate: with one picked document the ref takes the whole payment even if larger than the open amount.
 9. `rmBankAcct` (7207) orphans bank rows; `bankOf` falls back to `banks()[0]` so they silently re-book to another konto.
-10. Default FX konto `'1030'` and transit `1039/1009` hard-coded (12755, 12770).
+10. Default FX konto `'1030'` and transit `1039/1009` hard-coded (12755, 12770). Port: `BankKonta` per firm („Конта за изводи“), transit 10091 from the chart, 1009 = daily turnover deposits.
 11. `sch('ddvPay')||'23008'` — the fallback is dead (`sch` already returns SCH0).
 12. `ensureIzvNos` uses the file's number only for single-date files; `parseKB` overwrites `st.no` on every line.
 13. `delBank` (7200) deletes without confirmation.

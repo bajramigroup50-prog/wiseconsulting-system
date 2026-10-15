@@ -53,6 +53,8 @@ export interface BankRow {
   purpose?: string;
   osnov?: string;
   bref?: string;
+  /** Counterparty bank account / IBAN as the bank gave it. */
+  counterAccount?: string;
   /** Counter account; empty = 1200 (inflow) / 2200 (outflow). */
   konto?: string;
   partner?: string;
@@ -112,7 +114,12 @@ export interface BankKonta {
   fxLoss: string; // 4810
   fxDefault: string; // 1030
   transitFx: string; // 1039
-  transit: string; // 1009
+  /** Own-account transfer (denars). The db layer defaults it to the analytic 10091 when the chart has it. */
+  transit: string; // 1009 (fallback) / 10091
+  /** Deposit of the daily turnover / „пазар“ (the cash on the way from the till to the bank). */
+  dailyTurnover: string; // 1009
+  /** Cash withdrawn from the bank for the cash box (подигање готовина, материјални трошоци). */
+  cashWithdraw: string; // 1020
   pos: string; // 1200001
   ddvPay: string; // 23008
   ddvClaim: string; // 1308
@@ -120,8 +127,53 @@ export interface BankKonta {
 
 export const BANK_KONTA: BankKonta = {
   customer: '1200', supplier: '2200', importSupplier: '2210', fee: '4460', fxGain: '7810', fxLoss: '4810',
-  fxDefault: '1030', transitFx: '1039', transit: '1009', pos: '1200001', ddvPay: '23008', ddvClaim: '1308',
+  fxDefault: '1030', transitFx: '1039', transit: '1009', dailyTurnover: '1009', cashWithdraw: '1020', pos: '1200001', ddvPay: '23008', ddvClaim: '1308',
 };
+
+/** Chart entry as needed for the bank konto defaults / validation. */
+export interface BankChartEntry { code: string; name: string }
+
+/**
+ * Transit defaults from the chart: own transfers in denars go to the analytic 10091 „Пренос на средства од сметка на
+ * сметка денари“ when the chart has it (1009 „Предона сметка“ is synthetic; it stays the fallback). The FX transit
+ * 1039 moves to an analytic only when one under 1039 is clearly a transfer konto (its name says „пренос“) — e.g.
+ * 10391 „Девизни сметки паунд“ is not.
+ */
+export function bankTransitDefaults(chart: readonly BankChartEntry[] | undefined): Partial<BankKonta> {
+  if (!chart?.length) return {};
+  const out: Partial<BankKonta> = {};
+  if (chart.some((a) => a.code === '10091')) out.transit = '10091';
+  const fx = chart.filter((a) => a.code.length > 4 && a.code.startsWith(BANK_KONTA.transitFx) && /пренос/i.test(a.name)).sort((a, b) => (a.code < b.code ? -1 : 1))[0];
+  if (fx) out.transitFx = fx.code;
+  return out;
+}
+
+/** The kontos of „Конта за изводи“ an accountant may set per firm (`firms.settings.bankKonta`). */
+export const BANK_KONTA_FIELDS: readonly { key: keyof BankKonta; label: string; note?: string }[] = [
+  { key: 'customer', label: 'Наплата од купувач', note: 'со комитент' },
+  { key: 'supplier', label: 'Плаќање на добавувач', note: 'со комитент' },
+  { key: 'dailyTurnover', label: 'Уплата на дневен промет / пазар' },
+  { key: 'cashWithdraw', label: 'Подигање готовина (материјални трошоци)' },
+  { key: 'transit', label: 'Пренос меѓу сопствени сметки (денари)' },
+  { key: 'transitFx', label: 'Пренос / откуп – девизни сметки' },
+  { key: 'pos', label: 'Приливи од POS терминали' },
+];
+
+/** A konto the bank lines may be booked on: in the chart and a real konto (4+ digits, not a class / group). */
+export const bankKontoBookable = (chart: readonly BankChartEntry[], k: string): boolean => /^\d{4,10}$/.test(k) && chart.some((a) => a.code === k);
+
+/** Validate the per-firm bank kontos against the chart; returns the cleaned overrides or the errors. */
+export function validateBankKonta(input: Partial<Record<keyof BankKonta, string>>, chart: readonly BankChartEntry[]): { konta: Partial<BankKonta>; errors: string[] } {
+  const konta: Partial<BankKonta> = {};
+  const errors: string[] = [];
+  for (const f of BANK_KONTA_FIELDS) {
+    const v = String(input[f.key] ?? '').trim().split(/\s/)[0]!;
+    if (!v) continue;
+    if (!bankKontoBookable(chart, v)) errors.push(`${f.label}: контото ${v} го нема во контниот план.`);
+    else konta[f.key] = v;
+  }
+  return { konta, errors };
+}
 
 export interface MatchContext {
   rows: BankRow[];
@@ -133,6 +185,8 @@ export interface MatchContext {
   /** Working year: `bmRun`/`bmRunFx` only touch rows of this year (legacy `inYear`). Omit = all. */
   year?: number | string;
   firmName?: string;
+  /** The firm's ЕДБ: a counterparty with this ЕДБ is the firm itself (own transfer). */
+  firmEdb?: string;
   rules?: BankRule[];
   /** Learned payment-code rules `'<osnov>|in' | '<osnov>|out' → konto`. */
   osnovK?: Record<string, string>;
@@ -385,7 +439,7 @@ function linkRow(b: BankRow, pick: { x: OpenDoc; o: number }[], type: DocType, p
 
 /* ================================================================== matching layers */
 
-export type MatchHow = 'pos' | 'vat' | 'osnov' | 'fx' | 'num' | 'amt' | 'sum' | 'fxnear' | 'invoice' | 'purchase' | 'fee' | 'payroll' | 'rule';
+export type MatchHow = 'pos' | 'vat' | 'osnov' | 'fx' | 'num' | 'amt' | 'sum' | 'fxnear' | 'invoice' | 'purchase' | 'fee' | 'payroll' | 'rule' | 'turnover' | 'cash';
 
 export interface MatchChange {
   id: string;
@@ -559,6 +613,13 @@ function layerBase(w: Work): void {
     const desc = low(b.desc);
     const amt = Math.abs(+b.amount);
     if (!amt) continue;
+    // a deposit of the daily turnover / a cash withdrawal says so in its description: never an invoice by amount
+    const kw = keywordKonto(b, ctx.accounts, K);
+    if (kw && !ownTransferBy(b, ctx)) {
+      const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()));
+      commit(w, { ...b, konto: rule ? rule.konto : kw.konto }, rule ? 'rule' : kw.cls);
+      continue;
+    }
     let hit: { type: DocType; doc: OpenDoc } | null = null;
     const nm8 = (x: OpenDoc) => low(pName(ctx, x.partner) || '~~').slice(0, 8);
     if (isFxAccount(ctx.accounts, b.acct)) {
@@ -732,15 +793,48 @@ export const bkLat = (s: unknown): string => low(s).split('').map((c) => BK_LAT[
 export const bkCore = (s: unknown): string =>
   bkLat(s).replace(/[^a-z0-9 ]/g, ' ').replace(/\b(dooel|doo|ad|tp|jtd|dpu|dptu|ltd|llc|skopje|tetovo|gostivar|kumanovo|bitola|struga|ohrid|veles|shtip|stip|kichevo|kicevo|debar|export|import|eksport|uvoz|izvoz|mk|r|s|n)\b/g, ' ').replace(/\s+/g, ' ').trim();
 
-/** Legacy `bkOwn` (12564): transfer between the firm's own accounts. */
-export function isOwnTransfer(b: BankRow, ctx: Pick<MatchContext, 'firmName' | 'accounts' | 'partners'>): boolean {
-  const me = bkCore(ctx.firmName);
-  if (me.length < 4) return false;
-  const nm = bkCore(bankName(b, ctx.partners) || b.desc || '');
-  if (!nm) return false;
-  if (nm === me || nm.startsWith(me + ' ') || (me.startsWith(nm + ' ') && nm.length >= 6)) return true;
+export type SelfBy = 'acct' | 'edb' | 'name';
+
+/**
+ * Is the counterparty the firm itself? `acct`: the counterparty account (or an account number in the description) is
+ * another of the firm's own bank accounts; `edb`: the firm's ЕДБ is in the line; `name`: the counterparty name is the
+ * firm's name, also with a branch suffix („ФУЛЛАМ ДООЕЛ Скопје-КУМАНОВО“, „… СКОПЈЕ - ЦЕНТАР“; legacy `bkOwn` 12564).
+ */
+export function selfCounterparty(b: BankRow, ctx: Pick<MatchContext, 'firmName' | 'firmEdb' | 'accounts' | 'partners'>): SelfBy | null {
+  const others = ctx.accounts.filter((x) => x.id !== acctOf(b) && dig(x.account).length >= 10);
+  const ca = dig(b.counterAccount);
+  if (ca.length >= 10 && others.some((x) => ca.endsWith(dig(x.account).slice(-10)) || dig(x.account).endsWith(ca.slice(-10)))) return 'acct';
   const d = dig(b.desc);
-  return ctx.accounts.some((x) => x.id !== acctOf(b) && dig(x.account).length >= 10 && d.includes(dig(x.account).slice(-10)));
+  if (others.some((x) => d.includes(dig(x.account).slice(-10)))) return 'acct';
+  const fe = dig(ctx.firmEdb);
+  if (fe.length >= 7) {
+    const runs = (String(b.desc || '') + ' ' + String(b.purpose || '') + ' ' + String(b.name || '')).match(/\d{7,}/g) || [];
+    if (runs.some((r) => r === fe || (fe.length === 13 && r.endsWith(fe)))) return 'edb';
+  }
+  const me = bkCore(ctx.firmName);
+  if (me.length < 4) return null;
+  const nm = bkCore(bankName(b, ctx.partners) || b.desc || '');
+  if (!nm) return null;
+  if (nm === me || nm.startsWith(me + ' ') || (me.startsWith(nm + ' ') && nm.length >= 6)) return 'name';
+  return null;
+}
+
+/** Legacy `bkOwn` (12564): transfer between the firm's own accounts (the counterparty is the firm itself). */
+export function isOwnTransfer(b: BankRow, ctx: Pick<MatchContext, 'firmName' | 'firmEdb' | 'accounts' | 'partners'>): boolean {
+  return selfCounterparty(b, ctx) != null;
+}
+
+/**
+ * An own-account transfer line: the counterparty is the firm itself — but a line recognised only by the NAME that says
+ * it is a deposit of the daily turnover / a cash withdrawal is not (the firm's cashier pays the takings in, or takes
+ * cash out, in the firm's name; such a line belongs on `dailyTurnover` / `cashWithdraw`).
+ */
+export function ownTransferBy(b: BankRow, ctx: Pick<MatchContext, 'firmName' | 'firmEdb' | 'accounts' | 'partners' | 'konta'>): SelfBy | null {
+  const by = selfCounterparty(b, ctx);
+  if (by === 'name' && keywordKonto(b, ctx.accounts, ctx.konta)) return null;
+  // payment code 903 = „Пренос од средства на делот на правно лице и обратно“ — a transfer between the firm's own accounts
+  if (!by && String(b.osnov ?? '').trim() === '903' && !isFxAccount(ctx.accounts, b.acct)) return 'name';
+  return by;
 }
 
 /** Legacy `CONV_RE` / `isConv` (12754, 12757): currency purchase/sale. */
@@ -780,18 +874,44 @@ export function resolvePartner(b: BankRow, ctx: Pick<MatchContext, 'partners' | 
   return pid ? { partner: pid } : {};
 }
 
-export type ImportClass = 'pos' | 'conv' | 'own' | null;
+export type ImportClass = 'pos' | 'conv' | 'own' | 'turnover' | 'cash' | null;
+
+/**
+ * Deposit of the daily turnover (уплата на дневен промет / пазар). Only what the description says outright — the
+ * statement's own „дневен промет“ total rows never reach here (the parsers drop them).
+ */
+export const TURNOVER_RE = /дневен\s+(промет|пазар)|днев\.?\s+(промет|пазар)|(уплата|полог|депонирање)\s+(на\s+)?(дневен\s+|дневниот\s+)?(промет|пазар)|dneven\s+(promet|pazar)|(uplata|polog)\s+(na\s+)?(dneven\s+)?(promet|pazar)/i;
+/**
+ * Cash withdrawn for the cash box (legacy classification prompt 4865: „подигнување готовина, исплата на готово,
+ * банкомат → 1020“; the owner: „материјални трошоци“ → 1020).
+ */
+export const CASH_WD_RE = /подиг(нув|)ање\s+(на\s+)?готовин|исплата\s+(на|во)\s+готов|банкомат|материјални\s+трошоци|podig(nuv)?anje\s+(na\s+)?gotovin|isplata\s+(na|vo)\s+gotov|\batm\b/i;
+
+const rowText = (b: BankRow) => String(b.desc || '') + ' ' + String(b.purpose || '');
+
+/** Daily-turnover deposit (inflow on a denar account) or cash withdrawal (outflow on a denar account) by the description. */
+export function keywordKonto(b: BankRow, accounts: BankAccount[], konta?: Partial<BankKonta>): { konto: string; cls: 'turnover' | 'cash' } | null {
+  if (isFxAccount(accounts, b.acct) || b.conv) return null;
+  const K = { ...BANK_KONTA, ...(konta || {}) };
+  const t = rowText(b);
+  // payment code 800 = „Уплата во готово на сопствена сметка од дневен пазар“ (НБРСМ шифри на плаќање)
+  if (+b.amount > 0 && (TURNOVER_RE.test(t) || String(b.osnov ?? '').trim() === '800')) return { konto: K.dailyTurnover, cls: 'turnover' };
+  if (+b.amount < 0 && CASH_WD_RE.test(t)) return { konto: K.cashWithdraw, cls: 'cash' };
+  return null;
+}
 
 /**
  * Classify a freshly imported row (legacy `save('bank')` wrappers, outermost first — FIX #5: one
  * explicit pipeline instead of order-dependent persistence hooks):
  * 1. POS card inflow → POS konto + POS partner (13072)
  * 2. currency purchase/sale → FX bank konto (denar side) or neutral FX side (12758)
- * 3. own-account transfer → transit 1039 (FX) / 1009 (12568)
- * 4. partner for 12x/22x rows (12421)
- * Steps 1–3 only apply to rows without konto/ref/split. Run {@link pairConversions} after a batch.
+ * 3. own-account transfer (counterparty = the firm itself, `ownTransferBy`) → transit 1039 (FX) / `transit` (10091 when
+ *    in the chart, else 1009) (12568), on both sides of the transfer
+ * 4. deposit of the daily turnover → `dailyTurnover` (1009), cash withdrawal → `cashWithdraw` (1020) — by the description
+ * 5. partner for 12x/22x rows (12421)
+ * Steps 1–4 only apply to rows without konto/ref/split. Run {@link pairConversions} after a batch.
  */
-export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts' | 'partners' | 'invoices' | 'purchases' | 'firmName' | 'posPartner' | 'konta'>): { row: BankRow; cls: ImportClass; newPartner?: string; needPosPartner?: boolean } {
+export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts' | 'partners' | 'invoices' | 'purchases' | 'firmName' | 'firmEdb' | 'posPartner' | 'konta'>): { row: BankRow; cls: ImportClass; newPartner?: string; needPosPartner?: boolean; newOwnAccount?: string } {
   const K = kOf(ctx);
   let b: BankRow = row;
   let cls: ImportClass = null;
@@ -811,10 +931,23 @@ export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts
     delete b.partner;
     cls = 'conv';
   }
-  if (free(b) && isOwnTransfer(b, ctx)) {
+  // own transfer first (counterparty = the firm itself: own account, ЕДБ or name) — except a turnover deposit / cash
+  // withdrawal recognised only by the name (paid in / taken out in the firm's name)
+  const self = free(b) ? ownTransferBy(b, ctx) : null;
+  let newOwnAccount: string | undefined;
+  if (free(b) && self) {
     b = { ...b, konto: isFxAccount(ctx.accounts, b.acct) || /откуп|девиз|конверз|kupoproda|otkup|deviz|convers|exchange/i.test(String(b.desc || '')) ? K.transitFx : K.transit, own: true };
     delete b.partner;
     cls = 'own';
+    // the firm itself by name / ЕДБ from an account that is not registered: offer it as an own account
+    const ca = dig(row.counterAccount);
+    if (self !== 'acct' && ca.length >= 10 && !ctx.accounts.some((x) => dig(x.account).length >= 10 && (ca.endsWith(dig(x.account).slice(-10)) || dig(x.account).endsWith(ca.slice(-10))))) newOwnAccount = String(row.counterAccount);
+  }
+  const kw = free(b) && !b.own ? keywordKonto(b, ctx.accounts, K) : null;
+  if (kw) {
+    b = { ...b, konto: kw.konto };
+    delete b.partner;
+    cls = kw.cls;
   }
   let newPartner: string | undefined;
   if (!b.partner && BKPK_RE.test(bankEffKonto(b))) {
@@ -822,7 +955,7 @@ export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts
     if (r.partner) b = { ...b, partner: r.partner };
     else if (r.newPartner) newPartner = r.newPartner;
   }
-  return { row: b, cls, ...(newPartner ? { newPartner } : {}), ...(needPosPartner ? { needPosPartner } : {}) };
+  return { row: b, cls, ...(newPartner ? { newPartner } : {}), ...(needPosPartner ? { needPosPartner } : {}), ...(newOwnAccount ? { newOwnAccount } : {}) };
 }
 
 /**
