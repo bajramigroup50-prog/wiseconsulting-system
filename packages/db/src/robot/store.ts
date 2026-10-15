@@ -3,7 +3,7 @@
  */
 import { and, asc, desc, eq, inArray, lt } from 'drizzle-orm';
 import { firmAllowed, type Role } from '@wise/core';
-import { routeQuestion } from '@wise/core/robot';
+import { robotIsAlbanian, robotSqHeading, routeQuestion } from '@wise/core/robot';
 import type { Tx } from '../audit';
 import { appSettings, firms, robotMessages, robotProposals, userFirms, users, type Firm, type RobotMessage, type RobotProposal } from '../schema/index';
 import { runRobotTool, type RobotCtx, type ToolOut } from './tools';
@@ -80,7 +80,8 @@ export async function robotFreeAnswer(c: RobotCtx, question: string): Promise<Fr
   if (!hit) return null;
   const out = await runRobotTool(c, hit.tool, hit.input);
   // an ambiguous / failed lookup is better handled by the agent when AI is available; the caller decides
-  return { tool: hit.tool, out };
+  // an Albanian question: a short Albanian heading over the (Macedonian) tool output
+  return { tool: hit.tool, out: robotIsAlbanian(question) ? { ...out, summary: `${robotSqHeading(hit.tool)}\n${out.summary}` } : out };
 }
 
 /** Store a finished answer. */

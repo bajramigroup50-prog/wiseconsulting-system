@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkJournalProposal, numbersIn, routeQuestion, ROBOT_STARTERS, unverifiedNumbers } from './robot';
+import { checkJournalProposal, numbersIn, robotIsAlbanian, robotSqHeading, routeQuestion, ROBOT_STARTERS, unverifiedNumbers } from './robot';
 
 describe('free router', () => {
   it('routes the deterministic questions without the model', () => {
@@ -25,6 +25,54 @@ describe('free router', () => {
     expect(routeQuestion('', 2026)).toBeNull();
     // a year is not a konto
     expect(routeQuestion('салдо во 2026', 2026)).toBeNull();
+  });
+  it('Albanian questions route to the same free tools (with or without ë / ç)', () => {
+    const r = (q: string) => routeQuestion(q, 2026);
+    expect(r('Afatet këtë javë')).toEqual({ tool: 'deadlines', input: { days: 7 } });
+    expect(r('afatet kete muaj')).toEqual({ tool: 'deadlines', input: { days: 31 } });
+    expect(r('afatet 7 ditë')).toEqual({ tool: 'deadlines', input: { days: 7 } });
+    expect(r('Afati')).toEqual({ tool: 'deadlines', input: { days: 14 } });
+    expect(r('Kontrollo firmën')).toEqual({ tool: 'health_check', input: {} });
+    expect(r('kontrollo kompanine')).toEqual({ tool: 'health_check', input: {} });
+    expect(r('gabimet')).toEqual({ tool: 'health_check', input: {} });
+    expect(r('Saldo e kontos 1200')).toEqual({ tool: 'account_balance', input: { konto: '1200' } });
+    expect(r('saldoja 1200')).toEqual({ tool: 'account_balance', input: { konto: '1200' } });
+    expect(r('saldoja e kontos 2020')).toEqual({ tool: 'account_balance', input: { konto: '2020' } });
+    for (const q of ['arka', 'Xhirollogaria', 'banka', 'Sa para kemi?']) expect(r(q)?.tool).toBe('cash_bank');
+    expect(r('TVSH')?.tool).toBe('vat_summary');
+    expect(r('tvsh për këtë periudhë')?.tool).toBe('vat_summary');
+    expect(r('tvsh per kete periudhe')?.tool).toBe('vat_summary');
+    expect(r('Pagat për shtator')).toEqual({ tool: 'payroll_summary', input: { month: '2026-09' } });
+    expect(r('paga per nentor')).toEqual({ tool: 'payroll_summary', input: { month: '2026-11' } });
+    expect(r('paga për nëntor')).toEqual({ tool: 'payroll_summary', input: { month: '2026-11' } });
+    expect(r('pagat per janar')).toEqual({ tool: 'payroll_summary', input: { month: '2026-01' } });
+    expect(r('pagat')).toEqual({ tool: 'payroll_summary', input: {} });
+    for (const q of ['magazina', 'stoku', 'minus në magazinë']) expect(r(q)?.tool).toBe('stock_summary');
+    expect(r('Kartela e Makpetrol')).toEqual({ tool: 'partner_card', input: { partner: 'makpetrol' } });
+    expect(r('IOS e Makpetrol')).toEqual({ tool: 'partner_card', input: { partner: 'makpetrol' } });
+    expect(r('gjej faturën 15/2026')).toEqual({ tool: 'find_documents', input: { text: '15/2026' } });
+    expect(r('kërko Telekom')).toEqual({ tool: 'find_documents', input: { text: 'telekom' } });
+    expect(r('kerko Telekom')).toEqual({ tool: 'find_documents', input: { text: 'telekom' } });
+    expect(r('Bruto bilanci')).toEqual({ tool: 'trial_balance', input: { level: '3' } });
+    expect(r('neni 51')).toEqual({ tool: 'law_search', input: { q: 'чл. 51' } });
+  });
+  it('Albanian questions that need reasoning go to the agent', () => {
+    for (const q of ['Pse saldo e kontos 1200 është kaq e madhe?', 'Shpjego afatet', 'Analizo magazinën', 'Krahaso pagat për shtator dhe tetor',
+      'Përgatit urdhrin për TVSH', 'Bëj kontimin e arkës', 'kontoje faturën 15/2026', 'çfarë duhet të paguajmë?']) {
+      expect(routeQuestion(q, 2026)).toBeNull();
+    }
+  });
+  it('the language of the question and the Albanian heading', () => {
+    expect(robotIsAlbanian('Afatet këtë javë')).toBe(true);
+    expect(robotIsAlbanian('saldoja 1200')).toBe(true);
+    expect(robotIsAlbanian('Рокови оваа недела')).toBe(false);
+    expect(robotIsAlbanian('1200')).toBe(false);
+    expect(robotSqHeading('deadlines')).toMatch(/^Afatet – .*maqedonisht\):$/);
+  });
+  it('the Macedonian routing is unchanged by the Albanian words', () => {
+    expect(routeQuestion('Плата за мај', 2026)).toEqual({ tool: 'payroll_summary', input: { month: '2026-05' } });
+    expect(routeQuestion('Плата за март', 2026)).toEqual({ tool: 'payroll_summary', input: { month: '2026-03' } });
+    expect(routeQuestion('deadline', 2026)?.tool).toBe('deadlines');
   });
   it('the first starters are free', () => {
     for (const s of ROBOT_STARTERS.slice(0, 6)) expect(routeQuestion(s, 2026)).not.toBeNull();

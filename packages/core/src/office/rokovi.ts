@@ -20,7 +20,7 @@
  */
 import { rollToWorkday } from '../compliance/deadlines';
 import type { YeEntity } from '../yearend';
-import { addDays, daysBetween, MON_MK } from './dates';
+import { addDays, daysBetween, dmy, fmtMk, MON_MK } from './dates';
 
 export const ROK_TYPES = {
   ddv: { n: 'ДДВ-04', link: 'ddv', verified: true },
@@ -161,6 +161,119 @@ export function rokGenerate(f: RokFirm, from: string, to: string): Rok[] {
   for (const d of f.manual ?? []) push(mk(f, 'firm', d.id, d.due, d.title, { key: `firm:${d.id}`, done: d.done, note: d.note ?? undefined }));
   return R.sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title));
 }
+
+/* ---------------- paid from the bank statements ---------------- */
+
+/**
+ * One outgoing bank-statement line of the firm (booked or only imported), as the payment rule reads it.
+ * `amount` is the signed MKD amount in denars (− outflow).
+ */
+export interface RokPayLine {
+  id: string;
+  date: string;
+  amount: number;
+  desc?: string | null;
+  name?: string | null;
+  purpose?: string | null;
+  /** Bank reference / „Повикување на број“ as imported. */
+  bref?: string | null;
+  counterAccount?: string | null;
+  /** Booked counter konto (null = not booked). */
+  konto?: string | null;
+  split?: readonly { k: string }[] | null;
+  /** Payroll month the bank matching assigned (`payMatch`: contributions / PIT / net of that run). */
+  payRef?: string | null;
+  /** Statement number (извод бр.). */
+  statementNo?: string | null;
+}
+
+/** Kontos of the firm's own posting schemes the rule accepts as evidence. */
+export interface RokPayKontos {
+  /** Profit-tax liability (the bank suggestion books a ПП50 „данок на добивка“ there; year-end `taxPayable` 2330). */
+  profitTax: string;
+  /** Payroll contribution liabilities (pay_pio / pay_zdr / pay_dop / pay_vrab / pay_contrib). */
+  contrib: readonly string[];
+}
+
+export interface RokPayment { lineIds: string[]; date: string; no: string | null; amount: number; note: string }
+
+/** Treasury account of the Budget at NBRM (ПП50 recipient `PP_BUDGET_ACC` / `PP_TREZOR` 100000000063095). */
+const TREASURY_ACC = /^(MK07)?100000000063/;
+const TREASURY_TXT = /трезор|буџет на (р\.?\s?с?\.?\s?м|република|рсм)|управа за јавни приходи|(^|[^а-ш])ујп([^а-ш]|$)|народна банка/;
+/** Revenue codes of the ПП50 templates (`PP_TAX`): 711212 = profit-tax advance; the others identify a different tax. */
+const AKONT_CODE = /711212/;
+const akontWords = (t: string) => /аконтациј/.test(t) && /добивк/.test(t);
+const NOT_AKONT = /711216|714116|7111\d\d|713113|ддв|данок на додадена|персонален|придонес|мпин|годишен|доплат|данок на имот|(^|[^а-ш])пио([^а-ш]|$)/;
+const CONTRIB_TXT = /придонес|пензиск|здравствен|невработен|мпин|(^|[^а-ш])пио([^а-ш]|$)|(^|[^а-ш])фзо/;
+const NOT_CONTRIB = /711212|711216|714116|ддв|данок на додадена|добивк|данок на имот/;
+
+/**
+ * Periods (`YYYY-MM`) a line names: the ПП50 „Повикување на број“ `01MMYYYY-DDMMYYYY` and „за MM/YYYY“.
+ * `'*'` marks a reference that spans several months (an annual / quarterly payment) — not a monthly obligation.
+ */
+export function rokPayPeriods(text: string): string[] {
+  const out = new Set<string>();
+  const t = String(text ?? '');
+  for (const m of t.matchAll(/(?<!\d)(\d{2})(\d{2})(\d{4})\s*-\s*(\d{2})(\d{2})(\d{4})(?!\d)/g)) {
+    out.add(m[2] === m[5] && m[3] === m[6] && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${m[3]}-${m[2]}` : '*');
+  }
+  const rest = t.replace(/(?<!\d)\d{8}\s*-\s*\d{8}(?!\d)/g, ' ').replace(/(?<!\d)\d{1,2}[./]\d{1,2}[./]\d{4}(?!\d)/g, ' ');
+  for (const m of rest.matchAll(/(?<![\d./])(0?[1-9]|1[0-2])\s*[/.]\s*(20\d\d)(?!\d)/g)) out.add(`${m[2]}-${m[1]!.padStart(2, '0')}`);
+  return [...out];
+}
+
+/**
+ * Was the profit-tax advance (`akont`) or the МПИН payment (`mpin`) of month `period` paid? Evidence (conservative —
+ * anything ambiguous gives null):
+ * - an OUTGOING line to the Treasury (account 100000000063… or the Budget / УЈП / НБРМ as the counterparty) — or, for
+ *   МПИН, a line the bank matching already tied to that payroll month (`payRef`) on a contribution konto;
+ * - identifying the obligation: the revenue code 711212 / „аконтација … добивка“ (advance), contribution words / МПИН
+ *   (МПИН); otherwise the booked konto of the firm's scheme (profit-tax liability / contribution liabilities); a line
+ *   that also names a different tax is ignored;
+ * - in time: a line that names its period (Повикување на број / „за MM/YYYY“ / payRef) must name exactly this month
+ *   (it may be paid late); a line without a period counts only in the month of the deadline.
+ */
+export function rokPaymentEvidence(r: { type: string; period: string }, L: readonly RokPayLine[], K: RokPayKontos): RokPayment | null {
+  if ((r.type !== 'akont' && r.type !== 'mpin') || !/^\d{4}-\d{2}$/.test(r.period)) return null;
+  const ym = r.period, nx = ymAddN(ym, 1);
+  const contrib = new Set(K.contrib.filter((k) => k && k !== '-'));
+  const hit: RokPayLine[] = [];
+  for (const l of L) {
+    if (!(Number(l.amount) < 0)) continue;
+    const t = [l.desc, l.name, l.purpose, l.bref].filter(Boolean).join(' ').toLowerCase();
+    const acc = String(l.counterAccount ?? '').replace(/\s+/g, '').toUpperCase();
+    const treasury = TREASURY_ACC.test(acc) || TREASURY_TXT.test(t);
+    const P = rokPayPeriods(t);
+    const splitK = (l.split ?? []).map((x) => x.k);
+    let ok = false;
+    let per: string[] = P;
+    if (r.type === 'akont') {
+      if (!treasury || NOT_AKONT.test(t)) continue;
+      if (AKONT_CODE.test(t) || akontWords(t)) ok = true;
+      // booked on the profit-tax liability without any text: only on time, and not in March (the annual top-up)
+      else if (K.profitTax && l.konto === K.profitTax && !splitK.length && !P.length && nx.slice(5) !== '03') ok = true;
+    } else if (l.payRef && /^\d{4}-\d{2}$/.test(l.payRef) && [l.konto ?? '', ...splitK].some((k) => contrib.has(k)) && !NOT_CONTRIB.test(t)) {
+      ok = true;
+      per = [l.payRef, ...P];
+    } else if (treasury && !NOT_CONTRIB.test(t) && (CONTRIB_TXT.test(t) || (!!l.konto && contrib.has(l.konto)) || splitK.some((k) => contrib.has(k)))) ok = true;
+    if (!ok) continue;
+    const ps = [...new Set(per)];
+    if (ps.length > 1 || ps[0] === '*') continue;
+    if (ps.length === 1) { if (ps[0] !== ym || l.date < `${ym}-01`) continue; }
+    else if (l.date < `${nx}-01` || l.date > monthEnd(nx)) continue;
+    hit.push(l);
+  }
+  if (!hit.length) return null;
+  hit.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const f = hit[0]!;
+  const amount = Math.round(hit.reduce((a, l) => a + Math.abs(Number(l.amount)), 0) * 100) / 100;
+  const no = f.statementNo?.trim() || null;
+  const more = new Set(hit.map((l) => `${l.statementNo ?? ''}|${l.date}`)).size > 1 ? ' и др.' : '';
+  return { lineIds: hit.map((l) => l.id), date: f.date, no, amount, note: `${ROK_PAID_NOTE}извод${no ? ` бр. ${no}` : ''} од ${dmy(f.date)}${more}, ${fmtMk(amount)} ден.)` };
+}
+
+/** Note prefix of a deadline marked done from the bank statements (the calendar sync keeps it). */
+export const ROK_PAID_NOTE = '✓ платено (';
 
 /* ---------------- state and reminders ---------------- */
 

@@ -6,7 +6,8 @@
  * Month and list view, filters (colleague = users assigned to the firm, firm, type, status), „✓ Направено“, „Отвори“
  * (switches to the firm and opens the screen that does the work), ICS export, reminder settings. Deadlines whose date
  * is not confirmed from an official source are marked „за проверка“. The worker keeps them fresh every morning and
- * marks them done automatically (VAT period closed, МПИН accepted, annual account submitted, М1 entered).
+ * marks them done automatically (VAT period closed, МПИН accepted, annual account submitted, М1 entered; the advance and
+ * the МПИН payment also when the bank statement shows the Treasury payment — the note „✓ платено (извод бр. …)“).
  */
 import Link from 'next/link';
 import { and, gte, inArray, lte, sql } from 'drizzle-orm';

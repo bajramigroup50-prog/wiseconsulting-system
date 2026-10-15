@@ -6,22 +6,27 @@
  *   done: ДДВ-04 → the VAT period is closed (`vat_periods.status = closed`); МПИН → an accepted МПИН is recorded
  *   (`mpin_acks`); year-end forms → the annual account is submitted / accepted (`annual_statements`); М1 → the
  *   employee's М1 date is entered. A reopened VAT period un-marks an automatic „done“.
+ *   Paid from the bank statements (`rokPaymentEvidence`): the profit-tax advance and the МПИН payment are marked done
+ *   when the firm's booked or imported statement lines show the Treasury payment of that month, with the evidence
+ *   „✓ платено (извод бр. X од ДАТУМ, ИЗНОС)“ in the note. A manual ✓ is never touched.
  * - `dispatchRokReminders`: reminders for the responsible colleagues (users assigned to the firm) N days before, and
  *   the client reminders on the configured day — written to `reminders` and delivered by `dispatchReminders`
  *   (portal message / e-mail through `mail_log`).
  * - `markRok`: a colleague marks a deadline done / not done (audited).
  */
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
 import {
-  rokClientDue, rokClientText, rokDays, rokGenerate, rokReminderText, rokRemindDue, type Rok, type RokFirm, type RokSettings,
+  ROK_PAID_NOTE, rokClientDue, rokClientText, rokDays, rokGenerate, rokPaymentEvidence, rokReminderText, rokRemindDue,
+  type Rok, type RokFirm, type RokPayLine, type RokSettings,
 } from '@wise/core/office/rokovi';
 import { addDays, todaySkopje } from '@wise/core/office';
 import { kdOfficeFirm } from '@wise/core/firms/kdog';
 import { audit, type Tx } from './audit';
 import { getOfficeProfile, OfficeError } from './office';
+import { loadPayScheme } from './payroll';
 import { firmEntity } from './yearend';
 import {
-  annualStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
+  annualStatements, bankLines, bankStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
 } from './schema/index';
 
 export interface RokSyncResult { firms: number; rows: number; autoDone: number; autoUndone: number; gone: number }
@@ -81,6 +86,54 @@ async function doneFacts(db: Tx, R: readonly Rok[]): Promise<Set<string>> {
   return out;
 }
 
+/** Profit-tax liability konto: where the bank suggestion books a ПП50 „данок на добивка“ (= year-end `taxPayable`). */
+const PROFIT_TAX_KONTO = '2330';
+const CONTRIB_KEYS = ['pay_pio', 'pay_zdr', 'pay_dop', 'pay_vrab', 'pay_contrib'] as const;
+
+/**
+ * Advance / МПИН deadlines paid according to the firm's bank-statement lines: `firmId|key` → the evidence note.
+ * Reads only outgoing lines that can be Treasury / payroll payments (prefilter in SQL; `rokPaymentEvidence` decides).
+ */
+export async function paidFacts(db: Tx, R: readonly Pick<Rok, 'firmId' | 'key' | 'type' | 'period'>[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const W = R.filter((r) => (r.type === 'akont' || r.type === 'mpin') && /^\d{4}-\d{2}$/.test(r.period));
+  if (!W.length) return out;
+  const ids = [...new Set(W.map((r) => r.firmId))];
+  const from = `${W.map((r) => r.period).sort()[0]}-01`;
+  const F = await db.select({ id: firms.id, settings: firms.settings }).from(firms).where(inArray(firms.id, ids));
+  const K = new Map<string, string[]>();
+  for (const f of F) {
+    if (!W.some((r) => r.firmId === f.id && r.type === 'mpin')) { K.set(f.id, []); continue; }
+    const s = await loadPayScheme(db, f);
+    K.set(f.id, CONTRIB_KEYS.map((k) => String((s as Record<string, unknown>)[k] ?? '')).filter((k) => k && k !== '-'));
+  }
+  const kontos = [...new Set([PROFIT_TAX_KONTO, ...[...K.values()].flat()])];
+  const L = await db.select({
+    id: bankLines.id, firmId: bankLines.firmId, date: bankLines.date, amount: bankLines.amount, desc: bankLines.description, name: bankLines.name,
+    purpose: bankLines.purpose, bref: bankLines.bref, counterAccount: bankLines.counterAccount, konto: bankLines.konto, split: bankLines.split,
+    payRef: bankLines.payRef, statementNo: bankStatements.number,
+  }).from(bankLines).innerJoin(bankStatements, eq(bankStatements.id, bankLines.statementId))
+    .where(and(inArray(bankLines.firmId, ids), gte(bankLines.date, from), lt(bankLines.amount, '0'), or(
+      sql`replace(coalesce(${bankLines.counterAccount}, ''), ' ', '') like '%100000000063%'`,
+      isNotNull(bankLines.payRef),
+      inArray(bankLines.konto, kontos),
+      sql`concat_ws(' ', ${bankLines.description}, ${bankLines.name}, ${bankLines.purpose}, ${bankLines.bref}) ~ '([тТ][рР][еЕ][зЗ][оО][рР]|[бБ][уУ][џЏ][еЕ][тТ]|[уУ][јЈ][пП]|[јЈ][аА][вВ][нН][иИ] [пП][рР][иИ][хХ][оО][дД]|[нН][аА][рР][оО][дД][нН][аА] [бБ][аА][нН][кК]|711212|[пП][рР][иИ][дД][оО][нН][еЕ][сС]|[мМ][пП][иИ][нН])'`,
+    )));
+  const byFirm = new Map<string, RokPayLine[]>();
+  for (const l of L) {
+    const a = byFirm.get(l.firmId) ?? [];
+    a.push({ ...l, amount: Number(l.amount), split: l.split ?? null });
+    byFirm.set(l.firmId, a);
+  }
+  for (const r of W) {
+    const lines = byFirm.get(r.firmId);
+    if (!lines?.length) continue;
+    const e = rokPaymentEvidence(r, lines, { profitTax: PROFIT_TAX_KONTO, contrib: K.get(r.firmId) ?? [] });
+    if (e) out.set(`${r.firmId}|${r.key}`, e.note);
+  }
+  return out;
+}
+
 /**
  * Generate and store the deadlines due in `[from, to]` for all (or the given) firms; mark done / un-mark the automatic
  * ones; rows no longer generated in the window are flagged `gone` (hidden, kept for the history).
@@ -98,24 +151,43 @@ export async function syncRokovi(db: Tx, o: { from: string; to: string; firmIds?
       target: [rokovi.firmId, rokovi.key],
       set: {
         type: sql`excluded.type`, title: sql`excluded.title`, period: sql`excluded.period`, due: sql`excluded.due`, legalDue: sql`excluded.legal_due`,
-        link: sql`excluded.link`, verified: sql`excluded.verified`, note: sql`excluded.note`, gone: sql`false`, updatedAt: now,
+        link: sql`excluded.link`, verified: sql`excluded.verified`, gone: sql`false`, updatedAt: now,
+        // the payment evidence of an automatic „done“ stays (re-checked below)
+        note: sql`case when ${rokovi.done} and ${rokovi.auto} and left(coalesce(${rokovi.note}, ''), ${ROK_PAID_NOTE.length}) = ${ROK_PAID_NOTE} then ${rokovi.note} else excluded.note end`,
         // a manual firm deadline keeps its done flag in `firm_deadlines` (the dossier); everything else keeps the stored status
         done: sql`case when ${rokovi.type} = 'firm' then excluded.done else ${rokovi.done} end`,
       },
     });
   }
   const facts = await doneFacts(db, R);
+  // paid from the bank statements (advance / МПИН) — an additional rule; an accepted МПИН stays done as before
+  const paid = await paidFacts(db, R.filter((r) => !facts.has(`${r.firmId}|${r.key}`)));
+  const isDone = (k: string) => facts.has(k) || paid.has(k);
   let autoDone = 0, autoUndone = 0, gone = 0;
   const ids = F.map((f) => f.id);
   if (ids.length) {
-    const stored = await db.select({ id: rokovi.id, firmId: rokovi.firmId, key: rokovi.key, type: rokovi.type, done: rokovi.done, auto: rokovi.auto }).from(rokovi)
+    const stored = await db.select({ id: rokovi.id, firmId: rokovi.firmId, key: rokovi.key, type: rokovi.type, done: rokovi.done, auto: rokovi.auto, note: rokovi.note }).from(rokovi)
       .where(and(inArray(rokovi.firmId, ids), gte(rokovi.due, o.from), lte(rokovi.due, o.to)));
     const gen = new Set(R.map((r) => `${r.firmId}|${r.key}`));
-    const toDone = stored.filter((s) => !s.done && facts.has(`${s.firmId}|${s.key}`)).map((s) => s.id);
-    const toUndo = stored.filter((s) => s.done && s.auto && gen.has(`${s.firmId}|${s.key}`) && !facts.has(`${s.firmId}|${s.key}`)).map((s) => s.id);
-    const toGone = stored.filter((s) => !gen.has(`${s.firmId}|${s.key}`)).map((s) => s.id);
+    const kOf = (s: { firmId: string; key: string }) => `${s.firmId}|${s.key}`;
+    const toDone = stored.filter((s) => !s.done && facts.has(kOf(s))).map((s) => s.id);
+    const toUndo = stored.filter((s) => s.done && s.auto && gen.has(kOf(s)) && !isDone(kOf(s))).map((s) => s.id);
+    const toGone = stored.filter((s) => !gen.has(kOf(s))).map((s) => s.id);
     if (toDone.length) autoDone = (await db.update(rokovi).set({ done: true, auto: true, doneAt: now, doneBy: null }).where(inArray(rokovi.id, toDone)).returning({ id: rokovi.id })).length;
-    if (toUndo.length) autoUndone = (await db.update(rokovi).set({ done: false, auto: false, doneAt: null }).where(inArray(rokovi.id, toUndo)).returning({ id: rokovi.id })).length;
+    // paid: open rows are marked done with the evidence; an automatic „done“ gets the (current) evidence; a manual ✓ is untouched
+    for (const s of stored) {
+      const note = paid.get(kOf(s));
+      if (!note || !gen.has(kOf(s)) || (s.done && !s.auto) || (s.done && s.note === note)) continue;
+      const u = await db.update(rokovi).set(s.done ? { note } : { done: true, auto: true, doneAt: now, doneBy: null, note })
+        .where(and(eq(rokovi.id, s.id), eq(rokovi.done, s.done), eq(rokovi.auto, s.auto))).returning({ id: rokovi.id });
+      if (!s.done) autoDone += u.length;
+    }
+    if (toUndo.length) {
+      autoUndone = (await db.update(rokovi).set({
+        done: false, auto: false, doneAt: null,
+        note: sql`case when left(coalesce(${rokovi.note}, ''), ${ROK_PAID_NOTE.length}) = ${ROK_PAID_NOTE} then null else ${rokovi.note} end`,
+      }).where(inArray(rokovi.id, toUndo)).returning({ id: rokovi.id })).length;
+    }
     if (toGone.length) gone = (await db.update(rokovi).set({ gone: true }).where(and(inArray(rokovi.id, toGone), eq(rokovi.gone, false))).returning({ id: rokovi.id })).length;
   }
   return { firms: F.length, rows: R.length, autoDone, autoUndone, gone };

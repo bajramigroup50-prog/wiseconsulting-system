@@ -20,7 +20,7 @@ import { addDays, alCompute, cashDays, dmy, fmtMk, type FirmSnapshot } from '@wi
 import { checkJournalProposal, normQ } from '@wise/core/robot';
 import { fxRate, fxRateSource } from '@wise/core';
 import { LAW_BY_KEY } from '@wise/core/law';
-import { rokGenerate, ROK_SRC } from '@wise/core/office/rokovi';
+import { ROK_PAID_NOTE, rokGenerate, ROK_SRC } from '@wise/core/office/rokovi';
 import { loadFxSources } from '../bank/context';
 import { computeClientReport } from '../client-report';
 import { feeContext, feeRows } from '../fee-invoices';
@@ -302,7 +302,7 @@ const stockSummary: RobotToolDef = {
 
 /* ---------------- deadlines ---------------- */
 
-interface Dl { date: string; what: string; law?: string; href: string; done?: boolean; auto?: boolean; overdue?: boolean; verified?: boolean }
+interface Dl { date: string; what: string; law?: string; href: string; done?: boolean; auto?: boolean; overdue?: boolean; verified?: boolean; paid?: string }
 
 const deadlinesTool: RobotToolDef = {
   name: 'deadlines',
@@ -315,7 +315,7 @@ const deadlinesTool: RobotToolDef = {
     // the deadline calendar: generated for this firm (read-only, same generator as the calendar) + the stored done / auto state
     const F = await loadRokFirms(c.db, { from: back, to, firmIds: [c.firm.id] });
     const gen = F.filter((f) => f.id === c.firm.id).flatMap((f) => rokGenerate(f, back, to));
-    const stored = new Map((await c.db.select({ key: rokovi.key, done: rokovi.done, auto: rokovi.auto }).from(rokovi)
+    const stored = new Map((await c.db.select({ key: rokovi.key, done: rokovi.done, auto: rokovi.auto, note: rokovi.note }).from(rokovi)
       .where(and(eq(rokovi.firmId, c.firm.id), between(rokovi.due, back, to), eq(rokovi.gone, false)))).map((r) => [r.key, r]));
     for (const r of gen) {
       // the accounting-service contract is owner-only
@@ -323,7 +323,8 @@ const deadlinesTool: RobotToolDef = {
       const st = stored.get(r.key);
       const done = st ? st.done : !!r.done;
       if ((r.due < from && done) || r.due > to) continue;
-      out.push({ date: r.due, what: r.title, law: ROK_SRC[r.type], href: '/' + r.link, done, auto: !!st?.auto, overdue: r.due < from && !done, verified: r.verified });
+      out.push({ date: r.due, what: r.title, law: ROK_SRC[r.type], href: '/' + r.link, done, auto: !!st?.auto, overdue: r.due < from && !done, verified: r.verified,
+        ...(done && st?.auto && st.note?.startsWith(ROK_PAID_NOTE) ? { paid: st.note } : {}) });
     }
     // not in the calendar: remedy deadlines of inspection records / decisions
     const K = await c.db.select().from(kontroli).where(and(eq(kontroli.firmId, c.firm.id), ne(kontroli.status, 'closed'))).limit(20);
@@ -333,7 +334,7 @@ const deadlinesTool: RobotToolDef = {
     }
     out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const fut = out.filter((x) => x.date >= from), late = out.filter((x) => x.overdue);
-    const line = (x: Dl) => `${dmy(x.date)} – ${x.what}${x.done ? (x.auto ? ' ✓ завршено (автоматски)' : ' ✓ завршено') : ''}${x.verified === false ? ' (рокот е за проверка)' : ''}`;
+    const line = (x: Dl) => `${dmy(x.date)} – ${x.what}${x.done ? (x.paid ? ` ${x.paid}` : x.auto ? ' ✓ завршено (автоматски)' : ' ✓ завршено') : ''}${x.verified === false ? ' (рокот е за проверка)' : ''}`;
     return {
       ok: true,
       summary: `${fut.length ? `Рокови од ${dmy(from)} до ${dmy(to)}: ${fut.map(line).join('; ')}.` : `Нема рокови од ${dmy(from)} до ${dmy(to)}.`}${late.length ? ` ⚠ Пропуштени (не се означени како завршени): ${late.map(line).join('; ')}.` : ''}`,
