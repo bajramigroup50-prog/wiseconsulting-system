@@ -26,14 +26,15 @@ import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
 import { ImportBox } from '../banka/import-box';
-import { bookAllAction } from '../banka/actions';
+import { bookAllAction, deleteStatementAction } from '../banka/actions';
+import { unpostRunAction } from '../plati/actions';
 
 type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string };
 const KIND_LBL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(NAL_DEF).map(([k, v]) => [k, v[1]])), bank: 'ИЗВОД', manual: 'РАЧЕН НАЛОГ', bbimp: 'БРУТО БИЛАНС', pos: 'POS ПРОВИЗИЈА',
 };
 const kindLbl = (k: string) => KIND_LBL[k] ?? k.toUpperCase();
-const DOC_SCREEN: Record<string, string> = { invoice: '/izlez', purchase: '/vlez', bank_statement: '/banka', cash_voucher: '/blagajna', compensation: '/kompenzacii' };
+const DOC_SCREEN: Record<string, string> = { invoice: '/izlez', purchase: '/vlez', bank_statement: '/banka', cash_voucher: '/blagajna', compensation: '/kompenzacii', payroll: '/plati' };
 
 export default async function NaloziPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -178,6 +179,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <ExportBar name={`Nalog_${g.no.replace(/\W+/g, '_')}_${year}`} title="Налог" rows={xl} pdf={false} csv={false} />
           <a className="btn" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
           {one && del && manualLike(one) && <RowAction className="btn danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши налог" confirm={`Да се избрише налогот бр. ${g.no}? Ова не може да се врати.`} />}
+          {/* a statement's nalog is deleted together with its statement (the journal alone would leave the statement unbooked) */}
+          {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки? Ова не може да се врати.`} />}
+          {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши го налогот на платата" confirm={`Да се избрише налогот бр. ${g.no}? Пресметката на платата останува зачувана во Плати (може повторно да се прокнижи).`} />}
         </Hd>
         {one && empty && manualLike(one) && (
           <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -383,7 +387,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     <Link className="btn sm" href={href}>Отвори</Link>
                     {one && canEdit(one) && <Link className="btn sm" href={`/nalozi?edit=${one.id}`} title="Отвори и измени (корекција)">✎ Измени</Link>}
                     <a className="btn sm" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
-                    {one && del && manualLike(one) && !locked(one) && <RowAction action={deleteJournalAction.bind(null, one.id)} label="🗑" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} style={{ color: 'var(--bad)' }} />}
+                    {one && del && manualLike(one) && !locked(one) && <RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} />}
+                    {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} />}
+                    {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Го брише налогот на платата; пресметката останува зачувана во Плати" confirm={`Да се избрише налогот бр. ${g.no} на платата? Пресметката на платата останува зачувана (може повторно да се прокнижи).`} />}
                   </td>
                 </tr>
               );
