@@ -16,7 +16,7 @@ export default async function FrFak() {
   const { firm, year } = g;
   const L = await db().select({ id: invoices.id, number: invoices.number, date: invoices.date, currency: invoices.currency, total: invoices.total, fx: invoices.fx, p: partners.name })
     .from(invoices).leftJoin(partners, eq(partners.id, invoices.partnerId))
-    .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), sql`${invoices.data}->'source'->>'type' = 'freight_tour'`, sql`extract(year from ${invoices.date}) = ${year}`))
+    .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), sql`${invoices.data}->'source'->>'type' = 'freight_tour'`, sql`${invoices.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`))
     .orderBy(desc(invoices.date), desc(invoices.number));
   const ids = L.map((i) => i.id);
   const [T, pay] = await Promise.all([

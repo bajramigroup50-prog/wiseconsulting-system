@@ -32,7 +32,11 @@ export const aiUsage = pgTable('ai_usage', {
   costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
   /** The `ai_documents` row (or other entity) the call belongs to. */
   refId: text('ref_id'),
-}, (t) => [index('ai_usage_firm_at_idx').on(t.firmId, t.at)]);
+}, (t) => [
+  index('ai_usage_firm_at_idx').on(t.firmId, t.at),
+  // the office-wide monthly AI spend (owner's 💲 badge on every page): filtered on `at` alone
+  index('ai_usage_at_idx').on(t.at),
+]);
 
 export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | 'fisk' | 'classify' | 'bom' | 'cmp' | 'imp' | 'ob' | 'rec' | 'bankcls'
   /** Auto service: vehicle registration certificate (legacy `DIG.vreg`). */

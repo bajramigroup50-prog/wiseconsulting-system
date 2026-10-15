@@ -72,7 +72,7 @@ export default async function FrTuri({ searchParams }: { searchParams: Promise<{
 
   /* ---------------- list ---------------- */
   const F = { st: sp.st || 'open', mo: isMonth(sp.mo) ? sp.mo : '', p: sp.p || '' };
-  const Y = await db().select().from(freightTours).where(and(eq(freightTours.firmId, firm.id), sql`extract(year from ${freightTours.date}) = ${year}`));
+  const Y = await db().select().from(freightTours).where(and(eq(freightTours.firmId, firm.id), sql`${freightTours.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`));
   const L = frFilterTours(Y, F).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.number).localeCompare(String(a.number)));
   const ex = frExpiring(X.docs.map((d) => d.data), td);
   let sRev = 0, sCost = 0;

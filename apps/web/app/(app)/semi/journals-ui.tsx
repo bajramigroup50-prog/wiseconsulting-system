@@ -7,13 +7,15 @@
  */
 import { useEffect, useState } from 'react';
 import { J_LBL, jField, journalBalance, type JCard } from '@wise/core/sch-journals';
+import { fmt } from '@/lib/fmt';
 
 const kName = (k: string) => {
   if (!k) return '';
   const o = [...(document.getElementById('kpl')?.querySelectorAll('option') ?? [])].find((x) => x.value === k);
   return o ? o.textContent ?? '' : '⚠ контото не постои во контниот план';
 };
-const fv = (x: number | string) => (typeof x === 'string' ? x : x ? x.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+// the hand-made `fmt`: `toLocaleString('mk-MK')` differs between Node and the browser (React hydration error 418)
+const fv = (x: number | string) => (typeof x === 'string' ? x : x ? fmt(x) : '');
 
 export function SchJournals({ cards, vals, defs, names, hidden, ed }: {
   cards: JCard[]; vals: Record<string, string>; defs: Record<string, string>; names: Record<string, string>; hidden: string[]; ed: boolean;

@@ -1,6 +1,7 @@
 'use client';
 /** A `<form>` bound to a server action `(prev, FormData) => ActionState`, showing its error / ok message. */
 import { useActionState, useEffect, useRef } from 'react';
+import { useFormStatus } from 'react-dom';
 import type { RowResult } from './row-action';
 
 export function ActionForm({ action, children, className = 'card', reset = true, style }: {
@@ -25,5 +26,7 @@ export function ActionForm({ action, children, className = 'card', reset = true,
 
 /** Submit button that disables itself while the form's action runs. */
 export function Submit({ children, className = 'btn pri', name, value }: { children: React.ReactNode; className?: string; name?: string; value?: string }) {
-  return <button className={className} name={name} value={value}>{children}</button>;
+  // a second click while the first save still runs would post the document twice
+  const { pending } = useFormStatus();
+  return <button className={className} name={name} value={value} disabled={pending} aria-disabled={pending || undefined}>{children}</button>;
 }

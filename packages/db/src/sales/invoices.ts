@@ -75,7 +75,7 @@ const kindOfJournal = (k: DocKind) => (k === 'credit' ? 'odobr' : 'izlez');
  */
 async function usedNumbers(tx: Tx, firmId: string, kind: DocKind, date: string, exceptId?: string | null, drafts = false) {
   const rows = await tx.select({ n: invoices.number }).from(invoices).where(and(
-    eq(invoices.firmId, firmId), eq(invoices.kind, kind), sql`extract(year from ${invoices.date}) = ${Number(yearOf(date))}`,
+    eq(invoices.firmId, firmId), eq(invoices.kind, kind), sql`${invoices.date} between ${String(Number(yearOf(date))) + '-01-01'} and ${String(Number(yearOf(date))) + '-12-31'}`,
     exceptId ? ne(invoices.id, exceptId) : undefined,
   ));
   return rows.map((r) => r.n).filter((n) => isDraftNo(n) === drafts);

@@ -67,7 +67,7 @@ const empty = (v: unknown) => v === '' || v == null;
 /** Next calculation number per warehouse and year (legacy `nextCalcNo`, 4441): `0001 01`. */
 async function nextCalcNo(tx: Tx, firmId: string, wh: string | null, whCode: string, date: string, exceptId: string | null): Promise<string> {
   const rows = await tx.select({ c: purchases.calcNo }).from(purchases).where(and(
-    eq(purchases.firmId, firmId), sql`extract(year from ${purchases.date}) = ${Number(date.slice(0, 4))}`,
+    eq(purchases.firmId, firmId), sql`${purchases.date} between ${String(Number(date.slice(0, 4))) + '-01-01'} and ${String(Number(date.slice(0, 4))) + '-12-31'}`,
     wh ? eq(purchases.warehouseId, wh) : sql`${purchases.warehouseId} is null`, eq(purchases.ptype, 'stock'),
     exceptId ? ne(purchases.id, exceptId) : undefined,
   ));

@@ -164,7 +164,7 @@ export default async function Pnalozi({ searchParams }: { searchParams: Promise<
   }
 
   const D = sp.d && /^\d{4}-\d{2}-\d{2}$/.test(sp.d) ? sp.d : T;
-  const L = await db().select().from(travelOrders).where(and(eq(travelOrders.firmId, firm.id), sql`extract(year from ${travelOrders.date}) = ${year}`)).orderBy(desc(travelOrders.date), desc(travelOrders.number));
+  const L = await db().select().from(travelOrders).where(and(eq(travelOrders.firmId, firm.id), sql`${travelOrders.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(travelOrders.date), desc(travelOrders.number));
   const un = await db().transaction((tx) => unassignedDocs(tx, firm.id, D));
   const cash: Record<string, { amt: number; n: number }> = {};
   for (const x of L) for (const s of stopsOf(x)) if (Number(s.cash) > 0 && !s.cashVoucherId) { const k = x.driver ?? '—'; (cash[k] ??= { amt: 0, n: 0 }).amt += Number(s.cash); cash[k].n++; }

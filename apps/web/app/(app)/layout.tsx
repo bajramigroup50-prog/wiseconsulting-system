@@ -35,17 +35,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Phase 10: views of industry modules that are off for the firm are hidden (FIX LEGACY-MAP 10.4 item 9).
   // klient: legacy `klNav` — the sections the office switched on for this firm
   // legacy `S.asClient` (👁 Преглед како клиент, `klPrevOn`): an office user sees this firm as its client does
-  const preview = !!firm && u.role !== 'klient' && u.role !== 'teren' && (await cookies()).get(PREVIEW_COOKIE)?.value === firm.id;
-  const owner = u.role === 'admin' && await isOfficeOwner(u).catch(() => false);
-  // the owner's alert for login locks (5 failures per username / 20 per IP): 🔒 N in the top bar → Корисници
-  const locks = owner ? (await activeLocks().catch(() => [])).length : 0;
-  // the owner's AI-budget alert (80 % / 100 % of the monthly AI limit): 💲 in the top bar → 💲 AI трошок
-  const ai = owner ? await aiBudgetBadge().catch(() => null) : null;
   // 🎭 demo user: the menu is the demo allow-list only (the same list `proxy.ts` enforces)
   const demo = isDemoUser(u);
-  // 🔒 „Колегите гледаат само сметководство“: a colleague's menu is the bookkeeping allow-list (the same list `proxy.ts`
-  // enforces); the top bar's office-wide parts (robot, alerts, client messages, AI budget, deadlines) are hidden
-  const bookV = demo ? null : await myViews();
+  // independent lookups run together (this layout runs on every full page load)
+  const [jar, owner, bookV] = await Promise.all([
+    cookies(),
+    u.role === 'admin' ? isOfficeOwner(u).catch(() => false) : Promise.resolve(false),
+    // 🔒 „Колегите гледаат само сметководство“: a colleague's menu is the bookkeeping allow-list (the same list `proxy.ts`
+    // enforces); the top bar's office-wide parts (robot, alerts, client messages, AI budget, deadlines) are hidden
+    demo ? Promise.resolve(null) : myViews(),
+  ]);
+  const preview = !!firm && u.role !== 'klient' && u.role !== 'teren' && jar.get(PREVIEW_COOKIE)?.value === firm.id;
+  const [locks, ai] = owner ? await Promise.all([
+    // the owner's alert for login locks (5 failures per username / 20 per IP): 🔒 N in the top bar → Корисници
+    activeLocks().then((l) => l.length).catch(() => 0),
+    // the owner's AI-budget alert (80 % / 100 % of the monthly AI limit): 💲 in the top bar → 💲 AI трошок
+    aiBudgetBadge().catch(() => null),
+  ]) : [0, null] as const;
   const book = !!bookV;
   const seeFirmi = !bookV || bookV.has('firmi');
   const groups = demo ? onlyViews(filterNavByModules(navFor(u.role === 'klient' || u.role === 'teren' ? 'acc' : u.role), firm, false), demoViews())
@@ -58,7 +64,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [st, [y0], yearNote] = await Promise.all([
     book ? Promise.resolve(noStatus) : topStatus(u).catch(() => noStatus),
     // legacy `dataYears()`: the year list starts at the firm's first booked year
-    firm ? db().select({ y: sql<number | null>`min(extract(year from ${journals.date}))::int` }).from(journals).where(eq(journals.firmId, firm.id)).catch(() => [{ y: null }]) : Promise.resolve([{ y: null }]),
+    firm ? db().select({ y: sql<number | null>`extract(year from min(${journals.date}))::int` }).from(journals).where(eq(journals.firmId, firm.id)).catch(() => [{ y: null }]) : Promise.resolve([{ y: null }]),
     // the selected firm does not work in the selected year (`@wise/core/firms/years`) — said, never shown silently
     firm ? firmYearCallout(firm, year).catch(() => null) : Promise.resolve(null),
   ]);

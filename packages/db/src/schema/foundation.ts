@@ -112,6 +112,8 @@ export const auditLog = pgTable('audit_log', {
 }, (t) => [
   index('audit_firm_at_idx').on(t.firmId, t.at),
   index('audit_user_at_idx').on(t.userId, t.at),
+  // office-wide time range (📊 Продуктивност, activity log): filtered on `at` alone
+  index('audit_at_idx').on(t.at),
 ]);
 
 /* ---------------- Files (MinIO) ---------------- */

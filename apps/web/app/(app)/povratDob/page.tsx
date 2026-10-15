@@ -76,7 +76,7 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
 
   const L = await db().select({ d: supplierCredits, p: partners.name, pur: { n: purchases.number, d: purchases.date } }).from(supplierCredits)
     .innerJoin(partners, eq(partners.id, supplierCredits.partnerId)).leftJoin(purchases, eq(purchases.id, supplierCredits.refPurchaseId))
-    .where(and(eq(supplierCredits.firmId, firm.id), sql`extract(year from ${supplierCredits.date}) = ${year}`)).orderBy(desc(supplierCredits.date));
+    .where(and(eq(supplierCredits.firmId, firm.id), sql`${supplierCredits.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(supplierCredits.date));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'supplier_credit')))).map((x) => [x.s, x.n]));
   const T = L.reduce((t, { d }) => ({ b: t.b + Number(d.base), v: t.v + Number(d.vat), t: t.t + Number(d.total) }), { b: 0, v: 0, t: 0 });
   return (

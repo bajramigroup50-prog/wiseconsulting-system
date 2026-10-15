@@ -36,7 +36,10 @@ export function PayPill({ paid, total }: { paid: number; total: number }) {
   return st === 'paid' ? <span className="pill good">платена</span> : st === 'part' ? <span className="pill warn">делумно</span> : <span className="pill">отворена</span>;
 }
 
-export type SP = { drafted?: string; prod?: string; calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string };
+/** Rows rendered by default in a document list (`?all=1` shows every row). */
+const LIST_MAX = 500;
+
+export type SP = { drafted?: string; prod?: string; calc?: string; nov?: string; edit?: string; from?: string; cr?: string; scan?: string; i?: string; q?: string; m?: string; saved?: string; w?: string; style?: string; back?: string; prevSaved?: string; all?: string };
 
 const INTRO: Record<DtKey, string> = {
   credit: 'Книжно одобрение (рабат, поврат, корекција на цена) кон купувач. Се книжи како сторно на фактурата (1200, приход и ДДВ со минус – или на обратна страна, според поставката подолу) и го намалува долгот по фактурата. Повратница: стоката се враќа на залиха.',
@@ -76,7 +79,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     const ctx = await firmPostingContext(db(), firm);
     const revDefault = schemeValue(ctx, 'revDefault');
     const used = async (k: DocKind, d: string) => (await db().select({ n: invoices.number }).from(invoices)
-      .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, k), sql`extract(year from ${invoices.date}) = ${Number(d.slice(0, 4))}`))).map((r) => r.n);
+      .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, k), sql`${invoices.date} between ${String(Number(d.slice(0, 4))) + '-01-01'} and ${String(Number(d.slice(0, 4))) + '-12-31'}`))).map((r) => r.n);
     const loadFull = async (id: string) => {
       const [i] = await db().select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, firm.id))).limit(1);
       if (!i) return null;
@@ -218,28 +221,47 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   /* ---------------- list ---------------- */
   const q = (sp.q ?? '').toLowerCase().trim(), mo = sp.m ?? '';
   const rows = await db().select({ i: invoices, p: { name: partners.name, code: partners.code } }).from(invoices).leftJoin(partners, eq(partners.id, invoices.partnerId))
-    .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, kind), sql`extract(year from ${invoices.date}) = ${year}`)).orderBy(asc(invoices.date), asc(invoices.number));
+    .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, kind), sql`${invoices.date} between ${year + '-01-01'} and ${year + '-12-31'}`)).orderBy(asc(invoices.date), asc(invoices.number));
   let all = rows;
   if (kind === 'invoice') {
     const ids = rows.map((r) => r.i.id);
-    const L = ids.length ? await db().select({ inv: invoiceLines.invoiceId, itemId: invoiceLines.itemId }).from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)) : [];
-    const types = new Map((await itemOptions(firm.id)).map((x) => [x.id, x.type]));
-    all = rows.filter((r) => isServiceInvoice({ svc: r.i.svc, items: L.filter((l) => l.inv === r.i.id) }, (id) => types.get(id)) === (dt === 'service'));
+    const [L, IO] = await Promise.all([
+      ids.length ? db().select({ inv: invoiceLines.invoiceId, itemId: invoiceLines.itemId }).from(invoiceLines).where(inArray(invoiceLines.invoiceId, ids)) : Promise.resolve([]),
+      itemOptions(firm.id),
+    ]);
+    const types = new Map(IO.map((x) => [x.id, x.type]));
+    // the lines grouped once (not one pass over all lines of the year per invoice)
+    const byInv = new Map<string, typeof L>();
+    for (const l of L) (byInv.get(l.inv) ?? byInv.set(l.inv, []).get(l.inv)!).push(l);
+    all = rows.filter((r) => isServiceInvoice({ svc: r.i.svc, items: byInv.get(r.i.id) ?? [] }, (id) => types.get(id)) === (dt === 'service'));
   }
   const nn = (x: string) => parseInt(x.replace(/^\D+/, ''), 10) || 0;
   const list = all.filter(({ i, p }) => (!mo || i.date.slice(5, 7) === mo) && (!q || `${i.number} ${p?.name ?? ''} ${p?.code ?? ''}`.toLowerCase().includes(q)))
     .sort((a, b) => nn(a.i.number) - nn(b.i.number) || (a.i.date < b.i.date ? -1 : 1));
-  const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals)
-    .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'invoice')))).map((x) => [x.s, x.n]));
   // production made from the invoices („Производство = Да“): the journal of each production order
   const POs = list.flatMap(({ i }) => ((i.data ?? {}) as InvoiceData).prodRun?.orders?.map((o) => o.id) ?? []);
-  const JP = new Map((POs.length ? await db().select({ s: journals.sourceId, n: journals.number }).from(journals)
-    .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'stock:production'), inArray(journals.sourceId, POs))) : []).map((x) => [x.s, x.n]));
-  const refNo = new Map((kind === 'credit' || kind === 'invoice' ? await db().select({ id: invoices.id, n: invoices.number, k: invoices.kind }).from(invoices).where(eq(invoices.firmId, firm.id)) : []).map((x) => [x.id, x]));
+  // a huge list (thousands of documents in a year) renders only its most recent LIST_MAX rows unless „all“ is asked;
+  // filters, totals and the Excel export still cover the whole list
+  const shown = sp.all === '1' || list.length <= LIST_MAX ? list : list.slice(-LIST_MAX);
+  const listIds = list.map((r) => r.i.id);
+  // the documents the listed rows point to (credit note → invoice, invoice ← proforma / dispatch), of any year
+  const refIds = kind === 'credit' || kind === 'invoice'
+    ? [...new Set(list.flatMap(({ i }) => [i.refInvoiceId, i.fromDocId, i.invoicedId]).filter((x): x is string => !!x))] : [];
   const inv = kind === 'invoice' || kind === 'credit';
   // Наплатено / Останува (legacy docList: invoices and services). FX invoices: converted back to the invoice currency.
   const payCols = kind === 'invoice';
-  const PM = payCols ? await listPayments(firm.id, { invoiceIds: list.map((r) => r.i.id) }) : new Map<string, DocPayment>();
+  // independent lookups, only for the listed rows (not every invoice / journal of the firm), run together
+  const [JR, JPR, refR, PM] = await Promise.all([
+    listIds.length ? db().select({ s: journals.sourceId, n: journals.number }).from(journals)
+      .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'invoice'), inArray(journals.sourceId, listIds))) : Promise.resolve([]),
+    POs.length ? db().select({ s: journals.sourceId, n: journals.number }).from(journals)
+      .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'stock:production'), inArray(journals.sourceId, POs))) : Promise.resolve([]),
+    refIds.length ? db().select({ id: invoices.id, n: invoices.number, k: invoices.kind }).from(invoices).where(and(eq(invoices.firmId, firm.id), inArray(invoices.id, refIds))) : Promise.resolve([]),
+    payCols ? listPayments(firm.id, { invoiceIds: listIds }) : Promise.resolve(new Map<string, DocPayment>()),
+  ]);
+  const J = new Map(JR.map((x) => [x.s, x.n]));
+  const JP = new Map(JPR.map((x) => [x.s, x.n]));
+  const refNo = new Map(refR.map((x) => [x.id, x]));
   const payOf = (i: Invoice) => {
     const m = PM.get(i.id), fx = i.currency === 'MKD' ? 1 : Number(i.fx) || 1;
     if (!m) return { paid: 0, rest: Number(i.total), due: Number(i.total) };
@@ -333,13 +355,19 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
         <select name="m" defaultValue={mo} style={{ width: 'auto' }}><option value="">Сите месеци</option>{['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((x) => <option key={x} value={x}>{x}/{year}</option>)}</select>
         <button className="btn">Филтрирај</button><span className="note">{list.length} од {all.length} документи</span>
       </form>
+      {shown.length < list.length && (
+        <div className="callout info" role="status">
+          Прикажани се последните <b>{shown.length}</b> од <b>{list.length}</b> документи (вкупните износи долу се за сите). Изберете месец или барајте по број / комитент, или{' '}
+          <Link href={`${view}?${new URLSearchParams({ ...(sp.q ? { q: sp.q } : {}), ...(mo ? { m: mo } : {}), all: '1' })}`}>прикажи ги сите {list.length}</Link> (побавно).
+        </div>
+      )}
       {list.length ? (<>
         {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
 Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : undefined} />}
         <div className="tw"><table className="dense">
           <thead><tr>{sel && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
-          <tbody>{list.map(({ i, p }) => (
+          <tbody>{shown.map(({ i, p }) => (
             <tr key={i.id}>
               {sel && <td><SelBox id={i.id} /></td>}
               <td className="num"><b>{i.number}</b></td>{inv && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
