@@ -574,7 +574,10 @@ function parseBankTableFmt(rows: readonly (readonly unknown[])[], fmt: NumFmt, c
     const purpose = purp.filter((x, i, A) => x && A.indexOf(x) === i).join(' · ');
     const desc = [name, ...purp].filter((x, i, A) => x && A.indexOf(x) === i).join(' · ') || (ref ? 'Реф. ' + ref : '');
     const valDate = parseBankDate(it.rawValDate);
-    lines.push({ date, ...(valDate && valDate !== date ? { valDate } : {}), amount: toCents(amount), counterparty: name, ...(iban ? { iban } : {}), ref, purpose, desc, ...(osnov ? { osnov } : {}) });
+    // the bank's fee on the line („пров.“): kept on the line like the Halk XML `Provizija`, not a movement
+    const feeTxt = String(val(it, 'fee') ?? '').trim();
+    const fee = feeTxt && /\d/.test(feeTxt) ? Math.abs(toCents(parseBankAmount(feeTxt, fmt))) : 0;
+    lines.push({ date, ...(valDate && valDate !== date ? { valDate } : {}), amount: toCents(amount), counterparty: name, ...(iban ? { iban } : {}), ref, purpose, desc, ...(osnov ? { osnov } : {}), ...(fee ? { fee } : {}) });
   }
   if (!lines.length) return { st: null, warnings, blocking: [], error: `Под насловите (${hdrRows}) нема ниту една ставка со датум и износ.${warnings.length ? ' ' + warnings.slice(0, 3).join(' ') : ''}` };
   const M = P.meta;
@@ -585,7 +588,19 @@ function parseBankTableFmt(rows: readonly (readonly unknown[])[], fmt: NumFmt, c
     format: 'table', account: M.account, no: M.no, date: M.date || lastDate(lines), currency: M.currency,
     opening, closing, debit: debit == null ? null : Math.abs(debit), credit: credit == null ? null : Math.abs(credit), lines,
   };
-  return { st, warnings, blocking: statementProblems(st) };
+  const blocking = statementProblems(st);
+  // the table's own „Вкупно“ row must agree with the lines too when the turnover was taken from the balance block
+  // (only a total that differs from the balance block's turnover — the same number is checked once)
+  const tD0 = cOf(P.totals.debit), tC0 = cOf(P.totals.credit);
+  const tD = M.debit != null && tD0 != null && Math.abs(tD0) !== st.debit ? Math.abs(tD0) : null;
+  const tC = M.credit != null && tC0 != null && Math.abs(tC0) !== st.credit ? Math.abs(tC0) : null;
+  if (tD != null || tC != null) {
+    for (const m of statementProblems({ lines, opening: null, closing: null, debit: tD, credit: tC })) {
+      const t = m.replace(/„Вкупно (задолжување|одобрување)“/, '„Вкупно“ на табелата ($1)');
+      if (!blocking.includes(t)) blocking.push(t);
+    }
+  }
+  return { st, warnings, blocking };
 }
 /**
  * Split CSV/TXT text into rows the way legacy did (delimiter = the one of `; \t , |` that splits the

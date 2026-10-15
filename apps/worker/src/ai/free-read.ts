@@ -9,7 +9,7 @@
  * ambiguous („10.000“, nothing reconciles) throw `AmbiguousAmountsError` — the read is flagged, not guessed.
  */
 import { csvToGrid, parseOpeningSheet } from '@wise/core';
-import { parseStatementFile } from '@wise/core/bank-parsers';
+import { parseStatementFile, type Statement } from '@wise/core/bank-parsers';
 import { fromCents } from '@wise/core/bank/cents';
 import { statementFromPdfItems } from '@wise/core/noai/bank';
 import { obFromPdf } from '@wise/core/noai/ob';
@@ -43,14 +43,20 @@ export async function freeRead(kind: string, file: { name: string; mime: string 
   if (kind === 'bank') {
     // a table that is found but not readable throws `BankPdfError` with the row / column (shown on the read)
     if (isPdf(file)) return statementFromPdfItems(await textItems(bytes));
-    const S = parseStatementFile(bytes, file.name);
-    const st = S?.[0];
-    if (!st || !st.lines.length) return null;
-    return {
+    const S = (parseStatementFile(bytes, file.name) ?? []).filter((st) => st.lines.length);
+    if (!S.length) return null;
+    const one = (st: Statement) => ({
       number: st.no, account: st.account, currency: st.currency || 'MKD',
       openingBalance: st.opening == null ? 0 : fromCents(st.opening), closingBalance: st.closing == null ? 0 : fromCents(st.closing),
-      items: st.lines.map((l) => ({ date: l.date, name: l.counterparty, purpose: l.purpose, desc: l.desc, ref: l.ref, code: l.osnov ?? '', amount: fromCents(l.amount) })),
-    };
+      items: st.lines.map((l) => ({
+        date: l.date, name: l.counterparty, purpose: l.purpose, desc: l.desc, ref: l.ref, code: l.osnov ?? '', amount: fromCents(l.amount),
+        ...(l.iban ? { account: l.iban } : {}), ...(l.fee ? { fee: fromCents(l.fee) } : {}), ...(l.stmtNo ? { stmtNo: l.stmtNo } : {}),
+      })),
+    });
+    if (S.length === 1) return one(S[0]!);
+    // several statements in one file (XML / MT940): each keeps its own number and balances
+    const R = S.map(one);
+    return { number: '', account: R[0]!.account, currency: R[0]!.currency, statements: R, items: R.flatMap((r) => r.items) };
   }
   if (kind === 'ob') {
     if (isPdf(file)) return obFromPdf(await lines(bytes, OB_MAX_PAGES));

@@ -24,7 +24,7 @@ import { ZM_PROMPT } from '@wise/core/yearend/zm-import';
 import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
-import { BANK_CLASSIFY_PROMPT, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_BANK_ADD, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
+import { BANK_CLASSIFY_PROMPT, BANK_MULTI_NOTE, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_BANK_ADD, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
 import { AiReadError, AiTruncatedError, fileContent, loadFile, readContent } from './read-document';
 import { CHUNK_MAX_TOKENS, chunkNote, mergeBank, mergeOb, pdfRanges, planPdfRead, type ChunkKind } from './chunked';
 import { readObject } from './storage';
@@ -133,7 +133,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
       return { result: r.data, model: r.model };
     }
     case 'bank':
-      return readLarge('bank', BANK_PROMPT, 'default', 16000);
+      return readLarge('bank', BANK_PROMPT + BANK_MULTI_NOTE, 'default', 16000);
     case 'ob':
       // legacy `obAi` 10646 read the text in ~11k parts: a large trial balance is read in page ranges (Sonnet; the
       // `complex` tier is Opus only on „🔍 Детално читање“)

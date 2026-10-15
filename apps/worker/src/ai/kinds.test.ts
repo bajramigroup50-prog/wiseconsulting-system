@@ -8,7 +8,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { schema, type AiDocKind, type Tx } from '@wise/db';
 import { AI_MODELS, setAiClient, type MessagesApi } from './client';
-import { BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_GROUPS, FISK_GROUPS_LEGACY, FISK_PROMPT, FK_SIMPLE } from './prompts';
+import { BANK_MULTI_NOTE, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_GROUPS, FISK_GROUPS_LEGACY, FISK_PROMPT, FK_SIMPLE } from './prompts';
 import { setObjectReader } from './storage';
 import { runReadDocument } from '../jobs/ai-read-document';
 
@@ -100,7 +100,7 @@ describe('ai.read-document result kinds', () => {
     for (const [kind, prompt, tier, ans] of [
       ['blg', BLG_PROMPT, 'quick', '{"receipts":[]}'],
       ['emp', EMP_PROMPT, 'default', '{"name":"Ана","embg":"0101990455001"}'],
-      ['bank', BANK_PROMPT, 'default', '{"items":[{"date":"2026-03-02","amount":5}]}'],
+      ['bank', BANK_PROMPT + BANK_MULTI_NOTE, 'default', '{"items":[{"date":"2026-03-02","amount":5}]}'],
       // classification is a short answer: Haiku (cost tiers, ../ai/budget.ts)
       ['classify', CLASSIFY_PROMPT, 'quick', '{"kind":"fiscal","what":"Z извештај"}'],
     ] as const) {

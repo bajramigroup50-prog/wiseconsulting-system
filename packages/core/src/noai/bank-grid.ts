@@ -157,7 +157,10 @@ export function bankPdfGrid(items: readonly PdfItem[]): BankPdfGrid | null {
     if (i + 1 < rows.length && rows[i + 1]!.page === rows[i]!.page && noDigits(i) && noDigits(i + 1) && cells[i]!.length >= 2 && isBankHeaderRow([...txt(i), ...txt(i + 1)])) { at = i; hn = 2; }
   }
   if (at < 0) return null;
-  const close = (a: number, b: number) => rows[b]!.page === rows[a]!.page && rows[a]!.y - rows[b]!.y < rows[a]!.h * 3;
+  // sub-headings printed a little further down („должи | побарува | пров.“ under „Износ“, Комерцијална) are still
+  // the header when they are short words only
+  const close = (a: number, b: number) => rows[b]!.page === rows[a]!.page
+    && (rows[a]!.y - rows[b]!.y < rows[a]!.h * 3 || (rows[a]!.y - rows[b]!.y < rows[a]!.h * 5 && cells[b]!.every((c) => c.s.length <= 12 && !/\d/.test(c.s))));
   while (hn < 4 && at + hn < rows.length && close(at + hn - 1, at + hn) && isHeaderContinuation(txt(at + hn), alignAbove(cells[at + hn - 1]!, cells[at + hn]!))) hn++;
   const H = cells.slice(at, at + hn);
   const cols = columnsOf(H);
