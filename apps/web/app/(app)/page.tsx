@@ -36,6 +36,8 @@ import { FirmPicker } from '@/components/firm-picker';
 import { YearPicker } from '@/components/year-picker';
 import { PdfButton } from '@/components/pdf-button';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
+import { myViews } from '@/lib/can-see';
+import { BookHome } from './book-home';
 
 const ICO: Record<string, string> = {
   inv: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 13h7 M9 17h5', scan: 'M4 8V5a1 1 0 0 1 1-1h3 M16 4h3a1 1 0 0 1 1 1v3 M20 16v3a1 1 0 0 1-1 1h-3 M8 20H5a1 1 0 0 1-1-1v-3 M4 12h16',
@@ -86,12 +88,17 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   // year → the firm. „Промени година“ (firm list, warning strip) comes back here.
   if (!chosen || sp.godina != null) return <YearPicker year={year} calendar={calendarYear()} chosen={chosen} user={u.name} />;
   const td = today();
+  // 🔒 a book-only colleague: no fee / monthly-invoice / alert data in the picker, the bookkeeping dashboard only
+  const V = await myViews();
   // a firm outside the selected year (the layout shows „Фирмата не е активна во …“): the picker of that year instead of its dashboard
   if (!f || await firmYearCallout(f, year)) {
     // legacy: no firm → `S.chooser` → full-screen `firmPicker` (menu and firm bar hidden, `body.picking`)
     const [P, O] = await Promise.all([pickerFirms(u), officeProfileFor(u).catch(() => ({ name: '' }))]);
-    return <FirmPicker rows={P.rows} canNew={can(u.principal, 'newFirm')} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} year={year} />;
+    const rows = V ? P.rows.map((r) => ({ ...r, fee: 0, recNext: null, al: null })) : P.rows;
+    return <FirmPicker rows={rows} canNew={can(u.principal, 'newFirm') && (!V || V.has('firmi'))} user={u.name} office={O.name || 'WISE CONSULTING'} today={td} year={year}
+      book={!!V} canFirmi={!V || V.has('firmi')} />;
   }
+  if (V) return <BookHome role={u.role} f={f} year={year} see={(v) => V.has(v)} />;
   const P = isDashPer(sp.per) ? sp.per : 'year';
   const rg = dashRange(year, P, td);
   const per = f.vatPeriod === 'month' ? 'month' : 'quarter';

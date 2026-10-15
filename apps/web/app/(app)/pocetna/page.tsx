@@ -1,4 +1,5 @@
 /** Legacy `VIEWS.pocetna` 6319 (final chain → 13245) — Финансово › Почетна состојба. */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { bankAccounts, effectiveChart, journalLines, journals } from '@wise/db';
@@ -40,7 +41,7 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
       <Hd t={full ? `Бруто биланс ${year}` : 'Почетна состојба'} sub={full ? 'за завршна сметка' : 'налог за отворање'}>
         {!full && close && (closed.length
           ? <RowAction className="btn" action={transferFromPrevYear} label={`Пренос од ${year - 1}`} confirm={`Да се пренесат салдата од ${year - 1}? Постојната почетна состојба за ${year} ќе се замени.`} />
-          : <Link className="btn" href="/mbyllja" title={`Изберете ја ${year - 1} горе и затворете ја на екранот „Затворање“ (данок од ДБ), па направете пренос`}>Затвори ја {year - 1} →</Link>)}
+          : (await canSee('mbyllja')) && <Link className="btn" href="/mbyllja" title={`Изберете ја ${year - 1} горе и затворете ја на екранот „Затворање“ (данок од ДБ), па направете пренос`}>Затвори ја {year - 1} →</Link>)}
         {ex && <Link className="btn" href={`/nalozi?n=${encodeURIComponent(ex.number)}`}>Налог {ex.number}</Link>}
         {/* legacy `openPdf` 7333: „НАЛОГ ЗА ПОЧЕТНА СОСТОЈБА“ */}
         {ex ? <a className="btn" href={`/print/nalog?n=${encodeURIComponent(ex.number)}&t=${encodeURIComponent(full ? `БРУТО БИЛАНС ${year}` : `НАЛОГ ЗА ПОЧЕТНА СОСТОЈБА на ден ${ex.date.split('-').reverse().join('.')}`)}`} target="_blank" rel="noopener">PDF</a> : <button className="btn" disabled>PDF</button>}
@@ -49,7 +50,7 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
       {!full && <PrevYearCallout firmId={firm.id} year={year} />}
       {!full && ex && typeof (ex.meta as { carriedFrom?: unknown } | null)?.carriedFrom === 'number' && (
         <div className="callout good">✓ Почетната состојба е пренесена од завршната сметка за {year - 1} (конто по конто и партнер по партнер, {lines.length} ставки).{' '}
-          <YearGo year={year - 1} to="/prenos">Контрола на преносот {year - 1} → {year}</YearGo></div>
+          {(await canSee('prenos')) && <YearGo year={year - 1} to="/prenos">Контрола на преносот {year - 1} → {year}</YearGo>}</div>
       )}
       <div className="card" style={{ padding: '10px 14px', ...(full ? { border: '2px solid var(--accent)' } : {}) }}>
         <Link href={full ? '/pocetna' : '/pocetna?full=1'} style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>

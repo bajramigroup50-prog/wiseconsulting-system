@@ -1,4 +1,5 @@
 /** Legacy `VIEWS.artikli` 6820 → `artikli0` 6821 (`simpleList`), Шифрарник › Производи и артикли. */
+import { viewSeer } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { effectiveChart, firmPostingContext, itemBarcodes, items, itemSupplierCodes, partners } from '@wise/db';
@@ -23,6 +24,7 @@ export default async function ArtikliPage({ searchParams }: { searchParams: Prom
   const svc = sp.t === 'service';
   const base = svc ? '/uslugiS' : '/artikli';
   const { u, firm } = await booksPage(svc ? 'uslugiS' : 'artikli');
+  const see = await viewSeer();
   if (!firm) return <NoFirm t={svc ? 'Услуги' : 'Артикли и услуги'} />;
   const q = (sp.q ?? '').trim();
   const bcMatch = q ? db().select({ id: itemBarcodes.itemId }).from(itemBarcodes).where(and(eq(itemBarcodes.firmId, firm.id), eq(itemBarcodes.barcode, q))) : undefined;
@@ -69,7 +71,7 @@ export default async function ArtikliPage({ searchParams }: { searchParams: Prom
         {write && <Link className="btn pri" href={`${base}?nov`}>+ Додај</Link>}
       </Hd>
       {fuel && <div className={'callout' + (fuel.warn ? ' warn' : '')} id="fuelBan">⛽ <b>Оваа фирма продава гориво.</b> ДДВ за гориво денес: <b>{fuel.rate}%</b>{fuel.inR && fuel.to ? <> – намалената стапка важи до <b>{fuel.to.split('-').reverse().join('.')}</b>{fuel.left != null ? ` (уште ${fuel.left} ден${fuel.left === 1 ? '' : 'а'})` : ''}, потоа {fuel.else}% освен ако Владата не продолжи</> : null}.{fuel.wrong ? <> <b>{fuel.wrong} артикли гориво</b> се со друга стапка.</> : null} Прилагодете ги и <b>фискалните апарати</b>.{' '}
-        {fuel.wrong > 0 && canDo(u, 'settings', firm.id) && <RowAction className="btn sm pri" action={fuelItemsRateAction.bind(null, fuel.rate)} label={`Постави ${fuel.rate}% на артиклите`} confirm={`Да се постави ДДВ ${fuel.rate}% на ${fuel.wrong} артикли гориво?\n\nВажи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />} <Link className="btn sm" href="/zakoni">⚖️ Извор</Link></div>}
+        {fuel.wrong > 0 && canDo(u, 'settings', firm.id) && <RowAction className="btn sm pri" action={fuelItemsRateAction.bind(null, fuel.rate)} label={`Постави ${fuel.rate}% на артиклите`} confirm={`Да се постави ДДВ ${fuel.rate}% на ${fuel.wrong} артикли гориво?\n\nВажи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />} {see('zakoni') && <Link className="btn sm" href="/zakoni">⚖️ Извор</Link>}</div>}
       {noName > 0 && !svc && <div className="callout warn" id="anBtn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       {form}
       {showForm && edit && !(used.get(edit.id) ?? 0) && del && <div className="row" style={{ marginTop: -6, marginBottom: 10 }}><RowAction className="btn danger" action={deleteItem.bind(null, edit.id)} label="Избриши" confirm={`Да се избрише „${edit.name}“?`} /></div>}

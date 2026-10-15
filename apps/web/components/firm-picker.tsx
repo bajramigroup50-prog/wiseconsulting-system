@@ -22,8 +22,10 @@ const read = (k: string): string[] => { try { return JSON.parse(localStorage.get
 const dmy = (d: string) => d.split('-').reverse().join('.');
 const nf = (v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
+export function FirmPicker({ rows: F0, canNew, user, office, today, year, book = false, canFirmi = true }: {
   rows: FpFirm[]; canNew: boolean; user: string; office: string; today: string;
+  /** 🔒 book-only colleague: no monthly-invoice / fee columns; `canFirmi`: the firm admin page may be linked. */
+  book?: boolean; canFirmi?: boolean;
   /** Selected year: the rows are the firms working in it; the top bar is hidden here, so the year is chosen here too. */
   year?: number;
 }) {
@@ -130,7 +132,7 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
                 </tr>
               );
             })}
-            {!L.length && <tr><td colSpan={6} className="note" style={{ textAlign: 'center', padding: 24 }}>{!F0.length ? (year ? <>Нема фирми активни во {year}. Изберете друга година или во <Link href="/firmi?sve=1">Фирми → Прикажи ги сите години</Link> кај фирмата внесете „Активна од година“.</> : canNew ? 'Нема фирми. Кликнете „+ Нова фирма“.' : 'Немате доделено фирми. Јавете се кај администраторот.') : 'Нема фирма што одговара на пребарувањето / филтерот.'}</td></tr>}
+            {!L.length && <tr><td colSpan={6} className="note" style={{ textAlign: 'center', padding: 24 }}>{!F0.length ? (year ? (canFirmi ? <>Нема фирми активни во {year}. Изберете друга година или во <Link href="/firmi?sve=1">Фирми → Прикажи ги сите години</Link> кај фирмата внесете „Активна од година“.</> : <>Нема фирми активни во {year}. Изберете друга година.</>) : canNew ? 'Нема фирми. Кликнете „+ Нова фирма“.' : 'Немате доделено фирми. Јавете се кај администраторот.') : 'Нема фирма што одговара на пребарувањето / филтерот.'}</td></tr>}
           </tbody>
         </table>
       )}
@@ -165,7 +167,7 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
             <p className="note" style={{ margin: 0 }}>Сите податоци за фирмите на едно место. Кликнете на ред за да ја отворите фирмата; телефонот и е-поштата се кликаат посебно. МПИН за {pv.slice(5)}/{pv.slice(0, 4)}.</p>
           </div>
           <div className="fp2-wide"><table>
-            <thead><tr><th>Фирма</th><th>Шифра</th><th>ЕДБ (даночен бр.)</th><th>ЕМБС</th><th>ДДВ</th><th>Контакт лице</th><th>Телефон</th><th>Е-пошта</th><th>Град</th><th>МПИН {pv.slice(5)}/{pv.slice(0, 4)}</th><th>ДДВ пријава</th><th>Мес. фактура</th><th style={{ textAlign: 'right' }}>Надомест</th><th></th></tr></thead>
+            <thead><tr><th>Фирма</th><th>Шифра</th><th>ЕДБ (даночен бр.)</th><th>ЕМБС</th><th>ДДВ</th><th>Контакт лице</th><th>Телефон</th><th>Е-пошта</th><th>Град</th><th>МПИН {pv.slice(5)}/{pv.slice(0, 4)}</th><th>ДДВ пријава</th>{!book && <><th>Мес. фактура</th><th style={{ textAlign: 'right' }}>Надомест</th></>}<th></th></tr></thead>
             <tbody>{L.map((f, i) => {
               const s = status(f); const ph = fpPhone(f);
               return (
@@ -178,8 +180,8 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year }: {
                   <td className="sm">{f.city || ''}</td>
                   <td>{s.mpOk ? <span className="ok">✓</span> : f.mp ? <span className="wa">последен {f.mp.month.slice(5)}/{f.mp.month.slice(0, 4)}</span> : <span className="sm">—</span>}</td>
                   <td>{s.ddv ? <span className="wa">{s.ddv.per} до {dmy(s.ddv.due).slice(0, 5)}</span> : <span className="sm">{f.vat ? 'нема овој месец' : '—'}</span>}</td>
-                  <td className="sm">{f.recNext ? (f.recNext <= today ? <span className="no">издади {dmy(f.recNext).slice(0, 5)}</span> : dmy(f.recNext)) : '—'}</td>
-                  <td className="sm" style={{ textAlign: 'right' }}>{f.fee ? nf(f.fee) : ''}</td><td>{badge(f)}</td>
+                  {!book && <><td className="sm">{f.recNext ? (f.recNext <= today ? <span className="no">издади {dmy(f.recNext).slice(0, 5)}</span> : dmy(f.recNext)) : '—'}</td>
+                  <td className="sm" style={{ textAlign: 'right' }}>{f.fee ? nf(f.fee) : ''}</td></>}<td>{badge(f)}</td>
                 </tr>
               );
             })}</tbody>

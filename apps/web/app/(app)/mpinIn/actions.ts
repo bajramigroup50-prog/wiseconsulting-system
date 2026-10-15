@@ -8,7 +8,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { MPIN_F, mpinFirmOf, mpinNorm, mpinPeriodOk, mpinReady, type MpinRead, type MpinStat } from '@wise/core/law';
-import { audit, deleteMpinAck, distributeMpin, files, firms, MpinError, mpinInbox, PostingError } from '@wise/db';
+import { audit, distributeMpin, files, firms, MpinError, mpinInbox, PostingError } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -153,16 +153,3 @@ export async function distributeMpinRows(book: boolean): Promise<ActionState> {
   } catch (e) { return err(e); }
 }
 
-/** Delete a month's acceptance (legacy `mpinDel`, administrator only → `del`). */
-export async function deleteMpinMonth(firmId: string, month: string): Promise<ActionState> {
-  try {
-    if (!isUuid(firmId) || !mpinPeriodOk(month)) return { error: 'Неважечки податоци.' };
-    const u = await requireCan('del', firmId);
-    // Legacy `mpinAdm()`: only the administrator deletes an accepted MPIN (for a correction).
-    if (u.role !== 'admin') return { error: 'Бришењето е дозволено само за администраторот.' };
-    const r = await db().transaction((tx) => deleteMpinAck(tx, { firmId, month, userId: u.id }));
-    revalidatePath('/mpinIn');
-    revalidatePath('/plati');
-    return { ok: `МПИН за ${month} е избришан${r.journal ? ' (и налогот)' : ''}. Сега може да прикачите друг.` };
-  } catch (e) { return err(e); }
-}

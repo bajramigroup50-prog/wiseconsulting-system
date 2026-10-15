@@ -48,7 +48,7 @@ const { actionFiles } = await vi.importActual<typeof import('@/lib/action-manife
 
 const firm = async (name: string, settings: Record<string, unknown> = {}) =>
   (await pg.insert(schema.firms).values({ name, settings }).returning())[0]!.id;
-let R1: string, MISFLAG: string, PREFIX: string, D1: string, D2: string, realAdmin: string;
+let R1: string, MISFLAG: string, PREFIX: string, D1: string, D2: string, realAdmin: string, realTok: string;
 
 beforeAll(async () => {
   await setupDb();
@@ -58,6 +58,7 @@ beforeAll(async () => {
   D1 = await firm('ДЕМО ТРГОВИЈА ДООЕЛ', { demo: true });
   D2 = await firm('ДЕМО УСЛУГИ ДООЕЛ', { demo: true });
   realAdmin = await signIn('admin', { username: 'real-owner' });
+  realTok = jar.get('wc_sess')!;
   await pg.insert(schema.appSettings).values({ key: 'officeOwner', value: { id: realAdmin } });
 });
 
@@ -182,9 +183,9 @@ describe('route guard: the demo allow-list over ALL views', () => {
     expect((await proxy(req('/login', { method: 'POST', headers: { 'next-action': 'aSemi' } }))).status).toBe(403);
     expect((await proxy(req('/banka', { method: 'POST', headers: { 'next-action': 'unknown-id' } }))).status).toBe(403);
     expect((await proxy(req('/izlez', { method: 'POST', headers: { 'next-action': 'aIzlez' } }))).status).not.toBe(403);
-    // a real user is not touched
+    // a real user is not touched by the demo gate (the office owner: colleagues have the 🔒 book-only gate, `book-only.test.ts`)
     jar.clear();
-    await signIn('admin');
+    jar.set('wc_sess', realTok);
     expect((await proxy(req('/sistem'))).headers.get('location')).toBeNull();
     expect((await proxy(req('/banka', { method: 'POST', headers: { 'next-action': 'aSistem' } }))).status).not.toBe(403);
   });

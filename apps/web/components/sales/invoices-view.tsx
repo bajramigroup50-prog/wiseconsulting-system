@@ -2,6 +2,7 @@
  * Outgoing document lists and editor (legacy `docList` 4041 → 14311 and `invEditor`), one component for the views
  * izlez / uslugi / odobrenija / profakturi / ispratnici.
  */
+import { viewSeer } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { addDays, DT, INV_NOTE0, isDraftNo, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
@@ -61,6 +62,7 @@ function toEd(i: Invoice, L: (typeof invoiceLines.$inferSelect)[], A: { advanceI
 }
 
 export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
+  const see = await viewSeer();
   const { u, firm, year } = await booksPage(DT[dt].view);
   if (!firm) return <NoFirm t={DT[dt].list} />;
   const kind: DocKind = dt === 'service' ? 'invoice' : dt;
@@ -316,7 +318,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         <span className="row" style={{ display: 'inline-flex', gap: 6, marginLeft: 6 }}>{fuel.wrong > 0 && settingsOk && <RowAction className="btn sm pri" action={fuelItemsRateAction.bind(null, fuel.rate)} label={`Постави ${fuel.rate}% на артиклите`} confirm={`Да се постави ДДВ ${fuel.rate}% на ${fuel.wrong} артикли гориво?
 ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${fuel.names.length > 8 ? String.fromCharCode(10) + '…' : ''}
 
-Важи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />}<Link className="btn sm" href="/zakoni">⚖️ Извор</Link></span></div>}
+Важи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />}{see('zakoni') && <Link className="btn sm" href="/zakoni">⚖️ Извор</Link>}</span></div>}
       <p className="note">{INTRO[dt]}</p>
       <RepostCallout u={u} firmId={firm.id} year={year} />
       {kind === 'credit' && <form action={saveCrMode} className="card row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px' }}>

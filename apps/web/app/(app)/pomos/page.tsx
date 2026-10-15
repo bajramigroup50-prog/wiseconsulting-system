@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/auth';
 import { viewAllowed } from '@/lib/nav';
 import { Hd } from '@/components/hd';
+import { viewSeer } from '@/lib/can-see';
 
 const STEPS: [string, string, React.ReactNode][] = [
   ['Фирми', '/firmi', <>изберете или регистрирајте фирма; „Промени фирма“ / „Излез“ враќа на изборот.</>],
@@ -22,22 +23,25 @@ const STEPS: [string, string, React.ReactNode][] = [
 export default async function PomosPage() {
   const u = await requireUser();
   if (!viewAllowed(u.role, 'pomos')) notFound();
+  // 🔒 a screen the user may not open is named, not linked
+  const see = await viewSeer();
+  const L = ({ href, children }: { href: string; children: React.ReactNode }) => (see(href.slice(1).split(/[/?#]/)[0]!) ? <Link href={href}>{children}</Link> : <>{children}</>);
   return (
     <>
       <Hd t="Помош" sub="кратко упатство" />
       <div className="card">
         <ol style={{ lineHeight: 1.8, margin: 0, paddingLeft: 20 }}>
-          {STEPS.map(([t, href, d]) => <li key={t}><b><Link href={href}>{t}</Link></b> – {d}</li>)}
+          {STEPS.map(([t, href, d]) => <li key={t}><b><L href={href}>{t}</L></b> – {d}</li>)}
         </ol>
       </div>
       <div className="card">
         <h2>Во новата верзија (на сервер)</h2>
         <ul style={{ lineHeight: 1.8, margin: 0, paddingLeft: 20 }}>
-          <li>Сите податоци се чуваат на серверот на канцеларијата – не во прелистувачот. Секој колега се најавува со своето корисничко име; правата ги доделува администраторот во <Link href="/korisnici">Корисници и улоги</Link>.</li>
-          <li>Скенираните и прикачените документи се во <Link href="/arhiva">Архива на документи</Link>; нов документ во досието на фирмата: <Link href="/arNewNav">📷 Скенирај / прикачи нов документ</Link>.</li>
-          <li>Секоја измена се запишува во <Link href="/aktivnost">Дневник на активности</Link> (кој, што и кога).</li>
-          <li>Резервна копија на целата база и документите се прави автоматски секоја ноќ; извоз на податоците на една фирма: <Link href="/sistem">Податоци и резервна копија</Link>.</li>
-          <li>Шифрарниците (магацини, продавници, благајни, работни места, шифри за плата…) се во <Link href="/sifrarnik">Сите шифрарници</Link>.</li>
+          <li>Сите податоци се чуваат на серверот на канцеларијата – не во прелистувачот. Секој колега се најавува со своето корисничко име; правата ги доделува администраторот во <L href="/korisnici">Корисници и улоги</L>.</li>
+          <li>Скенираните и прикачените документи се во <L href="/arhiva">Архива на документи</L>; нов документ во досието на фирмата: <L href="/arNewNav">📷 Скенирај / прикачи нов документ</L>.</li>
+          <li>Секоја измена се запишува во <L href="/aktivnost">Дневник на активности</L> (кој, што и кога).</li>
+          <li>Резервна копија на целата база и документите се прави автоматски секоја ноќ; извоз на податоците на една фирма: <L href="/sistem">Податоци и резервна копија</L>.</li>
+          <li>Шифрарниците (магацини, продавници, благајни, работни места, шифри за плата…) се во <L href="/sifrarnik">Сите шифрарници</L>.</li>
         </ul>
       </div>
     </>

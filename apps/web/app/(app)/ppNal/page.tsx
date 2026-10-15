@@ -3,6 +3,7 @@
  * as payer, ПП50 tax templates (`PP_TAX`), suggestions from unpaid supplier invoices (`ppSuggest`), editor with
  * account validation (IBAN + MK control digits — FIX), saved orders and printing (full form or data only).
  */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, desc, eq } from 'drizzle-orm';
 import {
@@ -81,7 +82,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <Hd t="💳 Платни налози" sub="ПП30 · ПП50 · ПП10 – автоматско пополнување и печатење" />
-      {[firm.name, firm.address, firm.city].some((x) => hasYuscii(x)) && <div className="callout warn">Податоците на фирмата имаат знаци од стариот YUSCII фонт (пр. „^“ наместо „Ч“) – на налогот се печатат поправени. Поправете ги трајно во <Link href="/firmi/kirilica">Фирми › Поправка на увезени фирми</Link>.</div>}
+      {[firm.name, firm.address, firm.city].some((x) => hasYuscii(x)) && <div className="callout warn">Податоците на фирмата имаат знаци од стариот YUSCII фонт (пр. „^“ наместо „Ч“) – на налогот се печатат поправени. Поправете ги трајно во {(await canSee('firmi')) ? <Link href="/firmi/kirilica">Фирми › Поправка на увезени фирми</Link> : 'Фирми › Поправка на увезени фирми (сопственикот)'}.</div>}
       {String(payer.account).replace(/\D/g, '').length !== 15 && <div className="callout warn">Внесете ја трансакциската сметка (15 цифри) на фирмата во „Изводи › Банкарски сметки“ – се користи како налогодавач.</div>}
       {write && (
         <div className="card"><div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>

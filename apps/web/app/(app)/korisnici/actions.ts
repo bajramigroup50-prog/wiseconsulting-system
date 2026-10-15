@@ -7,12 +7,15 @@ import { ROLE_IDS } from '@wise/core';
 import { audit, demoFirmIds, fileLinks, files, getOfficeProfile, patchOfficeZz, sessions, userFirms, users } from '@wise/db';
 import { can } from '@wise/core';
 import { zzIzjNext } from '@wise/core/office';
-import { hashPassword, verifyPassword } from '@wise/db/password';
-import { requireCan, requireUser } from '@/lib/auth';
+import { hashPassword } from '@wise/db/password';
+import { requireCan } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { unlock as unlockLock } from '@/lib/login-guard';
 import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 import { DEMO_OFF_MSG, isDemoUser } from '@/lib/demo';
+import { grantableViews } from '@/lib/nav-access';
+import { viewAccessClean, type ViewAccess } from '@/lib/route-guard';
+import { bookOnlySetting, putBookOnlySetting } from '@/lib/view-access';
 
 import { todayIso } from '@/lib/fmt';
 export interface FormState { error?: string; ok?: string }
@@ -57,6 +60,12 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
   const allFirms = demo ? false : v.allFirms;
   const demoIds = demo ? new Set(await demoFirmIds(db())) : null;
   const firmSel = demoIds ? v.firms.filter((f) => demoIds.has(f)) : v.firms;
+  // 🔒 „Пристап до менија“: set only by the office owner, for a colleague (never the owner, a demo, client or field user)
+  const [prevAcc] = id ? await db().select({ a: users.viewAccess }).from(users).where(eq(users.id, id)).limit(1) : [];
+  const accRaw = owner && id !== me.id && !demo && v.role !== 'klient' && v.role !== 'teren' && form.has('viewMode') ? accessFromForm(form) : null;
+  if (accRaw && 'error' in accRaw) return { error: accRaw.error };
+  const accessIn: ViewAccess | null = accRaw;
+  const accessChanged = !!accessIn && JSON.stringify(viewAccessClean(prevAcc?.a)) !== JSON.stringify(accessIn);
 
   const [dupe] = await db().select({ id: users.id }).from(users)
     .where(and(eq(sql`lower(${users.username})`, v.username), id ? ne(users.id, id) : undefined)).limit(1);
@@ -69,7 +78,7 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
   }
 
   await db().transaction(async (tx) => {
-    const base = { name: v.name, username: v.username, email: v.email, role: v.role, active: v.active, allFirms, demo };
+    const base = { name: v.name, username: v.username, email: v.email, role: v.role, active: v.active, allFirms, demo, ...(accessIn ? { viewAccess: accessIn } : {}) };
     let uid = id;
     if (id) {
       await tx.update(users).set({
@@ -86,6 +95,16 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
     await tx.delete(userFirms).where(eq(userFirms.userId, uid!));
     if (!allFirms && firmSel.length) await tx.insert(userFirms).values(firmSel.map((firmId) => ({ userId: uid!, firmId })));
     if (demo !== (target?.demo ?? false) && !meDemo) await audit(tx, { userId: me.id, action: 'demoUserSet', entityType: 'user', entityId: uid!, data: { username: v.username, demo } });
+    if (accessChanged && accessIn) {
+      const before = viewAccessClean(prevAcc?.a);
+      await audit(tx, {
+        userId: me.id, action: 'userViewsSet', entityType: 'user', entityId: uid!,
+        data: {
+          username: v.username, mode: accessIn.mode, before: before.mode,
+          ...(accessIn.mode === 'custom' ? { views: accessIn.views.length, added: accessIn.views.filter((x) => !before.views.includes(x)), removed: before.views.filter((x) => !accessIn.views.includes(x)) } : {}),
+        },
+      });
+    }
     await audit(tx, {
       userId: me.id, action: id ? 'uSave' : 'uNew', entityType: 'user', entityId: uid!,
       data: { username: v.username, role: v.role, active: v.active, allFirms, firms: firmSel.length, passwordChanged: !!v.password, ...(demo ? { demo } : {}) },
@@ -93,6 +112,34 @@ export async function saveUser(_prev: FormState, form: FormData): Promise<FormSt
   });
   revalidatePath('/korisnici');
   redirect('/korisnici?saved=1');
+}
+
+/** The form's „Пристап до менија“: `viewMode` = book / full / custom, `views` = the ticked views (custom only, grantable only). */
+function accessFromForm(form: FormData): ViewAccess | { error: string } {
+  const mode = String(form.get('viewMode') ?? 'book');
+  if (mode !== 'book' && mode !== 'full' && mode !== 'custom') return { error: 'Неважечки пристап до менија.' };
+  if (mode !== 'custom') return { mode, views: [] };
+  const G = grantableViews();
+  const views = [...new Set(form.getAll('views').map(String))].filter((x) => G.has(x)).sort();
+  return { mode, views };
+}
+
+/**
+ * „🔒 Колегите гледаат само сметководство“ (the office setting, ON by default): only the office owner switches it.
+ * Audited. The owner is never restricted by it (`lib/route-guard.ts` `restrictedViews`).
+ */
+export async function setBookOnlyAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const me = await requireCan('users');
+  if (isDemoUser(me) || !(await isOfficeOwner(me))) return { error: OWNER_ONLY_MSG };
+  const on = form.get('on') === 'on';
+  const before = await bookOnlySetting(db());
+  if (before === on) return { ok: 'Без промена.' };
+  await db().transaction(async (tx) => {
+    await putBookOnlySetting(tx, on, me.id);
+    await audit(tx, { userId: me.id, action: 'bookOnlySet', entityType: 'app_settings', data: { on, text: `Колегите гледаат само сметководство: ${on ? 'вклучено' : 'исклучено'}` } });
+  });
+  revalidatePath('/', 'layout');
+  return { ok: on ? '✓ Вклучено: колегите гледаат само сметководство.' : '✓ Исклучено: колегите гледаат сè според улогата.' };
 }
 
 export async function deleteUser(id: string): Promise<FormState> {
@@ -111,24 +158,6 @@ export async function deleteUser(id: string): Promise<FormState> {
   });
   revalidatePath('/korisnici');
   return {};
-}
-
-export async function changeMyPassword(_prev: FormState, form: FormData): Promise<FormState> {
-  const me = await requireUser();
-  // 🎭 the shared demo login keeps its password (the owner sets it)
-  if (isDemoUser(me)) return { error: DEMO_OFF_MSG };
-  const old = String(form.get('old') ?? ''), pw = String(form.get('new') ?? ''), pw2 = String(form.get('new2') ?? '');
-  if (pw.length < MIN_PW) return { error: `Новата лозинка мора да има најмалку ${MIN_PW} знаци.` };
-  if (pw !== pw2) return { error: 'Лозинките не се исти.' };
-  if (pw === old) return { error: 'Новата лозинка мора да е различна од старата.' };
-  const [u] = await db().select().from(users).where(eq(users.id, me.id)).limit(1);
-  if (!u || !(await verifyPassword(u.passwordHash, old, u.legacySalt)).ok) return { error: 'Сегашната лозинка не е точна.' };
-  await db().transaction(async (tx) => {
-    await tx.update(users).set({ passwordHash: await hashPassword(pw), legacySalt: null, mustChangePassword: false }).where(eq(users.id, me.id));
-    await audit(tx, { userId: me.id, action: 'uMyPass', entityType: 'user', entityId: me.id });
-  });
-  revalidatePath('/', 'layout');
-  return { ok: 'Лозинката е променета.' };
 }
 
 /**

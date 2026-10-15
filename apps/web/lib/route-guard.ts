@@ -146,32 +146,174 @@ export const DEMO_API: readonly string[] = [...SHARED_API, '/api/firms', '/api/u
 
 export const demoViews = (): ReadonlySet<string> => new Set([...DEMO_BOOK_VIEWS, ...DEMO_OFFICE_VIEWS]);
 
-/** `null` = allowed; `'/'` = back to the demo dashboard; `'403'` for an API call. */
-export function demoVerdict(pathname: string): string | null {
+/* ---------------- the shared allow-list gate (🎭 demo and 🔒 book-only users) ---------------- */
+
+const apiHit = (p: string, a: string) => p === a || p.startsWith(a + '/');
+
+/**
+ * One gate for every user who sees only an ALLOW-list of views (🎭 demo users, 🔒 book-only colleagues):
+ * `null` = allowed; `'/'` = back to the dashboard; `'403'` for an API call. Views by the first path segment (pages,
+ * route handlers and the `(print)` group live under their view's folder), `/print/<x>` by `print`, APIs by `api`.
+ */
+export function allowListVerdict(pathname: string, o: {
+  views: ReadonlySet<string>; print: (sub: string, sub2: string) => boolean; api: (p: string) => boolean;
+}): string | null {
   const p = pathname.replace(/\/+$/, '') || '/';
   if (publicPath(p) || p === '/') return null;
-  if (p.startsWith('/api/')) return DEMO_API.some((a) => p === a || p.startsWith(a + '/')) ? null : '403';
-  const [, seg = '', sub = ''] = p.split('/');
-  if (seg === 'print') return DEMO_PRINT.includes(sub) ? null : '/';
-  return demoViews().has(seg) ? null : '/';
+  if (p.startsWith('/api/')) return o.api(p) ? null : '403';
+  const [, seg = '', sub = '', sub2 = ''] = p.split('/');
+  if (seg === 'print') return o.print(sub, sub2) ? null : '/';
+  return o.views.has(seg) ? null : '/';
 }
 
 /**
- * 🎭 Server actions a demo user may call, by the source file that defines them (Next's server-reference manifest maps
- * every action id to its `filename`, read by `proxy.ts`): the actions of the allowed views, the shared private folders
- * (`_ai`, `_stock`, `_retail`, `_repost`), the firm / year picker (`app/(app)/actions.ts`), the top bar, the login and the
- * document print. Anything else — the actions of every blocked office-wide view — is refused before it runs, even when
- * its id is posted to an allowed page. Unknown files are refused (fail closed).
+ * Server actions by the source file that defines them (Next's server-reference manifest maps every action id to its
+ * `filename`, read by `proxy.ts`): the actions of the allowed views, the shared private folders (`_ai`, `_stock`, `_fx`,
+ * `_retail`, `_repost`), the firm / year picker (`app/(app)/actions.ts`), the login and the document print; the top
+ * bar's actions (`top-actions.ts`: alerts, client messages) only with `top`. Anything else — the actions of every
+ * blocked view — is refused before it runs, even when its id is posted to an allowed page. Unknown files are refused
+ * (fail closed).
  */
-export function demoActionAllowed(filename: string | null | undefined): boolean {
+export function actionAllowedFor(filename: string | null | undefined, views: ReadonlySet<string>, o: { top: boolean }): boolean {
   const f = (filename ?? '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^apps\/web\//, '');
   if (!f) return false;
   if (f === 'app/login/actions.ts' || f.startsWith('app/print/doc/')) return true;
   const m = /^app\/\(app\)\/(.+)$/.exec(f);
   if (!m) return false;
   const rest = m[1]!;
-  if (rest === 'actions.ts' || rest === 'top-actions.ts') return true;
+  if (rest === 'actions.ts') return true;
+  if (rest === 'top-actions.ts') return o.top;
   const seg = rest.split('/')[0]!;
-  if (['_ai', '_stock', '_retail', '_repost'].includes(seg)) return true;
-  return demoViews().has(seg);
+  if (['_ai', '_stock', '_retail', '_repost', '_fx'].includes(seg)) return true;
+  return views.has(seg);
 }
+
+/** `null` = allowed; `'/'` = back to the demo dashboard; `'403'` for an API call. */
+export function demoVerdict(pathname: string): string | null {
+  return allowListVerdict(pathname, {
+    views: demoViews(), print: (sub) => DEMO_PRINT.includes(sub), api: (p) => DEMO_API.some((a) => apiHit(p, a)),
+  });
+}
+
+/** 🎭 Server actions a demo user may call (`actionAllowedFor` over the demo views, the top bar's actions included). */
+export function demoActionAllowed(filename: string | null | undefined): boolean {
+  return actionAllowedFor(filename, demoViews(), { top: true });
+}
+
+/* ---------------- 🔒 book-only colleagues („Колегите гледаат само сметководство“) ---------------- */
+
+/** `app_settings` key of the office setting „🔒 Колегите гледаат само сметководство“ (`{ on }`; ON when missing). */
+export const BOOK_ONLY_KEY = 'bookOnlyColleagues';
+export const bookOnlyOn = (v: unknown): boolean => !(v && typeof v === 'object' && (v as { on?: unknown }).on === false);
+export const BOOK_ONLY_MSG = 'Немате пристап до овој дел од програмата (само сметководство).';
+
+/**
+ * 🔒 THE bookkeeping allow-list: what an office colleague (not the owner, not demo, not klient / teren) sees while
+ * „Колегите гледаат само сметководство“ is on and the owner gave them no other access (Корисници → „Пристап до менија“).
+ * Every view NOT listed here is hidden (menu, links, home widgets) and refused (route guard, server actions by file) —
+ * among them: Систем (sistem, uredi, greski, semi, mailPotpis, aktivnost), Корисници, Канцеларија (kanc, mojzad,
+ * baranja, tpl, autop, aml, zzlp, osnovanje), the client portal (klPortal, klInbox, klProfili, klDogovori, mesIzv),
+ * contracts and fee invoices (kdogovori, kdfakturi), the owner's screens (produktivnost, aiTrosok, firmIzv), the robot,
+ * laws and controls (zakoni, zakon, lawAi, lawrep, ujpZakoni, insp, kontroli), rokovi, firm administration and firm
+ * documents (firmi, firmiImp, firmiResh, dosie, paket, moduli, arhiva, arNewNav), Анализи (klDash, analizi, mojIzv) with
+ * analitika / poobjekti, the year end (zsProc…, zs_*, mbyllja, vjetore, prenos), the all-firm lists (izvestuvanja,
+ * zatvoranje, efPrep, mpinIn, payBatch, zakoni), the legacy import (uvozStara), kursna, bankFmt, mailhist, pnLive.
+ * The owner can grant any of them per user („Прилагодено“).
+ */
+export const BOOK_ONLY_VIEWS: readonly string[] = [
+  // Финансово: statements and banks, cash, payment orders, the journal (+ dnevnik print), cards, reconciliation, trial balance
+  'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi',
+  'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'kamati',
+  // ДДВ
+  'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
+  // payroll (the МПИН of the selected firm is `plati/[month]/mpin`; the all-firms `mpinIn` / `payBatch` stay hidden), travel orders
+  'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pnalozi', 'pnGorivo',
+  // outgoing / incoming documents and stock (Материјално)
+  'skan', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
+  'normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi', 'kalkG', 'prenosi', 'zaliha', 'profakturi', 'ispratnici', 'g_trg', 'kalkCalc',
+  'g_trgv', 'uprosek', 'porachki', 'nabavki', 'dopolnuvanje',
+  // Малопродажба
+  'uvozMalo', 'kalkM', 'masovnoM', 'm_izlez', 'm_trg', 'kdfi', 'm_kartica', 'm_lager', 'm_lagerp', 'nivel', 'm_akcii', 'kasa', 'lojalnost', 'restoran', 'kujna',
+  // Дејности (the industry modules of the firm)
+  'hotel', 'hotelSoby', 'hotelKniga', 'servis', 'vozila', 'delovi', 'potsetnici', 'rent', 'flota', 'rentIzv', 'gradba', 'gradbaIzv', 'tura', 'turaIzv',
+  'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni',
+  // Основни средства
+  'os',
+  // Шифрарник of the firm (konto: the chart; office-wide rows keep their own rights)
+  'sifrarnik', 'partneri', 'artikli', 'uslugiS', 'artNames', 'artQ', 'artKonta', 'barkodi', 'konto', 'tarifi', 'terkovi',
+  'cb_cash', 'cb_cenovnik', 'cb_country', 'cb_currency', 'cb_fgroup', 'cb_hall', 'cb_location', 'cb_municipality', 'cb_oe', 'cb_route', 'cb_store', 'cb_vehicle', 'cb_warehouse',
+  // tools: imports into the firm, the converter, AI document reading (the AI budget guard still applies)
+  'uvoz', 'konvertor', 'aiCitanje',
+  // firm selection (the top-bar picker; the firms are still only the user's own), own password, help
+  'izlezF', 'lozinka', 'pomos',
+];
+
+/** Always in a restricted set (also with „Прилагодено“): leaving the firm, the own password, the help. */
+export const BOOK_ALWAYS_VIEWS: readonly string[] = ['izlezF', 'lozinka', 'pomos'];
+
+/** `/print/<x>` → the views that print it (any one of them suffices). An unknown print needs the view of its name. */
+const PRINT_VIEWS: Readonly<Record<string, readonly string[]>> = {
+  analizi: ['analizi'], bilanc: ['bilanc'], cenovnik: ['sifrarnik', 'artikli'], ddv04: ['ddv'], ddv04All: ['ddv04All'], ddvKniga: ['ddv', 'ddvKnigi'],
+  ddvKnigi: ['ddvKnigi'], ddvTab: ['ddv', 'ddvTab'], dnevnik: ['nalozi'], nalog: ['nalozi'], kkart: ['kkart'], kartice: ['g_kartica', 'm_kartica', 'zaliha'],
+  doc: ['izlez', 'vlez', 'profakturi', 'ispratnici', 'porachki', 'nabavki', 'uslugi', 'odobrenija', 'm_izlez', 'periodicni', 'kasa'],
+  kalk: ['kalkG', 'kalkM', 'vlez'], prodKalk: ['prodCost', 'prod'], metg: ['g_trg', 'm_trg'], prenos: ['prenosi'], scr: ['povratDob'],
+  firmIzv: ['firmIzv'], firmPregled: ['firmi'], firmi: ['firmi'], izjava: ['korisnici'], klNote: ['klPortal'], produktivnost: ['produktivnost'],
+};
+/** `/print/fin/<doc>` (`app/print/fin/[doc]`). */
+const FIN_PRINT: Readonly<Record<string, readonly string[]>> = {
+  kartici: ['kartici'], sinteticka: ['kartici'], potvrda: ['kartici'], ios: ['kartici', 'analitika'], analitika: ['analitika'], pkartica: ['analitika'],
+  poobjekti: ['poobjekti'], pdd: ['pdd'], pozajmica: ['pozajmici'],
+};
+/** API endpoints of a restricted colleague: the shared ones, the firm list (picker), the UBL e-invoice, the device check. */
+const BOOK_API: readonly string[] = [...SHARED_API, '/api/firms', '/api/ubl', '/api/device-check'];
+/** Other APIs → the views they belong to (open with any of them). */
+const API_VIEWS: Readonly<Record<string, readonly string[]>> = {
+  '/api/office/pkg': ['paket'], '/api/office/tpl': ['tpl', 'kdogovori', 'korisnici', 'aml', 'osnovanje', 'zzlp'], '/api/rokovi': ['rokovi'],
+};
+
+/** Per-user „Пристап до менија“ (`users.view_access`): `book` = the allow-list above, `full` = as before, `custom` = `views`. */
+export type ViewAccessMode = 'book' | 'full' | 'custom';
+export interface ViewAccess { mode: ViewAccessMode; views: string[] }
+export function viewAccessClean(v: unknown): ViewAccess {
+  const o = (v && typeof v === 'object' ? v : {}) as { mode?: unknown; views?: unknown };
+  const mode: ViewAccessMode = o.mode === 'full' || o.mode === 'custom' ? o.mode : 'book';
+  const views = mode === 'custom' && Array.isArray(o.views)
+    ? [...new Set(o.views.filter((x): x is string => typeof x === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,40}$/.test(x)))] : [];
+  return { mode, views };
+}
+
+/** Who the user is for the book-only rule: `'unknown'` = the owner could not be determined (lookup failed / none set). */
+export type OwnerState = 'yes' | 'no' | 'unknown';
+
+/**
+ * The views a signed-in user may open, or `null` = not restricted here (everything as before). Restricted: an office
+ * colleague while the setting is on — never the owner, never a demo user (own gate), a klient or a teren user (own
+ * rules). When the owner is `'unknown'` the setting does not apply to admins, so nobody can be locked out.
+ */
+export function restrictedViews(u: { role: string; demo?: boolean | null }, o: { on: boolean; owner: OwnerState; access: unknown }): ReadonlySet<string> | null {
+  if (u.demo || u.role === 'klient' || u.role === 'teren' || !o.on) return null;
+  if (o.owner === 'yes' || (o.owner === 'unknown' && u.role === 'admin')) return null;
+  const a = viewAccessClean(o.access);
+  if (a.mode === 'full') return null;
+  return new Set([...(a.mode === 'custom' ? a.views : [...BOOK_ONLY_VIEWS, ...BOOK_READONLY_VIEWS.map((v) => RO + v)]), ...BOOK_ALWAYS_VIEWS]);
+}
+
+/** Views the default list opens read-only (their server actions are refused): the chart of accounts. „Прилагодено“ with it ticked = writable. */
+export const BOOK_READONLY_VIEWS: readonly string[] = ['konto'];
+const RO = '!ro:';
+/** Is `view` open read-only in this restricted set? */
+export const readOnlyIn = (views: ReadonlySet<string> | null, view: string): boolean => !!views?.has(RO + view);
+
+/** 🔒 Route verdict of a restricted colleague (`null` = allowed; `'/'` = back to the dashboard; `'403'` for an API call). */
+export function bookVerdict(pathname: string, views: ReadonlySet<string>): string | null {
+  const any = (L: readonly string[] | undefined, dflt: string | null) => (L ?? (dflt ? [dflt] : [])).some((v) => views.has(v));
+  return allowListVerdict(pathname, {
+    views,
+    print: (sub, sub2) => (sub === 'fin' ? any(FIN_PRINT[sub2], null) : any(PRINT_VIEWS[sub], sub)),
+    api: (p) => BOOK_API.some((a) => apiHit(p, a)) || Object.entries(API_VIEWS).some(([a, L]) => apiHit(p, a) && L.some((v) => views.has(v))),
+  });
+}
+
+/** 🔒 Server actions of a restricted colleague: the allowed views' files (the top bar's alerts / messages are hidden). */
+export const bookActionAllowed = (filename: string | null | undefined, views: ReadonlySet<string>): boolean =>
+  actionAllowedFor(filename, new Set([...views].filter((v) => !views.has(RO + v))), { top: false });

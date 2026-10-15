@@ -10,7 +10,7 @@ import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { ownTemplateKinds } from '@/lib/own-template';
 import { Hd, dmyHm } from '@/components/hd';
-import { MyPassword } from './my-password';
+import { MyPassword } from '../lozinka/my-password';
 import { UserForm } from './user-form';
 import { DeleteUser } from './delete-user';
 import { FirmGo } from '@/components/firm-go';
@@ -18,6 +18,10 @@ import { RowAction } from '@/components/row-action';
 import { activeLocks } from '@/lib/login-guard';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { unlockLogin } from './actions';
+import { BookOnlyCard } from './book-only-card';
+import { accessGroups } from '@/lib/nav-access';
+import { BOOK_ONLY_VIEWS, viewAccessClean } from '@/lib/route-guard';
+import { bookOnlySetting } from '@/lib/view-access';
 
 export default async function KorisniciPage({ searchParams }: { searchParams: Promise<{ edit?: string; nov?: string; saved?: string }> }) {
   const sp = await searchParams;
@@ -63,6 +67,12 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
   const IZJ = meDemo ? {} : (await getOfficeProfile(db())).zzlp?.izj ?? {};
   const DL = owner ? await listDemoLinks() : [];
   const demoSet = owner ? await getDemoSettings(db()) : null;
+  const bookOn = owner ? await bookOnlySetting(db()) : false;
+  const accLabel = (u: (typeof U)[number]) => {
+    if (u.role === 'klient' || u.role === 'teren' || u.demo || u.id === me.id) return null;
+    const a = viewAccessClean(u.viewAccess);
+    return a.mode === 'full' ? 'целосен пристап' : a.mode === 'custom' ? `прилагодено (${a.views.length})` : 'само сметководство';
+  };
   const empOf = (n: string) => EMP.find((e) => e.name.trim().toLowerCase() === n.trim().toLowerCase());
   const firmsOf = (uid: string) => UF.filter((x) => x.userId === uid).map((x) => x.firmId);
 
@@ -73,7 +83,8 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
     <tr key={u.id}>
       <td><b>{u.name}</b>{u.id === me.id && <> <span className="pill info">вие</span></>}{u.demo && !meDemo && <> <span className="pill warn">🎭 демо</span></>}</td>
       <td>{u.username}</td>
-      <td><span className={`pill ${u.role === 'admin' ? 'bad' : u.role === 'view' ? '' : 'info'}`}>{ROLES[u.role]?.n ?? u.role}</span></td>
+      <td><span className={`pill ${u.role === 'admin' ? 'bad' : u.role === 'view' ? '' : 'info'}`}>{ROLES[u.role]?.n ?? u.role}</span>
+        {owner && accLabel(u) && <div className="mini mut" title="Пристап до менија">🔒 {bookOn ? accLabel(u) : 'сите менија (поставката е исклучена)'}</div>}</td>
       <td>{u.allFirms || u.role === 'admin' ? 'сите' : firmsOf(u.id).map((id) => fname.get(id)).filter(Boolean).join(', ') || '—'}</td>
       <td>{u.active ? <span className="pill good">активен</span> : <span className="pill">неактивен</span>}
         {lockOf(u.username) && <> <span className="pill bad" title="Премногу неуспешни обиди за најава">🔒 заклучен до {hm(lockOf(u.username)!.until)}</span>{' '}{unlockBtn(lockOf(u.username)!.key, u.username)}</>}</td>
@@ -120,8 +131,10 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
           isSelf={editing?.id === me.id}
           demoBox={owner}
           demoMode={meDemo}
+          access={owner && editing?.id !== me.id ? { ...viewAccessClean(editing?.viewAccess), groups: accessGroups(), book: [...BOOK_ONLY_VIEWS] } : undefined}
         />
       )}
+      {owner && <BookOnlyCard on={bookOn} />}
       <div className="card"><h2>👥 Колеги во канцеларијата</h2><div className="tw"><table>{uth}<tbody>
         {UC.length ? UC.map(urow) : <tr><td colSpan={8} className="mut">Нема колеги – кликнете „+ Нов корисник“.</td></tr>}
       </tbody></table></div>{!office && <p className="note">„📄 Договор“: Означете ја фирмата на канцеларијата (Фирми → „фирма на канцеларијата“).</p>}</div>

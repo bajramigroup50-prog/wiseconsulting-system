@@ -3,6 +3,7 @@
  * изводи: bank accounts, statement import, matching rules, auto-match review, statements with header (number,
  * bank balance vs book balance, control totals, FX rate), lines with their booking, manual linking.
  */
+import { viewSeer } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { BKPK_RE, bankEffKonto, feeFix, BANKS_MK, bankCodeOf, openDocsFor, unlinkedPayments } from '@wise/core';
@@ -42,6 +43,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const base = '/' + view;
   const T = fx ? 'Девизни изводи' : 'Изводи';
   const { u, firm, year } = await booksPage(view);
+  const see = await viewSeer();
   if (!firm) return <NoFirm t={T} />;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const admin = del && u.role === 'admin';
@@ -145,7 +147,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         {write && <Link className="btn pri" href="/nalozi?izv" title="Изводот се увезува во налог за книжење: датум и број според изводот, предлог за спротивно конто на секоја ставка">Увезете го изводот во налог →</Link>}
         {write && <a className="btn" href="#uvoz-izvod" title="Увоз на извод: PDF, слика, XML, MT940, Excel, CSV">📥 Увези извод (PDF / Excel / XML)</a>}
         <Link className="btn" href={q({ banks: sp.banks ? undefined : '1' })}>Банкарски сметки…</Link>
-        <Link className="btn" href="/bankFmt" title="Кој формат на извод е најдобар за секоја банка">🔎 Формати по банка</Link>
+        {see('bankFmt') && <Link className="btn" href="/bankFmt" title="Кој формат на извод е најдобар за секоја банка">🔎 Формати по банка</Link>}
         <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
       </Hd>
       <datalist id="bkK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>

@@ -6,7 +6,7 @@
 import { ROLES } from '@wise/core';
 import { requireUser } from '@/lib/auth';
 import { Hd } from '@/components/hd';
-import { MyPassword } from '../korisnici/my-password';
+import { MyPassword } from './my-password';
 
 export default async function LozinkaPage() {
   const me = await requireUser();

@@ -4,6 +4,7 @@
  * close (file + post) / reopen. Sub-views: `?tab=insp` inspector table (legacy `ddvTab` 16812),
  * `?tab=tarifi` VAT kontos (legacy `tarifi` 12844).
  */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, eq, asc, gte, like, lte } from 'drizzle-orm';
 import {
@@ -250,7 +251,7 @@ async function Inspector({ firm, year, sp, u }: { firm: Firm; year: number; sp: 
         <DownloadXlsx name={fileBase + '.xlsx'} sheets={tables.map((t) => ({ name: String(t.y), rows: [head, ...t.rows.map((r) => [r.l, ...cols.map((k) => r.F[k] ?? 0)]), ['Вкупно ' + t.y, ...cols.map((k) => sum(t.rows, k))]] }))} />
         <DownloadCsv name={fileBase + '.csv'} rows={[['Година', ...head], ...tables.flatMap((t) => t.rows.map((r) => [t.y, r.l, ...cols.map((k) => r.F[k] ?? 0)]))]} />
         <a className="btn pri" href={`/print/ddvTab?${printQs}`} target="_blank" rel="noreferrer">🖨 PDF</a>
-        <Link className="btn" href="/paket" title="Табелата по месеци е во извештаите на пакетот (📦 УЈП – еден клик)">📦 Во пакет за УЈП</Link>
+        {(await canSee('paket')) && <Link className="btn" href="/paket" title="Табелата по месеци е во извештаите на пакетот (📦 УЈП – еден клик)">📦 Во пакет за УЈП</Link>}
       </Hd>
       <form className="card">
         <div className="row" style={{ gap: '6px 14px', flexWrap: 'wrap', alignItems: 'center' }}>

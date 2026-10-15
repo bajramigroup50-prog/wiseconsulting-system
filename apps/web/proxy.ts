@@ -5,7 +5,9 @@
  *
  * Global route guard (Next 16 `proxy`, Node.js runtime) for the restricted roles: a `klient` user reaches only the
  * client portal of their firm and a `teren` user only their tasks — direct URLs, print views and API endpoints
- * included (`lib/route-guard.ts`, unit-tested). Other roles pass through; pages and actions keep their own checks.
+ * included (`lib/route-guard.ts`, unit-tested). 🎭 Demo users and 🔒 book-only colleagues („Колегите гледаат само
+ * сметководство“) go through one allow-list gate (views by path, server actions by source file). Everybody else passes
+ * through; pages and actions keep their own checks.
  */
 import { createHash } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -16,7 +18,10 @@ import { deviceByFp, touchDevice } from './lib/device-lookup';
 import { firmKlientViews, klientViews } from './lib/kl-views';
 import { DEMO_OFF_MSG } from '@wise/core/demo';
 import { actionFile } from './lib/action-manifest';
-import { PREVIEW_COOKIE, demoActionAllowed, demoVerdict, isGuardRole, previewVerdict, publicPath, routeVerdict } from './lib/route-guard';
+import {
+  BOOK_ONLY_MSG, PREVIEW_COOKIE, bookActionAllowed, bookVerdict, demoActionAllowed, demoVerdict, isGuardRole, previewVerdict, publicPath, routeVerdict,
+} from './lib/route-guard';
+import { viewsOf } from './lib/view-access';
 import { FIRM_MISMATCH_HEADER, staleTab } from './lib/firm-guard';
 
 const SESSION_COOKIE = 'wc_sess';
@@ -52,7 +57,7 @@ async function route(req: NextRequest, device: DeviceRow | null): Promise<NextRe
   if (publicPath(p) && !req.headers.get('next-action')) return NextResponse.next();
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return NextResponse.next();
-  const [u] = await getDb().select({ id: users.id, role: users.role, demo: users.demo }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
+  const [u] = await getDb().select({ id: users.id, role: users.role, demo: users.demo, viewAccess: users.viewAccess }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.id, createHash('sha256').update(token).digest('hex')), gt(sessions.expiresAt, new Date()),
       gt(sessions.createdAt, new Date(Date.now() - ABSOLUTE_MS)), eq(users.active, true))).limit(1);
   if (!u) return NextResponse.next();
@@ -73,6 +78,18 @@ async function route(req: NextRequest, device: DeviceRow | null): Promise<NextRe
     if (!deviceUserOk(device, u.role, F, req.cookies.get(FIRM_COOKIE)?.value)) return deny('firm');
   }
   if (!isGuardRole(u.role)) {
+    // 🔒 „Колегите гледаат само сметководство“: a colleague (not the owner) gets the bookkeeping allow-list — the same
+    // gate as the demo (views by path, server actions by source file; `lib/route-guard.ts` `bookVerdict`)
+    const V = await viewsOf(getDb(), u, u.viewAccess);
+    if (V) {
+      const action = req.headers.get('next-action');
+      if (action && req.method === 'POST' && !bookActionAllowed(await actionFile(action), V)) {
+        return NextResponse.json({ error: BOOK_ONLY_MSG }, { status: 403 });
+      }
+      const bv = bookVerdict(p, V);
+      if (bv === '403') return NextResponse.json({ error: 'Немате пристап.' }, { status: 403 });
+      if (bv) return NextResponse.redirect(new URL(bv, req.url));
+    }
     // legacy `S.asClient`: an office user previewing the client portal of the current firm sees only its sections
     // (the cookie only narrows what an office user is shown; the klient guard below is unchanged)
     const pv = req.cookies.get(PREVIEW_COOKIE)?.value, fid = req.cookies.get(FIRM_COOKIE)?.value;

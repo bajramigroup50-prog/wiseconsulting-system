@@ -6,6 +6,7 @@ import { currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { firmBadges } from '@/lib/top-status';
 import { firmListSql } from '@/lib/demo';
+import { myViews } from '@/lib/can-see';
 
 /** Firm search for the "⇄ Промени фирма" window: firms the user can access that work in the selected year, max 50, with the open notifications (legacy `alFirmBadge`). */
 export async function GET(req: NextRequest) {
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
       .where(and(firmListedIn(year), scoped, search))
       .orderBy(asc(firms.name))
       .limit(50),
-    u.role === 'klient' || u.role === 'teren' ? Promise.resolve(null) : firmBadges(u).catch(() => null),
+    // 🔒 a book-only colleague sees no office alerts
+    u.role === 'klient' || u.role === 'teren' || await myViews() ? Promise.resolve(null) : firmBadges(u).catch(() => null),
   ]);
   return Response.json(rows.map((r) => ({ ...r, al: B ? B.get(r.id) ?? { n: 0, bad: 0, txt: [] } : null })));
 }

@@ -11,9 +11,15 @@ interface EditUser { id: string; name: string; username: string; email: string |
  * `demoBox`: the office owner's „🎭 Демо корисник“ checkbox. `demoMode`: the form of a demo admin (its colleagues are
  * always demo users with access to the demo firms only — no „Сите фирми“).
  */
-export function UserForm({ user: d, allFirms, isSelf, demoBox = false, demoMode = false }: { user: EditUser | null; allFirms: { id: string; name: string }[]; isSelf: boolean; demoBox?: boolean; demoMode?: boolean }) {
+/** 🔒 The owner's „Пристап до менија“ for this colleague: current mode / views, the grantable groups, the default list. */
+export interface AccessBox { mode: 'book' | 'full' | 'custom'; views: string[]; groups: { g: string; items: (readonly [string, string])[] }[]; book: string[] }
+
+export function UserForm({ user: d, allFirms, isSelf, demoBox = false, demoMode = false, access }: { user: EditUser | null; allFirms: { id: string; name: string }[]; isSelf: boolean; demoBox?: boolean; demoMode?: boolean; access?: AccessBox }) {
   const [st, action, pending] = useActionState<FormState, FormData>(saveUser, {});
   const [role, setRole] = useState<Role>(d?.role ?? 'acc');
+  const [mode, setMode] = useState(access?.mode ?? 'book');
+  const [sel, setSel] = useState<Set<string>>(() => new Set(access?.mode === 'custom' ? access.views : access?.book ?? []));
+  const tick = (ids: readonly string[], on: boolean) => setSel((s) => { const n = new Set(s); for (const id of ids) if (on) n.add(id); else n.delete(id); return n; });
   const [all, setAll] = useState(d?.allFirms ?? false);
   const [q, setQ] = useState('');
   const [show, setShow] = useState(false);
@@ -60,6 +66,45 @@ export function UserForm({ user: d, allFirms, isSelf, demoBox = false, demoMode 
       )}
       {demoMode && <p className="note">🎭 Демо корисник – пристап само до демо фирмите.</p>}
       <p className="note">{ROLES[role].d}</p>
+      {access && role !== 'klient' && role !== 'teren' && (
+        <fieldset id="pristapMenija" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10, margin: '8px 0' }}>
+          <legend style={{ fontWeight: 700 }}>🔒 Пристап до менија</legend>
+          <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
+            {([['book', 'Само сметководство (стандардно)'], ['full', 'Целосен пристап (како досега)'], ['custom', 'Прилагодено']] as const).map(([k, t]) => (
+              <label key={k} className="chk" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input type="radio" name="viewMode" value={k} checked={mode === k} onChange={() => setMode(k)} style={{ width: 'auto' }} /> {t}
+              </label>
+            ))}
+          </div>
+          <p className="mini mut" style={{ margin: '4px 0' }}>Важи кога е вклучено „🔒 Колегите гледаат само сметководство“. Правата на улогата (внес, бришење…) важат и понатаму.</p>
+          {mode === 'custom' && (
+            <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 8 }}>
+              <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                <button type="button" className="btn sm" onClick={() => setSel(new Set(access.book))}>↺ Само сметководство</button>
+                <span className="mini mut">Избрани: {sel.size}</span>
+              </div>
+              {access.groups.map(({ g, items }) => {
+                const ids = items.map(([id]) => id);
+                const all = ids.every((id) => sel.has(id));
+                return (
+                  <div key={g} style={{ marginBottom: 8 }}>
+                    <label style={{ fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input type="checkbox" checked={all} onChange={(e) => tick(ids, e.target.checked)} style={{ width: 'auto' }} /> {g}
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', paddingLeft: 22 }}>
+                      {items.map(([id, t]) => (
+                        <label key={id} className="mini" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input type="checkbox" name="views" value={id} checked={sel.has(id)} onChange={(e) => tick([id], e.target.checked)} style={{ width: 'auto' }} /> {t}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </fieldset>
+      )}
       <h3 style={{ margin: '12px 0 6px' }}>Фирми до кои има пристап</h3>
       <label style={{ display: demoMode ? 'none' : 'flex', gap: 8, alignItems: 'center', fontWeight: 600 }}>
         <input type="checkbox" name="allFirms" checked={all} onChange={(e) => setAll(e.target.checked)} style={{ width: 'auto' }} /> Сите фирми (и идните)

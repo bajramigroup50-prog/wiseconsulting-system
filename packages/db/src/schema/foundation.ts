@@ -69,6 +69,12 @@ export const users = pgTable('users', {
   active: boolean('active').notNull().default(true),
   /** 🎭 Demo user (`@wise/core/demo`): sees only demo firms / the demo office, outward side effects off. Set by the owner. */
   demo: boolean('demo').notNull().default(false),
+  /**
+   * 🔒 „Пристап до менија“ (set by the office owner, `apps/web/lib/route-guard.ts` `viewAccessClean`):
+   * null / `{ mode: 'book' }` = only bookkeeping while „Колегите гледаат само сметководство“ is on,
+   * `{ mode: 'full' }` = as before, `{ mode: 'custom', views: [...] }` = exactly these views.
+   */
+  viewAccess: jsonb('view_access'),
   lastLoginAt: ts('last_login_at'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

@@ -4,6 +4,7 @@
  * is suggested from the letters already sent.
  * `?ids=` = legacy `opOnly` (v406, 16893): only the invoices ticked in Излезни фактури. Gap: the „Картица“ shortcut.
  */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { can } from '@wise/core';
 import { opOnlyIds, waPhone } from '@wise/core/firms/dunning';
@@ -41,7 +42,7 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
     <>
       <Hd t="Неплатени фактури и опомени" sub="излезни фактури што не се платени">
         <Link className="btn" href={all ? '/opomeni' : '/opomeni?all=1'}>{all ? 'Само достасани' : 'Прикажи ги и недостасаните'}</Link>
-        <Link className="btn" href="/mailhist">📜 Историја на праќања</Link>
+        {(await canSee('mailhist')) && <Link className="btn" href="/mailhist">📜 Историја на праќања</Link>}
         {write && withMail > 0 && <RowAction className="btn pri" action={sendDunningAll} label={`✉ Испрати опомена на сите со е-пошта (${withMail})`} confirm={`Да се испрати опомена на ${withMail} купувачи со е-пошта?\n\n${over.filter((g) => D.pOf(g.pid).email).map((g) => '• ' + D.pOf(g.pid).name + ' – ' + fc(g.over) + ' (' + LV[g.lvlAuto] + ')').join('\n')}`} />}
         {write && <Link className="btn" href={q({ wa: 'all' })} style={{ borderColor: '#25D366' }}>💬 WhatsApp на сите</Link>}
       </Hd>

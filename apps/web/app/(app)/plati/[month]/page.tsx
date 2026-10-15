@@ -11,6 +11,7 @@ import { dmyHm, Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { NewMonth } from '../new-month';
 import { RunEditor } from './run-editor';
+import { canSee } from '@/lib/can-see';
 
 export default async function RunPage({ params, searchParams }: { params: Promise<{ month: string }>; searchParams: Promise<{ e?: string }> }) {
   const month = monthOr404((await params).month);
@@ -70,6 +71,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       importNote={importNote}
       rateWarn={rateWarn}
       initialEmp={initialEmp}
+      seeLaws={await canSee('zakoni')}
     />
   );
 }

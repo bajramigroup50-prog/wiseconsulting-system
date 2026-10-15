@@ -5,6 +5,7 @@
  * manual, loaded ☑, km, fuel, per diem, load vs capacity, route), the trip flow, cash → receipts, returns → credit
  * note, delivery confirmations (print + e-mail to the buyer) and the order print.
  */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
@@ -173,7 +174,7 @@ export default async function Pnalozi({ searchParams }: { searchParams: Promise<
   return (
     <>
       <Hd t="Патни налози" sub={`возила, возачи и испорака · ${year}`}>
-        <Link className="btn" href="/pnLive">🛰 Возила во живо</Link>
+        {(await canSee('pnLive')) && <Link className="btn" href="/pnLive">🛰 Возила во живо</Link>}
         <Link className="btn" href="/pnGorivo">⛽ Гориво, сервис, дневници</Link>
         <Link className="btn" href={sp.cfg ? '/pnalozi' : '/pnalozi?cfg=1'}>⚙ Стандардно</Link>
         {write && <Link className="btn pri" href="/pnalozi?nov=1">+ Нов патен налог</Link>}

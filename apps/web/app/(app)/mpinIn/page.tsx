@@ -16,7 +16,8 @@ import { allowedFirms, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { clearMpinList, deleteMpinMonth, editMpin, rereadMpin } from './actions';
+import { clearMpinList, editMpin, rereadMpin } from './actions';
+import { deleteMpinMonth } from '../plati/mpin-actions';
 import { MpinBook, MpinFirmSelect, MpinGo, MpinUpload } from './mpin-client';
 import { PickFirm } from '../lawrep/pick-firm';
 

@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 import { CLS } from '@wise/core';
 import { effectiveChart } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
+import { viewReadOnly } from '@/lib/can-see';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -21,7 +22,8 @@ export default async function KontoPage({ searchParams }: { searchParams: Promis
   const A = await effectiveChart(db(), firm.id);
   const q = (sp.q ?? '').trim().toLowerCase();
   const rows = q ? A.filter((a) => a.code.startsWith(q) || a.name.toLowerCase().includes(q)) : A;
-  const write = canDo(u, 'write', firm.id);
+  // 🔒 the default bookkeeping list opens the chart read-only (`BOOK_READONLY_VIEWS`)
+  const write = canDo(u, 'write', firm.id) && !(await viewReadOnly('konto'));
   const edit = sp.edit ? A.find((a) => a.code === sp.edit) : undefined;
   const vatMiss = await missingVatAccounts(firm);
 

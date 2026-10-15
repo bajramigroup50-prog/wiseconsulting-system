@@ -6,10 +6,12 @@
 import { booksPage } from '@/lib/books';
 import { Hd } from '@/components/hd';
 import { AiCard } from './ai-card';
+import { canSee } from '@/lib/can-see';
 
 export default async function AiCitanjePage() {
   const { u } = await booksPage('aiCitanje');
-  const admin = u.role === 'admin';
+  // 🔒 the AI switch is an office setting (Систем): not for a book-only colleague
+  const admin = u.role === 'admin' && await canSee('sistem');
   return (
     <>
       <Hd t="🤖 AI читање" sub="читање на скенирани документи со AI (Anthropic)" />

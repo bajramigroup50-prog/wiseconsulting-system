@@ -1,4 +1,5 @@
 import 'server-only';
+import { canSee } from '@/lib/can-see';
 /**
  * Shared server helpers for the Phase 10 industry pages: page guard with the module toggle (routes of a switched-off
  * module are blocked, FIX LEGACY-MAP 10.4 item 9), guarded + audited action runner, form parsing.
@@ -24,11 +25,11 @@ export async function moduleBlocked(u: SessionUser, view: string): Promise<boole
   return !viewEnabled(view, f?.mods ?? [], { hasFirm: !!f, client: u.role === 'klient' });
 }
 
-export function ModuleOff({ t }: { t: string }) {
+export async function ModuleOff({ t }: { t: string }) {
   return (
     <>
       <Hd t={t} />
-      <div className="callout warn">Овој модул не е вклучен за фирмата. Вклучете го во <Link href="/moduli">🧩 Модули по дејност</Link>.</div>
+      <div className="callout warn">Овој модул не е вклучен за фирмата. Вклучете го во {(await canSee('moduli')) ? <Link href="/moduli">🧩 Модули по дејност</Link> : '🧩 Модули по дејност (кај сопственикот)'}.</div>
     </>
   );
 }

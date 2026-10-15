@@ -41,6 +41,8 @@ interface Props {
   rateWarn?: { law: string | null } | null;
   /** Preselected employee (legacy `payOpenFound`). */
   initialEmp?: string;
+  /** 🔒 the laws screen may be linked (`canSee('zakoni')`). */
+  seeLaws?: boolean;
 }
 
 type LineEd = { ix: number | null; code: string; type: string; hours: string; amt: string; pct: string; cat: PayCat };
@@ -154,7 +156,7 @@ export function RunEditor(p: Props) {
 
       {p.rateWarn && (
         <div className="callout warn" id="payRateW">🤖 <b>Внимание за плата {mm}:</b> намалените стапки ПИО 19,9% / вработување 0,1% важеа за јул–дек 2026 (Сл. весник 148/2026). За 2027 во програмата сè уште нема нови параметри{p.rateWarn.law ? <> – роботот најде: <b>{p.rateWarn.law}</b></> : ' и роботот сè уште нема најдено нова одлука'}. Проверете ги стапките пред пресметка:{' '}
-          <Link className="btn sm" href="/plati/parametri">Параметри по периоди</Link> <Link className="btn sm" href="/zakoni">⚖️ Законски промени</Link></div>
+          <Link className="btn sm" href="/plati/parametri">Параметри по периоди</Link> {p.seeLaws !== false && <Link className="btn sm" href="/zakoni">⚖️ Законски промени</Link>}</div>
       )}
       {p.importNote && p.run.status === 'draft' && p.importNote.warn.length > 0 && (
         <div className="callout warn" id="plx_warn"><b>Увоз од „{p.importNote.file}“ – проверете:</b><ul style={{ margin: '4px 0 0' }}>{p.importNote.warn.slice(0, 15).map((w, i) => <li key={i}>{w}</li>)}{p.importNote.warn.length > 15 && <li>…</li>}</ul></div>

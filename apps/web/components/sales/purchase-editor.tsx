@@ -16,7 +16,7 @@ import { fmt, todayIso } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { addSupplierAction, createItemsAction, deletePurchaseAction, purchaseDeletePreviewAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
-import { fxDefaultRate } from '@/app/(app)/kursna/actions';
+import { fxDefaultRate } from '@/app/(app)/_fx/actions';
 import { AI_OPEN_FAILED_MSG, AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
 import { blankCost, COSTS, type EdPurchase, type EdStock } from './model';

@@ -1,4 +1,5 @@
 /** Legacy `VIEWS.plati` (month list, `payMonths` 6168) + pay-notes card (`pnCard` 15240), Плата › Пресметка на плата. */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, eq, like, sql } from 'drizzle-orm';
 import { payNotesOpen } from '@wise/core';
@@ -14,7 +15,7 @@ import { recalcAllAction } from './actions';
 import { NewMonth } from './new-month';
 import { NotesCard } from './notes-card';
 import { PayXlsxBox } from './xlsx-box';
-import { deleteMpinMonth } from '../mpinIn/actions';
+import { deleteMpinMonth } from './mpin-actions';
 
 export default async function PlatiPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const q = ((await searchParams).q ?? '').trim();
@@ -76,7 +77,7 @@ export default async function PlatiPage({ searchParams }: { searchParams: Promis
       )}
       <NotesCard notes={notes.map((n) => ({ ...n, doneAt: n.doneAt?.toISOString() ?? null, createdAt: n.createdAt.toISOString() }))}
         month={next < today ? today : next} open={payNotesOpen(notes, next).length} employees={emps.filter((e) => e.active).map((e) => ({ id: e.id, name: e.name, position: e.position }))}
-        canWrite={write} canDel={canDo(u, 'del', firm.id)} />
+        canWrite={write} canDel={canDo(u, 'del', firm.id)} seeBatch={await canSee('payBatch')} />
       <div className="pay-win">
         <div className="tw" style={{ minWidth: 0 }}><table className="dense">
           <thead><tr><th>Година</th><th>Месец</th><th>Статус</th><th>Закл.</th><th className="n">Вработени</th><th className="n">Бруто</th><th className="n">Износ за исплата</th><th>Налог</th><th>МПИН од УЈП</th><th></th></tr></thead>
@@ -107,7 +108,7 @@ export default async function PlatiPage({ searchParams }: { searchParams: Promis
         </div>
       </div>
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><b>📥 МПИН вратени од УЈП</b><Link className="btn pri" href="/mpinIn">Внеси прифатени МПИН (сите фирми)</Link></div>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><b>📥 МПИН вратени од УЈП</b>{(await canSee('mpinIn')) && <Link className="btn pri" href="/mpinIn">Внеси прифатени МПИН (сите фирми)</Link>}</div>
         {ex.length ? (
           <>
             <p className="note">Месеци со МПИН без пресметка во програмот (прокнижени од МПИН):</p>

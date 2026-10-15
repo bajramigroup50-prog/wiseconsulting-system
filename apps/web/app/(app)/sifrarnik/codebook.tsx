@@ -2,6 +2,7 @@
  * One codebook editor — legacy `cbList` 6966 (`VIEWS['cb_' + k]` 6973): list, „+ Додај“ / „Измени“ form, 🗑 with
  * the usage check, plus the per-codebook extras (city seed, payroll codes table, currency / vehicle / price-list notes).
  */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { can, PCAT, psifCodes } from '@wise/core';
@@ -59,7 +60,7 @@ export async function CodebookPage({ k, searchParams }: { k: CbKey; searchParams
       {k === 'city' && !rows.length && canNew && (
         <div className="row"><RowAction action={seedCitiesAction} label="Внеси ги градовите во Македонија" className="btn pri" /></div>
       )}
-      {k === 'currency' && <p className="note">Курсот од овој шифрарник се користи за девизните изводи кога курсот не е внесен на самиот извод. Заедничките валути (од <Link href="/kursna">курсната листа</Link>) важат за сите фирми; валута внесена тука важи само за оваа фирма.</p>}
+      {k === 'currency' && <p className="note">Курсот од овој шифрарник се користи за девизните изводи кога курсот не е внесен на самиот извод. Заедничките валути (од {(await canSee('kursna')) ? <Link href="/kursna">курсната листа</Link> : 'курсната листа'}) важат за сите фирми; валута внесена тука важи само за оваа фирма.</p>}
       {k === 'vehicle' && <p className="note">Возилата се нудат при внес на фактура / испратница (превоз и товарен лист).</p>}
       {k === 'cenovnik' && <p className="note">„PDF ценовник“ ги печати сите артикли со продажна цена, ДДВ и цена со ДДВ, со рабатот од избраниот ценовник.</p>}
 

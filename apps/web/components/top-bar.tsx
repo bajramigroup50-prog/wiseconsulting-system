@@ -26,9 +26,11 @@ export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: st
 
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
-export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: {
+export function TopBar({ groups, user, year, minYear, firm, status, canFirms, book = false }: {
   groups: readonly NavGroup[]; user: { name: string; role: Role }; year: number; minYear?: number | null; firm: TopFirm | null;
   status: TopBarStatus; canFirms: boolean;
+  /** 🔒 book-only colleague: no robot, alerts, client messages, AI budget or deadlines; the user button opens /lozinka. */
+  book?: boolean;
 }) {
   const router = useRouter();
   const path = usePathname();
@@ -40,6 +42,7 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
   const view = path === '/' ? 'home' : path.split('/')[1];
   const teren = user.role === 'teren';
   const office = !teren && user.role !== 'klient';
+  const officeBar = office && !book;
   const B = status.bell ? alBellState(status.bell.bad, status.bell.warn) : null;
   const bell = () => {
     const fid = status.bell?.firstFirm;
@@ -68,32 +71,32 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
         </span>
       </>}
       <span className="sp" />
-      {office && status.law != null && <>
+      {officeBar && status.law != null && <>
         <RobotCss />
         <button id="lawTop" type="button" title="Роботот за законски промени" onClick={() => router.push('/zakoni')}>
           <Robot size={46} alert={status.law > 0} id="rbt" />
           <span id="lawTopN" style={{ position: 'absolute', top: -2, right: -2, background: '#b42318', color: '#fff', borderRadius: 9, fontSize: 10, padding: '0 5px', fontWeight: 700, display: status.law ? '' : 'none' }}>{status.law || ''}</span>
         </button>
       </>}
-      {office && !!status.locks && (
+      {officeBar && !!status.locks && (
         <a className="btn sm" id="lockTop" href="/korisnici#zaklucheni" title="Заклучени најави по премногу неуспешни обиди – отклучи во Корисници"
           style={{ background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 }}>🔒 {status.locks}</a>
       )}
-      {office && status.ai && (
+      {officeBar && status.ai && (
         <a className="btn sm" id="aiBudgetTop" href="/aiTrosok" title={status.ai.msg}
           style={status.ai.level === 100 ? { background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 } : { background: '#fef0c7', color: '#93370d', border: '2px solid #dc6803', fontWeight: 700 }}>
           💲 {status.ai.level === 100 ? 'AI паузирано' : `AI ${Math.round(status.ai.pct)}%`}
         </a>
       )}
-      {office && !!status.rok?.n && (
+      {officeBar && !!status.rok?.n && (
         <a className="btn sm" id="rokTop" href="/rokovi?v=lista"
           title={`Рокови во наредните денови: ${status.rok.n}${status.rok.late ? ` (поминати: ${status.rok.late})` : ''} – 📅 Календар на рокови`}
           style={status.rok.late ? { background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 } : { background: '#fef0c7', color: '#93370d', border: '2px solid #dc6803', fontWeight: 700 }}>
           📅 {status.rok.n}
         </a>
       )}
-      {office && <AinbEnvelope n={status.ainb} />}
-      {office && B && (
+      {officeBar && <AinbEnvelope n={status.ainb} />}
+      {officeBar && B && (
         <button type="button" id="alTop" className={`al-top ${B.cls}`} title={B.title} onClick={bell}>
           {B.n ? <><span className="al-ic">⚠</span><span className="al-t">{B.label}</span><span className="al-n">{B.n}</span></> : <><span className="al-ic">✓</span><span className="al-t">{B.label}</span></>}
         </button>
@@ -113,7 +116,7 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms }: 
       </>}
       <span className="pill good" id="conn">Базата е поврзана</span>
       <span id="userBox">
-        <button className="btn sm ghost" title={ROLES[user.role].n} onClick={() => router.push('/korisnici')}>👤 {user.name}</button>
+        <button className="btn sm ghost" title={ROLES[user.role].n} onClick={() => router.push(book ? '/lozinka' : '/korisnici')}>👤 {user.name}</button>
         <form action={logout} style={{ display: 'inline' }}><button className="btn sm">Одјава</button></form>
       </span>
       {win && <FirmWindow currentId={firm?.id ?? null} canFirms={canFirms} current={firm} onClose={() => setWin(false)} />}

@@ -14,7 +14,7 @@ import type { FuelRule } from '@wise/core/law';
 import type { ActionState } from '@/lib/books';
 import { fmt, fq } from '@/lib/fmt';
 import { createInvoiceNalogAction, createProductAction, saveInvoiceAction, setSvcOnlyAction } from '@/app/(app)/izlez/actions';
-import { fxDefaultRate } from '@/app/(app)/kursna/actions';
+import { fxDefaultRate } from '@/app/(app)/_fx/actions';
 import { blankCostEls, blankLine, blankSpec, mainProdLine, OTHER_COSTS, type EdInvoice, type EdLine } from './model';
 import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
 import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';

@@ -1,4 +1,5 @@
 /** Legacy `VIEWS.terkovi` 6981 — Теркови за книжење (how each document is booked). */
+import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { booksPage } from '@/lib/books';
 import { Hd } from '@/components/hd';
@@ -18,7 +19,7 @@ export default async function TerkoviPage() {
   return (
     <>
       <Hd t="Теркови за книжење" sub="шеми на автоматско книжење">
-        <Link className="btn" href="/semi">Шеми за книжење</Link>
+        {(await canSee('semi')) && <Link className="btn" href="/semi">Шеми за книжење</Link>}
         <Link className="btn" href="/banka">Правила за изводи</Link>
         <Link className="btn" href="/konto">Контен план</Link>
       </Hd>

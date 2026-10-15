@@ -10,6 +10,7 @@ import { OWNER_VIEWS, navFor, onlyViews, withoutViews } from '@/lib/nav';
 import { DEMO_BANNER } from '@wise/core/demo';
 import { isDemoUser } from '@/lib/demo';
 import { demoViews } from '@/lib/route-guard';
+import { myViews } from '@/lib/can-see';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { activeLocks } from '@/lib/login-guard';
 import { aiBudgetBadge } from '@/lib/ai-budget-status';
@@ -42,13 +43,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const ai = owner ? await aiBudgetBadge().catch(() => null) : null;
   // 🎭 demo user: the menu is the demo allow-list only (the same list `proxy.ts` enforces)
   const demo = isDemoUser(u);
+  // 🔒 „Колегите гледаат само сметководство“: a colleague's menu is the bookkeeping allow-list (the same list `proxy.ts`
+  // enforces); the top bar's office-wide parts (robot, alerts, client messages, AI budget, deadlines) are hidden
+  const bookV = demo ? null : await myViews();
+  const book = !!bookV;
+  const seeFirmi = !bookV || bookV.has('firmi');
   const groups = demo ? onlyViews(filterNavByModules(navFor(u.role === 'klient' || u.role === 'teren' ? 'acc' : u.role), firm, false), demoViews())
     : u.role === 'klient' || preview ? await klNav(firm, preview)
+    : bookV ? onlyViews(withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS), bookV)
     // owner-only screens (📊 Продуктивност на вработените) are not in anybody else's menu
     : withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
+  const noStatus = { bell: null, ainb: [], law: null, rok: null };
   const [st, [y0], yearNote] = await Promise.all([
-    topStatus(u).catch(() => ({ bell: null, ainb: [], law: null, rok: null })),
+    book ? Promise.resolve(noStatus) : topStatus(u).catch(() => noStatus),
     // legacy `dataYears()`: the year list starts at the firm's first booked year
     firm ? db().select({ y: sql<number | null>`min(extract(year from ${journals.date}))::int` }).from(journals).where(eq(journals.firmId, firm.id)).catch(() => [{ y: null }]) : Promise.resolve([{ y: null }]),
     // the selected firm does not work in the selected year (`@wise/core/firms/years`) — said, never shown silently
@@ -77,7 +85,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           user={{ name: u.name, role: u.role }}
           year={year}
           minYear={y0?.y ?? null}
-          canFirms={can(u.principal, 'firms')}
+          canFirms={can(u.principal, 'firms') && !book}
+          book={book}
           status={{ bell: st.bell, ainb: st.ainb.length, law: st.law, locks, ai, rok: st.rok ?? null }}
           firm={firm && {
             id: firm.id, name: firm.name, edb: firm.edb, vatRegistered: firm.vatRegistered,
@@ -102,8 +111,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {yearNote && (
             <div className="callout warn" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>📅 <b>{firm!.name}</b>: {yearNote} Променете ја годината горе или изберете друга фирма.</span>
-              {office && can(u.principal, 'saveFirm', firm!.id) && <a className="btn sm" href={`/firmi?sve=1&edit=${firm!.id}`}>Измени ги годините на фирмата</a>}
-              {office && <a className="btn sm" href="/firmi">⇄ Фирми во {year}</a>}
+              {office && seeFirmi && can(u.principal, 'saveFirm', firm!.id) && <a className="btn sm" href={`/firmi?sve=1&edit=${firm!.id}`}>Измени ги годините на фирмата</a>}
+              {office && <a className="btn sm" href={seeFirmi ? '/firmi' : '/izlezF'}>⇄ Фирми во {year}</a>}
             </div>
           )}
           {preview && (
@@ -116,9 +125,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </main>
-      {office && !demo && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
-      {office && !demo && <AlStartup />}
-      {office && !demo && <RobotPanel />}
+      {office && !demo && !book && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
+      {office && !demo && !book && <AlStartup />}
+      {office && !demo && !book && <RobotPanel />}
     </div>
     </FirmGuard>
   );
