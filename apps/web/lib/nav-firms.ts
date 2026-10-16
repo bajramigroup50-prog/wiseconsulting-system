@@ -21,6 +21,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'kdfakturi', [['firmIzv', '🗂 Целосен извештај за фирма']]],
   ['Материјално', 'izlez', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
+  // owner-only: „Конта за изводи“ applied to every firm at once (in the „ново“ menu: a tab of Изводи → ⚙ Поставки)
+  ['Финансово', 'bankFmt', [['bankSite', '🏦 Конта за изводи – за сите фирми']]],
   // owner-only (hidden for everybody else in the layout, `OWNER_VIEWS`)
   ['Систем', 'aktivnost', [['produktivnost', '📊 Продуктивност на вработените']]],
   // owner-only: AI cost report and monthly AI limit (docs/AI-TROSHOK.md)

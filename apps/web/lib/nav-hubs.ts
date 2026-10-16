@@ -56,6 +56,8 @@ export const HUBS: readonly Hub[] = [
       { view: 'banka', label: '🏦 Денарски сметки и правила', href: '/banka?banks=1' },
       { view: 'devizni', label: '💶 Девизни сметки и правила', href: '/devizni?banks=1' },
       { view: 'bankFmt', label: '🔎 Формати по банка' },
+      // office owner only (`OWNER_VIEWS`): hidden for everybody else
+      { view: 'bankSite', label: '🏦 За сите фирми' },
     ],
     alt: ['банки', 'банкарски сметки', 'формати на изводи', 'банки и формати'],
   },

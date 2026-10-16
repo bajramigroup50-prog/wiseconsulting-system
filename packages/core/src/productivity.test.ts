@@ -17,6 +17,9 @@ describe('classifyAction', () => {
     expect(classifyAction('savePur', 'purchase')).toMatchObject({ cat: 'vlez', verb: 'c' });
     expect(classifyAction('importBank', 'bank_import')).toMatchObject({ cat: 'izvodi', verb: 'c' });
     expect(classifyAction('bankKonto', 'bank_line')).toMatchObject({ cat: 'izvodi', verb: 'u' });
+    // „🏦 Примени за сите фирми“: the per-firm row is statement work, the start of the run is not
+    expect(classifyAction('bankKontaAll', 'firm')).toMatchObject({ cat: 'izvodi', verb: 'u', known: true });
+    expect(classifyAction('bankKontaAllRun', null)).toBeNull();
     expect(classifyAction('blgNew', 'cash_voucher')).toMatchObject({ cat: 'blagajna', verb: 'c' });
     expect(classifyAction('payNewM', 'payroll_run')).toMatchObject({ cat: 'plati', verb: 'c' });
     expect(classifyAction('ddvClose', 'vatPeriod')).toMatchObject({ cat: 'ddv' });

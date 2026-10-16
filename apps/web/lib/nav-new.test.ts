@@ -35,7 +35,7 @@ describe('classic menu (P40 „класично“) is the legacy NAV, unchanged
     expect(NAV).toHaveLength(14);
     expect(count(NAV, 'dosie')).toBe(2);
     expect(count(NAV, 'korisnici')).toBe(2);
-    expect(menuSize(NAV)).toEqual({ groups: 14, items: 196 });
+    expect(menuSize(NAV)).toEqual({ groups: 14, items: 197 }); // + bankSite (owner only)
   });
 });
 

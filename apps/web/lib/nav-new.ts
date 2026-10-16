@@ -45,7 +45,7 @@ const FIRM_BLOCKS: readonly (readonly string[])[] = [
   ['kdogovori', 'kdfakturi', 'firmIzv'],
 ];
 /** P5: folded into the „⚙“ of Изводи when one of the hosts is in the menu. */
-const FOLD: readonly [string, readonly string[]][] = [['bankFmt', ['banka', 'devizni']]];
+const FOLD: readonly [string, readonly string[]][] = [['bankFmt', ['banka', 'devizni']], ['bankSite', ['banka', 'devizni']]];
 
 const idsOf = (items: readonly NavItem[]): string[] => items.flatMap((x) => (x[0] === '>' ? idsOf(x[2] ?? []) : x[0] === '-' ? [] : [x[0]]));
 const strip = (items: readonly NavItem[], drop: (id: string) => boolean): L =>

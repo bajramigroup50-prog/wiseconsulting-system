@@ -72,7 +72,7 @@ export interface RobotToolDef {
 /* ---------------- helpers ---------------- */
 
 /** Owner-only screens (web `OWNER_VIEWS`): the robot never reports on them. */
-export const ROBOT_OWNER_ONLY: readonly string[] = ['kdogovori', 'produktivnost', 'aiTrosok', 'uredi', 'kdfakturi', 'firmIzv'];
+export const ROBOT_OWNER_ONLY: readonly string[] = ['kdogovori', 'produktivnost', 'aiTrosok', 'uredi', 'kdfakturi', 'firmIzv', 'bankSite'];
 
 const ISO = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const str = (v: unknown, max = 200): string => (typeof v === 'string' ? v.trim().slice(0, max) : typeof v === 'number' ? String(v) : '');
