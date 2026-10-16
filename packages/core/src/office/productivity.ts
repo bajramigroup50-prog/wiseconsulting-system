@@ -107,6 +107,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['magacin', 'c', 'fiskrNew fiskrReport'],
   ['magacin', 'u', 'fiskrOk fiskrFail'],
   ['magacin', 'd', 'delTransfer'],
+  // P34 bulk e-Фактура ZIP: validates and marks the invoices „извезено за е-фактура“ (single `ublDl` stays a download)
+  ['izlez', 'u', 'efExport'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */

@@ -143,3 +143,52 @@ export function ublToScan(txt: string): ScanInvoice | null {
     currency: xmlText(root, 'DocumentCurrencyCode') || 'MKD',
   };
 }
+
+export interface UblCheckOptions {
+  /** The seller is a VAT payer → its `PartyTaxScheme/CompanyID` must be `MK` + 13 digits. */
+  sellerVat?: boolean;
+  /** Domestic buyer (not foreign) → a tax id, when present, must be `MK` + 13 digits. */
+  domesticBuyer?: boolean;
+}
+
+/**
+ * Pre-flight check of an exported UBL document before it goes into the bulk e-Фактура ZIP (P34). Structural and
+ * arithmetic only — УЈП has not published its XSD / Schematron yet: it parses, the root, the mandatory fields, the tax
+ * ids, at least one line, Σ lines = LineExtensionAmount, Σ subtotals = TaxAmount, Payable = Inclusive − Prepaid, and
+ * it must read back through `ublToScan` (the importer). Returns the reasons in Macedonian; empty = OK.
+ */
+export function ublCheck(xml: string, opts: UblCheckOptions = {}): string[] {
+  let root;
+  try { root = parseXml(xml); } catch { return ['XML не може да се прочита']; }
+  if (!/^(Invoice|CreditNote)$/.test(root.name)) return ['не е UBL Invoice / CreditNote'];
+  const E: string[] = [];
+  const num = (s: string) => Number(s) || 0;
+  const near = (a: number, b: number, tol = 0.01) => Math.abs(a - b) <= tol + 1e-9;
+  const okTax = (s: string) => /^MK\d{13}$/.test(s);
+  if (!xmlText(root, 'ID')) E.push('нема број на документ');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(xmlText(root, 'IssueDate'))) E.push('неважечки датум на издавање');
+  const sup = xmlOne(root, 'AccountingSupplierParty/Party');
+  const buy = xmlOne(root, 'AccountingCustomerParty/Party');
+  if (!xmlText(sup, 'PartyName/Name')) E.push('нема назив на продавачот');
+  if (opts.sellerVat && !okTax(xmlText(sup, 'PartyTaxScheme/CompanyID'))) E.push('ДДВ бројот на продавачот не е MK + 13 цифри');
+  if (!xmlText(buy, 'PartyName/Name')) E.push('нема назив на купувачот');
+  const bTax = xmlText(buy, 'PartyTaxScheme/CompanyID');
+  if (opts.domesticBuyer && bTax && !okTax(bTax)) E.push('ДДВ бројот на купувачот не е MK + 13 цифри');
+  if (!xmlText(root, 'PaymentMeans/PayeeFinancialAccount/ID')) E.push('нема жиро сметка на продавачот');
+  const lines = [...xmlAll(root, 'InvoiceLine'), ...xmlAll(root, 'CreditNoteLine')];
+  if (!lines.length) E.push('нема ставки');
+  const lineSum = lines.reduce((a, l) => a + num(xmlText(l, 'LineExtensionAmount')), 0);
+  const lext = num(xmlText(root, 'LegalMonetaryTotal/LineExtensionAmount'));
+  if (lines.length && !near(lineSum, lext, 0.01 * lines.length)) E.push(`збирот на ставките (${lineSum.toFixed(2)}) ≠ основицата (${lext.toFixed(2)})`);
+  const subs = xmlAll(root, 'TaxTotal/TaxSubtotal');
+  const taxSum = subs.reduce((a, t) => a + num(xmlText(t, 'TaxAmount')), 0);
+  const tax = num(xmlText(root, 'TaxTotal/TaxAmount'));
+  if (!subs.length) E.push('нема ДДВ групи');
+  else if (!near(taxSum, tax, 0.01 * subs.length)) E.push(`ДДВ по групи (${taxSum.toFixed(2)}) ≠ вкупно ДДВ (${tax.toFixed(2)})`);
+  const incl = num(xmlText(root, 'LegalMonetaryTotal/TaxInclusiveAmount'));
+  const pre = num(xmlText(root, 'LegalMonetaryTotal/PrepaidAmount'));
+  const pay = num(xmlText(root, 'LegalMonetaryTotal/PayableAmount'));
+  if (!near(incl - pre, pay)) E.push(`за плаќање (${pay.toFixed(2)}) ≠ вкупно − аванс (${(incl - pre).toFixed(2)})`);
+  if (!ublToScan(xml)) E.push('документот не може повторно да се увезе како UBL');
+  return E;
+}

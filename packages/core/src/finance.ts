@@ -486,5 +486,12 @@ export function einvoiceBuyerProblems(p: { edb?: string | null; address?: string
   if (!p.city) E.push('нема град');
   return E;
 }
+/** The seller (the firm) data an e-invoice needs (the Е-Фактура screen and the bulk export): 13-digit ЕДБ, bank account. */
+export function einvoiceSellerProblems(f: { edb?: string | null; bank?: string | null }): string[] {
+  const E: string[] = [];
+  if (String(f.edb ?? '').replace(/^MK/i, '').replace(/\D/g, '').length !== 13) E.push('ЕДБ на фирмата нема 13 цифри');
+  if (!String(f.bank ?? '').trim()) E.push('не е внесена жиро сметка на фирмата');
+  return E;
+}
 /** Legacy `EF_ST`. */
 export const EF_STATUS: Record<string, [string, string]> = { no: ['Не е почнато', ''], test: ['Регистрирана во тест', 'warn'], ok: ['Тестирано – подготвена', 'info'], prod: ['Во продукција', 'good'] };

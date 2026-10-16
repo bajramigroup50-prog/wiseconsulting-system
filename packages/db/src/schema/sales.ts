@@ -86,6 +86,11 @@ export interface InvoiceData {
   arrangementId?: string;
   /** Phase 10: industry document the invoice was issued from (`hotel_reservation`, `rent_rental`, `travel_booking`, …). */
   source?: { type: string; id: string };
+  /**
+   * „Извезено за е-фактура“ (P34): last bulk UBL export into the e-Фактура ZIP (`/api/ubl/zip`) — ISO time, user,
+   * how many times. Preparation only: nothing is submitted to УЈП.
+   */
+  efExport?: { at: string; by: string | null; n: number };
 }
 
 /**

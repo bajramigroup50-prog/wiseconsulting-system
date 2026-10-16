@@ -11,6 +11,7 @@ import {
 import { obBankRows, obDiag, obFromAi, type ObDiagRow } from '@wise/core/finpar-ob';
 import { tbTotals } from '@wise/core/tb-rows';
 import type { ObPdfResult } from '@wise/core/noai/ob';
+import { obAutoSide } from '@wise/core/noai/ob-side';
 import { carryStatAccount } from '@wise/core/yearend/carry';
 import { AiReadList, useAiRead } from '@/components/ai-read';
 import { xlsxDownload } from '@/components/parity-fin/export-bar';
@@ -53,13 +54,15 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   const router = useRouter();
   const [busy, startBusy] = useTransition();
   const [note, setNote] = useState('');
+  /** P39: how the debit / credit side of the last import was decided (and the suggestion when not sure). */
+  const [side, setSide] = useState<{ hint: string; sure: boolean; apply?: () => void } | null>(null);
   const missingP = rows.filter((r) => r.partnerName && !r.partnerId && r.account);
   const missingPn = new Set(missingP.map((r) => r.partnerName.toLowerCase())).size;
   const clearAll = () => {
     const n = rows.filter((r) => r.account || n0(r.debit) || n0(r.credit)).length;
     if (!n && !saved) { setNote('Нема ставки за бришење.'); return; }
     if (!window.confirm(`Да се избришат СИТЕ ${n} ставки од почетната состојба${saved ? ` (и зачуваниот налог за отворање ${year})` : ''}?`)) return;
-    setRows([blank()]); setCtl(null); setExtra(null);
+    setRows([blank()]); setCtl(null); setExtra(null); setSide(null);
     if (saved) {
       if (!isAdmin || !canDelete) { setNote('Зачуваната почетна состојба може да ја избрише само администраторот. Ставките на екранот се исчистени.'); return; }
       if (!window.confirm(`⚠ ПОСЛЕДНА ПОТВРДА\n\nЗачуваниот налог за отворање ${year} (${saved} ставки) ќе се избрише. Бруто билансот ќе остане без почетна состојба додека не внесете нова.\n\nДа се избрише?`)) return;
@@ -72,21 +75,30 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   const t = lineTotals(rows.map((r) => ({ debit: n(r.debit), credit: n(r.credit) })));
   const setRow = (i: number, p: Partial<ORow>) => setRows((R) => R.map((r, k) => (k === i ? { ...r, ...p } : r)));
 
-  /** Rows of a parsed sheet / read → editor rows + control (legacy `importOpen` 10670). */
-  const applySheet = (R0: Parameters<typeof buildOpening>[0], x?: Omit<Extra, 'src'>) => {
+  /**
+   * Rows of a parsed sheet / read → editor rows + control (legacy `importOpen` 10670).
+   * P39: the debit / credit side is detected first (`obAutoSide`: columns, sign, account class + Σ Д = Σ П); when it
+   * is not sure the rows stay as read and the hint offers the class-based suggestion. `replace` = the number of rows of
+   * the previous import of this sheet to replace (applying the suggestion), `auto: false` = take the rows as given.
+   */
+  const applySheet = (R0: Parameters<typeof buildOpening>[0], x?: Omit<Extra, 'src'>, o: { auto?: boolean; replace?: number } = {}) => {
     // opening of a new year: last year's result 951 / 961 goes to 950 / 960 (Правилник за сметковен план), from
     // every source (Excel, CSV, PDF, AI); the full-year trial balance keeps them as they are
     let moved = 0;
     const R = full ? R0 : { ...R0, rows: R0.rows.map((r) => (/^9[56]1/.test(String(r[0])) ? (moved++, [String(r[0]).startsWith('95') ? '950' : '960', r[1], r[2], r[3], r[4], r[5]] as typeof r) : r)) };
     if (moved) x = { ...(x ?? { netZero: [], grand: [0, 0], remapped: 0 }), remapped: (x?.remapped ?? 0) + moved };
-    const b = buildOpening(R, { full, partners });
+    const S = o.auto === false ? null : obAutoSide(R.rows, R.side);
+    const b = buildOpening(S?.sure && S.how !== 'kept' ? { ...R, rows: S.rows } : R, { full, partners });
     if (!b.rows.length) { setMsg('Не се најдени конта со салдо.'); return; }
-    setRows((cur) => [...cur.filter((r) => r.account || n(r.debit) || n(r.credit)), ...b.rows.map((r) => ({
+    const add = b.rows.map((r) => ({
       account: r.account, name: r.name, partnerId: r.partnerId, partnerName: r.partnerName ?? '', partnerCode: r.partnerCode ?? '',
       debit: r.debit ? String(r.debit) : '', credit: r.credit ? String(r.credit) : '',
-    }))]);
+    }));
+    setRows((cur) => [...(o.replace ? cur.slice(0, Math.max(0, cur.length - o.replace)) : cur.filter((r) => r.account || n(r.debit) || n(r.credit))), ...add]);
     setCtl(b.control);
     setExtra(x ? { ...x, src: 'ai' } : null);
+    const sug = S?.suggestion;
+    setSide(S?.hint ? { hint: S.hint, sure: S.sure, apply: sug ? () => applySheet({ ...R, rows: sug, side: undefined }, x, { auto: false, replace: add.length }) : undefined } : o.auto === false ? { hint: 'Применет е предлогот според класата на контото – проверете ја контролата.', sure: true } : null);
     setMsg(`Внесени се ${b.rows.length} ставки (${b.control.byK.length} конта, ${b.control.nP} по партнери). Проверете ја контролата подолу и зачувајте.`);
   };
   // legacy `obAi` 10646: PDF / images are read by AI (worker kind `ob`, prompt `OB_PROMPT`)
@@ -104,7 +116,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
   }, [ai.docs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const importFile = (file: File) => startRead(async () => {
-    setMsg('Се чита…'); setAmb(null);
+    setMsg('Се чита…'); setAmb(null); setSide(null);
     try {
       let grid: unknown[][];
       let src: 'excel' | 'csv' = 'excel';
@@ -148,7 +160,7 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
       <div className="card"><div className="cols">
         <div>
           <h2>{full ? `Увоз на бруто биланс за ${year} (Excel, CSV, PDF или слика) – сите класи` : 'Увоз од аналитички бруто биланс (Excel, CSV, PDF или слика)'}</h2>
-          <p className="note">Секоја аналитичка ставка се внесува посебно – на пр. 20 купувачи на 1200 и 20 добавувачи на 2200, секој со свој партнер. Партнерите што ги нема се креираат при зачувување. Се земаат само колоните <b>САЛДО</b>; програмот ги споредува прочитаните ставки со печатените збирови.</p>
+          <p className="note">Секоја аналитичка ставка се внесува посебно – на пр. 20 купувачи на 1200 и 20 добавувачи на 2200, секој со свој партнер. Партнерите што ги нема се креираат при зачувување. Се земаат само колоните <b>САЛДО</b>; програмот ги споредува прочитаните ставки со печатените збирови. Страната (Должи / Побарува) се препознава сама – од колоните, од знакот на салдото или од класата на контото.</p>
           <input type="file" accept=".xlsx,.xls,.csv,.txt,text/csv,.pdf,application/pdf,image/*" disabled={reading || ai.busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importFile(f); }} />
           <div className="row" style={{ gap: 6, marginTop: 6 }}>
             <button type="button" className="btn sm ghost" onClick={() => xlsxDownload('Pocetna_sostojba_obrazec.xlsx', [{ name: 'Бруто биланс', rows: TEMPLATE }])}>⬇ Excel образец</button>
@@ -156,6 +168,13 @@ export function OpeningEditor({ year, full, initialDate, initialRows, chart, par
             <a className="btn sm ghost" href="/konvertor?t=ob" target="_blank" rel="noreferrer">🔄 Конвертор (друг формат)</a>
           </div>
           <div className="note">{msg}</div>
+          {side && (
+            <div className={`callout ${side.sure ? 'good' : 'warn'}`} role="status" style={{ marginTop: 6 }}>
+              <b>Должи / Побарува:</b> {side.hint}
+              {side.apply && <> {' '}<button type="button" className="btn sm" onClick={() => side.apply?.()}>Примени го предлогот</button></>}
+              <div className="mini" style={{ marginTop: 4 }}>Поединечна ставка на погрешна страна: „⇄ Д/П“ во „🔍 Анализа на разликата“.</div>
+            </div>
+          )}
           {amb && (
             <div className="row" style={{ gap: 6, marginTop: 6 }}>
               {(['mk', 'dot'] as const).map((f) => (

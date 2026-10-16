@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  aggregatePrior, analyticsRows, applyCustomScheme, balanceConfirmation, compareCards, customSchemeBalanced, daysLate, einvoiceBuyerProblems,
+  aggregatePrior, analyticsRows, applyCustomScheme, balanceConfirmation, compareCards, customSchemeBalanced, daysLate, einvoiceBuyerProblems, einvoiceSellerProblems,
   filterAnalytics, iosStatement, linesWithoutPartner, loanFlows, loanKontoDir, loanMovesFromLedger, loanState, nextLoanNo, ourRecRows,
   parseCardTable, partnerKontoCards, partnerSums, pddCalc, pddEntries, pddTotal, pddTypes, penaltyInterest, recMatch, recSums,
   resultsByLocation, syntheticCard, type CardLine,
@@ -181,5 +181,7 @@ describe('custom schemes, e-invoice check', () => {
   it('buyer problems', () => {
     expect(einvoiceBuyerProblems({ edb: '4030', address: '', city: 'Скопје' })).toEqual(['ЕДБ не е 13 цифри', 'нема адреса']);
     expect(einvoiceBuyerProblems({ edb: '4030012345678', address: 'x', city: 'y' })).toEqual([]);
+    expect(einvoiceSellerProblems({ edb: 'MK4030012345678', bank: '300000000000001' })).toEqual([]);
+    expect(einvoiceSellerProblems({ edb: '4030', bank: ' ' })).toEqual(['ЕДБ на фирмата нема 13 цифри', 'не е внесена жиро сметка на фирмата']);
   });
 });
