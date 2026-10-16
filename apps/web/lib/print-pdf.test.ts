@@ -33,6 +33,12 @@ describe('server PDF request (POST /api/pdf)', () => {
     expect(firmHeadHtml(null, 'X', '', '2026-01-02')).not.toContain('class="fh"');
     expect(withFirmHead('<table></table>', '<b>h</b>', true)).toBe('<div id="printArea" style="display:block"><div class="pdfdoc land"><b>h</b><table></table></div></div>');
   });
+  it('prints old YUSCII characters of the firm as letters (ДЕЛ^ЕВ → ДЕЛЧЕВ, ^аир → Чаир)', () => {
+    const h = firmHeadHtml({ name: 'Фирма Ш~ип ДОО', address: 'УЛ.БУЛЕВАР ГОЦЕ ДЕЛ^ЕВ 1', city: 'СКОПЈЕ - ^аир', edb: '4030', email: 'a^b@x.mk' }, 'X', '', '2026-01-02');
+    expect(h).toContain('ФИРМА ШЧИП ДОО');
+    expect(h).toContain('УЛ.БУЛЕВАР ГОЦЕ ДЕЛЧЕВ 1 СКОПЈЕ - Чаир');
+    expect(h).toContain('a^b@x.mk');
+  });
   it('inlines /api/files images for the worker (no network there)', () => {
     const h = `<img src="/api/files/${ID}"><img src="https://x.mk/api/files/${ID}?v=1">`;
     expect(fileImageIds(h)).toEqual([ID]);

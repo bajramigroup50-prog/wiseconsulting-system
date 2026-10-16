@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  complianceRows, complianceScore, deadlineFrom, deadlineState, deletionVerdict, dsrVerdict, fmtCents, fromCents, invoiceLegalIssues,
+  complianceRows, complianceScore, deadlineFrom, deadlineState, deletionVerdict, dsrVerdict, fmtCents, fromCents, invalidDocIssues, invoiceLegalIssues, looksLegalEntity,
   isLastInSeries, isWorkday, kontrolaDeadlines, kontrolaObjectionDraft, kontrolaSummary, numberGapWarning, numberingIssues,
   recommendFinding, retentionUntil, toCents, underRetention, vatRatesOn, type ComplianceFacts, type Finding, type InvoiceLegalInput,
 } from './compliance';
@@ -66,6 +66,24 @@ describe('invoice mandatory elements', () => {
     expect(codes({ ...base, partner: { ...base.partner!, edb: null, vatRegistered: false } })).toEqual(['buyer_edb_np:warn']);
     expect(codes({ ...base, lines: [{ name: '', qty: 1, price: 5, rate: 18 }] })).toContain('line_name:block');
     expect(codes({ ...base, number: '' })).toContain('number:block');
+  });
+  it('a buyer known only by name is not incomplete: no block, no print banner', () => {
+    const only = { ...base, partner: { name: 'Купувач ДООЕЛ', address: null, city: null, edb: null, vatRegistered: true, foreign: false } };
+    expect(invoiceLegalIssues(only).filter((i) => i.sev === 'block')).toEqual([]);
+    expect(codes(only)).toContain('buyer_address:warn');
+    expect(invalidDocIssues(invoiceLegalIssues(only))).toEqual([]);
+  });
+  it('the print banner is only for a missing number, date or lines', () => {
+    const inv = (x: Partial<InvoiceLegalInput>) => invalidDocIssues(invoiceLegalIssues({ ...base, ...x })).map((i) => i.code);
+    expect(inv({ number: '' })).toEqual(['number']);
+    expect(inv({ date: '' })).toEqual(['date']);
+    expect(inv({ lines: [] })).toEqual(['lines']);
+    expect(inv({ firm: { ...base.firm, edb: '' } })).toEqual([]);
+    expect(inv({ kind: 'proforma', number: '' })).toEqual([]);
+  });
+  it('recognises a legal entity by the form in its name', () => {
+    expect(['Купувач ДООЕЛ Скопје', 'КУПУВАЧ ДОО', 'Макпетрол АД', 'Марко ТП', 'Фирма доо'].every(looksLegalEntity)).toBe(true);
+    expect(['Марко Марковски', 'Градинарство', 'Адриана', ''].some(looksLegalEntity)).toBe(false);
   });
   it('a non-VAT firm may not charge VAT', () => {
     expect(codes({ ...base, firm: { ...base.firm, vatRegistered: false } })).toContain('vat_not_registered:block');

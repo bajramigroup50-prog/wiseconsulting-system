@@ -64,7 +64,8 @@ export function invoiceLegalIssues(x: InvoiceLegalInput): LegalIssue[] {
   if (x.kind !== 'proforma' || x.partner) {
     if (!x.partner || !has(x.partner.name)) add('buyer_name', S, 'Нема назив / име на купувачот.');
     else {
-      if (!has(x.partner.address) && !has(x.partner.city)) add('buyer_address', x.kind === 'invoice' && x.partner.vatRegistered ? S : 'warn', 'Нема адреса на примачот (задолжителен елемент).');
+      // a buyer known only by name is a valid document (the owner often has nothing more): a hint, never a block
+      if (!has(x.partner.address) && !has(x.partner.city)) add('buyer_address', 'warn', 'Нема адреса на примачот (задолжителен елемент).');
       const domestic = !x.partner.foreign;
       // чл. 53 ст. 10 т. 3 бара назив и адреса на примачот; ЕДБ на примачот е потребен за книгите и пренесувањето на обврската
       if (domestic && x.partner.vatRegistered && !has(x.partner.edb)) add('buyer_edb', 'warn', 'Купувачот е ДДВ обврзник, а нема ЕДБ – потребен за книгата на излезни фактури и за одбивка на ДДВ кај купувачот.', 'ЗДДВ чл. 52 (евиденција); чл. 53');
@@ -108,3 +109,15 @@ export function invoiceLegalIssues(x: InvoiceLegalInput): LegalIssue[] {
 }
 
 export const blockingIssues = (L: readonly LegalIssue[]) => L.filter((i) => i.sev === 'block');
+
+/**
+ * Issues that make the printed paper itself invalid — the red „НЕКОМПЛЕТНА ФАКТУРА“ banner of the print view: no
+ * number, no date, no lines (or lines without description / quantity). Everything else (the buyer's ЕДБ or address,
+ * the seller's data, VAT questions) is a note on the screen, never on the paper.
+ */
+export const INVALID_DOC_CODES: ReadonlySet<string> = new Set(['number', 'date', 'lines', 'line_name', 'line_qty']);
+export const invalidDocIssues = (L: readonly LegalIssue[]) => L.filter((i) => i.sev === 'block' && INVALID_DOC_CODES.has(i.code));
+
+/** Legal entity by the name's form (ДООЕЛ, ДОО, АД, ТП, КД, ЈТД …) — the editor's ЕДБ hint. */
+export const looksLegalEntity = (name: string | null | undefined): boolean =>
+  /(^|[\s.,„"'(])(ДООЕЛ|ДОО|АД|ТП|КД|ЈТД|ЗЗ|ДПТУ|ДТУ|ДППУ)(?=$|[\s.,“"')])/iu.test(String(name ?? '').trim());
