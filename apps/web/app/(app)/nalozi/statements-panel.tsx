@@ -127,6 +127,8 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
             <button type="button" className="btn sm" onClick={() => setOpen(new Set())}>Затвори ги сите</button>
           </>}
           {saveBar}
+          {/* UX Phase 3 (P2): ONE review for all unbooked lines of the firm (rules + invoices / FIFO + AI), by confidence */}
+          {write && statements.some((s) => s.lines.some((l) => l.prob)) && <a className="btn sm pri" href="/banka/pregled" title="Сите непрокнижени ставки од сите изводи на фирмата, по сигурност, со причина">✓ Преглед за книжење</a>}
         </span>
       </div>
       {!write && <div className="callout">🔒 Само преглед – немате право на внес. Контата и комитентите не може да се менуваат.</div>}

@@ -78,6 +78,9 @@ async function lockTest(tx: Tx, firmId: string): Promise<(st: { id: string; date
   };
 }
 
+/** Lock test of a firm's statements (period lock date, locked nalog): the reason, or null when open. */
+export const statementLockTest = (tx: Tx, firmId: string) => lockTest(tx, firmId);
+
 /** Bank accounts that would get their bank's analytic konto, chosen in order so two accounts never get the same konto. */
 async function accountMoves(tx: Tx, firmId: string): Promise<{ moves: BulkAccountMove[]; manual: number; noMatch: number }> {
   const [f, A, chart] = await Promise.all([loadFirm(tx, firmId), loadBankAccounts(tx, firmId), effectiveChart(tx, firmId)]);

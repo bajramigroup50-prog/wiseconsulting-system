@@ -32,6 +32,10 @@ import { ClassifyButton } from './classify-button';
 import type { PnLast } from './paynotes';
 import { applyBankClassifyAction } from './classify-actions';
 import { bankClassifyProposals } from './classify';
+import { saveAutoStepsAction } from './review-actions';
+import { AUTO_STEP_LBL, autoSteps } from '@wise/core';
+import { AutoRepostCallout } from '@/components/auto-repost-callout';
+import { isOfficeOwner } from '@/lib/office-owner';
 
 export type BankSP = { banks?: string; review?: string; line?: string; m?: string; open?: string; acct?: string; manual?: string; ai?: string };
 
@@ -139,10 +143,11 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
 
   return (
     <>
-      {sp.banks ? await hubTabs('izvodiCfg', view) : null}
+      {sp.banks ? await hubTabs('izvodiCfg', view) : !fx ? await hubTabs('izvodi', view, base) : null}
       <Hd t={T} sub={fx ? 'EUR, USD, CHF… по курс на НБРСМ' : 'денарски сметки · автоматско книжење'}>
         {write && unnumbered && <RowAction className="btn" action={numberStatementsAction} label="Нумерирај изводи" />}
-        {write && <Link className="btn pri" href={q({ review: '1' })}>Прокнижи автоматски</Link>}
+        {write && <Link className="btn pri" href="/banka/pregled" title="Сите непрокнижени ставки од сите изводи: правила, фактури (FIFO) и AI во еден преглед, по сигурност">✓ Преглед за книжење</Link>}
+        {write && <Link className="btn" href={q({ review: '1' })}>Прокнижи автоматски</Link>}
         {write && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
         {write && <Link className="btn pri" href="/nalozi?izv" title="Изводот се увезува во налог за книжење: датум и број според изводот, предлог за спротивно конто на секоја ставка">Увезете го изводот во налог →</Link>}
         {write && <a className="btn" href="#uvoz-izvod" title="Увоз на извод: PDF, слика, XML, MT940, Excel, CSV">📥 Увези извод (PDF / Excel / XML)</a>}
@@ -150,6 +155,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <Link className={`btn ${sp.banks ? 'pri' : ''}`} href={q({ banks: sp.banks ? undefined : '1' })} aria-pressed={!!sp.banks} title="Банкарски сметки, конта и правила за книжење, формати по банка">⚙ Поставки{sp.banks ? ' ✕' : '…'}</Link>
         <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
       </Hd>
+      {write && <AutoRepostCallout u={u} firmId={firm.id} />}
       <datalist id="bkK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
       {/* line kontos: the bank kontos themselves are not offered (legacy `kontoOpts(…, k => !bankKontos().includes(k))`) */}
       <datalist id="bkK2">{chart.filter((a) => !bankK.has(a.code)).map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
@@ -249,6 +255,23 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         </div>
       )}
       {(sp.banks || !BK.length) && canDo(u, 'settings', firm.id) && <KontaPanel firmId={firm.id} year={year} chart={chart} fx={fx} />}
+      {sp.banks && canDo(u, 'settings', firm.id) && await (async () => {
+        // UX Phase 3: the owner's „автоматски“ switches per firm (OFF by default — the program only proposes)
+        const owner = await isOfficeOwner(u);
+        const st = autoSteps(firm.settings);
+        return (
+          <div className="card" id="autoSteps">
+            <h2>⚙ Автоматски чекори {owner ? '' : <small className="mini">(ги менува само сопственикот)</small>}</h2>
+            <p className="note">Програмата секогаш <b>предлага</b> („Преглед за книжење“, „Поврзување“). Вклучен чекор ги потврдува само предлозите „сигурно“; ништо не се книжи во заклучен период; сè се запишува во дневникот на активности.</p>
+            <BankForm action={saveAutoStepsAction} className="form">
+              {(['book', 'link', 'repost'] as const).map((k) => (
+                <label key={k} className="chk"><input type="checkbox" name={k} defaultChecked={st[k]} disabled={!owner} /> {AUTO_STEP_LBL[k]}</label>
+              ))}
+              {owner && <div><button className="btn">Зачувај</button></div>}
+            </BankForm>
+          </div>
+        );
+      })()}
 
       {gaps.length > 0 && (
         <div className="callout warn"><b>Недостасува извод?</b> {gaps.filter((g) => BK.some((b) => b.id === g.accountId)).map((g) => (

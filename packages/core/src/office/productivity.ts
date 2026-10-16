@@ -102,6 +102,10 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'd', 'lawCaseDel'],
   ['ai', 'c', 'kontrolaAi'],
   ['izvodi', 'c', 'ppBatch bankBookAll'],
+  // UX Phase 3: „Преглед за книжење“ (P2/P28), payment ↔ invoice links (P3/P29), background re-post (P31)
+  ['izvodi', 'c', 'bankReviewBook'],
+  ['izvodi', 'u', 'bankLinkAccept bankLinkReject'],
+  ['nalozi', 'u', 'autoRepost'],
   ['firmi', 'c', 'partnerAccLearn fxNbrm'],
   ['firmi', 'u', 'partnerAccSave'],
   ['magacin', 'c', 'fiskrNew fiskrReport'],
@@ -117,7 +121,7 @@ const NOISE = new Set((
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
-  + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet bankKontaAllRun offFirmSet amlOffSet mpinTplImport '
+  + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet bankKontaAllRun bankLinkPropose autoStepsSet autoRepostNote autoRepostRequest autoRepostDismiss offFirmSet amlOffSet mpinTplImport '
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
   + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
