@@ -73,6 +73,7 @@ export * from './firm-years';
 export * from './ai-settings';
 export * from './ai-budget';
 export * from './compliance';
+export * from './kontrola-prep';
 export * from './law-search';
 export * from './client-report';
 export * from './rokovi';

@@ -1,10 +1,13 @@
 /**
  * „💲 AI правна анализа“ of an inspection case (`kontrola.ai`, started by the office from „📑 Контроли и решенија“).
  *
- * The prompt carries the case only (act, findings, our recalculated amounts, the evidence summary, the cited articles)
- * plus the relevant texts of the program's law store — the tax review rules (`LR_RULES`, article + rule), the legal
- * remedies of the act and the law changes found by the daily law robot (`law_changes`). No ЕДБ / ЕМБС / address and no
- * staff names go out. Sonnet by default, Opus only on „🔍 Детално“ (`deep`); the budget guard, the `ai_usage`
+ * The prompt carries the case only (act, findings, our recalculated amounts, the evidence summary and the numbered
+ * attachments without partner names, the cited articles) plus the program's law store — the FULL stored article texts
+ * (`law_texts` / `law_articles`, `kontrolaLawTexts`: the cited articles, the full-text matches of the disputed findings
+ * and the procedural articles of the remedy, each in the version valid on the date of the audited period / the act),
+ * the tax review rules (`LR_RULES`), the legal remedies of the act and the law changes found by the daily law robot
+ * (`law_changes`). A procedural law without a stored text is named in the analysis („додајте го под Корпус“).
+ * No firm identity (name, ЕДБ / ЕМБС / address) and no staff names go out. Sonnet by default, Opus only on „🔍 Детално“ (`deep`); the budget guard, the `ai_usage`
  * reservation / settlement and the monthly limit are those of `askText`.
  *
  * The answer is checked (`parseKontrolaAi`): every article the model cites that is not in the store is tagged
@@ -14,7 +17,7 @@
 import { desc } from 'drizzle-orm';
 import { kontrolaAiPrompt, kontrolaLawContext, parseKontrolaAi } from '@wise/core/compliance';
 import { LR_RULES } from '@wise/core/law';
-import { failKontrolaAi, kontrolaAiState, lawChanges, loadKontrolaCase, saveKontrolaAiResult, type Tx } from '@wise/db';
+import { failKontrolaAi, kontrolaAiState, kontrolaLawTexts, lawChanges, loadKontrolaCase, saveKontrolaAiResult, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { askText } from '../ai/ask';
 import { aiConfigured } from '../ai/client';
@@ -29,7 +32,9 @@ export async function runKontrolaAi(db: Tx, j: KontrolaAiJob): Promise<string | 
     if (kontrolaAiState(c.k)?.reqId !== j.reqId) return null; // a newer request replaced this one
     const L = await db.select({ id: lawChanges.id, title: lawChanges.title, what: lawChanges.what, date: lawChanges.date, from: lawChanges.from, verified: lawChanges.verified })
       .from(lawChanges).orderBy(desc(lawChanges.date), desc(lawChanges.createdAt)).limit(400);
-    const ctx = kontrolaLawContext({ auth: c.input.auth, doc: c.input.doc, findings: c.input.items.map((it) => it.f), rules: LR_RULES, changes: L });
+    // the stored article texts (version valid on the date of the act / the audited period) and the procedural law of the remedy
+    const T = await kontrolaLawTexts(db, c.input);
+    const ctx = kontrolaLawContext({ auth: c.input.auth, doc: c.input.doc, findings: c.input.items.map((it) => it.f), rules: LR_RULES, changes: L, texts: T.texts, proc: T.proc });
     const r = await askText({
       db, prompt: kontrolaAiPrompt(c.input, ctx), tier: j.deep ? 'complex' : 'default', deep: !!j.deep, purpose: 'kontrolaAi',
       refId: j.kid, userId: j.userId ?? null, firmId: j.firmId, maxTokens: j.deep ? 12_000 : 8_000,

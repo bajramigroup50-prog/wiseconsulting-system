@@ -9,8 +9,8 @@ import { and, eq } from 'drizzle-orm';
 import { chooseSubmission, suggestTasks, type KontrolaAiResult } from '@wise/core/compliance';
 import {
   acceptKontrolaVersion, aiBudgetStatus, applyKontrolaAi, audit, deleteKontrola, deleteKontrolaFinding, discardKontrolaVersion, failKontrolaAi, fileLinks, findingEvidence,
-  kontrolaActions, kontrolaFindings, kontroli, KONTROLA_FILE_ENTITY, loadKontrolaCase, markKontrolaFinding, queueKontrolaAi, saveKontrola, saveKontrolaAction, saveKontrolaFinding,
-  saveKontrolaText, setKontrolaActionDone, setKontrolaSubType, snapshotKontrolaDocs,
+  finishKontrolaPkg, kontrolaActions, kontrolaFindings, kontroli, KONTROLA_FILE_ENTITY, loadKontrolaCase, markKontrolaFinding, OfficeError, queueKontrolaAi, queueKontrolaPkg,
+  queueKontrolaPrep, saveKontrola, saveKontrolaAction, saveKontrolaFinding, saveKontrolaText, setKontrolaActionDone, setKontrolaSubType, snapshotKontrolaDocs, updateKontrolaPrep,
 } from '@wise/db';
 import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import type { ActionState } from '@/lib/books';
@@ -300,6 +300,60 @@ export async function kAiStart(kid: string, deep: boolean): Promise<ActionState>
   }
   revalidatePath(PATH);
   return { ok: '⏳ AI анализата се изработува (обично 1–3 минути)…' };
+}
+
+/**
+ * „🤖 Подготви приговор со AI“ (office owner only): one background job reads the act if needed, proposes the dispute
+ * marks, runs the AI analysis with the full stored law texts and generates the remedy document with its numbered
+ * attachments as a DRAFT version (model + cost). Refused while the AI budget is paused; nothing is filed or sent.
+ */
+export async function kPrepAi(kid: string, deep: boolean): Promise<ActionState> {
+  let job: { kid: string; firmId: string; reqId: string; userId: string; deep: boolean } | null = null;
+  try {
+    const { u, firm } = await officeAction('office');
+    if (!(await isOfficeOwner(u))) return { error: OWNER_ONLY_MSG };
+    if (!isUuid(kid)) return { error: 'Неважечка контрола.' };
+    const st = await aiBudgetStatus(db(), firm.id);
+    if (st.paused) return { error: st.msg };
+    const reqId = await db().transaction(async (tx) => {
+      const [k] = await tx.select({ id: kontroli.id, filedOn: kontroli.filedOn }).from(kontroli).where(and(eq(kontroli.id, kid), eq(kontroli.firmId, firm.id))).limit(1);
+      if (!k) throw new OfficeError('Контролата не е пронајдена.');
+      if (k.filedOn) throw new OfficeError('Правното средство е веќе поднесено.');
+      return queueKontrolaPrep(tx, firm.id, kid, deep, u.id);
+    });
+    job = { kid, firmId: firm.id, reqId, userId: u.id, deep };
+  } catch (e) { return officeError(e); }
+  try { await enqueue('kontrola.prepare', job); } catch (e) {
+    console.error('[kontrola] prep enqueue', e);
+    const msg = 'Подготовката не можеше да започне (серверот за позадинска обработка не одговара) – обидете се повторно.';
+    await db().transaction(async (tx) => {
+      await updateKontrolaPrep(tx, job!.firmId, kid, job!.reqId, { fin: { status: 'error', error: msg } });
+      await failKontrolaAi(tx, job!.firmId, kid, job!.reqId, msg);
+    });
+  }
+  revalidatePath(PATH);
+  return { ok: '⏳ Се подготвува приговорот (читање, ознаки, AI анализа со законите, документ и прилози)…' };
+}
+
+/** „📦 Пакет за приговор“: the worker renders the PDFs (submission + prints of the attachments); then „⬇ ZIP“. */
+export async function kPkgStart(kid: string): Promise<ActionState> {
+  let job: { kid: string; firmId: string; reqId: string; userId: string } | null = null;
+  try {
+    const { u, firm } = await officeAction('office');
+    if (!isUuid(kid)) return { error: 'Неважечка контрола.' };
+    const reqId = await db().transaction(async (tx) => {
+      const [k] = await tx.select({ id: kontroli.id }).from(kontroli).where(and(eq(kontroli.id, kid), eq(kontroli.firmId, firm.id))).limit(1);
+      if (!k) throw new OfficeError('Контролата не е пронајдена.');
+      return queueKontrolaPkg(tx, firm.id, kid, u.id);
+    });
+    job = { kid, firmId: firm.id, reqId, userId: u.id };
+  } catch (e) { return officeError(e); }
+  try { await enqueue('kontrola.pkg', job); } catch (e) {
+    console.error('[kontrola] pkg enqueue', e);
+    await db().transaction((tx) => finishKontrolaPkg(tx, job!.firmId, kid, job!.reqId, { status: 'error', error: 'Пакетот не можеше да започне (серверот за позадинска обработка не одговара) – обидете се повторно.' }));
+  }
+  revalidatePath(PATH);
+  return { ok: '⏳ Се подготвува пакетот (PDF на документот и прилозите)…' };
 }
 
 /** „+ Додај ги предложените задачи“: the internal analysis' task list becomes corrective actions (those not added yet). */

@@ -2,10 +2,13 @@ import 'server-only';
 /** Shared by the „Контроли и решенија“ page, its actions and its Word export: the act reads, findings → core types, the case documents. */
 import { and, eq, inArray } from 'drizzle-orm';
 import { aiErrCodeOf, aiErrText } from '@wise/core/ai/errors';
-import { FINDING_AREA, toCents, type Finding, type FindingArea, type FindingVerdict, type Recommendation } from '@wise/core/compliance';
-import { aiDocuments, files, kontrolaDocs, kontroli, loadKontrolaCase, snapshotKontrolaDocs, type Kontrola, type KontrolaFinding, type Tx } from '@wise/db';
+import { FINDING_AREA, SUBMISSION_LBL, toCents, type Finding, type FindingArea, type FindingVerdict, type Recommendation, type SubmissionType } from '@wise/core/compliance';
+import {
+  aiDocuments, files, kontrolaDocs, kontroli, kontrolaPkgState, kontrolaSubmissionHtml, loadKontrolaCase, snapshotKontrolaDocs, type Kontrola, type KontrolaFinding, type Tx,
+} from '@wise/db';
 import { dispatchAiReads, queueAiReads } from './ai';
 import { db } from './db';
+import { htmlDocx, zipFiles } from './docx';
 import { today } from './office';
 
 /* ---------------- reading the attached act ---------------- */
@@ -82,5 +85,41 @@ export async function kontrolaCaseDocs(firmId: string, kid: string) {
 /** After every change of a case: keep an `auto` version of the documents when something is disputed (never fails the action). */
 export async function autoVersion(firmId: string, kid: string, userId: string | null): Promise<void> {
   try { await db().transaction((tx) => snapshotKontrolaDocs(tx, firmId, kid, userId, today())); } catch (e) { console.error('[kontrola] auto version', e); }
+}
+
+/* ---------------- „📦 Пакет за приговор“: the ZIP ---------------- */
+
+const SUB_FILE: Record<SubmissionType, string> = { zabeleski: 'Zabeleshki_na_zapisnik', prigovor: 'Prigovor', zhalba: 'Zhalba', tuzhba: 'Tuzhba' };
+const safeName = (s: string) => s.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90);
+const extOf = (name: string, mime: string) => /\.[^.]{1,5}$/.exec(name)?.[0] ?? (mime === 'application/pdf' ? '.pdf' : '');
+
+export interface KontrolaPkgZip { zip: Uint8Array; name: string; entries: string[]; stale: boolean }
+
+/**
+ * The package of a case as one ZIP: the submission (Word from the current text; the PDF rendered by `kontrola.pkg` —
+ * left out when the text changed after it was rendered), every attachment's files named „Прилог NN – label“ (archive
+ * scans as they are, prints rendered by the worker) and the list of attachments. Null = no package built yet.
+ */
+export async function kontrolaPkgZip(firmId: string, kid: string, read: (key: string) => Promise<Uint8Array>): Promise<KontrolaPkgZip | null> {
+  const c = await loadKontrolaCase(db(), firmId, kid, today());
+  const p = c ? kontrolaPkgState(c.k) : null;
+  if (!c || !p || p.status !== 'done') return null;
+  const S = kontrolaSubmissionHtml(c);
+  const stale = !!p.hash && p.hash !== S.hash;
+  const base = SUB_FILE[S.type];
+  const entries: { name: string; data: Uint8Array | string }[] = [{ name: `00 ${base}.docx`, data: htmlDocx(S.html) }];
+  const ids = [...new Set([...(p.doc && !stale ? [p.doc] : []), ...c.att.flatMap((a) => [...a.fileIds, ...(p.rendered?.[a.key] ?? [])])])];
+  const F = new Map((ids.length ? await db().select().from(files).where(and(inArray(files.id, ids), eq(files.firmId, firmId), eq(files.status, 'ready'))) : []).map((f) => [f.id, f]));
+  const doc = p.doc && !stale ? F.get(p.doc) : undefined;
+  if (doc) entries.push({ name: `00 ${base}.pdf`, data: await read(doc.bucketKey) });
+  const list: string[] = [];
+  for (const a of c.att) {
+    const fs = [...a.fileIds, ...(p.rendered?.[a.key] ?? [])].map((id) => F.get(id)).filter((f): f is NonNullable<typeof f> => !!f);
+    const nn = String(a.no).padStart(2, '0');
+    list.push(`Прилог ${a.no}: ${a.label}${fs.length ? '' : ' – (нема датотека во програмата: приложете го рачно)'}`);
+    for (const [i, f] of fs.entries()) entries.push({ name: `Прилог ${nn} – ${safeName(a.label)}${fs.length > 1 ? ` (${i + 1})` : ''}${extOf(f.name, f.mime)}`, data: await read(f.bucketKey) });
+  }
+  entries.push({ name: '00 Список на прилози.txt', data: [`${SUBMISSION_LBL[S.type]} – прилози`, '', ...list, '', stale ? 'ВНИМАНИЕ: текстот е променет по изработката на PDF – PDF не е вклучен; изградете го пакетот повторно.' : ''].join('\r\n') });
+  return { zip: zipFiles(entries), name: `${base}_paket_${(c.k.docNo ?? c.k.docDate ?? '').replace(/[^\w.-]+/g, '_')}.zip`, entries: entries.map((e) => e.name), stale };
 }
 

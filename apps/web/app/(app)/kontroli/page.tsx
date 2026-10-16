@@ -16,7 +16,8 @@ import {
 } from '@wise/core/compliance';
 import { klAllowedViews, type KlConfig } from '@wise/core/office';
 import {
-  auditLog, type FindingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaAiState, kontrolaDue, kontrolaFindings, kontrolaTexts, kontroli, userFirms, users,
+  auditLog, type FindingEvidence, KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaAiState, kontrolaDue, kontrolaFindings, kontrolaPkgState, kontrolaPrepState, kontrolaSubmissionHtml,
+  kontrolaTexts, kontroli, userFirms, users,
   type Firm, type Kontrola, type KontrolaFinding,
 } from '@wise/db';
 import { requireUser } from '@/lib/auth';
@@ -24,7 +25,7 @@ import { isOfficeOwner } from '@/lib/office-owner';
 import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { isKontrolaReadable, kontrolaCaseDocs, pendingKontrolaReads, toFinding } from '@/lib/kontrola';
-import { CaseDocs } from './case-docs';
+import { CaseDocs, PrepAi } from './case-docs';
 import { viewAllowed } from '@/lib/nav';
 import { filesOf, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
@@ -139,6 +140,8 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
   const texts = client ? {} : kontrolaTexts(k);
   const versions = client ? [] : versionsOf(k.data);
   const aiSt = client ? null : kontrolaAiState(k);
+  const prep = client ? null : kontrolaPrepState(k);
+  const pkg = client ? null : kontrolaPkgState(k);
   const disputedN = F.filter((f) => isDisputed(toFinding(f))).length;
   const ch = docs?.external.choice;
   const staff = client ? [] : await db().selectDistinct({ id: users.id, name: users.name }).from(users).leftJoin(userFirms, eq(userFirms.userId, users.id))
@@ -204,6 +207,8 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
         </div>}
       </div>}
 
+      {edit && !k.filedOn && <PrepAi k={k} prep={prep} owner={canDel} />}
+
       <h2 style={{ fontSize: 16, margin: '12px 0 6px' }}>Наоди ({F.length})</h2>
       {F.map((f, i) => <FindingCard key={f.id} f={f} k={k} ev={EV[i]} edit={edit} client={client} />)}
       {!F.length && <div className="card empty">Нема наоди. {edit ? 'Прикачете го актот горе или внесете ги рачно.' : ''}</div>}
@@ -213,7 +218,8 @@ async function Detail({ k, firm, edit, client, canDel, td }: { k: Kontrola; firm
         <button className="btn sm pri" style={{ marginTop: 6 }}>Додај наод</button>
       </ActionForm></div>}
 
-      {docs && (disputedN > 0 || texts.draft || versions.length > 0) && <CaseDocs k={k} ext={docs.external} int={docs.internal} texts={texts} versions={versions} ai={aiSt} edit={edit} />}
+      {docs && (disputedN > 0 || texts.draft || versions.length > 0) && <CaseDocs k={k} ext={docs.external} int={docs.internal} texts={texts} versions={versions} ai={aiSt} edit={edit}
+        att={docs.c.att} pkg={pkg} pkgStale={!!pkg?.hash && pkg.hash !== kontrolaSubmissionHtml(docs.c).hash} />}
 
       <div className="card">
         <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>🛠 Корективни мерки</h2>

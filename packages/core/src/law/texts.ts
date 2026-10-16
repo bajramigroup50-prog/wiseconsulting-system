@@ -51,6 +51,8 @@ export const LAW_CORPUS: readonly LawCorpusEntry[] = [
   { k: 'zin', abbr: 'ЗИН', n: 'Закон за инспекциски надзор', kind: 'zakon', src: [], kw: /инспекциск|инспектор|mbik(ë|e)qyrj/i, home: SV },
   { k: 'zoup', abbr: 'ЗОУП', n: 'Закон за општата управна постапка', kind: 'zakon', src: [], kw: /управна постапка|жалба|procedur(ë|e)s administrative/i, home: SV },
   { k: 'zus', abbr: 'ЗУС', n: 'Закон за управните спорови', kind: 'zakon', src: [], kw: /управн\w* спор|тужба|kontest/i, home: SV },
+  // procedural law of a misdemeanour payment order („📑 Контроли и решенија“ — приговор / барање за судско одлучување)
+  { k: 'zprek', abbr: 'ЗП', n: 'Закон за прекршоците', kind: 'zakon', src: [], kw: /прекрш|платен налог|kundërvajtje/i, home: SV },
   { k: 'zzlp', abbr: 'ЗЗЛП', n: 'Закон за заштита на личните податоци', kind: 'zakon', src: [], kw: /лични податоци|gdpr|t(ë|e) dh(ë|e)nave personale/i, home: SV },
 ];
 
