@@ -7,7 +7,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import type { ScanPurchaseDraft } from '@wise/core/sales';
 import {
-  aiDocuments, codes, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
+  aiDocuments, codes, draftSourceFiles, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -83,7 +83,8 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       const x = doc?.drafts[idx];
       const dr = x?.draft as ScanPurchaseDraft | undefined;
       if (!doc || !dr) return <NoFirm t="Скенираниот документ не постои" />;
-      fileIds = doc.fileId ? [doc.fileId] : [];
+      // the read file (photos read together: only the photos of this invoice's pages)
+      fileIds = draftSourceFiles(doc, idx).fileIds;
       init = {
         ...init, number: dr.number, date: dr.date, docDate: dr.docDate, due: dr.due, partnerId: dr.partnerId, supplierName: dr.supplierName, supplierEdb: dr.supplierEdb,
         ptype: dr.ptype, art32: dr.art32, cash: dr.cash, warehouseId: dr.warehouseId ?? '', shifted: dr.shifted, credit: dr.credit,
@@ -91,7 +92,8 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         stock: dr.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: l.unit ?? 'ком', qty: s(l.qty), price: s(l.price), rab: '', amount: l.amount ? s(l.amount) : '', cn: '', dep: '', sp: l.sp === undefined ? '' : s(l.sp), type: l.type ?? '', rate: s(l.rate ?? ''), isNew: l.isNew })),
         fileIds, scanned: true, scanDocId: doc.id, scanIndex: idx, data: dr.bankAcc ? { ...init.data, bankAcc: dr.bankAcc } : init.data,
       };
-      scanInfo = 'Податоците се прочитани автоматски од документот' + (x?.msg ? ' – провери: ' + x.msg : '') + '. Проверете ги износите пред да зачувате.';
+      scanInfo = 'Податоците се прочитани автоматски од документот' + (doc.drafts.length > 1 ? ` (фактура ${idx + 1} од ${doc.drafts.length}${dr.pages ? ', стр. ' + dr.pages : ''} – секоја се книжи посебно)` : '')
+        + (x?.msg ? ' – провери: ' + x.msg : '') + '. Проверете ги износите пред да зачувате.';
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
       const Q = await scanQueue(firm.id, doc.id, idx);
       if (Q && (Q.batchId || Q.rest)) queue = { batch: !!Q.batchId, name: Q.name, rest: Q.rest, skipHref: Q.next ? await scanEditorHref(firm.id, Q.next, back) : null, listHref: back };

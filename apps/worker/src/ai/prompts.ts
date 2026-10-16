@@ -22,6 +22,18 @@ SEVERAL INVOICES: if the document contains more than one separate invoice (diffe
 export const PUR_BANK_ADD = `
 SUPPLIER BANK ACCOUNT: in every invoice object also return "supplierBankAccount":string = the SUPPLIER's (issuer's) bank account printed on the invoice („жиро сметка“, „трансакциска сметка“, „Ж.С.“, IBAN, e.g. 300-0000012345-67 or MK07300000001234567) exactly as printed; "" if none. NEVER the buyer's account.`;
 
+/**
+ * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the rule of the bank import — every
+ * document is registered SEPARATELY. Several invoices in one file come back as `invoices[]`, each with its pages; never
+ * one merged invoice, a number range („101-103“) or a sum.
+ */
+export const INV_MULTI_ADD = `
+ONE OBJECT PER INVOICE: when the file holds several invoices (several headers „ФАКТУРА бр.“ / „Број на фактура“, different numbers or different suppliers) ALWAYS reply {"invoices":[…]} with one object per invoice in the order printed. Each object has ONLY that invoice's own supplier, ЕДБ, number, date, lines, VAT recapitulation and total. NEVER merge invoices into one object, NEVER return a range of numbers (like "101-103") and NEVER add up the totals of different invoices. In every invoice object also return "pages":string = the page(s) of the file it is printed on, e.g. "1" or "2-3" (the file's page / image order, first = 1).`;
+
+/** Added when several photos / scans are read together (`options.extraFileIds`): they are pages, maybe of several invoices. */
+export const INV_PAGES_NOTE = (n: number) => `
+The ${n} images above are the PAGES of the file in this order (page 1 = the first image). They may belong to one or to several invoices: group them by invoice header (a new „ФАКТУРА бр.“ / new number / new supplier starts a new invoice; a page without a header continues the invoice before it).`;
+
 /** Legacy `SALE_PROMPT` (8379–8382) — a function of the own firm. */
 export const SALE_PROMPT = (firm: { name?: string | null; edb?: string | null }) => `This is a SALES invoice (излезна фактура) ISSUED BY the company "${firm.name || ''}" (ЕДБ ${firm.edb || ''}) in North Macedonia to a customer. Extract it. The BUYER (купувач / примач) is the other party, NOT the issuer. Reply with ONLY JSON:
 {"number":string,"date":"YYYY-MM-DD","dueDate":"YYYY-MM-DD","buyerName":string,"buyerEdb":string,"buyerAddress":string,"buyerCity":string,"art32":boolean,"groups":[{"rate":18|10|5|0,"base":number,"vat":number}],"lines":[{"code":string,"barcode":string,"name":string,"unit":string,"qty":number,"price":number,"discount":number,"amount":number,"rate":number}],"total":number}

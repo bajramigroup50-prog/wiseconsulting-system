@@ -9,6 +9,7 @@ import type { ScanInvoice } from '../sales/scan';
 import { AmbiguousAmountsError, ambExamples, reconcileFmt, type NumFmt } from '../numfmt';
 import { parseAccount, supplierAccountIn } from '../bank/mk-banks';
 import { dateIn, docFmt, lineText, numsIn, numTokens, type PdfLine } from './pdf-lines';
+import { normDocNo } from '../sales/docs';
 
 const RATES = [18, 10, 5, 0];
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -94,6 +95,7 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
   const edbs = edbsIn(all).filter((e) => !own || !own.endsWith(e.slice(-7)));
   // VAT recapitulation: a line naming a rate with at least two amounts (base, VAT)
   const groups: { rate: number; base: number; vat: number; kind: string }[] = [];
+  const bad: typeof groups = [];
   for (const t of text) {
     const m = /(?:ддв|данок|vat|стапка)?[^\d]{0,12}(18|10|5|0)\s*%/i.exec(t);
     if (!m) continue;
@@ -106,13 +108,20 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
     // base, vat[, total]: pick the pair with vat ≈ base × rate
     let found: [number, number] | null = null;
     for (let i = 0; i < ns.length && !found; i++) for (let j = i + 1; j < ns.length && !found; j++) if (near(r2(ns[i]! * rate / 100), ns[j]!)) found = [ns[i]!, ns[j]!];
+    // a labelled VAT line („ДДВ 10% 300,00 33,00“) whose VAT is not base × rate: kept as printed (below), never
+    // replaced by a split of the total that would hide the error
+    if (!found && ns.length === 2 && ns[0]! > ns[1]! && /ддв|данок|vat|стапка/i.test(m[0])) bad.push({ rate, base: ns[0]!, vat: ns[1]!, kind: 'other' });
     if (!found || (!found[0] && !found[1])) continue;
     if (groups.some((g) => g.rate === rate && near(g.base, found![0]))) continue;
     groups.push({ rate, base: found[0], vat: found[1], kind: 'other' });
   }
   const totT = after(text, /(вкупно за плаќање|износ за плаќање|за наплата|вкупен износ|вкупно со ддв|total due|grand total|вкупно)/i);
   const total = numsIn(totT, fmt).filter((n) => n > 0).pop() ?? 0;
-  const recap = groups.length > 0;
+  // the amount printed under a „to pay“ label (not a plain „Вкупно“, which is also printed for the base)
+  const strong = numsIn(after(text, CLOSE_RE), fmt).filter((n) => n > 0).pop() ?? 0;
+  const recap = groups.length > 0 || bad.length > 0;
+  // only VAT lines that do not reconcile: the draft shows them as printed and its check reports the difference
+  if (!groups.length && bad.length) groups.push(...bad);
   if (!groups.length && total > 0) {
     // no recapitulation: the total with the only rate printed on the document
     const rs = RATES.filter((r) => new RegExp(`(^|\\D)${r}\\s*%`).test(all));
@@ -126,9 +135,125 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
     inv: {
       number: invoiceNoIn(text), date, ...(due ? { dueDate: due } : {}),
       ...(o.kind === 'sale' ? { buyerEdb: edbs[0] ?? '' } : { supplierEdb: edbs[0] ?? '', ...(supplierAccountIn(all) ? { supplierBankAccount: supplierAccountIn(all) } : {}) }),
-      groups, lines: [], total: total && near(total, sum) ? total : sum,
+      // FIX (one document per invoice): a printed „за плаќање“ total that does not agree with the recapitulation is
+      // kept, so the check of the draft reports it („износите не се совпаѓаат“) instead of the sum hiding it
+      groups, lines: [], total: total && near(total, sum) ? total : recap && strong && !near(strong, sum) ? strong : sum,
     },
     // reconciles: a recapitulation (VAT = base × rate) whose sum is the printed total
     ok: recap && total > 0 && near(total, sum),
   };
+}
+
+/* ------------------------------------------------------------------ several invoices in one PDF */
+
+/** A label that closes an invoice: the amount to pay. */
+const CLOSE_RE = /(вкупно\s+за\s+плаќање|износ\s+за\s+плаќање|за\s+наплата|за\s+плаќање|вкупно\s+со\s+ддв|total\s+due|grand\s+total|amount\s+due)/i;
+/** An amount with decimals (not a date like „15.10.2026“). */
+const MONEY = /(?<![\d.,])\d{1,3}(?:[.,']\d{3})*[.,]\d{2}(?![\d.,])|(?<![\d.,])\d+[.,]\d{2}(?![\d.,])/;
+/** A cell that OPENS with an invoice-number label: „ФАКТУРА бр. 101/2026“, „Фактура број: F-77“, „Број на фактура: 5“. */
+const HEAD_NO = [
+  new RegExp(String.raw`^(?:(?:влезна|даночна|сметка[- ])\s*)?(?:фактура|ф-ра|invoice|faktura)\s*(?:бр(?:ој)?\.?|број|no\.?|nr\.?|№|#)\s*[:.]?\s*${NO}`, 'iu'),
+  new RegExp(String.raw`^(?:број\s+на\s+(?:фактура|сметка-фактура)|invoice\s+(?:number|no\.?))\s*[:.]?\s*${NO}`, 'iu'),
+];
+/** A cell that is only the title („ФАКТУРА“, „Даночна фактура“, „INVOICE“); its number is in a „Број“ cell below. */
+const TITLE = /^(?:(?:влезна|даночна|сметка[- ])\s*)?(?:фактура|invoice|faktura)$/iu;
+/** „Број | 0009/2026“ under a title. */
+const BROJ = new RegExp(String.raw`(?:^|  )(?:бр(?:ој)?\.?|број|no\.?|nr\.?|№)[ \t]*[:.]?[ \t]*${NO}`, 'iu');
+/** A line that names a tax number (the seller's letterhead or the buyer block). */
+const EDB_LINE = /ЕДБ|даночен|дан\.\s*бр|(?:MK|МК)\s?[45]\d{12}|VAT|tax/i;
+/** Lines that close a printed invoice (signatures, payment note) — never part of the next one's letterhead. */
+const FOOTER = /сметка|потпис|печат|м\.\s?п\.|примил|фактурирал|издал/i;
+
+/**
+ * The invoice number of a header at line `i`: '' for a title without a number, null when the line is no header.
+ * Only a cell that STARTS with the label counts (a reference „по фактура бр. 11“ inside a text is no header).
+ */
+function headerNo(text: readonly string[], L: readonly PdfLine[], i: number): string | null {
+  for (const c of L[i]!.cells) {
+    const s = c.s.trim();
+    for (const re of HEAD_NO) { const m = re.exec(s); if (m && !notInvoiceNo(m[1]!)) return m[1]!; }
+    if (TITLE.test(s)) {
+      for (let j = i + 1; j < Math.min(text.length, i + 4) && L[j]!.page === L[i]!.page; j++) {
+        const m = BROJ.exec(text[j]!);
+        if (m && !notInvoiceNo(m[1]!)) return m[1]!;
+      }
+      return '';
+    }
+  }
+  return null;
+}
+
+/**
+ * The PDF's lines cut into invoices (the rule of the bank import: every document is registered separately). A new
+ * invoice starts at:
+ *  - a header with ANOTHER invoice number („ФАКТУРА бр.“ / „Фактура број“ / „Број на фактура“ / a title with a „Број“
+ *    cell below) — after the current invoice was closed by its total, or near the top of a page;
+ *  - a new seller ЕДБ block after the current invoice was closed by its total („Вкупно за плаќање“).
+ * The cut is at the top of the page when the new invoice starts on a new page (its letterhead is above the title),
+ * else right above its letterhead (the lines after the previous total without amounts / dates / signatures). A
+ * multi-page invoice (no total yet, or the same number repeated in the page header) stays one. The firm's own ЕДБ
+ * (the buyer) is never a new seller.
+ */
+export function splitPdfInvoices(L: readonly PdfLine[], o: { ownEdb?: string | null } = {}): PdfLine[][] {
+  if (L.length < 2) return L.length ? [[...L]] : [];
+  const text = L.map(lineText);
+  const own = String(o.ownEdb ?? '').replace(/\D/g, '');
+  const isOwn = (e: string) => own.length >= 7 && own.endsWith(e.slice(-7));
+  const cuts: number[] = [0];
+  let cur: string | null = null, closed = false, lastMoney = -1, pageStart = 0;
+  let seen = new Set<string>();
+  for (let i = 0; i < L.length; i++) {
+    const t = text[i]!;
+    if (i === 0 || L[i]!.page !== L[i - 1]!.page) pageStart = i;
+    const h = headerNo(text, L, i);
+    const nn = h ? normDocNo(h) : '';
+    const edbs = EDB_LINE.test(t) ? edbsIn(t).filter((e) => !isOwn(e)) : [];
+    const start = cuts[cuts.length - 1]!;
+    const newNo = !!nn && cur != null && nn !== cur && (closed || i - pageStart < 10);
+    const newSeller = closed && edbs.some((e) => !seen.has(e));
+    if (i > start && (newNo || newSeller)) {
+      // where the new invoice starts: its page, or right above its letterhead after the previous one's last amount
+      let cut = i;
+      if (lastMoney < pageStart) cut = pageStart;
+      else while (cut - 1 > lastMoney && i - (cut - 1) <= 6 && !MONEY.test(text[cut - 1]!) && !dateIn(text[cut - 1]!) && !FOOTER.test(text[cut - 1]!)) cut--;
+      cut = Math.max(cut, start + 1);
+      cuts.push(cut);
+      cur = null; closed = false; seen = new Set();
+      for (let j = cut; j < i; j++) if (EDB_LINE.test(text[j]!)) for (const e of edbsIn(text[j]!)) if (!isOwn(e)) seen.add(e);
+    }
+    if (nn && cur == null) cur = nn;
+    for (const e of edbs) seen.add(e);
+    if (MONEY.test(t)) { lastMoney = i; if (CLOSE_RE.test(t)) closed = true; }
+  }
+  return cuts.map((c, k) => L.slice(c, cuts[k + 1] ?? L.length)).filter((x) => x.length);
+}
+
+/** „2-3“ / „4“: the pages of a part. */
+const pagesOf = (P: readonly PdfLine[]): string => {
+  const a = Math.min(...P.map((l) => l.page)), b = Math.max(...P.map((l) => l.page));
+  return a === b ? String(a) : `${a}-${b}`;
+};
+
+/**
+ * Every invoice of the PDF: one when it holds one (exactly {@link invoiceFromPdf}), else one per part of
+ * {@link splitPdfInvoices}, each read and checked ON ITS OWN — its own supplier, number, date, VAT groups and total
+ * (never merged, never a number range, never summed) and its pages (`pages`: „2-3“). A part with an invoice header
+ * whose amounts are not read is kept with no groups (its draft says „нема износ“), never dropped silently.
+ */
+export function invoicesFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 'purchase' | 'sale' } = {}): ScanInvoice[] {
+  const P = splitPdfInvoices(L, o);
+  if (P.length <= 1) { const one = invoiceFromPdf(L, o); return one ? [one] : []; }
+  const own = String(o.ownEdb ?? '').replace(/\D/g, '');
+  const out: ScanInvoice[] = [];
+  for (const part of P) {
+    const inv = invoiceFromPdf(part, o);
+    if (inv) { out.push({ ...inv, pages: pagesOf(part) }); continue; }
+    const text = part.map(lineText);
+    const no = invoiceNoIn(text);
+    if (!no) continue;
+    const all = text.join('\n');
+    const e = edbsIn(all).filter((x) => !own || !own.endsWith(x.slice(-7)));
+    out.push({ number: no, date: dateIn(all), ...(o.kind === 'sale' ? { buyerEdb: e[0] ?? '' } : { supplierEdb: e[0] ?? '' }), groups: [], lines: [], total: 0, pages: pagesOf(part) });
+  }
+  return out;
 }

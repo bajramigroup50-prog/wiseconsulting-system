@@ -14,25 +14,46 @@ import { locationOptions } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, retryScan, saveBatchOk, saveSalesOk } from '@/app/(app)/skan/actions';
+import { cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
 import { AutoRefresh, ScanUpload } from './scan-upload';
 
 /** Legacy batch pills (5361) and the sales-scan pills (8424). */
 const PILL: Record<string, [string, string]> = {
   queued: ['', 'чека'], reading: ['info', 'се чита…'], ok: ['good', '✓ во ред'], check: ['warn', 'провери'], dup: ['bad', 'дупликат'],
-  error: ['bad', 'грешка'], saved: ['good', '✓ зачувано'],
+  error: ['bad', 'грешка'], saved: ['good', '✓ зачувано'], skip: ['', 'прескокната'],
 };
 const PILL_SALE: Record<string, [string, string]> = {
   queued: ['info', 'се чита…'], reading: ['info', 'се чита…'], ok: ['good', '✓ спремна'], check: ['warn', 'провери'], dup: ['bad', 'веќе внесена'],
-  error: ['bad', 'грешка'], saved: ['good', 'зачувана'],
+  error: ['bad', 'грешка'], saved: ['good', 'зачувана'], skip: ['', 'прескокната'],
 };
 
 type Row = { doc: AiDocument; i: number | null; fileName: string };
 
+/** Pages of a draft („стр. 2-3“): its own field, or the part of a split PDF it was read from. */
+const pagesOf = (doc: AiDocument, i: number) => String((doc.drafts[i]?.draft as { pages?: string } | undefined)?.pages || (doc.options as { pages?: string }).pages || '');
+
 function rowsOf(docs: AiDocument[], names: Map<string, string>): Row[] {
   return docs.flatMap((doc): Row[] => (doc.status === 'done' || doc.status === 'saved') && doc.drafts.length
-    ? doc.drafts.map((_, i) => ({ doc, i, fileName: ((doc.fileId ? names.get(doc.fileId) : undefined) ?? '') + (doc.drafts.length > 1 ? ` #${i + 1}/${doc.drafts.length}` : '') }))
+    ? doc.drafts.map((_, i) => ({ doc, i, fileName: ((doc.fileId ? names.get(doc.fileId) : undefined) ?? '') + (doc.drafts.length > 1 ? ` #${i + 1}/${doc.drafts.length}` : '') + (pagesOf(doc, i) ? ` · стр. ${pagesOf(doc, i)}` : '') }))
     : [{ doc, i: null, fileName: (doc.fileId ? names.get(doc.fileId) : undefined) ?? '' }]);
+}
+
+/**
+ * „Пронајдени N фактури“: files that held several invoices — one document with several drafts, or the parts of a PDF
+ * cut per invoice (`options.parentId`) — each invoice listed below as its own row.
+ */
+function multiFound(docs: AiDocument[], names: Map<string, string>, parents: Map<string, string>): { name: string; n: number }[] {
+  const by = new Map<string, { name: string; n: number }>();
+  for (const d of docs) {
+    if (!(d.status === 'done' || d.status === 'saved')) continue;
+    const pid = (d.options as { parentId?: string }).parentId;
+    const key = pid ?? d.id;
+    const name = (pid ? parents.get(pid) : d.fileId ? names.get(d.fileId) : '') ?? '';
+    const g = by.get(key) ?? { name, n: 0 };
+    g.n += d.drafts.length;
+    by.set(key, g);
+  }
+  return [...by.values()].filter((g) => g.n > 1);
 }
 
 type PurDraft = { partnerId?: string; supplierName?: string; number?: string; date?: string; groups?: { base: number; vat: number }[]; stock?: unknown[]; art32?: boolean };
@@ -55,10 +76,15 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const names = new Map((docs.length ? await db().select({ id: files.id, n: files.name }).from(files).where(inArray(files.id, docs.flatMap((d) => (d.fileId ? [d.fileId] : [])))) : []).map((f) => [f.id, f.n]));
   const P = new Map((await db().select({ id: partners.id, n: partners.name }).from(partners).where(eq(partners.firmId, firm.id))).map((p) => [p.id, p.n]));
   const R = rowsOf(docs, names);
+  // the original files of PDFs cut per invoice (the parts are listed, the original is not)
+  const pids = [...new Set(docs.flatMap((d) => { const p = (d.options as { parentId?: string }).parentId; return p && /^[0-9a-f-]{36}$/i.test(p) ? [p] : []; }))];
+  const parents = new Map((pids.length ? await db().select({ id: aiDocuments.id, n: files.name }).from(aiDocuments).innerJoin(files, eq(files.id, aiDocuments.fileId))
+    .where(and(eq(aiDocuments.firmId, firm.id), inArray(aiDocuments.id, pids))) : []).map((x) => [x.id, x.n]));
+  const found = multiFound(docs, names, parents);
   const savedIds = R.flatMap((r) => (r.i != null && r.doc.drafts[r.i]!.savedId ? [r.doc.drafts[r.i]!.savedId!] : []));
   const J = new Map((savedIds.length ? await db().select({ s: journals.sourceId, n: journals.number }).from(journals)
     .where(and(eq(journals.firmId, firm.id), inArray(journals.sourceId, savedIds))) : []).map((x) => [x.s, x.n]));
-  const st = (r: Row) => (r.i == null ? r.doc.status : r.doc.drafts[r.i]!.savedId ? 'saved' : r.doc.drafts[r.i]!.status);
+  const st = (r: Row) => (r.i == null ? r.doc.status : r.doc.drafts[r.i]!.savedId ? 'saved' : r.doc.drafts[r.i]!.skipped ? 'skip' : r.doc.drafts[r.i]!.status);
   const cnt = (k: string) => R.filter((r) => st(r) === k).length;
   const busy = docs.some((d) => d.status === 'queued' || d.status === 'reading');
   const editor = kind === 'sale' ? '/izlez' : '/vlez';
@@ -75,6 +101,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         {mode === 'skan' && <Link className={'btn' + (kind === 'purchase' ? ' pri' : '')} href="/skan">Влезни</Link>}
         {mode === 'skan' && <Link className={'btn' + (kind === 'sale' ? ' pri' : '')} href="/skan?k=sale">Излезни (издадени)</Link>}
         {mode === 'skan' && kind === 'sale' && write && <RowAction className="btn pri" action={saveSalesOk} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
+        {mode === 'skan' && kind === 'purchase' && write && cnt('ok') > 0 && <RowAction className="btn pri" action={savePurchasesOk} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури? Секоја е посебна фактура со свој налог; дупликатите се прескокнуваат.`} />}
         {busy && write && <RowAction className="btn sm" action={cancelScans.bind(null, kind, mode === 'skan' ? null : batchId ?? null)} label="Откажи читање" />}
         {mode === 'skan' && admin && <Link className="btn sm" href="/skan?cmp=1" title="Спореди брз и детален AI модел">🧪 Тест AI</Link>}
         {mode !== 'skan' && batchId && R.length > 0 && write && <RowAction className="btn" action={clearBatch.bind(null, batchId)} label="Исчисти листа" />}
@@ -116,6 +143,11 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
       {R.length > 0 && mode !== 'skan' && (
         <div className="tiles kpi k4">{[['Вкупно', R.length, 't3'], ['Во ред', cnt('ok'), 't1'], ['За проверка', cnt('check') + cnt('dup') + cnt('error'), 't2'], ['Зачувани', cnt('saved'), 't8']].map(([a, b, t]) => <div key={String(a)} className={'tile kt ' + t}><span>{a}</span><b className="num">{b}</b></div>)}</div>
       )}
+      {found.length > 0 && (
+        <div className="callout">{found.map((g, k) => (
+          <div key={k}>{g.name ? <>„{g.name}“: </> : null}<b>Пронајдени {g.n} фактури</b> – секоја е посебен документ (свој добавувач, број, датум, износ и налог). Прегледајте ја, зачувајте ја или прескокнете ја секоја посебно.</div>
+        ))}</div>
+      )}
       {kind === 'sale' && R.length > 0 && <h2 style={{ fontSize: 16 }}>📷 Скенирани излезни фактури ({R.length})</h2>}
       {R.length ? (
         <div className="tw"><table className={kind === 'sale' ? 'dense' : undefined}>
@@ -130,12 +162,14 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
             const status = <td><span className={'pill ' + pc}>{pt}</span>{(x?.msg || r.doc.error) && <div className="mini">{x?.msg || r.doc.error}</div>}{r.doc.model && <div className="mini">{readVia(r.doc.model, r.doc.options)}</div>}</td>;
             const acts = (
               <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-                {x && !x.savedId && write && <Link className="btn sm" href={`${editor}?scan=${r.doc.id}&i=${r.i}&back=${encodeURIComponent(back)}`}>{kind === 'sale' ? (s0 === 'dup' ? 'Отвори сепак' : 'Провери') : s0 === 'ok' ? 'Прегледај' : 'Отвори и поправи'}</Link>}
+                {x && !x.savedId && write && r.doc.drafts.length > 1 && <RowAction action={skipScanDraft.bind(null, r.doc.id, r.i!, !x.skipped)} label={x.skipped ? 'Врати' : 'Прескокни'} title={x.skipped ? 'Врати ја фактурата во листата' : 'Не ја внесувај оваа фактура (другите од истиот документ остануваат)'} />}
+                {x && !x.savedId && !x.skipped && write && <Link className="btn sm" href={`${editor}?scan=${r.doc.id}&i=${r.i}&back=${encodeURIComponent(back)}`}>{kind === 'sale' ? (s0 === 'dup' ? 'Отвори сепак' : 'Провери') : s0 === 'ok' ? 'Прегледај' : 'Отвори и поправи'}</Link>}
                 {x?.savedId && J.get(x.savedId) && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(J.get(x.savedId)!)}`}>Налог</Link>}
                 {x?.savedId && <Link className="btn sm ghost" href={`${editor}?edit=${x.savedId}`}>Отвори</Link>}
                 {kind === 'sale' && x && !x.savedId && s0 === 'check' && !(r.doc.options as { deep?: boolean }).deep && write && <RowAction action={deepScan.bind(null, r.doc.id)} label="🔍 Подетално · 💲 AI" title="Повторно читање со подетален модел (побавно, ~1–2 мин., троши AI-кредит)" />}
                 {write && r.doc.status === 'error' && <RowAction action={retryScan.bind(null, r.doc.id)} label="↻ Повторно" />}
-                {write && r.doc.status !== 'reading' && r.doc.status !== 'saved' && !x?.savedId && <RowAction action={removeScan.bind(null, r.doc.id)} label="✕" title="Отстрани" confirm={kind === 'sale' ? `Да се отстрани „${r.fileName}“ од листата за проверка?` : undefined} />}
+                {write && r.doc.status !== 'reading' && r.doc.status !== 'saved' && !x?.savedId && !r.doc.drafts.some((y) => y.savedId) && <RowAction action={removeScan.bind(null, r.doc.id)} label="✕" title="Отстрани"
+                  confirm={r.doc.drafts.length > 1 ? `Да се отстрани целиот документ (${r.doc.drafts.length} фактури) од листата? За една фактура користете „Прескокни“.` : kind === 'sale' ? `Да се отстрани „${r.fileName}“ од листата за проверка?` : undefined} />}
               </td>);
             if (kind === 'sale') {
               const d = (x?.draft ?? {}) as SaleDraft;
