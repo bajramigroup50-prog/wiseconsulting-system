@@ -50,7 +50,7 @@ async function upsertRule(tx: Tx, firmId: string, kind: 'desc' | 'osnov', match:
  * Book a line directly on a konto (with an optional partner), clearing any document link. With `learn`, the
  * description rule (`learnRule`) and the payment-code rule (`learnOsnov`) are remembered for the next import.
  */
-export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string | null; lineId: string; konto: string; partnerId?: string | null; learn?: boolean }): Promise<string[]> {
+export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string | null; lineId: string; konto: string; partnerId?: string | null; learn?: boolean; post?: boolean }): Promise<string[]> {
   if (!KONTO_RE.test(a.konto)) throw new BankError('Неважечко конто.');
   const { line, st } = await lineOf(tx, a.firmId, a.lineId);
   // legacy `kontoOpts(…, k => !bankKontos().includes(k))`: a bank account's own konto is not a counter konto
@@ -79,13 +79,13 @@ export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string |
       learned.push(k);
     }
   }
-  await postStatement(tx, st.id, a.userId);
+  if (a.post !== false) await postStatement(tx, st.id, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bankKonto', entityType: 'bank_line', entityId: line.id, data: { konto: a.konto, partnerId: a.partnerId ?? null, learned } });
   return learned;
 }
 
 /** Set / change the partner of a line (or create the suggested partner). */
-export async function setLinePartner(tx: Tx, a: { firmId: string; userId: string | null; lineId: string; partnerId?: string | null; createName?: string | null }): Promise<string | null> {
+export async function setLinePartner(tx: Tx, a: { firmId: string; userId: string | null; lineId: string; partnerId?: string | null; createName?: string | null; post?: boolean }): Promise<string | null> {
   const { line, st } = await lineOf(tx, a.firmId, a.lineId);
   let pid = a.partnerId || null;
   if (!pid && a.createName?.trim()) {
@@ -104,9 +104,29 @@ export async function setLinePartner(tx: Tx, a: { firmId: string; userId: string
   }
   await tx.update(bankLines).set({ partnerId: pid, newPartner: pid ? null : line.newPartner }).where(eq(bankLines.id, line.id));
   if (pid) await learnAccountsFromStatements(tx, { firmId: a.firmId, userId: a.userId, lineIds: [line.id] });
-  await postStatement(tx, st.id, a.userId);
+  if (a.post !== false) await postStatement(tx, st.id, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bankPartner', entityType: 'bank_line', entityId: line.id, data: { partnerId: pid } });
   return pid;
+}
+
+/**
+ * Several line edits at once („Зачувај ги сите промени“ in the open nalog): each line goes through `setLineKonto`
+ * (`konto` given) or `setLinePartner` (only the partner changed — an invoice link stays), without learning rules;
+ * every touched statement is re-posted ONCE at the end. Untouched lines keep their booking.
+ */
+export async function setLinesBulk(tx: Tx, a: {
+  firmId: string; userId: string | null; items: { lineId: string; konto?: string | null; partnerId?: string | null }[];
+}): Promise<{ lines: number; statements: number }> {
+  const touched = new Set<string>();
+  for (const it of a.items) {
+    const [l] = await tx.select({ statementId: bankLines.statementId }).from(bankLines).where(and(eq(bankLines.id, it.lineId), eq(bankLines.firmId, a.firmId))).limit(1);
+    if (!l) throw new BankError('Ставката не постои.');
+    if (it.konto) await setLineKonto(tx, { firmId: a.firmId, userId: a.userId, lineId: it.lineId, konto: it.konto, partnerId: it.partnerId ?? null, learn: false, post: false });
+    else await setLinePartner(tx, { firmId: a.firmId, userId: a.userId, lineId: it.lineId, partnerId: it.partnerId ?? null, post: false });
+    touched.add(l.statementId);
+  }
+  if (touched.size) await postStatements(tx, touched, a.userId);
+  return { lines: a.items.length, statements: touched.size };
 }
 
 /** Legacy `unlinkBank`: back to unbooked. */
