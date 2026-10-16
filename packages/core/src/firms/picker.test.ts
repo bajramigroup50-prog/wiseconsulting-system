@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alBellState, alMailBody, alSummaryText, fpApply, fpDdvDue, fpDdvNo, fpExportRows, fpGroupKey, fpLetter, fpPhone, fpPrevMonth, fpShort, type FpFirm } from './picker';
+import { fgClosed, fgCodes, fgData, fgFtype, fgMatch, alBellState, alMailBody, alSummaryText, fpApply, fpDdvDue, fpDdvNo, fpExportRows, fpGroupKey, fpLetter, fpPhone, fpPrevMonth, fpShort, type FpFirm } from './picker';
 
 const F = (o: Partial<FpFirm> & { id: string; name: string }): FpFirm => ({ vat: true, month: false, ...o });
 
@@ -58,5 +58,44 @@ describe('notifications (legacy alSummaryText / alMail / alBell)', () => {
     expect(alBellState(1, 2)).toMatchObject({ cls: 'bad', n: 3, label: 'ИТНО' });
     expect(alBellState(0, 2)).toMatchObject({ cls: 'warn', label: 'ВНИМАНИЕ' });
     expect(alBellState(0, 0)).toMatchObject({ cls: 'ok', label: 'Нема известувања' });
+  });
+});
+
+describe('„Избор на работна фирма“ grid mapping (old program)', () => {
+  it('Шифра / Родител per year', () => {
+    const st = { parent: '2098', curYear: '2024' };
+    expect(fgCodes('3137', st, 2024)).toEqual({ code: '3137', parent: '2098' });
+    // the year before the imported one: the parent IS that year's code; its own parent was not imported → empty
+    expect(fgCodes('3137', st, 2023)).toEqual({ code: '2098', parent: '' });
+    expect(fgCodes('3137', st, 2025)).toEqual({ code: '3137', parent: '2098' });
+    // no parent imported / a firm created in WISE: empty Родител (valid: no record the year before)
+    expect(fgCodes('3137', { curYear: '2024' }, 2023)).toEqual({ code: '3137', parent: '' });
+    expect(fgCodes(null, {}, 2026)).toEqual({ code: '', parent: '' });
+    expect(fgCodes('7', { parent: 5 }, 2026)).toEqual({ code: '7', parent: '5' });
+  });
+  it('Ф/СТД and Заклуч.', () => {
+    expect(fgFtype({ ftype: 'СТД' }, 'doo')).toBe('СТД');
+    expect(fgFtype({}, 'dooel')).toBe('Ф');
+    expect(fgFtype({}, 'tp')).toBe('СТД');
+    expect(fgFtype({}, 'doo', 'sd')).toBe('СТД');
+    expect(fgFtype({}, 'zdr')).toBe('');
+    expect(fgClosed('closed', {}, 2025)).toBe('Д');
+    expect(fgClosed('carried', {}, 2025)).toBe('Д');
+    expect(fgClosed('open', { closedFlag: 'Д', curYear: '2025' }, 2025)).toBe('Н');
+    expect(fgClosed(null, { closedFlag: 'Д', curYear: '2025' }, 2025)).toBe('Д');
+    expect(fgClosed(null, { closedFlag: 'Д', curYear: '2025' }, 2026)).toBe('Н');
+    expect(fgClosed(undefined, {}, 2026)).toBe('Н');
+  });
+  it('fgData: bank accounts and import settings, empty columns kept; search by either code or account', () => {
+    const d = fgData({ code: '3137', legalForm: 'doo', activity: null, settings: { parent: '2098', curYear: '2026', nkd: '86.230', bankName: 'НЛБ', bankAccount: '210111' } }, 2026,
+      [{ account: null, name: 'Каса' }, { account: '300-1', name: 'Трансакциска сметка' }, { account: '500-2', name: 'Стопанска банка' }]);
+    expect(d).toMatchObject({ code: '3137', parent: '2098', year: '2026', bank: '300-1', bank2: '500-2', activity: '86.230', bankName: 'НЛБ', ftype: 'Ф', closed: 'Н', regNo: '', opstina: '' });
+    expect([...d.accts].sort()).toEqual(['210111', '300-1', '500-2']);
+    expect(fgData({ settings: {} }, 2026, [{ account: '1', name: 'Комерцијална' }]).bankName).toBe('Комерцијална');
+    const f = F({ id: 'x', name: 'АЛФА', code: '2098', g: d });
+    expect(fgMatch(f, '3137')).toBe(true);
+    expect(fgMatch(f, '2098')).toBe(true);
+    expect(fgMatch(f, '3001')).toBe(true);
+    expect(fgMatch(f, 'бета')).toBe(false);
   });
 });
