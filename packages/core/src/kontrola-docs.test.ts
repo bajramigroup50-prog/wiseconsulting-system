@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addVersion, aiPatches, chooseSubmission, docHtml, docText, findingRisk, kontrolaAiPrompt, kontrolaClientData, kontrolaInternal, kontrolaLawContext,
+  addVersion, aiPatches, articlePara, chooseSubmission, kontrolaLawPlan, remedyProcLaws, docHtml, docText, findingRisk, kontrolaAiPrompt, kontrolaClientData, kontrolaInternal, kontrolaLawContext,
   kontrolaSubmission, lawRefsOf, parseKontrolaAi, submissionTypeFor, suggestTasks, VERIFY_TAG, type CaseInput, type Finding,
 } from './compliance';
 import { LR_RULES } from './law/lawrep';
@@ -188,5 +188,26 @@ describe('AI legal analysis (parse / check)', () => {
   });
   it('rejects an answer without JSON', () => {
     expect(() => parseKontrolaAi('не знам', ctx, [1])).toThrow(/JSON/);
+  });
+});
+
+describe('full law texts: the plan, the став, the attachments', () => {
+  it('plans the cited articles (with став) in the version of the audited period, the procedural law on the date of the act', () => {
+    const p = kontrolaLawPlan({ ...base, items: [{ f: { ...F[0]!, article: 'чл. 34 ст. 2 ЗДДВ', recommendation: 'object' } }] });
+    expect(p.refs).toEqual(expect.arrayContaining([{ law: 'ZDDV', art: '34', para: '2', date: '2026-03-31' }]));
+    expect(p.proc).toEqual(['ZDP', 'ZOUP']);
+    expect(p.queries.at(-1)).toMatchObject({ proc: true, laws: ['ZDP', 'ZOUP'], date: '2026-10-01' });
+    expect(remedyProcLaws('ujp', 'vtor', 'tuzhba')).toEqual(['ZUS', 'ZDP']);
+    expect(remedyProcLaws('dpi', 'platen', 'prigovor')).toEqual(['ZP']);
+    expect(articlePara('(1) Прв став.\n(2) Втор став\nпродолжува.\n(3) Трет.', '2')).toBe('Втор став\nпродолжува.');
+  });
+  it('lists the numbered attachments and cites them per finding', () => {
+    const d = kontrolaSubmission({ ...base, attachments: [
+      { no: 1, label: 'Копија од актот што се оспорува', short: 'Копија од актот', findings: [] },
+      { no: 2, label: 'Книга на влезни фактури (ДДВ) за 01.01.2026–31.03.2026', short: 'Книга', findings: [1] },
+    ] });
+    const t = docText(d);
+    expect(t).toMatch(/ПРИЛОЗИ\nПрилог 1: Копија од актот што се оспорува\nПрилог 2: Книга на влезни фактури \(ДДВ\) за 01\.01\.2026–31\.03\.2026\nПрилог 3: Полномошно/);
+    expect(t).toContain('Докази: Прилог 2 (Книга на влезни фактури (ДДВ) за 01.01.2026–31.03.2026); Налог бр. 12 од 31.03.2026.');
   });
 });

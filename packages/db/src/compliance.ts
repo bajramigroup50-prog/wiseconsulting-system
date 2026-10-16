@@ -7,7 +7,7 @@
  * - personal data: the default processing activities of a client and the access log of personal-data views.
  * Every mutation writes its `audit_log` row in the caller's transaction; permission checks are the caller's.
  */
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   AUTH_AREA, daysLeft, deadlineFrom, DEFAULT_ACTIVITIES, fromCents, invoiceLegalIssues, isFindingArea, isKontrolaAuth, isKontrolaDoc, isKontrolaStatus, isVerdict,
   kontrolaDeadlines, numberingIssues, RECOMMEND_LBL, toCents, CASH_LIMIT_EUR, CASH_LIMIT_MONTH, CASH_LIMIT_SINGLE,
@@ -21,8 +21,8 @@ import { audit, type Tx } from './audit';
 import { buildFirmSnapshot, officeProfileForFirm, OfficeError } from './office';
 import { loadInvoicePrintData } from './sales/invoice-print';
 import {
-  amlRecords, auditLog, bankStatements, employees, firms, gdprRecords, inspectionStates, invoiceLines, invoices, journalLines, journals, kontrolaActions,
-  kontrolaFindings, kontroli, partners, payrollEmp, payrollRuns, serviceContracts, users, vatPeriods,
+  amlRecords, auditLog, bankStatements, dossierDocs, employees, fileLinks, files, firms, gdprRecords, inspectionStates, invoiceLines, invoices, journalLines, journals,
+  KONTROLA_FILE_ENTITY, kontrolaActions, kontrolaFindings, kontroli, mpinAcks, OFFICE_FILE_ENTITY, partners, payrollEmp, payrollRuns, purchases, serviceContracts, users, vatPeriods,
   type Firm, type Kontrola, type KontrolaFinding, type InvoiceData,
 } from './schema/index';
 
@@ -403,7 +403,36 @@ export interface FindingEvidence {
   audit: { n: number; users: { name: string; n: number }[]; first: string | null; last: string | null };
   /** The documents of the period cited as evidence (ДДВ-04, payroll, invoices, journal and statement numbers). */
   refs: string[];
+  /** The documents the firm has in the program for this finding — the attachments of the submission („Прилог N“). */
+  docs: EvidenceDoc[];
 }
+
+/** A print the worker renders with the server PDF for the „📦 Пакет за приговор“ (`attachmentPrint`). */
+export type AttachmentRender =
+  | { t: 'invoice'; id: string }
+  | { t: 'vatBook'; book: 'in' | 'out'; from: string; to: string }
+  | { t: 'kartica'; account: string; from: string; to: string }
+  | { t: 'ddv04'; id: string }
+  | { t: 'payroll'; id: string };
+
+export interface EvidenceDoc {
+  /** Stable key (dedupe across findings, file names in the package). */
+  key: string;
+  kind: 'act' | 'purchase' | 'invoice' | 'statement' | 'payroll' | 'mpin' | 'ddv04' | 'vatBook' | 'kartica' | 'dossier' | 'poa';
+  /** As listed in the submission (may name the partner). */
+  label: string;
+  /** Without names (for the AI prompt). */
+  short: string;
+  /** Stored files of the document (archive: the scan of a purchase, the statement, the МПИН acceptance, dossier pages). */
+  fileIds: string[];
+  /** Or a print rendered by the server PDF. */
+  render?: AttachmentRender | null;
+}
+
+/** Numbered attachment of a case („Прилог N“): an evidence document with the findings it proves. */
+export interface KontrolaAttachment extends EvidenceDoc { no: number; findings: number[] }
+
+const MAX_DOCS = 20;
 
 /** Entity types of the audit log relevant to an area. */
 const AREA_AUDIT: Partial<Record<FindingArea, string[]>> = {
@@ -411,6 +440,92 @@ const AREA_AUDIT: Partial<Record<FindingArea, string[]>> = {
   pit: ['payroll_run', 'employee'], contrib: ['payroll_run', 'employee'], payroll: ['payroll_run', 'employee'], labour: ['employee', 'hr_contract', 'hr_doc'],
   aml: ['aml_record'], gdpr: ['gdpr_record'],
 };
+
+const ym = (m: string) => `${m.slice(5, 7)}/${m.slice(0, 4)}`;
+
+/** Incoming invoices of the period with their scan in the archive (largest VAT first). */
+async function purchaseDocs(tx: Tx, firmId: string, from: string, to: string): Promise<EvidenceDoc[]> {
+  const P = await tx.select({ id: purchases.id, number: purchases.number, date: purchases.date, vat: purchases.vat, pn: partners.name }).from(purchases)
+    .leftJoin(partners, eq(partners.id, purchases.partnerId))
+    .where(and(eq(purchases.firmId, firmId), eq(purchases.status, 'posted'), gte(purchases.date, from), lte(purchases.date, to)));
+  if (!P.length) return [];
+  const L = await tx.select({ e: fileLinks.entityId, f: fileLinks.fileId }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+    .where(and(eq(fileLinks.entityType, 'purchase'), inArray(fileLinks.entityId, P.map((p) => p.id)), eq(files.firmId, firmId), eq(files.status, 'ready')));
+  const by = new Map<string, string[]>();
+  for (const l of L) by.set(l.e, [...(by.get(l.e) ?? []), l.f]);
+  return P.filter((p) => by.has(p.id)).sort((a, b) => Number(b.vat) - Number(a.vat) || a.date.localeCompare(b.date)).slice(0, MAX_DOCS)
+    .sort((a, b) => a.date.localeCompare(b.date)).map((p) => {
+      const s = `Влезна фактура бр. ${p.number || '—'} од ${dmy(p.date)}`;
+      return { key: `purchase:${p.id}`, kind: 'purchase' as const, label: `${s}${p.pn ? ` – ${p.pn}` : ''}`, short: s, fileIds: by.get(p.id)! };
+    });
+}
+
+/** Posted outgoing invoices / credit notes of the period (largest VAT first), printed with the invoice template. */
+async function invoiceDocs(tx: Tx, firmId: string, from: string, to: string): Promise<EvidenceDoc[]> {
+  const I = await tx.select({ id: invoices.id, number: invoices.number, date: invoices.date, kind: invoices.kind, vat: invoices.vat, pn: partners.name }).from(invoices)
+    .leftJoin(partners, eq(partners.id, invoices.partnerId))
+    .where(and(eq(invoices.firmId, firmId), eq(invoices.status, 'posted'), inArray(invoices.kind, ['invoice', 'credit']), gte(invoices.date, from), lte(invoices.date, to)));
+  return I.sort((a, b) => Math.abs(Number(b.vat)) - Math.abs(Number(a.vat)) || a.date.localeCompare(b.date)).slice(0, MAX_DOCS)
+    .sort((a, b) => a.date.localeCompare(b.date)).map((i) => {
+      const s = `${i.kind === 'credit' ? 'Одобрение' : 'Излезна фактура'} бр. ${i.number} од ${dmy(i.date)}`;
+      return { key: `invoice:${i.id}`, kind: 'invoice' as const, label: `${s}${i.pn ? ` – ${i.pn}` : ''}`, short: s, fileIds: [], render: { t: 'invoice' as const, id: i.id } };
+    });
+}
+
+/** Dossier categories that hold the firm's contracts and decisions, per finding area. */
+const DOSSIER_CATS: Partial<Record<FindingArea, string[]>> = {
+  vat: ['Решение за ДДВ / ЕДБ', 'Договори (закуп, соработка, кредит)'],
+  pit: ['Решенија за вработени (вработување, одмор, отказ)', 'Договори (закуп, соработка, кредит)'],
+  contrib: ['Решенија за вработени (вработување, одмор, отказ)'],
+  payroll: ['Решенија за вработени (вработување, одмор, отказ)', 'Плати и персонал'],
+  labour: ['Решенија за вработени (вработување, одмор, отказ)', 'Плати и персонал'],
+  cit: ['Договори (закуп, соработка, кредит)', 'Годишни сметки и биланси (минати години)'],
+  books: ['Договори (закуп, соработка, кредит)'],
+  cash: ['Благајна', 'Договори (закуп, соработка, кредит)'],
+  invoice: ['Договори (закуп, соработка, кредит)'],
+};
+
+/** Dossier documents (contracts, decisions) with files, dated up to the end of the period. */
+async function dossierEvidence(tx: Tx, firmId: string, area: FindingArea, to: string): Promise<EvidenceDoc[]> {
+  const cats = DOSSIER_CATS[area];
+  if (!cats) return [];
+  const D = await tx.select({ id: dossierDocs.id, category: dossierDocs.category, title: dossierDocs.title, number: dossierDocs.number, date: dossierDocs.date }).from(dossierDocs)
+    .where(and(eq(dossierDocs.firmId, firmId), inArray(dossierDocs.category, cats), or(isNull(dossierDocs.date), lte(dossierDocs.date, to))))
+    .orderBy(desc(dossierDocs.date)).limit(30);
+  if (!D.length) return [];
+  const L = await tx.select({ e: fileLinks.entityId, f: fileLinks.fileId }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+    .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.dossier), inArray(fileLinks.entityId, D.map((d) => d.id)), eq(files.firmId, firmId), eq(files.status, 'ready')));
+  const by = new Map<string, string[]>();
+  for (const l of L) by.set(l.e, [...(by.get(l.e) ?? []), l.f]);
+  return D.filter((d) => by.has(d.id)).slice(0, 10).map((d) => {
+    const s = `${d.title || d.category}${d.number ? ` бр. ${d.number}` : ''}${d.date ? ` од ${dmy(d.date)}` : ''}`;
+    return { key: `dossier:${d.id}`, kind: 'dossier' as const, label: s, short: `${d.category}${d.date ? ` од ${dmy(d.date)}` : ''}`, fileIds: by.get(d.id)! };
+  });
+}
+
+/**
+ * The numbered attachments of a case: Прилог 1 the act (its uploaded files), then the documents the firm has in the
+ * program for every disputed finding (one number per document, listing the findings it proves), then the power of
+ * attorney when the office files as полномошник.
+ */
+export async function kontrolaAttachments(tx: Tx, firmId: string, kid: string, F: readonly Pick<KontrolaFinding, 'no'>[], ev: readonly FindingEvidence[], disputed: readonly boolean[], office: boolean): Promise<KontrolaAttachment[]> {
+  const act = await tx.select({ f: fileLinks.fileId }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+    .where(and(eq(fileLinks.entityType, KONTROLA_FILE_ENTITY), eq(fileLinks.entityId, kid), eq(files.firmId, firmId), eq(files.status, 'ready')));
+  const out: KontrolaAttachment[] = [{ no: 1, key: `act:${kid}`, kind: 'act', label: 'Копија од актот што се оспорува', short: 'Копија од актот што се оспорува', fileIds: act.map((a) => a.f), findings: [] }];
+  const by = new Map<string, KontrolaAttachment>();
+  F.forEach((f, i) => {
+    if (!disputed[i]) return;
+    for (const d of ev[i]?.docs ?? []) {
+      const have = by.get(d.key);
+      if (have) { if (!have.findings.includes(f.no)) have.findings.push(f.no); continue; }
+      const a: KontrolaAttachment = { ...d, no: out.length + 1, findings: [f.no] };
+      by.set(d.key, a);
+      out.push(a);
+    }
+  });
+  if (office) out.push({ no: out.length + 1, key: 'poa', kind: 'poa', label: 'Полномошно', short: 'Полномошно', fileIds: [], findings: [] });
+  return out;
+}
 
 /**
  * Evidence for one finding over the inspection's period (defaults to the year of the act): links to the screens,
@@ -423,6 +538,7 @@ export async function findingEvidence(tx: Tx, firmId: string, k: Pick<Kontrola, 
   const links: EvidenceLink[] = [];
   const checks: EvidenceCheck[] = [];
   const refs: string[] = [];
+  const docs: EvidenceDoc[] = [];
   let recalc: FindingEvidence['recalc'] = null;
   const period = `${dmy(from)}–${dmy(to)}`;
 
@@ -430,6 +546,12 @@ export async function findingEvidence(tx: Tx, firmId: string, k: Pick<Kontrola, 
     const V = await tx.select().from(vatPeriods).where(and(eq(vatPeriods.firmId, firmId), lte(vatPeriods.dateFrom, to), gte(vatPeriods.dateTo, from))).orderBy(asc(vatPeriods.dateFrom));
     const closed = V.filter((v) => v.status === 'closed' && v.ddv04);
     refs.push(...closed.map((v) => `ДДВ-04 за ${v.period}`));
+    for (const v of closed) docs.push({ key: `ddv04:${v.id}`, kind: 'ddv04', label: `ДДВ-04 за ${v.period}`, short: `ДДВ-04 за ${v.period}`, fileIds: [], render: { t: 'ddv04', id: v.id } });
+    docs.push(
+      { key: `vatBook:out:${from}:${to}`, kind: 'vatBook', label: `Книга на излезни фактури (ДДВ) за ${period}`, short: `Книга на излезни фактури за ${period}`, fileIds: [], render: { t: 'vatBook', book: 'out', from, to } },
+      { key: `vatBook:in:${from}:${to}`, kind: 'vatBook', label: `Книга на влезни фактури (ДДВ) за ${period}`, short: `Книга на влезни фактури за ${period}`, fileIds: [], render: { t: 'vatBook', book: 'in', from, to } },
+    );
+    docs.push(...await purchaseDocs(tx, firmId, from, to), ...await invoiceDocs(tx, firmId, from, to));
     if (closed.length) recalc = { cents: closed.reduce((s, v) => s + Math.round(Number(v.ddv04!.closeDiff) * 100), 0), source: `ДДВ-04 (обврска − побарување) за ${closed.map((v) => v.period).join(', ')}` };
     const open = V.filter((v) => v.status !== 'closed');
     checks.push(open.length ? { s: 'warn', txt: `Отворени (незатворени) ДДВ периоди во контролираниот период: ${open.map((v) => v.period).join(', ')}.` } : { s: 'ok', txt: 'Сите ДДВ периоди во контролираниот период се затворени во програмата (затворениот период не може да се менува).' });
@@ -441,6 +563,10 @@ export async function findingEvidence(tx: Tx, firmId: string, k: Pick<Kontrola, 
     const key = area === 'pit' ? 'tax' : area === 'contrib' ? 'contr' : 'gross';
     if (P.length && area !== 'labour') recalc = { cents: P.reduce((s, r) => s + Math.round(Number(r.totals[key] ?? 0) * 100), 0), source: `${area === 'pit' ? 'Персонален данок' : area === 'contrib' ? 'Придонеси' : 'Бруто плати'} од пресметките за ${P.map((r) => r.month).join(', ')}` };
     refs.push(...P.map((r) => `Пресметка на плата за ${r.month}`));
+    for (const r of P) docs.push({ key: `payroll:${r.id}`, kind: 'payroll', label: `Пресметка на плата за ${ym(r.month)}`, short: `Пресметка на плата за ${ym(r.month)}`, fileIds: [], render: { t: 'payroll', id: r.id } });
+    const M = await tx.select({ id: mpinAcks.id, month: mpinAcks.month, no: mpinAcks.no, fileId: mpinAcks.fileId }).from(mpinAcks)
+      .where(and(eq(mpinAcks.firmId, firmId), eq(mpinAcks.replaced, false), gte(mpinAcks.month, from.slice(0, 7)), lte(mpinAcks.month, to.slice(0, 7)))).orderBy(asc(mpinAcks.month));
+    for (const m of M) if (m.fileId) docs.push({ key: `mpin:${m.id}`, kind: 'mpin', label: `МПИН – потврда за прием${m.no ? ` бр. ${m.no}` : ''} за ${ym(m.month)}`, short: `МПИН – потврда за прием за ${ym(m.month)}`, fileIds: [m.fileId] });
     const draft = R.filter((r) => r.status !== 'posted');
     checks.push(draft.length ? { s: 'warn', txt: `Непрокнижени пресметки на плата: ${draft.map((r) => r.month).join(', ')}.` } : { s: 'ok', txt: `${P.length} прокнижени пресметки на плата во периодот; програмата ја зголемува платата до минималната и ги применува стапките од табелата на параметри.` });
     const [e] = await tx.select({ n: sql<number>`count(*)::int` }).from(employees).where(eq(employees.firmId, firmId));
@@ -457,13 +583,18 @@ export async function findingEvidence(tx: Tx, firmId: string, k: Pick<Kontrola, 
       const S = [...posted].sort((a, b) => a.date.localeCompare(b.date));
       refs.push(...S.slice(0, 8).map((i) => `Фактура бр. ${i.number} од ${dmy(i.date)}`), ...(S.length > 8 ? [`… вкупно ${S.length} излезни фактури во периодот`] : []));
     }
+    if (area === 'invoice') docs.push(...await invoiceDocs(tx, firmId, from, to));
     if (area === 'invoice' && posted.length) recalc = { cents: posted.reduce((s, i) => s + Math.round(Number(i.total) * (Number(i.fx) || 1) * 100), 0), source: `Вкупно ${posted.length} прокнижени излезни фактури` };
     links.push({ label: 'Излезни фактури', href: '/izlez' }, { label: 'Налози за книжење', href: '/nalozi' });
   }
   if (area === 'cash' || area === 'books') {
-    const B = await tx.select({ number: bankStatements.number, date: bankStatements.date }).from(bankStatements)
+    const B = await tx.select({ id: bankStatements.id, number: bankStatements.number, date: bankStatements.date, fileId: bankStatements.fileId }).from(bankStatements)
       .where(and(eq(bankStatements.firmId, firmId), gte(bankStatements.date, from), lte(bankStatements.date, to))).orderBy(asc(bankStatements.date));
     if (B.length) refs.push(`Изводи од банка: ${B.slice(0, 5).map((b) => `${b.number ? `бр. ${b.number} ` : ''}од ${dmy(b.date)}`).join(', ')}${B.length > 5 ? ` … (вкупно ${B.length})` : ''}`);
+    for (const b of B.filter((x) => x.fileId).slice(0, MAX_DOCS)) {
+      const l = `Извод од банка${b.number ? ` бр. ${b.number}` : ''} од ${dmy(b.date)}`;
+      docs.push({ key: `statement:${b.id}`, kind: 'statement', label: l, short: l, fileIds: [b.fileId!] });
+    }
   }
   if (area === 'cash') {
     links.push({ label: 'Благајна', href: '/blagajna' });
@@ -491,9 +622,11 @@ export async function findingEvidence(tx: Tx, firmId: string, k: Pick<Kontrola, 
       .where(and(eq(journals.firmId, firmId), sql`${journalLines.account} like ${`${f.account}%`}`, gte(journals.date, from), lte(journals.date, to))).orderBy(asc(journals.date)).limit(11);
     refs.push(...J.slice(0, 10).map((j) => `Налог бр. ${j.number} од ${dmy(j.date)}`), ...(J.length > 10 ? ['… и други налози (картица на контото)'] : []));
     refs.push(`Картица на конто ${f.account} за ${period}`);
+    docs.push({ key: `kartica:${f.account}:${from}:${to}`, kind: 'kartica', label: `Картица на конто ${f.account} за ${period} (со налозите за книжење)`, short: `Картица на конто ${f.account} за ${period}`, fileIds: [], render: { t: 'kartica', account: f.account, from, to } });
     links.push({ label: `Картица на конто ${f.account}`, href: `/kkart?k=${encodeURIComponent(f.account)}&from=${from}&to=${to}` });
   }
   if (!links.length) links.push({ label: 'Бруто биланс', href: '/bilanc' }, { label: 'Налози за книжење', href: '/nalozi' });
+  docs.push(...await dossierEvidence(tx, firmId, area, to));
 
   const types = AREA_AUDIT[area];
   const AL = await tx.select({ at: auditLog.at, user: users.name, et: auditLog.entityType }).from(auditLog).leftJoin(users, eq(users.id, auditLog.userId))
@@ -502,14 +635,14 @@ export async function findingEvidence(tx: Tx, firmId: string, k: Pick<Kontrola, 
   for (const a of AL) byU.set(a.user ?? '—', (byU.get(a.user ?? '—') ?? 0) + 1);
   const times = AL.map((a) => a.at.toISOString()).sort();
   return {
-    links, recalc, checks, refs,
+    links, recalc, checks, refs, docs,
     audit: { n: AL.length, users: [...byU].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n), first: times[0] ?? null, last: times[times.length - 1] ?? null },
   };
 }
 
 /* ---------------- The documents of a disputed case (versions in `data.versions`) ---------------- */
 
-export interface KontrolaCase { k: Kontrola; F: KontrolaFinding[]; firm: Firm; ev: FindingEvidence[]; input: CaseInput }
+export interface KontrolaCase { k: Kontrola; F: KontrolaFinding[]; firm: Firm; ev: FindingEvidence[]; input: CaseInput; att: KontrolaAttachment[] }
 
 /** The office's choice of document type (`data.subType`) instead of the program's. */
 export const kontrolaSubType = (k: Pick<Kontrola, 'data'>): SubmissionType | null => {
@@ -539,15 +672,19 @@ export async function loadKontrolaCase(tx: Tx, firmId: string, kid: string, toda
   // 🎭 a demo firm's полномошник is the demo office, never the real one
   const O = await officeProfileForFirm(tx, firm);
   const st = (firm.settings ?? {}) as { manager?: string; signer?: string; officeFirm?: boolean };
+  const office = !!O.name && !st.officeFirm;
+  const rows = F.map(toFindingRow);
+  const att = await kontrolaAttachments(tx, firmId, kid, F, ev, rows.map(isDisputed), office);
   const input: CaseInput = {
     auth: k.auth, doc: k.doc, docNo: k.docNo, docDate: k.docDate, delivered: k.delivered, dueOverride: kontrolaDue(k), periodFrom: k.periodFrom, periodTo: k.periodTo,
     subject: k.subject, firm: { name: firm.name, edb: firm.edb, embs: firm.embs, address: firm.address, city: firm.city, manager: st.manager || st.signer || null },
     // the office is the полномошник of a client firm (not of itself)
     office: O.name && !st.officeFirm ? { name: O.name, edb: O.edb ?? null, address: O.address ?? null, city: O.city ?? null, rep: O.rep ?? null } : null,
-    items: F.map((f, i) => ({ f: toFindingRow(f), refs: ev[i]!.refs, oursSource: f.oursSource, checks: ev[i]!.checks, audit: ev[i]!.audit })),
+    items: F.map((f, i) => ({ f: rows[i]!, refs: ev[i]!.refs, oursSource: f.oursSource, checks: ev[i]!.checks, audit: ev[i]!.audit })),
     today, override: kontrolaSubType(k),
+    attachments: att.map((a) => ({ no: a.no, label: a.label, short: a.short, findings: a.findings })),
   };
-  return { k, F, firm, ev, input };
+  return { k, F, firm, ev, input, att };
 }
 
 /** The generated documents (optionally with an accepted AI analysis). */

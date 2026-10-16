@@ -128,7 +128,25 @@ export interface CaseInput {
   today: string;
   /** The type the office picked instead of the program's choice. */
   override?: SubmissionType | null;
+  /**
+   * The numbered attachments of the submission (Прилог 1, 2, …): the act, then the documents from the program for
+   * the disputed findings (`kontrolaAttachments` in @wise/db). Without them the „Прилози“ list is built from `refs`.
+   */
+  attachments?: readonly CaseAttachment[];
 }
+
+export interface CaseAttachment {
+  no: number;
+  /** As listed in the document (may name the partner of an invoice). */
+  label: string;
+  /** Without names (what the AI prompt may see). */
+  short: string;
+  /** Finding numbers the attachment proves (empty = the whole case: the act, the power of attorney). */
+  findings: readonly number[];
+}
+
+/** „Прилог 3“ list of the attachments that prove a finding. */
+export const attachmentsOf = (x: Pick<CaseInput, 'attachments'>, no: number) => (x.attachments ?? []).filter((a) => a.findings.includes(no));
 
 export interface DocSection { h?: string; p: string[]; center?: boolean }
 export interface CaseDoc { kind: 'external' | 'internal'; title: string; sections: DocSection[]; choice: SubmissionChoice; verify: string[] }
@@ -143,7 +161,7 @@ const actName = (x: Pick<CaseInput, 'doc' | 'docNo' | 'docDate'>) => `${KONTROLA
 /* ====================================================================================================== */
 
 /** Per finding: the reasoning paragraphs (the AI analysis may replace the „our position“ part). */
-export function findingReasoning(it: CaseItem, positionOverride?: string | null): string[] {
+export function findingReasoning(it: CaseItem, positionOverride?: string | null, att?: readonly CaseAttachment[]): string[] {
   const f = it.f;
   const partial = recommendFinding(f) === 'partial';
   const P: string[] = [];
@@ -152,7 +170,9 @@ export function findingReasoning(it: CaseItem, positionOverride?: string | null)
     const diff = f.claimed - f.ours;
     P.push(`Факти од деловните книги: за контролираниот период износот изнесува ${den(f.ours)}${it.oursSource ? ` (${it.oursSource})` : ''}${diff > 0 ? `, односно ${den(diff)} помалку од утврденото во актот` : diff < 0 ? `, односно ${den(-diff)} повеќе од утврденото – разликата не се оспорува` : ''}.`);
   }
-  if (it.refs?.length) P.push(`Докази: ${it.refs.join('; ')}.`);
+  // the attachments, plus the journal numbers (the kartica print shows them, the reader needs the reference)
+  if (att?.length) P.push(`Докази: ${[...att.map((a) => `Прилог ${a.no} (${a.label})`), ...(it.refs ?? []).filter((r) => /^Налог бр\.|налози/.test(r))].join('; ')}.`);
+  else if (it.refs?.length) P.push(`Докази: ${it.refs.join('; ')}.`);
   const pos = positionOverride?.trim() || f.analysis?.trim();
   P.push(`Наш став: наодот ${partial ? 'е делумно основан' : 'не е основан'}${pos ? ` – ${pos.replace(/\s*\.?$/, '')}` : ''}.`);
   return P;
@@ -173,6 +193,10 @@ export interface SubmissionAiPatch {
   reasoning?: Record<number, string>;
   procedural?: string[];
   conclusion?: string | null;
+  /** „Правен основ“: the articles of the stored law texts with the quoted words (AI, checked against the store). */
+  basis?: string[];
+  /** Extra „ЗА ПРОВЕРКА“ lines (tagged articles / quotes). */
+  verify?: string[];
 }
 
 export function kontrolaSubmission(x: CaseInput, ai?: SubmissionAiPatch | null): CaseDoc {
@@ -210,20 +234,26 @@ export function kontrolaSubmission(x: CaseInput, ai?: SubmissionAiPatch | null):
     ? `${SUBMISSION_LBL[ch.type]} се поднесува во рок${x.dueOverride ? 'от наведен во правната поука' : ch.remedy ? ` од ${ch.remedy.n} ${ch.remedy.unit === 'workdays' ? 'работни дена' : ch.remedy.unit === 'months' ? 'месеци' : 'дена'} од приемот` : ''}, најдоцна до ${dmy(ch.deadline)}${ch.remedy ? ` (${ch.remedy.law})` : ''}.`
     : `${SUBMISSION_LBL[ch.type]} се поднесува во рокот од правната поука на актот.`] });
   const body: string[] = [];
-  disputed.forEach((it, i) => { body.push(`${i + 1}. Наод под точка ${it.f.no} (${FINDING_AREA[it.f.area]})`); body.push(...findingReasoning(it, ai?.reasoning?.[it.f.no])); });
+  disputed.forEach((it, i) => { body.push(`${i + 1}. Наод под точка ${it.f.no} (${FINDING_AREA[it.f.area]})`); body.push(...findingReasoning(it, ai?.reasoning?.[it.f.no], x.attachments ? attachmentsOf(x, it.f.no) : undefined)); });
   if (!disputed.length) body.push('Подносителот не оспорува ниту еден наод.');
   if (accepted.length) body.push(`Наодите под точка ${accepted.map((it) => it.f.no).join(', ')} подносителот ги прифаќа и не се предмет на ${SUBMISSION_LBL[ch.type].toLowerCase()}.`);
   S.push({ h: 'Образложение', p: body });
   if (ai?.procedural?.length) S.push({ h: 'Процесни наводи', p: ai.procedural });
-  const basis = legalBasis(disputed);
+  const basis = ai?.basis?.length ? ai.basis : legalBasis(disputed);
   S.push({ h: 'Правен основ', p: basis.length ? basis : ['Членовите на кои се повикува органот и релевантните одредби од законот (да се дополнат).'] });
   S.push({ h: 'Заклучок', p: [ai?.conclusion?.trim() || `Од изнесените факти и доказите во прилог произлегува дека наодите под точка ${nos} не се утврдени правилно и целосно. Поради тоа предлагаме ${ch.type === 'zabeleski' ? 'записникот да се дополни и измени' : ch.type === 'tuzhba' ? 'тужбата да се уважи' : ch.type === 'zhalba' ? 'жалбата да се уважи' : 'приговорот да се уважи'} како во барањето.`,
     ...(ch.remedy && !ch.remedy.suspends && x.doc !== 'zapisnik' ? ['Напомена: поднесувањето не го одлага плаќањето / извршувањето; подносителот го задржува правото да бара одлагање.'] : [])] });
-  const att = ['Копија од актот што се оспорува'];
-  for (const it of disputed) for (const r of it.refs ?? []) att.push(r);
-  att.push('Извод од деловните книги за контролираниот период (картици, налози)');
-  if (officeName) att.push('Полномошно');
-  S.push({ h: 'Прилози', p: [...new Set(att)].map((a, i) => `${i + 1}. ${a}`) });
+  if (x.attachments?.length) {
+    const A = [...x.attachments];
+    if (officeName && !A.some((a) => /^Полномошно/.test(a.label))) A.push({ no: A.length + 1, label: 'Полномошно', short: 'Полномошно', findings: [] });
+    S.push({ h: 'Прилози', p: A.map((a) => `Прилог ${a.no}: ${a.label}`) });
+  } else {
+    const att = ['Копија од актот што се оспорува'];
+    for (const it of disputed) for (const r of it.refs ?? []) att.push(r);
+    att.push('Извод од деловните книги за контролираниот период (картици, налози)');
+    if (officeName) att.push('Полномошно');
+    S.push({ h: 'Прилози', p: [...new Set(att)].map((a, i) => `${i + 1}. ${a}`) });
+  }
   S.push({ p: [`${x.firm.city || x.office?.city || '__________'}, ${dmy(x.today)}`] });
   S.push({ p: [
     `Подносител: ${x.firm.name}`, `${x.firm.manager ? `${x.firm.manager}, управител` : 'Управител'}  _____________________   М.П.`,
@@ -231,6 +261,7 @@ export function kontrolaSubmission(x: CaseInput, ai?: SubmissionAiPatch | null):
   ] });
   const verify: string[] = [];
   if (ch.verify) verify.push(`Правното средство, органот до кој се поднесува и рокот се ЗА ПРОВЕРКА во правната поука на актот${ch.remedy ? ` (${ch.remedy.law})` : ''}.`);
+  verify.push(...(ai?.verify ?? []));
   return { kind: 'external', title: ch.title, sections: S, choice: ch, verify };
 }
 
@@ -356,6 +387,34 @@ export function textHtml(t: string): string {
   return t.split(/\r?\n/).map((l) => (l.trim() && l === l.toUpperCase() && /[А-ЯЀ-Џ]/.test(l) ? `<p><b>${esc(l)}</b></p>` : `<p>${esc(l) || '&nbsp;'}</p>`)).join('');
 }
 
+/* ---------------- „📦 Пакет за приговор“: prints of the attachments (kartica, VAT books, ДДВ-04, payroll) ---------------- */
+
+/** A table print of an attachment (rendered by the server PDF in the worker). */
+export interface AttachmentPrint {
+  title: string;
+  sub: string;
+  head: string[];
+  rows: (string | number)[][];
+  /** Numeric columns (right-aligned, amounts formatted). */
+  num?: readonly number[];
+  foot?: (string | number)[] | null;
+  note?: string | null;
+}
+
+const amt = (v: string | number) => (typeof v === 'number' ? fmtCents(Math.round(v * 100)) : v);
+
+/** HTML of an attachment print: the firm line (document template only), title, period, the table and a note. */
+export function attachmentPrintHtml(p: AttachmentPrint, firm: { name: string; edb?: string | null } | null, no: number | null): string {
+  const N = new Set(p.num ?? []);
+  const cell = (v: string | number, i: number, tag: 'td' | 'th' = 'td') => `<${tag}${N.has(i) ? ' class="n"' : ''}>${esc(String(N.has(i) ? amt(v) : v))}</${tag}>`;
+  return `${firm ? `<div style="font-size:9pt;color:#444">${esc(firm.name)}${firm.edb ? ` · ЕДБ ${esc(firm.edb)}` : ''}</div>` : ''}`
+    + `${no != null ? `<div style="text-align:right;font-weight:700">Прилог ${no}</div>` : ''}<h1>${esc(p.title)}</h1><div style="margin-bottom:6px">${esc(p.sub)}</div>`
+    + `<table><thead><tr>${p.head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`
+    + (p.rows.length ? p.rows.map((r) => `<tr>${r.map((v, i) => cell(v, i)).join('')}</tr>`).join('') : `<tr><td colspan="${p.head.length}">Нема записи во периодот.</td></tr>`)
+    + `</tbody>${p.foot ? `<tfoot><tr>${p.foot.map((v, i) => cell(v, i, 'th')).join('')}</tr></tfoot>` : ''}</table>`
+    + (p.note ? `<p style="font-size:9pt;color:#444">${esc(p.note)}</p>` : '');
+}
+
 /* ====================================================================================================== */
 /* Versions (data.versions) and the client-safe view                                                       */
 /* ====================================================================================================== */
@@ -437,12 +496,13 @@ export const LAW_ALIASES: readonly [code: string, label: string, re: RegExp][] =
   ['ZPU', 'Закон за платежни услуги', /платежни услуги/i],
   ['ZTD', 'ЗТД', /ЗТД(?![А-Яа-я])|трговските друштва/i],
   ['ZPRID', 'Закон за придонеси', /Закон(?:от)? за придонеси|придонесите од задолжително/i],
+  ['ZRGP', 'ЗРГП', /ЗРГП|регистрирање на готовинските плаќања/i],
 ];
 const LAW_LABEL = Object.fromEntries(LAW_ALIASES.map(([c, l]) => [c, l]));
 /** `LR_LAWS` keys of the tax review rules → law code. */
 export const LR_LAW_CODE: Readonly<Record<string, string>> = { zddv: 'ZDDV', zdd: 'ZDD', zdld: 'ZPDD', zdp: 'ZDP' };
 
-export interface LawRef { law: string | null; art: string }
+export interface LawRef { law: string | null; art: string; /** став, when cited („чл. 34 ст. 1“). */ para?: string | null }
 export const refKey = (r: LawRef) => `${r.law ?? '?'}:${r.art}`;
 export const refLabel = (r: LawRef) => `чл. ${r.art}${r.law ? ` ${LAW_LABEL[r.law] ?? r.law}` : ''}`;
 
@@ -465,7 +525,7 @@ function lawAt(s: string, mode: 'first' | 'last'): string | null {
  */
 export function lawRefsOf(text: string): LawRef[] {
   const out = new Map<string, LawRef>();
-  const re = /чл(?:ен(?:от)?|\.)\s*(\d{1,3})(?:\s*[-–‑]\s*(\d{1,3}|[а-ш](?![а-ш])))?/gi;
+  const re = /чл(?:ен(?:от)?|\.)\s*(\d{1,3})(?:\s*[-–‑]\s*(\d{1,3}|[а-ш](?![а-ш])))?(?:\s*,?\s*ст(?:ав)?\.?\s*(\d{1,2}))?/gi;
   for (const m of text.matchAll(re)) {
     const i = m.index ?? 0;
     const tail = text.slice(i + m[0].length, i + m[0].length + 90).split(/;|\n|чл(?:ен|\.)/i)[0] ?? '';
@@ -477,14 +537,14 @@ export function lawRefsOf(text: string): LawRef[] {
     if (m[2] && /^\d+$/.test(m[2]) && Number(m[2]) > a && Number(m[2]) - a <= 10) for (let n = a; n <= Number(m[2]); n++) arts.push(String(n));
     else if (m[2] && !/^\d+$/.test(m[2])) arts.push(`${a}-${m[2].toLowerCase()}`);
     else arts.push(String(a));
-    for (const art of arts) { const r = { law, art }; out.set(refKey(r), r); }
+    for (const art of arts) { const r: LawRef = { law, art, ...(m[3] && arts.length === 1 ? { para: m[3] } : {}) }; if (!out.has(refKey(r)) || r.para) out.set(refKey(r), r); }
   }
   return [...out.values()];
 }
 
 export interface LawSnippet {
   id: string;
-  source: 'rule' | 'remedy' | 'change';
+  source: 'rule' | 'remedy' | 'change' | 'text';
   law: string | null;
   title: string;
   text: string;
@@ -497,20 +557,127 @@ export interface LawChangeLike { id: string; title: string; what?: string | null
 /** Which law codes a finding area concerns. */
 const AREA_LAWS: Partial<Record<Finding['area'], string[]>> = {
   vat: ['ZDDV', 'ZDP'], cit: ['ZDD', 'ZDP'], pit: ['ZPDD', 'ZDP'], contrib: ['ZPRID', 'ZDP'], payroll: ['ZRO', 'ZPDD', 'ZPRID'], invoice: ['ZDDV'],
-  books: ['ZTD', 'ZDP'], cash: ['ZPU', 'ZDP'], fiscal: ['ZDP'], labour: ['ZRO', 'ZIN'], market: ['ZIN'], aml: ['ZSPPFT'], gdpr: ['ZZLP'],
+  books: ['ZTD', 'ZDP'], cash: ['ZPU', 'ZDP'], fiscal: ['ZRGP', 'ZDP'], labour: ['ZRO', 'ZIN'], market: ['ZIN'], aml: ['ZSPPFT'], gdpr: ['ZZLP'],
 };
 const AREA_WORDS: Partial<Record<Finding['area'], RegExp>> = {
   vat: /ддв|додадена вредност/i, cit: /добивка/i, pit: /персонален|личен доход/i, contrib: /придонес/i, payroll: /плат/i, invoice: /фактур/i,
   cash: /благајн|готовин/i, fiscal: /фискал/i, labour: /работн/i, aml: /перење/i, gdpr: /лични податоци/i, books: /книговод|сметководств/i,
 };
 
+/* ---------------- the stored law texts (`law_texts` / `law_articles`) ---------------- */
+
+/** Law codes of the citations (`LAW_ALIASES`) → keys of the stored corpus (`@wise/core/law` `LAW_CORPUS`). */
+export const LAW_CODE_KEY: Readonly<Record<string, string>> = {
+  ZDDV: 'zddv', ZDD: 'zdd', ZPDD: 'zpdd', ZDP: 'zdp', ZOUP: 'zoup', ZIN: 'zin', ZUS: 'zus', ZZLP: 'zzlp', ZRO: 'zro', ZSPPFT: 'zsppft', ZTD: 'ztd',
+  ZPRID: 'zpri', ZRGP: 'zrgp', ZP: 'zprek',
+};
+export const LAW_KEY_CODE: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(LAW_CODE_KEY).map(([c, k]) => [k, c]));
+export const lawCodeLabel = (code: string) => LAW_LABEL[code] ?? code;
+
 /**
- * The law context of a case from the program's law store: the tax review rules (article + rule) of the laws the
- * findings concern, the remedies of the act (with their legal basis) and the law changes found by the daily robot that
- * mention those laws or the findings' subject. Also returns the articles cited in the case that the store does not
- * hold (`missing` → „треба да се провери“).
+ * The procedural law of the remedy: УЈП → ЗДП (+ ЗОУП for the appeal), inspections → ЗИН / ЗОУП, a lawsuit → ЗУС,
+ * a misdemeanour payment order → Закон за прекршоците.
  */
-export function kontrolaLawContext(x: { auth: KontrolaAuth; doc: KontrolaDoc; findings: readonly Finding[]; rules: readonly LawRuleLike[]; changes: readonly LawChangeLike[]; max?: number }): { snippets: LawSnippet[]; missing: LawRef[] } {
+export function remedyProcLaws(auth: KontrolaAuth, doc: KontrolaDoc, type: SubmissionType): string[] {
+  if (type === 'tuzhba') return ['ZUS', auth === 'ujp' ? 'ZDP' : 'ZOUP'];
+  if (doc === 'platen') return ['ZP'];
+  if (auth === 'ujp') return type === 'zhalba' ? ['ZDP', 'ZOUP'] : ['ZDP'];
+  const insp = auth === 'dpi' || auth === 'dit';
+  return type === 'zabeleski' ? (insp ? ['ZIN', 'ZOUP'] : ['ZOUP']) : (insp ? ['ZOUP', 'ZIN'] : ['ZOUP']);
+}
+
+/** Words that find the procedural articles of a remedy in the stored text. */
+const PROC_WORDS: Record<SubmissionType, string> = {
+  zabeleski: 'записник забелешки изјаснување рок',
+  prigovor: 'приговор рок',
+  zhalba: 'жалба рок второстепен решение',
+  tuzhba: 'тужба управен спор рок',
+};
+
+export interface KontrolaLawPlan {
+  /** Articles cited in the act / the findings / our analysis (law code, article, став) and the date their version is needed for. */
+  refs: (LawRef & { law: string; date: string })[];
+  /** Full-text searches: the disputed findings' subject in their laws, and the remedy in the procedural law. */
+  queries: { q: string; laws: string[]; date: string; proc?: boolean }[];
+  /** Procedural laws of the remedy (codes). */
+  proc: string[];
+  /** Substantive law: the version valid at the end of the audited period; procedure: on the date of the act. */
+  substDate: string;
+  procDate: string;
+}
+
+/** What to take from the law store for a case (pure — `kontrolaLawTexts` in @wise/db runs it). */
+export function kontrolaLawPlan(x: CaseInput): KontrolaLawPlan {
+  const ch = chooseSubmission(x);
+  const substDate = x.periodTo ?? x.docDate ?? x.today;
+  const procDate = x.docDate ?? x.delivered ?? x.today;
+  const proc = remedyProcLaws(x.auth, x.doc, ch.type);
+  const disputed = x.items.filter((it) => isDisputed(it.f));
+  const focus = disputed.length ? disputed : x.items;
+  const refs = new Map<string, LawRef & { law: string; date: string }>();
+  for (const it of x.items) {
+    const area = AREA_LAWS[it.f.area] ?? [];
+    for (const r of [...lawRefsOf(it.f.article ?? ''), ...lawRefsOf(it.f.analysis ?? '')]) {
+      const law = r.law ?? area[0];
+      if (!law || !LAW_CODE_KEY[law]) continue;
+      const k = `${law}:${r.art}`;
+      if (!refs.has(k) || r.para) refs.set(k, { law, art: r.art, para: r.para ?? null, date: proc.includes(law) ? procDate : substDate });
+    }
+  }
+  for (const r of lawRefsOf(x.subject ?? '')) {
+    if (r.law && LAW_CODE_KEY[r.law] && !refs.has(`${r.law}:${r.art}`)) refs.set(`${r.law}:${r.art}`, { law: r.law, art: r.art, para: r.para ?? null, date: substDate });
+  }
+  const queries: KontrolaLawPlan['queries'] = focus.map((it) => ({
+    q: `${it.f.text} ${x.subject ?? ''}`.slice(0, 400), laws: (AREA_LAWS[it.f.area] ?? []).filter((c) => LAW_CODE_KEY[c] && !proc.includes(c)), date: substDate,
+  })).filter((q) => q.laws.length);
+  const pl = proc.filter((c) => LAW_CODE_KEY[c]);
+  if (pl.length) queries.push({ q: PROC_WORDS[ch.type], laws: pl, date: procDate, proc: true });
+  return { refs: [...refs.values()], queries, proc, substDate, procDate };
+}
+
+/** One stored article put into the AI context. */
+export interface KontrolaLawText {
+  /** Law code (`ZDDV` …). */
+  law: string;
+  no: string;
+  /** The став the act / analysis cites. */
+  para?: string | null;
+  heading: string | null;
+  body: string;
+  /** Date the stored version applies from, and the date it was needed for. */
+  from: string;
+  at: string;
+  /** No stored version applied on `at`: the oldest stored version is used (to be checked). */
+  later?: boolean;
+  sourceUrl?: string | null;
+  via: 'cited' | 'search' | 'proc';
+}
+
+/** „(2) …“ — the text of one став of an article (null when the article has no numbered paragraphs). */
+export function articlePara(body: string, para: string): string | null {
+  const re = new RegExp(`(?:^|\\n)\\s*\\(${para}\\)\\s*([\\s\\S]*?)(?=\\n\\s*\\(\\d{1,2}\\)\\s|$)`);
+  const m = re.exec(body);
+  return m ? m[1]!.trim() : null;
+}
+
+const MAX_ARTICLE = 3000;
+
+/** Title of a stored article in the context („чл. 34 ст. 1 ЗДДВ – heading (верзија во сила од …)“). */
+export function lawTextTitle(t: KontrolaLawText): string {
+  return `чл. ${t.no}${t.para ? ` ст. ${t.para}` : ''} ${lawCodeLabel(t.law)}${t.heading ? ` – ${t.heading}` : ''} (верзија во сила од ${dmy(t.from)}${t.later ? `; ВНИМАНИЕ: во базата нема верзија што важела на ${dmy(t.at)} – да се провери` : ''})`;
+}
+
+/**
+ * The law context of a case from the program's law store: the stored article texts (version valid on the date of the
+ * act / the audited period), the tax review rules (article + rule) of the laws the findings concern, the remedies of
+ * the act (with their legal basis) and the law changes found by the daily robot that mention those laws or the
+ * findings' subject. Also returns the articles cited in the case that the store does not hold (`missing` → „треба да
+ * се провери“) and the procedural laws of the remedy whose text is not stored (`procMissing`).
+ */
+export function kontrolaLawContext(x: {
+  auth: KontrolaAuth; doc: KontrolaDoc; findings: readonly Finding[]; rules: readonly LawRuleLike[]; changes: readonly LawChangeLike[]; max?: number;
+  texts?: readonly KontrolaLawText[]; proc?: readonly { code: string; present: boolean }[];
+}): { snippets: LawSnippet[]; missing: LawRef[]; procMissing: string[] } {
   const cited = x.findings.flatMap((f) => [...lawRefsOf(`${f.article ?? ''}`), ...lawRefsOf(f.analysis ?? '')]);
   const laws = new Set<string>([...cited.map((r) => r.law).filter((l): l is string => !!l), ...x.findings.flatMap((f) => AREA_LAWS[f.area] ?? [])]);
   const S: LawSnippet[] = [];
@@ -519,6 +686,12 @@ export function kontrolaLawContext(x: { auth: KontrolaAuth; doc: KontrolaDoc; fi
     const refs = (s.refs ?? lawRefsOf(`${s.title} ${s.text}`)).map((r) => ({ law: r.law ?? s.law, art: r.art }));
     S.push({ ...s, id: `L${++n}`, refs });
   };
+  // the full texts first: these are what the document quotes
+  for (const t of x.texts ?? []) {
+    const p = t.para ? articlePara(t.body, t.para) : null;
+    const body = p ? `[ст. ${t.para}] ${p}\n[цел член] ${t.body}` : t.body;
+    add({ source: 'text', law: t.law, title: lawTextTitle(t), text: body.length > MAX_ARTICLE ? `${body.slice(0, MAX_ARTICLE)} …` : body, refs: [{ law: t.law, art: t.no }] });
+  }
   for (const r of remediesFor(x.auth, x.doc)) add({ source: 'remedy', law: null, title: `${r.name} – ${r.to}`, text: `${r.law}${r.note ? `. ${r.note}` : ''}` });
   for (const r of x.rules) {
     const code = LR_LAW_CODE[r.law] ?? null;
@@ -531,7 +704,8 @@ export function kontrolaLawContext(x: { auth: KontrolaAuth; doc: KontrolaDoc; fi
   for (const c of C) add({ source: 'change', law: lawAt(`${c.title} ${c.what ?? ''}`, 'first'), title: `${c.title}${c.date ? ` (${dmy(c.date)})` : ''}${c.verified === false ? ' – непотврдено' : ''}`, text: (c.what ?? '').slice(0, 600) });
   const have = storeKeys(S);
   const missing = dedupeRefs(cited).filter((r) => !refInStore(r, have));
-  return { snippets: S, missing };
+  const procMissing = (x.proc ?? []).filter((p) => !p.present).map((p) => lawCodeLabel(p.code));
+  return { snippets: S, missing, procMissing };
 }
 
 const dedupeRefs = (R: readonly LawRef[]) => [...new Map(R.map((r) => [refKey(r), r])).values()];
@@ -572,12 +746,28 @@ export interface KontrolaAiAnalysis {
   unverified: string[];
   /** Articles cited in the case that the store does not hold. */
   missing: string[];
+  /** „Правен основ“ of the submission: articles of the stored texts with the quoted words (older versions: absent). */
+  basis?: AiBasis[];
+  /** Procedural laws of the remedy whose text is not in the store (must be added under ⚖ Закони → Корпус). */
+  procMissing?: string[];
 }
+/** One article of the „Правен основ“: `verified` = the article is in the context; `quoteOk` = the quoted words are in its stored text. */
+export interface AiBasis { ref: string; quote: string; why: string; verified: boolean; quoteOk: boolean; version: string | null }
 
 export const VERIFY_TAG = '[треба да се провери]';
+export const QUOTE_TAG = '[цитатот не е пронајден во зачуваниот текст – треба да се провери]';
 
-/** The prompt of the AI legal analysis. Only the case text goes out: no ЕДБ / ЕМБС / address, no staff names. */
-export function kontrolaAiPrompt(x: CaseInput, ctx: { snippets: readonly LawSnippet[]; missing: readonly LawRef[] }): string {
+export interface KontrolaLawCtx { snippets: readonly LawSnippet[]; missing: readonly LawRef[]; procMissing?: readonly string[] }
+
+/** „Внесете го текстот под ⚖ Закони → Корпус“ — the notice for a procedural law without a stored text. */
+export const procMissingText = (L: readonly string[]) =>
+  L.length ? `Текстот на ${L.join(', ')} (процесен закон за правното средство) го нема во базата на закони – додајте го под ⚖ Правен асистент → 📚 Корпус на закони; членовите од него се „за проверка“.` : '';
+
+/**
+ * The prompt of the AI legal analysis. Only the case text goes out: no firm identity (name, ЕДБ / ЕМБС / address),
+ * no staff names; the attachments are described without partner names.
+ */
+export function kontrolaAiPrompt(x: CaseInput, ctx: KontrolaLawCtx): string {
   const ch = chooseSubmission(x);
   const F = x.items.map((it) => ({
     no: it.f.no, area: FINDING_AREA[it.f.area], finding: it.f.text, articleCitedByAuthority: it.f.article ?? null,
@@ -586,8 +776,12 @@ export function kontrolaAiPrompt(x: CaseInput, ctx: { snippets: readonly LawSnip
     difference: it.f.ours == null ? null : fmtCents(it.f.claimed - it.f.ours),
     officeVerdict: it.f.verdict ? VERDICT_LBL[it.f.verdict] : null, officeAnalysis: it.f.analysis ?? null,
     officeActedLawfully: it.f.officeOk, programError: it.f.systemError, disputed: isDisputed(it.f),
-    documents: it.refs ?? [], programChecks: (it.checks ?? []).map((c) => `${c.s}: ${c.txt}`), changesInPeriod: it.audit?.n ?? 0,
+    documents: it.refs ?? [], attachments: attachmentsOf(x, it.f.no).map((a) => `Прилог ${a.no}: ${a.short}`),
+    programChecks: (it.checks ?? []).map((c) => `${c.s}: ${c.txt}`), changesInPeriod: it.audit?.n ?? 0,
   }));
+  const T = ctx.snippets.filter((s) => s.source === 'text');
+  const O = ctx.snippets.filter((s) => s.source !== 'text');
+  const proc = remedyProcLaws(x.auth, x.doc, ch.type).map(lawCodeLabel);
   return `You are a North Macedonian tax and administrative-law expert helping an accounting office respond to an inspection act.
 Write everything in formal Macedonian (Cyrillic).
 
@@ -596,20 +790,28 @@ Authority: ${KONTROLA_AUTH[x.auth]}
 Act: ${KONTROLA_DOC[x.doc]}${x.docNo ? ` no. ${x.docNo}` : ''}, dated ${x.docDate ?? 'unknown'}, delivered ${x.delivered ?? 'unknown'}
 Controlled period: ${x.periodFrom ?? '?'} – ${x.periodTo ?? '?'}; subject: ${x.subject ?? '—'}
 Remedy prepared by the program: ${SUBMISSION_LBL[ch.type]} to ${ch.to}; deadline ${ch.deadline ?? 'unknown'}${ch.verify ? ' (remedy/deadline not confirmed – must be checked in the act)' : ''}
+Procedural law of the remedy: ${proc.join(', ')}${ctx.procMissing?.length ? ` – the text of ${ctx.procMissing.join(', ')} is NOT in the store: say so in "procedural" and tag every article of it with „${VERIFY_TAG}“` : ''}
 Findings (JSON): ${JSON.stringify(F)}
+Attachments of the submission: ${(x.attachments ?? []).map((a) => `Прилог ${a.no}: ${a.short}`).join('; ') || 'none listed'}
 
-LAW STORE (the ONLY legal texts you may cite as verified; quote the snippet id):
-${ctx.snippets.map((s) => `[${s.id}] (${s.source}) ${s.title}: ${s.text}`).join('\n') || '(empty)'}
+FULL LAW TEXTS (stored consolidated texts, the version valid on the date of the act / the audited period — the ONLY articles you may quote):
+${T.map((s) => `[${s.id}] ${s.title}:\n${s.text}`).join('\n\n') || '(none stored for this case)'}
+
+OTHER LAW STORE ENTRIES (review rules, remedies, law changes; may be cited, not quoted):
+${O.map((s) => `[${s.id}] (${s.source}) ${s.title}: ${s.text}`).join('\n') || '(empty)'}
 Articles cited in the case that are NOT in the store: ${ctx.missing.map(refLabel).join(', ') || 'none'}
 
 RULES
-- Cite articles as „чл. N <law abbreviation>“ (ЗДДВ, ЗДД, ЗПДД, ЗДП, ЗОУП, ЗИН, ЗУС, ЗЗЛП …). Never invent articles or their content.
-  If you rely on an article that is not in the LAW STORE, add „${VERIFY_TAG}“ right after it.
+- Cite articles as „чл. N ст. M <law abbreviation>“ (ЗДДВ, ЗДД, ЗПДД, ЗДП, ЗОУП, ЗИН, ЗУС, ЗЗЛП …). Never invent articles or their content.
+  The legal basis and the arguments may rely ONLY on the articles above. If you still mention an article that is not above, add „${VERIFY_TAG}“ right after it.
+- "basis": the articles the submission relies on, each with "quote" = the exact words copied from its FULL LAW TEXT above (one sentence or clause).
+- Refer to the evidence by attachment number („Прилог 3“).
 - Procedural arguments: deadlines, form of the act, competence, statute of limitations (ЗДП – застареност), proper delivery, right to be heard.
 - chance = your estimate 0–100 that the office succeeds on that finding.
 - Do not add personal data. Do not address the client.
 Return ONLY JSON:
-{"findings":[{"no":1,"inspectorRight":"yes|no|partly|unclear","assessment":"","support":[{"ref":"чл. N ЗАКОН","why":""}],"against":[{"ref":"","why":""}],"counter":[""],"procedural":[""],"recommendation":"accept|object|partial|review","chance":50,"position":"our position for the external document, 2–5 sentences","internal":["notes for the internal analysis"]}],
+{"findings":[{"no":1,"inspectorRight":"yes|no|partly|unclear","assessment":"","support":[{"ref":"чл. N ЗАКОН","why":""}],"against":[{"ref":"","why":""}],"counter":[""],"procedural":[""],"recommendation":"accept|object|partial|review","chance":50,"position":"our position for the external document, 2–5 sentences, citing articles and attachments","internal":["notes for the internal analysis"]}],
+ "basis":[{"ref":"чл. N ст. M ЗАКОН","quote":"exact words from the stored text","why":"how it supports us"}],
  "procedural":["case-wide procedural arguments"],"conclusion":"conclusion paragraph of the external document","summary":"3–5 sentences for the internal analysis"}`;
 }
 
@@ -632,7 +834,7 @@ const REC_OK = new Set<Recommendation>(['accept', 'object', 'partial', 'review']
 const RIGHT_OK = new Set(['yes', 'no', 'partly', 'unclear']);
 
 /** Parse and check the model's answer: unknown findings are dropped, every unstored article is tagged „треба да се провери“. */
-export function parseKontrolaAi(raw: string, ctx: { snippets: readonly LawSnippet[]; missing: readonly LawRef[] }, nos: readonly number[]): KontrolaAiAnalysis {
+export function parseKontrolaAi(raw: string, ctx: KontrolaLawCtx, nos: readonly number[]): KontrolaAiAnalysis {
   const m = raw.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('AI не врати анализа (JSON).');
   let j: Record<string, unknown>;
@@ -661,10 +863,32 @@ export function parseKontrolaAi(raw: string, ctx: { snippets: readonly LawSnippe
       position: T(str(o.position)), internal: strs(o.internal).map(T),
     }];
   });
+  const basis = (Array.isArray(j.basis) ? j.basis : []).slice(0, 20).flatMap((b): AiBasis[] => {
+    const o = (b ?? {}) as Record<string, unknown>;
+    const ref = str(o.ref, 200), quote = str(o.quote, 1500).replace(/^[„"“]+|[“"”]+$/g, ''), why = str(o.why, 1500);
+    if (!ref) return [];
+    const R = lawRefsOf(ref);
+    const verified = R.length > 0 && R.every((r) => refInStore(r, have));
+    if (!verified) { if (R.length) for (const r of R) found.add(refLabel(r)); else found.add(ref); }
+    const S = ctx.snippets.filter((s) => R.some((r) => s.refs.some((x) => x.art === r.art && (!r.law || x.law === r.law))));
+    const q = quoteNorm(quote);
+    const quoteOk = verified && !!q && S.some((s) => quoteNorm(s.text).includes(q));
+    const version = S.map((s) => /верзија во сила од ([\d.]+)/.exec(s.title)?.[1]).find(Boolean) ?? null;
+    return [{ ref, quote, why: T(why), verified, quoteOk, version }];
+  });
   return {
     findings: F, procedural: strs(j.procedural).map(T), conclusion: T(str(j.conclusion)), summary: T(str(j.summary)),
-    unverified: [...found], missing: ctx.missing.map(refLabel),
+    unverified: [...found], missing: ctx.missing.map(refLabel), basis, procMissing: [...(ctx.procMissing ?? [])],
   };
+}
+
+/** Compare a quote with the stored text: letters and digits only, lower case. */
+const quoteNorm = (s: string) => s.toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕјѐѝ]+/gi, ' ').replace(/\s+/g, ' ').trim();
+
+/** One line of the „Правен основ“ from the AI basis (tagged when not in the store / the quote is not in the text). */
+export function basisLine(b: AiBasis): string {
+  const tag = !b.verified ? ` ${VERIFY_TAG}` : b.quote && !b.quoteOk ? ` ${QUOTE_TAG}` : '';
+  return `${b.ref}${b.version ? ` (верзија во сила од ${b.version})` : ''}${tag}${b.quote ? `: „${b.quote}“` : ''}${b.why ? ` – ${b.why}` : ''}`;
 }
 
 /** The AI analysis as patches of the two documents. */
@@ -685,7 +909,14 @@ export function aiPatches(a: KontrolaAiAnalysis): { external: SubmissionAiPatch;
   }
   const verify = [...a.unverified, ...a.missing.filter((m) => !a.unverified.includes(m))];
   return {
-    external: { reasoning, procedural: a.procedural, conclusion: a.conclusion || null },
-    internal: { perFinding, summary: [a.summary, verify.length ? `Членови што треба да се проверат (не се во базата на закони): ${verify.join(', ')}.` : ''].filter(Boolean).join(' ') || null },
+    external: {
+      reasoning, procedural: a.procedural, conclusion: a.conclusion || null, ...(a.basis?.length ? { basis: a.basis.map(basisLine) } : {}),
+      verify: a.unverified.length || a.basis?.some((b) => b.quote && !b.quoteOk)
+        ? [`Членовите и цитатите означени „${VERIFY_TAG}“ ги нема (или не се совпаѓаат) во зачуваните текстови на законите – проверете ги пред поднесување.`] : [],
+    },
+    internal: {
+      perFinding,
+      summary: [a.summary, verify.length ? `Членови што треба да се проверат (не се во базата на закони): ${verify.join(', ')}.` : '', procMissingText(a.procMissing ?? [])].filter(Boolean).join(' ') || null,
+    },
   };
 }

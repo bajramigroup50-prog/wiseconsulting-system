@@ -97,8 +97,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'c', 'crPrep crAi crMail frAi'],
   ['kanc', 'u', 'crPublish crHide klLang'],
   // inspection documents / AI legal analysis, legal assistant, deadlines calendar, fee invoices
-  ['kanc', 'c', 'kontrolaDocAuto kontrolaAiStart lawCase lawCaseAttach feeIssue feeRemind'],
-  ['kanc', 'u', 'kontrolaFindingMark kontrolaSubType kontrolaVersionAccept kontrolaVersionDiscard rokDone rokOpen lawCaseDetach lawTextLink lawTextPaste'],
+  ['kanc', 'c', 'kontrolaDocAuto kontrolaAiStart kontrolaPrepStart kontrolaPkgStart lawCase lawCaseAttach feeIssue feeRemind'],
+  ['kanc', 'u', 'kontrolaFindingMark kontrolaAutoMark kontrolaSubType kontrolaVersionAccept kontrolaVersionDiscard rokDone rokOpen lawCaseDetach lawTextLink lawTextPaste'],
   ['kanc', 'd', 'lawCaseDel'],
   ['ai', 'c', 'kontrolaAi'],
   ['izvodi', 'c', 'ppBatch bankBookAll'],
@@ -111,7 +111,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
 const NOISE = new Set((
-  'login logout loginFail loginLocked loginUnlock uMyPass uMenuStyle uNew uSave uDel ownerSet bookOnlySet userViewsSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
+  'login logout loginFail loginLocked loginUnlock uMyPass uMenuStyle uNew uSave uDel ownerSet bookOnlySet userViewsSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip kontrolaPkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
