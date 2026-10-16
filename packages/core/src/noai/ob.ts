@@ -18,6 +18,9 @@ import { lineText, pdfTable, type PdfLine } from './pdf-lines';
 import { tbAnalitika, tbaOpeningDate, type TbaResult } from './tb-analitika';
 import { finNalogFromLines } from './fin-nalog';
 
+/** P39: automatic debit / credit side of an imported opening balance (own module: the screen bundles it). */
+export { normalSide, obAutoSide, type ObSideResult } from './ob-side';
+
 export const isObHeader = (cells: string[]): boolean => {
   const h = cells.join(' | ').toLowerCase();
   return /конто|сметка|konto/.test(h) && /салдо|должи|побарува|dolzi|pobaruva|debit|credit|saldo/.test(h);

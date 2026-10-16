@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   amountInWords, checkCredit, creditGrossLines, findDuplicate, fixLines, fixRates, invoiceTotals, isServiceInvoice, mkWords,
-  nextDocNumber, ownerCheck, parseXml, purchaseDraftFromScan, saleDraftFromScan, scanConsistent, ublToScan, ublXml, unitCode,
+  nextDocNumber, ownerCheck, parseXml, purchaseDraftFromScan, saleDraftFromScan, scanConsistent, ublCheck, ublToScan, ublXml, unitCode,
   batchStatus, scanInvoices,
 } from './sales';
 import { purchaseEntries, SCH0 } from './posting';
@@ -110,6 +110,18 @@ describe('UBL', () => {
     expect(ublToScan('<foo/>')).toBeNull();
     expect(ublToScan('not xml <')).toBeNull();
     expect(unitCode('кг')).toBe('KGM');
+  });
+  it('ublCheck: valid exports pass; broken ones list the reasons (P34)', () => {
+    const o = { sellerVat: true, domesticBuyer: true };
+    expect(ublCheck(ublXml(inv, seller, buyer, { bankAccount: '300000000000001' }), o)).toEqual([]);
+    expect(ublCheck(ublXml({ ...inv, credit: true, refNumber: '11/2026' }, seller, buyer, { bankAccount: '3' }), o)).toEqual([]);
+    expect(ublCheck(ublXml({ ...inv, art32: true }, seller, buyer, { bankAccount: '3' }), o)).toEqual([]);
+    expect(ublCheck(ublXml(inv, { ...seller, edb: '4030' }, buyer), o)).toEqual(['ДДВ бројот на продавачот не е MK + 13 цифри', 'нема жиро сметка на продавачот']);
+    expect(ublCheck(ublXml({ ...inv, items: [] }, seller, { name: '' }, { bankAccount: '3' }), o)).toEqual(expect.arrayContaining(['нема назив на купувачот', 'нема ставки']));
+    const x = ublXml(inv, seller, buyer, { bankAccount: '3' }).replace('<cbc:PayableAmount currencyID="MKD">289.09', '<cbc:PayableAmount currencyID="MKD">300.00');
+    expect(ublCheck(x, o)).toEqual(['за плаќање (300.00) ≠ вкупно − аванс (289.09)']);
+    expect(ublCheck('not xml <')).toEqual(['XML не може да се прочита']);
+    expect(ublCheck('<foo/>')).toEqual(['не е UBL Invoice / CreditNote']);
   });
 });
 

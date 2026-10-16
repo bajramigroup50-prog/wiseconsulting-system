@@ -576,7 +576,13 @@ export function matchPartner(name: string, code: string | null | undefined, P: r
 /** Parsed sheet row: `[konto, account name, partner name, partner code/EDB, saldo debit, saldo credit]`. */
 export type ObRow = [string, string, string, string, number, number];
 
-export interface ParsedSheet { rows: ObRow[]; totals: [string, number, number][]; src: 'excel' | 'csv' }
+/**
+ * How the sheet gave the debit / credit side (P39, `obAutoSide`): `columns` = separate Должи / Побарува columns;
+ * `signed` = one „Салдо“ column with negative values; `unsigned` = one „Салдо“ column, every value positive (the side
+ * is not in the file). `hdr` = the sign convention named in the saldo heading („Д−П“ / „П−Д“; `pd` is already applied).
+ */
+export interface SheetSide { mode: 'columns' | 'signed' | 'unsigned'; hdr: 'dp' | 'pd' | null }
+export interface ParsedSheet { rows: ObRow[]; totals: [string, number, number][]; src: 'excel' | 'csv'; side?: SheetSide }
 
 /** Split CSV text the legacy way (delimiter = whichever of `;`, tab, `,` splits the first line most). */
 export function csvToGrid(text: string): string[][] {
@@ -687,6 +693,12 @@ function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' |
   }
   const rows: ObRow[] = [], totals: [string, number, number][] = [];
   let curK = '';
+  // P39: the sign convention named in the saldo heading („Салдо (Д−П)“, „Салдо П−Д“, „+Д / −П“); П−Д is turned around
+  const sh = cS >= 0 ? (H[cS] ?? '') : '';
+  const hdr: SheetSide['hdr'] = /(?<!\p{L})(побарува|п)\s*[-–−/]\s*(должи|д)(?!\p{L})|\+\s*п\S*\s*[/,;]?\s*[-–−]\s*д/u.test(sh) ? 'pd'
+    : /(?<!\p{L})(должи|д)\s*[-–−/]\s*(побарува|п)(?!\p{L})|\+\s*д\S*\s*[/,;]?\s*[-–−]\s*п/u.test(sh) ? 'dp' : null;
+  const sg = hdr === 'pd' ? -1 : 1;
+  let single = 0, neg = 0;
   // the same row reconstruction as the converter (`tb-rows.ts`): continuation lines, amounts on their own line, page
   // headers, class headings and total rows
   const RB = tbRebuild(A.slice(start), { k: cK, name: cN, partner: cP, code: cC, amt: [cD, cR, cS] }, { pre: A.slice(0, top), fmt, firstRow: start });
@@ -699,12 +711,14 @@ function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' |
     if (same) { if (k && !/^(12|13|15|16|22|23|25|26)/.test(k)) pn = ''; else if (k) nn = ''; }
     // headerless legacy row „konto;name;saldo“ (shorter than the debit / credit columns): one signed saldo
     const sC = cS >= 0 ? cS : hi < 0 && c.length <= cR ? c.length - 1 : -1;
-    const d = sC >= 0 ? Math.max(0, parseAmount(c[sC])) : parseAmount(c[cD]);
-    const p = sC >= 0 ? Math.max(0, -parseAmount(c[sC])) : parseAmount(c[cR]);
+    const s = sC >= 0 ? sg * parseAmount(c[sC]) : 0;
+    const d = sC >= 0 ? Math.max(0, s) : parseAmount(c[cD]);
+    const p = sC >= 0 ? Math.max(0, -s) : parseAmount(c[cR]);
     if (it.kind === 'total') { if (k) totals.push([k, d, p]); continue; }
     if (/^\d{3,8}$/.test(k)) curK = k;
     else if (hi < 0 || !(!k && (pn || nn) && curK)) continue;
     if (!r2(d) && !r2(p)) continue;
+    if (sC >= 0) { single++; if (s < 0) neg++; }
     let code = cC >= 0 ? String(c[cC] ?? '').trim() : '';
     let partner = pn || (!k && nn ? nn : '');
     // „1029 МАЈАНЦЕ“ in the partner cell: partner code + name
@@ -714,7 +728,10 @@ function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' |
     rows.push([k || curK, k ? nn : '', partner, code, d, p]);
   }
   if (probe) return rows.length ? { cells } : null;
-  return rows.length ? { rows, totals, src: outSrc } : null;
+  if (!rows.length) return null;
+  // a sheet of one saldo column (or legacy headerless „konto;name;saldo“ rows) says the side only by the sign
+  const side: SheetSide = { mode: single * 2 > rows.length ? (neg ? 'signed' : 'unsigned') : 'columns', hdr };
+  return { rows, totals, src: outSrc, side };
 }
 
 /** Legacy `obDropSums` 10659: drop synthetic rows that are sums of their sub-accounts / partner rows. */
