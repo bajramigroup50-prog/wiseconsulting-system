@@ -6,11 +6,11 @@
  */
 import Link from 'next/link';
 import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
-import { groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
+import { bankEffKonto, groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
 import type { CustomScheme } from '@wise/core/finance';
 import {
   appSettings, bankAccounts, bankLines, bankStatements, effectiveChart, firmNalogSettings, journalLines, journalOverrideState, journals, lineProblem, loadBankAccounts, partners, purchases,
-  SCHEMES_SETTINGS_KEY, statementSuggestions,
+  SCHEMES_SETTINGS_KEY, statementSuggestions, toBankRow, type LineSuggestion,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions, yearRange } from '@/lib/books';
 import { RepostCallout } from '@/components/repost-callout';
@@ -26,7 +26,8 @@ import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
 import { ImportBox } from '../banka/import-box';
-import { bookAllAction, deleteStatementAction } from '../banka/actions';
+import { deleteStatementAction } from '../banka/actions';
+import { StatementsPanel, type PanelStatement } from './statements-panel';
 import { unpostRunAction } from '../plati/actions';
 
 type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string };
@@ -159,11 +160,38 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     const inNal = await db().select({ id: bankStatements.id }).from(bankStatements)
       .where(and(eq(bankStatements.firmId, firm.id), sql`${bankStatements.meta}->>'nalog' = ${g.no}`, sql`${bankStatements.date} between ${from} and ${to}`));
     const stAll = [...new Set([...stIds, ...inNal.map((x) => x.id)])];
-    const openL = stAll.length && write ? (await db().select().from(bankLines).where(inArray(bankLines.statementId, stAll)).orderBy(asc(bankLines.date), asc(bankLines.lineNo)))
-      .filter((l) => lineProblem(l, !!l.cur && l.cur !== 'MKD')) : [];
-    const sugg = openL.length ? await db().transaction((tx) => statementSuggestions(tx, firm.id, [...new Set(openL.map((l) => l.statementId))])) : new Map();
-    const [impAccts, impP] = showImport || openL.length ? await Promise.all([loadBankAccounts(db(), firm.id), partnerOptions(firm.id)]) : [[], []];
-    const impPName = new Map(impP.map((p) => [p.id, p.name]));
+    // „Изводи во налогот“: the statements with ALL their lines — one query each, no query per line
+    const [stRows, allBL] = stAll.length ? await Promise.all([
+      db().select().from(bankStatements).where(and(eq(bankStatements.firmId, firm.id), inArray(bankStatements.id, stAll))).orderBy(asc(bankStatements.date), asc(bankStatements.number)),
+      db().select().from(bankLines).where(inArray(bankLines.statementId, stAll)).orderBy(asc(bankLines.date), asc(bankLines.lineNo)),
+    ]) : [[], []];
+    const openL = write ? allBL.filter((l) => lineProblem(l, !!l.cur && l.cur !== 'MKD')) : [];
+    const sugg = openL.length ? await db().transaction((tx) => statementSuggestions(tx, firm.id, [...new Set(openL.map((l) => l.statementId))])) : new Map<string, LineSuggestion>();
+    const [impAccts, impP] = showImport || stAll.length ? await Promise.all([loadBankAccounts(db(), firm.id), partnerOptions(firm.id)]) : [[], []];
+    const bankKs = new Set(impAccts.map((a) => a.konto));
+    const acctById = new Map(impAccts.map((a) => [a.id, a]));
+    const stLocked = (st: { id: string; date: string }) => {
+      if (firm.lockDate && st.date <= firm.lockDate) return `заклучен период (до ${dmy(firm.lockDate)})`;
+      const j = g.journals.find((x) => x.sourceId === st.id);
+      return j?.locked ? `налогот е заклучен` : '';
+    };
+    const panel: PanelStatement[] = stRows.map((st) => {
+      const a = acctById.get(st.bankAccountId);
+      const fxA = !!a && a.cur !== 'MKD';
+      return {
+        id: st.id, number: st.number ?? '', date: st.date, acct: a ? `${a.name}${a.account || a.iban ? ' ' + (a.account || a.iban) : ''}` : '', bankKonto: a?.konto ?? '',
+        fx: fxA, cur: a?.cur ?? 'MKD', opening: st.opening == null ? null : Number(st.opening), closing: st.closing == null ? null : Number(st.closing), status: st.status, locked: stLocked(st),
+        lines: allBL.filter((l) => l.statementId === st.id).map((l) => {
+          const s = sugg.get(l.id);
+          return {
+            id: l.id, date: l.date, name: l.name ?? '', purpose: l.purpose || l.description, amount: Number(l.amount), amountCur: l.amountCur == null ? null : Number(l.amountCur), cur: l.cur,
+            osnov: l.osnov ?? '', konto: l.konto ?? '', effK: l.konto || l.refId ? bankEffKonto(toBankRow(l)) : '', partnerId: l.partnerId ?? '', newPartner: l.newPartner ?? '',
+            linked: !!l.refId, refLabel: l.refLabel ?? '', refType: l.refType ?? '', manual: l.manual, prob: lineProblem(l, !!l.cur && l.cur !== 'MKD') || '',
+            sugg: s ? { konto: s.konto, partnerId: s.partnerId ?? '', why: s.why, ok: !!s.konto && !s.missing } : null,
+          };
+        }),
+      };
+    });
     const ov = one ? ovOf(one) : undefined;
     const xl = [['Р.бр.', 'Датум', 'Опис', 'Конто', 'Назив на конто', 'Должи', 'Побарува', 'Документ', 'Дев. должи', 'Дев. побарува', 'Шифра', 'Комитент'],
       ...L.map(({ l, j, p }, i) => [i + 1, dmy(j.date), (j.description ?? '') + (l.note && l.note !== j.description ? ' – ' + l.note : ''), l.account, names.get(l.account) ?? '',
@@ -201,35 +229,10 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               nalog={{ number: g.no, emptyId: one && empty && manualLike(one) ? one.id : null, chart: chart.map((a) => [a.code, a.name]), partners: impP.map((p) => ({ id: p.id, name: p.name })) }} />
           </div>
         )}
-        {openL.length > 0 && (
-          <div className="card" style={{ borderColor: 'var(--warn, #c80)' }}>
-            <h2>Ставки од изводот што не се прокнижени ({openL.length})</h2>
-            <BankForm action={bookAllAction}>
-              {[...new Set(openL.map((l) => l.statementId))].map((id) => <input key={id} type="hidden" name="st" value={id} />)}
-              <datalist id="nalOpenK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
-              <div className="tw"><table className="dense">
-                <thead><tr><th>Датум</th><th>Опис</th><th>Шифра</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Спротивно конто (предлог)</th></tr></thead>
-                <tbody>{openL.map((l) => {
-                  const s = sugg.get(l.id);
-                  const a = Number(l.amount);
-                  return (
-                    <tr key={l.id}>
-                      <td>{dmy(l.date)}</td><td style={{ minWidth: 220 }}>{l.description}</td><td>{l.osnov ?? ''}</td>
-                      <td className="n">{a > 0 ? fmt(a) : ''}</td><td className="n">{a < 0 ? fmt(-a) : ''}</td>
-                      <td>
-                        <input name={'k_' + l.id} list="nalOpenK" defaultValue={s?.konto || l.konto || ''} placeholder="конто" style={{ width: 90, ...(!s?.konto || s?.missing ? { borderColor: 'var(--bad)' } : {}) }} aria-label="Спротивно конто" />
-                        <input type="hidden" name={'p_' + l.id} value={s?.partnerId ?? l.partnerId ?? ''} />
-                        {' '}<small>{s?.konto ? names.get(s.konto) ?? '' : ''}{s?.partnerId ? ' · ' + (impPName.get(s.partnerId) ?? '') : ''}</small>
-                        {s && <><br /><small style={s.missing || !s.konto ? { color: 'var(--bad)' } : undefined} className={s.missing || !s.konto ? '' : 'note'}>{s.why}</small></>}
-                      </td>
-                    </tr>
-                  );
-                })}</tbody>
-              </table></div>
-              <div className="row"><span className="note">Предлогот е по шифрата на плаќање (840 данок, 843 придонеси, провизии), правилата, отворените фактури и комитентите. Сменете го контото каде што треба.</span><span style={{ flex: 1 }} />
-                <button className="btn pri">✓ Прокнижи ги сите во налогот</button></div>
-            </BankForm>
-          </div>
+        {panel.length > 0 && (
+          <StatementsPanel statements={panel} chart={chart.filter((a) => !bankKs.has(a.code)).map((a) => [a.code, a.name])}
+            partners={impP.map((p) => ({ id: p.id, code: p.code, name: p.name }))}
+            write={write} del={canDo(u, 'del', firm.id)} flip={canDo(u, 'flipBank', firm.id)} />
         )}
         {g.journals.length > 1 && (
           <div className="card">
