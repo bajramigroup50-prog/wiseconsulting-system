@@ -6,9 +6,10 @@ import 'server-only';
 import { cache } from 'react';
 import { and, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
-  autopilotFindings, autopilotMessages, autopilotRuns, fileLinks, inboxItems, lawChanges, lawSeen, mpinAcks, OFFICE_FILE_ENTITY, recurringInvoices,
+  autopilotFindings, autopilotMessages, autopilotRuns, bankAccounts, fileLinks, inboxItems, lawChanges, lawSeen, mpinAcks, OFFICE_FILE_ENTITY, recurringInvoices,
+  yearClosings,
 } from '@wise/db';
-import type { FpFirm } from '@wise/core/firms/picker';
+import { fgData, type FpFirm } from '@wise/core/firms/picker';
 import type { SessionUser } from './auth';
 import { db } from './db';
 import { allowedFirms, today } from './office';
@@ -82,31 +83,44 @@ export const firmBadges = cache(async (u: SessionUser): Promise<Map<string, { n:
   return M;
 });
 
-/** Rows for the firm picker (legacy `firmPicker` data: firm fields + `alFirmBadge` + `recNext` + `accFee` + МПИН index). */
-export async function pickerFirms(u: SessionUser): Promise<{ rows: FpFirm[]; badges: boolean }> {
+/**
+ * Rows for the firm picker (legacy `firmPicker` data: firm fields + `alFirmBadge` + `recNext` + `accFee` + МПИН index)
+ * and the old-program grid columns of the selected `year` (`fgData`). Fixed number of queries whatever the number of
+ * firms: the firms (`firmScope`), badges, recurring invoices, МПИН, bank accounts and the year closings — never per row.
+ */
+export async function pickerFirms(u: SessionUser, year?: number): Promise<{ rows: FpFirm[]; badges: boolean }> {
   const F = await firmScope(u);
   const ids = F.map((f) => f.id);
-  const [B, rec, mp] = await Promise.all([
+  const [B, rec, mp, ba, yc] = await Promise.all([
     firmBadges(u),
     ids.length ? db().select({ f: recurringInvoices.firmId, next: sql<string>`min(${recurringInvoices.next})` }).from(recurringInvoices)
       .where(and(inArray(recurringInvoices.firmId, ids), eq(recurringInvoices.active, true))).groupBy(recurringInvoices.firmId) : Promise.resolve([]),
     ids.length ? db().select({ f: mpinAcks.firmId, month: sql<string>`max(${mpinAcks.month})` }).from(mpinAcks).where(inArray(mpinAcks.firmId, ids)).groupBy(mpinAcks.firmId) : Promise.resolve([]),
+    ids.length && year != null ? db().select({ f: bankAccounts.firmId, account: bankAccounts.account, name: bankAccounts.name }).from(bankAccounts)
+      .where(and(inArray(bankAccounts.firmId, ids), eq(bankAccounts.active, true))).orderBy(bankAccounts.firmId, bankAccounts.sort) : Promise.resolve([]),
+    ids.length && year != null ? db().select({ f: yearClosings.firmId, status: yearClosings.status, entity: yearClosings.entity }).from(yearClosings)
+      .where(and(inArray(yearClosings.firmId, ids), eq(yearClosings.year, year))) : Promise.resolve([]),
   ]);
   const R = new Map(rec.map((r) => [r.f, r.next]));
   const MP = new Map(mp.map((r) => [r.f, r.month]));
+  const BA = new Map<string, { account: string | null; name: string }[]>();
+  for (const b of ba) BA.set(b.f, [...(BA.get(b.f) ?? []), b]);
+  const YC = new Map(yc.map((r) => [r.f, r]));
   const s = (o: Record<string, unknown>, k: string) => (typeof o[k] === 'string' || typeof o[k] === 'number' ? String(o[k]) : null);
   return {
     badges: !!B,
     rows: F.map((f) => {
       const st = f.settings as Record<string, unknown>;
       const fee = Number(st.accFee);
+      const g = year != null ? fgData(f, year, BA.get(f.id) ?? [], YC.get(f.id)) : null;
       return {
-        id: f.id, name: f.name, code: f.code, edb: f.edb, embs: f.embs, city: f.city, address: f.address, email: f.email, phone: f.phone,
+        id: f.id, name: f.name, code: g ? g.code || null : f.code, edb: f.edb, embs: f.embs, city: f.city, address: f.address, email: f.email, phone: f.phone,
         phone2: s(st, 'phone2'), contact: s(st, 'contact') ?? s(st, 'dc_name') ?? ([s(st, 'dc_first'), s(st, 'dc_last')].filter(Boolean).join(' ') || s(st, 'manager')),
         vat: f.vatRegistered, month: f.vatPeriod === 'month', example: st.example === true, ddvNo: s(st, 'ddvNo') ?? s(st, 'vatNo'),
         recNext: R.get(f.id) ?? null, fee: Number.isFinite(fee) ? fee : 0,
         al: B ? B.get(f.id) ?? { n: 0, bad: 0, txt: [] } : null,
         mp: MP.get(f.id) ? { month: MP.get(f.id)!, no: null } : null,
+        ...(g ? { g: (({ code: _c, ...x }) => x)(g) } : {}),
       };
     }),
   };

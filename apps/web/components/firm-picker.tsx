@@ -4,13 +4,17 @@
  * views v456 14251, status v457 14263, print/Excel v458 14278): search, last opened, filter chips, A–Z, sortable list,
  * tiles / groups / status views, ↑ ↓ Enter Esc, „Прикажи уште“, 🖨 PDF and ⬇ Excel of the shown list.
  * While it is shown the menu and the firm bar are hidden (legacy `body.picking`).
+ *
+ * Default view „⊞ Табела“ = the old program's „Избор на работна фирма“: a dense grid, one row per firm, the old columns in
+ * the old order (`FG_COLS`), sticky header, horizontal scroll, search by name / шифра / ЕДБ / ЕМБС / account, sort by
+ * a header click (default Шифра), ↑ ↓ + Enter or a double-click opens the firm. The chosen view is kept per user.
  */
 import { noteRendered } from '@/components/firm-guard';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
-  FP_AZ, FP_FILTERS, FP_FILTER_TITLE, FP_VIEWS, fpApply, fpDdvDue, fpDdvNo, fpExportRows, fpGroupKey, fpPerson, fpPhone, fpPrevMonth, fpShort,
+  FG_COLS, fgApply, fgKey, FP_AZ, FP_FILTERS, FP_FILTER_TITLE, FP_VIEWS, fpApply, fpDdvDue, fpDdvNo, fpExportRows, fpGroupKey, fpPerson, fpPhone, fpPrevMonth, fpShort,
   type FpFilter, type FpFirm, type FpSort, type FpView,
 } from '@wise/core/firms/picker';
 import { selectFirm } from '@/app/(app)/actions';
@@ -20,10 +24,23 @@ import { PdfButton } from './pdf-button';
 const LS = { rec: 'lk_firms', last: 'lk_firm', hist: 'lk_firmHist', view: 'lk_fpv' };
 const read = (k: string): string[] => { try { return JSON.parse(localStorage.getItem(k) ?? '[]'); } catch { return []; } };
 const dmy = (d: string) => d.split('-').reverse().join('.');
+/** Compact grid like the old program: small font, tight rows, sticky header and first column, scroll both ways. */
+const FG_CSS = '.fg{overflow:auto;max-height:calc(100vh - 230px);border:1px solid var(--line);background:var(--panel)}'
+  + '.fp2 .fg table{border:0;border-radius:0;width:max-content;min-width:100%;overflow:visible}'
+  + '.fp2 .fg th{position:sticky;top:0;z-index:2;font-size:11px;letter-spacing:0;text-transform:none;padding:3px 6px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}'
+  + '.fp2 .fg td{padding:1px 6px;font-size:12px;line-height:18px;white-space:nowrap;border-top:0;border-bottom:1px solid var(--line);border-right:1px solid var(--line);user-select:none}'
+  + '.fp2 .fg td.nm{max-width:320px;overflow:hidden;text-overflow:ellipsis}.fp2 .fg tr.r.k td{background:var(--accent);color:#fff}'
+  + '.fp2 .fg td:first-child,.fp2 .fg th:first-child{position:sticky;left:0;z-index:1;background:var(--panel)}.fp2 .fg th:first-child{z-index:3;background:var(--panel-2,#f1f4f2)}'
+  + '.fp2 .fg tr.r.k td:first-child{background:var(--accent)}';
 const nf = (v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function FirmPicker({ rows: F0, canNew, user, office, today, year, book = false, canFirmi = true }: {
+/** localStorage key of the chosen view, per user. */
+export const fpViewKey = (uid?: string) => (uid ? `${LS.view}:${uid}` : LS.view);
+
+export function FirmPicker({ rows: F0, canNew, user, uid, office, today, year, book = false, canFirmi = true }: {
   rows: FpFirm[]; canNew: boolean; user: string; office: string; today: string;
+  /** User id: the chosen view is remembered per user. */
+  uid?: string;
   /** 🔒 book-only colleague: no monthly-invoice / fee columns; `canFirmi`: the firm admin page may be linked. */
   book?: boolean; canFirmi?: boolean;
   /** Selected year: the rows are the firms working in it; the top bar is hidden here, so the year is chosen here too. */
@@ -35,7 +52,9 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year, book =
   const [flt, setFlt] = useState<FpFilter>('all');
   const [az, setAz] = useState('');
   const [sort, setSort] = useState<FpSort>('name');
-  const [view, setView] = useState<FpView>('list');
+  const [view, setView] = useState<FpView>('grid');
+  const [gs, setGs] = useState<{ c: string; d: boolean }>({ c: 'code', d: false });
+  const gridRef = useRef<HTMLDivElement>(null);
   const [gby, setGby] = useState<'letter' | 'city' | 'ddv'>('letter');
   const [lim, setLim] = useState(60);
   const [k, setK] = useState(0);
@@ -45,14 +64,18 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year, book =
   useEffect(() => {
     document.body.classList.add('picking');
     setRec(read(LS.rec));
-    try { const v = localStorage.getItem(LS.view) as FpView | null; if (v && FP_VIEWS.some(([x]) => x === v)) setView(v); } catch { /* ignore */ }
+    try { const v = localStorage.getItem(fpViewKey(uid)) as FpView | null; if (v && FP_VIEWS.some(([x]) => x === v)) setView(v); } catch { /* ignore */ }
     inp.current?.focus();
     return () => document.body.classList.remove('picking');
   }, []);
 
-  const { rows: F, letters } = useMemo(() => fpApply(F0, { q, flt, az, sort }, rec), [F0, q, flt, az, sort, rec]);
-  const L = view === 'group' ? F : F.slice(0, view === 'list' ? lim : Math.max(lim, 120));
+  const { rows: F1, letters } = useMemo(() => fpApply(F0, { q: view === 'grid' ? '' : q, flt, az, sort }, rec), [F0, q, flt, az, sort, rec, view]);
+  // the grid: own search (name, шифра, ЕДБ, ЕМБС, account) and column sort; all rows (no „Прикажи уште“)
+  const F = useMemo(() => (view === 'grid' ? fgApply(F1, q, gs.c, gs.d) : F1), [F1, q, gs, view]);
+  const L = view === 'group' || view === 'grid' ? F : F.slice(0, view === 'list' ? lim : Math.max(lim, 120));
   const kk = Math.min(k, Math.max(0, L.length - 1));
+  // keep the selected grid row in view while moving with the keyboard
+  useEffect(() => { if (view === 'grid') gridRef.current?.querySelector('tr.k')?.scrollIntoView?.({ block: 'nearest' }); }, [kk, view]);
   const recent = rec.map((id) => F0.find((f) => f.id === id)).filter((f): f is FpFirm => !!f);
   const pv = fpPrevMonth(today);
 
@@ -88,14 +111,16 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year, book =
             <Link className="btn sm" href="/?godina=1">📅 Промени година</Link>
           </span>
         )}
-        <div className="fp2-vw">{FP_VIEWS.map(([key, t]) => <button key={key} type="button" className={view === key ? 'on' : ''} onClick={() => { setView(key); setLim(60); setK(0); try { localStorage.setItem(LS.view, key); } catch { /* ignore */ } }}>{t}</button>)}</div>
+        <div className="fp2-vw">{FP_VIEWS.map(([key, t]) => <button key={key} type="button" className={view === key ? 'on' : ''} onClick={() => { setView(key); setLim(60); setK(0); try { localStorage.setItem(fpViewKey(uid), key); } catch { /* ignore */ } }}>{t}</button>)}</div>
         {canNew && <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>}
         <form action={logout} style={{ display: 'inline' }}><button className="btn">Одјава ({user})</button></form>
       </div>
-      <input ref={inp} id="fp_q" className="fp2-q" placeholder="Барај по назив, ЕДБ, ЕМБС, град… (↑ ↓ и Enter за отворање)" value={q} autoComplete="off"
+      <input ref={inp} id="fp_q" className="fp2-q" placeholder={view === 'grid' ? 'Барај по име, шифра, ЕДБ, ЕМБС или жиро сметка… (↑ ↓ и Enter за отворање)' : 'Барај по назив, ЕДБ, ЕМБС, град… (↑ ↓ и Enter за отворање)'} value={q} autoComplete="off"
         onChange={(e) => { setQ(e.target.value); setK(0); setLim(60); }}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setK(Math.max(0, Math.min(L.length - 1, kk + (e.key === 'ArrowDown' ? 1 : -1)))); }
+          const m = view === 'grid' ? fgKey(kk, L.length, e.key) : null;
+          if (m) { e.preventDefault(); setK(m.k); if (m.open && L[m.k]) pick(L[m.k]!.id); }
+          else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setK(Math.max(0, Math.min(L.length - 1, kk + (e.key === 'ArrowDown' ? 1 : -1)))); }
           else if (e.key === 'Enter' && L[kk]) pick(L[kk]!.id);
           else if (e.key === 'Escape' && q) setQ('');
         }} />
@@ -116,6 +141,24 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year, book =
         ))}
       </div>
 
+      {view === 'grid' && (
+        <div className="fg" ref={gridRef} id="fpGrid" role="grid" aria-label="Избор на работна фирма">
+          <style>{FG_CSS}</style>
+          <table>
+            <thead><tr>{FG_COLS.map(([c, t]) => (
+              <th key={c} data-col={c} title="Подреди по оваа колона" onClick={() => { setGs((o) => ({ c, d: o.c === c ? !o.d : false })); setK(0); }}>{t}{gs.c === c ? (gs.d ? ' ▴' : ' ▾') : ''}</th>
+            ))}</tr></thead>
+            <tbody>
+              {L.map((f, i) => (
+                <tr key={f.id} data-id={f.id} aria-selected={i === kk} className={`r${i === kk ? ' k' : ''}`} onClick={() => { setK(i); inp.current?.focus(); }} onDoubleClick={() => pick(f.id)}>
+                  {FG_COLS.map(([c, , get]) => <td key={c} className={c === 'name' ? 'nm' : undefined} title={c === 'name' ? f.name : undefined}>{get(f)}</td>)}
+                </tr>
+              ))}
+              {!L.length && <tr><td colSpan={FG_COLS.length} className="note" style={{ padding: 16 }}>{!F0.length ? (year ? `Нема фирми активни во ${year}.` : 'Нема фирми.') : 'Нема фирма што одговара на пребарувањето.'}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
       {view === 'list' && (
         <table>
           <thead><tr>{th('name', 'Фирма')}{th('edb', 'ЕДБ', 'hide-s')}{th('city', 'Град', 'hide-s')}<th className="hide-s">ДДВ</th><th></th>{th('rec', 'Последно')}</tr></thead>
@@ -190,7 +233,7 @@ export function FirmPicker({ rows: F0, canNew, user, office, today, year, book =
       )}
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <span className="note">Прикажани {L.length} од {F.length}{F.length !== F0.length ? ` (филтрирано од ${F0.length})` : ''}</span>
-        {view !== 'group' && F.length > L.length && <button type="button" className="btn" onClick={() => setLim(L.length + 100)}>Прикажи уште {Math.min(100, F.length - L.length)}</button>}
+        {view !== 'group' && view !== 'grid' && F.length > L.length && <button type="button" className="btn" onClick={() => setLim(L.length + 100)}>Прикажи уште {Math.min(100, F.length - L.length)}</button>}
       </div>
       {/* legacy `fpPrint`: the whole filtered list, landscape */}
       <div style={{ display: 'none' }}>
