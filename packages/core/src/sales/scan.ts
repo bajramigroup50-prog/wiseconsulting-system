@@ -20,6 +20,8 @@ export interface ScanInvoice {
   /** UBL CreditNote (amounts negative). */
   credit?: boolean;
   currency?: string;
+  /** Pages of the source file this invoice is printed on („1“, „2-3“) when the file holds several invoices. */
+  pages?: string;
 }
 /** A prompt result: one invoice, or several (`{invoices:[…]}`). */
 export type ScanResult = ScanInvoice & { invoices?: ScanInvoice[] };
@@ -201,6 +203,9 @@ export interface DupCandidate { id?: string; partnerId?: string | null; partnerE
  * FIX (LEGACY-MAP 3.4 item 10): legacy had three different rules (`purDups` number+date and auto-delete of the
  * "older" one, `batchDup` number && (partner || total), `savePur` number && (partner || total || date)).
  * The sha256 of an attached file is checked separately (`files.sha256`).
+ * Also a duplicate (the rule of the bank import, one document = one registration): the same supplier (id or ЕДБ) +
+ * number + document DATE (`date` of both given), whatever the amount — an invoice read again with a different total
+ * is still the same invoice.
  */
 export function findDuplicate<T extends DupCandidate>(c: DupCandidate, existing: readonly T[]): T | null {
   const nn = normDocNo(c.number);
@@ -209,11 +214,14 @@ export function findDuplicate<T extends DupCandidate>(c: DupCandidate, existing:
   return existing.find((x) => {
     if (x.id && c.id && x.id === c.id) return false;
     if (normDocNo(x.number) !== nn) return false;
-    if (Math.abs(x.total - c.total) > 1) return false;
+    const sameTotal = Math.abs(x.total - c.total) <= 1;
+    const sameDate = !!c.date && !!x.date && c.date === x.date;
+    if (!sameTotal && !sameDate) return false;
     if (c.partnerId && x.partnerId) return c.partnerId === x.partnerId;
     const xe = edbDigits(x.partnerEdb);
     if (ce.length >= 7 && xe.length >= 7) return ce.slice(-7) === xe.slice(-7);
-    return true;
+    // no supplier to compare: only number + amount
+    return sameTotal;
   }) ?? null;
 }
 
@@ -233,6 +241,8 @@ export interface ScanPurchaseDraft {
   credit: boolean;
   /** The supplier's bank account read from the invoice (valid MK account / IBAN, else ''). */
   bankAcc?: string;
+  /** Pages of the source file with this invoice („2-3“) when the file holds several invoices. */
+  pages?: string;
 }
 export interface PurchaseDraftOptions {
   partners: readonly MatchPartner[];
@@ -294,6 +304,7 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
     art32: !!r.art32, cash: !!o.cash, warehouseId: o.warehouseId ?? null,
     ptype: o.costOnly ? 'cost' : stock.length || goodsInv ? 'stock' : 'cost',
     groups, stock, credit: !!r.credit, bankAcc: accountKey(r.supplierBankAccount),
+    ...(r.pages ? { pages: String(r.pages) } : {}),
   };
 }
 
@@ -302,6 +313,8 @@ export interface ScanSaleDraft {
   buyer: { name: string; edb: string; address: string; city: string };
   items: { itemId: string; name: string; unit: string; qty: number; price: number; disc: number; rate: number; konto: string }[];
   total: number;
+  /** Pages of the source file with this invoice („2-3“) when the file holds several invoices. */
+  pages?: string;
 }
 
 /**
@@ -333,7 +346,7 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
   return {
     number: String(r.number ?? '').trim() || o.nextNumber, date: dd, due: isoDate(r.dueDate), partnerId: p?.id ?? '', art32: !!r.art32,
     buyer: { name: String(r.buyerName ?? ''), edb: String(r.buyerEdb ?? '').replace(/[^\dA-Za-z]/g, ''), address: String(r.buyerAddress ?? ''), city: String(r.buyerCity ?? '') },
-    items, total,
+    items, total, ...(r.pages ? { pages: String(r.pages) } : {}),
   };
 }
 

@@ -60,6 +60,8 @@ export interface AiDraft {
   msg: string;
   /** Id of the purchase / invoice saved from this draft. */
   savedId?: string;
+  /** „Прескокни“: the user left this invoice of the document out (not saved, not in the queue). */
+  skipped?: boolean;
 }
 
 export const aiDocuments = pgTable('ai_documents', {

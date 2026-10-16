@@ -5,8 +5,8 @@ import { r2 } from '../money';
 import type { InvoiceItem } from '../posting';
 import { ART32_TXT, reverseChargeVat } from '../vat';
 import { invoiceTotals } from './docs';
-import { parseXml, xmlAll, xmlOne, xmlText } from './xml';
-import type { ScanInvoice } from './scan';
+import { parseXml, xmlAll, xmlOne, xmlText, type XmlEl } from './xml';
+import type { ScanInvoice, ScanResult } from './scan';
 
 const xe = (v: unknown) => String(v ?? '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
 const n2 = (v: number) => r2(v).toFixed(2);
@@ -96,6 +96,27 @@ ${inv.items.map((it, i) => {
 export function ublToScan(txt: string): ScanInvoice | null {
   let root;
   try { root = parseXml(txt); } catch { return null; }
+  return ublRoot(root);
+}
+
+/**
+ * Every invoice of an XML file: one UBL `Invoice` / `CreditNote`, or a container (a batch export, a
+ * StandardBusinessDocument envelope, an `<Invoices>` list) with several of them — each one its own invoice
+ * (`invoices`), never merged or summed (the rule of the bank import: every document is registered separately).
+ */
+export function ublToScanAll(txt: string): ScanResult | null {
+  let root: XmlEl;
+  try { root = parseXml(txt); } catch { return null; }
+  const one = ublRoot(root);
+  if (one) return one;
+  const found: XmlEl[] = [];
+  const walk = (e: XmlEl) => { for (const c of e.children) { if (/^(Invoice|CreditNote)$/.test(c.name)) found.push(c); else walk(c); } };
+  walk(root);
+  const I = found.map(ublRoot).filter((x): x is ScanInvoice => !!x);
+  return !I.length ? null : I.length === 1 ? I[0]! : { invoices: I };
+}
+
+function ublRoot(root: XmlEl): ScanInvoice | null {
   if (!/^(Invoice|CreditNote)$/.test(root.name)) return null;
   const credit = root.name === 'CreditNote' || xmlText(root, 'InvoiceTypeCode') === '381';
   const sg = credit ? -1 : 1;

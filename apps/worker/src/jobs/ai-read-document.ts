@@ -27,7 +27,7 @@
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { fixRates, scanResultConsistent, scanInvoices, ublToScan, type ScanResult } from '@wise/core/sales';
+import { fixRates, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
@@ -38,7 +38,7 @@ import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
-import { PUR_BANK_ADD, PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
+import { INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
 import { readObject } from '../ai/storage';
@@ -200,7 +200,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
         const ids: string[] = [];
         for (const pt of parts) {
           const fileId = await storeFile(db as unknown as DB, store, { firmId: f.id, name: pt.name, mime: 'application/pdf', ext: 'pdf', body: pt.bytes, userId: doc.createdBy });
-          const [c] = await db.insert(aiDocuments).values({ firmId: f.id, fileId, kind: doc.kind, batchId: doc.batchId, createdBy: doc.createdBy, options: { ...doc.options, split: true, parentId: doc.id } }).returning({ id: aiDocuments.id });
+          const [c] = await db.insert(aiDocuments).values({ firmId: f.id, fileId, kind: doc.kind, batchId: doc.batchId, createdBy: doc.createdBy, options: { ...doc.options, split: true, parentId: doc.id, pages: pt.pages } }).returning({ id: aiDocuments.id });
           ids.push(c!.id);
         }
         await db.update(aiDocuments).set({ status: 'done', drafts: [], result: { split: ids }, batchId: null, options: { ...doc.options, inline: true } }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
@@ -212,7 +212,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     let result: ScanResult | null = hit ? fx(hit.result as ScanResult) : null;
     let model: string | null = hit ? hit.model : null;
     if (!result && /\.xml$/i.test(file.name) || /xml/.test(file.mime)) {
-      result = ublToScan(new TextDecoder('utf-8').decode(bytes));
+      result = ublToScanAll(new TextDecoder('utf-8').decode(bytes));
       if (result) model = 'ubl';
     }
     if (!result && noAi) {
@@ -221,7 +221,18 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     }
     if (!result) {
       const content = fileContent(file, bytes);
-      const prompt = doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD;
+      // several photos / scans uploaded together (`extraFileIds`): the pages of one or several invoices, read in one
+      // call and grouped by invoice header (each invoice its own draft, `pages` = the photos it is on)
+      const extra = ((doc.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [];
+      if (extra.length) {
+        for (const id of extra) {
+          const ef = await loadFile(db, f.id, id);
+          content.blocks.push(...fileContent(ef, await readObject(ef.bucketKey)).blocks);
+        }
+        content.extra += INV_PAGES_NOTE(extra.length + 1);
+      }
+      // the rule of the bank import: several invoices in the file → `invoices[]`, one object (one draft) per invoice
+      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD) + INV_MULTI_ADD;
       const base = { db, firmId: f.id, prompt, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
       let quick: ScanResult | null = null;
       // legacy `outDeep` / `outRunDeep`: a deeper read straight away (no quick read)
@@ -244,6 +255,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       model = R.model;
     }
     if (!result || !scanInvoices(result).length) throw new Error('Документот не е прочитан јасно. Пробајте појасна слика.');
+    // a part cut from a multi-invoice PDF (`split`): its invoice is on these pages of the original file
+    const srcPages = (doc.options as { pages?: string }).pages;
+    if (srcPages && scanInvoices(result).length === 1) scanInvoices(result)[0]!.pages ??= srcPages;
     const opts = doc.options as { cash?: boolean; warehouseId?: string | null; costOnly?: boolean };
     const drafts = doc.kind === 'sale' ? await saleDrafts(db, f, result) : await purchaseDrafts(db, f, result, opts);
     await db.update(aiDocuments).set({ status: 'done', result, drafts, model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));

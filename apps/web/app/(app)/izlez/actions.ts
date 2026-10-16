@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { isFuel } from '@wise/core/sales';
 import { z } from 'zod';
-import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, fileLinks, firms, invoices, items, markDraftSaved, saveInvoice } from '@wise/db';
+import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, draftSourceFiles, fileLinks, firms, invoices, items, markDraftSaved, saveInvoice } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -78,8 +78,11 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
       if (v.scanDocId != null && v.scanIndex != null) {
         await markDraftSaved(tx, firm.id, v.scanDocId, v.scanIndex, r.id);
         // the scanned original stays attached to the invoice (legacy `outDraft` files: [att])
-        const [ad] = await tx.select({ f: aiDocuments.fileId }).from(aiDocuments).where(and(eq(aiDocuments.id, v.scanDocId), eq(aiDocuments.firmId, firm.id))).limit(1);
-        if (ad?.f) await tx.insert(fileLinks).values({ fileId: ad.f, entityType: 'invoice', entityId: r.id, role: 'source' }).onConflictDoNothing();
+        // the source file (photos read together: only the photos of this invoice's pages); a file with several
+        // invoices is linked to each of them
+        const [ad] = await tx.select().from(aiDocuments).where(and(eq(aiDocuments.id, v.scanDocId), eq(aiDocuments.firmId, firm.id))).limit(1);
+        const src = ad ? draftSourceFiles(ad, v.scanIndex).fileIds : [];
+        if (src.length) await tx.insert(fileLinks).values(src.map((fileId) => ({ fileId, entityType: 'invoice', entityId: r.id, role: 'source' }))).onConflictDoNothing();
       }
       return r;
     });

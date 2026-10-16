@@ -183,6 +183,8 @@ export interface PurchaseData {
   truck?: string; trailer?: string; withVat?: boolean;
   /** The supplier's bank account printed on the invoice (learned into the partner's accounts). */
   bankAcc?: string;
+  /** Pages of the linked source file with this invoice („2-3“) when the file holds several invoices. */
+  srcPages?: string;
 }
 
 export const purchases = pgTable('purchases', {

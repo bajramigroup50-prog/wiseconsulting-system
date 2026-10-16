@@ -273,10 +273,15 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           const S = await scanStatus(pur.map((r) => r.id));
           for (const s of S) {
             if (s.status === 'done' && s.drafts[0]) {
-              mergeScan(s.drafts[0].draft as unknown as ScanPurchaseDraft);
-              void scanTaken(s.id);
-              setToast('Податоците се прочитани од документот. Проверете ги и зачувајте.');
+              const first = s.drafts[0];
+              mergeScan(first.draft as unknown as ScanPurchaseDraft);
               setReading((R) => R.filter((r) => r.id !== s.id));
+              // one file, several invoices: only the first comes into this editor, each of the others is its own
+              // purchase (never merged) and waits on the scan screen
+              const t = await scanTaken(s.id, s.drafts.length > 1 ? { docId: first.docId, index: first.index } : undefined);
+              setToast(s.drafts.length > 1
+                ? `Пронајдени ${s.drafts.length} фактури во документот. Првата (${String((first.draft as { number?: string }).number ?? '')}) е внесена тука; другите ${t.rest ?? s.drafts.length - 1} се посебни фактури – зачувајте ги од „Скенирање документ“.`
+                : 'Податоците се прочитани од документот. Проверете ги и зачувајте.');
             } else if (s.status === 'error') { setToast(isAiUnavailable(s.error) ? AI_UNAVAILABLE_MSG : s.error || 'Читањето не успеа. Обидете се повторно.'); setReading((R) => R.filter((r) => r.id !== s.id)); }
           }
         }
