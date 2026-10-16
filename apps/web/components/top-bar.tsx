@@ -9,6 +9,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { ROLES, type Role } from '@wise/core';
 import { alBellState } from '@wise/core/firms/picker';
+import { rokBadgeView } from '@wise/core/office/rokovi';
 import { hrefFor, navFlat, type NavGroup } from '@/lib/nav';
 import { yearSwitchQuestion } from '@/lib/firm-guard';
 import { logout } from '@/app/login/actions';
@@ -21,8 +22,8 @@ export interface TopFirm { id: string; name: string; edb: string | null; vatRegi
 export interface TopBarStatus { bell: { bad: number; warn: number; firstFirm: string | null } | null; ainb: number; law: number | null; locks?: number;
   /** Owner only: the office's monthly AI limit at 80 % / 100 % (`lib/ai-budget-status.ts`). */
   ai?: { level: 80 | 100; pct: number; msg: string } | null;
-  /** 📅 open deadlines within the reminder window (late = past due). */
-  rok?: { n: number; late: number } | null }
+  /** 📅 open deadlines due this week / ⚠ overdue, in the user's „мои фирми“ scope (`lib/rokovi.ts` `rokBadge`). */
+  rok?: { week: number; late: number; mine?: boolean } | null }
 
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
@@ -44,6 +45,7 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms, bo
   const office = !teren && user.role !== 'klient';
   const officeBar = office && !book;
   const B = status.bell ? alBellState(status.bell.bad, status.bell.warn) : null;
+  const rok = status.rok ? rokBadgeView({ week: status.rok.week, late: status.rok.late, mine: !!status.rok.mine }) : null;
   const bell = () => {
     const fid = status.bell?.firstFirm;
     if (!firm && fid) start(async () => { await selectFirm(fid); noteRendered({ firm: fid }); router.push('/izvestuvanja'); });
@@ -88,12 +90,14 @@ export function TopBar({ groups, user, year, minYear, firm, status, canFirms, bo
           💲 {status.ai.level === 100 ? 'AI паузирано' : `AI ${Math.round(status.ai.pct)}%`}
         </a>
       )}
-      {officeBar && !!status.rok?.n && (
-        <a className="btn sm" id="rokTop" href="/rokovi?v=lista"
-          title={`Рокови во наредните денови: ${status.rok.n}${status.rok.late ? ` (поминати: ${status.rok.late})` : ''} – 📅 Календар на рокови`}
-          style={status.rok.late ? { background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 } : { background: '#fef0c7', color: '#93370d', border: '2px solid #dc6803', fontWeight: 700 }}>
-          📅 {status.rok.n}
-        </a>
+      {officeBar && rok && (
+        <span id="rokTop" title={rok.tip} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          {rok.week != null && <a className="btn sm" id="rokTopWeek" href="/rokovi?v=lista&r=nedela" title={rok.tip}>📅 {rok.week}</a>}
+          {rok.late != null && (
+            <a className="btn sm" id="rokTopLate" href="/rokovi?v=lista&r=pominati" title={rok.tip}
+              style={{ background: '#fee4e2', color: '#b42318', border: '2px solid #b42318', fontWeight: 700 }}>⚠ {rok.late}</a>
+          )}
+        </span>
       )}
       {officeBar && <AinbEnvelope n={status.ainb} />}
       {officeBar && B && (

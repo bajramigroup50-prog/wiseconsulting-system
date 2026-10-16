@@ -14,9 +14,9 @@
  *   (portal message / e-mail through `mail_log`).
  * - `markRok`: a colleague marks a deadline done / not done (audited).
  */
-import { and, eq, gte, inArray, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import {
-  ROK_PAID_NOTE, rokClientDue, rokClientText, rokDays, rokGenerate, rokPaymentEvidence, rokReminderText, rokRemindDue,
+  ROK_CLEAN_NOTE, ROK_PAID_NOTE, rokClientDue, rokClientText, rokDays, rokGenerate, rokPaymentEvidence, rokReminderText, rokRemindDue,
   type Rok, type RokFirm, type RokPayLine, type RokSettings,
 } from '@wise/core/office/rokovi';
 import { addDays, todaySkopje } from '@wise/core/office';
@@ -169,8 +169,9 @@ export async function syncRokovi(db: Tx, o: { from: string; to: string; firmIds?
       set: {
         type: sql`excluded.type`, title: sql`excluded.title`, period: sql`excluded.period`, due: sql`excluded.due`, legalDue: sql`excluded.legal_due`,
         link: sql`excluded.link`, verified: sql`excluded.verified`, gone: sql`false`, updatedAt: now,
-        // the payment evidence of an automatic „done“ stays (re-checked below)
-        note: sql`case when ${rokovi.done} and ${rokovi.auto} and left(coalesce(${rokovi.note}, ''), ${ROK_PAID_NOTE.length}) = ${ROK_PAID_NOTE} then ${rokovi.note} else excluded.note end`,
+        // the payment evidence of an automatic „done“ stays (re-checked below); so does the clean-up note (its undo finds the rows by it)
+        note: sql`case when ${rokovi.done} and ${rokovi.auto} and left(coalesce(${rokovi.note}, ''), ${ROK_PAID_NOTE.length}) = ${ROK_PAID_NOTE} then ${rokovi.note}
+          when ${rokovi.done} and not ${rokovi.auto} and ${rokovi.note} = ${ROK_CLEAN_NOTE} then ${rokovi.note} else excluded.note end`,
         // a manual firm deadline keeps its done flag in `firm_deadlines` (the dossier); everything else keeps the stored status
         done: sql`case when ${rokovi.type} = 'firm' then excluded.done else ${rokovi.done} end`,
       },
@@ -220,6 +221,107 @@ export async function markRok(tx: Tx, a: { id: string; done: boolean; userId: st
   await tx.update(rokovi).set({ done: a.done, auto: false, doneAt: a.done ? new Date() : null, doneBy: a.done ? a.userId : null }).where(eq(rokovi.id, r.id));
   if (r.type === 'firm') await tx.update(firmDeadlines).set({ done: a.done }).where(and(eq(firmDeadlines.id, r.key.slice(5)), eq(firmDeadlines.firmId, r.firmId)));
   await audit(tx, { userId: a.userId, firmId: r.firmId, action: a.done ? 'rokDone' : 'rokOpen', entityType: 'rok', entityId: r.id, data: { key: r.key, title: r.title, due: r.due } });
+}
+
+/* ---------------- top-bar counter, „my firms“, one-time clean-up ---------------- */
+
+/** `app_settings` key of a user's „Само мои фирми / Сите фирми“ choice on /rokovi (and the 📅 counter). */
+export const rokScopeKey = (userId: string) => `rokScope:${userId}`;
+
+/** The stored choice: `true` = only my firms, `false` = all firms, `null` = never chosen (the default applies). */
+export async function rokScopeGet(db: Tx, userId: string): Promise<boolean | null> {
+  const [r] = await db.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, rokScopeKey(userId))).limit(1);
+  const m = (r?.v as { mine?: unknown } | undefined)?.mine;
+  return typeof m === 'boolean' ? m : null;
+}
+
+export async function rokScopeSet(db: Tx, userId: string, mine: boolean): Promise<void> {
+  const value = { mine };
+  await db.insert(appSettings).values({ key: rokScopeKey(userId), value }).onConflictDoUpdate({ target: appSettings.key, set: { value } });
+}
+
+/**
+ * „Мои фирми“ among `firmIds`: the firms assigned to the user (`user_firms`) or where the user is the responsible
+ * colleague (`firms.owner_id`) — the same rule as the „Колега“ filter. None of them → all `firmIds`.
+ */
+export async function rokMyFirmIds(db: Tx, userId: string, firmIds: readonly string[], o: { fallback?: boolean } = {}): Promise<string[]> {
+  if (!firmIds.length) return [];
+  const R = await db.select({ id: firms.id }).from(firms).where(and(inArray(firms.id, [...firmIds]), or(
+    eq(firms.ownerId, userId),
+    sql`exists (select 1 from ${userFirms} where ${userFirms.userId} = ${userId} and ${userFirms.firmId} = ${firms.id})`,
+  )));
+  return R.length || o.fallback === false ? R.map((r) => r.id) : [...firmIds];
+}
+
+/**
+ * The 📅 counter: open deadlines due this week (today + 6 days) and overdue ones (before today, however old).
+ * One aggregate over the stored rows (`rokovi_due_idx`); `kdog` = include the service-contract rows (owner only).
+ */
+export async function rokCounts(db: Tx, o: { firmIds: readonly string[]; today: string; kdog: boolean }): Promise<{ week: number; late: number }> {
+  if (!o.firmIds.length) return { week: 0, late: 0 };
+  const [r] = await db.select({
+    week: sql<number>`count(*) filter (where ${rokovi.due} >= ${o.today})::int`,
+    late: sql<number>`count(*) filter (where ${rokovi.due} < ${o.today})::int`,
+  }).from(rokovi).where(and(
+    inArray(rokovi.firmId, [...o.firmIds]), eq(rokovi.done, false), eq(rokovi.gone, false), lte(rokovi.due, addDays(o.today, 6)),
+    o.kdog ? undefined : ne(rokovi.type, 'kdog'),
+  ));
+  return { week: r?.week ?? 0, late: r?.late ?? 0 };
+}
+
+const cleanWhere = (o: { firmIds: readonly string[]; before: string; kdog: boolean }) => and(
+  inArray(rokovi.firmId, [...o.firmIds]), eq(rokovi.done, false), eq(rokovi.gone, false), lt(rokovi.due, o.before),
+  o.kdog ? undefined : ne(rokovi.type, 'kdog'),
+);
+
+/** How many open deadlines „Означи ги минатите како направени“ would mark (the confirm). */
+export async function rokCleanupCount(db: Tx, o: { firmIds: readonly string[]; before: string; kdog: boolean }): Promise<number> {
+  if (!o.firmIds.length) return 0;
+  const [r] = await db.select({ n: sql<number>`count(*)::int` }).from(rokovi).where(cleanWhere(o));
+  return r?.n ?? 0;
+}
+
+/**
+ * One-time clean-up: every open deadline due BEFORE `before` in the firms is marked done by hand (`auto = false`, the
+ * user, note `ROK_CLEAN_NOTE`); all rows of one clean-up share `done_at` (the undo finds the last one by it). The daily
+ * sync never reopens them (it reopens only automatic rows and keeps the note). A manual firm deadline is also marked
+ * in the dossier. Audited `rokCleanup` with the count.
+ */
+export async function rokCleanup(tx: Tx, o: { firmIds: readonly string[]; before: string; kdog: boolean; userId: string; now?: Date }): Promise<{ n: number; at: Date }> {
+  const at = o.now ?? new Date();
+  if (!o.firmIds.length) return { n: 0, at };
+  const R = await tx.update(rokovi).set({ done: true, auto: false, doneAt: at, doneBy: o.userId, note: ROK_CLEAN_NOTE })
+    .where(cleanWhere(o)).returning({ firmId: rokovi.firmId, key: rokovi.key, type: rokovi.type });
+  await setFirmDeadlines(tx, R, true);
+  await audit(tx, { userId: o.userId, firmId: null, action: 'rokCleanup', entityType: 'rok', data: { before: o.before, n: R.length, firms: o.firmIds.length, at: at.toISOString() } });
+  return { n: R.length, at };
+}
+
+/** When the last clean-up still on the calendar ran (`null` = nothing to undo). */
+export async function rokCleanupLast(db: Tx, firmIds: readonly string[]): Promise<Date | null> {
+  if (!firmIds.length) return null;
+  const [r] = await db.select({ at: rokovi.doneAt }).from(rokovi)
+    .where(and(inArray(rokovi.firmId, [...firmIds]), eq(rokovi.done, true), eq(rokovi.auto, false), eq(rokovi.note, ROK_CLEAN_NOTE), isNotNull(rokovi.doneAt)))
+    .orderBy(desc(rokovi.doneAt)).limit(1);
+  return r?.at ?? null;
+}
+
+/** „↺ Врати го последното чистење“: reopen the rows of the last clean-up in the firms (still done with its note). */
+export async function rokCleanupUndo(tx: Tx, o: { firmIds: readonly string[]; userId: string }): Promise<{ n: number; at: Date | null }> {
+  const last = await rokCleanupLast(tx, o.firmIds);
+  if (!last) return { n: 0, at: null };
+  const R = await tx.update(rokovi).set({ done: false, auto: false, doneAt: null, doneBy: null, note: null })
+    .where(and(inArray(rokovi.firmId, [...o.firmIds]), eq(rokovi.done, true), eq(rokovi.auto, false), eq(rokovi.note, ROK_CLEAN_NOTE), eq(rokovi.doneAt, last)))
+    .returning({ firmId: rokovi.firmId, key: rokovi.key, type: rokovi.type });
+  await setFirmDeadlines(tx, R, false);
+  await audit(tx, { userId: o.userId, firmId: null, action: 'rokCleanupUndo', entityType: 'rok', data: { n: R.length, at: last.toISOString() } });
+  return { n: R.length, at: last };
+}
+
+/** A manual firm deadline (`firm:<id>`) keeps its done flag in the dossier (`firm_deadlines`), which the sync reads. */
+async function setFirmDeadlines(tx: Tx, R: readonly { firmId: string; key: string; type: string }[], done: boolean): Promise<void> {
+  const ids = R.filter((r) => r.type === 'firm' && r.key.startsWith('firm:')).map((r) => r.key.slice(5)).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+  for (let i = 0; i < ids.length; i += 400) await tx.update(firmDeadlines).set({ done }).where(inArray(firmDeadlines.id, ids.slice(i, i + 400)));
 }
 
 export interface RokDispatchResult { colleague: number; client: number }

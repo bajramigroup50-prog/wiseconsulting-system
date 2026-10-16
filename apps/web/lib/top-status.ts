@@ -22,8 +22,8 @@ export interface TopStatus {
   ainb: AinbItem[];
   /** New law changes for this user (legacy `lawNew().length`); `null` = not shown for the role. */
   law: number | null;
-  /** 📅 open deadlines within the reminder window (`lib/rokovi.ts`); `null` = none for the role. */
-  rok?: { n: number; late: number } | null;
+  /** 📅 open deadlines this week / overdue in the user's scope (`lib/rokovi.ts`); `null` = none for the role. */
+  rok?: { week: number; late: number; mine: boolean } | null;
 }
 
 const officeRole = (u: SessionUser) => u.role !== 'klient' && u.role !== 'teren';

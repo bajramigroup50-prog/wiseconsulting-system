@@ -13,23 +13,25 @@ import Link from 'next/link';
 import { and, gte, inArray, lte, sql } from 'drizzle-orm';
 import { addDays } from '@wise/core/office';
 import {
-  ROK_SRC, ROK_STATE_LBL, ROK_TYPE_IDS, ROK_TYPES, rokClientDay, rokDays, rokMonthGrid, rokMonthName, rokState, rokYmAdd, type RokSettings, type RokType,
+  ROK_SRC, ROK_STATE_LBL, ROK_TYPE_IDS, ROK_TYPES, rokBadgeRange, rokCleanDefault, rokClientDay, rokDays, rokMonthGrid, rokMonthName, rokState, rokYmAdd,
+  type RokSettings, type RokType,
 } from '@wise/core/office/rokovi';
-import { rokovi, rokoviLastRun, syncRokovi } from '@wise/db';
+import { rokCleanupLast, rokovi, rokoviLastRun, syncRokovi } from '@wise/db';
 import { isDemoUser } from '@/lib/demo';
-import { officeProfileFor } from '@/lib/demo-office';
+import { officeProfileFor, ownerContext } from '@/lib/demo-office';
 import { db } from '@/lib/db';
-import { officePage, today } from '@/lib/office';
-import { rokColleagues, rokRows, type RokView } from '@/lib/rokovi';
+import { allowedFirms, officePage, today } from '@/lib/office';
+import { rokColleagues, rokRows, rokScopeMine, type RokView } from '@/lib/rokovi';
 import { ActionForm } from '@/components/action-form';
 import { FirmGo } from '@/components/firm-go';
 import { Hd, dmy } from '@/components/hd';
 import { AutoStatus } from '@/components/auto-status';
 import { hubTabs } from '@/components/hub-tabs';
 import { RowAction } from '@/components/row-action';
-import { markRokAction, saveRokSettings, syncRokAction } from './actions';
+import { markRokAction, saveRokSettings, setRokScopeAction, syncRokAction } from './actions';
+import { RokCleanup } from './cleanup';
 
-type SP = { m?: string; v?: string; fid?: string; uid?: string; t?: string; st?: string };
+type SP = { m?: string; v?: string; fid?: string; uid?: string; t?: string; st?: string; r?: string };
 const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
 const WD = ['Пон', 'Вто', 'Сре', 'Чет', 'Пет', 'Саб', 'Нед'];
 const wd = (d: string) => WD[(new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7];
@@ -39,24 +41,34 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
   const demo = isDemoUser(u);
   const sp = await searchParams;
   const td = today();
-  const list = sp.v === 'lista';
+  // the 📅 / ⚠ links of the top bar: this week / overdue, open only, as a list
+  const br = rokBadgeRange(td, sp.r);
+  const list = sp.v === 'lista' || !!br;
   const ym = sp.m && YM.test(sp.m) ? sp.m : td.slice(0, 7);
   // the list without a month: from 30 days back to 60 days ahead
-  const [from, to] = list && !sp.m ? [addDays(td, -30), addDays(td, 60)] : [`${ym}-01`, addDays(`${rokYmAdd(ym, 1)}-01`, -1)];
-  const st = sp.st === 'open' || sp.st === 'done' ? sp.st : 'all';
+  const [from, to] = br ? [br.from, br.to] : list && !sp.m ? [addDays(td, -30), addDays(td, 60)] : [`${ym}-01`, addDays(`${rokYmAdd(ym, 1)}-01`, -1)];
+  const st = br ? 'open' : sp.st === 'open' || sp.st === 'done' ? sp.st : 'all';
   const S = ((await officeProfileFor(u)) as { rok?: RokSettings }).rok ?? {};
   const days = rokDays(S);
-  let res = await rokRows(u, { from, to, fid: sp.fid, uid: sp.uid, t: sp.t, st });
-  // first visit of a month nobody has generated yet: generate it now (the worker covers only its own window)
+  const isOwner = !!(await ownerContext(u).catch(() => null));
+  const mine = await rokScopeMine(u, isOwner);
+  const q = { from, to, fid: sp.fid, uid: sp.uid, t: sp.t, st, mine } as const;
+  let res = await rokRows(u, q);
+  // first visit of a month nobody has generated yet: generate it now (the worker covers only its own window); never for the overdue list
   const ids = res.firms.map((f) => f.id);
-  if (ids.length) {
+  if (ids.length && br?.kind !== 'pominati') {
     const [c] = await db().select({ n: sql<number>`count(*)::int` }).from(rokovi).where(and(inArray(rokovi.firmId, ids), gte(rokovi.due, from), lte(rokovi.due, to)));
-    if (!c?.n) { await syncRokovi(db(), { from, to, firmIds: ids }); res = await rokRows(u, { from, to, fid: sp.fid, uid: sp.uid, t: sp.t, st }); }
+    if (!c?.n) { await syncRokovi(db(), { from, to, firmIds: ids }); res = await rokRows(u, q); }
   }
   const { rows, firms } = res;
-  const [users, lastRun] = await Promise.all([rokColleagues(u), rokoviLastRun(db()).catch(() => null)]);
+  const canClean = u.role === 'admin' || isOwner;
+  const [users, lastRun, lastClean] = await Promise.all([
+    rokColleagues(u), rokoviLastRun(db()).catch(() => null),
+    canClean ? allowedFirms(u).then((A) => rokCleanupLast(db(), A.map((f) => f.id))).catch(() => null) : null,
+  ]);
+  const scopeTxt = mine ? 'само мои фирми' : 'сите фирми';
   const qs = (o: Partial<SP>) => '?' + new URLSearchParams(Object.entries({ ...sp, ...o }).filter(([, v]) => v) as [string, string][]).toString();
-  const icsQs = new URLSearchParams(Object.entries({ from, to, fid: sp.fid ?? '', uid: sp.uid ?? '', t: sp.t ?? '', st: st === 'all' ? 'open' : st }).filter(([, v]) => v)).toString();
+  const icsQs = new URLSearchParams(Object.entries({ from, to, fid: sp.fid ?? '', uid: sp.uid ?? '', t: sp.t ?? '', st: st === 'all' ? 'open' : st, sc: mine ? 'moi' : '' }).filter(([, v]) => v)).toString();
   const stOf = (r: RokView) => rokState(td, r.due, r.done, days);
   const nOpen = rows.filter((r) => !r.done).length, nLate = rows.filter((r) => stOf(r) === 'late').length, nCheck = rows.filter((r) => !r.verified).length;
 
@@ -98,16 +110,30 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
         <AutoStatus label="Освежено автоматски" at={lastRun} when="секој ден во 07:10"
           refresh={u.role === 'admin' ? <RowAction className="btn sm ghost" action={syncRokAction.bind(null, ym)} label="↻" title="Освежи сега: повторно ги пресметува роковите од поставките на фирмите" showOk /> : null} />
         <a className="btn" href={`/api/rokovi/ics?${icsQs}`} title="Календар (ICS) за Outlook / Google / телефон">📥 ICS</a>
-        <Link className={`btn ${list ? '' : 'pri'}`} href={qs({ v: '' })}>Месец</Link>
-        <Link className={`btn ${list ? 'pri' : ''}`} href={qs({ v: 'lista' })}>Листа</Link>
+        <Link className={`btn ${list ? '' : 'pri'}`} href={qs({ v: '', r: '' })}>Месец</Link>
+        <Link className={`btn ${list && !br ? 'pri' : ''}`} href={qs({ v: 'lista', r: '' })}>Листа</Link>
       </Hd>
+
+      <div className="row noprint" id="rokScope" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
+        <span className="mini">Опфат:</span>
+        <RowAction action={setRokScopeAction.bind(null, true)} label="Само мои фирми" className={`btn sm${mine ? ' pri' : ''}`}
+          title="Само фирмите доделени на вас или каде сте одговорен колега (ако нема такви – сите). Се памти; важи и за 📅 бројот горе." />
+        <RowAction action={setRokScopeAction.bind(null, false)} label="Сите фирми" className={`btn sm${mine ? '' : ' pri'}`}
+          title="Сите фирми што смеете да ги отворите. Се памти; важи и за 📅 бројот горе." />
+        {br && (
+          <span className={`pill ${br.kind === 'pominati' ? 'bad' : 'info'}`} id="rokRange">
+            {br.kind === 'pominati' ? `⚠ Поминати рокови (пред ${dmy(td)}), не се направени` : `📅 Оваа недела (${dmy(br.from)} – ${dmy(br.to)}), не се направени`} · {scopeTxt}
+            {' '}<Link href={qs({ r: '' })} title="Сите рокови">✕</Link>
+          </span>
+        )}
+      </div>
 
       <form className="card">
         <div className="row" style={{ gap: '6px 12px', flexWrap: 'wrap', alignItems: 'center' }}>
           {list && <input type="hidden" name="v" value="lista" />}
-          <Link className="btn sm" href={qs({ m: rokYmAdd(ym, -1) })}>◀</Link>
+          <Link className="btn sm" href={qs({ m: rokYmAdd(ym, -1), r: '' })}>◀</Link>
           <input type="month" name="m" defaultValue={sp.m ?? (list ? '' : ym)} style={{ width: 'auto' }} aria-label="Месец" />
-          <Link className="btn sm" href={qs({ m: rokYmAdd(ym, 1) })}>▶</Link>
+          <Link className="btn sm" href={qs({ m: rokYmAdd(ym, 1), r: '' })}>▶</Link>
           <select name="uid" defaultValue={sp.uid ?? ''} style={{ width: 'auto' }} aria-label="Колега"><option value="">Сите колеги</option>{users.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
           <select name="fid" defaultValue={sp.fid ?? ''} style={{ width: 'auto' }} aria-label="Фирма"><option value="">Сите фирми</option>{firms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
           <select name="t" defaultValue={sp.t ?? ''} style={{ width: 'auto' }} aria-label="Вид"><option value="">Сите видови</option>{ROK_TYPE_IDS.filter((t) => t !== 'kdog' || res.owner).map((t) => <option key={t} value={t}>{ROK_TYPES[t].n}</option>)}</select>
@@ -137,6 +163,14 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
         </div>
       )}
 
+      {canClean && (
+        <details className="card noprint" id="rokClean">
+          <summary><b>🧹 Означи ги минатите како направени</b> <span className="mini">— еднократно чистење на старите рокови завршени надвор од програмата ({scopeTxt})</span></summary>
+          <div className="mini" style={{ marginTop: 6 }}>Сите отворени рокови со рок пред избраниот датум се означуваат како направени (рачно, со белешка „означено рачно (чистење)“). Автоматското означување (МПИН, ДДВ, извод, завршна сметка) продолжува да работи.</div>
+          <RokCleanup def={rokCleanDefault(td)} scope={scopeTxt} last={lastClean ? dmy(lastClean.toISOString().slice(0, 10)) : null} />
+        </details>
+      )}
+
       {/* 🎭 no reminder settings in the demo (the e-mails / client reminders are off there) */}
       {!demo && (
         <details className="card">
@@ -146,7 +180,7 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
               <label>Потсети <input type="number" name="days" min={0} max={60} defaultValue={days} style={{ width: 70 }} /> дена пред рокот</label>
               <label className="chk"><input type="checkbox" name="mail" defaultChecked={S.mail !== false} /> е-пошта до одговорниот колега (кога е подесена е-поштата / SMTP)</label>
             </div>
-            <div className="mini" style={{ margin: '4px 0 8px' }}>Во програмата: 📅 бројот горе десно ги покажува отворените рокови во овие денови (и поминатите). Одговорен колега = корисникот доделен на фирмата во „Корисници“.</div>
+            <div className="mini" style={{ margin: '4px 0 8px' }}>Во програмата: горе десно 📅 = отворени рокови во наредните 7 дена, ⚠ = поминати неозначени рокови (за вашите фирми, види „Опфат“). Одговорен колега = корисникот доделен на фирмата во „Корисници“.</div>
             <div className="row" style={{ gap: '8px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
               <label className="chk"><input type="checkbox" name="clOn" defaultChecked={!!S.client?.on} /> Потсетник до клиентите „Ве молиме доставете ги изводите / фактурите за месец …“</label>
               <label>на <input type="number" name="clDay" min={1} max={28} defaultValue={rokClientDay(S)} style={{ width: 60 }} />-ти во месецот</label>
