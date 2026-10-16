@@ -1,4 +1,4 @@
-import { dispatchReminders } from '@wise/db';
+import { dispatchReminders, runServiceReminders } from '@wise/db';
 import { defineJob, type JobCtx } from '../job';
 
 /**
@@ -18,12 +18,17 @@ export async function sendQueuedMail(ctx: Pick<JobCtx, 'send' | 'log'>, ids: rea
  * Hourly: raise reminders for firm deadlines entering their window and deliver due reminders
  * (portal message / in-app / e-mail — `mail` reminders are queued in `mail_log` and sent through `mail.send`).
  */
-export const remindersJob = defineJob({
+export const remindersJob = defineJob<{ today?: string; force?: boolean } | null>({
   name: 'reminders',
   cron: '5 * * * *',
-  async run(_data, ctx) {
+  async run(data, ctx) {
     const r = await dispatchReminders(ctx.db);
     const m = await sendQueuedMail(ctx, r.mailIds);
     ctx.log(`created ${r.created}, sent ${r.sent}, e-mails ${r.mailIds.length} (queued ${m})`);
+    // P43: the service reminders (potsetnici) as PREPARED messages, once a day while the switch is on — never sent here
+    try {
+      const s = await runServiceReminders(ctx.db, data ?? {});
+      if (!s.skipped) ctx.log(`service reminders: firms ${s.firms}, prepared ${s.messages}`);
+    } catch (e) { ctx.log(`service reminders: ${(e as Error).message}`); }
   },
 });

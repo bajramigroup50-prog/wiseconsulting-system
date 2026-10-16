@@ -8,7 +8,11 @@ import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { can } from '@wise/core';
 import { opOnlyIds, waPhone } from '@wise/core/firms/dunning';
+import { AUTO_META } from '@wise/core/office/automations';
+import { autoLastRun, DUN_KIND, listDrafts } from '@wise/db';
+import { db } from '@/lib/db';
 import { officePage } from '@/lib/office';
+import { AutoStatus } from '@/components/auto-status';
 import { ActionForm } from '@/components/action-form';
 import { Hd, dmy } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
@@ -27,7 +31,11 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
   const only = opOnlyIds(sp.ids);
   // legacy `opGoSel`: with ticked invoices the not-yet-due ones are shown too
   const all = sp.all === '1' || !!only;
-  const D = await loadDunning(firm, undefined, only);
+  const [D, last, [prep]] = await Promise.all([
+    loadDunning(firm, undefined, only), autoLastRun(db(), 'dunning').catch(() => null), listDrafts(db(), { kind: DUN_KIND, firmIds: [firm.id], period: '-' }),
+  ]);
+  // P43: the weekly prepared suggestions (sending stays the buttons below)
+  const pl = (prep?.data.byLevel ?? null) as number[] | null;
   const onlyInv = only ? D.G.flatMap((g) => g.rows) : [];
   const selNo = only ? await invoiceNumbers(firm.id, only) : [];
   const write = can(u.principal, 'write', firm.id), settings = can(u.principal, 'settings', firm.id);
@@ -46,6 +54,12 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
         {write && withMail > 0 && <RowAction className="btn pri" action={sendDunningAll} label={`✉ Испрати опомена на сите со е-пошта (${withMail})`} confirm={`Да се испрати опомена на ${withMail} купувачи со е-пошта?\n\n${over.filter((g) => D.pOf(g.pid).email).map((g) => '• ' + D.pOf(g.pid).name + ' – ' + fc(g.over) + ' (' + LV[g.lvlAuto] + ')').join('\n')}`} />}
         {write && <Link className="btn" href={q({ wa: 'all' })} style={{ borderColor: '#25D366' }}>💬 WhatsApp на сите</Link>}
       </Hd>
+      {last && (
+        <p className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
+          <AutoStatus label="Подготвено автоматски" at={last.at} when={AUTO_META.dunning.when} />
+          {prep && pl && <span className="mini">предлог: {(prep.data.rows as unknown[] | undefined)?.length ?? 0} купувачи – 1. опомена {pl[0] ?? 0} · 2. опомена {pl[1] ?? 0} · последна {pl[2] ?? 0}. Ништо не е испратено – праќањето е со копчињата.</span>}
+        </p>
+      )}
       <div className="tiles">
         <div className="tile"><span>Достасано, неплатено</span><b>{fc(T)}</b><i>{L.filter((g) => g.over > 0).length} купувачи</i></div>
         <div className="tile"><span>Вкупно отворено</span><b>{fc(Tall)}</b>{N.length > 0 && <i>од тоа {fc(N.reduce((s, r) => s + r.open, 0))} не е достасано ({N.length} ф-ри) · <Link href={all ? '/opomeni' : '/opomeni?all=1'}>{all ? 'скриј' : 'прикажи'}</Link></i>}</div>

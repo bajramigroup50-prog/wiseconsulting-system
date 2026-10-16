@@ -107,6 +107,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['magacin', 'c', 'fiskrNew fiskrReport'],
   ['magacin', 'u', 'fiskrOk fiskrFail'],
   ['magacin', 'd', 'delTransfer'],
+  // UX Phase 3 automations: a person confirming a prepared payroll draft (the journal itself is a by-product)
+  ['plati', 'u', 'autoPayPost'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
@@ -117,6 +119,9 @@ const NOISE = new Set((
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
   + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet offFirmSet amlOffSet mpinTplImport '
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
+  // UX Phase 3 automations: switches / run now, and the batch summaries of a bulk confirm (each firm's own row — zatLock,
+  // autoPayPost, ddvClose, crPublish — is the work; autoVatClose repeats ddvClose)
+  + 'autoCfgSet autoRunNow autoCloseLockAll autoPayPostAll autoVatClose autoVatCloseAll crPublishAll '
   + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
   + 'na photo mail cancel reminded dep deliv approve pct posted mrp recv action pos'

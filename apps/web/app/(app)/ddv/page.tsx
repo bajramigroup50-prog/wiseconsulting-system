@@ -122,6 +122,7 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
         <a className="btn pri" href={`/print/ddv04?p=${encodeURIComponent(sel)}`} target="_blank" rel="noreferrer">PDF образец ДДВ-04</a>
         <Link className="btn" href="/ddv?tab=insp" title="Табела по месеци за инспектор – за 1 до 5 години">📋 Табела за инспектор</Link>
         <Link className="btn" href="/ddv?tab=tarifi">Даночни тарифи</Link>
+        <Link className="btn" href="/ddv/nacrti" title="P37: пријавите што програмата ги подготви по истекот на периодот, за сите ваши фирми">🧾 Нацрти – сите фирми</Link>
       </Hd>
 
       {/* FIX (LEGACY-MAP 5.4 item 11): the threshold comes from VAT_REGISTRATION_LIMIT instead of a hard-coded text. */}

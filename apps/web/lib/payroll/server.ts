@@ -7,7 +7,7 @@ import 'server-only';
 import { notFound } from 'next/navigation';
 import { and, asc, eq, isNull, like, or } from 'drizzle-orm';
 import {
-  codes, employees, loadPayOverrides, loadRun, payrollRuns, loadPayScheme, loadPaySettings, PayrollError, PostingError, type Employee, type Firm, type Tx,
+  codes, employees, loadPayOverrides, payCoreEmp, loadRun, payrollRuns, loadPayScheme, loadPaySettings, PayrollError, PostingError, type Employee, type Firm, type Tx,
 } from '@wise/db';
 import { psifCodes, type MpinTemplate, type PayOrderSettings, type PsifCode } from '@wise/core';
 import { Forbidden, requireUser, type SessionUser } from '../auth';
@@ -107,14 +107,8 @@ export async function firmEmployees(firmId: string, tx: Tx = db()): Promise<Empl
   return tx.select().from(employees).where(eq(employees.firmId, firmId)).orderBy(asc(employees.no), asc(employees.name));
 }
 
-/** Employee in the shape `@wise/core` functions take. */
-export const coreEmp = (e: Employee) => ({
-  id: e.id, no: e.no ?? '', name: e.name, embg: e.embg ?? '', netBase: Number(e.netBase), coef: Number(e.coef),
-  start: e.start ?? undefined, end: e.end ?? undefined, stazPrev: e.stazPrev ?? undefined, stazY: e.stazY ?? undefined,
-  hNorm: e.hNorm ?? undefined, active: e.active, city: e.city ?? '', address: e.address ?? '', mpOps: e.mpOps ?? '',
-  mpZan: e.mpZan ?? '', mpC26: e.mpC26 ?? '', bankAcc: e.bankAcc ?? '', bank: e.bank ?? '', email: e.email ?? '',
-  position: e.position ?? '', oe: e.oe ?? '',
-});
+/** Employee in the shape `@wise/core` functions take (shared with the worker's payroll drafts). */
+export const coreEmp = payCoreEmp;
 
 /** All runs of a business year with employees and lines (reports: annual, М4). */
 export async function yearRuns(firmId: string, year: number) {

@@ -5,11 +5,13 @@
  */
 import Link from 'next/link';
 import { LR_IC, LR_LAWS, LR_RULES, LR_RULES_PENDING, lrByLaw, type LrResult } from '@wise/core/law';
-import { lawReview, lawReviewFirms } from '@wise/db';
+import { AUTO_META } from '@wise/core/office/automations';
+import { autoLastRun, lawReview, lawReviewFirms } from '@wise/db';
 import { currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { allowedFirms, officePage, today } from '@/lib/office';
+import { AutoStatus } from '@/components/auto-status';
 import { Hd } from '@/components/hd';
 import { hubTabs } from '@/components/hub-tabs';
 import { NoFirm } from '@/components/no-firm';
@@ -79,13 +81,19 @@ function LrTable({ X }: { X: LrResult }) {
 
 /** Legacy `lrAllHTML` / `lrAllRun`: every allowed firm (except the office's own), sorted by exposure. */
 async function AllFirms({ u, year, run }: { u: Parameters<typeof allowedFirms>[0]; year: number; run: boolean }) {
+  // P43: the nightly review of all firms (its findings are in 🤖 Автопилот), when the office switched it on
+  const last = await autoLastRun(db(), 'lawrep').catch(() => null);
   const head = (
     <>
       {await hubTabs('zakoni', 'lawrep')}
       <Hd t="⚖️ Прелиминарен даночен преглед – сите фирми" sub={String(year)}><Link className="btn" href="/lawrep">← Избрана фирма</Link></Hd>
       <div className="card"><div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div><b>⚖️ Прелиминарен даночен преглед – сите фирми ({year})</b><div className="muted" style={{ fontSize: 12.5 }}>ЗДДВ, ЗДД, ЗПДД, ЗДП – прекршувања и проценета изложеност по фирма.</div></div>
-        <Link className="btn pri" href="/lawrep?all=1&run=1">▶ Провери ги сите</Link>
+        <span className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {last && <AutoStatus label="Проверено автоматски" at={last.at} when={AUTO_META.lawrep.when} />}
+          {last && <Link className="btn" href="/autop">Наоди во Автопилот</Link>}
+          <Link className="btn pri" href="/lawrep?all=1&run=1">▶ Провери ги сите</Link>
+        </span>
       </div></div>
     </>
   );

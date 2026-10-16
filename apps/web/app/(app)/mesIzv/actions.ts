@@ -11,7 +11,7 @@
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import { CLIENT_REPORT_AI_JOB, clientReportHtml, isReportLang, isReportPeriod, klLang, periodLabel, type ClientReportData, type KlConfig } from '@wise/core/office';
-import { aiBudgetStatus, audit, clientReports, firmMail, firms, inboxItems, saveClientReport, textMailHtml, type Firm } from '@wise/db';
+import { aiBudgetStatus, audit, clientReports, firmMail, firms, publishClientReport, publishPreparedReports, saveClientReport, textMailHtml, type Firm } from '@wise/db';
 import { requireCan, requireUser } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -111,15 +111,9 @@ export async function publishReport(id: string, on: boolean): Promise<ActionStat
     if (!x) return { error: 'Извештајот не постои.' };
     const { r, u } = x;
     await db().transaction(async (tx) => {
-      await tx.update(clientReports).set(on ? { status: r.status === 'sent' ? 'sent' : 'published', publishedAt: r.publishedAt ?? new Date() } : { status: 'draft', publishedAt: null })
-        .where(eq(clientReports.id, r.id));
-      if (on && !r.publishedAt) {
-        await tx.insert(inboxItems).values({
-          firmId: r.firmId, fromOffice: true, done: true, fromUserId: u.id, fromName: u.name,
-          subject: `📊 Месечен извештај – ${periodLabel(r.period)}`, note: 'Нов месечен извештај е достапен во порталот: „📊 Месечни извештаи“.',
-        });
-      }
-      await audit(tx, { userId: u.id, firmId: r.firmId, action: on ? 'crPublish' : 'crHide', entityType: 'client_report', entityId: r.id });
+      if (on) { await publishClientReport(tx, r, { id: u.id, name: u.name }); return; }
+      await tx.update(clientReports).set({ status: 'draft', publishedAt: null }).where(eq(clientReports.id, r.id));
+      await audit(tx, { userId: u.id, firmId: r.firmId, action: 'crHide', entityType: 'client_report', entityId: r.id });
     });
     return done(on ? 'Извештајот е видлив во порталот на клиентот.' : 'Извештајот е сокриен од клиентот.');
   } catch (e) { return officeError(e); }
@@ -155,5 +149,25 @@ export async function mailClientReport(_p: ActionState, f: FormData): Promise<Ac
     revalidatePath('/mailhist');
     if (failed) return { error: 'Редот за PDF е недостапен – пораката чека; проверете во „Историја на праќања“.' };
     return done(`✓ Извештајот (PDF) се испраќа на ${to.join(', ')}.`);
+  } catch (e) { return officeError(e); }
+}
+
+/**
+ * P38 „📢 Објави ги сите подготвени“ (office owner): every report of the month still in draft — the scheduled job's and
+ * the ones prepared by hand — is shown in its client's portal (with the portal message). Audited per report
+ * (`crPublish`) and as a batch (`crPublishAll`). 🎭 The demo owner: the demo firms only.
+ */
+export async function publishAllPrepared(period: string): Promise<ActionState> {
+  try {
+    const u = await requireUser();
+    const c = await ownerContext(u);
+    if (!c) return { error: OWNER_ONLY_MSG };
+    if (!c.demo) await requireCan('office', null);
+    if (!periodOk(period)) return { error: 'Изберете месец (не во иднина).' };
+    const ids = (await allowedFirms(u)).filter((x) => x.active).map((x) => x.id);
+    const n = await publishPreparedReports(db(), { period, firmIds: ids, user: { id: u.id, name: u.name } });
+    revalidatePath('/mesIzv');
+    revalidatePath('/klIzv');
+    return n ? { ok: `📢 Објавени ${n} извештаи за ${periodLabel(period)} во порталите на клиентите.` } : { error: 'Нема подготвени извештаи за објава.' };
   } catch (e) { return officeError(e); }
 }

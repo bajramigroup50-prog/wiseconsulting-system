@@ -225,6 +225,13 @@
       "when": 1792081020093,
       "tag": "0031_perf_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792153758220,
+      "tag": "0032_automations2",
+      "breakpoints": true
     }
   ]
 }

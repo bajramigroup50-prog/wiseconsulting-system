@@ -12,7 +12,7 @@
 import { gazetteRefs, LAW_BY_KEY, LAW_CORPUS, lawKey, lawLinks, lawOfficialUrl, lawPageText, lawTextDate, type LawCorpusEntry } from '@wise/core/law';
 import { lineText, pdfLines } from '@wise/core/noai/pdf-lines';
 import { todaySkopje } from '@wise/core/office';
-import { lawTextSync, storeLawText, type Tx } from '@wise/db';
+import { autoOn, lawTextSync, noteAutoRun, storeLawText, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { pdfTextItems } from '../ai/pdf-text';
 import { fetchPage, type Fetcher } from './law';
@@ -129,8 +129,14 @@ export const lawTexts = defineJob<{ law?: string; url?: string; title?: string; 
   },
 });
 
-/** Used by the daily robot. */
+/**
+ * Used by the daily robot: weekly, while the office switch „Текстови на законите“ is on (P43, on by default — the
+ * behaviour before the switch existed); the run is recorded for the status line.
+ */
 export async function weeklyLawTexts(db: Tx, log: (m: string) => void): Promise<LawTextsResult | null> {
+  if (!(await autoOn(db, 'lawTexts'))) return null;
   if (!(await lawTextsDue(db))) return null;
-  return syncLawTexts(db, { log });
+  const r = await syncLawTexts(db, { log });
+  await noteAutoRun(db, 'lawTexts', `проверени ${r.checked} закони · нови верзии ${r.stored}${r.errors.length ? ` · недостапни ${r.errors.length}` : ''}`, { stored: r.stored });
+  return r;
 }
