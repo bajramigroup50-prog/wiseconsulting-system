@@ -22,6 +22,7 @@ import { isUuid, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { AiBadge } from '@/components/ai-badge';
 import { Hd, dmyHm } from '@/components/hd';
+import { hubTabs } from '@/components/hub-tabs';
 import { RowAction } from '@/components/row-action';
 import { AskPoll } from '../zakoni/ask-poll';
 import { lawCaseAttach, lawCaseDelete, lawCaseStart, lawTextFromUrl, lawTextPaste, lawTextsSyncNow } from './actions';
@@ -52,6 +53,7 @@ export default async function LawAiPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
+      {await hubTabs('zakoni', 'lawAi')}
       <Hd t="⚖ Правен асистент (AI)" sub={`${have} од ${corpus.length} закони во базата${firm ? ' · ' + firm.name : ''}`}>
         <Link className="btn" href="/zakoni">⚖️ Законски промени</Link>
         <Link className="btn" href="/ujpZakoni">📚 Закони на УЈП</Link>

@@ -15,6 +15,7 @@ import { currentFirm } from '@/lib/context';
 import { AlSettings, AlVoiceButton } from '@/components/al-settings';
 import { FirmGo } from '@/components/firm-go';
 import { Hd, dmyHm } from '@/components/hd';
+import { AutoStatus } from '@/components/auto-status';
 import { RowAction } from '@/components/row-action';
 import { ackFinding, runNow, unackFinding } from '../autop/actions';
 
@@ -45,7 +46,9 @@ export default async function IzvestuvanjaPage({ searchParams }: { searchParams:
     <>
       <Hd t="Известувања за сите фирми" sub={`${all.length} известувања · ${F.length} фирми${run ? ' · ' + dmyHm(run.finishedAt ?? run.startedAt) : ''}`}>
         <AlVoiceButton />
-        <RowAction className="btn pri" action={runNow} label="↻ Провери повторно" />
+        {/* P42: the checks run in the autopilot every 6 hours — a status line; the small ↻ only for the owner / administrator */}
+        <AutoStatus at={run ? run.finishedAt ?? run.startedAt : null} when="на секои 6 часа (автопилот)"
+          refresh={u.role === 'admin' ? <RowAction className="btn sm ghost" action={runNow} label="↻" title="Провери повторно" /> : null} />
         <Link className="btn" href="/autop">🤖 Автопилот</Link>
       </Hd>
       <AlSettings email={u.email ?? ''} />

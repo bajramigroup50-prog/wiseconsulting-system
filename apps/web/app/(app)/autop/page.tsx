@@ -19,6 +19,7 @@ import { ActionForm } from '@/components/action-form';
 import { Pill } from '@/components/file-chips';
 import { FirmGo } from '@/components/firm-go';
 import { Hd, dmyHm } from '@/components/hd';
+import { AutoStatus } from '@/components/auto-status';
 import { RowAction } from '@/components/row-action';
 import { ackFinding, runNow, saveAutopilotSettings, sendClientMessage, setAutoType, skipMessage } from './actions';
 import { CloseTable } from './close-table';
@@ -55,7 +56,9 @@ export default async function AutopPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <Hd t="🤖 Автопилот" sub="секое утро: сите фирми проверени, вие ги решавате само проблемите">
-        <RowAction className="btn pri" action={runNow} label="🔄 Провери сега" />
+        {/* P42: the autopilot runs every 6 hours — a status line; the small ↻ only for the owner / administrator */}
+        <AutoStatus at={run ? run.finishedAt ?? run.startedAt : null} when="на секои 6 часа"
+          refresh={u.role === 'admin' ? <RowAction className="btn sm ghost" action={runNow} label="↻" title="Провери сега" /> : null} />
       </Hd>
       <p className="note">{run ? `Последна проверка ${dmyHm(run.finishedAt ?? run.startedAt)} · ${run.firms} фирми. ` : 'Сè уште не е пуштен. '}Се пушта автоматски на секои 6 часа; наодите исчезнуваат сами кога ќе се реши проблемот.</p>
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '6px 0' }}>

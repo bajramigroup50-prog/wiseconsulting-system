@@ -37,6 +37,8 @@ const { saveUser, setBookOnlyAction } = await import('@/app/(app)/korisnici/acti
 const { saveInvoiceAction } = await import('@/app/(app)/izlez/actions');
 const { NAV, OWNER_VIEWS, navFlat, navFor, onlyViews, withoutViews } = await import('@/lib/nav');
 const { filterNavByModules } = await import('@/lib/nav-industry');
+const { newMenu } = await import('@/lib/nav-new');
+const { searchIndex } = await import('@/lib/nav-search');
 const { grantableViews } = await import('@/lib/nav-access');
 const { BookHome } = await import('@/app/(app)/book-home');
 const Home = (await import('@/app/(app)/page')).default;
@@ -162,6 +164,20 @@ describe('a colleague (acc / senior / admin who is not the owner)', () => {
     }
     expect(ids).toMatchSnapshot();
   });
+  // UX Phase 1 (P40): the snapshot above is the „класично“ menu and stays as it was (deliberately unchanged). The
+  // „ново“ menu of the same colleague is the same set of views, only re-arranged (one Фирми item, no duplicates,
+  // no Излез group) — its own snapshot, and never a view the classic menu does not have.
+  it('the „ново“ menu: the same bookkeeping views only (snapshot), and Ctrl+K finds nothing else', async () => {
+    as('acc');
+    const V = (await myViews())!;
+    const classic = onlyViews(withoutViews(filterNavByModules(navFor('acc'), null, false), OWNER_VIEWS), V);
+    const fresh = newMenu(classic);
+    const ids = fresh.flatMap(([g, L]) => navFlat(L).map(([id]) => `${g}:${id}`));
+    const C = new Set(classic.flatMap(([, L]) => navFlat(L).map(([id]) => id)));
+    for (const x of ids) expect(C.has(x.split(':')[1]!), x).toBe(true);
+    for (const e of searchIndex(classic, fresh, [['lozinka', 'Мојот профил']])) expect(V.has(e.id) || e.id === 'home', e.id).toBe(true); // home = / (always open)
+    expect(ids).toMatchSnapshot();
+  });
   it('the dashboard: bookkeeping shortcuts only; the top bar hides the office widgets', async () => {
     as('acc');
     useFirm(F1);
@@ -246,6 +262,36 @@ describe('the owner, per-user overrides, the setting', () => {
     expect((await setBookOnlyAction({}, form({ on: true }))).ok).toBeTruthy();
     as('acc');
     expect(await goes('/sistem')).toBe('/');
+  });
+});
+
+describe('P40 „Мени: класично / ново“ (per user, never an access rule)', () => {
+  it('default „ново“; the owner sets it for a colleague, a colleague for themselves; nobody else, never klient / teren', async () => {
+    const { setUserMenuStyle } = await import('@/app/(app)/korisnici/actions');
+    const { setMyMenuStyle } = await import('@/app/(app)/lozinka/actions');
+    const { menuStyleOf } = await import('@/lib/menu-style');
+    const { OWNER_ONLY_MSG } = await import('@/lib/office-owner');
+    expect(await menuStyleOf(pg, ID.senior!)).toBe('new');
+    as('admin2'); // an administrator who is not the owner
+    expect(await setUserMenuStyle(ID.acc!, 'classic')).toEqual({ error: OWNER_ONLY_MSG });
+    as('acc'); // a colleague: no „uSave“ (and the book-only action gate refuses korisnici actions anyway)
+    await expect(setUserMenuStyle(ID.senior!, 'classic')).rejects.toThrow();
+    expect(await status('/korisnici', 'a_korisnici')).toBe(403);
+    expect(await menuStyleOf(pg, ID.senior!)).toBe('new');
+    as('owner');
+    expect(await setUserMenuStyle(ID.acc!, 'classic')).toMatchObject({ ok: expect.any(String) });
+    expect(await menuStyleOf(pg, ID.acc!)).toBe('classic');
+    expect(await setUserMenuStyle(ID.kl!, 'classic')).toMatchObject({ error: expect.any(String) });
+    expect(await setUserMenuStyle(ID.ter!, 'classic')).toMatchObject({ error: expect.any(String) });
+    expect(await setUserMenuStyle(ID.acc!, 'bogus')).toMatchObject({ error: expect.any(String) });
+    as('acc'); // the own choice on /lozinka (its action file is open to every user)
+    expect(await status('/lozinka', 'a_lozinka')).not.toBe(403);
+    expect(await setMyMenuStyle('new')).toMatchObject({ ok: expect.any(String) });
+    expect(await menuStyleOf(pg, ID.acc!)).toBe('new');
+    // the menu style changes nothing in what the colleague may open
+    expect(await myViews()).toEqual(RG.restrictedViews({ role: 'acc' }, { on: true, owner: 'no', access: null }));
+    as('kl');
+    expect(await setMyMenuStyle('classic')).toMatchObject({ error: expect.any(String) });
   });
 });
 

@@ -3,6 +3,9 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useTransition } from 'react';
 import { hrefFor, NAV_MINI, NAV_SHORT, navFlat, type NavGroup, type NavItem } from '@/lib/nav';
+import { sameScreen } from '@/lib/nav-hubs';
+import type { ScreenEntry } from '@/lib/nav-search';
+import { NavSearch } from './nav-search';
 
 /** Route handlers (not pages) need a full navigation. */
 const HARD = new Set(['izlezF', 'klExit']);
@@ -13,8 +16,13 @@ const GoCtx = createContext<(id: string) => void>(() => {});
 
 const viewOf = (path: string) => (path === '/' ? 'home' : path.split('/')[1] ?? 'home');
 
-export function Nav({ groups }: { groups: readonly NavGroup[] }) {
+/**
+ * `search`: the Ctrl+K index of the screens this user may open (office users only; `null` = no search).
+ * `fresh`: the „ново“ menu (P40) — a tab of a tab-container screen (`lib/nav-hubs.ts`) highlights the screen's item.
+ */
+export function Nav({ groups, search = null, fresh = false }: { groups: readonly NavGroup[]; search?: readonly ScreenEntry[] | null; fresh?: boolean }) {
   const view = viewOf(usePathname());
+  const is = useCallback((id: string) => (fresh ? sameScreen(id, view) : id === view), [fresh, view]);
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
   const ref = useRef<HTMLElement>(null);
@@ -36,7 +44,7 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
       {pending && <div className="navbusy" role="progressbar" aria-label="Се отвора…" />}
       {groups.map(([g, items0]) => {
         const items = navFlat(items0);
-        const cur = items.some(([id]) => id === view);
+        const cur = items.some(([id]) => is(id));
         const lab = <><span className="ln">{NAV_SHORT[g] ?? g}</span><span className="sn">{NAV_MINI[g] ?? NAV_SHORT[g] ?? g}</span></>;
         if (items.length === 1) {
           const [id, t] = items[0]!;
@@ -52,25 +60,26 @@ export function Nav({ groups }: { groups: readonly NavGroup[] }) {
             <button className={cur ? 'cur' : ''} aria-expanded={isOpen} aria-haspopup="true" onClick={() => setOpen(isOpen ? null : g)}>
               {lab}<i className="chev" aria-hidden="true">▾</i>
             </button>
-            {isOpen && <div className="dd" role="menu"><DD items={items0} view={view} /></div>}
+            {isOpen && <div className="dd" role="menu"><DD items={items0} is={is} /></div>}
           </div>
         );
       })}
+      {search && <NavSearch index={search} open={open1} />}
     </nav>
     </GoCtx.Provider>
   );
 }
 
-function DD({ items, view }: { items: readonly NavItem[]; view: string }) {
+function DD({ items, is }: { items: readonly NavItem[]; is: (id: string) => boolean }) {
   // one open flyout at a time (legacy `subOpen`); hovering a plain item closes it (legacy mouseover 14713)
   const [sub, setSub] = useState<number | null>(null);
   return (
     <>
       {items.map((x, i) => {
         if (x[0] === '-') return <hr className="ddsep" key={i} onMouseEnter={() => wide() && setSub(null)} />;
-        if (x[0] === '>') return <Sub key={i} label={x[1] ?? ''} items={x[2] ?? []} view={view} open={sub === i} setOpen={(o) => setSub(o ? i : null)} />;
+        if (x[0] === '>') return <Sub key={i} label={x[1] ?? ''} items={x[2] ?? []} is={is} open={sub === i} setOpen={(o) => setSub(o ? i : null)} />;
         return (
-          <Go key={i} id={x[0]} className={x[0] === 'zs_bu' ? 'sep' : ''} current={view === x[0]} onHover={() => wide() && setSub(null)}>{x[1]}</Go>
+          <Go key={i} id={x[0]} className={x[0] === 'zs_bu' ? 'sep' : ''} current={is(x[0])} onHover={() => wide() && setSub(null)}>{x[1]}</Go>
         );
       })}
     </>
@@ -80,7 +89,7 @@ function DD({ items, view }: { items: readonly NavItem[]; view: string }) {
 /** Legacy `subWide`: flyouts beside the menu (desktop); below 700px they open inline. */
 const wide = () => typeof window !== 'undefined' && window.innerWidth > 700;
 
-function Sub({ label, items, view, open, setOpen }: { label: string; items: readonly NavItem[]; view: string; open: boolean; setOpen: (o: boolean) => void }) {
+function Sub({ label, items, is, open, setOpen }: { label: string; items: readonly NavItem[]; is: (id: string) => boolean; open: boolean; setOpen: (o: boolean) => void }) {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
   const fly = useRef<HTMLDivElement>(null);
@@ -107,12 +116,12 @@ function Sub({ label, items, view, open, setOpen }: { label: string; items: read
   }, [open, place]);
   return (
     <div className={'dsub' + (open ? ' open' : '')} onMouseEnter={() => { if (wide() && !open) setOpen(true); }}>
-      <button ref={btn} role="menuitem" aria-haspopup="true" aria-expanded={open} className={items.some(([id]) => id === view) ? 'subcur' : ''}
+      <button ref={btn} role="menuitem" aria-haspopup="true" aria-expanded={open} className={items.some(([id]) => is(id)) ? 'subcur' : ''}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
         {label}<i aria-hidden="true">▸</i>
       </button>
       <div ref={fly} className="fly" role="menu" style={open && pos ? { left: pos.left, top: pos.top, minWidth: 260 } : open ? { minWidth: 260 } : undefined}>
-        {items.map((x, i) => (x[0] === '-' ? <hr className="ddsep" key={i} /> : <Go key={i} id={x[0]} current={view === x[0]}>{x[1]}</Go>))}
+        {items.map((x, i) => (x[0] === '-' ? <hr className="ddsep" key={i} /> : <Go key={i} id={x[0]} current={is(x[0])}>{x[1]}</Go>))}
       </div>
     </div>
   );

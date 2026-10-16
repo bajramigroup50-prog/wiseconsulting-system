@@ -13,7 +13,7 @@ import { todaySkopje } from '@wise/core/office';
 import { feeAutoPeriod } from '@wise/core/firms/kdfee';
 import {
   dispatchReminders, dispatchRokReminders, FEE_DELIVER_JOB, feeContext, feeInvoices, feePortalItem, issueFeeInvoices, OFFICE_FILE_ENTITY, rokWindow,
-  runFeeReminders, runNbrm, syncRokovi, textMailHtml, type DB,
+  noteRokoviRun, runFeeReminders, runNbrm, syncRokovi, textMailHtml, type DB,
 } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import { defineJob } from '../job';
@@ -51,6 +51,8 @@ export const rokoviJob = defineJob<{ today?: string }>({
   async run(data, ctx) {
     const today = data?.today ?? todaySkopje();
     const s = await syncRokovi(ctx.db, rokWindow(today));
+    // P42: „Освежено автоматски: денес 07:10“ on /rokovi (best effort: never fails the job)
+    await noteRokoviRun(ctx.db).catch((e) => ctx.log(`last run not noted: ${String(e)}`));
     const r = await dispatchRokReminders(ctx.db, { today, mail: canMail() });
     const d = await dispatchReminders(ctx.db);
     const m = await sendQueuedMail(ctx, d.mailIds);

@@ -15,6 +15,9 @@ import { isOfficeOwner } from '@/lib/office-owner';
 import { activeLocks } from '@/lib/login-guard';
 import { aiBudgetBadge } from '@/lib/ai-budget-status';
 import { filterNavByModules } from '@/lib/nav-industry';
+import { newMenu } from '@/lib/nav-new';
+import { searchIndex } from '@/lib/nav-search';
+import { menuStyleOf } from '@/lib/menu-style';
 import { klNav } from '@/lib/kl-nav';
 import { topStatus } from '@/lib/top-status';
 import { PREVIEW_COOKIE } from '@/lib/route-guard';
@@ -38,12 +41,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 🎭 demo user: the menu is the demo allow-list only (the same list `proxy.ts` enforces)
   const demo = isDemoUser(u);
   // independent lookups run together (this layout runs on every full page load)
-  const [jar, owner, bookV] = await Promise.all([
+  const [jar, owner, bookV, style] = await Promise.all([
     cookies(),
     u.role === 'admin' ? isOfficeOwner(u).catch(() => false) : Promise.resolve(false),
     // 🔒 „Колегите гледаат само сметководство“: a colleague's menu is the bookkeeping allow-list (the same list `proxy.ts`
     // enforces); the top bar's office-wide parts (robot, alerts, client messages, AI budget, deadlines) are hidden
     demo ? Promise.resolve(null) : myViews(),
+    // P40 „Мени: класично / ново“ (default „ново“; the klient / teren menus never change)
+    u.role === 'klient' || u.role === 'teren' ? Promise.resolve('classic' as const) : menuStyleOf(db(), u.id).catch(() => 'new' as const),
   ]);
   const preview = !!firm && u.role !== 'klient' && u.role !== 'teren' && jar.get(PREVIEW_COOKIE)?.value === firm.id;
   const [locks, ai] = owner ? await Promise.all([
@@ -54,12 +59,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ]) : [0, null] as const;
   const book = !!bookV;
   const seeFirmi = !bookV || bookV.has('firmi');
-  const groups = demo ? onlyViews(filterNavByModules(navFor(u.role === 'klient' || u.role === 'teren' ? 'acc' : u.role), firm, false), demoViews())
+  const classic = demo ? onlyViews(filterNavByModules(navFor(u.role === 'klient' || u.role === 'teren' ? 'acc' : u.role), firm, false), demoViews())
     : u.role === 'klient' || preview ? await klNav(firm, preview)
     : bookV ? onlyViews(withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS), bookV)
     // owner-only screens (📊 Продуктивност на вработените) are not in anybody else's menu
     : withoutViews(filterNavByModules(navFor(u.role), firm, false), owner ? [] : OWNER_VIEWS);
   const office = u.role !== 'klient' && u.role !== 'teren' && !preview;
+  // UX Phase 1 „ново“ menu: applied LAST, on the already filtered menu (it only removes / moves / groups items), so the
+  // access rules are those of the classic menu; the klient / teren / client-preview menus are never changed
+  const fresh = office && style === 'new';
+  const groups = fresh ? newMenu(classic) : classic;
+  // P25 Ctrl+K: the screens of the filtered menu (+ the own profile), by new and old names
+  const search = office ? searchIndex(classic, groups, [['lozinka', 'Мојот профил / лозинка / мени']]) : null;
   const noStatus = { bell: null, ainb: [], law: null, rok: null };
   const [st, [y0], yearNote] = await Promise.all([
     book ? Promise.resolve(noStatus) : topStatus(u).catch(() => noStatus),
@@ -75,7 +86,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="app">
       <header className="mbar">
         <div className="brand" title="WISE CONSULTING"><i aria-hidden="true">W</i><span>WISE CONSULTING</span></div>
-        <Nav groups={groups} />
+        <Nav groups={groups} search={search} fresh={fresh} />
       </header>
       <main>
         {demo && (

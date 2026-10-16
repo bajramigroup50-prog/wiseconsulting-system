@@ -16,6 +16,7 @@ import { DEMO_OFF_MSG, isDemoUser } from '@/lib/demo';
 import { grantableViews } from '@/lib/nav-access';
 import { viewAccessClean, type ViewAccess } from '@/lib/route-guard';
 import { bookOnlySetting, putBookOnlySetting } from '@/lib/view-access';
+import { menuStyleIn, putMenuStyle } from '@/lib/menu-style';
 
 import { todayIso } from '@/lib/fmt';
 export interface FormState { error?: string; ok?: string }
@@ -204,4 +205,25 @@ export async function unlockLogin(key: string): Promise<FormState> {
   await audit(db(), { userId: me.id, action: 'loginUnlock', entityType: 'user', data });
   revalidatePath('/', 'layout');
   return { ok: 'Отклучено.' };
+}
+
+/**
+ * P40 „Мени: класично / ново“ for a user, set by the office owner (any office user) — or by a 🎭 demo admin for a demo
+ * user only. It arranges the menu only; the access rules are the same in both menus. Not for klient / teren (fixed menus).
+ */
+export async function setUserMenuStyle(userId: string, style: string): Promise<FormState> {
+  const me = await requireCan('uSave');
+  const s = menuStyleIn(style);
+  if (!s) return { error: 'Непознат избор.' };
+  const [t] = await db().select({ id: users.id, role: users.role, demo: users.demo, username: users.username }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!t) return { error: 'Корисникот не постои.' };
+  if (t.role === 'klient' || t.role === 'teren') return { error: 'Менито на клиент / теренски корисник е секогаш исто.' };
+  if (isDemoUser(me)) { if (!t.demo) return { error: DEMO_OFF_MSG }; }
+  else if (!(await isOfficeOwner(me))) return { error: OWNER_ONLY_MSG };
+  await db().transaction(async (tx) => {
+    await putMenuStyle(tx, t.id, s, me.id);
+    await audit(tx, { userId: me.id, action: 'uMenuStyle', entityType: 'user', entityId: t.id, data: { username: t.username, style: s } });
+  });
+  revalidatePath('/', 'layout');
+  return { ok: `${t.username}: мени ${s === 'new' ? 'ново' : 'класично'}.` };
 }

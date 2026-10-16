@@ -11,6 +11,7 @@ import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { allowedFirms, officePage, today } from '@/lib/office';
 import { Hd } from '@/components/hd';
+import { hubTabs } from '@/components/hub-tabs';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { lawrepPdf } from './actions';
@@ -21,10 +22,11 @@ export default async function LawrepPage({ searchParams }: { searchParams: Promi
   const { u, firm } = await officePage('lawrep', { perm: 'office' });
   const year = await currentYear();
   if (sp.all === '1') return <AllFirms u={u} year={year} run={sp.run === '1'} />;
-  if (!firm) return <><NoFirm t="⚖️ Даночен преглед" /><p><Link className="btn" href="/lawrep?all=1">⚖️ Преглед за сите фирми</Link></p></>;
+  if (!firm) return <>{await hubTabs('zakoni', 'lawrep')}<NoFirm t="⚖️ Даночен преглед" /><p><Link className="btn" href="/lawrep?all=1">⚖️ Преглед за сите фирми</Link></p></>;
   const X = await lawReview(db(), firm, year, today());
   return (
     <>
+      {await hubTabs('zakoni', 'lawrep')}
       <Hd t="⚖️ Прелиминарен даночен преглед" sub={`${firm.name} · ${year} · според ЗДДВ, ЗДД, ЗПДД и ЗДП`}>
         <RowAction className="btn" action={lawrepPdf} label="🖨 PDF извештај" />
         <Link className="btn" href="/ujpZakoni">📚 Закони на УЈП</Link>
@@ -79,6 +81,7 @@ function LrTable({ X }: { X: LrResult }) {
 async function AllFirms({ u, year, run }: { u: Parameters<typeof allowedFirms>[0]; year: number; run: boolean }) {
   const head = (
     <>
+      {await hubTabs('zakoni', 'lawrep')}
       <Hd t="⚖️ Прелиминарен даночен преглед – сите фирми" sub={String(year)}><Link className="btn" href="/lawrep">← Избрана фирма</Link></Hd>
       <div className="card"><div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div><b>⚖️ Прелиминарен даночен преглед – сите фирми ({year})</b><div className="muted" style={{ fontSize: 12.5 }}>ЗДДВ, ЗДД, ЗПДД, ЗДП – прекршувања и проценета изложеност по фирма.</div></div>
