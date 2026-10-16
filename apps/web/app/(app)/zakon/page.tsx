@@ -13,6 +13,7 @@ import { officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { DownloadCsv } from '@/components/download-csv';
 import { Hd, dmy } from '@/components/hd';
+import { hubTabs } from '@/components/hub-tabs';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { closeDsr, saveActivity, saveDsr, seedRopa } from './actions';
@@ -21,14 +22,14 @@ const CLS: Record<CmpStatus, string> = { ok: 'good', warn: 'warn', bad: 'bad', n
 
 export default async function ZakonPage() {
   const { firm } = await officePage('zakon', { perm: 'office' });
-  if (!firm) return <NoFirm t="⚖ Законска усогласеност" />;
+  if (!firm) return <>{await hubTabs('zakoni', 'zakon')}<NoFirm t="⚖ Законска усогласеност" /></>;
   const td = today();
   const year = await currentYear();
   const [F, G] = await Promise.all([
     complianceFacts(db(), firm.id, year, td),
     db().select().from(gdprRecords).where(and(eq(gdprRecords.firmId, firm.id))).orderBy(desc(gdprRecords.date)),
   ]);
-  if (!F) return <NoFirm t="⚖ Законска усогласеност" />;
+  if (!F) return <>{await hubTabs('zakoni', 'zakon')}<NoFirm t="⚖ Законска усогласеност" /></>;
   const R = complianceRows(F);
   const S = complianceScore(R);
   const acts = G.filter((g) => g.kind === 'activity');
@@ -37,6 +38,7 @@ export default async function ZakonPage() {
   const csv: (string | number | null)[][] = [['Област', 'Обврска', 'Состојба', 'Опис', 'Закон / член'], ...R.map((r) => [r.area, r.title, CMP_MARK[r.s], r.txt, r.law])];
   return (
     <>
+      {await hubTabs('zakoni', 'zakon')}
       <Hd t="⚖ Законска усогласеност" sub={`${firm.name} · ${year}`}>
         <DownloadCsv name={`Uskladenost_${firm.name}_${year}.csv`} rows={csv} label="⬇ Excel (CSV)" />
         <Link className="btn" href="/kontroli">📑 Контроли и решенија</Link>

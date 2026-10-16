@@ -3,7 +3,6 @@
  * изводи: bank accounts, statement import, matching rules, auto-match review, statements with header (number,
  * bank balance vs book balance, control totals, FX rate), lines with their booking, manual linking.
  */
-import { viewSeer } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { BKPK_RE, bankEffKonto, feeFix, BANKS_MK, bankCodeOf, openDocsFor, unlinkedPayments } from '@wise/core';
@@ -28,6 +27,7 @@ import {
 } from './actions';
 import { ImportBox } from './import-box';
 import { KontaPanel } from './konta-panel';
+import { hubTabs } from '@/components/hub-tabs';
 import { ClassifyButton } from './classify-button';
 import type { PnLast } from './paynotes';
 import { applyBankClassifyAction } from './classify-actions';
@@ -43,7 +43,6 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const base = '/' + view;
   const T = fx ? 'Девизни изводи' : 'Изводи';
   const { u, firm, year } = await booksPage(view);
-  const see = await viewSeer();
   if (!firm) return <NoFirm t={T} />;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const admin = del && u.role === 'admin';
@@ -140,14 +139,15 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
 
   return (
     <>
+      {sp.banks ? await hubTabs('izvodiCfg', view) : null}
       <Hd t={T} sub={fx ? 'EUR, USD, CHF… по курс на НБРСМ' : 'денарски сметки · автоматско книжење'}>
         {write && unnumbered && <RowAction className="btn" action={numberStatementsAction} label="Нумерирај изводи" />}
         {write && <Link className="btn pri" href={q({ review: '1' })}>Прокнижи автоматски</Link>}
         {write && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
         {write && <Link className="btn pri" href="/nalozi?izv" title="Изводот се увезува во налог за книжење: датум и број според изводот, предлог за спротивно конто на секоја ставка">Увезете го изводот во налог →</Link>}
         {write && <a className="btn" href="#uvoz-izvod" title="Увоз на извод: PDF, слика, XML, MT940, Excel, CSV">📥 Увези извод (PDF / Excel / XML)</a>}
-        <Link className="btn" href={q({ banks: sp.banks ? undefined : '1' })}>Банкарски сметки…</Link>
-        {see('bankFmt') && <Link className="btn" href="/bankFmt" title="Кој формат на извод е најдобар за секоја банка">🔎 Формати по банка</Link>}
+        {/* UX Phase 1 P5: bank accounts, booking rules / kontos and the bank formats in one place, „Изводи → ⚙“ (tabs) */}
+        <Link className={`btn ${sp.banks ? 'pri' : ''}`} href={q({ banks: sp.banks ? undefined : '1' })} aria-pressed={!!sp.banks} title="Банкарски сметки, конта и правила за книжење, формати по банка">⚙ Поставки{sp.banks ? ' ✕' : '…'}</Link>
         <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
       </Hd>
       <datalist id="bkK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>

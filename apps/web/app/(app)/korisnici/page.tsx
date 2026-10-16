@@ -17,7 +17,8 @@ import { FirmGo } from '@/components/firm-go';
 import { RowAction } from '@/components/row-action';
 import { activeLocks } from '@/lib/login-guard';
 import { isOfficeOwner } from '@/lib/office-owner';
-import { unlockLogin } from './actions';
+import { setUserMenuStyle, unlockLogin } from './actions';
+import { MENU_STYLE_LBL, menuStyles } from '@/lib/menu-style';
 import { BookOnlyCard } from './book-only-card';
 import { accessGroups } from '@/lib/nav-access';
 import { BOOK_ONLY_VIEWS, viewAccessClean } from '@/lib/route-guard';
@@ -68,6 +69,19 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
   const DL = owner ? await listDemoLinks() : [];
   const demoSet = owner ? await getDemoSettings(db()) : null;
   const bookOn = owner ? await bookOnlySetting(db()) : false;
+  // P40 „Мени: класично / ново“: the owner sets it for any office user, a 🎭 demo admin for the demo users
+  const MS = owner || meDemo ? await menuStyles(db()) : null;
+  const menuCell = (u: (typeof U)[number]) => {
+    if (!MS || u.role === 'klient' || u.role === 'teren' || (meDemo && !u.demo)) return null;
+    const cur = MS.get(u.id) ?? 'new';
+    const next = cur === 'new' ? 'classic' : 'new';
+    return (
+      <div className="mini mut" title="Мени: класично (како старата програма) или ново (Фаза 1). Пристапот е ист во двете.">
+        ☰ мени: <b>{MENU_STYLE_LBL[cur]}</b>{' '}
+        <RowAction action={setUserMenuStyle.bind(null, u.id, next)} label={`⇄ ${MENU_STYLE_LBL[next]}`} className="btn sm ghost" style={{ padding: '0 6px' }} />
+      </div>
+    );
+  };
   const accLabel = (u: (typeof U)[number]) => {
     if (u.role === 'klient' || u.role === 'teren' || u.demo || u.id === me.id) return null;
     const a = viewAccessClean(u.viewAccess);
@@ -84,7 +98,8 @@ export default async function KorisniciPage({ searchParams }: { searchParams: Pr
       <td><b>{u.name}</b>{u.id === me.id && <> <span className="pill info">вие</span></>}{u.demo && !meDemo && <> <span className="pill warn">🎭 демо</span></>}</td>
       <td>{u.username}</td>
       <td><span className={`pill ${u.role === 'admin' ? 'bad' : u.role === 'view' ? '' : 'info'}`}>{ROLES[u.role]?.n ?? u.role}</span>
-        {owner && accLabel(u) && <div className="mini mut" title="Пристап до менија">🔒 {bookOn ? accLabel(u) : 'сите менија (поставката е исклучена)'}</div>}</td>
+        {owner && accLabel(u) && <div className="mini mut" title="Пристап до менија">🔒 {bookOn ? accLabel(u) : 'сите менија (поставката е исклучена)'}</div>}
+        {menuCell(u)}</td>
       <td>{u.allFirms || u.role === 'admin' ? 'сите' : firmsOf(u.id).map((id) => fname.get(id)).filter(Boolean).join(', ') || '—'}</td>
       <td>{u.active ? <span className="pill good">активен</span> : <span className="pill">неактивен</span>}
         {lockOf(u.username) && <> <span className="pill bad" title="Премногу неуспешни обиди за најава">🔒 заклучен до {hm(lockOf(u.username)!.until)}</span>{' '}{unlockBtn(lockOf(u.username)!.key, u.username)}</>}</td>

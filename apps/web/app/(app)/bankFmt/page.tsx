@@ -6,6 +6,7 @@ import { appSettings, loadBankAccounts } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
+import { hubTabs } from '@/components/hub-tabs';
 import { Analyzer } from './analyzer';
 
 /** Legacy `BANKS_MK` texts (12709): recommended format, what to download, weak formats, test status. */
@@ -29,6 +30,7 @@ export default async function BankFmtPage() {
   const lvl = (s: number) => (s >= 4 ? 'целосен' : s >= 2.5 ? 'делумен' : 'слаб');
   return (
     <>
+      {await hubTabs('izvodiCfg', 'bankFmt')}
       <Hd t="Банки и формати на изводи" sub="кој формат да се презема од секоја банка">
         <Link className="btn" href="/banka">Изводи</Link><Link className="btn" href="/devizni">Девизни изводи</Link>
       </Hd>

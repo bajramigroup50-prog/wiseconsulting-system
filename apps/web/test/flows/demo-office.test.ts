@@ -242,6 +242,10 @@ describe('🎭 demo admin sees only demo data in every enabled view', () => {
     const h = await html(Pages.rokovi(sp({ v: 'lista', m: YM })));
     noReal(h, 'rokovi');
     expect(h).not.toContain('⚙ Потсетници');
+    // UX Phase 1 P9: the „📅 Рокови“ tab strip (both tabs are demo views); P42: a status line instead of „↻ Освежи“
+    expect(h).toContain('data-hub="rokovi"');
+    expect(h).toContain('href="/zsRok"');
+    expect(h).toContain('Освежено автоматски');
     as('REALOWNER');
     await html(Pages.rokovi(sp({ v: 'lista', m: YM }))); // generates the real firms' deadlines
     const [realRok] = await pg.select().from(schema.rokovi).where(eq(schema.rokovi.firmId, ID.real!)).limit(1);

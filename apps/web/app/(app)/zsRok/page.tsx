@@ -5,15 +5,17 @@ import { zsRokRows } from '@wise/core/firms/zsrok';
 import { firmEntity } from '@wise/db';
 import { booksPage } from '@/lib/books';
 import { Hd } from '@/components/hd';
+import { hubTabs } from '@/components/hub-tabs';
 import { NoFirm } from '@/components/no-firm';
 
 export default async function ZsRokPage() {
   const { firm, year } = await booksPage('zsRok');
-  if (!firm) return <NoFirm t="Што, каде и кога се поднесува" />;
+  if (!firm) return <>{await hubTabs('rokovi', 'zsRok')}<NoFirm t="Што, каде и кога се поднесува" /></>;
   const e = firmEntity(firm);
   const R = zsRokRows(e, year);
   return (
     <>
+      {await hubTabs('rokovi', 'zsRok')}
       <Hd t="Што, каде и кога се поднесува" sub={YE_ENTITY_NAMES[e]} />
       <div className="tw"><table>
         <thead><tr><th>Што</th><th>Каде</th><th>Рок</th><th></th></tr></thead>

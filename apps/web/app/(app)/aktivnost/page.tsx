@@ -12,7 +12,7 @@ import { Hd, dmyHm } from '@/components/hd';
 
 const LBL: Record<string, string> = {
   login: 'Најава', logout: 'Одјава', loginFail: 'Неуспешна најава', loginLocked: '🔒 Заклучена најава', loginUnlock: '🔓 Отклучена најава', newFirm: 'Нова фирма', saveFirm: 'Промена на фирма',
-  uNew: 'Нов корисник', uSave: 'Промена на корисник', uDel: 'Бришење корисник', uMyPass: 'Промена на сопствена лозинка',
+  uNew: 'Нов корисник', uSave: 'Промена на корисник', uDel: 'Бришење корисник', uMyPass: 'Промена на сопствена лозинка', uMenuStyle: 'Мени: класично / ново',
   fileUpload: 'Прикачен документ', ownerSet: 'Пренос на сопственост на канцеларијата',
 };
 const PAGE = 100;

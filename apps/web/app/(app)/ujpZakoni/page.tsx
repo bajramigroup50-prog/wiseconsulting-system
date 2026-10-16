@@ -15,6 +15,7 @@ import { loadLaw } from '@/lib/law';
 import { hrefFor, NAV_LBL } from '@/lib/nav';
 import { officePage, today } from '@/lib/office';
 import { Hd } from '@/components/hd';
+import { hubTabs } from '@/components/hub-tabs';
 
 export default async function UjpZakoniPage() {
   const { firm } = await officePage('ujpZakoni');
@@ -31,6 +32,7 @@ export default async function UjpZakoniPage() {
   }
   return (
     <>
+      {await hubTabs('zakoni', 'ujpZakoni')}
       <Hd t="📚 Закони на УЈП – синхронизирано" sub={`${UJP_AREAS.length} области · ${ujpTotalChecks()} автоматски проверки${firm ? ' · ' + firm.name : ''}`}>
         <Link className="btn" href="/lawrep">⚖️ Даночен преглед</Link>
         <Link className="btn" href="/zakoni">⚖️ Законски промени</Link>

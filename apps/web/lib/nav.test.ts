@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { NAV, NAV_LBL, hrefFor, navFlat, navFor, viewAllowed } from './nav';
 
+// UX Phase 1 (P40): `NAV` is the „класично“ menu and what `viewAllowed` / the route guard read — deliberately unchanged.
+// The „ново“ menu is a re-arrangement of the user's filtered menu: `lib/nav-new.test.ts`.
 describe('nav (legacy NAV)', () => {
   it('keeps all 14 legacy groups and resolves labels', () => {
     expect(NAV).toHaveLength(14);

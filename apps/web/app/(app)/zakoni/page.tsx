@@ -16,6 +16,8 @@ import { loadLaw, lawSeenOf } from '@/lib/law';
 import { allowedFirms, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { Hd, dmyHm } from '@/components/hd';
+import { AutoStatus } from '@/components/auto-status';
+import { hubTabs } from '@/components/hub-tabs';
 import { RowAction } from '@/components/row-action';
 import { lawAskStart, lawDelete, lawRunAi, lawRunNow, lawSeenAll } from './actions';
 import { AI_COST_TAG, AiBadge } from '@/components/ai-badge';
@@ -63,9 +65,12 @@ export default async function ZakoniPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <RobotCss />
+      {await hubTabs('zakoni', 'zakoni')}
       <Hd t="⚖️ Законски промени" sub="УЈП, УФР, ЦРМ, ДПИ, ДИТ, АВРМ, ПИОМ, ФЗОМ, Царина, МФ, Мин. економија и труд, Мин. дигитална трансформација, Мин. транспорт, МВР (странци), Службен весник, ИСОС, НБРМ">
         <RowAction className="btn" action={lawSeenAll} label="✓ Означи ги сите како прочитани" />
-        {can(u.principal, 'settings') && <RowAction className="btn" action={lawRunNow} label="▶ Провери сега" title="Без AI: новите линкови се внесуваат „⚠ да се потврди“" />}
+        {/* P42: the robot runs every day at 06:52 — a status line; the small ↻ only for the owner / administrator */}
+        <AutoStatus at={run ? run.finishedAt ?? run.startedAt : null} when="секој ден во 06:52"
+          refresh={u.role === 'admin' && can(u.principal, 'settings') ? <RowAction className="btn sm ghost" action={lawRunNow} label="↻" title="Провери сега (без AI: новите линкови се внесуваат „⚠ да се потврди“)" /> : null} />
         {can(u.principal, 'settings') && <RowAction className="btn" action={lawRunAi} label={`🤖 Провери со AI · ${AI_COST_TAG}`} title="AI ги опишува и филтрира новите линкови (троши AI-кредит)" />}
       </Hd>
       <div className="lawbot-hero">

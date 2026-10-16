@@ -15,7 +15,7 @@ import { addDays } from '@wise/core/office';
 import {
   ROK_SRC, ROK_STATE_LBL, ROK_TYPE_IDS, ROK_TYPES, rokClientDay, rokDays, rokMonthGrid, rokMonthName, rokState, rokYmAdd, type RokSettings, type RokType,
 } from '@wise/core/office/rokovi';
-import { rokovi, syncRokovi } from '@wise/db';
+import { rokovi, rokoviLastRun, syncRokovi } from '@wise/db';
 import { isDemoUser } from '@/lib/demo';
 import { officeProfileFor } from '@/lib/demo-office';
 import { db } from '@/lib/db';
@@ -24,6 +24,8 @@ import { rokColleagues, rokRows, type RokView } from '@/lib/rokovi';
 import { ActionForm } from '@/components/action-form';
 import { FirmGo } from '@/components/firm-go';
 import { Hd, dmy } from '@/components/hd';
+import { AutoStatus } from '@/components/auto-status';
+import { hubTabs } from '@/components/hub-tabs';
 import { RowAction } from '@/components/row-action';
 import { markRokAction, saveRokSettings, syncRokAction } from './actions';
 
@@ -52,7 +54,7 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
     if (!c?.n) { await syncRokovi(db(), { from, to, firmIds: ids }); res = await rokRows(u, { from, to, fid: sp.fid, uid: sp.uid, t: sp.t, st }); }
   }
   const { rows, firms } = res;
-  const users = await rokColleagues(u);
+  const [users, lastRun] = await Promise.all([rokColleagues(u), rokoviLastRun(db()).catch(() => null)]);
   const qs = (o: Partial<SP>) => '?' + new URLSearchParams(Object.entries({ ...sp, ...o }).filter(([, v]) => v) as [string, string][]).toString();
   const icsQs = new URLSearchParams(Object.entries({ from, to, fid: sp.fid ?? '', uid: sp.uid ?? '', t: sp.t ?? '', st: st === 'all' ? 'open' : st }).filter(([, v]) => v)).toString();
   const stOf = (r: RokView) => rokState(td, r.due, r.done, days);
@@ -90,8 +92,11 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
+      {await hubTabs('rokovi', 'rokovi')}
       <Hd t="📅 Календар на рокови" sub={`${firms.length} фирми · ${rows.length} рокови · отворени ${nOpen}${nLate ? ` · поминати ${nLate}` : ''}`}>
-        <RowAction className="btn" action={syncRokAction.bind(null, ym)} label="↻ Освежи" title="Повторно ги пресметува роковите од поставките на фирмите" showOk />
+        {/* P42: the deadlines are refreshed every day at 07:10 — a status line; the small ↻ only for the owner / administrator */}
+        <AutoStatus label="Освежено автоматски" at={lastRun} when="секој ден во 07:10"
+          refresh={u.role === 'admin' ? <RowAction className="btn sm ghost" action={syncRokAction.bind(null, ym)} label="↻" title="Освежи сега: повторно ги пресметува роковите од поставките на фирмите" showOk /> : null} />
         <a className="btn" href={`/api/rokovi/ics?${icsQs}`} title="Календар (ICS) за Outlook / Google / телефон">📥 ICS</a>
         <Link className={`btn ${list ? '' : 'pri'}`} href={qs({ v: '' })}>Месец</Link>
         <Link className={`btn ${list ? 'pri' : ''}`} href={qs({ v: 'lista' })}>Листа</Link>

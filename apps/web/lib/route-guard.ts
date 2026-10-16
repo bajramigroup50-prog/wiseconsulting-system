@@ -8,6 +8,10 @@
  * Pure (no DB, no Next imports) so it is unit-tested.
  */
 import { MODULE_OF_VIEW } from '@wise/core/industry/modules';
+import { hubByKey } from './nav-hubs';
+
+/** First path segment of the tab-container screens (`app/(app)/ekran/[hub]`, `lib/nav-hubs.ts`). */
+export const HUB_SEG = 'ekran';
 
 export type GuardRole = 'klient' | 'teren';
 export const isGuardRole = (r: unknown): r is GuardRole => r === 'klient' || r === 'teren';
@@ -164,6 +168,9 @@ export function allowListVerdict(pathname: string, o: {
   if (p.startsWith('/api/')) return o.api(p) ? null : '403';
   const [, seg = '', sub = '', sub2 = ''] = p.split('/');
   if (seg === 'print') return o.print(sub, sub2) ? null : '/';
+  // the address of a tab-container screen (`/ekran/<hub>`, UX Phase 1) only forwards to a tab: open only when at least
+  // one of its tabs is an allowed view (the tabs themselves keep their own addresses and checks)
+  if (seg === HUB_SEG) return (hubByKey(sub)?.tabs ?? []).some((t) => o.views.has(t.view)) ? null : '/';
   return o.views.has(seg) ? null : '/';
 }
 

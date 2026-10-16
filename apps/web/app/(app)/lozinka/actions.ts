@@ -6,6 +6,7 @@ import { audit, users } from '@wise/db';
 import { hashPassword, verifyPassword } from '@wise/db/password';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { menuStyleIn, putMenuStyle } from '@/lib/menu-style';
 
 export interface FormState { error?: string; ok?: string }
 
@@ -27,4 +28,21 @@ export async function changeMyPassword(_prev: FormState, form: FormData): Promis
   });
   revalidatePath('/', 'layout');
   return { ok: 'Лозинката е променета.' };
+}
+
+/**
+ * P40 „Мени: класично / ново“ — the own menu (every office user, 🔒 book-only colleagues and 🎭 demo users too: it
+ * changes only how the menu is arranged, never what may be opened). The klient / teren menus are fixed.
+ */
+export async function setMyMenuStyle(style: string): Promise<FormState> {
+  const me = await requireUser();
+  const s = menuStyleIn(style);
+  if (!s) return { error: 'Непознат избор.' };
+  if (me.role === 'klient' || me.role === 'teren') return { error: 'Вашето мени е секогаш исто.' };
+  await db().transaction(async (tx) => {
+    await putMenuStyle(tx, me.id, s, me.id);
+    await audit(tx, { userId: me.id, action: 'uMenuStyle', entityType: 'user', entityId: me.id, data: { style: s } });
+  });
+  revalidatePath('/', 'layout');
+  return { ok: s === 'new' ? 'Мени: ново.' : 'Мени: класично.' };
 }

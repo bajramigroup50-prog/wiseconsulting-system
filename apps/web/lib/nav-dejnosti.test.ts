@@ -5,6 +5,7 @@ const ids = (a: readonly unknown[]): string[] => (a as [string, string?, unknown
 const grp = (g: string) => NAV.find(([n]) => n === g)![1];
 
 describe('Дејности / Производство menu (legacy runtime NAV patches)', () => {
+  // the „класично“ menu keeps both copies (legacy); the „ново“ menu shows it once (P16, `lib/nav-new.test.ts`)
   it('production is a submenu in Материјално and Малопродажба', () => {
     for (const g of ['Материјално', 'Малопродажба']) {
       const sub = grp(g).find((x) => x[0] === '>' && x[1] === '🏭 Производство');

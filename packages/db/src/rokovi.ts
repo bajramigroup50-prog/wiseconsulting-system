@@ -27,10 +27,25 @@ import { realFirmSql, realUserSql } from './demo/filters';
 import { loadPayScheme } from './payroll';
 import { firmEntity } from './yearend';
 import {
-  annualStatements, bankLines, bankStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
+  annualStatements, appSettings, bankLines, bankStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
 } from './schema/index';
 
 export interface RokSyncResult { firms: number; rows: number; autoDone: number; autoUndone: number; gone: number }
+
+/** `app_settings` key: when the daily `rokovi` job (07:10) last refreshed the calendar (P42 status line on /rokovi). */
+export const ROKOVI_RUN_KEY = 'rokoviLastRun';
+
+export async function noteRokoviRun(db: Tx, at = new Date()): Promise<void> {
+  const value = { at: at.toISOString() };
+  await db.insert(appSettings).values({ key: ROKOVI_RUN_KEY, value }).onConflictDoUpdate({ target: appSettings.key, set: { value } });
+}
+
+export async function rokoviLastRun(db: Tx): Promise<Date | null> {
+  const [r] = await db.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, ROKOVI_RUN_KEY)).limit(1);
+  const at = (r?.v as { at?: unknown } | undefined)?.at;
+  const d = typeof at === 'string' ? new Date(at) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+}
 
 const isExample = (s: unknown) => !!(s as { example?: boolean; archived?: boolean } | null)?.example || !!(s as { archived?: boolean } | null)?.archived;
 
