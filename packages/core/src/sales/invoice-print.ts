@@ -16,6 +16,7 @@ import qrcode from 'qrcode-generator';
 import { advDeduct, ART32_TXT, type AdvanceDeduction } from '../vat';
 import { INV_NOTE0, invoiceTotals } from './docs';
 import { amountInWords } from './words';
+import { fixYuscii } from '../text/yuscii';
 
 export type InvoicePrintKind = 'invoice' | 'credit' | 'proforma' | 'dispatch' | 'waybill';
 
@@ -131,7 +132,11 @@ export function qrDataUrl(text: string, cell = 3): string {
 
 /** Full `<div class="pdfdoc printarea">…</div>` markup of the document. */
 export function invoicePrintHtml(p: InvoicePrintInput): string {
-  const { doc, firm: f, partner, lines: L, kind } = p;
+  const { doc, lines: L, kind } = p;
+  // old YUSCII fonts („ДЕЛ^ЕВ“, „^аир“): the firm head and the buyer print as letters (stored data is fixed in /firmi/kirilica)
+  const fy = <T extends string | null | undefined>(v: T): T => (v == null ? v : fixYuscii(v) as T);
+  const f = { ...p.firm, name: fixYuscii(p.firm.name), address: fy(p.firm.address), city: fy(p.firm.city) };
+  const partner = p.partner ? { ...p.partner, name: fy(p.partner.name), address: fy(p.partner.address), city: fy(p.partner.city) } : p.partner;
   const S = (f.settings ?? {}) as Record<string, unknown>;
   const st = (k: string) => String(S[k] ?? '');
   const img = (v: unknown) => {

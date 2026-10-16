@@ -6,7 +6,7 @@
  * (`totBox(...)` without `d`); here the totals box always includes them.
  */
 import Link from 'next/link';
-import { Fragment, useActionState, useMemo, useRef, useState, useTransition } from 'react';
+import { Fragment, useActionState, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
   addDays, CURRENCIES, creditGrossLines, DT, fuelInvoiceCheck, invoiceTotals, isDraftNo, PARITY, PAYM, plansFromSavedRun, prodSummary, PTERMS, specText, workOrderLabel, type DtKey,
 } from '@wise/core/sales';
@@ -18,6 +18,7 @@ import { fxDefaultRate } from '@/app/(app)/_fx/actions';
 import { blankCostEls, blankLine, blankSpec, mainProdLine, OTHER_COSTS, type EdInvoice, type EdLine } from './model';
 import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
 import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';
+import { buyerHint, EDB_HINT, firstEmptyRow, headerMissing, headerMissingText, headerSummary } from './invoice-steps';
 import type { ProdBom, ProdCostInput, ProdSpec } from '@wise/core/sales';
 
 export interface InvItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
@@ -30,7 +31,7 @@ export interface InvoiceEditorProps {
   initial: EdInvoice;
   title: string;
   sub?: string;
-  partners: { id: string; code: string | null; name: string; edb: string | null }[];
+  partners: { id: string; code: string | null; name: string; edb: string | null; address?: string | null; city?: string | null }[];
   items: InvItemOpt[];
   /** Stock quantity per item and location id ('main' = main warehouse). */
   stock: Record<string, Record<string, number>>;
@@ -156,6 +157,14 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const [, startT] = useTransition();
   const qaRef = useRef<HTMLInputElement>(null), qtyRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  // two steps: „Заглавие“ (open) → „Понатаму → Ставки“ folds it into one summary line and opens the lines in place;
+  // a saved document opens folded, with the lines visible
+  const [headOpen, setHeadOpen] = useState(() => !p.initial.id);
+  const [headErr, setHeadErr] = useState('');
+  const sumRef = useRef<HTMLDivElement>(null), linesRef = useRef<HTMLDivElement>(null), headRef = useRef<HTMLDivElement>(null);
+  /** Grid row whose first field gets the focus after the next render (keyboard-first line entry). */
+  // a draft just created from its header („Креирај фактура →“) opens with the cursor in the first empty line (row -2 = find it)
+  const focusRow = useRef<{ row: number; f: string; scroll?: boolean } | null>(p.drafted != null && p.initial.id ? { row: -2, f: 'name' } : null);
   const svcMode = svcOnly || d0svc(p.initial);
   const set = (x: Partial<EdInvoice>) => setD((o) => ({ ...o, ...x }));
   const setData = (k: string, v: string) => setD((o) => ({ ...o, data: { ...o.data, [k]: v } }));
@@ -403,6 +412,68 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   /** New invoice, nothing entered yet: only the header and „Креирај фактура“ (the draft then opens with the lines). */
   const headerStage = isInv && !d.id && !direct && p.initial.scanDocId == null && !d.fromDocId && !p.initial.lines.some((l) => !l.prod?.main && nonEmpty(l));
   const canDraft = isInv && (!d.id || isDraftDoc) && p.initial.scanDocId == null;
+
+  // ── „Заглавие“ → „Ставки“ ──────────────────────────────────────────────────────────────────────────────────
+  const partnerOf = p.partners.find((x) => x.id === d.partnerId);
+  // soft hint (never blocking, never on the print): a legal-entity buyer without ЕДБ / address on a document with VAT
+  const hasVat = !p.nonVat && !d.export && d.kind !== 'dispatch' && (!d.lines.some(nonEmpty) || d.lines.some((l) => nonEmpty(l) && Number(l.rate) > 0));
+  const hint = buyerHint(partnerOf, hasVat);
+  /** Focus a field of grid row `row` (`f` = name | qty | price | disc); no scrolling — the lines are already in view. */
+  const focusField = (row: number, f: string) => {
+    const el = linesRef.current?.querySelector<HTMLInputElement>(`[data-row="${row}"] [data-f="${f}"]`);
+    if (!el) return false;
+    el.focus({ preventScroll: true });
+    if (f !== 'name') el.select?.();
+    return true;
+  };
+  useEffect(() => {
+    const t = focusRow.current;
+    if (!t) return;
+    focusRow.current = null;
+    // the summary line goes to the top of the window, the lines right under it (the page never jumps to the bottom)
+    if (t.scroll) sumRef.current?.scrollIntoView?.({ block: 'start' });
+    if (t.row === -2) {
+      const r = firstEmptyRow(d.lines);
+      if (!(prodInv && d.lines.some((l) => l.prod?.main && !nonEmpty(l))) && r >= 0) { focusField(r, t.f); return; }
+      if (!prodInv) return;
+    }
+    if (t.row < 0) linesRef.current?.querySelector<HTMLInputElement>('[data-testid="main-products"] input')?.focus({ preventScroll: true });
+    else focusField(t.row, t.f);
+  });
+  /** „Понатаму → Ставки“: partner and date are required; the header folds, the first empty line gets the cursor. */
+  const goLines = () => {
+    const m = headerMissing(d);
+    if (m.length) { setHeadErr(headerMissingText(m)); return; }
+    setHeadErr('');
+    setHeadOpen(false);
+    if (headerStage) setDirect(true);
+    if (prodInv && d.lines.some((l) => l.prod?.main && !nonEmpty(l))) { focusRow.current = { row: -1, f: 'name', scroll: true }; return; }
+    let r = firstEmptyRow(d.lines);
+    if (r < 0) { r = d.lines.length; set({ lines: [...d.lines, blankLine(p.revDefault, d.export ? '0' : '18')] }); }
+    focusRow.current = { row: r, f: 'name', scroll: true };
+  };
+  /** Enter in a header field (not the new-nalog box, not a button / the note) = „Понатаму“ instead of sending the form. */
+  const headKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const t = e.target as HTMLElement;
+    if (!(t.tagName === 'INPUT' || t.tagName === 'SELECT') || t.closest('[data-testid="new-nalog"]')) return;
+    if (t.tagName === 'INPUT' && ['button', 'submit', 'reset', 'file'].includes((t as HTMLInputElement).type)) return;
+    e.preventDefault();
+    goLines();
+  };
+  /** Keyboard-first lines: Enter = article → quantity → price → the next empty row (added when there is none). */
+  const lineKey = (i: number, f: 'name' | 'qty' | 'price' | 'disc') => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    if (f === 'name') { focusField(i, 'qty'); return; }
+    if (f === 'qty') { focusField(i, 'price'); return; }
+    const l = d.lines[i];
+    if (!l || !nonEmpty(l)) return;
+    const r = firstEmptyRow(d.lines, i + 1);
+    if (r >= 0) { focusField(r, 'name'); return; }
+    focusRow.current = { row: d.lines.length, f: 'name' };
+    set({ lines: [...d.lines, blankLine(p.revDefault, d.export ? '0' : '18')] });
+  };
   // „Налог за книжење“: nalozi of the invoice's year whose period (or, without one, whose months) cover the date
   const ym = d.date.slice(0, 7);
   const nalOpts = nalozi.filter((n) => n.number === (d.data.nalogNo ?? '') || (n.from.slice(0, 4) === d.date.slice(0, 4) && (n.periodFrom || n.periodTo
@@ -447,6 +518,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
       {isDraftDoc && <div className="callout info" data-testid="draft-note">✎ <b>Нацрт</b> – не е издадена и не е прокнижена: нема налог, ДДВ ни движење на залиха. Бројот од серијата се доделува при книжење{p.nextNumber ? <> (следен: <b>{p.nextNumber}</b>)</> : null}, па бришењето на нацрт не остава прескокнат број.</div>}
       {headerStage && <div className="callout info" data-testid="header-stage">Прво заглавието: вид на фактура, купувач, датуми, валута/курс, налог{prodInv ? ', работен налог' : ''}. Со <b>„Креирај фактура“</b> се зачувува како нацрт (без книжење) и се отвора за ставките{prodInv ? ', главниот производ и калкулацијата' : ''}.{' '}
         <button type="button" className="btn sm ghost" onClick={() => setDirect(true)}>или внеси ги ставките веднаш</button></div>}
+      <div ref={headRef} hidden={!headOpen} data-testid="header-step" onKeyDown={headKey} style={{ scrollMarginTop: 64 }}>
       {canProd && !d.svc && <div className="card invmode" data-testid="inv-mode" role="radiogroup" aria-label="Вид на фактура" style={{ padding: '8px 12px', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <b>Вид на фактура:</b>
         <label className="rb"><input type="radio" name="invMode" checked={!prodInv} onChange={() => setMode(false)} /> 📄 Обична фактура</label>
@@ -557,7 +629,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               {isInv && p.prodRun?.orders.map((o) => <Link key={o.id} className="btn sm" href="/prod">🏭 Налог за производство бр. {o.number}</Link>)}
             </div>
           </div>
-          <label className="f" style={{ marginTop: 8 }}>Напомена<textarea rows={3} value={d.note} onChange={(e) => set({ note: e.target.value })} /></label>
+          <label className="f" style={{ marginTop: 8 }}>Напомена<textarea rows={3} value={d.note} data-testid="header-note" onChange={(e) => set({ note: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); goLines(); } }} /></label>
         </div>
         <div className="fpane" hidden={tab !== 'dop'}>
           <div className="igrid">
@@ -608,8 +681,19 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
           </>}
         </div>
       </div>
+      </div>
+      {headOpen
+        ? <div className="row" style={{ gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="btn pri" data-testid="header-next" onClick={goLines}>Понатаму → Ставки</button>
+          {headErr && <span className="callout bad" role="alert" data-testid="header-err" style={{ margin: 0 }}>{headErr}</span>}
+          <small className="note">Enter во поле од заглавието (или Tab на „Напомена“) = понатаму на ставките.</small></div>
+        : <div ref={sumRef} className="card invsum" data-testid="header-summary" style={{ padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', scrollMarginTop: 64 }}>
+          <b style={{ flex: 1 }}>{headerSummary(d, partnerOf?.name ?? '', { number: headerStage ? '' : d.number, prodInv })}</b>
+          <button type="button" className="btn sm ghost" data-testid="header-edit" aria-label="Измени го заглавието" title="Измени го заглавието"
+            onClick={() => { setHeadOpen(true); setTimeout(() => headRef.current?.scrollIntoView?.({ block: 'start' }), 0); }}>✎</button></div>}
+      {hint.length > 0 && <div className="callout info" data-testid="edb-hint">ℹ {EDB_HINT} – недостасува: {hint.join(', ')}. (Само напомена – фактурата може да се зачува и испечати.)</div>}
 
-      {!headerStage && <>
+      {!headerStage && <div ref={linesRef} data-testid="lines-step">
       {prodInv && <section data-testid="main-products">
         <datalist id="prodNameList">{items.filter((i) => i.type === 'product').map((i) => <option key={i.id} value={i.name}>{i.code ?? ''}</option>)}</datalist>
         {d.lines.map((l, i) => ({ l, i })).filter(({ l }) => l.prod?.main).map(({ l, i }, k, all) => (
@@ -677,8 +761,8 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
           const over = tracked && !produced && Number(l.qty) > sq! + 1e-9 && d.kind !== 'proforma' && !d.fromDocId;
           const c = calcs.get(i);
           return (<Fragment key={i}>
-            <tr className={produced ? 'prodhead' : undefined}>
-              <td><input value={l.name} list="svcItemList" style={{ minWidth: svcMode ? 380 : 260 }} placeholder={svcMode ? 'Напишете ја услугата, пр. Сметководствени услуги за месец …' : 'Артикл од листата или слободен опис на услуга'} onChange={(e) => {
+            <tr className={produced ? 'prodhead' : undefined} data-row={i}>
+              <td><input value={l.name} list="svcItemList" data-f="name" aria-label={`Артикл / опис, ред ${i + 1}`} onKeyDown={lineKey(i, 'name')} style={{ minWidth: svcMode ? 380 : 260 }} placeholder={svcMode ? 'Напишете ја услугата, пр. Сметководствени услуги за месец …' : 'Артикл од листата или слободен опис на услуга'} onChange={(e) => {
                 const v = e.target.value;
                 const found = items.find((x) => x.name === v || (x.code && x.code === v.trim()));
                 setLine(i, found ? fromItem(found) : { name: v, itemId: '' });
@@ -686,9 +770,9 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
                 {produced && <small className="note" style={c?.below ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>🏭 производство{c ? <> · трошок {fmt(c.cost)} · маржа {fmt(c.margin)}{c.pct != null ? ` (${c.pct.toFixed(1)}%)` : ''}{c.below ? ' – под цена на чинење!' : ''}</> : ' · креирајте производ'}{' '}
                   <button type="button" className="btn sm ghost" aria-expanded={l.prod!.open} onClick={() => setProdOf(i, { ...l.prod!, open: !l.prod!.open })}>{l.prod!.open ? '▴ скриј' : '▾ репроматеријали'}</button></small>}</td>
               <td><input value={l.unit} style={{ width: 64 }} onChange={(e) => setLine(i, { unit: e.target.value })} /></td>
-              <td><input type="number" step="any" value={l.qty} style={{ width: 90, textAlign: 'right' }} onChange={(e) => setLine(i, { qty: e.target.value })} /></td>
-              <td><input type="number" step="any" value={l.price} style={{ width: 110, textAlign: 'right' }} onChange={(e) => setLine(i, { price: e.target.value })} /></td>
-              <td><input type="number" step="any" value={l.disc} style={{ width: 64, textAlign: 'right' }} onChange={(e) => setLine(i, { disc: e.target.value })} /></td>
+              <td><input type="number" step="any" value={l.qty} data-f="qty" aria-label={`Количина, ред ${i + 1}`} onKeyDown={lineKey(i, 'qty')} style={{ width: 90, textAlign: 'right' }} onChange={(e) => setLine(i, { qty: e.target.value })} /></td>
+              <td><input type="number" step="any" value={l.price} data-f="price" aria-label={`Цена, ред ${i + 1}`} onKeyDown={lineKey(i, 'price')} style={{ width: 110, textAlign: 'right' }} onChange={(e) => setLine(i, { price: e.target.value })} /></td>
+              <td><input type="number" step="any" value={l.disc} data-f="disc" aria-label={`Рабат, ред ${i + 1}`} onKeyDown={lineKey(i, 'disc')} style={{ width: 64, textAlign: 'right' }} onChange={(e) => setLine(i, { disc: e.target.value })} /></td>
               <td><select value={l.rate} disabled={d.art32 || d.export} onChange={(e) => setLine(i, { rate: e.target.value })}>{RATES.map((r) => <option key={r} value={r}>{r}%</option>)}</select></td>
               <td><select value={l.account || p.revDefault} className="wide" onChange={(e) => setLine(i, { account: e.target.value })}>
                 {!p.accounts.some(([k]) => k === (l.account || p.revDefault)) && <option value={l.account || p.revDefault}>{l.account || p.revDefault}</option>}
@@ -724,7 +808,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         <div className="note">При зачувување: за секоја ставка се прави налог за производство со датумот на фактурата – репроматеријалите се раздолжуваат по просечна цена, производот се заприма по цената на чинење, а фактурата го продава.</div>
       </div>}
       {d.kind !== 'proforma' && <p className="note">Артиклите со залиха автоматски се раздолжуваат по просечна цена (Должи 7000/7010 – Побарува 6300/6600).</p>}
-      </>}
+      </div>}
       {headerStage && <div className="row" style={{ gap: 8, marginTop: 8 }}>
         <button className="btn pri" name="asDraft" value="1" disabled={pending}>Креирај фактура →</button>
         <small className="note">Се зачувува како нацрт (не се книжи); потоа се отвораат ставките{prodInv ? ', главниот производ и калкулацијата' : ''}.</small></div>}

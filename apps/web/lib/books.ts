@@ -54,7 +54,7 @@ export const yearRange = (y: number) => ({ from: `${y}-01-01`, to: `${y}-12-31` 
 
 /** Partners of the firm for selects / datalists. */
 export async function partnerOptions(firmId: string) {
-  return db().select({ id: partners.id, code: partners.code, name: partners.name, edb: partners.edb, embs: partners.embs })
+  return db().select({ id: partners.id, code: partners.code, name: partners.name, edb: partners.edb, embs: partners.embs, address: partners.address, city: partners.city })
     .from(partners).where(eq(partners.firmId, firmId)).orderBy(asc(partners.name));
 }
 

@@ -7,6 +7,7 @@
  * Pure helpers (no `server-only`) so they can be unit-tested; the route is `app/api/pdf/route.ts`, the browser
  * side is `serverPdf` below (React `PdfButton` and the static payroll print pages share it).
  */
+import { fixYuscii } from '@wise/core/text/yuscii';
 
 /**
  * Where the stored PDF is also filed (the worker links it after rendering, `pdf.render` `link`):
@@ -71,7 +72,7 @@ export function firmHeadHtml(
   firm: { name: string | null; address?: string | null; city?: string | null; phone?: string | null; email?: string | null; edb?: string | null; embs?: string | null } | null,
   title: string, sub: string, printed: string,
 ): string {
-  const fh = firm ? `<div class="fh"><div class="fn">${esc(String(firm.name ?? '').toUpperCase())}</div><div class="fa">${esc([firm.address, firm.city].filter(Boolean).join(' '))}${firm.phone ? ' * Тел.: ' + esc(firm.phone) : ''}${firm.email ? ' * ' + esc(firm.email) : ''}<br>ЕДБ: ${esc(firm.edb ?? '')}${firm.embs ? ' * ЕМБС: ' + esc(firm.embs) : ''}</div></div>` : '';
+  const fh = firm ? `<div class="fh"><div class="fn">${esc(fixYuscii(firm.name).toUpperCase())}</div><div class="fa">${esc(fixYuscii([firm.address, firm.city].filter(Boolean).join(' ')))}${firm.phone ? ' * Тел.: ' + esc(firm.phone) : ''}${firm.email ? ' * ' + esc(firm.email) : ''}<br>ЕДБ: ${esc(firm.edb ?? '')}${firm.embs ? ' * ЕМБС: ' + esc(firm.embs) : ''}</div></div>` : '';
   const d = printed.slice(0, 10).split('-').reverse().join('.');
   return `${fh}<div class="ph"><div><div class="pt">${esc(title)}</div>${sub ? `<div class="ps">${esc(sub)}</div>` : ''}</div><div class="pm">Отпечатено: ${d}</div></div>`;
 }

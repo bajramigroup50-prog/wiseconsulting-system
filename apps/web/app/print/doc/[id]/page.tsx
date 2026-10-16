@@ -8,6 +8,7 @@
 import { notFound } from 'next/navigation';
 import { PodLink } from '@/components/pod-link';
 import { can, firmAllowed } from '@wise/core';
+import { invalidDocIssues } from '@wise/core/compliance';
 import { DT, invoiceMailText, invoicePdfName, invoicePrintHtml } from '@wise/core/sales';
 import { WaPanel } from './wa-panel';
 import { invoiceLegalCheck, loadInvoicePrintData } from '@wise/db';
@@ -34,6 +35,10 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
   const legal = (await invoiceLegalCheck(db(), id)) ?? [];
   const cancelled = legal.some((i) => i.code === 'cancelled');
   const blocked = (input.kind === 'invoice' || input.kind === 'credit') && legal.some((i) => i.sev === 'block');
+  // the red banner on the paper only when the document itself is invalid (no number, date or lines) — a buyer known
+  // only by name, a missing ЕДБ or address are notes on the screen, never on the print
+  const tax = input.kind === 'invoice' || input.kind === 'credit';
+  const invalid = tax && (cancelled || invalidDocIssues(legal).length > 0);
   // proformas are never booked (status draft) but are e-mailed like legacy
   const mailable = !blocked && MAILABLE.includes(input.kind) && (doc.status === 'posted' || (doc.kind === 'proforma' && doc.status !== 'pending')) && can(u.principal, 'write', doc.firmId);
   let mail: React.ReactNode = null;
@@ -53,11 +58,11 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
   }
   return (
     <>
-      {blocked && <div style={{ border: '2px solid #b00', color: '#b00', padding: '6px 10px', margin: '0 0 8px', fontWeight: 700, textAlign: 'center' }}>
+      {invalid && <div style={{ border: '2px solid #b00', color: '#b00', padding: '6px 10px', margin: '0 0 8px', fontWeight: 700, textAlign: 'center' }}>
         {cancelled ? 'СТОРНИРАНА ФАКТУРА – НЕ ВАЖИ' : 'НЕКОМПЛЕТНА ФАКТУРА – НЕ Е ЗА ИЗДАВАЊЕ'}
-        {!cancelled && <div className="noprint" style={{ fontWeight: 400, textAlign: 'left', marginTop: 4 }}>Недостасуваат задолжителни елементи (ЗДДВ чл. 53 ст. 10): {legal.filter((i) => i.sev === 'block').map((i) => i.text).join(' ')} Дополнете ги податоците (фирма / купувач / ставки) и отворете ја повторно.</div>}
+        {!cancelled && <div className="noprint" style={{ fontWeight: 400, textAlign: 'left', marginTop: 4 }}>Недостасуваат задолжителни елементи (ЗДДВ чл. 53 ст. 10): {invalidDocIssues(legal).map((i) => i.text).join(' ')} Дополнете ги (број / датум / ставки) и отворете ја повторно.</div>}
       </div>}
-      {!blocked && legal.length > 0 && <div className="callout warn noprint" style={{ margin: '0 0 8px' }}>⚖ {legal.map((i) => i.text).join(' ')}</div>}
+      {!invalid && legal.length > 0 && <div className={'callout noprint ' + (blocked ? 'bad' : 'warn')} style={{ margin: '0 0 8px' }}>⚖ {legal.map((i) => i.text).join(' ')}{blocked ? ' (не се испраќа по е-пошта додека не се дополни)' : ''}</div>}
       {mail}
       {doc.kind === 'invoice' && <PodLink firmId={doc.firmId} invoiceId={doc.id} />}
       <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: invoicePrintHtml(input) }} />
