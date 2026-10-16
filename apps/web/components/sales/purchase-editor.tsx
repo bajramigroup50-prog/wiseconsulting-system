@@ -21,6 +21,7 @@ import { AI_OPEN_FAILED_MSG, AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable 
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
 import { blankCost, COSTS, type EdPurchase, type EdStock } from './model';
 import { PX_DRAFT_KEY, type PxDraft } from './px-import';
+import { headerMissingText, purchaseHeaderMissing, purchaseSummary } from './invoice-steps';
 
 export interface PurItemOpt { id: string; code: string | null; name: string; unit: string | null; rate: number; type: string; barcodes: string[]; sp: Record<string, number>; price: number; lastCost?: number }
 export interface ScanQueueProp { batch: boolean; name: string; rest: number; skipHref: string | null; listHref: string }
@@ -83,6 +84,12 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const impRef = useRef<HTMLInputElement>(null);
   const bcRef = useRef<HTMLInputElement>(null);
+  // two steps like the outgoing invoice: „Заглавие“ → „Понатаму → Ставки“ folds it into one summary line and opens the
+  // posting / receipt lines in place; a saved purchase opens folded, with the lines visible
+  const [headOpen, setHeadOpen] = useState(() => !p.initial.id);
+  const [headErr, setHeadErr] = useState('');
+  const sumRef = useRef<HTMLDivElement>(null), linesRef = useRef<HTMLDivElement>(null), headRef = useRef<HTMLDivElement>(null);
+  const focusTo = useRef<{ sel: string; scroll?: boolean } | null>(null);
   const set = (x: Partial<EdPurchase>) => setD((o) => ({ ...o, ...x }));
   // 💱 default rate of the import invoice from the rate list (NBRM / manual) when the rate is empty or was filled here
   const [fxSrc, setFxSrc] = useState<string | null>(null);
@@ -335,7 +342,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
       setTimeout(() => formRef.current?.requestSubmit(), 50);
       return;
     }
-    if (d.imp && !n(d.fx) && n(d.data.fxAmt)) { e.preventDefault(); setToast('Внесете курс за девизната фактура.'); setTab('dev'); return; }
+    if (d.imp && !n(d.fx) && n(d.data.fxAmt)) { e.preventDefault(); setToast('Внесете курс за девизната фактура.'); setTab('dev'); setHeadOpen(true); return; }
     if (!d.groups.some((g) => n(g.base))) { e.preventDefault(); setToast('Во делот „Книжење“ нема износ (основица). Внесете ја основицата од фактурата, па зачувајте.'); return; }
     if (!d.imp && !d.data.fuelOk) {
       const names = [...d.stock.map((s) => s.name || (s.itemId ? itemById.get(s.itemId)?.name : '')), d.data.memo, d.supplierName, parts.find((x) => x.id === d.partnerId)?.name];
@@ -354,6 +361,61 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   });
+
+  /* ---------- „Заглавие“ → „Ставки“ ---------- */
+  const focusSel = (sel: string) => {
+    const el = linesRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>(sel);
+    if (!el) return false;
+    el.focus({ preventScroll: true });
+    if (el instanceof HTMLInputElement) el.select?.();
+    return true;
+  };
+  useEffect(() => {
+    const t = focusTo.current;
+    if (!t) return;
+    focusTo.current = null;
+    if (t.scroll) sumRef.current?.scrollIntoView?.({ block: 'start' });
+    focusSel(t.sel);
+  });
+  /** First line field: an empty receipt row's article, else the scan field of an empty receipt, else the first posting amount. */
+  const firstLineSel = () => {
+    if (d.ptype === 'stock') {
+      const e = d.stock.findIndex((x) => !x.itemId && !x.name.trim());
+      if (e >= 0) return `[data-srow="${e}"] [data-f="item"]`;
+      if (!d.stock.length) return '[data-f="scan"]';
+    }
+    const g = d.groups.findIndex((x) => !n(x.base));
+    return `[data-grow="${g >= 0 ? g : 0}"] [data-f="base"]`;
+  };
+  const goLines = () => {
+    const m = purchaseHeaderMissing(d);
+    if (m.length) { setHeadErr(headerMissingText(m)); return; }
+    setHeadErr('');
+    setHeadOpen(false);
+    focusTo.current = { sel: firstLineSel(), scroll: true };
+  };
+  /** Enter in a header field = „Понатаму“ (instead of sending the form). */
+  const headKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const t = e.target as HTMLElement;
+    if (!(t.tagName === 'INPUT' || t.tagName === 'SELECT')) return;
+    if (t.tagName === 'INPUT' && ['button', 'submit', 'reset', 'file'].includes((t as HTMLInputElement).type)) return;
+    e.preventDefault();
+    goLines();
+  };
+  /** Keyboard-first lines: Enter moves on (amount → next posting row; article → quantity → price → next receipt row / scan field). */
+  const gKey = (i: number) => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    if (!focusSel(`[data-grow="${i + 1}"] [data-f="base"]`) && d.ptype === 'stock') focusSel(d.stock.length ? '[data-srow="0"] [data-f="item"]' : '[data-f="scan"]');
+  };
+  const sKey = (i: number, f: 'item' | 'qty' | 'price' | 'rab') => (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    if (f === 'item') { focusSel(`[data-srow="${i}"] [data-f="qty"]`); return; }
+    if (f === 'qty') { focusSel(`[data-srow="${i}"] [data-f="price"]`); return; }
+    if (!focusSel(`[data-srow="${i + 1}"] [data-f="item"]`)) focusSel('[data-f="scan"]');
+  };
 
   const pf = (k: string, l: string, o: { type?: string; w?: number; b?: boolean; ph?: string } = {}) => (
     <label className={'fl' + (o.b ? ' b' : '')}><span>{l}</span><input type={o.type} value={d.data[k] ?? ''} placeholder={o.ph} style={o.w ? { maxWidth: o.w } : undefined} onChange={(e) => setData({ [k]: e.target.value })} /></label>
@@ -388,6 +450,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
       {d.status === 'pending' && <div className="callout warn">Внесено од клиентот – чека одобрување (не е прокнижено).</div>}
       {d.imp && d.stock.some((s) => n(s.qty)) && (!n(d.fx) || d.stock.some((s) => n(s.qty) && !(n(s.price) > 0))) && <div className="callout warn">⚠ Набавната цена ќе биде 0: {!n(d.fx) && <b>не е внесен курс</b>}{!n(d.fx) && d.stock.some((s) => n(s.qty) && !(n(s.price) > 0)) && ' и '}{d.stock.some((s) => n(s.qty) && !(n(s.price) > 0)) && <b>{d.stock.filter((s) => n(s.qty) && !(n(s.price) > 0)).length} ставки немаат цена во девизи</b>}. Набавна (ден) = цена во девизи × курс.</div>}
 
+      <div ref={headRef} hidden={!headOpen} data-testid="header-step" onKeyDown={headKey} style={{ scrollMarginTop: 64 }}>
       <div className="card invhead">
         <div className="ftabs" role="tablist">
           {([['osn', 'Основно'], ['dev', d.imp ? 'Девизна' : 'Зависни трошоци'], ['dop', 'Дополнителни']] as const).map(([id, l]) => (
@@ -493,6 +556,17 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           <fieldset className="fs"><legend>Податоци за доставувач</legend>{pf('driver', 'Шофер')}{pf('truck', 'Камион')}{pf('trailer', 'Приколка')}</fieldset>
         </div></div>
       </div>
+      </div>
+      {headOpen
+        ? <div className="row" style={{ gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="btn pri" data-testid="header-next" onClick={goLines}>Понатаму → Ставки</button>
+          {headErr && <span className="callout bad" role="alert" data-testid="header-err" style={{ margin: 0 }}>{headErr}</span>}
+          <small className="note">Enter во поле од заглавието = понатаму на ставките.</small></div>
+        : <div ref={sumRef} className="card invsum" data-testid="header-summary" style={{ padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', scrollMarginTop: 64 }}>
+          <b style={{ flex: 1 }}>{purchaseSummary(d, parts.find((x) => x.id === d.partnerId)?.name ?? '')}</b>
+          <button type="button" className="btn sm ghost" data-testid="header-edit" aria-label="Измени го заглавието" title="Измени го заглавието"
+            onClick={() => { setHeadOpen(true); setTimeout(() => headRef.current?.scrollIntoView?.({ block: 'start' }), 0); }}>✎</button></div>}
+      <div ref={linesRef} data-testid="lines-step">
 
       <div className="card"><div className="hd"><h2>Прикачени документи</h2>{p.firmId && <button type="button" className="btn sm" onClick={() => fileRef.current?.click()}>+ Прикачи PDF или слика</button>}</div>
         <input ref={fileRef} type="file" hidden accept="application/pdf,.pdf,image/jpeg,image/png,image/webp" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void attach(f); }} />
@@ -515,10 +589,10 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
         : <div className="callout warn" style={{ margin: '4px 0' }}>Контрола: ставките не се совпаѓаат со книжењето – {check.rates.map((r) => `${r}%: ставки ${fmt(check.by[r] ?? 0)} / книжење ${fmt(check.G[r] ?? 0)}`).join(' · ')}. Проверете ја стапката на ДДВ кај артиклите или <button type="button" className="btn sm" onClick={groupsFromStock}>пресметај го книжењето од ставките</button></div>)}
       <div className="tw"><table><thead><tr><th>Конто</th><th>Стапка</th><th className="n">Основица</th><th className="n">ДДВ</th><th></th></tr></thead><tbody>
         {d.groups.map((g, i) => (
-          <tr key={i}>
+          <tr key={i} data-grow={i}>
             <td><select value={g.account} onChange={(e) => setG(i, { account: e.target.value })}>{kontoOpts(g.account)}</select></td>
             <td><select value={g.rate} onChange={(e) => setG(i, { rate: e.target.value, ...(d.art32 ? {} : { vat: String(r2((n(g.base) * n(e.target.value)) / 100)) }) })}>{RATES.map((r) => <option key={r} value={r}>{r}%</option>)}</select></td>
-            <td><input type="number" step="any" value={g.base} style={{ textAlign: 'right' }} onChange={(e) => setG(i, { base: e.target.value, ...(d.art32 ? {} : { vat: String(r2((n(e.target.value) * n(g.rate)) / 100)) }) })} /></td>
+            <td><input type="number" step="any" value={g.base} data-f="base" aria-label={`Основица, ред ${i + 1}`} onKeyDown={gKey(i)} style={{ textAlign: 'right' }} onChange={(e) => setG(i, { base: e.target.value, ...(d.art32 ? {} : { vat: String(r2((n(e.target.value) * n(g.rate)) / 100)) }) })} /></td>
             <td>{d.art32 ? <span className="num">{fmt((n(g.base) * (n(g.rate) || 18)) / 100)}</span> : <input type="number" step="any" value={g.vat} style={{ textAlign: 'right' }} onChange={(e) => setG(i, { vat: e.target.value })} />}</td>
             <td><button type="button" className="btn sm ghost danger" aria-label="Отстрани" onClick={() => set({ groups: d.groups.filter((_, k) => k !== i) })}>✕</button></td>
           </tr>))}
@@ -560,17 +634,17 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
             const net = spv / (1 + rate / 100);
             const mg = nab && net ? ((net - nab) / nab) * 100 : null;
             return (
-              <tr key={i}>
-                <td><select value={s.itemId} style={{ minWidth: 230 }} onChange={(e) => { const x = itemById.get(e.target.value); setS(i, { itemId: e.target.value, ...(x ? { type: x.type } : {}) }); }}>
+              <tr key={i} data-srow={i}>
+                <td><select value={s.itemId} data-f="item" aria-label={`Артикл, ред ${i + 1}`} onKeyDown={sKey(i, 'item')} style={{ minWidth: 230 }} onChange={(e) => { const x = itemById.get(e.target.value); setS(i, { itemId: e.target.value, ...(x ? { type: x.type } : {}) }); }}>
                   <option value="">— {s.name || 'избери'} —{!s.itemId && s.name ? ' (нов)' : ''}</option>
                   {stockItems.map((x) => <option key={x.id} value={x.id}>{x.code ? x.code + ' · ' : ''}{x.name}</option>)}</select>
-                  {!s.itemId && <input value={s.name} placeholder="или назив на нов артикл" onChange={(e) => setS(i, { name: e.target.value })} style={{ marginTop: 3 }} />}
+                  {!s.itemId && <input value={s.name} placeholder="или назив на нов артикл" aria-label={`Назив на нов артикл, ред ${i + 1}`} onKeyDown={sKey(i, 'item')} onChange={(e) => setS(i, { name: e.target.value })} style={{ marginTop: 3 }} />}
                   <br /><select value={s.type || it?.type || 'goods'} className="stype" title="Вид – на кое конто оди" style={{ width: 'auto', marginTop: 3, fontSize: 12, padding: '2px 4px' }} onChange={(e) => setS(i, { type: e.target.value })}>
                     <option value="goods">Стока за продажба → {tk.goods}</option><option value="material">Суровина / материјал → {tk.material}</option><option value="product">Готов производ → {tk.product}</option></select>
                   {(s.code || s.barcode) && <><br /><small className="note">шифра доб.: {s.code || '—'}{s.barcode && ' · баркод ' + s.barcode}{it && ' · наша: ' + (it.code ?? '')}</small></>}</td>
                 <td>{it ? it.unit : <input value={s.unit} style={{ width: 64 }} onChange={(e) => setS(i, { unit: e.target.value })} />}</td>
                 {cnUsed.length > 0 && <td><select value={s.cn} style={{ width: 'auto' }} onChange={(e) => setS(i, { cn: e.target.value })}><option value="">—</option>{cnUsed.map(([k]) => <option key={k} value={k}>{k + 1}</option>)}</select></td>}
-                <td><input type="number" step="any" value={s.qty} style={{ textAlign: 'right', width: 90 }} onChange={(e) => {
+                <td><input type="number" step="any" value={s.qty} data-f="qty" aria-label={`Количина, ред ${i + 1}`} onKeyDown={sKey(i, 'qty')} style={{ textAlign: 'right', width: 90 }} onChange={(e) => {
                   const q = e.target.value;
                   if (n(s.amount) && n(q)) {
                     const pr = Math.round((n(s.amount) / n(q)) * 1e4) / 1e4;
@@ -579,8 +653,8 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
                     setToast('Цената по единица е пресметана одново од износот на редот: ' + fmt(pr));
                   } else setS(i, { qty: q });
                 }} /></td>
-                <td><input type="number" step="any" value={s.price} style={{ textAlign: 'right', width: 110 }} onChange={(e) => setS(i, { price: e.target.value })} /></td>
-                <td><input type="number" step="any" value={s.rab} style={{ textAlign: 'right', width: 70 }} onChange={(e) => setS(i, { rab: e.target.value })} /></td>
+                <td><input type="number" step="any" value={s.price} data-f="price" aria-label={`Цена, ред ${i + 1}`} onKeyDown={sKey(i, 'price')} style={{ textAlign: 'right', width: 110 }} onChange={(e) => setS(i, { price: e.target.value })} /></td>
+                <td><input type="number" step="any" value={s.rab} data-f="rab" onKeyDown={sKey(i, 'rab')} style={{ textAlign: 'right', width: 70 }} onChange={(e) => setS(i, { rab: e.target.value })} /></td>
                 <td className="n">{fmt(v)}</td>
                 <td className="n">{AL.manual ? <input type="number" step="any" value={s.dep} style={{ textAlign: 'right', width: 110 }} onChange={(e) => setS(i, { dep: e.target.value })} /> : fmt(a)}</td>
                 <td className="n">{n(s.qty) ? nab.toFixed(4) : '—'}</td>
@@ -594,10 +668,11 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
         {d.stock.length > 0 && <p className="note">Автоматски распоред: трошоците по вредност (транспортот по количини ако е означено). Со „Распоред на трошоци (F5)“ износите се префрлаат во редовите и можете рачно да ги измените. Продажната цена со ДДВ се зачувува за {p.locations.find((l) => l.id === d.warehouseId)?.name ?? 'Главен магацин'}{store ? ' (ако е различна од тековната, автоматски се прави нивелација)' : ''}.</p>}
         <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="btn" onClick={() => set({ stock: [...d.stock, blankStock()] })}>+ Артикл на залиха</button>
-          <input ref={bcRef} value={bc} placeholder="📷 Скенирај баркод / шифра + Enter (секое скенирање = +1)" style={{ width: 340 }} autoComplete="off" onChange={(e) => setBc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scan(); } }} />
+          <input ref={bcRef} value={bc} data-f="scan" aria-label="Скенирај баркод / шифра" placeholder="📷 Скенирај баркод / шифра + Enter (секое скенирање = +1)" style={{ width: 340 }} autoComplete="off" onChange={(e) => setBc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scan(); } }} />
           <span className="mini">Непознат баркод → нов ред; баркодот се запишува на артиклот што ќе го изберете.</span>
         </div>
       </>}
+      </div>
       {p.nonVat && <div className="note">Фирмата не е ДДВ обврзник: ДДВ влегува во трошокот и не се одбива.</div>}
     </form>
   );

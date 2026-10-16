@@ -86,12 +86,13 @@ describe('invoices: retention lock and numbering', () => {
     expect(complianceRows(F).find((x) => x.id === 'inv_numbering')!.s).toBe('warn');
     await tx((t) => deleteInvoice(t, firmId, r.id, office));
   });
-  it('mandatory elements: a VAT buyer without address blocks the document', async () => {
+  it('mandatory elements: a buyer known only by name does not block the document (only a hint)', async () => {
     const [p] = await db.insert(schema.partners).values({ firmId, name: 'Без адреса ДОО', code: '9', edb: '4002000000009' }).returning();
     const r = await tx((t) => saveInvoice(t, firmId, inv({ partnerId: p!.id, date: '2026-03-15' }), office));
-    expect(r.warnings.join(' ')).toMatch(/задолжителни елементи/);
+    expect(r.warnings.join(' ')).not.toMatch(/задолжителни елементи/);
     const I = (await invoiceLegalCheck(db, r.id, '2026-03-20'))!;
-    expect(I.filter((i) => i.sev === 'block').map((i) => i.code)).toEqual(['buyer_address']);
+    expect(I.filter((i) => i.sev === 'block')).toEqual([]);
+    expect(I.map((i) => `${i.code}:${i.sev}`)).toContain('buyer_address:warn');
     expect((await invoiceLegalCheck(db, '00000000-0000-0000-0000-000000000000'))).toBeNull();
   });
 });
