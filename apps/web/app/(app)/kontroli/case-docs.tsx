@@ -3,15 +3,41 @@
  * (забелешки на записник / приговор / жалба / тужба) and the internal analysis — print / PDF / Word / edit, the
  * document type, the optional „💲 AI правна анализа“ with accept / discard, and the stored versions.
  */
-import { daysLeftText, docText, RECOMMEND_LBL, SUBMISSION_LBL, VERIFY_TAG, type CaseDoc, type KontrolaVersion, type SubmissionType } from '@wise/core/compliance';
-import { kontrolaSubType, type KontrolaAiState, type Kontrola } from '@wise/db';
+import { daysLeftText, docText, procMissingText, RECOMMEND_LBL, SUBMISSION_LBL, VERIFY_TAG, type CaseDoc, type KontrolaVersion, type SubmissionType } from '@wise/core/compliance';
+import { kontrolaSubType, type KontrolaAiState, type KontrolaAttachment, type KontrolaPkgState, type KontrolaPrepState, type Kontrola } from '@wise/db';
 import { ActionForm } from '@/components/action-form';
 import { AiBadge } from '@/components/ai-badge';
 import { dmy, dmyHm } from '@/components/hd';
 import { PdfButton } from '@/components/pdf-button';
 import { RowAction } from '@/components/row-action';
 import { AskPoll } from '../zakoni/ask-poll';
-import { kAddTasks, kAiStart, kDraft, kSubType, kVersionAccept, kVersionDiscard } from './actions';
+import { kAddTasks, kAiStart, kDraft, kPkgStart, kPrepAi, kSubType, kVersionAccept, kVersionDiscard } from './actions';
+
+
+/**
+ * „🤖 Подготви приговор со AI“ (office owner): one click — read the act if needed, propose the marks, AI analysis with
+ * the full law texts, the document and its attachments as a DRAFT version. Shows the steps while the job runs.
+ */
+export function PrepAi({ k, prep, owner }: { k: Kontrola; prep: KontrolaPrepState | null; owner: boolean }) {
+  const pending = prep?.status === 'queued' || prep?.status === 'running';
+  return (
+    <div className="card" id="kPrepAi" style={{ borderLeft: '4px solid var(--pri, #2563eb)' }}>
+      <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>🤖 Подготви приговор со AI <span className="mini">(само сопственикот · нацрт – ништо не се поднесува ниту испраќа)</span></h2>
+      <div className="mini" style={{ marginBottom: 6 }}>Еден клик: го чита актот (ако не е прочитан) → предлага ознаки „оспори / делумно / прифати“ (можете да ги промените) → AI правна анализа со <b>целосните текстови на законите</b> од базата (верзијата што важела на датумот на актот / контролираниот период) → документот ({SUBMISSION_LBL.prigovor.toLowerCase()} / жалба / тужба) со правен основ и нумерирани прилози од програмата. До AI не одат името, ЕДБ и адресата на фирмата ниту имиња на вработени. Членовите што ги нема во базата се означуваат „{VERIFY_TAG}“.</div>
+      {owner ? <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <RowAction action={kPrepAi.bind(null, k.id, false)} label={<>🤖 Подготви приговор со AI<AiBadge /></>} title="Sonnet" className="btn pri" showOk />
+        <RowAction action={kPrepAi.bind(null, k.id, true)} label={<>🔍 Детално (Opus)<AiBadge /></>} title="Посилен и поскап модел" className="btn sm" showOk confirm="Деталната подготовка го користи најскапиот модел (Opus). Продолжи?" />
+        {pending && <span className="pill info">⏳ се подготвува…</span>}
+        {prep?.status === 'error' && <span className="pill bad">✗ {prep.error}</span>}
+        {prep?.status === 'done' && <span className="pill good">✓ нацрт подготвен · {prep.model ?? '—'} · ${(prep.costUsd ?? 0).toFixed(4)}</span>}
+      </div> : <div className="mini">Подготовката со AI ја започнува сопственикот на канцеларијата.</div>}
+      <AskPoll pending={pending} />
+      {prep && prep.steps.length > 0 && <ol className="mini" style={{ margin: '6px 0 0 18px' }}>{prep.steps.map((s, i) => <li key={i}>{s.ok ? '' : '⚠ '}{s.t} <span className="muted">{dmyHm(new Date(s.at))}</span></li>)}</ol>}
+      {prep?.marks && prep.marks.length > 0 && <div className="mini" style={{ marginTop: 4 }}>Предложени ознаки: {prep.marks.map((m) => `наод ${m.no} – ${RECOMMEND_LBL[m.rec]} (${m.why})`).join('; ')}.</div>}
+      {prep?.status === 'done' && <div className="row" style={{ gap: 6, marginTop: 6 }}><a className="btn sm" href="#kDocs">↓ Прегледај го нацртот (💲 AI верзија) и кликнете „✓ Прифати“</a></div>}
+    </div>
+  );
+}
 
 const PAPER: React.CSSProperties = { border: '1px solid var(--line, #ddd)', padding: 16, background: '#fff', color: '#000', fontFamily: 'serif', lineHeight: 1.45 };
 const V_KIND: Record<KontrolaVersion['kind'], string> = { auto: 'автоматски', edit: 'уредено', ai: '💲 AI' };
@@ -33,13 +59,15 @@ function DocView({ id, doc, text }: { id: string; doc: CaseDoc; text?: string })
   );
 }
 
-export function CaseDocs({ k, ext, int, texts, versions, ai, edit }: {
+export function CaseDocs({ k, ext, int, texts, versions, ai, edit, att, pkg, pkgStale }: {
   k: Kontrola; ext: CaseDoc; int: CaseDoc; texts: { draft?: string; internalDraft?: string }; versions: KontrolaVersion[]; ai: KontrolaAiState | null; edit: boolean;
+  att: KontrolaAttachment[]; pkg: KontrolaPkgState | null; pkgStale: boolean;
 }) {
   const ch = ext.choice;
   const sub = kontrolaSubType(k);
   const aiNew = [...versions].reverse().find((v) => v.kind === 'ai' && v.state === 'new' && v.ai);
   const queued = ai?.status === 'queued';
+  const pkgQueued = pkg?.status === 'queued';
   const urgent = ch.daysLeft != null && ch.daysLeft <= 3;
   return (
     <div id="kDocs">
@@ -68,6 +96,25 @@ export function CaseDocs({ k, ext, int, texts, versions, ai, edit }: {
             <div className="row" style={{ gap: 6 }}><button className="btn sm pri">Зачувај текст</button><span className="mini">Се чува како нова верзија. Празно = повторно генериран текст од наодите.</span></div>
           </ActionForm>
         </details>}
+      </div>
+
+      <div className="card" id="kAtt">
+        <div className="row" style={{ justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <h2 style={{ fontSize: 15, margin: 0 }}>📎 Прилози ({att.length}) <span className="mini">– документите од програмата за оспорените наоди, нумерирани како во документот</span></h2>
+          <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {edit && <RowAction action={kPkgStart.bind(null, k.id)} label="📦 Пакет за приговор" title="ZIP: документот (Word + PDF) и сите прилози со број" className="btn sm pri" showOk />}
+            {pkgQueued && <span className="pill info">⏳ се подготвува…</span>}
+            {pkg?.status === 'done' && <a className="btn sm" href={`/kontroli/paket?id=${k.id}`}>⬇ Преземи пакет (ZIP)</a>}
+            {pkg?.status === 'done' && pkgStale && <span className="pill warn" title="Текстот е променет по изработката – PDF на документот нема да биде во пакетот">застарен – изградете го повторно</span>}
+            {pkg?.status === 'error' && <span className="pill bad">✗ {pkg.error}</span>}
+          </div>
+        </div>
+        <AskPoll pending={pkgQueued} />
+        <div className="tw" style={{ marginTop: 6 }}><table className="dense"><thead><tr><th>Прилог</th><th>Документ</th><th>За наод</th><th>Датотека</th></tr></thead>
+          <tbody>{att.map((a) => <tr key={a.key}>
+            <td>{a.no}</td><td>{a.label}</td><td>{a.findings.length ? a.findings.join(', ') : '—'}</td>
+            <td className="mini">{a.fileIds.length ? `📄 од архивата (${a.fileIds.length})` : a.render ? '🖨 печатење (PDF во пакетот)' : <span className="pill warn">нема датотека – приложете рачно</span>}</td>
+          </tr>)}</tbody></table></div>
       </div>
 
       <div className="card" style={{ borderLeft: '4px solid var(--bad, #b42318)' }}>
@@ -114,6 +161,12 @@ export function CaseDocs({ k, ext, int, texts, versions, ai, edit }: {
                 {f.procedural.map((c, i) => <div key={`p${i}`}>§ {c}</div>)}
               </td></tr>)}</tbody></table></div>
           {aiNew.ai.procedural.length > 0 && <div className="mini" style={{ marginTop: 4 }}><b>Процесни аргументи:</b> {aiNew.ai.procedural.join(' · ')}</div>}
+          {(aiNew.ai.procMissing?.length ?? 0) > 0 && <div className="callout warn">⚠ {procMissingText(aiNew.ai.procMissing!)} <a href="/lawAi?t=corpus">📚 Корпус на закони</a></div>}
+          {(aiNew.ai.basis?.length ?? 0) > 0 && <div style={{ marginTop: 6 }}><b className="mini">Правен основ (од зачуваните текстови на законите):</b>
+            {aiNew.ai.basis!.map((b, i) => <div key={i} className="mini">§ <b>{b.ref}</b>{b.version ? ` (верзија во сила од ${b.version})` : ''}
+              {!b.verified ? <span className="pill warn"> треба да се провери</span> : b.quote && !b.quoteOk ? <span className="pill warn"> цитатот не е во текстот</span> : <span className="pill good"> ✓ во базата</span>}
+              {b.quote ? <> „{b.quote}“</> : null}{b.why ? ` – ${b.why}` : ''}</div>)}
+          </div>}
           <details style={{ marginTop: 6 }}><summary>Подобрен надворешен документ (AI)</summary><DocView id="kAiExt" doc={ext} text={aiNew.external} /></details>
           <details><summary>Подобрена внатрешна анализа (AI)</summary><DocView id="kAiInt" doc={int} text={aiNew.internal} /></details>
           <div className="row" style={{ gap: 6, marginTop: 6 }}>

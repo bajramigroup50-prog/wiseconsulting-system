@@ -16,6 +16,8 @@ import { lawCase } from './law-assist';
 import { legacyImport } from './legacy-import';
 import { firmResh } from './firm-resh';
 import { kontrolaAi } from './kontrola-ai';
+import { kontrolaPrep } from './kontrola-prep';
+import { kontrolaPkg } from './kontrola-pkg';
 import { inboxCombine } from './inbox-combine';
 import { clientReportSummary } from './client-report-summary';
 import { feeDeliver, feeInvoicesJob, nbrmRates, rokoviJob } from './automations';
@@ -45,6 +47,8 @@ export const JOBS: JobDef<any>[] = [
   legacyImport,
   firmResh,
   kontrolaAi,
+  kontrolaPrep,
+  kontrolaPkg,
   inboxCombine,
   clientReportSummary,
   nbrmRates,
