@@ -128,7 +128,10 @@ export function jiNumber(type: string, no: string): string | null {
  */
 export function jiNameDefault(file: string): { type: string; no: string } {
   const b = file.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').trim();
-  let m = /(\d+)\s*[-_ ]\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/.exec(b);
+  // „NALOG DDV 1-3“: the VAT nalog of months 1–3 → WISE's VAT nalog code (4, „ДДВ ПРИЈАВА“)
+  let m = /(?:DDV|ДДВ)\s*[-_ ]?\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/i.exec(b);
+  if (m && +m[1]! >= 1 && +m[2]! <= 12 && +m[1]! <= +m[2]!) return { type: '4', no: `${+m[1]!}-${+m[2]!}` };
+  m = /(\d+)\s*[-_ ]\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/.exec(b);
   if (m && +m[2]! >= 1 && +m[3]! <= 12 && +m[2]! <= +m[3]!) return { type: m[1]!, no: `${+m[2]!}-${+m[3]!}` };
   m = /(\d+)\s*[-_/]\s*(\d+)/.exec(b);
   if (m) return { type: m[1]!, no: m[2]! };

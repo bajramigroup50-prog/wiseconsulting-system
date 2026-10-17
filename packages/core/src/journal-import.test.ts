@@ -51,6 +51,7 @@ describe('journal import rows', () => {
     expect(translitKey('KAN INTERNATIONAL')).toBe(translitKey('КАН ИНТЕРНАТИОНАЛ'));
     expect(translitKey('ŠKOLA ŽITO')).toBe(translitKey('ШКОЛА ЖИТО'));
     expect(jiNameDefault('1-1-3.xlsx')).toEqual({ type: '1', no: '1-3' });
+    expect(jiNameDefault('NALOG DDV 1-3.xlsx')).toEqual({ type: '4', no: '1-3' });
     expect(jiNameDefault('NALOG1.xlsx')).toEqual({ type: '', no: '1' });
     expect(jiNameDefault('06-9.xls')).toEqual({ type: '06', no: '9' });
     const { rows } = jiRows([
