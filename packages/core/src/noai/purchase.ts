@@ -5,7 +5,7 @@
  * shape of the AI read (`PUR_PROMPT` / `ublToScan`), so the same drafts are built; the user checks them as always.
  * Lines are not read (too many layouts) — the draft is booked by VAT group, like a cost invoice.
  */
-import type { ScanInvoice } from '../sales/scan';
+import { mergeAttachedInvoices, scanInvoices, type ScanInvoice } from '../sales/scan';
 import { AmbiguousAmountsError, ambExamples, reconcileFmt, type NumFmt } from '../numfmt';
 import { parseAccount, supplierAccountIn } from '../bank/mk-banks';
 import { dateIn, docFmt, lineText, numsIn, numTokens, type PdfLine } from './pdf-lines';
@@ -255,5 +255,6 @@ export function invoicesFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | nu
     const e = edbsIn(all).filter((x) => !own || !own.endsWith(x.slice(-7)));
     out.push({ number: no, date: dateIn(all), ...(o.kind === 'sale' ? { buyerEdb: e[0] ?? '' } : { supplierEdb: e[0] ?? '' }), groups: [], lines: [], total: 0, pages: pagesOf(part) });
   }
-  return out;
+  // a part with no amounts right after an invoice (its specification / annex page) or the same number again: its pages
+  return out.length > 1 ? scanInvoices(mergeAttachedInvoices({ invoices: out })) : out;
 }

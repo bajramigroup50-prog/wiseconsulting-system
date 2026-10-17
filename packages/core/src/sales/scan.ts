@@ -374,3 +374,79 @@ export function batchStatus(d: ScanPurchaseDraft, raw: ScanInvoice | null, dup: 
 /** Purchase total from groups (legacy `purTotal`). */
 export const purchaseTotal = (p: { art32?: boolean; groups: readonly { base: number | string; vat: number | string }[] }) =>
   r2(p.groups.reduce((s, g) => s + n(g.base) + (p.art32 ? 0 : n(g.vat)), 0));
+
+/** „3“ / „3-4“ / „1,4“ / „1-2, 5“ → [3] / [3, 4] / [1, 4] / [1, 2, 5] (1-based, sorted); [] when not readable. */
+export function scanPageList(p: string | null | undefined): number[] {
+  const out = new Set<number>();
+  for (const part of String(p ?? '').split(/[,;]/)) {
+    const m = /^\s*(\d{1,3})\s*(?:[-–]\s*(\d{1,3}))?\s*$/.exec(part);
+    if (!m) continue;
+    const a = +m[1]!, b = m[2] ? +m[2] : a;
+    for (let k = a; k <= b && k - a < 200; k++) out.add(k);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+
+/** [3, 4] → „3-4“, [1, 2, 5] → „1-2,5“ (read back by `scanPageList` / `pageList`). */
+export function scanPagesText(P: readonly number[]): string {
+  const S = [...new Set(P)].sort((x, y) => x - y);
+  const out: string[] = [];
+  for (let i = 0; i < S.length;) {
+    let j = i;
+    while (j + 1 < S.length && S[j + 1] === S[j]! + 1) j++;
+    out.push(i === j ? String(S[i]) : `${S[i]}-${S[j]}`);
+    i = j + 1;
+  }
+  return out.join(',');
+}
+
+const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
+const partyOf = (x: ScanInvoice) => ({ id: digits(x.supplierEdb) || digits(x.buyerEdb), name: String(x.supplierName || x.buyerName || '').trim().toLowerCase() });
+/** Both sides name a party and they differ (ЕДБ first, else the name). */
+const otherParty = (a: ScanInvoice, b: ScanInvoice) => {
+  const p = partyOf(a), q = partyOf(b);
+  if (p.id && q.id) return p.id !== q.id;
+  if (p.name && q.name) return p.name !== q.name;
+  return false;
+};
+const hasAmounts = (x: ScanInvoice) => n(x.total) !== 0 || (x.groups ?? []).some((g) => n(g.base) || n(g.vat));
+const MERGE_FIELDS = ['supplierName', 'supplierEdb', 'buyerName', 'buyerEdb', 'buyerAddress', 'buyerCity', 'number', 'date', 'dueDate', 'supplierBankAccount', 'currency'] as const;
+
+/**
+ * Attached pages are never an invoice of their own (the user's rule: an EVN bill's second page — „спецификација на
+ * потрошувачка“ — or a „прилог“, „страна 2 од 2“, a delivery note is part of the invoice before it). Deterministic
+ * post-processing of a multi-invoice read (AI `invoices[]` or the free text reader), in page order:
+ *
+ *   1. the SAME invoice again — same number (normalized) and no other supplier — on the pages right after (or
+ *      overlapping) the previous one: merged into it (its pages appended, missing fields taken from it);
+ *   2. an „invoice“ with no total and no VAT, with no number or the previous one's number and no other supplier, on the
+ *      pages right after the previous one (or when the read gave no pages): its pages appended to the previous one.
+ *
+ * Not merged: a repeated number on pages further away (a copy printed later: flagged as a duplicate by the drafts) and a
+ * page with another invoice number (an invoice whose amounts were not read: a draft „нема износ“, never lost).
+ * A read with one invoice is returned unchanged.
+ */
+export function mergeAttachedInvoices(r: ScanResult): ScanResult {
+  if (!Array.isArray(r.invoices) || r.invoices.length < 2) return r;
+  const out: ScanInvoice[] = [];
+  for (const x of r.invoices) {
+    const prev = out[out.length - 1];
+    if (!prev) { out.push(x); continue; }
+    const P = scanPageList(prev.pages), X = scanPageList(x.pages);
+    const known = P.length > 0 && X.length > 0;
+    const next = known && X[0]! <= P[P.length - 1]! + 1 && X[0]! >= P[0]!;
+    const no = normDocNo(x.number), pno = normDocNo(prev.number);
+    const same = !!no && no === pno && !otherParty(prev, x);
+    const attached = !hasAmounts(x) && (!no || no === pno) && !otherParty(prev, x) && (next || !known);
+    if (!(same && next) && !attached) { out.push(x); continue; }
+    const m: ScanInvoice = { ...prev };
+    for (const k of MERGE_FIELDS) if (!m[k] && x[k]) (m as Record<string, unknown>)[k] = x[k];
+    if (!hasAmounts(prev) && hasAmounts(x)) { m.groups = x.groups; m.total = x.total; }
+    // lines of an attached specification (consumption, no VAT) never join the invoice's own lines
+    if (!(prev.lines ?? []).length && (x.lines ?? []).length && (hasAmounts(x) || !hasAmounts(prev))) m.lines = x.lines;
+    if (P.length || X.length) m.pages = scanPagesText([...P, ...X]);
+    out[out.length - 1] = m;
+  }
+  if (out.length === r.invoices.length) return r;
+  return out.length === 1 ? { ...out[0]! } : { ...r, invoices: out };
+}

@@ -27,7 +27,7 @@
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql, TransactionRollbackError } from 'drizzle-orm';
-import { fixRates, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
+import { fixRates, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
@@ -255,6 +255,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       model = R.model;
     }
     if (!result || !scanInvoices(result).length) throw new Error('Документот не е прочитан јасно. Пробајте појасна слика.');
+    // attached pages (an EVN bill's „спецификација на потрошувачка“, a „прилог“, the same number on the next page) are
+    // part of the invoice before them, never a draft of their own
+    result = mergeAttachedInvoices(result);
     // a part cut from a multi-invoice PDF (`split`): its invoice is on these pages of the original file
     const srcPages = (doc.options as { pages?: string }).pages;
     if (srcPages && scanInvoices(result).length === 1) scanInvoices(result)[0]!.pages ??= srcPages;

@@ -8,21 +8,39 @@ import { PDFDocument } from 'pdf-lib';
 import type Anthropic from '@anthropic-ai/sdk';
 import { readContent } from './read-document';
 import type { Tx } from '@wise/db';
+import { normDocNo } from '@wise/core/sales';
 
 /** Legacy inline prompt of `invSplit` (13689). */
 export const SPLIT_PROMPT = (n: number) => 'This PDF has ' + n + ' pages and may contain SEVERAL separate invoices (фактури / сметки) one after another, possibly from different suppliers or with different numbers. Group the pages: consecutive pages that belong to the same invoice go together (continuation pages, totals page, attachments of that invoice). A new invoice starts when a new invoice number / new header appears. Reply with ONLY JSON: {"groups":[{"from":1,"to":1,"number":"invoice number or empty"}]} covering every page 1..' + n + ' in order without gaps.';
 
+/**
+ * Added to the legacy prompt (the user's rule): attached pages are part of the invoice before them — an EVN bill's
+ * second page („спецификација на потрошувачка“), a „прилог“, „страна 2 од 2“, a delivery note — never an invoice.
+ */
+export const SPLIT_ATTACH_ADD = ' ATTACHED PAGES ARE NOT INVOICES: a page that has no invoice header and no own total / VAT recapitulation of its own — the 2nd page of the same invoice („страна 2 од 2“), a consumption / cost specification (e.g. EVN „спецификација на потрошувачка“), a „прилог“ / annex, a delivery note (испратница), a page repeating the same invoice number — belongs to the invoice BEFORE it: include it in the group of that invoice (extend its "to"), never a group of its own. If you still list such a page as its own group, add "attached":true to it.';
+
 export interface SplitGroup { from: number; to: number; number: string }
 
-/** Validate the model's page groups (legacy 13693–13694): ≥2 groups, contiguous, covering 1..n. */
+/**
+ * Validate the model's page groups (legacy 13693–13694): ≥2 groups, contiguous, covering 1..n. Then attached pages
+ * join the invoice before them: a group marked `attached` or with the same invoice number as the group before it
+ * (a continuation / specification page) is merged into that group — fewer than 2 invoices left → null (one document).
+ */
 export function splitGroups(raw: unknown, n: number): SplitGroup[] | null {
-  const G = (((raw as { groups?: unknown[] } | null)?.groups ?? []) as { from?: unknown; to?: unknown; number?: unknown }[])
-    .map((g) => ({ from: Number(g.from), to: Number(g.to), number: String(g.number ?? '') }))
+  const G = (((raw as { groups?: unknown[] } | null)?.groups ?? []) as { from?: unknown; to?: unknown; number?: unknown; attached?: unknown }[])
+    .map((g) => ({ from: Number(g.from), to: Number(g.to), number: String(g.number ?? ''), attached: g.attached === true }))
     .filter((g) => g.from >= 1 && g.to >= g.from && g.to <= n).sort((a, b) => a.from - b.from);
   if (G.length < 2) return null;
   if (G[0]!.from !== 1 || G[G.length - 1]!.to !== n) return null;
   for (let i = 1; i < G.length; i++) if (G[i]!.from !== G[i - 1]!.to + 1) return null;
-  return G;
+  const out: SplitGroup[] = [];
+  for (const g of G) {
+    const prev = out[out.length - 1];
+    const no = normDocNo(g.number);
+    if (prev && (g.attached || (no && no === normDocNo(prev.number)))) { prev.to = g.to; if (!prev.number) prev.number = g.number; continue; }
+    out.push({ from: g.from, to: g.to, number: g.number });
+  }
+  return out.length < 2 ? null : out;
 }
 
 /** Legacy `fn` (3258). */
@@ -38,7 +56,7 @@ export async function splitInvoicePdf(a: { db: Tx; firmId: string; refId: string
   const blocks: Anthropic.ContentBlockParam[] = [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(a.bytes).toString('base64') } }];
   let G: SplitGroup[] | null = null;
   try {
-    const r = await readContent<unknown>({ db: a.db, firmId: a.firmId, prompt: SPLIT_PROMPT(n), tier: 'quick', purpose: a.purpose + ':split', refId: a.refId, userId: a.userId, maxTokens: 2000, prune: false }, { blocks, extra: '' });
+    const r = await readContent<unknown>({ db: a.db, firmId: a.firmId, prompt: SPLIT_PROMPT(n) + SPLIT_ATTACH_ADD, tier: 'quick', purpose: a.purpose + ':split', refId: a.refId, userId: a.userId, maxTokens: 2000, prune: false }, { blocks, extra: '' });
     G = splitGroups(r.data, n);
   } catch { return null; }
   if (!G) return null;
