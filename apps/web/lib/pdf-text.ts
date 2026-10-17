@@ -2,6 +2,7 @@ import 'server-only';
 /** Text layer of a PDF (positioned items) with pdfjs — the converter's PDF source. Scanned PDFs give no items. */
 import type { PdfItem } from '@wise/core/noai/pdf-lines';
 import { ensurePdfGlobals } from '@wise/core/noai/pdf-env';
+import { decodeGlyphItems } from '@wise/core/noai/pdf-glyphs';
 
 export async function pdfTextItems(bytes: Uint8Array, maxPages = 40): Promise<PdfItem[]> {
   ensurePdfGlobals(); // DOMMatrix without the native canvas package (standalone build)
@@ -22,5 +23,6 @@ export async function pdfTextItems(bytes: Uint8Array, maxPages = 40): Promise<Pd
       }
     }
   } finally { await doc.destroy(); }
-  return out;
+  // fonts without a ToUnicode map (НЛБ statements): glyph ids → text
+  return decodeGlyphItems(out);
 }

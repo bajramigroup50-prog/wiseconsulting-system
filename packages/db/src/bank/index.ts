@@ -14,3 +14,4 @@ export * from './suggest';
 export * from './konta';
 export * from './konta-all';
 export * from './review';
+export * from './account-link';
