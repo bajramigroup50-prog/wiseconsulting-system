@@ -4,30 +4,43 @@ import 'server-only';
  * Scoped to the firms the user may open (`allowedFirms`); the service-contract rows (`kdog`) only for the office owner.
  * 🎭 By side (`lib/demo-office.ts`): a demo user sees demo firms and demo colleagues only (the demo admin = the demo
  * office's owner sees the demo contracts' rows), real users never a demo firm or a demo colleague.
+ *
+ * „Мои фирми“ (`@wise/db` `rokMyFirmIds`): the firms assigned to the user or where the user is the responsible
+ * colleague; none → all. The owner sees all firms by default, everybody else only theirs; the choice „Само мои фирми /
+ * Сите фирми“ on /rokovi is remembered per user (`rokScopeGet`) and drives the 📅 counter and the list alike.
  */
 import { and, asc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm';
-import { addDays } from '@wise/core/office';
-import { isRokType, rokDays, type RokSettings } from '@wise/core/office/rokovi';
-import { rokovi, userFirms, users, type RokRow } from '@wise/db';
+import { isRokType } from '@wise/core/office/rokovi';
+import { rokCounts, rokMyFirmIds, rokovi, rokScopeGet, users, type RokRow } from '@wise/db';
 import type { SessionUser } from './auth';
 import { db } from './db';
 import { allowedFirms, today } from './office';
-import { officeProfileFor, ownerContext, userSideSql } from './demo-office';
+import { ownerContext, userSideSql } from './demo-office';
 
-export interface RokQuery { from: string; to: string; fid?: string; uid?: string; t?: string; st?: 'open' | 'done' | 'all' }
+export interface RokQuery { from: string; to: string; fid?: string; uid?: string; t?: string; st?: 'open' | 'done' | 'all'; mine?: boolean }
 export type RokView = RokRow & { firm: string };
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
-/** Rows for the filters (firm, colleague, type, status) in `[from, to]`, by date. */
+const isOwner = (u: SessionUser) => ownerContext(u).then((c) => !!c).catch(() => false);
+
+/** The user's scope: `true` = only my firms. Default: the owner all firms, everybody else only theirs. */
+export async function rokScopeMine(u: SessionUser, owner?: boolean): Promise<boolean> {
+  const v = await rokScopeGet(db(), u.id).catch(() => null);
+  return v ?? !(owner ?? await isOwner(u));
+}
+
+/** Rows for the filters (firm, colleague, type, status, my firms) in `[from, to]`, by date. */
 export async function rokRows(u: SessionUser, q: RokQuery) {
-  const [F, owner] = await Promise.all([allowedFirms(u), ownerContext(u).then((c) => !!c).catch(() => false)]);
+  const [A, owner] = await Promise.all([allowedFirms(u), isOwner(u)]);
+  const scoped = q.mine ? new Set(await rokMyFirmIds(db(), u.id, A.map((f) => f.id))) : null;
+  const F = scoped ? A.filter((f) => scoped.has(f.id)) : A;
   const name = new Map(F.map((f) => [f.id, f.name]));
   let ids = F.map((f) => f.id);
   if (q.fid && UUID.test(q.fid)) ids = ids.filter((x) => x === q.fid);
-  // the colleague filter: a colleague of the user's side only
-  if (q.uid && UUID.test(q.uid) && (await rokColleagues(u)).some((x) => x.id === q.uid)) {
-    const mine = new Set((await db().select({ f: userFirms.firmId }).from(userFirms).where(eq(userFirms.userId, q.uid))).map((r) => r.f));
+  // the colleague filter (assigned or responsible): a colleague of the user's side only
+  if (q.uid && UUID.test(q.uid) && ids.length && (await rokColleagues(u)).some((x) => x.id === q.uid)) {
+    const mine = new Set(await rokMyFirmIds(db(), q.uid, ids, { fallback: false }));
     ids = ids.filter((x) => mine.has(x));
   }
   const rows = ids.length ? await db().select().from(rokovi).where(and(
@@ -45,17 +58,15 @@ export async function rokColleagues(u: Pick<SessionUser, 'principal' | 'role'> |
     .where(and(eq(users.active, true), sql`${users.role} not in ('klient', 'teren')`, userSideSql(u))).orderBy(asc(users.name));
 }
 
-/** Top-bar counter: open deadlines due within the reminder window (incl. late ones of the last 30 days). */
-export async function rokBadge(u: SessionUser, firmIds: readonly string[]): Promise<{ n: number; late: number } | null> {
+/**
+ * Top-bar counter: open deadlines due this week (today + 6 days) and overdue (before today), in the user's scope.
+ * One aggregate over the stored rows (the worker keeps them fresh every morning) — nothing is generated here.
+ */
+export async function rokBadge(u: SessionUser, firmIds: readonly string[]): Promise<{ week: number; late: number; mine: boolean } | null> {
   if (!firmIds.length) return null;
-  const S = ((await officeProfileFor(u)) as { rok?: RokSettings }).rok;
-  const td = today();
-  const owner = await ownerContext(u).then((c) => !!c).catch(() => false);
-  const [r] = await db().select({
-    n: sql<number>`count(*)::int`, late: sql<number>`count(*) filter (where ${rokovi.due} < ${td})::int`,
-  }).from(rokovi).where(and(
-    inArray(rokovi.firmId, [...firmIds]), eq(rokovi.done, false), eq(rokovi.gone, false),
-    gte(rokovi.due, addDays(td, -30)), lte(rokovi.due, addDays(td, rokDays(S))), owner ? undefined : ne(rokovi.type, 'kdog'),
-  ));
-  return { n: r?.n ?? 0, late: r?.late ?? 0 };
+  const owner = await isOwner(u);
+  const mine = await rokScopeMine(u, owner);
+  const ids = mine ? await rokMyFirmIds(db(), u.id, firmIds) : [...firmIds];
+  const c = await rokCounts(db(), { firmIds: ids, today: today(), kdog: owner });
+  return { ...c, mine };
 }

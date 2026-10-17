@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   if (!D.test(to) || to < from) to = addDays(td, 120);
   if (to > addDays(from, 800)) to = addDays(from, 800);
   const st = q.get('st');
-  const { rows } = await rokRows(u, { from, to, fid: q.get('fid') ?? undefined, uid: q.get('uid') ?? undefined, t: q.get('t') ?? undefined, st: st === 'done' || st === 'all' ? st : 'open' });
+  const { rows } = await rokRows(u, { from, to, fid: q.get('fid') ?? undefined, uid: q.get('uid') ?? undefined, t: q.get('t') ?? undefined, st: st === 'done' || st === 'all' ? st : 'open', mine: q.get('sc') === 'moi' });
   const origin = new URL(req.url).origin;
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const body = rokIcs(rows.map((r) => ({ key: r.key, firmId: r.firmId, title: r.title, due: r.due, verified: r.verified, firm: r.firm, done: r.done, url: `${origin}/rokovi?v=lista` })), stamp);

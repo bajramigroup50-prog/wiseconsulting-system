@@ -193,7 +193,7 @@ describe('a colleague (acc / senior / admin who is not the owner)', () => {
       expect(html, v).not.toMatch(new RegExp(`href="/${v}[?/"]`));
     }
     expect(html).not.toMatch(/Приходи|Резултат|Рокови|Автопилот/);
-    const st = { bell: { bad: 1, warn: 1, firstFirm: F1 }, ainb: 2, law: 3, locks: 1, ai: { level: 100 as const, pct: 100, msg: 'x' }, rok: { n: 2, late: 1 } };
+    const st = { bell: { bad: 1, warn: 1, firstFirm: F1 }, ainb: 2, law: 3, locks: 1, ai: { level: 100 as const, pct: 100, msg: 'x' }, rok: { week: 2, late: 1, mine: true } };
     const bar = (book: boolean) => renderToStaticMarkup(createElement(TopBar, { groups: NAV, user: { name: 'x', role: 'acc' }, year: 2026, firm: null, status: st, canFirms: true, book }));
     for (const id of ['lawTop', 'lockTop', 'aiBudgetTop', 'rokTop', 'alTop']) {
       expect(bar(true), id).not.toContain(`id="${id}"`);
