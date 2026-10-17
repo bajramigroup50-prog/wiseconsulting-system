@@ -1,11 +1,11 @@
 /**
  * Print view of one nalog (legacy `ACT.nalogPdf` 7346 → `nalogPdfZ` 3561): firm head, „Финансов налог број“,
  * columns Бр. · Датум · Изв. Бр · КОНТО · Должи · Побарува · Комитент · Содржина · Док. + забелешка, totals,
- * signatures Книжел / Контролирал / Одговорно лице. `?n=<number>`.
+ * signatures Книжел / Контролирал / Одговорно лице. `?n=<number>`. The title is the user's „✎ Назив“ when set.
  */
 import { notFound } from 'next/navigation';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { journalLines, journals, partners } from '@wise/db';
+import { journalLines, journals, nalTitleOf, partners } from '@wise/db';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { FirmHead, Sig } from '../firm-head';
@@ -35,7 +35,9 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
   // a bank nalog collects many statements over its period: the title names the bank, never one statement („Извод бр. 201 …“)
   const bankJ = J.filter((j) => j.kind === 'bank' || j.sourceType === 'bank_statement');
   const bankName = [...new Set(bankJ.map((j) => /\s[–-]\s(.+)$/.exec(j.description ?? '')?.[1]?.trim()).filter((x): x is string => !!x))];
-  const label = t ? t.slice(0, 120)
+  // the user's „✎ Назив“ of the nalog wins over everything (also over `?t=`)
+  const custom = nalTitleOf(firm.settings, year, n);
+  const label = custom ? custom : t ? t.slice(0, 120)
     : bankJ.length ? 'Изводи' + (bankName.length === 1 ? ' – ' + bankName[0] : '')
     : J.length === 1 ? J[0]!.description ?? '' : (J[0]!.description ?? '') + ` и уште ${J.length - 1}`;
   const izb = (x: (typeof L)[number]) => {

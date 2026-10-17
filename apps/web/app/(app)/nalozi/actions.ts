@@ -5,8 +5,8 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { needsPartner } from '@wise/core';
 import {
-  audit, bankAccounts, deleteJournal, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, PostingError, postJournal, previewNalogDelete,
-  resetJournalOverride, saveJournalOverride, syncFirmBanks, updateJournal, type NalogDeleteResult,
+  audit, bankAccounts, deleteJournal, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
+  resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal, type NalogDeleteResult,
 } from '@wise/db';
 import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
 import { actorOf } from '@/lib/sales';
@@ -268,6 +268,24 @@ export async function resetOverrideAction(journalId: string): Promise<ActionStat
 export async function nalFixAllAction(_p?: ActionState, _f?: FormData): Promise<ActionState> {
   await firmAction('write');
   return { ok: 'Сите броеви се веќе фиксирани.' };
+}
+
+/**
+ * „✎ Назив“: the user's name of a nalog (e.g. „1/3 – Увезен налог 1/3“ → „ДДВ 01-03“), per firm and year; an empty name
+ * brings back the automatic title. Needs `nalEdit` (like ✎ Корекција). The name changes no amounts, so it is allowed also
+ * in a locked period; audited (`nalTitle`).
+ */
+export async function setNalogTitleAction(no: string, year: number, _prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('nalEdit');
+    if (!Number.isInteger(year) || year < 1990 || year > 2200) return { error: 'Неважечка година.' };
+    await db().transaction((tx) => setNalogTitle(tx, { firmId: firm.id, userId: u.id, year, number: no, title: String(form.get('title') ?? '') }));
+  } catch (e) {
+    if (e instanceof NalTitleError) return { error: e.message };
+    return actionError(e);
+  }
+  revalidatePath('/nalozi');
+  redirect(`/nalozi?n=${encodeURIComponent(no)}`);
 }
 
 /** Legacy „Шифри на налози“ per bank (`data-nb`, `saveNalCodes` 7183): nalog code of each bank account's statements. */

@@ -22,7 +22,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { BankForm } from '@/components/bank-form';
 import { ExportBar } from '@/components/parity-fin/export-bar';
-import { deleteJournalAction, deleteNalogAction, deleteNalogDocAction, nalogDocDeletePreviewAction, nalogDeletePreviewAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
+import { deleteJournalAction, deleteNalogAction, deleteNalogDocAction, nalogDocDeletePreviewAction, nalogDeletePreviewAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate, setNalogTitleAction } from './actions';
+import { collectiveHead, nalogTitler } from '@/lib/nalog-title';
 import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
@@ -33,7 +34,7 @@ import { unpostRunAction } from '../plati/actions';
 import { schemeLabel, schemeProfilesOf, schemeShort } from '@wise/core/scheme-profiles';
 import { SchemeRepostBar } from './scheme-repost';
 
-type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string };
+type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string };
 const KIND_LBL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(NAL_DEF).map(([k, v]) => [k, v[1]])), bank: 'ИЗВОД', manual: 'РАЧЕН НАЛОГ', bbimp: 'БРУТО БИЛАНС', pos: 'POS ПРОВИЗИЈА',
 };
@@ -126,20 +127,10 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
   };
   const S = firmNalogSettings(firm);
   const banks = await db().select({ id: bankAccounts.id, name: bankAccounts.name, nal: bankAccounts.nal, cur: bankAccounts.cur }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
-  /** Legacy `nalogMap` label: the NAL_DEF title of a ranged number (2/4-6 → ВЛЕЗНИ ФАКТУРИ), bank series → ИЗВОДИ <bank>. */
-  const codeTitle = new Map<string, string>([
-    ...(Object.keys(NAL_DEF) as NalDefKey[]).map((k) => [nalCode(k, S), NAL_DEF[k][1]] as [string, string]),
-    ...banks.map((b) => [bankNalCode(b.id, S.banks), 'ИЗВОДИ ' + b.name.toUpperCase()] as [string, string]),
-  ]);
-  /** Header row of a collective sale nalog opened with „+ Креирај налог“ in the invoice editor (`sales/invoice-nalog.ts`). */
-  const headOf = (g: (typeof G)[number]) => g.journals.find((j) => !j.sourceId && ((j.meta ?? {}) as { collective?: unknown }).collective != null);
-  const titleOf = (g: (typeof G)[number]) => {
-    const h = headOf(g);
-    if (h) return h.description ?? '';
-    if (g.journals.length === 1) return g.journals[0]!.description ?? '';
-    const c = g.no.includes('/') ? g.no.split('/')[0]! : '';
-    return codeTitle.get(c) ?? `${g.journals[0]!.description ?? ''} (+${g.journals.length - 1})`;
-  };
+  /** The user's „✎ Назив“ of the nalog, else the legacy `nalogMap` label (`lib/nalog-title.ts`). */
+  const T = nalogTitler({ settings: firm.settings, year, nal: S, banks });
+  const headOf = (g: (typeof G)[number]) => collectiveHead(g.journals);
+  const titleOf = (g: (typeof G)[number]) => T.title(g);
 
   /* ---------- one nalog ---------- */
   if (sp.n) {
@@ -230,7 +221,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           {gi > 0 ? <Link className="btn" href={`/nalozi?n=${encodeURIComponent(G[gi - 1]!.no)}`}>◀</Link> : <button className="btn" disabled>◀</button>}
           {gi < G.length - 1 ? <Link className="btn" href={`/nalozi?n=${encodeURIComponent(G[gi + 1]!.no)}`}>▶</Link> : <button className="btn" disabled>▶</button>}
           {one && canEdit(one) && <Link className="btn pri" href={`/nalozi?edit=${one.id}`}>✎ Корекција (F2)</Link>}
-          <ExportBar name={`Nalog_${g.no.replace(/\W+/g, '_')}_${year}`} title="Налог" rows={xl} pdf={false} csv={false} />
+          {fix && sp.naziv === undefined && <Link className="btn" href={`/nalozi?n=${encodeURIComponent(g.no)}&naziv`} title="Име на налогот во листата, насловот и печатењето (на пр. „ДДВ 01-03“)">✎ Назив</Link>}
+          <ExportBar name={`Nalog_${g.no.replace(/\W+/g, '_')}_${year}`} title={(title || 'Налог').slice(0, 31)} rows={xl} pdf={false} csv={false} />
           <a className="btn" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
           {one && del && manualLike(one) && <RowAction className="btn danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши налог" confirm={`Да се избрише налогот бр. ${g.no}? Ова не може да се врати.`} />}
           {/* a statement's nalog is deleted together with its statement (the journal alone would leave the statement unbooked) */}
@@ -238,6 +230,16 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши го налогот на платата" confirm={`Да се избрише налогот бр. ${g.no}? Пресметката на платата останува зачувана во Плати (може повторно да се прокнижи).`} />}
           {(!one || docOne(one)) && del && !g.journals.some(locked) && <RowAction className="btn danger" action={deleteNalogAction.bind(null, g.no, year)} preview={nalogDeletePreviewAction.bind(null, g.no, year)} label={one ? '🗑 Избриши го документот и налогот' : '🗑 Избриши го целиот налог'} confirm={`Да се избрише ${one ? 'налогот' : 'целиот налог'} бр. ${g.no} заедно со документите во него?`} />}
         </Hd>
+        {fix && sp.naziv !== undefined && (
+          <BankForm action={setNalogTitleAction.bind(null, g.no, year)} className="card row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+            <label className="mini" style={{ flex: '1 1 320px' }}>Назив на налогот бр. {g.no}
+              <input name="title" defaultValue={T.custom(g.no) ?? ''} placeholder={T.auto(g)} maxLength={120} autoFocus aria-label="Назив на налогот" />
+            </label>
+            <button className="btn pri">Зачувај</button>
+            <Link className="btn" href={`/nalozi?n=${encodeURIComponent(g.no)}`}>Откажи</Link>
+            <span className="note">Празно = автоматски назив („{T.auto(g)}“). Називот не ги менува износите – може и во заклучен период.</span>
+          </BankForm>
+        )}
         {one && empty && manualLike(one) && (
           <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Налогот е <b>празен</b> (датум {dmy(one.date)}{one.periodFrom ? `, период ${dmy(one.periodFrom)} – ${dmy(one.periodTo)}` : ''}). Изводите се книжат во налог по датумот на изводот – увезете го изводот тука или го преместете / избришете празниот налог.</span>
@@ -378,6 +380,11 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             {settingsOk && <Link className="btn sm" href={sp.cfg !== undefined ? '/nalozi' : '/nalozi?cfg'}>Шифри на налози…</Link>}
             {write && <BankForm action={nalFixAllAction} className="row"><button className="btn sm" title="Броевите на налозите повеќе не се менуваат ако подоцна се внесе документ со постар датум">🔒 Фиксирај броеви</button></BankForm>}
             {firm.lockDate && <span className="pill">🔒 заклучено до {dmy(firm.lockDate)}</span>}
+            <ExportBar name={`Nalozi_${year}`} title={`Налози ${year}`} pdf={false} rows={[['Датум', 'Број', 'Назив', 'Ставки', 'Должи', 'Побарува', 'Салдо'],
+              ...G.map((g) => {
+                const D = g.journals.reduce((s, j) => s + Number(j.D), 0), P = g.journals.reduce((s, j) => s + Number(j.P), 0);
+                return [dmy(g.date), g.no, titleOf(g), g.journals.reduce((s, j) => s + j.n, 0), D, P, Math.round((D - P) * 100) / 100];
+              })]} />
           </div>
         </div>
         {settingsOk && sp.cfg !== undefined && (
