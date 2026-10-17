@@ -38,9 +38,9 @@ import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
-import { INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
+import { DOC_TYPE_ADD, INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_DEBT_ADD, PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
-import { purchaseDrafts, saleDrafts } from '../ai/drafts';
+import { purchaseDrafts, saleDrafts, SCAN_RULES_V } from '../ai/drafts';
 import { readObject } from '../ai/storage';
 import { readResultKind, RESULT_KINDS } from '../ai/kinds';
 import { AiBudgetError, aiBudgetPaused } from '../ai/budget';
@@ -138,6 +138,8 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
    */
   const pre = async (): Promise<{ result: unknown; model: string } | null> => {
     if (noAi) return null;
+    // an explicit „↻ Прочитај повторно“ (`reread`): a NEW AI read — never the free reader or an earlier read of the file
+    if ((doc.options as { reread?: boolean }).reread) return null;
     const p = await preRead(db, doc, f).catch(() => ({ hit: false as const, why: '' }));
     if (p.hit) {
       if (p.cachedFrom) {
@@ -232,7 +234,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
         content.extra += INV_PAGES_NOTE(extra.length + 1);
       }
       // the rule of the bank import: several invoices in the file → `invoices[]`, one object (one draft) per invoice
-      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD) + INV_MULTI_ADD;
+      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD + PUR_DEBT_ADD) + DOC_TYPE_ADD + INV_MULTI_ADD;
       const base = { db, firmId: f.id, prompt, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
       let quick: ScanResult | null = null;
       // legacy `outDeep` / `outRunDeep`: a deeper read straight away (no quick read)
@@ -266,8 +268,8 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     // meanwhile leaves no new partners behind
     const res = result;
     const n = await db.transaction(async (tx) => {
-      const drafts = doc.kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy }) : await purchaseDrafts(tx, f, res, opts, { userId: doc.createdBy });
-      const up = await tx.update(aiDocuments).set({ status: 'done', result: res, drafts, model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
+      const drafts = doc.kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
+      const up = await tx.update(aiDocuments).set({ status: 'done', result: res, drafts, model, options: sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
       if (!up.length) tx.rollback();
       return drafts.length;
     }).catch((e: unknown) => { if (e instanceof TransactionRollbackError) return -1; throw e; });

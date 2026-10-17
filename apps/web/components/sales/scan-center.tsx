@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { aiDocuments, files, journals, partners, type AiDocument } from '@wise/db';
+import { aiDocuments, files, journals, partners, refreshStaleScanDrafts, scanNeedsReread, type AiDocument } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -15,7 +15,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import type { DraftPartnerMatch } from '@wise/core/partners/match';
-import { cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
+import { applyScanRules, cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, rereadScans, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
 import { AutoRefresh, ScanUpload } from './scan-upload';
 import { PastReview, pastReviewData } from './past-review';
 import { SchemeParam } from './scheme-param';
@@ -74,9 +74,12 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const stores = locs.filter((l) => l.kind === 'store');
   const wh = sp.wh ?? (mode === 'masovnoM' ? stores[0]?.id ?? '' : '');
   const notInline = sql`not (${aiDocuments.options} ? 'inline')`;
-  const docs = mode === 'skan'
+  const docs0 = mode === 'skan'
     ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, kind), isNull(aiDocuments.batchId), notInline)).orderBy(desc(aiDocuments.createdAt)).limit(60)
     : batchId ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.batchId, batchId))).orderBy(aiDocuments.createdAt) : [];
+  // unsaved reads built with older rules: their drafts are rebuilt from the stored read now (no AI, saved ones untouched)
+  const { docs } = write ? await refreshStaleScanDrafts(db(), firm, docs0, { userId: u.id }) : { docs: docs0 };
+  const reread = kind === 'purchase' ? docs.filter(scanNeedsReread).length : 0;
   const names = new Map((docs.length ? await db().select({ id: files.id, n: files.name }).from(files).where(inArray(files.id, docs.flatMap((d) => (d.fileId ? [d.fileId] : [])))) : []).map((f) => [f.id, f.n]));
   const P = new Map((await db().select({ id: partners.id, n: partners.name }).from(partners).where(eq(partners.firmId, firm.id))).map((p) => [p.id, p.n]));
   const R = rowsOf(docs, names);
@@ -112,6 +115,10 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         {write && cnt('ok') > 0 && <SchemeParam schemes={schOpts} />}
         {mode === 'skan' && kind === 'sale' && write && <RowAction className="btn pri" action={saveSalesOk.bind(null, sch)} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
         {mode === 'skan' && kind === 'purchase' && write && cnt('ok') > 0 && <RowAction className="btn pri" action={savePurchasesOk.bind(null, sch)} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури? Секоја е посебна фактура со свој налог; дупликатите се прескокнуваат.`} />}
+        {write && !busy && R.some((r) => r.i != null && !r.doc.drafts[r.i]!.savedId) && <RowAction className="btn sm" action={applyScanRules.bind(null, kind, mode === 'skan' ? null : batchId)} label="↻ Примени ги правилата повторно"
+          title="Нацртите што не се зачувани се прават повторно од прочитаното со сегашните правила (конто на добавувачот, струја, претходен долг, профактура, прилози) – без AI, без трошок. Зачуваните не се менуваат." />}
+        {write && !busy && reread > 0 && <RowAction className="btn sm" action={rereadScans.bind(null, kind, mode === 'skan' ? null : batchId, undefined)} label={`↻ Прочитај повторно · 💲 AI (${reread})`}
+          confirm={`${reread} документи немаат доволно податоци во прочитаното (претходен долг, профактура) – да се прочитаат повторно со AI?`} />}
         {busy && write && <RowAction className="btn sm" action={cancelScans.bind(null, kind, mode === 'skan' ? null : batchId ?? null)} label="Откажи читање" />}
         {mode === 'skan' && admin && <Link className="btn sm" href="/skan?cmp=1" title="Спореди брз и детален AI модел">🧪 Тест AI</Link>}
         {mode !== 'skan' && batchId && R.length > 0 && write && <RowAction className="btn" action={clearBatch.bind(null, batchId)} label="Исчисти листа" />}
@@ -179,6 +186,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
                 {x?.savedId && <Link className="btn sm ghost" href={`${editor}?edit=${x.savedId}`}>Отвори</Link>}
                 {kind === 'sale' && x && !x.savedId && s0 === 'check' && !(r.doc.options as { deep?: boolean }).deep && write && <RowAction action={deepScan.bind(null, r.doc.id)} label="🔍 Подетално · 💲 AI" title="Повторно читање со подетален модел (побавно, ~1–2 мин., троши AI-кредит)" />}
                 {write && r.doc.status === 'error' && <RowAction action={retryScan.bind(null, r.doc.id)} label="↻ Повторно" />}
+                {write && kind === 'purchase' && r.i === 0 && scanNeedsReread(r.doc) && <RowAction action={rereadScans.bind(null, kind, null, r.doc.id)} label="↻ Прочитај повторно · 💲 AI" title="Прочитаното нема доволно податоци (претходен долг / профактура) – ново читање со AI" />}
                 {write && r.doc.status !== 'reading' && r.doc.status !== 'saved' && !x?.savedId && !r.doc.drafts.some((y) => y.savedId) && <RowAction action={removeScan.bind(null, r.doc.id)} label="✕" title="Отстрани"
                   confirm={r.doc.drafts.length > 1 ? `Да се отстрани целиот документ (${r.doc.drafts.length} фактури) од листата? За една фактура користете „Прескокни“.` : kind === 'sale' ? `Да се отстрани „${r.fileName}“ од листата за проверка?` : undefined} />}
               </td>);

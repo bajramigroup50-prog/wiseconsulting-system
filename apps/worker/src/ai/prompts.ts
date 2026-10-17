@@ -23,6 +23,17 @@ export const PUR_BANK_ADD = `
 SUPPLIER BANK ACCOUNT: in every invoice object also return "supplierBankAccount":string = the SUPPLIER's (issuer's) bank account printed on the invoice („жиро сметка“, „трансакциска сметка“, „Ж.С.“, IBAN, e.g. 300-0000012345-67 or MK07300000001234567) exactly as printed; "" if none. NEVER the buyer's account.`;
 
 /**
+ * Utility bills (EVN, Телеком, water…) print the previous unpaid debt and „вкупно за плаќање“ = debt + this month's
+ * charge: only this invoice's own amount is booked (`prevDebtFix` in `@wise/core/sales` checks it deterministically).
+ */
+export const PUR_DEBT_ADD = `
+PREVIOUS DEBT: utility bills (electricity EVN, Телеком / phone, water, heating, waste…) often print the previous unpaid debt („долг од претходно“, „неплатен износ“, „претходно задолжување“, „салдо“, „стар долг“) and „вкупно за плаќање“ = previous debt + this month's charge. "total" MUST be ONLY this invoice's own amount (this period's charge: Σ base + VAT per rate, plus this invoice's items without VAT), NEVER including the previous debt; the previous debt is never in "groups". Return it separately as "prevDebt":number (0 if none).`;
+
+/** Every read invoice says what the document is by its title: a pro-forma / offer / delivery note is never booked. */
+export const DOC_TYPE_ADD = `
+DOCUMENT TYPE: in every invoice object also return "docType": "invoice" | "proforma" | "offer" | "delivery_note" | "statement" | "other" by the document's TITLE: „Профактура“, „Про-фактура“, „Предрачун“, „Proforma“, „Pro forma“ → "proforma"; „Понуда“ / „Offer“ → "offer"; „Испратница“ / „Отпремница“ → "delivery_note"; „Извод“ / „Изјава за состојба“ / „ИОС“ → "statement"; „Фактура“ / „Сметка“ (also a bill for electricity, phone, water) → "invoice". A note like „по профактура бр.“ on an invoice does NOT make it a pro-forma.`;
+
+/**
  * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the rule of the bank import — every
  * document is registered SEPARATELY. Several invoices in one file come back as `invoices[]`, each with its pages; never
  * one merged invoice, a number range („101-103“) or a sum.

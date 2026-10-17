@@ -69,6 +69,15 @@ export function parseAccount(v: unknown): ParsedAccount | null {
 /** The key two spellings of one account share (15 digits for MK, the IBAN otherwise). */
 export const accountKey = (v: unknown): string => { const p = parseAccount(v); return p ? p.acc || p.iban : ''; };
 
+/**
+ * An account at the Treasury / НБРМ (bank code 100, „Трезорска сметка“ 100-0000000630-95 …): shared by every state body,
+ * municipality and public institution — never identifies a partner.
+ */
+export function treasuryAccount(v: unknown): boolean {
+  const k = accountKey(v) || String(v ?? '').replace(/\D/g, '');
+  return /^100\d{12}$/.test(k) || /^MK\d{2}100\d{12}$/.test(k);
+}
+
 /** Account → IBAN (MK07…) when it is a valid MK account; the input unchanged otherwise. */
 export function toIban(v: unknown): string {
   const p = parseAccount(v);

@@ -23,6 +23,13 @@ export interface ScanInvoice {
   currency?: string;
   /** Pages of the source file this invoice is printed on („1“, „2-3“) when the file holds several invoices. */
   pages?: string;
+  /**
+   * Previous unpaid debt printed on a utility bill („долг од претходно“, „неплатен износ“, „салдо“) — never booked;
+   * `total` is this invoice's own amount ({@link prevDebtFix}).
+   */
+  prevDebt?: number | string;
+  /** What the document is by its title (`invoice` when not given): a pro-forma, offer, … is never booked. */
+  docType?: string;
 }
 /** A prompt result: one invoice, or several (`{invoices:[…]}`). */
 export type ScanResult = ScanInvoice & { invoices?: ScanInvoice[] };
@@ -89,8 +96,10 @@ export function fixRates<T extends ScanInvoice>(r: T): T {
 }
 
 /** Legacy `purConsistent` (4669): lines, recapitulation and total agree (used to decide on a second, deeper read). */
-export function scanConsistent(r: ScanInvoice | null | undefined, strict = false): boolean {
-  if (!r) return false;
+export function scanConsistent(r0: ScanInvoice | null | undefined, strict = false): boolean {
+  if (!r0) return false;
+  // a utility bill whose total includes the printed previous debt is checked on its own amount ({@link prevDebtFix})
+  const r = prevDebtFix(r0).inv;
   const L = fixLines(r.lines);
   const G = (r.groups ?? []).filter((g) => n(g.base));
   const gb = G.reduce((a, g) => a + n(g.base), 0), gv = G.reduce((a, g) => a + n(g.vat), 0);
@@ -246,12 +255,62 @@ export interface ScanPurchaseDraft {
   pages?: string;
   /** How the supplier was recognised (candidates when uncertain). */
   match?: DraftPartnerMatch;
+  /** Previous debt printed on the bill and left out of the total (not booked). */
+  prevDebt?: number;
 }
+/** The expense kontos of a supplier's most recent saved purchase: per VAT rate, and its main konto (largest base). */
+export interface SupplierKontoMemory { byRate: Record<string, string>; main: string }
+
+/** {@link SupplierKontoMemory} from the VAT groups of one saved purchase. */
+export function supplierKontoMemory(groups: readonly { account: string; rate: number | string; base: number | string }[]): SupplierKontoMemory | null {
+  const G = groups.filter((g) => g.account);
+  if (!G.length) return null;
+  const byRate: Record<string, string> = {};
+  const big: Record<string, number> = {};
+  for (const g of G) {
+    const k = String(n(g.rate));
+    if (!(k in big) || Math.abs(n(g.base)) > big[k]!) { big[k] = Math.abs(n(g.base)); byRate[k] = g.account; }
+  }
+  const main = [...G].sort((a, b) => Math.abs(n(b.base)) - Math.abs(n(a.base)))[0]!.account;
+  return { byRate, main };
+}
+
+/** Electricity cost konto from the chart: 4030 when named „Електрична енергија“, else 4020 when so named, else ''. */
+export function energyKontoFromChart(chart: readonly { code: string; name: string }[]): string {
+  const el = (c: string) => chart.some((a) => a.code === c && /електрична\s+енергија/i.test(a.name));
+  return el('4030') ? '4030' : el('4020') ? '4020' : '';
+}
+
+/**
+ * A utility bill (EVN, Телеком, water…) prints the previous unpaid debt and „вкупно за плаќање“ = debt + this month's
+ * charge. Only this invoice's own amount may be booked: when the total read differs from Σ groups (+ VAT) by exactly the
+ * printed previous debt (`prevDebt`), the total becomes Σ groups and `debt` is returned for the draft's note.
+ */
+export function prevDebtFix(r: ScanInvoice): { inv: ScanInvoice; debt: number } {
+  const debt = Math.abs(n(r.prevDebt));
+  const G = (r.groups ?? []).filter((g) => n(g.base) || n(g.vat));
+  if (!debt || !G.length) return { inv: r, debt: 0 };
+  const sum = r2(G.reduce((a, g) => a + n(g.base) + (r.art32 ? 0 : n(g.vat)), 0));
+  const tot = n(r.total);
+  const tol = Math.max(1, Math.abs(sum) * 0.002);
+  if (Math.abs(tot - sum - debt) <= tol) return { inv: { ...r, total: sum }, debt };
+  return { inv: r, debt: 0 };
+}
+
 export interface PurchaseDraftOptions {
   partners: readonly MatchPartner[];
   items: readonly MatchItem[];
-  /** Kontos per AI group kind. */
-  accounts: { goods: string; material: string; other: string };
+  /**
+   * Kontos per AI group kind: goods → stock, material → material, energy (electricity) → `energy` (scheme key
+   * `costEnergy`, else 4030 / 4020 „Електрична енергија“ from the chart, else the purchase default), else `other`.
+   */
+  accounts: { goods: string; material: string; other: string; energy?: string };
+  /**
+   * The matched supplier's kontos from its most recent saved purchase: proposed per VAT rate (same rate first, else its
+   * main konto) for every group that is not goods / material. The stock / material / default kontos are never taken
+   * from it (the default is no choice — the kind rule decides then).
+   */
+  supplierKontos?: (partnerId: string) => SupplierKontoMemory | null | undefined;
   today: string;
   /** Batch options (legacy `scanCash`, `scanWh`, `scanCost`). */
   cash?: boolean; warehouseId?: string | null; costOnly?: boolean;
@@ -288,7 +347,16 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
       sp: n(l.price) ? r2(Math.round((n(l.price) * (1 + mg / 100) * (1 + rt / 100)) / rd) * rd) : '',
     });
   }
-  const kmap = (k?: string) => (k === 'goods' ? o.accounts.goods : k === 'material' ? o.accounts.material : o.accounts.other);
+  const mem = p?.id ? o.supplierKontos?.(p.id) ?? null : null;
+  const generic = new Set([o.accounts.goods, o.accounts.material, o.accounts.other].filter(Boolean));
+  const kmap = (k: string | undefined, rate: number) => {
+    if (k === 'goods') return o.accounts.goods;
+    if (k === 'material') return o.accounts.material;
+    const m = mem ? mem.byRate[String(rate)] || mem.main : '';
+    if (m && !generic.has(m)) return m;
+    if (k === 'energy' && o.accounts.energy && o.accounts.energy !== '-') return o.accounts.energy;
+    return o.accounts.other;
+  };
   let G = (r.groups ?? []).filter((g) => n(g.base) || n(g.vat));
   if (!G.length && (r.lines ?? []).length) {
     const by = new Map<number, number>();
@@ -297,7 +365,7 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
   }
   if (!G.length && n(r.total)) G = [{ rate: 18, base: r2(n(r.total) / 1.18), vat: r.art32 ? 0 : r2(n(r.total) - n(r.total) / 1.18), kind: 'other' }];
   const groups = (G.length ? G : [{ rate: 18, base: 0, vat: 0 }]).map((g) => ({
-    rate: n(g.rate), base: n(g.base), vat: r.art32 ? 0 : n(g.vat) || r2((n(g.base) * n(g.rate)) / 100), konto: kmap(g.kind),
+    rate: n(g.rate), base: n(g.base), vat: r.art32 ? 0 : n(g.vat) || r2((n(g.base) * n(g.rate)) / 100), konto: kmap(g.kind, n(g.rate)),
   }));
   const dd = isoDate(r.date);
   const shifted = !!dd && !!o.vatClosed?.(dd);
@@ -449,4 +517,47 @@ export function mergeAttachedInvoices(r: ScanResult): ScanResult {
   }
   if (out.length === r.invoices.length) return r;
   return out.length === 1 ? { ...out[0]! } : { ...r, invoices: out };
+}
+
+/** Document types of a read (`docType`): only `invoice` is booked. */
+export const SCAN_DOC_TYPES = ['invoice', 'proforma', 'offer', 'delivery_note', 'statement', 'other'] as const;
+export type ScanDocType = (typeof SCAN_DOC_TYPES)[number];
+
+/**
+ * The document type from its title (the first lines of a text read): „Профактура“ / „Про-фактура“ / „Предрачун“ /
+ * „Proforma“ / „Pro forma“ → proforma, „Понуда“ / „Offer“ → offer; '' = not decided (an invoice as before).
+ */
+export function docTypeFromText(head: string): ScanDocType | '' {
+  // only a title: a line that STARTS with the word (an invoice „по профактура бр. 5“ / „по понуда“ stays an invoice)
+  for (const t0 of head.split(/\n| \/ /)) {
+    const t = t0.trim();
+    if (/^(про\s*-?\s*фактура|предрачун|pro\s*-?\s*forma)/i.test(t)) return 'proforma';
+    if (/^(понуда|offer|ponuda)(?![\p{L}])/iu.test(t)) return 'offer';
+  }
+  return '';
+}
+
+/** „профактура – не се книжи“: why a read document is not booked ('' = an invoice). */
+export function notInvoiceMsg(x: Pick<ScanInvoice, 'docType'>): string {
+  const t = String(x.docType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!t || t === 'invoice') return '';
+  if (t === 'proforma' || t === 'pro_forma') return 'профактура – не се книжи';
+  if (t === 'offer') return 'понуда – не се книжи';
+  if (t === 'delivery_note') return 'испратница – не се книжи';
+  if (t === 'statement') return 'извод / изјава – не се книжи';
+  return 'не е фактура – не се книжи';
+}
+
+/**
+ * Content signature of an invoice for „the same lines and amounts“ (a pro-forma and its invoice, two photos of one
+ * document): supplier + total + the lines; '' when it has fewer than 3 lines (a monthly bill of the same amount is not
+ * the same document).
+ */
+export function scanContentSig(x: ScanInvoice): string {
+  const L = (x.lines ?? []).filter((l) => n(l.amount) || n(l.qty));
+  if (L.length < 3) return '';
+  const sup = String(x.supplierEdb ?? '').replace(/\D/g, '') || String(x.supplierName ?? '').trim().toLowerCase();
+  const tot = r2(n(x.total) || (x.groups ?? []).reduce((a, g) => a + n(g.base) + n(g.vat), 0));
+  const ls = L.map((l) => [String(l.name ?? '').trim().toLowerCase().replace(/\s+/g, ' '), r2(n(l.qty)), r2(n(l.amount))].join('~')).sort();
+  return [sup, tot, ...ls].join('|');
 }

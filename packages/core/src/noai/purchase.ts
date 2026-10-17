@@ -5,7 +5,7 @@
  * shape of the AI read (`PUR_PROMPT` / `ublToScan`), so the same drafts are built; the user checks them as always.
  * Lines are not read (too many layouts) — the draft is booked by VAT group, like a cost invoice.
  */
-import { mergeAttachedInvoices, scanInvoices, type ScanInvoice } from '../sales/scan';
+import { docTypeFromText, mergeAttachedInvoices, scanInvoices, type ScanInvoice } from '../sales/scan';
 import { AmbiguousAmountsError, ambExamples, reconcileFmt, type NumFmt } from '../numfmt';
 import { parseAccount, supplierAccountIn } from '../bank/mk-banks';
 import { dateIn, docFmt, lineText, numsIn, numTokens, type PdfLine } from './pdf-lines';
@@ -76,6 +76,13 @@ export function invoiceNoIn(text: readonly string[]): string {
  * reconciles with the total (base × rate = VAT, Σ = total); none / both → AmbiguousAmountsError (never guessed).
  */
 export function invoiceFromPdf(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 'purchase' | 'sale' } = {}): ScanInvoice | null {
+  const inv = invoiceFromPdf0(L, o);
+  // a pro-forma / offer by its title (the first lines): read, but never booked (`docType`)
+  const t = inv ? docTypeFromText(L.slice(0, 15).map(lineText).join(' / ')) : '';
+  return inv && t ? { ...inv, docType: t } : inv;
+}
+
+function invoiceFromPdf0(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 'purchase' | 'sale' }): ScanInvoice | null {
   const A = readInvoice(L, o, 'mk'), B = readInvoice(L, o, 'dot');
   if (JSON.stringify(A?.inv) === JSON.stringify(B?.inv)) return A?.inv ?? null;
   const text = L.map(lineText);
