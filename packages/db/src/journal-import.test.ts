@@ -115,10 +115,12 @@ describe('journal import from the old program', () => {
     const [l] = await db.select().from(schema.journalLines).where(and(eq(schema.journalLines.firmId, F.firmId), eq(schema.journalLines.account, '1200')));
     expect(l!.partnerId).toBe(p!.id);
 
-    // a partner konto without any partner in the file is a problem too
+    // a partner konto without any partner in the file: listed, imported without a partner as in the old program
     const pv3 = await tx((t) => previewJournalImport(t, F.firmId, inp({ rows: [{ r: 2, date: '2026-04-02', no: '10', k: '2200', p: 50 }, { r: 3, date: '2026-04-02', no: '10', k: '1000', d: 50 }], createPartners: true })));
-    expect(pv3.ok).toBe(false);
+    expect(pv3.ok).toBe(true);
     expect(pv3.problems.map((p) => p.kind)).toEqual(['nopartner']);
+    const R3 = await tx((t) => commitJournalImport(t, F.a, inp({ rows: [{ r: 2, date: '2026-04-02', no: '10', k: '2200', p: 50 }, { r: 3, date: '2026-04-02', no: '10', k: '1000', d: 50 }], createPartners: true })));
+    expect(R3).toMatchObject({ journals: 1, lines: 2 });
   });
 
   it('an unknown konto and a synthetic konto are refused', async () => {
