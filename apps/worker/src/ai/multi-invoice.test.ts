@@ -142,10 +142,11 @@ describe('one file, three invoices', () => {
     expect(d.drafts[1]!.msg).toMatch(/веќе е заведена: F-2026-0042 од 06\.10\.2026/);
   });
 
-  it('the same invoice twice in one file (original + copy): the second is a duplicate within the read', async () => {
+  it('the same invoice twice in one file (original + copy further on): the second is a duplicate within the read', async () => {
     const one = JSON.parse(answer()) as { invoices: Record<string, unknown>[] };
     const copy = { ...one.invoices[0]!, number: '900/2026', supplierEdb: '4030999000999', supplierName: 'НОВ ДОБАВУВАЧ ДОО' };
-    setAiClient(fake([JSON.stringify({ invoices: [copy, { ...copy, pages: '2' }] })]));
+    // not on the page right after the original (that would be the same invoice continuing, merged — see below)
+    setAiClient(fake([JSON.stringify({ invoices: [copy, { ...copy, pages: '3' }] })]));
     const id = await doc(await file('kopija.jpg'));
     await runReadDocument(db, id);
     const d = await load(id);
@@ -155,6 +156,35 @@ describe('one file, three invoices', () => {
     await T((tx) => skipDraft(tx, firmId, id, 1));
     expect((await load(id))).toMatchObject({ status: 'done' });
     expect((await load(id)).drafts[1]!.skipped).toBe(true);
+  });
+
+  it('attached pages are never booked separately: an EVN bill on pages 3–4 (page 4 = specification) is ONE draft with pages 3-4; the same number on the next page is merged', async () => {
+    const g = (rate: number, base: number) => ({ rate, base, vat: Math.round(base * rate) / 100, kind: 'other' });
+    const inv = (o: Record<string, unknown>) => ({ buyerName: 'НАША ФИРМА ДОО', buyerEdb: MULTI_OWN_EDB, art32: false, lines: [], ...o });
+    const EVN = { supplierName: 'ЕВН ПРИМЕР ДООЕЛ', supplierEdb: '4030999000777' };
+    setAiClient(fake([JSON.stringify({
+      invoices: [
+        inv({ supplierName: 'АЛФА ПРИМЕР ДОО', supplierEdb: '4030999000701', number: '11/2026', date: '2026-07-03', groups: [g(18, 1000)], total: 1180, pages: '1-2' }),
+        inv({ ...EVN, number: '7700123456', date: '2026-07-31', groups: [g(18, 2000)], total: 2360, pages: '3' }),
+        // page 4: „спецификација на потрошувачка“ of the EVN bill — consumption lines, no total / VAT of its own
+        inv({ ...EVN, number: '', date: '2026-07-31', groups: [], total: 0, pages: '4', lines: [{ name: 'Активна енергија ВТ', qty: 812, unit: 'kWh' }] }),
+        inv({ supplierName: 'БЕТА ПРИМЕР ДООЕЛ', supplierEdb: '4030999000702', number: 'F-55/2026', date: '2026-08-10', groups: [g(5, 400)], total: 420, pages: '5' }),
+        // page 6 repeats the invoice number of page 5 (its 2nd page, header printed again)
+        inv({ supplierName: 'БЕТА ПРИМЕР ДООЕЛ', supplierEdb: '4030999000702', number: 'F 55/2026', date: '2026-08-10', groups: [g(5, 400)], total: 420, pages: '6' }),
+      ],
+    })]));
+    const id = await doc(await file('vlezni-7-9.jpg'));
+    await runReadDocument(db, id);
+    const d = await load(id);
+    const D = d.drafts.map((x) => x.draft as unknown as ScanPurchaseDraft);
+    expect(D.map((x) => [x.number, x.pages])).toEqual([['11/2026', '1-2'], ['7700123456', '3-4'], ['F-55/2026', '5-6']]);
+    expect(D.filter((x) => x.supplierEdb === EVN.supplierEdb)).toHaveLength(1);
+    expect(D[1]!.groups.map((x) => [x.rate, x.base, x.vat])).toEqual([[18, 2000, 360]]);
+    expect(d.drafts.map((x) => x.status)).not.toContain('dup');
+    // the stored read is the merged one (what the drafts were made from)
+    expect((d.result as { invoices: unknown[] }).invoices).toHaveLength(3);
+    // each invoice keeps all its pages: the EVN draft is linked to the source with pages 3-4
+    expect(draftSourceFiles(d, 1)).toMatchObject({ pages: '3-4' });
   });
 
   it('several invoices read as ONE with a range number („101-103“) are never ready to save', async () => {

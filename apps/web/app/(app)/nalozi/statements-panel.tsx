@@ -179,7 +179,7 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
                     <button className="btn sm pri" disabled={!ready}>✓ Прокнижи ги сите по предлогот ({ready}/{probs})</button>
                   </BankForm>
                 )}
-                <div className="tw"><table className="dense">
+                <div className="tw"><table className="dense fit">
                   <thead><tr><th>Датум</th><th>Комитент (налогодавач)</th><th style={{ minWidth: 200 }}>Цел / опис</th><th className="n amt-od" title="должува по изводот">Одлив</th><th className="n amt-pr" title="побарува по изводот">Прилив</th><th>Шифра</th><th></th></tr></thead>
                   <tbody>{s.lines.map((l) => {
                     const e = cur(l);

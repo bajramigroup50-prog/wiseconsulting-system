@@ -86,6 +86,30 @@ export function readReceipts(r: unknown): ReadReceipt[] {
  * currency on a date (`fxRate`).
  */
 export function receiptDrafts(r: unknown, o: { today: string; kontoFor: (cat: string, abroad: boolean) => string; fxFor: (cur: string, date: string) => number }): ReceiptDraft[] {
+  return attachReceiptPages(receiptDrafts0(r, o));
+}
+
+/**
+ * The back side / second page of a receipt or fiscal report is part of it, never a receipt of its own (and never
+ * counted twice): drafts with the same receipt number and date (and the same seller when both name one) are one
+ * receipt — the one with an amount is kept; a draft with neither an amount nor a number (a back side: payment breakdown,
+ * counters) is dropped when there are other receipts. Order kept.
+ */
+export function attachReceiptPages<T extends Pick<ReceiptDraft, 'docNo' | 'date' | 'amt' | 'merchant' | 'vatId'>>(rows: readonly T[]): T[] {
+  const norm = (s: string) => s.toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕј]/gi, '');
+  const num = (s: string) => norm(s).replace(/^0+(?=\d)/, '');
+  const seller = (x: T) => norm(x.vatId) || norm(x.merchant);
+  const out: T[] = [];
+  for (const x of rows) {
+    const no = num(x.docNo);
+    const k = no ? out.findIndex((y) => num(y.docNo) === no && y.date === x.date && (!seller(x) || !seller(y) || seller(x) === seller(y))) : -1;
+    if (k >= 0) { if (!(+out[k]!.amt > 0) && +x.amt > 0) out[k] = x; continue; }
+    out.push(x);
+  }
+  return out.length > 1 ? out.filter((x) => +x.amt > 0 || norm(x.docNo)) : out;
+}
+
+function receiptDrafts0(r: unknown, o: { today: string; kontoFor: (cat: string, abroad: boolean) => string; fxFor: (cur: string, date: string) => number }): ReceiptDraft[] {
   return readReceipts(r).map((q) => {
     const ctry = String(q.country || '').toUpperCase().slice(0, 2) || 'MK';
     const cur = String(q.currency || CASH_COUNTRY_CURRENCY[ctry] || 'EUR').toUpperCase();

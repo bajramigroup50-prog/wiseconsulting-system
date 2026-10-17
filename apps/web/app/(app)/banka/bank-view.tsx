@@ -471,7 +471,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         </BankForm>
       )}
       {S.length ? (
-        <div className="tw"><table>
+        <div className="tw"><table className="fit">
           <thead><tr><th>Датум</th><th>Опис</th><th className="n amt-od" title="должува по изводот">Одлив</th><th className="n amt-pr" title="побарува по изводот">Прилив</th><th>Поврзување / конто</th><th></th></tr></thead>
           <tbody>
             {S.map((s) => {
@@ -567,8 +567,8 @@ function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk
   const effK = l.konto || l.refId ? bankEffKonto(r) : '';
   return (
     <tr style={active ? { outline: '2px solid var(--accent)' } : undefined}>
-      <td>{dmy(l.date)}</td>
-      <td style={{ minWidth: 200 }}>{l.description}{l.manual && <span className="pill"> рачно</span>}
+      <td style={{ whiteSpace: 'nowrap' }}>{dmy(l.date)}</td>
+      <td className="w" style={{ minWidth: 200 }}>{l.description}{l.manual && <span className="pill"> рачно</span>}
         {(l.osnov || l.bref) && <><br /><small className="note">{[l.osnov ? 'шифра ' + l.osnov : '', l.bref ? 'реф. ' + l.bref : ''].filter(Boolean).join(' · ')}</small></>}</td>
       {/* the bank's order: одлив (должува) left, прилив (побарува) right */}
       <td className="n amt-od">{cell(false)}</td>

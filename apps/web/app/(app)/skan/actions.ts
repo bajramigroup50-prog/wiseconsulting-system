@@ -4,13 +4,13 @@
  * 5357, `batchSaveAll` 5376, `outRun` 8415). The reading itself runs in the worker job `ai.read-document`.
  */
 import { revalidatePath } from 'next/cache';
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { canDecidePast, vatPeriodName } from '@wise/core/vat/past-period';
 import { z } from 'zod';
 import type { ScanSaleDraft } from '@wise/core/sales';
 import { learnPartnerAlias, partnerIdLabel, type DraftPartnerMatch } from '@wise/core/partners/match';
 import {
-  aiDocuments, audit, bulkSaveMessage, confirmPastDraft, ensurePartner, fileAlreadyUsed, files, partners, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
+  aiDocuments, audit, bulkSaveMessage, confirmPastDraft, refreshStaleScanDrafts, scanNeedsReread, ensurePartner, fileAlreadyUsed, files, partners, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -115,6 +115,61 @@ export async function retryScan(id: string): Promise<ActionState> {
   } catch (e) { return actionError(e); }
   revalidatePath('/skan');
   return { ok: 'Повторно читање.' };
+}
+
+/** The unsaved reads of a scan list (the screen's own query: `/skan` without a batch, or one batch). */
+async function listDocs(firmId: string, kind: 'purchase' | 'sale', batchId: string | null) {
+  return db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firmId), eq(aiDocuments.kind, kind), eq(aiDocuments.status, 'done'),
+    batchId ? eq(aiDocuments.batchId, batchId) : and(sql`${aiDocuments.batchId} is null`, sql`not (${aiDocuments.options} ? 'inline')`)))
+    .orderBy(desc(aiDocuments.createdAt)).limit(300);
+}
+
+/**
+ * „↻ Примени ги правилата повторно“: the drafts of every unsaved read of the list are rebuilt from the stored read with
+ * the current rules (attached pages, supplier kontos, electricity, previous debt, pro-forma) — no AI, no cost. Saved
+ * purchases / invoices are never touched.
+ */
+export async function applyScanRules(kind: 'purchase' | 'sale', batchId: string | null): Promise<ActionState> {
+  try {
+    if (batchId && !/^[0-9a-f-]{36}$/i.test(batchId)) return { error: 'Неважечка листа.' };
+    const { u, firm } = await firmAction('scan');
+    const D = await listDocs(firm.id, kind === 'sale' ? 'sale' : 'purchase', batchId);
+    const r = await refreshStaleScanDrafts(db(), firm, D, { force: true, userId: u.id });
+    await audit(db(), { userId: u.id, firmId: firm.id, action: 'scanRules', entityType: 'ai_document', data: { kind, batchId, n: r.rebuilt } });
+    revalidatePath('/skan');
+    revalidatePath('/masovno');
+    revalidatePath('/masovnoM');
+    return { ok: `Правилата се применети повторно на ${r.rebuilt} документи.` };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * „↻ Прочитај повторно · 💲 AI“: the stored read lacks what the rules need (the previous debt of a bill, which of two
+ * same documents is the pro-forma) — read again with AI. With `id`: that read; else every read of the list that needs it
+ * (`scanNeedsReread`). Reads with a saved invoice are never read again.
+ */
+export async function rereadScans(kind: 'purchase' | 'sale', batchId: string | null, id?: string): Promise<ActionState> {
+  try {
+    if (batchId && !/^[0-9a-f-]{36}$/i.test(batchId)) return { error: 'Неважечка листа.' };
+    const { u, firm } = await firmAction('scan');
+    const D = id
+      ? (await db().select().from(aiDocuments).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id))).limit(1)).filter((d) => d.status === 'done' || d.status === 'error')
+      : (await listDocs(firm.id, kind === 'sale' ? 'sale' : 'purchase', batchId)).filter(scanNeedsReread);
+    const ids = D.filter((d) => !d.drafts.some((x) => x.savedId)).map((d) => d.id);
+    if (!ids.length) return { error: id ? 'Дел од фактурите се веќе зачувани.' : 'Нема документи за повторно читање.' };
+    await db().transaction(async (tx) => {
+      // a NEW AI read (`reread`): never the free reader or a reuse of an earlier read of the same file (sha256)
+      await tx.update(aiDocuments).set({
+        status: 'queued', error: null, drafts: [],
+        options: sql`(${aiDocuments.options} - 'cancelled' - 'errCode' - 'errDetail' - 'cachedFrom' - 'aiWhy' - 'progress') || '{"retry":true,"reread":true}'::jsonb`,
+      }).where(and(inArray(aiDocuments.id, ids), eq(aiDocuments.firmId, firm.id)));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanReread', entityType: 'ai_document', data: { kind, batchId, n: ids.length } });
+    });
+    for (const x of ids) await enqueue(AI_READ_DOCUMENT, { docId: x });
+    revalidatePath('/skan');
+    revalidatePath('/masovno');
+    return { ok: `Повторно читање со AI: ${ids.length} документи.` };
+  } catch (e) { return actionError(e); }
 }
 
 export async function removeScan(id: string): Promise<ActionState> {

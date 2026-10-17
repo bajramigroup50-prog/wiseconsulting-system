@@ -192,11 +192,34 @@ export function fkNoVatEvid(R: FiskRead): boolean {
  * The first read as legacy `fkRead` stored it (array → `{days}`, duplicate days from overlapping pages once) followed
  * by the `fkFix` and report-text steps (wrappers 12995, 13028). Returns the normalised read.
  */
+/**
+ * A report photographed / scanned on both sides (or as several pages) is ONE report: a day read twice — the same Z number
+ * and date, e.g. from the back side with the payment breakdown and counters — is merged into one row (the larger
+ * turnover kept, missing fields filled from the other), never counted twice. Days without a Z number: exact repeats
+ * (date + total) are dropped as before.
+ */
+export function fiskDedupeDays(days: readonly FiskReadDay[]): FiskReadDay[] {
+  const sum = (d: FiskReadDay) => Math.max(fkN(d.total), Object.values(d.gross ?? {}).reduce<number>((a, x) => a + fkN(x), 0));
+  const out: FiskReadDay[] = [];
+  const at = new Map<string, number>();
+  for (const d of days) {
+    const z = String(d.z ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+    const k = z ? fkNormDate(d.date) + '|z' + z : fkNormDate(d.date) + '|' + d.total;
+    const i = at.get(k);
+    if (i == null) { at.set(k, out.length); out.push(d); continue; }
+    const a = out[i]!;
+    const [big, small] = sum(d) > sum(a) ? [d, a] : [a, d];
+    const m: FiskReadDay = { ...big };
+    for (const f of ['cash', 'card', 'other', 'storno', 'receipts'] as const) if (!fkN(m[f]) && fkN(small[f])) m[f] = small[f];
+    out[i] = m;
+  }
+  return out;
+}
+
 export function fiskAfterRead(r0: unknown): FiskRead {
   const r = (Array.isArray(r0) ? { days: r0 } : r0 && typeof r0 === 'object' ? r0 : {}) as FiskRead;
   const R: FiskRead = { ...r, days: [...(r.days || [])], totals: r.totals || { gross: {}, vat: {} }, groups: { ...(r.groups || {}) }, text: typeof r.text === 'string' ? r.text : '' };
-  const seen = new Set<string>();
-  R.days = R.days!.filter((d) => { const k = fkNormDate(d.date) + '|' + (d.z || '') + '|' + d.total; if (seen.has(k)) return false; seen.add(k); return true; });
+  R.days = fiskDedupeDays(R.days!);
   fkFix(R);
   const P = fkFromText(R.text);
   if (P && P.device) R.device = P.device;

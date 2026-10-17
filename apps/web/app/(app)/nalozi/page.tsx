@@ -22,7 +22,7 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { BankForm } from '@/components/bank-form';
 import { ExportBar } from '@/components/parity-fin/export-bar';
-import { deleteJournalAction, deleteNalogAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
+import { deleteJournalAction, deleteNalogAction, deleteNalogDocAction, nalogDocDeletePreviewAction, nalogDeletePreviewAction, nalFixAllAction, resetOverrideAction, saveBankNalCodes, saveNalogSettings, setLockDate } from './actions';
 import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
 import { newJournal, type EditorJournal } from './editor-model';
@@ -114,6 +114,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     .groupBy(journals.id).orderBy(asc(journals.date), asc(journals.createdAt));
   const G = groupNalozi(J);
   const manualLike = (j: (typeof J)[number]) => !j.sourceType || ['opening', 'bbimp', 'yearClose'].includes(j.sourceType);
+  /** A nalog of one document (invoice, purchase…) — deleted with its document through „🗑 Избриши“ (with a preview). */
+  const docOne = (j: (typeof J)[number]) => !manualLike(j) && j.sourceType !== 'bank_statement' && j.sourceType !== 'payroll';
   const canEdit = (j: (typeof J)[number]) => !locked(j) && (manualLike(j) ? (j.kind === 'manual' ? write : fix) : fix);
   const ovOf = (j: (typeof J)[number]) => ((j.meta ?? {}) as { override?: { applied?: number; dropped?: number; unbalanced?: boolean } }).override;
   /** „Ш2“: the numbered posting scheme the document was booked with (`journals.meta.scheme`, nothing for Шема 1). */
@@ -146,7 +148,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     if (!g) return <><Hd t="Налог за книжење" exp={false} /><div className="card empty">Налогот {sp.n} не постои за {year}. <Link href="/nalozi">Листа на налози</Link></div></>;
     const ids = g.journals.map((j) => j.id);
     const [L, chart] = await Promise.all([
-      db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { code: partners.code, name: partners.name } })
+      db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { id: partners.id, code: partners.code, name: partners.name } })
         .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).leftJoin(partners, eq(partners.id, journalLines.partnerId))
         .where(inArray(journalLines.journalId, ids)).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo)),
       effectiveChart(db(), firm.id),
@@ -157,6 +159,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     const title = titleOf(g);
     const dev = L.some(({ l }) => l.currency && l.currency !== 'MKD' && l.amountCur != null);
     const IZ = g.journals.some((j) => j.kind === 'bank');
+    const hasDoc = L.some(({ l }) => l.doc);
     const izNo = (m: unknown) => String(((m ?? {}) as { statementNo?: string }).statementNo ?? '');
     const devOf = (l: (typeof L)[number]['l'], side: 'd' | 'p') => {
       if (!l.currency || l.currency === 'MKD' || l.amountCur == null) return 0;
@@ -233,7 +236,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           {/* a statement's nalog is deleted together with its statement (the journal alone would leave the statement unbooked) */}
           {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки? Ова не може да се врати.`} />}
           {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши го налогот на платата" confirm={`Да се избрише налогот бр. ${g.no}? Пресметката на платата останува зачувана во Плати (може повторно да се прокнижи).`} />}
-          {!one && del && !g.journals.some(locked) && <RowAction className="btn danger" action={deleteNalogAction.bind(null, g.no, year)} label="🗑 Избриши го целиот налог" confirm={`Да се избрише целиот налог бр. ${g.no} (${g.journals.length} дела – изводите со сите ставки)? Ова не може да се врати.`} />}
+          {(!one || docOne(one)) && del && !g.journals.some(locked) && <RowAction className="btn danger" action={deleteNalogAction.bind(null, g.no, year)} preview={nalogDeletePreviewAction.bind(null, g.no, year)} label={one ? '🗑 Избриши го документот и налогот' : '🗑 Избриши го целиот налог'} confirm={`Да се избрише ${one ? 'налогот' : 'целиот налог'} бр. ${g.no} заедно со документите во него?`} />}
         </Hd>
         {one && empty && manualLike(one) && (
           <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -279,6 +282,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                       {!manualLike(j) && j.sourceType && DOC_SCREEN[j.sourceType] && <Link className="btn sm ghost" href={DOC_SCREEN[j.sourceType]!}>Документ →</Link>}{' '}
                       {j.sourceType === 'invoice' && j.sourceId && <Link className="btn sm ghost" href={`/print/doc/${j.sourceId}`} target="_blank" title="Фактурата во налогот">👁 Фактура</Link>}{' '}
                       {del && manualLike(j) && <RowAction action={deleteJournalAction.bind(null, j.id)} label="🗑" title="Избриши" confirm={`Да се избрише „${j.description ?? j.number}“?`} style={{ color: 'var(--bad)' }} />}
+                      {del && !manualLike(j) && j.sourceId && !locked(j) && <RowAction className="btn sm ghost danger" action={deleteNalogDocAction.bind(null, j.id)} preview={nalogDocDeletePreviewAction.bind(null, j.id)} label="🗑 Избриши" title="Го брише документот – неговите ставки излегуваат од налогот, другите документи остануваат" confirm={`Да се избрише документот „${j.description ?? ''}“ од налогот бр. ${g.no}?`} />}
                     </td></tr>
                 );
               })}
@@ -307,8 +311,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             <div className={`callout ${open ? 'warn' : 'good'}`}>{stIds.length > 1 ? `Изводи (${stIds.length})` : `Извод од ${dmy(ds[0])}`}: {BL.length} ставки · прилив <b>{fmt(pr)}</b> · одлив <b>{fmt(od)}</b> ден. Изводот се книжи обратно од банката: „должува“ на изводот (одлив) = Побарува {bankK ?? 'банка'}, „побарува“ на изводот (прилив) = Должи {bankK ?? 'банка'}; спротивното конто е она што е избрано во „Изводи“.{open ? <> <b>{open} ставки не се поврзани</b> – изводот не е целосно прокнижен.</> : null}</div>
           );
         })()}
-        <div className="tw"><table className="dense nalg">
-          <thead><tr><th className="n">Р.бр.</th><th>Датум</th>{IZ && <th className="n">Изв. бр.</th>}<th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th><th>Шифра</th><th>Комитент</th><th style={{ minWidth: 240 }}>Опис / содржина</th><th>Документ</th>{dev && <><th className="n">Дев. должи</th><th className="n">Дев. побарува</th></>}</tr></thead>
+        {/* fits the screen: шифра + комитент in one cell, text wraps, „Документ“ only when some line has one (PDF / Excel keep all columns) */}
+        <div className="tw"><table className="dense nalg fit">
+          <thead><tr><th className="n">Р.бр.</th><th>Датум</th>{IZ && <th className="n">Изв. бр.</th>}<th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th><th>Шифра · Комитент</th><th style={{ minWidth: 200 }}>Опис / содржина</th>{hasDoc && <th>Документ</th>}{dev && <><th className="n">Дев. должи</th><th className="n">Дев. побарува</th></>}</tr></thead>
           <tbody>
             {L.map(({ l, j, p }, i) => (
               <tr key={l.id}>
@@ -316,16 +321,16 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                 {IZ && <td className="n"><b>{j.kind === 'bank' ? izNo(j.meta) : ''}</b></td>}
                 <td title={names.get(l.account) ?? ''}><Link href={`/kkart?k=${l.account}`}><b className="num">{l.account}</b></Link></td>
                 <td className="n">{fmt(l.debit)}</td><td className="n">{fmt(l.credit)}</td>
-                <td>{p?.code}</td><td>{p?.name}</td>
-                <td>{j.description}{l.note && l.note !== j.description && <><br /><small className="mut">{l.note}</small></>}</td>
-                <td>{l.doc}</td>
+                <td className="w" style={{ maxWidth: 240 }}>{p?.code && <span className="num" style={{ color: 'var(--muted)' }}>{p.code} </span>}{p?.name}</td>
+                <td className="w">{j.description}{l.note && l.note !== j.description && <><br /><small className="mut">{l.note}</small></>}</td>
+                {hasDoc && <td className="w">{l.doc}</td>}
                 {dev && <><td className="n">{fmt(devOf(l, 'd'))}</td><td className="n">{fmt(devOf(l, 'p'))}</td></>}
               </tr>
             ))}
           </tbody>
           <tfoot><tr>
             <td colSpan={IZ ? 4 : 3}>Вкупно ({L.length} ставки) {t.balanced ? <span className="pill good">изедначен</span> : <span className="pill bad">неизедначен · разлика {fmt(t.diff)}</span>}</td>
-            <td className="n">{fmt(t.D)}</td><td className="n">{fmt(t.P)}</td><td colSpan={4 + (dev ? 2 : 0)} />
+            <td className="n">{fmt(t.D)}</td><td className="n">{fmt(t.P)}</td><td colSpan={2 + (hasDoc ? 1 : 0) + (dev ? 2 : 0)} />
           </tr></tfoot>
         </table></div>
       </>
@@ -429,7 +434,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     {one && del && manualLike(one) && !locked(one) && <RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} />}
                     {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} />}
                     {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Го брише налогот на платата; пресметката останува зачувана во Плати" confirm={`Да се избрише налогот бр. ${g.no} на платата? Пресметката на платата останува зачувана (може повторно да се прокнижи).`} />}
-                    {!one && del && !g.journals.some(locked) && <RowAction className="btn sm danger" action={deleteNalogAction.bind(null, g.no, year)} label="🗑 Избриши" title="Го брише целиот налог: изводите во него со ставките, налогот на платата (пресметката останува) и празните налози" confirm={`Да се избрише целиот налог бр. ${g.no} (${g.journals.length} дела – изводите со сите ставки)? Ова не може да се врати.`} />}
+                    {(!one || docOne(one)) && del && !g.journals.some(locked) && <RowAction className="btn sm danger" action={deleteNalogAction.bind(null, g.no, year)} preview={nalogDeletePreviewAction.bind(null, g.no, year)} label="🗑 Избриши" title="Го брише налогот заедно со документите во него (фактури, калкулации, изводи…); пред бришење ги прикажува документите" confirm={`Да се избрише налогот бр. ${g.no} заедно со документите во него?`} />}
                   </td>
                 </tr>
               );

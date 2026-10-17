@@ -120,7 +120,7 @@ export const schemeProfileKontos = (p: SchemeProfileOverrides): string[] => [
 ].map((v) => String(v ?? '').trim()).filter((v) => v && v !== '-');
 
 /** Purchase-group kontos that come from the scheme when the purchase is saved (order = priority on equal kontos). */
-export const PURCHASE_KONTO_KEYS: readonly string[] = ['purDefault', 'stock', 'material', 'product'];
+export const PURCHASE_KONTO_KEYS: readonly string[] = ['purDefault', 'costEnergy', 'stock', 'material', 'product'];
 
 /**
  * A stored konto under „Шема N“, by konto: the FIRST of `keys` whose Шема 1 value equals the konto owns it; when that

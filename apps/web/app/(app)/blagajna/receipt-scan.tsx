@@ -6,7 +6,7 @@
  */
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
-import { receiptDraftProblem, receiptDrafts, type ReceiptDraft } from '@wise/core/ai/receipts';
+import { attachReceiptPages, receiptDraftProblem, receiptDrafts, type ReceiptDraft } from '@wise/core/ai/receipts';
 import { CASH_COUNTRIES, CASH_COUNTRY_CURRENCY, cashDefaultRate, cashVoucherDuplicate, type CashDupKey } from '@wise/core/bank/cash';
 import { CASH_EXPENSE_CATEGORIES } from '@wise/core/data/posting';
 import { cashExpenseAccount } from '@wise/core/posting';
@@ -54,7 +54,8 @@ export function ReceiptScan({ firmId, registers, reg0, kontos, codes, fx, ddv, c
       D.forEach((x, i) => add.push({ ...x, key: d.id + ':' + i, docId: d.id, fileId: d.fileId, fname: d.name + (D.length > 1 ? ' #' + (i + 1) : '') + ((d.result as { noai?: boolean } | null)?.noai ? ' · прочитано без AI – проверете' : '') }));
     }
     setDone((s) => new Set([...s, ...fresh.map((d) => d.id)]));
-    setRows((r) => [...r, ...add]);
+    // the back side of a receipt read as its own photo is part of it (same number + date): never a second row
+    setRows((r) => attachReceiptPages([...r, ...add]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ai.docs]);
 

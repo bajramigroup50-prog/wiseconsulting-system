@@ -23,10 +23,14 @@ export interface ReusedRead { id: string; status: string }
 /**
  * For each file (by id): an existing read of the same content (sha256; the file itself when it has no hash) of this
  * kind in this firm. Files without one are not in the map.
+ *
+ * An explicit re-read („↻ Прочитај повторно“, `options.reread`) is never answered with an old read: with `a.reread`
+ * nothing is reused, and once a content has an explicit re-read, only such re-reads (the newest first) are reused for it —
+ * the older reads it replaced are never returned again.
  */
-export async function reusableReads(tx: Q, a: { firmId: string; kind: string; fileIds: readonly string[]; now?: Date }): Promise<Map<string, ReusedRead>> {
+export async function reusableReads(tx: Q, a: { firmId: string; kind: string; fileIds: readonly string[]; now?: Date; reread?: boolean }): Promise<Map<string, ReusedRead>> {
   const out = new Map<string, ReusedRead>();
-  if (!a.fileIds.length) return out;
+  if (!a.fileIds.length || a.reread) return out;
   const F = await tx.select({ id: files.id, sha: files.sha256 }).from(files).where(and(eq(files.firmId, a.firmId), inArray(files.id, [...a.fileIds])));
   const shas = [...new Set(F.map((f) => f.sha).filter((s) => SHA.test(s)))];
   const same = shas.length ? await tx.select({ id: files.id, sha: files.sha256 }).from(files).where(and(eq(files.firmId, a.firmId), inArray(files.sha256, shas))) : [];
@@ -38,9 +42,12 @@ export async function reusableReads(tx: Q, a: { firmId: string; kind: string; fi
     .orderBy(desc(aiDocuments.updatedAt));
   const now = (a.now ?? new Date()).getTime();
   const best = new Map<string, ReusedRead & { r: number }>();
+  // contents that have an explicit re-read: the older reads of them are superseded
+  const reread = new Set(D.filter((d) => (d.options as { reread?: boolean } | null)?.reread).map((d) => keyOf.get(d.fileId!)));
   for (const d of D) {
-    const o = (d.options ?? {}) as { extraFileIds?: unknown[]; cancelled?: boolean };
+    const o = (d.options ?? {}) as { extraFileIds?: unknown[]; cancelled?: boolean; reread?: boolean };
     if (o.extraFileIds?.length || o.cancelled) continue;
+    if (reread.has(keyOf.get(d.fileId!)) && !o.reread) continue;
     if ((d.status === 'queued' || d.status === 'reading') && now - d.updatedAt.getTime() > READ_STALE_MS) continue;
     const k = keyOf.get(d.fileId!);
     if (!k) continue;
