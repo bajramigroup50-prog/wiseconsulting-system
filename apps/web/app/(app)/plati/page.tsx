@@ -11,7 +11,7 @@ import { firmEmployees, payPage } from '@/lib/payroll/server';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { recalcAllAction } from './actions';
+import { deleteRunAction, lockRunAction, recalcAllAction } from './actions';
 import { NewMonth } from './new-month';
 import { NotesCard } from './notes-card';
 import { PayXlsxBox } from './xlsx-box';
@@ -31,7 +31,7 @@ export default async function PlatiPage({ searchParams }: { searchParams: Promis
   const acks = await db().select().from(mpinAcks).where(and(eq(mpinAcks.firmId, firm.id), like(mpinAcks.month, `${year}-%`), eq(mpinAcks.replaced, false))).orderBy(asc(mpinAcks.month));
   const ackOf = (mo: string) => acks.find((a) => a.month === mo);
   const ex = acks.filter((a) => !runs.some(({ r }) => r.month === a.month));
-  const write = canDo(u, 'write', firm.id);
+  const write = canDo(u, 'write', firm.id), canDel = canDo(u, 'del', firm.id);
   const last = runs.at(-1)?.r.month;
   const next = last ? (last.slice(5) === '12' ? `${+last.slice(0, 4) + 1}-01` : `${last.slice(0, 4)}-${String(+last.slice(5) + 1).padStart(2, '0')}`) : `${year}-${new Date().toISOString().slice(5, 7)}`;
   const today = new Date().toISOString().slice(0, 7);
@@ -92,7 +92,10 @@ export default async function PlatiPage({ searchParams }: { searchParams: Promis
                 <td className="n">{r.totals.emps ?? 0}</td><td className="n">{fmt(r.totals.gross)}</td><td className="n">{fmt(r.totals.net)}</td>
                 <td>{number ?? ''}</td>
                 <td>{(() => { const a = ackOf(r.month); return a ? <><span className="pill good" title={`${a.status ?? ''}${a.date ? ' · ' + dmy(a.date) : ''}`}>✓ {a.no || 'прифатен'}</span>{a.fileId && <> <a className="btn sm ghost" href={`/api/files/${a.fileId}`} target="_blank" rel="noopener">PDF</a></>}{mpinDel(r.month)}</> : <span className="note">—</span>; })()}</td>
-                <td>{/* a route handler (HTML print), not a page: a plain link — `<Link>` prefetched it as RSC and the request hung */}<a className="btn sm ghost" href={`/plati/${r.month}/pecati?d=rec`} target="_blank" rel="noopener" title="Преглед (F10) – рекапитулар">Преглед</a></td>
+                <td>{/* a route handler (HTML print), not a page: a plain link — `<Link>` prefetched it as RSC and the request hung */}<a className="btn sm ghost" href={`/plati/${r.month}/pecati?d=rec`} target="_blank" rel="noopener" title="Преглед (F10) – рекапитулар">Преглед</a>
+                  {/* the month's own actions in the list: a locked month is unlocked first, an unlocked one is deleted with its nalog */}
+                  {r.locked && write && <RowAction className="btn sm ghost" action={lockRunAction.bind(null, r.id, false)} label="🔓" title="Отклучи го месецот (за измена или бришење)" confirm={`Да се отклучи платата за ${r.month.slice(5, 7)}/${r.month.slice(0, 4)}?`} />}
+                  {!r.locked && canDel && <RowAction className="btn sm danger" action={deleteRunAction.bind(null, r.id)} label="🗑 Избриши" title="Ја брише пресметката на платата и нејзиниот налог" confirm={`Да се избрише платата за ${r.month.slice(5, 7)}/${r.month.slice(0, 4)}${number ? ` и налогот ${number}` : ''}? Ова не може да се врати.`} />}</td>
               </tr>
             ))}
             {!runs.length && <tr><td colSpan={10} className="note">Нема пресметани месеци за {year}. Креирајте нов месец.</td></tr>}
