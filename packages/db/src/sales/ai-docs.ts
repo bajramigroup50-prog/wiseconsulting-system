@@ -1,8 +1,8 @@
 /** Review-side helpers for `ai_documents` (the worker writes them, the review UI consumes the drafts). */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { ScanPurchaseDraft } from '@wise/core/sales';
 import type { Tx } from '../audit';
-import { aiDocuments, type AiDocument } from '../schema/index';
+import { aiDocuments, invoices, purchases, type AiDocument } from '../schema/index';
 import { DocumentError } from './context';
 import type { PurchaseInput } from './purchases';
 
@@ -18,8 +18,67 @@ const allDone = (D: AiDocument['drafts']) => D.every((x) => x.savedId || x.skipp
 /** Record that draft `index` of a read document was saved as `savedId`; the document is `saved` when all are. */
 export async function markDraftSaved(tx: Tx, firmId: string, docId: string, index: number, savedId: string): Promise<void> {
   const d = await loadAiDocument(tx, firmId, docId);
-  const drafts = d.drafts.map((x, i) => (i === index ? { ...x, savedId, skipped: undefined } : x));
+  const drafts = d.drafts.map((x, i) => (i === index ? { ...x, savedId, skipped: undefined, deleted: undefined } : x));
   await tx.update(aiDocuments).set({ drafts, status: allDone(drafts) ? 'saved' : d.status }).where(eq(aiDocuments.id, docId));
+}
+
+/** Shown on a draft whose saved document was deleted ({@link AiDraft.deleted}). */
+export const DELETED_DOC_NOTE = 'документот е избришан – може повторно да се зачува';
+
+const UUID = /^[0-9a-f-]{36}$/i;
+
+/** The kind of read whose drafts are saved as `invoices` (sale) / `purchases` (purchase). */
+export type SavedDocKind = 'purchase' | 'sale';
+
+/** New status of a document after its drafts changed: `saved` when every draft is done and one is saved. */
+const docStatus = (d: Pick<AiDocument, 'status'>, drafts: AiDocument['drafts']): AiDocument['status'] =>
+  allDone(drafts) && drafts.some((y) => y.savedId) ? 'saved' : d.status === 'saved' ? 'done' : d.status;
+
+/**
+ * The documents `ids` saved from reads of `kind` were deleted (not cancelled): their drafts are no longer saved — the
+ * draft keeps its own check status, is marked {@link AiDraft.deleted} („документот е избришан – може повторно да се
+ * зачува“) and is saved again by the editor / „Зачувај ги сите спремни“ without a new AI read. `to`: the documents were
+ * replaced by another one (merged calculations) — the drafts point to it instead and stay saved. Returns the drafts changed.
+ */
+export async function releaseScanDrafts(tx: Tx, firmId: string, kind: SavedDocKind, ids: readonly string[], to?: string | null): Promise<number> {
+  const S = [...new Set(ids.filter(Boolean))];
+  if (!S.length) return 0;
+  const D = await tx.select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firmId), eq(aiDocuments.kind, kind),
+    or(...S.map((id) => sql`${aiDocuments.drafts} @> ${JSON.stringify([{ savedId: id }])}::jsonb`))));
+  const at = new Date().toISOString();
+  let n = 0;
+  for (const d of D) {
+    const drafts = d.drafts.map((x) => {
+      if (!x.savedId || !S.includes(x.savedId)) return x;
+      n++;
+      if (to) return { ...x, savedId: to };
+      const { savedId: _s, ...rest } = x;
+      return { ...rest, deleted: at };
+    });
+    await tx.update(aiDocuments).set({ drafts, status: docStatus(d, drafts) }).where(eq(aiDocuments.id, d.id));
+  }
+  return n;
+}
+
+/**
+ * Drafts saved before {@link releaseScanDrafts} existed whose purchase / invoice is gone (deleted with its nalog): they
+ * are released now — called where the scan lists are shown and before a save, so such a read is never stuck as
+ * „зачувано“ (and never needs a new AI read). A cancelled (сторно) invoice keeps its row, so its draft stays saved.
+ */
+export async function releaseDeletedScanDrafts(tx: Tx, firmId: string, kinds: readonly SavedDocKind[] = ['purchase', 'sale']): Promise<number> {
+  let n = 0;
+  for (const kind of kinds) {
+    const t = kind === 'sale' ? invoices : purchases;
+    const D = await tx.select({ drafts: aiDocuments.drafts }).from(aiDocuments).where(and(eq(aiDocuments.firmId, firmId), eq(aiDocuments.kind, kind),
+      sql`exists (select 1 from jsonb_array_elements(${aiDocuments.drafts}) e where e->>'savedId' is not null
+        and not exists (select 1 from ${t} x where x.id = case when e->>'savedId' ~* '^[0-9a-f-]{36}$' then (e->>'savedId')::uuid end))`));
+    const ids = [...new Set(D.flatMap((d) => d.drafts.flatMap((x) => (x.savedId ? [x.savedId] : []))))];
+    if (!ids.length) continue;
+    const uu = ids.filter((x) => UUID.test(x));
+    const live = new Set(uu.length ? (await tx.select({ id: t.id }).from(t).where(inArray(t.id, uu))).map((x) => x.id) : []);
+    n += await releaseScanDrafts(tx, firmId, kind, ids.filter((x) => !live.has(x)));
+  }
+  return n;
 }
 
 /**
@@ -32,8 +91,7 @@ export async function skipDraft(tx: Tx, firmId: string, docId: string, index: nu
   if (!x) throw new DocumentError('Фактурата не постои во документот.');
   if (x.savedId) throw new DocumentError('Фактурата е веќе зачувана.');
   const drafts = d.drafts.map((y, i) => (i === index ? { ...y, skipped: skip || undefined } : y));
-  const status = allDone(drafts) && drafts.some((y) => y.savedId) ? 'saved' : d.status === 'saved' ? 'done' : d.status;
-  await tx.update(aiDocuments).set({ drafts, status }).where(eq(aiDocuments.id, docId));
+  await tx.update(aiDocuments).set({ drafts, status: docStatus(d, drafts) }).where(eq(aiDocuments.id, docId));
 }
 
 /** „2-3“ / „1,4“ / „2“ → [2, 3] / [1, 4] / [2] (1-based); [] when not readable. */

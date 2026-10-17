@@ -66,6 +66,11 @@ export interface AiDraft {
   msg: string;
   /** Id of the purchase / invoice saved from this draft. */
   savedId?: string;
+  /**
+   * When the purchase / invoice saved from this draft was deleted (ISO time): the draft is no longer saved and can be
+   * saved again („документот е избришан – може повторно да се зачува“, `releaseScanDrafts`). Cleared when saved again.
+   */
+  deleted?: string;
   /** „Прескокни“: the user left this invoice of the document out (not saved, not in the queue). */
   skipped?: boolean;
 }

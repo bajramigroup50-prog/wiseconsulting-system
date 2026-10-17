@@ -12,7 +12,7 @@ import { draftVatDate, pastHoldMsg, pastPeriodOf, type PastPeriodCtx } from '@wi
 import { audit, type Tx } from '../audit';
 import { aiDocuments, fileLinks, files, items, type AiDocument, type AiDraft, type Firm } from '../schema/index';
 import type { DocActor } from './context';
-import { draftSourceFiles, markDraftSaved, purchaseInputFromDraft } from './ai-docs';
+import { draftSourceFiles, markDraftSaved, purchaseInputFromDraft, releaseDeletedScanDrafts } from './ai-docs';
 import { saveInvoice, type InvoiceInput } from './invoices';
 import { ensurePartner } from './partners-auto';
 import { savePurchase } from './purchases';
@@ -24,7 +24,8 @@ export async function saleInputFromDraft(tx: Tx, firmId: string, d: ScanSaleDraf
   if (!partnerId && d.buyer?.name) partnerId = (await ensurePartner(tx, firmId, { name: d.buyer.name, edb: d.buyer.edb, address: d.buyer.address, city: d.buyer.city, vatRegistered: /^MK/i.test(d.buyer.edb || ''), type: 'customer' })).id;
   if (!partnerId) throw new Error('Изберете го купувачот.');
   return {
-    kind: 'invoice', number: d.number, date: d.date, pdate: d.date, due: d.due || null, partnerId, art32: d.art32, scanned: true,
+    // the number printed on the invoice: never a new one (a re-save after the invoice was deleted keeps it too)
+    kind: 'invoice', number: d.number, date: d.date, pdate: d.date, due: d.due || null, partnerId, art32: d.art32, scanned: true, keepNumber: true,
     lines: d.items.map((l) => ({ itemId: l.itemId || null, name: l.name, unit: l.unit, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, account: l.konto })),
     // legal basis of an exempt invoice as printed and its kind (ЗДДВ чл. 24 → field 08, чл. 23 → 09) — kept and printed
     ...(d.vatNote && !d.art32 ? { data: { vatNote: d.vatNote.slice(0, 500), ...(d.vatExempt ? { vatExempt: d.vatExempt } : {}) } } : {}),
@@ -74,6 +75,8 @@ export interface BulkSaveResult { saved: number; total: number; dup: number; hel
  * past-period context (`pastPeriodContext`); a draft in a past VAT period is held (status `past`), never posted.
  */
 export async function saveReadyScanDrafts(db: Tx, a: { firm: Pick<Firm, 'id'> & { vatRegistered?: boolean | null }; kind: 'purchase' | 'sale'; where?: SQL; actor: DocActor; past: PastPeriodCtx | null; scheme?: number }): Promise<BulkSaveResult> {
+  // drafts whose purchase / invoice was deleted are saved again (with their own number), not left as „зачувано“
+  await releaseDeletedScanDrafts(db, a.firm.id, [a.kind]);
   const docs = await db.select().from(aiDocuments).where(and(eq(aiDocuments.firmId, a.firm.id), eq(aiDocuments.kind, a.kind), eq(aiDocuments.status, 'done'), a.where));
   const R: BulkSaveResult = { saved: 0, total: 0, dup: 0, held: [], errs: [] };
   let ready = (x: AiDraft) => x.status === 'ok';

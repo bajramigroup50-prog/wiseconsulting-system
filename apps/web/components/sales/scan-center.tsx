@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { aiDocuments, files, journals, partners, refreshStaleScanDrafts, scanNeedsReread, type AiDocument } from '@wise/db';
+import { aiDocuments, DELETED_DOC_NOTE, files, journals, partners, refreshStaleScanDrafts, releaseDeletedScanDrafts, scanNeedsReread, type AiDocument } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -74,6 +74,8 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const stores = locs.filter((l) => l.kind === 'store');
   const wh = sp.wh ?? (mode === 'masovnoM' ? stores[0]?.id ?? '' : '');
   const notInline = sql`not (${aiDocuments.options} ? 'inline')`;
+  // a read whose purchase / invoice was deleted is no longer „зачувано“: it can be saved again (no new AI read)
+  await releaseDeletedScanDrafts(db(), firm.id, [kind]);
   const docs0 = mode === 'skan'
     ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, kind), isNull(aiDocuments.batchId), notInline)).orderBy(desc(aiDocuments.createdAt)).limit(60)
     : batchId ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.batchId, batchId))).orderBy(aiDocuments.createdAt) : [];
@@ -185,7 +187,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
             const s0 = st(r);
             const [pc, pt] = pills[s0] ?? ['', s0];
             const file = <a href={`/api/files/${r.doc.fileId}`} target="_blank" rel="noreferrer" title={r.fileName}>{r.fileName.slice(0, 34)}</a>;
-            const status = <td><span className={'pill ' + pc}>{pt}</span>{(x?.msg || r.doc.error) && <div className="mini">{x?.msg || r.doc.error}</div>}{r.doc.model && <div className="mini">{readVia(r.doc.model, r.doc.options)}</div>}</td>;
+            const status = <td><span className={'pill ' + pc}>{pt}</span>{x?.deleted && !x.savedId && <div className="mini"><span className="pill warn" title={'Избришан ' + dmy(x.deleted.slice(0, 10))}>{DELETED_DOC_NOTE}</span></div>}{(x?.msg || r.doc.error) && <div className="mini">{x?.msg || r.doc.error}</div>}{r.doc.model && <div className="mini">{readVia(r.doc.model, r.doc.options)}</div>}</td>;
             const acts = (
               <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                 {x && !x.savedId && write && r.doc.drafts.length > 1 && <RowAction action={skipScanDraft.bind(null, r.doc.id, r.i!, !x.skipped)} label={x.skipped ? 'Врати' : 'Прескокни'} title={x.skipped ? 'Врати ја фактурата во листата' : 'Не ја внесувај оваа фактура (другите од истиот документ остануваат)'} />}

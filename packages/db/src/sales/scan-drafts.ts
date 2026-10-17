@@ -266,7 +266,8 @@ export async function rebuildScanDrafts(db: Tx, f: Firm, doc: AiDocument, o: Dra
   const drafts = D.map((x, i) => {
     const old = same ? doc.drafts[i] : undefined;
     if (old?.savedId) return old;
-    return old?.skipped && !x.skipped ? { ...x, skipped: true } : x;
+    const y = old?.deleted ? { ...x, deleted: old.deleted } : x;
+    return old?.skipped && !y.skipped ? { ...y, skipped: true } : y;
   });
   const up = await db.update(aiDocuments).set({ drafts, result: res, options: { ...(doc.options ?? {}), rulesV: SCAN_RULES_V } })
     .where(and(eq(aiDocuments.id, doc.id), eq(aiDocuments.status, 'done'))).returning();
