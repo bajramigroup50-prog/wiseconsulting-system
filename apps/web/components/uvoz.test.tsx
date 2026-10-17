@@ -8,7 +8,8 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {}, push() {}, replace() {} }) }));
 vi.mock('@/app/(app)/skan/actions', () => ({ scanStatus: async () => [], startScans: async () => ({}) }));
 vi.mock('@/app/(app)/_ai/actions', () => ({ aiReadStatus: async () => [], startAiRead: async () => ({}) }));
-vi.mock('@/app/(app)/banka/actions', () => ({ previewImportAction: async () => ({}), previewNalogImportAction: async () => ({}), saveImportAction: async () => ({}), saveNalogImportAction: async () => ({}) }));
+vi.mock('@/app/(app)/banka/actions', () => ({ previewImportAction: async () => ({}), previewNalogImportAction: async () => ({}), saveImportAction: async () => ({}), saveNalogImportAction: async () => ({}),
+  pendingBankReadsAction: async () => ({ items: [], reading: 0 }), dismissBankReadsAction: async () => ({}), linkStatementAccountAction: async () => ({}), createStatementAccountAction: async () => ({}) }));
 vi.mock('@/app/(app)/mpinIn/actions', () => ({ distributeMpinRows: async () => ({}), setMpinFirm: async () => ({}), startMpinRead: async () => ({}) }));
 
 const { Uvoz, uvozSplit } = await import('./uvoz');

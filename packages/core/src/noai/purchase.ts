@@ -5,7 +5,7 @@
  * shape of the AI read (`PUR_PROMPT` / `ublToScan`), so the same drafts are built; the user checks them as always.
  * Lines are not read (too many layouts) — the draft is booked by VAT group, like a cost invoice.
  */
-import { docTypeFromText, mergeAttachedInvoices, scanInvoices, type ScanInvoice } from '../sales/scan';
+import { docTypeFromText, mergeAttachedInvoices, scanInvoices, vatNoteOf, type ScanInvoice } from '../sales/scan';
 import { AmbiguousAmountsError, ambExamples, reconcileFmt, type NumFmt } from '../numfmt';
 import { parseAccount, supplierAccountIn } from '../bank/mk-banks';
 import { dateIn, docFmt, lineText, numsIn, numTokens, type PdfLine } from './pdf-lines';
@@ -129,6 +129,10 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
   const recap = groups.length > 0 || bad.length > 0;
   // only VAT lines that do not reconcile: the draft shows them as printed and its check reports the difference
   if (!groups.length && bad.length) groups.push(...bad);
+  // ЗДДВ note printed on the invoice: art. 32-a (reverse charge, no VAT charged) or an exemption (чл. 24 / 30)
+  const vn = vatNoteOf(all);
+  if (!groups.length && total > 0 && vn) groups.push({ rate: vn.kind === 'art32' ? 18 : 0, base: total, vat: 0, kind: 'other' });
+  if (vn?.kind === 'art32') for (const g of groups) { g.rate = g.rate || 18; g.vat = 0; }
   if (!groups.length && total > 0) {
     // no recapitulation: the total with the only rate printed on the document
     const rs = RATES.filter((r) => new RegExp(`(^|\\D)${r}\\s*%`).test(all));
@@ -144,6 +148,7 @@ function readInvoice(L: readonly PdfLine[], o: { ownEdb?: string | null; kind?: 
       ...(o.kind === 'sale' ? { buyerEdb: edbs[0] ?? '' } : { supplierEdb: edbs[0] ?? '', ...(supplierAccountIn(all) ? { supplierBankAccount: supplierAccountIn(all) } : {}) }),
       // FIX (one document per invoice): a printed „за плаќање“ total that does not agree with the recapitulation is
       // kept, so the check of the draft reports it („износите не се совпаѓаат“) instead of the sum hiding it
+      ...(vn ? { vatNote: vn.note } : {}), ...(vn?.kind === 'art32' ? { art32: true } : {}),
       groups, lines: [], total: total && near(total, sum) ? total : recap && strong && !near(strong, sum) ? strong : sum,
     },
     // reconciles: a recapitulation (VAT = base × rate) whose sum is the printed total

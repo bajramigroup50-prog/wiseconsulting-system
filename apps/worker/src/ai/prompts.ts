@@ -42,6 +42,13 @@ export const INV_MULTI_ADD = `
 ONE OBJECT PER INVOICE: when the file holds several invoices (several headers „ФАКТУРА бр.“ / „Број на фактура“, different numbers or different suppliers) ALWAYS reply {"invoices":[…]} with one object per invoice in the order printed. Each object has ONLY that invoice's own supplier, ЕДБ, number, date, lines, VAT recapitulation and total. NEVER merge invoices into one object, NEVER return a range of numbers (like "101-103") and NEVER add up the totals of different invoices. In every invoice object also return "pages":string = the page(s) of the file it is printed on, e.g. "1" or "2-3" (the file's page / image order, first = 1).
 ATTACHED PAGES ARE NOT INVOICES: a page without its own invoice header and its own total / VAT recapitulation — the 2nd page of the same invoice („страна 2 од 2“), a consumption / cost specification (e.g. the EVN „спецификација на потрошувачка“ after the EVN bill), a „прилог“ / annex, a delivery note (испратница), a page repeating the same invoice number — belongs to the invoice BEFORE it: add that page to its "pages" (e.g. "3-4") and NEVER return it as an invoice object of its own. Every page of the file belongs to exactly one invoice.`;
 
+/**
+ * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the VAT legal note printed on the invoice
+ * (ЗДДВ чл. 32-а reverse charge, or an exemption under чл. 23 / 24), read by `vatNoteOf` in `@wise/core/sales`.
+ */
+export const VAT_NOTE_ADD = `
+VAT NOTE: in every invoice object also return "vatNote":string = the VAT legal note printed on the invoice, copied exactly (e.g. "Пренесување на даночната обврска согласно член 32-а од ЗДДВ", "ДДВ пресметува примателот", "Ослободено од ДДВ согласно член 24 од ЗДДВ", "без право на одбивка"); "" if none. When the note is about член 32-а / пренесување на даночната обврска / reverse charge set "art32":true and give each line the VAT rate of the supply (normally 18) even though no VAT is charged. Never invent a note.`;
+
 /** Added when several photos / scans are read together (`options.extraFileIds`): they are pages, maybe of several invoices. */
 export const INV_PAGES_NOTE = (n: number) => `
 The ${n} images above are the PAGES of the file in this order (page 1 = the first image). They may belong to one or to several invoices: group them by invoice header (a new „ФАКТУРА бр.“ / new number / new supplier starts a new invoice; a page without a header — a specification, annex, delivery note, page 2 — continues the invoice before it).`;

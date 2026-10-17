@@ -133,6 +133,12 @@ const CHART_BANK_RE: Record<string, RegExp> = {
   '280': /силк\s*ро|алфа\s*банка|кредитна\s*банка/i, '290': /ттк/i, '300': /комерцијална/i, '320': /централна\s+кооперативна|цкб/i,
   '380': /прокредит/i, '500': /алта|стопанска\s+банка\s+битола/i, '530': /шпаркасе|охридска/i,
 };
+/** Does a text (account name, chart konto name) name the bank of this account („ЖИРО СМЕТКА ТУТУНСКА БАНКА“ for 210…)? */
+export function namesBankOf(acc: unknown, text: string): boolean {
+  const b = mkBankOf(acc);
+  const re = b ? CHART_BANK_RE[b.code] : undefined;
+  return !!re && re.test(text);
+}
 const SUB_RE = /под\s*-?\s*сметка|подсметка/i;
 /** Purpose / savings accounts of a bank are never picked automatically. */
 const SPECIAL_RE = /наменска|совест|разговор|почеток|депозит|штедн/i;

@@ -8,7 +8,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
-  batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
+  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
   saleDraftFromScan, scanInvoices, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
@@ -215,6 +215,8 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
     const free = tracksStock ? d.items.filter((l) => !l.itemId && Number(l.qty) && !/услуг|транспорт|превоз/i.test(l.name)).length : 0;
     if (free) why.push(free + ' ставки не се поврзани со артикл');
     if (!d.items.length) why.push('нема ставки');
+    // no VAT and no note (чл. 32-а / ослободување) on the document: never guessed, the accountant decides
+    if (d.vatCheck) why.push(d.vatNote ? 'провери: ослободено со или без право на одбивка (ДДВ-04 поле 08 / 09)?' : NO_VAT_NOTE_MSG);
     if (own) why.push(own);
     const status = dup ? 'dup' : why.some((m) => !m.startsWith('нов купувач') && !m.startsWith('нов партнер креиран')) ? 'check' : 'ok';
     const nonInv = notInvoiceMsg(x);

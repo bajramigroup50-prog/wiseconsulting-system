@@ -26,8 +26,17 @@ export async function saleInputFromDraft(tx: Tx, firmId: string, d: ScanSaleDraf
   return {
     kind: 'invoice', number: d.number, date: d.date, pdate: d.date, due: d.due || null, partnerId, art32: d.art32, scanned: true,
     lines: d.items.map((l) => ({ itemId: l.itemId || null, name: l.name, unit: l.unit, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, account: l.konto })),
+    // legal basis of an exempt invoice as printed and its kind (ЗДДВ чл. 24 → field 08, чл. 23 → 09) — kept and printed
+    ...(d.vatNote && !d.art32 ? { data: { vatNote: d.vatNote.slice(0, 500), ...(d.vatExempt ? { vatExempt: d.vatExempt } : {}) } } : {}),
   };
 }
+
+/**
+ * A read sales invoice whose VAT treatment is not decided: every line at 0 % with no art. 32-a and no exemption kind
+ * (reads made before the VAT-note rule, or „провери: нема ДДВ – чл. 32-а или ослободување?“). Never saved in bulk.
+ */
+export const saleVatUnclear = (dr: Partial<ScanSaleDraft>): boolean =>
+  !!dr.vatCheck || (!dr.art32 && !dr.vatExempt && !!dr.items?.length && dr.items.every((l) => !Number(l.rate)));
 
 /** Save draft `i` of a read document as a purchase / an invoice and mark it saved (in the caller's transaction). */
 export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: number, actor: DocActor, over?: { date?: string; docDate?: string | null }, scheme?: number): Promise<string> {
@@ -64,7 +73,7 @@ export interface BulkSaveResult { saved: number; total: number; dup: number; hel
  * „Зачувај ги сите спремни“: save every `ok` draft of the selected documents of `kind`. `past` = the firm's
  * past-period context (`pastPeriodContext`); a draft in a past VAT period is held (status `past`), never posted.
  */
-export async function saveReadyScanDrafts(db: Tx, a: { firm: Pick<Firm, 'id'>; kind: 'purchase' | 'sale'; where?: SQL; actor: DocActor; past: PastPeriodCtx | null; scheme?: number }): Promise<BulkSaveResult> {
+export async function saveReadyScanDrafts(db: Tx, a: { firm: Pick<Firm, 'id'> & { vatRegistered?: boolean | null }; kind: 'purchase' | 'sale'; where?: SQL; actor: DocActor; past: PastPeriodCtx | null; scheme?: number }): Promise<BulkSaveResult> {
   const docs = await db.select().from(aiDocuments).where(and(eq(aiDocuments.firmId, a.firm.id), eq(aiDocuments.kind, a.kind), eq(aiDocuments.status, 'done'), a.where));
   const R: BulkSaveResult = { saved: 0, total: 0, dup: 0, held: [], errs: [] };
   let ready = (x: AiDraft) => x.status === 'ok';
@@ -74,8 +83,10 @@ export async function saveReadyScanDrafts(db: Tx, a: { firm: Pick<Firm, 'id'>; k
     // so such a draft (with at most „нов купувач“ besides) counts as ready in a firm without goods in the codebook
     const [{ goods }] = (await db.select({ goods: sql<number>`count(*)::int` }).from(items)
       .where(and(eq(items.firmId, a.firm.id), eq(items.active, true), sql`${items.type} <> 'service'`))) as [{ goods: number }];
-    ready = (x) => x.status === 'ok' || (x.status === 'check' && !goods
-      && String(x.msg ?? '').split(' · ').every((m) => !m || m.startsWith('нов купувач') || /ставки не се поврзани со артикл$/.test(m)));
+    // and a VAT firm's draft whose VAT treatment is unclear (чл. 32-а / ослободување со или без право на одбивка) never is
+    const vatOk = (x: AiDraft) => a.firm.vatRegistered === false || !saleVatUnclear(x.draft as Partial<ScanSaleDraft>);
+    ready = (x) => vatOk(x) && (x.status === 'ok' || (x.status === 'check' && !goods
+      && String(x.msg ?? '').split(' · ').every((m) => !m || m.startsWith('нов купувач') || /ставки не се поврзани со артикл$/.test(m))));
     // a cancelled / storno invoice is never saved in bulk – it is registered and cancelled on purpose, one by one
     const fids = docs.map((d) => d.fileId).filter((x): x is string => !!x);
     const fname = new Map((fids.length ? await db.select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fids)) : []).map((f) => [f.id, f.name]));

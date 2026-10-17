@@ -18,14 +18,14 @@
  * firms whose open items only exist in the ledger (opening balances, imported books).
  */
 import { and, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import { advDeduct, bankPaid, ledgerOpenItems, parseLedgerItemId, r2, type DocType, type OpenDoc } from '@wise/core';
+import { advDeduct, bankPaid, customerAccount, exemptReceivable, ledgerOpenItems, parseLedgerItemId, r2, type DocType, type OpenDoc } from '@wise/core';
 import type { Tx } from '../audit';
 import { loadLedgerLines } from '../ledger-queries';
 import {
-  bankLines, cashVouchers, compensations, invoiceAdvances, invoices, journals, purchases, supplierCredits,
+  bankLines, cashVouchers, compensations, invoiceAdvances, invoices, journals, purchases, supplierCredits, type InvoiceData,
 } from '../schema/index';
 import { loadAdvances } from '../sales/invoices';
-import { cents, den } from './context';
+import { cents, den, firmPostingContext, loadFirm } from './context';
 import { toBankRow } from './rows';
 
 export interface OpenItems { invoices: OpenDoc[]; purchases: OpenDoc[] }
@@ -145,6 +145,18 @@ async function loadDocs(tx: Tx, firmId: string, f: DocFilter): Promise<{ invoice
   const advBy = new Map<string, { advanceId: string; amount: string }[]>();
   for (const a of ADV) (advBy.get(a.invoiceId) ?? advBy.set(a.invoiceId, []).get(a.invoiceId)!).push(a);
 
+  // ЗДДВ чл. 32-а invoices are booked on their own receivable konto (`customer32`, 1200009): a payment linked to one
+  // is booked there too (`docKonto`), so it closes the invoice on the konto it was posted on
+  // — and the same for invoices exempt with the right to deduct (чл. 24) on `customerExempt` (`exemptReceivable`)
+  let konto: (i: (typeof I)[number]) => string | undefined = () => undefined;
+  if (I.some((i) => i.art32 || !num(i.vat))) {
+    const ctx = await firmPostingContext(tx, await loadFirm(tx, firmId));
+    const k0 = customerAccount(ctx, false);
+    konto = (i) => {
+      const k = customerAccount(ctx, i.art32, exemptReceivable({ art32: i.art32, export: i.export, vatExempt: (i.data as InvoiceData | null)?.vatExempt, vat: num(i.vat), base: num(i.base) }, ctx));
+      return k !== k0 ? k : undefined;
+    };
+  }
   const outI: OpenDoc[] = [];
   for (const i of I) {
     const fx = num(i.fx) || 1;
@@ -156,6 +168,7 @@ async function loadDocs(tx: Tx, firmId: string, f: DocFilter): Promise<{ invoice
       total: cents(tot * fx), paidOther: other.get('invoice|' + i.id) ?? 0,
       ...(i.status === 'pending' ? { pend: true } : {}),
       ...(i.currency !== 'MKD' ? { cur: i.currency, fx } : {}),
+      ...(konto(i) ? { konto: konto(i)! } : {}),
     });
   }
   const outP: OpenDoc[] = P.map((p) => ({

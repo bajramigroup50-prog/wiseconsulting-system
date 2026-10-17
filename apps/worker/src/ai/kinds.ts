@@ -62,8 +62,8 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     const bytes = await readObject(file.bucketKey);
     content = fileContent(file, bytes);
     if (content.blocks.some((b) => b.type === 'document')) pdf = bytes;
-    const o = (doc.options ?? {}) as { extraFileIds?: string[]; deep?: boolean };
-    if ((doc.kind === 'fisk' || doc.kind === 'blg') && !o.deep && !o.extraFileIds?.length) free = () => freeDocRead(doc.kind as FreeDocKind, file, bytes, today);
+    const o = (doc.options ?? {}) as { extraFileIds?: string[]; deep?: boolean; reread?: boolean };
+    if ((doc.kind === 'fisk' || doc.kind === 'blg') && !o.deep && !o.reread && !o.extraFileIds?.length) free = () => freeDocRead(doc.kind as FreeDocKind, file, bytes, today);
     // legacy `fkTiles` 13005 + `FK_TILE_NOTE` 13010: several photos / pages of ONE fiscal report read together
     const extra = ((doc.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [];
     if (doc.kind === 'fisk' && extra.length) {

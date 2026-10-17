@@ -28,13 +28,14 @@ import { DownloadCsv } from '@/components/download-csv';
 import { Ddv04Form, fi } from './ddv04-form';
 import { CorrectionsForm, VatAccountsForm } from './forms';
 import { DownloadXlsx } from './download-xlsx';
+import { annexSheet, DdvAnnex } from './ddv-annex';
 import { closeVatPeriodAction, reopenVatPeriodAction, saveDtColsAction, setVatPeriodKindAction } from './actions';
 import { inspCols, inspTables, inspYears } from '@/lib/vat-insp';
 import { PeriodKind } from './period-kind';
 import { TarifiView } from './tarifi-view';
 import { ddvEvidenceRows } from '@wise/core/vat/evidence';
 
-type SP = { p?: string; view?: string; tab?: string; y?: string | string[]; mode?: string; c?: string | string[]; late?: string };
+type SP = { p?: string; view?: string; tab?: string; y?: string | string[]; mode?: string; c?: string | string[]; late?: string; f?: string };
 const today = () => todayIso();
 const list = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
@@ -143,6 +144,10 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
   const vbc = vbControl(VB.map((l) => ({ account: l.account, debit: Number(l.debit), credit: Number(l.credit), note: l.note })), C.ctx, F,
     Object.fromEntries(Object.entries(C.result.in).map(([r, x]) => [r, x.b])));
   const tot = (k: string) => P.filter((p) => p.kind === kind).reduce((s, p) => s + (p.fields[k] ?? 0), 0);
+  // „Прилог кон ДДВ-04 – промет по членови“: the documents behind 07–11 (same computation as the fields)
+  const annex = C.annex;
+  const annexK = new Set<string>(annex.map((a) => a.field));
+  const fLink = (k: string) => (annexK.has(k) ? qs({ f: k }) + '#annex-' + k : undefined);
   const evid = ddvEvidenceRows(ov.data.docs, cur.from, cur.to, { partners: ov.data.partners });
   // „Документи книжени во минат/затворен ДДВ период по затворањето“ (the year; the selected period below) and
   // „Корекции на ДДВ-04 потребни“ (held documents confirmed into their own past period)
@@ -171,6 +176,8 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
         <Link className="btn" href={`/ddvKnigi?sel=${kind === 'month' ? sel.slice(5) : 'Q' + sel.slice(-1)}`}>Книги за ДДВ</Link>
         <Link className="btn" href={qs({ view: showForm ? '' : 'form' })}>{showForm ? 'Табела' : 'Образец'}</Link>
         <a className="btn pri" href={`/print/ddv04?p=${encodeURIComponent(sel)}`} target="_blank" rel="noreferrer">PDF образец ДДВ-04</a>
+        {annex.length > 0 && <a className="btn" href={`/print/ddv04Prilog?p=${encodeURIComponent(sel)}`} target="_blank" rel="noreferrer" title="Прилог кон ДДВ-04 – промет по членови (полиња 07–11), за УЈП">PDF прилог по членови</a>}
+        {annex.length > 0 && <DownloadXlsx name={`DDV-04_prilog_${sel}.xlsx`} label="Excel прилог" sheets={[{ name: 'Прилог ДДВ-04', rows: annexSheet(annex, vatPeriodLabel(sel)) }]} />}
         <Link className="btn" href="/ddv?tab=insp" title="Табела по месеци за инспектор – за 1 до 5 години">📋 Табела за инспектор</Link>
         <Link className="btn" href="/ddv?tab=tarifi">Даночни тарифи</Link>
         <Link className="btn" href="/ddv/nacrti" title="P37: пријавите што програмата ги подготви по истекот на периодот, за сите ваши фирми">🧾 Нацрти – сите фирми</Link>
@@ -266,16 +273,21 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
 
       {showForm ? (
         <div className="pdfwrap"><div className="pdfdoc" style={{ margin: '0 auto' }}>
-          <Ddv04Form firm={firm} period={sel} fields={F} amendmentNo={cur.row?.corrections.amendmentNo} today={today()} />
+          <Ddv04Form firm={firm} period={sel} fields={F} amendmentNo={cur.row?.corrections.amendmentNo} today={today()} links={Object.fromEntries([...annexK].map((k) => [k, fLink(k)!]))} />
         </div></div>
       ) : (
         <div className="tw"><table>
           <thead><tr><th>Поле</th><th>Опис</th><th className="n">Износ (ден.)</th></tr></thead>
           <tbody>{DDV04_FIELDS.map(([k, t]) => (
-            <tr key={k} className={['20', '29', '31'].includes(k) ? 'tot' : undefined}><td className="num" style={{ textAlign: 'left' }}>{k}</td><td>{t}</td><td className="n">{fi(F[k])}</td></tr>
+            <tr key={k} className={['20', '29', '31'].includes(k) ? 'tot' : undefined}><td className="num" style={{ textAlign: 'left' }}>{k}</td><td>{t}</td><td className="n">{fLink(k) ? <Link href={fLink(k)!} title="Документи по кои е пресметан износот">{fi(F[k])} ▾</Link> : fi(F[k])}</td></tr>
           ))}</tbody>
         </table></div>
       )}
+      {annex.length > 0 && <>
+        <h2 style={{ margin: '18px 0 4px' }}>Прилог кон ДДВ-04 – промет по членови</h2>
+        {changedAfterFiling && <p className="note">Документите се според сегашната пресметка (по поднесувањето има измени).</p>}
+        <DdvAnnex sections={annex} expandable open={sp.f} />
+      </>}
       {/* FIX (LEGACY-MAP 5.4 item 5): legacy told users to move exports from field 08 to 07 by hand; exports, exempt
           sales without deduction (09) and supplies to non-residents (10) are now separated by the computation. */}
       <p className="note">Износите се во цели денари. Извозот е во поле 07, промет ослободен со право на одбивка во поле 08, без право на одбивка во поле 09. Пријавата се поднесува преку е-Даноци; печатениот образец служи за контрола и архива. Излезен ДДВ: {[18, 10, 5].map((r) => `${r}% → ${vatAccount(ov.ctx, 'out', r)}`).join(', ')}.</p>

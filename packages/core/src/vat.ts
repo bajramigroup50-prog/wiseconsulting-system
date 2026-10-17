@@ -456,7 +456,16 @@ export interface DdvResult {
   tourM?: TravelMarginResult;
 }
 
-export interface DdvForOptions { travel?: TravelMarginOptions }
+export interface DdvForOptions {
+  travel?: TravelMarginOptions;
+  /**
+   * Called for every amount (in cents, signed) that `ddvFor` adds to the zero-rate / reverse-charge fields 07–11 —
+   * the document behind it (`ddvFieldDocs`, the „Прилог кон ДДВ-04“). Not called for anything else.
+   */
+  collect?: (field: DdvDocField, doc: { kind: 'invoice' | 'sales'; inv?: InvoiceDoc; sale?: SalesDoc; note?: string }, cents: number) => void;
+}
+/** ДДВ-04 fields whose amount is listed per document (export, exempt 08/09, non-resident 10, art. 32-a 11). */
+export type DdvDocField = '07' | '08' | '09' | '10' | '11';
 
 /**
  * VAT totals of a period (legacy `ddvFor` 3606 + patch 11963).
@@ -486,36 +495,39 @@ export function ddvFor(docs: VatDocuments, period: string, per: VatPeriodKind | 
     M.set(rate, o);
   };
   const inP = (d: { date: string; pend?: boolean | null }) => !d.pend && periodOf(d.date, per) === period;
+  const col = opts.collect;
 
   for (const inv of docs.invoices ?? []) {
     if (inv.tourM || !inP(inv)) continue;
     const c = calcLines(inv.items, inv.art32, { nonVat });
     const sg = inv.credit ? -1 : 1;
-    if (inv.art32) art32Out += sg * toC(c.base);
+    if (inv.art32) { art32Out += sg * toC(c.base); col?.('11', { kind: 'invoice', inv }, sg * toC(c.base)); }
     else {
       for (const g of c.by) {
         if (g.rate === 0 && isPassThroughAccount(g.konto)) continue;
         const b = sg * toC(g.base);
         if (g.rate === 0) {
-          const kind = inv.zeroKind ?? (inv.export ? 'export' : 'exempt');
+          // `vatExempt: 'noded'` (ЗДДВ чл. 23, без право на одбивка) → 09; 'ded' (чл. 24) and no kind (as before) → 08
+          const kind = inv.zeroKind ?? (inv.export ? 'export' : inv.vatExempt === 'noded' ? 'exemptNoDed' : 'exempt');
           if (kind === 'export') exportBase += b;
           else if (kind === 'exemptNoDed') exemptNoDed += b;
           else if (kind === 'nonResident') nonRes += b;
           else outBase0 += b;
+          col?.(kind === 'export' ? '07' : kind === 'exemptNoDed' ? '09' : kind === 'nonResident' ? '10' : '08', { kind: 'invoice', inv }, b);
         } else add(out, g.rate, b, sg * toC(g.vat));
       }
     }
     if (!inv.credit && !inv.advance && !inv.art32) {
       for (const g of advDeduct(inv.advances, { nonVat }).by) {
         if (g.rate) add(out, g.rate, -toC(g.base), -toC(g.vat));
-        else outBase0 -= toC(g.base);
+        else { outBase0 -= toC(g.base); col?.('08', { kind: 'invoice', inv, note: 'одбиен аванс' }, -toC(g.base)); }
       }
     }
   }
   for (const s of docs.sales ?? []) {
     if (!inP(s)) continue;
     for (const g of s.groups ?? []) {
-      if (n0(g.rate) === 0) outBase0 += toC(g.base);
+      if (n0(g.rate) === 0) { outBase0 += toC(g.base); col?.('08', { kind: 'sales', sale: s }, toC(g.base)); }
       else add(out, n0(g.rate), toC(g.base), toC(g.vat));
     }
   }
@@ -621,6 +633,87 @@ export function ddv04FromResult(D: DdvResult, corrections = 0): Ddv04Fields {
 /** ДДВ-04 for a period straight from documents. */
 export function ddv04(docs: VatDocuments, period: string, per: VatPeriodKind | string | undefined, ctx: VatContext, opts: DdvForOptions & { corrections?: number } = {}): Ddv04Fields {
   return ddv04FromResult(ddvFor(docs, period, per, ctx, opts), opts.corrections ?? 0);
+}
+
+/* ------------------------------------------------------------------ ДДВ-04 annex: documents per field */
+
+export interface DdvFieldDocRow {
+  kind: 'invoice' | 'credit' | 'sales';
+  id?: string;
+  number: string;
+  date: string;
+  partnerId?: string;
+  name: string;
+  edb: string;
+  /** Base in denars (2 decimals); credit notes / deducted advances negative. */
+  base: number;
+  /** Legal basis / article: `vatNote`, „чл. 32-а ЗДДВ“, „извоз“… */
+  basis: string;
+}
+export interface DdvFieldSection {
+  field: DdvDocField;
+  label: string;
+  rows: DdvFieldDocRow[];
+  /** Σ rows, exact (denars, 2 decimals). */
+  sum: number;
+  /** The ДДВ-04 field: `sum` rounded to whole denars — equals `ddv04FromResult(…)[field]`. */
+  value: number;
+  /** value − sum (the whole-denar rounding), 0 when none. */
+  rounding: number;
+}
+
+const DOC_FIELDS: readonly DdvDocField[] = ['07', '08', '09', '10', '11'];
+const BASIS: Record<DdvDocField, string> = {
+  '07': 'извоз', '08': 'ослободено со право на одбивка', '09': 'ослободено без право на одбивка',
+  '10': 'промет кон нерезидент', '11': 'чл. 32-а ЗДДВ – ДДВ пресметува примателот',
+};
+
+/**
+ * „Прилог кон ДДВ-04 – промет по членови“: the documents behind fields 07–11, from the SAME computation as the form
+ * (`ddvFor` with its `collect` hook), so every section sums exactly to its field: `value` = round(Σ rows) =
+ * `ddv04FromResult(ddvFor(…))[field]`; `rounding` shows the whole-denar difference. Credit notes and deducted
+ * advances are listed with a minus. Sections with no rows are left out unless `all`.
+ */
+export function ddvFieldDocs(docs: VatDocuments, period: string, per: VatPeriodKind | string | undefined, ctx: VatContext,
+  opts: DdvForOptions & { partners?: Readonly<Record<string, PartnerInfo>>; fields?: readonly DdvDocField[]; all?: boolean } = {}): DdvFieldSection[] {
+  const acc = new Map<string, { row: DdvFieldDocRow; c: number; field: DdvDocField }>();
+  const objId = new Map<object, number>();
+  const idOf = (o: object) => objId.get(o) ?? (objId.set(o, objId.size), objId.size - 1);
+  ddvFor(docs, period, per, ctx, {
+    ...opts,
+    collect: (field, d, cents) => {
+      if (!cents) return;
+      const o = (d.inv ?? d.sale)!;
+      const key = `${field}|${idOf(o)}|${d.note ?? ''}`;
+      let x = acc.get(key);
+      if (!x) {
+        const inv = d.inv;
+        const p = inv?.partner ? opts.partners?.[inv.partner] : undefined;
+        const note = d.note ? ` (${d.note})` : '';
+        x = {
+          field, c: 0,
+          row: inv
+            ? {
+              kind: inv.credit ? 'credit' : 'invoice', ...(inv.id ? { id: inv.id } : {}), number: String(inv.number ?? ''), date: inv.date,
+              ...(inv.partner ? { partnerId: inv.partner } : {}), name: String(p?.name ?? ''), edb: String(p?.edb ?? ''),
+              base: 0, basis: (field === '11' ? BASIS['11'] : String(inv.vatNote ?? '').trim() || BASIS[field]) + note,
+            }
+            : { kind: 'sales', ...(d.sale!.id ? { id: d.sale!.id } : {}), number: String(d.sale!.number ?? ''), date: d.sale!.date, name: 'Дневен промет (фискална каса)', edb: '', base: 0, basis: BASIS[field] },
+        };
+        acc.set(key, x);
+      }
+      x.c += cents;
+    },
+  });
+  const want = opts.fields ?? DOC_FIELDS;
+  return want.map((field) => {
+    const L = [...acc.values()].filter((x) => x.field === field);
+    const rows = L.map((x) => ({ ...x.row, base: toD(x.c) }))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.number.localeCompare(b.number, 'mk', { numeric: true })));
+    const c = L.reduce((t, x) => t + x.c, 0);
+    const value = rh(toD(c));
+    return { field, label: DDV04_FIELDS.find(([k]) => k === field)?.[1] ?? field, rows, sum: toD(c), value, rounding: r2(value - toD(c)) };
+  }).filter((x) => opts.all || x.rows.length);
 }
 
 /* ------------------------------------------------------------------ VAT books (КИФ / КПФ) */

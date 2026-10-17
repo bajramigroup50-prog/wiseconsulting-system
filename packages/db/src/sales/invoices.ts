@@ -227,7 +227,8 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
   if (inv.kind === 'invoice' || inv.kind === 'credit') {
     const adv = inv.kind === 'invoice' && !inv.advance ? await loadAdvances(tx, await tx.select().from(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, inv.id)), fx) : [];
     const lines = wrapCore(() => invoiceEntries({
-      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32,
+      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32, vatExempt: ((inv.data ?? {}) as InvoiceData).vatExempt === 'ded' ? 'ded' : ((inv.data ?? {}) as InvoiceData).vatExempt === 'noded' ? 'noded' : undefined,
+      keepKonto: ((inv.data ?? {}) as InvoiceData).keepKonto === '1',
       credit: inv.kind === 'credit', advance: inv.advance, export: inv.export, advances: adv,
     }, ctx));
     // Legacy `stornoOn` / `stF` (3444): credit notes are booked with minus on the original side (red storno) unless the
@@ -514,4 +515,82 @@ export async function repostInvoice(tx: Tx, f: Firm, id: string, userId: string 
   const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, id), eq(invoices.firmId, f.id))).limit(1);
   if (!inv || inv.status !== 'posted') return;
   await postInvoice(tx, f, inv, userId);
+}
+
+/* ---------------- ЗДДВ чл. 32-а / ослободување: bulk marking of issued invoices ---------------- */
+
+/** `art32`; `ded` = exempt WITH the right to deduct (field 08); `noded` = exempt WITHOUT it, ЗДДВ чл. 23 (field 09); `ded` is чл. 24. */
+export type VatMarkMode = 'art32' | 'ded' | 'noded';
+export interface VatMarkResult { changed: { id: string; number: string }[]; skipped: { id: string; number: string; why: string }[] }
+
+/** Default legal basis of the bulk „Означи како ослободено“ per kind (ЗА ПРОВЕРКА: article mapping to be confirmed). */
+export const EXEMPT_NOTE_DEFAULT: Record<'ded' | 'noded', string> = {
+  ded: 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ',
+  noded: 'Ослободено од ДДВ без право на одбивка согласно член 23 од ЗДДВ',
+};
+
+/**
+ * „Означи како чл. 32-а“ / „Ослободено со / без право на одбивка“ on ticked issued invoices (Излезни фактури).
+ * Only invoices that charge NO VAT are changed (every line at 0 %, or already art. 32-a / exempt) — an invoice that
+ * charged VAT to the buyer is never rewritten here.
+ * - `art32`: `art32 = true`, the lines get rate 18 (the recipient's VAT, no VAT charged; ДДВ treats art. 32-a at 18 %),
+ *   the printed note is the art. 32-a one (`data.vatNote` removed); ДДВ-04 field 08 → 11, receivable 1200 → `customer32`.
+ * - `ded` / `noded`: `art32 = false`, the lines stay / go to 0 %, `data.vatNote` = the chosen legal basis (printed),
+ *   `data.vatExempt` = the kind → ДДВ-04 field 08 (with the right to deduct) (чл. 24) / 09 (without, чл. 23).
+ * A booked invoice is re-posted in place; the firm's lock date, a closed VAT period or a locked nalog skip it (open
+ * periods only). Each changed invoice is audited (`vatMark32` / `vatMarkExempt`).
+ */
+export async function markInvoicesVat(tx: Tx, firmId: string, ids: readonly string[], mode: VatMarkMode, actor: DocActor, opts: { note?: string } = {}): Promise<VatMarkResult> {
+  if (pendingFor(actor)) throw new DocumentError('Немате право да ги менувате издадените фактури.');
+  const f = await loadFirmForUpdate(tx, firmId);
+  const out: VatMarkResult = { changed: [], skipped: [] };
+  const I = ids.length ? await tx.select().from(invoices).where(and(eq(invoices.firmId, firmId), inArray(invoices.id, [...ids]))).orderBy(asc(invoices.date), asc(invoices.number)) : [];
+  const note = mode === 'art32' ? '' : String(opts.note ?? '').trim().slice(0, 500) || EXEMPT_NOTE_DEFAULT[mode];
+  for (const inv of I) {
+    const skip = (why: string) => out.skipped.push({ id: inv.id, number: inv.number, why });
+    if (inv.kind !== 'invoice' && inv.kind !== 'credit') { skip('не е фактура / одобрение'); continue; }
+    if (isCancelled(inv)) { skip('сторнирана'); continue; }
+    if (inv.export) { skip('извоз'); continue; }
+    if (f.lockDate && inv.date <= f.lockDate) { skip('заклучен период'); continue; }
+    const L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
+    if (!inv.art32 && L.some((l) => n(l.rate) !== 0)) { skip('фактурата има пресметан ДДВ'); continue; }
+    const data = { ...((inv.data ?? {}) as InvoiceData) };
+    if (mode === 'art32') {
+      if (inv.art32) { skip('веќе е по чл. 32-а'); continue; }
+      delete data.vatNote;
+      delete data.vatExempt;
+    } else {
+      if (!inv.art32 && data.vatNote === note && data.vatExempt === mode) { skip('веќе е ослободена со истиот основ'); continue; }
+      data.vatNote = note;
+      data.vatExempt = mode;
+    }
+    const art32 = mode === 'art32';
+    const rate = art32 ? 18 : 0;
+    try {
+      // a savepoint per invoice: a closed VAT period / locked nalog skips this one, the others go on
+      await tx.transaction(async (t0) => {
+        const t = t0 as unknown as Tx;
+        await t.update(invoiceLines).set({ rate }).where(eq(invoiceLines.invoiceId, inv.id));
+        const T = invoiceTotals({ items: toItems(L.map((l) => ({ ...l, rate }))), art32, credit: inv.kind === 'credit', advance: inv.advance });
+        const [u] = await t.update(invoices).set({ art32, data, base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), updatedBy: actor.userId })
+          .where(eq(invoices.id, inv.id)).returning() as [Invoice];
+        if (u.status === 'posted') await postInvoice(t, f, u, actor.userId);
+        await audit(t, {
+          userId: actor.userId, firmId, action: art32 ? 'vatMark32' : 'vatMarkExempt', entityType: 'invoice', entityId: inv.id,
+          data: {
+            number: inv.number, date: inv.date, kind: inv.kind,
+            text: art32 ? 'Означено како чл. 32-а (пренесување на даночната обврска)'
+              : (mode === 'noded' ? 'Означено како ослободено без право на одбивка (поле 09): ' : 'Означено како ослободено со право на одбивка (поле 08): ') + note,
+            vatExempt: art32 ? null : mode,
+            from: { art32: inv.art32, vatNote: ((inv.data ?? {}) as InvoiceData).vatNote ?? null, vatExempt: ((inv.data ?? {}) as InvoiceData).vatExempt ?? null },
+          },
+        });
+      });
+      out.changed.push({ id: inv.id, number: inv.number });
+    } catch (e) {
+      if (e instanceof Error && /^(PostingError|DocumentError)$/.test(e.name)) skip(e.message);
+      else throw e;
+    }
+  }
+  return out;
 }

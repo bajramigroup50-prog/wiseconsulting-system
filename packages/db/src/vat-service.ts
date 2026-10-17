@@ -18,8 +18,8 @@
  */
 import { and, eq, gte, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import {
-  ddv04FromResult, ddvFor, periodDue, periodsOfYear, perRange, vatCloseEntries,
-  type DdvResult, type Ddv04Fields, type JournalLine as CoreJournalLine, type LedgerLineLike, type PostingContext,
+  ddv04FromResult, ddvFieldDocs, ddvFor, periodDue, periodsOfYear, perRange, vatCloseEntries,
+  type DdvFieldSection, type DdvResult, type Ddv04Fields, type JournalLine as CoreJournalLine, type LedgerLineLike, type PostingContext,
 } from '@wise/core';
 import { audit, type Tx } from './audit';
 import { postJournal, PostingError, unpostSource, type PostedJournal } from './posting';
@@ -60,6 +60,8 @@ export async function vatLedgerLines(tx: Tx, firmId: string, from: string, to: s
 export interface VatPeriodComputation {
   period: string; kind: VatPeriodKind; from: string; to: string; due: string;
   ctx: PostingContext; data: VatSourceData; result: DdvResult; fields: Ddv04Fields;
+  /** „Прилог кон ДДВ-04 – промет по членови“: the documents behind fields 07–11 (each section sums to its field). */
+  annex: DdvFieldSection[];
   /** Preview of the VAT-close journal and its net (debt > 0 / claim < 0). */
   close: { lines: CoreJournalLine[]; diff: number };
 }
@@ -75,7 +77,8 @@ export async function computeVatPeriod(
   const result = ddvFor(data.docs, period, kind, C, { travel: data.travel });
   const fields = ddv04FromResult(result, corrections.field30 ?? 0);
   const close = vatCloseEntries(await vatLedgerLines(tx, firm.id, from, to), from, to, C);
-  return { period, kind, from, to, due: periodDue(period), ctx: C, data, result, fields, close };
+  const annex = ddvFieldDocs(data.docs, period, kind, C, { travel: data.travel, partners: data.partners });
+  return { period, kind, from, to, due: periodDue(period), ctx: C, data, result, fields, annex, close };
 }
 
 async function lockFirm(tx: Tx, firmId: string): Promise<Firm> {

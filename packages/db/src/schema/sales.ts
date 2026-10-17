@@ -81,6 +81,15 @@ export interface InvoiceData {
   cancelled?: { at: string; by: string | null; reason: string; status: string };
   /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
   prodRun?: InvoiceProdState;
+  /**
+   * Legal basis of a sale without VAT (rate 0) printed on the invoice: „Ослободено од ДДВ согласно член 24 од ЗДДВ“…
+   * (from a scan, the editor or the bulk „Означи како ослободено“). Art. 32-a invoices print `ART32_NOTE` instead.
+   */
+  vatNote?: string;
+  /** Kind of that exemption: 'ded' (with the right to deduct, чл. 24) → ДДВ-04 field 08; 'noded' (чл. 23) → 09; missing = 08. */
+  vatExempt?: string;
+  /** '1': the 0 % lines keep their revenue konto (no `revGoods0` / `revService0`) — imported from the old program. */
+  keepKonto?: string;
   /** Buyer as read from a scanned sales invoice (before a partner is chosen). */
   buyer?: { name: string; edb: string; address: string; city: string };
   /** Phase 10 travel agency: margin scheme (чл. 38) — maps to core `InvoiceDoc.tourM` / `arrangementId` for the VAT source. */

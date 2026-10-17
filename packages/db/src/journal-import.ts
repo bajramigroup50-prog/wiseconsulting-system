@@ -20,7 +20,7 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { normalizeName } from '@wise/core';
 import { obBankRows } from '@wise/core/finpar-ob';
 import { jiGroup, jiInvoices, jiIsOpening, jiMonths, jiNumber, jiRows, jiSynthetic, needsPartner, type JiIn, type JiInvoice, type JiJournal, type JiMonth, type JiRow } from '@wise/core/journal-import';
-import { findPartnerMatch, type MatchablePartnerRow } from '@wise/core/partners/match';
+import { findPartnerMatch, nameScore, nameTokens, partnerAliases, type MatchablePartnerRow } from '@wise/core/partners/match';
 import { audit, type Tx } from './audit';
 import { missingAccounts, PostingError, postJournal, removeJournals } from './posting';
 import { saveBankAccount } from './bank/lines';
@@ -114,16 +114,17 @@ const CYR = /[Ѐ-ӿ]/, LAT = /[A-Za-z]/;
  * YUSCII included → one clear similar name). `by` for the preview: `name` = the same spelling, `translit` = the same
  * name in the other script, `norm` = a similar name (legal forms, abbreviations, cut-off names).
  */
-function partnerMatcher(P: readonly PRow[]) {
-  const byCode = new Map<string, string>(), byNum = new Map<string, string>();
+function partnerMatcher(P: readonly PRow[], clash?: Map<string, { code: string; file: string; wise: string }>) {
+  const byCode = new Map<string, PRow>(), byNum = new Map<string, PRow>();
   for (const p of P) {
     const c = (p.code ?? '').trim();
-    if (c) { byCode.set(c, p.id); if (/^\d+$/.test(c)) byNum.set(String(+c), p.id); }
+    if (c) { byCode.set(c, p); if (/^\d+$/.test(c)) byNum.set(String(+c), p); }
   }
   return (r: Pick<JiRow, 'pcode' | 'pedb' | 'pname'>): { id: string; by: JiMatchBy } | null => {
     if (r.pcode) {
       const x = byCode.get(r.pcode) ?? (/^\d+$/.test(r.pcode) ? byNum.get(String(+r.pcode)) : undefined);
-      if (x) return { id: x, by: 'code' };
+      if (x && codeAgrees(x, r)) return { id: x.id, by: 'code' };
+      if (x && clash) clash.set(r.pcode + '|' + r.pname, { code: r.pcode, file: r.pname, wise: x.name });
     }
     const m = findPartnerMatch(P, { name: r.pname || null, id: r.pedb || null });
     if (!m.partner) return null;
@@ -133,6 +134,27 @@ function partnerMatcher(P: readonly PRow[]) {
     const other = (CYR.test(r.pname) && !CYR.test(m.partner.name) && LAT.test(m.partner.name)) || (LAT.test(r.pname) && !CYR.test(r.pname) && CYR.test(m.partner.name));
     return { id: m.partner.id, by: same ? 'name' : other ? 'translit' : 'norm' };
   };
+}
+
+/** Score from which the file's name confirms a partner found by its code (cut-off and Latin ↔ Cyrillic names pass). */
+export const JI_CODE_NAME_SCORE = 0.85;
+const dig = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+/**
+ * A partner found by the old program's code is taken only when it is the same company: the same ЕДБ / ЕМБС, or a
+ * compatible name. WISE gives its own codes (scans, new partners), so the old code can belong to another company.
+ */
+export function codeAgrees(p: MatchablePartnerRow, r: Pick<JiRow, 'pedb' | 'pname'>): boolean {
+  const e = dig(r.pedb);
+  if (e.length >= 7 && (dig(p.edb) === e || dig(p.embs) === e)) return true;
+  if (e.length === 13 && dig(p.edb).length === 13) return false;
+  if (!r.pname.trim()) return true;
+  const F = nameTokens(r.pname);
+  return [p.name, ...partnerAliases(p)].some((n) => {
+    if (nameScore(r.pname, n) >= JI_CODE_NAME_SCORE) return true;
+    // a short name of the same company („GULERMAK“ = „ГУЛЕРМАК АГИР САНАЈИ …“): every word of one is in the other
+    const W = nameTokens(n), [a, b] = F.length <= W.length ? [F, W] : [W, F];
+    return a.length > 0 && a.every((t) => b.includes(t));
+  });
 }
 
 /** Up to 3 uncertain candidates for a partner that was not found (shown next to the missing partner). */
@@ -185,7 +207,8 @@ async function analyze(tx: Tx, firmId: string, input: JiInput): Promise<Analysis
 
   // partners
   const P = await tx.select({ id: partners.id, code: partners.code, name: partners.name, edb: partners.edb, embs: partners.embs, bankAccount: partners.bankAccount, data: partners.data }).from(partners).where(eq(partners.firmId, firmId));
-  const match = partnerMatcher(P);
+  const clash = new Map<string, { code: string; file: string; wise: string }>();
+  const match = partnerMatcher(P, clash);
   const partnerOf = new Map<JiRow, string | null>();
   const by: Record<JiMatchBy, Set<string>> = { code: new Set(), edb: new Set(), name: new Set(), norm: new Set(), translit: new Set() };
   const missing = new Map<string, JiMissingPartner>();
@@ -205,6 +228,10 @@ async function analyze(tx: Tx, firmId: string, input: JiInput): Promise<Analysis
     if (!m.edb && r.pedb) m.edb = r.pedb;
     if (!m.kontos.includes(r.k)) m.kontos.push(r.k);
     missing.set(key, m);
+  }
+  if (clash.size) {
+    const C = [...clash.values()];
+    warnings.push(`Шифрата се совпаѓа со друг комитент во WISE – комитентот се бара по ЕДБ / назив (${C.length}): ${C.slice(0, 10).map((c) => `${c.code} „${c.file}“ ≠ „${c.wise}“`).join('; ')}${C.length > 10 ? '…' : ''}.`);
   }
   if (noPartner.length) add('nopartner', `${noPartner.length} ставки на конто за комитенти (12x / 22x) немаат комитент во датотеката (ред ${noPartner.slice(0, 8).join(', ')}${noPartner.length > 8 ? '…' : ''}) – дополнете шифра, ЕДБ или назив.`, noPartner);
   const M = [...missing.values()];
@@ -363,6 +390,9 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
           kind: 'invoice', number: v.no, date: v.date, due: v.date, partnerId: A.partnerOf.get(v.ar) ?? null,
           lines: v.lines.map((l) => ({ name: `Увезено од старата програма (${v.no})`, unit: 'ком', qty: 1, price: l.base / 100, rate: l.rate, account: l.account, ...(l.vat != null ? { vatFix: l.vat / 100 } : {}) })),
           note: `Увезено од ${input.file}`,
+          // an invoice without VAT: its exemption kind and basis (1200009 in the old program = чл. 24, field 08)
+          // (its revenue stays on the file's konto: no zero-rate revenue konto)
+          ...(v.vatExempt ? { data: { vatExempt: v.vatExempt, vatNote: v.vatNote ?? '', keepKonto: '1' } } : {}),
         }, { userId: a.userId, role: a.role ?? 'admin' });
         if (sv.renumbered || sv.number !== v.no) throw new JournalImportError(`бројот ${v.no} е зафатен`);
         const L = await tx.select({ k: journalLines.account, d: journalLines.debit, p: journalLines.credit, pid: journalLines.partnerId })

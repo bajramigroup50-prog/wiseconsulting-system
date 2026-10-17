@@ -113,6 +113,12 @@ export interface FirmPostingSettings extends SchemeSettings {
   /** Partner id of the "POS терминал" partner (legacy `posPid()`); set on 12x card lines. */
   posPartnerId?: string | null;
   /**
+   * Automatic receivable konto of sales exempt with the right to deduct (ЗДДВ чл. 24, field 08) when the scheme leaves
+   * `customerExempt` empty: 1200009 when the firm's effective chart has it (resolved by the db context loader) — the
+   * old program's marker of these sales; else empty → `customer`.
+   */
+  customerExemptAuto?: string | null;
+  /**
    * Numbered posting schemes „Шема 2, 3 …“ of the firm (`firms.settings.schemeProfiles`, `scheme-profiles.ts`):
    * override maps over Шема 1 (= this context). A document chooses one (`data.scheme`); {@link withSchemeProfile}.
    */
@@ -156,6 +162,37 @@ export function schemeValue(ctx: PostingContext, key: SchemeKey | string): strin
 export function schemeOn(ctx: PostingContext, key: SchemeKey | string): boolean {
   const v = schemeRaw(ctx, key);
   return !!v && v !== '-';
+}
+
+/** 1200009 „Побарувања од купувачи по член 32 а“ — in the old program the konto of sales exempt under чл. 24 (field 08). */
+export const CUSTOMER_EXEMPT_KONTO = '1200009';
+
+/**
+ * Receivable konto of an outgoing invoice: `customer`; for a domestic reverse-charge invoice (ЗДДВ чл. 32-а)
+ * `customer32` when the scheme sets it (else `customer`); for a sale exempt with the right to deduct (чл. 24,
+ * {@link exemptReceivable}) `customerExempt` — set in the scheme, else 1200009 when the chart has it, else `customer`.
+ * `'-'` switches a separate konto off.
+ */
+export function customerAccount(ctx: PostingContext, art32?: boolean, exempt?: boolean): string {
+  if (art32) {
+    const v = schemeRaw(ctx, 'customer32');
+    if (typeof v === 'string' && v && v !== '-') return v;
+  } else if (exempt) {
+    const v = schemeRaw(ctx, 'customerExempt');
+    if (typeof v === 'string' && v && v !== '-') return v;
+    if (v !== '-' && ctx.firm.customerExemptAuto) return ctx.firm.customerExemptAuto;
+  }
+  return schemeValue(ctx, 'customer');
+}
+
+/**
+ * The receivable of an invoice belongs on `customerExempt` (exempt with the right to deduct, ЗДДВ чл. 24): a VAT
+ * firm's invoice marked `vatExempt = 'ded'`, or one that charges no VAT on a non-zero base, unless it is art. 32-a,
+ * an export or marked `noded` (чл. 23). The same rule for posting and for the open items (`vat` / `base` of the invoice).
+ */
+export function exemptReceivable(o: { art32?: boolean | null; export?: boolean | null; vatExempt?: string | null; vat: number; base: number }, ctx: PostingContext): boolean {
+  if (o.art32 || o.export || ctx.firm.ddv === false || o.vatExempt === 'noded') return false;
+  return o.vatExempt === 'ded' || (!o.vat && !!o.base);
 }
 
 const nonEmpty = <T,>(m: Partial<Record<string, T | null | undefined>> | null | undefined): Record<string, T> =>
@@ -371,6 +408,15 @@ export interface InvoiceDoc {
   advances?: AdvanceDeduction[];
   /** Client-submitted, not yet approved: never posted or reported. */
   pend?: boolean;
+  /** Legal basis of a sale without VAT printed on the invoice (`invoices.data.vatNote`) — the ДДВ-04 annex lists it. */
+  vatNote?: string;
+  /**
+   * Kind of the exemption of the 0 % lines (`invoices.data.vatExempt`): 'noded' = without the right to deduct
+   * (ЗДДВ чл. 23) → ДДВ-04 field 09; 'ded' = with the right to deduct (чл. 24: извоз, слободни зони…) → 08; missing = 08.
+   */
+  vatExempt?: 'ded' | 'noded';
+  /** Revenue on the line kontos as given, without the zero-rate kontos (`revGoods0` …) — invoices imported from the old program. */
+  keepKonto?: boolean;
 }
 
 const NOTE_ADV = 'Одбиен аванс';
@@ -387,13 +433,15 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
   const nonVat = ctx.firm.ddv === false;
   const opts = { nonVat, defaultKonto: schemeValue(ctx, 'revDefault') };
   const c = calcLines(inv.items, inv.art32, opts);
-  const L: IL[] = [{ k: schemeValue(ctx, 'customer'), d: toC(c.total), p: 0, partner: inv.partner }];
+  // ЗДДВ чл. 32-а: the receivable of a reverse-charge invoice on its own konto (1200009); revenue stays as it is
+  const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx));
+  const L: IL[] = [{ k: cust, d: toC(c.total), p: 0, partner: inv.partner }];
   const m0: Record<string, string> = {};
   for (const [rev, zero] of [['revGoods', 'revGoods0'], ['revService', 'revService0'], ['revProduct', 'revProduct0']] as const) {
     m0[schemeValue(ctx, rev)] = schemeOn(ctx, zero) ? schemeValue(ctx, zero) : '';
   }
   for (const g of c.by) {
-    const k = inv.advance ? schemeValue(ctx, 'advance') : (!g.vat && !inv.art32 && m0[g.konto]) || (g.vat ? revByRate(ctx, g.konto, g.rate) : g.konto);
+    const k = inv.advance ? schemeValue(ctx, 'advance') : (!g.vat && !inv.art32 && !inv.keepKonto && m0[g.konto]) || (g.vat ? revByRate(ctx, g.konto, g.rate) : g.konto);
     L.push({ k, d: 0, p: toC(g.base) });
     if (g.vat) L.push({ k: vatOutOrThrow(ctx, g.rate), d: 0, p: toC(g.vat), vb: toC(g.base) });
   }
@@ -402,7 +450,7 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
     if (A.total) {
       L.push({ k: schemeValue(ctx, 'advance'), d: toC(A.base), p: 0, note: NOTE_ADV });
       for (const g of A.by) if (g.vat) L.push({ k: vatOutOrThrow(ctx, g.rate), d: toC(g.vat), p: 0, vb: toC(g.base), note: 'ДДВ на одбиен аванс' });
-      L.push({ k: schemeValue(ctx, 'customer'), d: 0, p: toC(A.total), partner: inv.partner, note: NOTE_ADV });
+      L.push({ k: cust, d: 0, p: toC(A.total), partner: inv.partner, note: NOTE_ADV });
     }
   }
   return out(inv.credit ? L.map((l) => ({ ...l, d: l.p, p: l.d })) : L);

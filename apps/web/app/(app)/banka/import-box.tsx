@@ -2,9 +2,12 @@
 /**
  * Statement upload (legacy `#bankFile` + `importBankFile`): choose files → preview (accounts, statement numbers,
  * duplicates, automatic classification) → save. XML, MT940, KB `.300`, CSV and Excel are read on the server.
+ * Many files at once (144 НЛБ PDFs): read with progress and no fixed time limit (`ai-batch.ts`), a file read before
+ * is not read again, a file that fails is listed and skipped, preview and save go in parts; reads that were never
+ * imported stay on the server and are offered again („📄 Прочитани изводи што чекаат увоз“).
  */
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { fmt, dmy } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
@@ -12,8 +15,12 @@ import { Uvoz } from '@/components/uvoz';
 
 const BANK_ACCEPT = '.xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
-import { previewImportAction, previewNalogImportAction, saveImportAction, saveNalogImportAction, type NalogPreviewResult, type PreviewResult } from './actions';
-import { safeAction, STALE_ACTION_MSG } from '@/lib/version';
+import {
+  createStatementAccountAction, dismissBankReadsAction, linkStatementAccountAction, pendingBankReadsAction, previewImportAction, previewNalogImportAction,
+  saveImportAction, saveNalogImportAction, type FailedFile, type NalogPreviewResult, type PendingBankReads,
+} from './actions';
+import { safeAction } from '@/lib/version';
+import { progressText, readBatch, type BatchDeps } from './ai-batch';
 
 /** Import inside a nalog (Налози → ИЗВОДИ): the statements are booked and posted into this nalog. */
 export interface NalogTarget {
@@ -44,33 +51,22 @@ async function asAiFile(f: File): Promise<File> {
   return new File([csv], f.name.replace(/\.(xlsx|xls)$/i, '.csv'), { type: 'text/csv' });
 }
 
-/** Upload the PDF / image statements, start the reads and wait for them (legacy: „10–60 секунди“). */
-async function readAiStatements(L: File[], firmId: string, note: (m: string) => void, all = false): Promise<{ ids: string[]; error?: string }> {
-  const ids: string[] = L.map(() => '');
-  const up: { i: number; id: string }[] = [];
-  for (const [i, f0] of L.entries()) {
-    if (!all && !isAiFile(f0)) continue;
-    const f = all ? await asAiFile(f0) : f0;
-    note(`Се прикачува „${f.name}“…`);
-    const r = await uploadFile(f, firmId);
-    if (!r.ok) return { ids, error: `„${f.name}“: ${r.error}` };
-    up.push({ i, id: r.id });
-  }
-  if (!up.length) return { ids };
-  const s: { ids?: string[]; error?: string } = await safeAction(() => startAiRead({ kind: 'bank', fileIds: up.map((x) => x.id) }));
-  if (s.error || !s.ids) return { ids, error: s.error ?? 'Изводот не е прочитан.' };
-  s.ids.forEach((id, k) => { ids[up[k]!.i] = id; });
-  note('Се чита изводот… (10–60 секунди)');
-  for (let t = 0; t < 120; t++) {
-    await new Promise((ok) => setTimeout(ok, 2500));
-    let S: Awaited<ReturnType<typeof aiReadStatus>>;
-    try { S = await aiReadStatus(s.ids); } catch { return { ids, error: STALE_ACTION_MSG }; }
-    const bad = S.find((x) => x.status === 'error');
-    if (bad) return { ids, error: 'Изводот не е прочитан: ' + (bad.error || '') };
-    if (S.length === s.ids.length && S.every((x) => x.status === 'done' || x.status === 'saved')) return { ids };
-  }
-  return { ids, error: 'Читањето трае предолго – обидете се повторно.' };
-}
+/** The browser side of a batch read: presigned upload (deduplicated by sha256), reads reused by content, polling. */
+const batchDeps = (firmId: string): BatchDeps => ({
+  upload: async (f) => { const r = await uploadFile(f, firmId); return r.ok ? { ok: true, id: r.id } : { ok: false, error: r.error }; },
+  start: (fileIds) => safeAction(() => startAiRead({ kind: 'bank', fileIds, reuse: true })),
+  status: (ids) => aiReadStatus(ids),
+  sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)),
+});
+
+/** Files per preview / save call (a batch of 144 statements goes in parts, with progress). */
+const PREVIEW_CHUNK = 20;
+const SAVE_CHUNK = 10;
+const parts = <T,>(L: readonly T[], n: number): T[][] => Array.from({ length: Math.ceil(L.length / n) }, (_, i) => L.slice(i * n, i * n + n));
+
+type Proposal = NonNullable<NonNullable<PreviewResult['plans']>[number]['plan']['accountProposals']>[number];
+type PreviewResult = NalogPreviewResult;
+type Problem = { file: string; error: string };
 
 export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accounts: { id: string; label: string }[]; defaultAcct: string; fx: boolean; firmId: string; nalog?: NalogTarget }) {
   const router = useRouter();
@@ -89,6 +85,16 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [note, setNote] = useState('');
   const [pending, start] = useTransition();
+  /** Files of the batch that were not read / previewed / saved, with the reason (the others went on). */
+  const [problems, setProblems] = useState<Problem[]>([]);
+  /** Reads done on the server but never imported (closed page, restart): offered again. */
+  const [waiting, setWaiting] = useState<PendingBankReads | null>(null);
+  /** Reading a batch: „Продолжи со прочитаните“ stops the wait (the rest keeps reading on the server). */
+  const [reading, setReading] = useState(false);
+  const stop = useRef(false);
+
+  const loadWaiting = () => { pendingBankReadsAction().then(setWaiting, () => {}); };
+  useEffect(loadWaiting, []);
 
   const formOf = (L: File[], ids: string[]) => {
     const f = new FormData();
@@ -97,45 +103,136 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
     f.set('acct', acct);
     return f;
   };
-  const form = () => {
-    const f = formOf(files, aiIds);
-    if (dups) f.set('dups', 'on');
-    if (replace) f.set('replace', 'on');
-    return f;
-  };
-  const preview = (L: File[], all = false) => {
+  const lkOf = (sugg: NalogPreviewResult['sugg']) => sugg?.map((S) => Object.fromEntries(Object.entries(S).map(([k, x]) => [k, { konto: x.konto, partnerId: x.partnerId ?? null, createPartner: x.newPartner ?? null }]))) ?? [];
+  /**
+   * Read (when needed) and preview the files. `preset` = the read ids are known (reads waiting for import, a new
+   * preview after linking an account): nothing is uploaded or read again.
+   */
+  const preview = (L: File[], all = false, preset?: string[]) => {
     setFiles(L);
     setMsg({});
     setAiIds([]);
     setReplace(false);
+    setProblems([]);
     if (!L.length) { setPrev(null); return; }
+    stop.current = false;
     start(async () => {
-      const a = await readAiStatements(L, firmId, setNote, all);
+      const probs: Problem[] = [];
+      let ids: string[];
+      let keep: number[];
+      if (preset) { ids = preset; keep = L.map((_, i) => i); }
+      else {
+        const take = (f: File) => all || isAiFile(f);
+        setReading(true);
+        const r = await readBatch(L, take, batchDeps(firmId), { progress: (p) => setNote(progressText(p)), stop: () => stop.current, ...(all ? { prep: asAiFile } : {}) });
+        setReading(false);
+        ids = r.ids;
+        probs.push(...r.errors.map((e) => ({ file: e.name, error: e.error })));
+        if (r.waiting) probs.push({ file: `${r.waiting} датотеки`, error: 'сè уште се читаат – ќе се појават во „Прочитани изводи што чекаат увоз“ кога ќе бидат готови.' });
+        keep = L.map((f, i) => (!take(f) || (ids[i] && r.done[i]) ? i : -1)).filter((i) => i >= 0);
+      }
+      // preview in parts; a file that cannot be read is listed and left out
+      const plans: NonNullable<PreviewResult['plans']> = [];
+      const sugg: NonNullable<PreviewResult['sugg']> = [];
+      const F: File[] = [], I: string[] = [];
+      let n = 0;
+      let lastErr = '';
+      for (const C of parts(keep, PREVIEW_CHUNK)) {
+        if (keep.length > PREVIEW_CHUNK) setNote(`Преглед ${n} / ${keep.length}…`);
+        const r: NalogPreviewResult = await (nalog ? previewNalogImportAction : previewImportAction)(formOf(C.map((i) => L[i]!), C.map((i) => ids[i] ?? '')));
+        n += C.length;
+        probs.push(...(r.skipped ?? []));
+        if (!r.plans) { lastErr = r.error ?? 'Грешка при читање.'; if (keep.length > 1) probs.push(...C.map((i) => ({ file: L[i]!.name, error: lastErr }))); continue; }
+        r.plans.forEach((p, k) => {
+          const i = C[p.i ?? k]!;
+          plans.push(p); sugg.push(r.sugg?.[k] ?? {}); F.push(L[i]!); I.push(ids[i] ?? '');
+        });
+        if (r.error) lastErr = r.error;
+      }
       setNote('');
-      if (a.error) { setPrev({ error: a.error }); return; }
-      setAiIds(a.ids);
-      const r: NalogPreviewResult = nalog ? await previewNalogImportAction(formOf(L, a.ids)) : await previewImportAction(formOf(L, a.ids));
       setPeriodErr(false);
-      setLk(r.sugg?.map((S) => Object.fromEntries(Object.entries(S).map(([k, x]) => [k, { konto: x.konto, partnerId: x.partnerId ?? null, createPartner: x.newPartner ?? null }]))) ?? []);
-      setPrev(r);
+      setProblems(probs);
+      if (!plans.length) { setPrev({ error: keep.length === 1 && lastErr ? lastErr : probs.length ? 'Ниеден извод не е прочитан – видете ги причините подолу.' : lastErr || 'Изберете датотека.' }); return; }
+      setFiles(F);
+      setAiIds(I);
+      setLk(lkOf(nalog ? sugg : undefined));
+      setPrev({ plans, ...(nalog ? { sugg } : {}) });
     });
   };
-  const saveNalog = (number: string | null, dropEmpty?: string | null) => start(async () => {
-    const f = form();
-    f.set('nalog', number ?? '');
-    if (dropEmpty) f.set('dropEmpty', dropEmpty);
-    f.set('kontos', JSON.stringify(lk));
-    const r = await saveNalogImportAction(f);
-    setMsg(r);
-    setPeriodErr(!!r.period);
-    if (!r.error) { setFiles([]); setPrev(null); if (r.number) router.push(`/nalozi?n=${encodeURIComponent(r.number)}`); router.refresh(); }
-  });
-  const save = () => nalog ? saveNalog(nalog.number) : start(async () => {
-    const r = await saveImportAction(form());
-    setMsg(r);
+  /** Save the previewed files without errors, in parts; the files that fail stay (with the reason) for another try. */
+  const saveAll = (number: string | null | undefined, dropEmpty?: string | null) => start(async () => {
+    if (!prev?.plans) return;
+    const items = prev.plans.map((p, k) => ({ k, f: files[k]!, id: aiIds[k] ?? '', lk: lk[k] ?? {}, bad: p.plan.errors.length > 0 })).filter((x) => !x.bad);
+    const ok: string[] = [];
+    const failed: (FailedFile & { k: number })[] = [];
+    let num = '';
+    let done = 0;
+    for (const C of parts(items, SAVE_CHUNK)) {
+      if (items.length > SAVE_CHUNK) setNote(`Се книжат ${done} / ${items.length}…`);
+      const f = formOf(C.map((x) => x.f), C.map((x) => x.id));
+      if (dups) f.set('dups', 'on');
+      if (replace) f.set('replace', 'on');
+      let r: { ok?: string; error?: string; failed?: FailedFile[]; number?: string };
+      if (nalog) {
+        f.set('nalog', number ?? '');
+        if (dropEmpty) f.set('dropEmpty', dropEmpty);
+        f.set('kontos', JSON.stringify(C.map((x) => x.lk)));
+        r = await saveNalogImportAction(f);
+      } else r = await saveImportAction(f);
+      done += C.length;
+      if (r.ok) ok.push(r.ok);
+      num ||= r.number ?? '';
+      if (r.failed) failed.push(...r.failed.map((x) => ({ ...x, k: C[x.i ?? 0]!.k })));
+      else if (r.error) failed.push(...C.map((x) => ({ file: x.f.name, error: r.error!, k: x.k })));
+    }
+    setNote('');
+    loadWaiting();
+    if (failed.length) {
+      // keep only the files that failed: a period error offers the statement's own period nalog for them
+      const K = new Set(failed.map((x) => x.k));
+      const keepIdx = prev.plans.map((_, k) => k).filter((k) => K.has(k));
+      const one = items.length === 1;
+      setMsg({ ...(ok.length ? { ok: ok.join(' ') } : {}), error: one ? failed[0]!.error : `Не се увезени ${failed.length} датотеки – причините се подолу.` });
+      setProblems(one ? [] : failed.map((x) => ({ file: x.file, error: x.error })));
+      setPeriodErr(failed.some((x) => x.period));
+      setFiles(keepIdx.map((k) => files[k]!));
+      setAiIds(keepIdx.map((k) => aiIds[k] ?? ''));
+      setLk(keepIdx.map((k) => lk[k] ?? {}));
+      setPrev({ plans: keepIdx.map((k) => prev.plans![k]!), ...(prev.sugg ? { sugg: keepIdx.map((k) => prev.sugg![k]!) } : {}) });
+      router.refresh();
+      return;
+    }
+    setMsg({ ok: ok.join(' ') });
+    setPeriodErr(false);
+    setProblems([]);
+    setFiles([]); setPrev(null);
+    if (nalog) { if (num) router.push(`/nalozi?n=${encodeURIComponent(num)}`); }
     // legacy 4761 / 4782 / 4807: after the import the remaining lines are matched automatically → the review
-    if (!r.error) { setFiles([]); setPrev(null); router.push(window.location.pathname + '?review=1'); router.refresh(); }
+    else router.push(window.location.pathname + '?review=1');
+    router.refresh();
   });
+  const saveNalog = (number: string | null, dropEmpty?: string | null) => saveAll(number, dropEmpty);
+  const save = () => saveAll(nalog ? nalog.number : undefined);
+  /** „📄 Прочитани изводи што чекаат увоз“ → the same preview / save path. */
+  const previewWaiting = () => { if (waiting?.items.length) preview(waiting.items.map((x) => new File([], x.name)), false, waiting.items.map((x) => x.id)); };
+  const dismissWaiting = () => start(async () => {
+    if (!waiting?.items.length || !window.confirm(`Да се отфрлат ${waiting.items.length} прочитани изводи? Нема да се увезат (датотеките остануваат).`)) return;
+    setMsg(await dismissBankReadsAction(waiting.items.map((x) => x.id)));
+    loadWaiting();
+  });
+  /** Statement account the firm does not have: fill the number into its numberless account, or open the account. */
+  const fixAccount = (p: Proposal) => start(async () => {
+    const r = p.link ? await linkStatementAccountAction(p.link.accountId, p.account) : await createStatementAccountAction(p.account);
+    setMsg(r);
+    if (r.error) return;
+    router.refresh();
+    // the same files again with the reads already done (nothing is read again)
+    const L = files, ids = aiIds;
+    setTimeout(() => preview(L, false, ids), 0);
+  });
+  const proposals = [...new Map((prev?.plans ?? []).flatMap((p) => p.plan.accountProposals ?? []).map((p) => [p.account, p])).values()];
+  const okPlans = prev?.plans?.filter((p) => !p.plan.errors.length).length ?? 0;
+  const badPlans = (prev?.plans?.length ?? 0) - okPlans;
 
   return (
     <div>
@@ -154,8 +251,18 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
         </label>
-        {pending && <span className="note">{note || 'Се чита…'}</span>}
+        {pending && <span className="note" role="status">{note || 'Се чита…'}</span>}
+        {pending && reading && <button type="button" className="btn sm" onClick={() => { stop.current = true; }} title="Прочитаните се прегледуваат сега; другите продолжуваат да се читаат и ќе се појават подоцна во „Прочитани изводи што чекаат увоз“">Продолжи со прочитаните</button>}
       </div>
+      {waiting && (waiting.items.length > 0 || waiting.reading > 0) && !prev?.plans && (
+        <div className="callout" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+          {waiting.items.length > 0 && <span>📄 <b>Прочитани изводи што чекаат увоз ({waiting.items.length})</b></span>}
+          {waiting.reading > 0 && <span className="note">уште {waiting.reading} се читаат</span>}
+          {waiting.items.length > 0 && <button type="button" className="btn sm pri" disabled={pending} onClick={previewWaiting}>Прегледај и увези</button>}
+          {waiting.items.length > 0 && <button type="button" className="btn sm" disabled={pending} onClick={dismissWaiting}>✕ Отфрли ги</button>}
+          {waiting.reading > 0 && <button type="button" className="btn sm" disabled={pending} onClick={loadWaiting}>↻ Освежи</button>}
+        </div>
+      )}
       {/* UX P6: the shared import zone (drag the statement – PDF / photo / XML / MT940 / Excel – here or click); the
           preview → save flow below is unchanged. Every format is passed on (a КБ file may end in any .NNN). */}
       <Uvoz style={{ marginTop: 10 }} busy={pending} onFiles={(L) => preview(L)} pickerAccept={BANK_ACCEPT}
@@ -164,12 +271,26 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
         results={files.map((f) => ({ name: f.name, msg: pending ? 'се чита…' : prev?.plans?.some((p) => p.file === f.name) ? 'прочитан – прегледајте подолу' : '' }))} />
       <p className="mini" style={{ margin: '4px 0 0' }}>Excel/CSV со непознати колони или без AI: <a href="/konvertor?t=bank" target="_blank" rel="noreferrer">🔄 Конвертор на датотеки</a> → Excel за увоз.</p>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
+      {problems.length > 0 && (
+        <div className="callout warn" role="alert">
+          <b>Прескокнати {problems.length} {problems.length === 1 ? 'датотека' : 'датотеки'}</b> (другите продолжуваат):
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18, maxHeight: 220, overflow: 'auto' }}>{problems.map((x, i) => <li key={i}><b>{x.file}</b>: {x.error}</li>)}</ul>
+        </div>
+      )}
       {nalog && <datalist id="nalImpK">{nalog.chart.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</datalist>}
       {(msg.error || prev?.error) && <div className="callout bad" role="alert">{msg.error || prev?.error}
         {periodErr && nalog && <> <button type="button" className="btn sm pri" disabled={pending} onClick={() => saveNalog(null, nalog.emptyId)}>{nalog.emptyId ? 'Прокнижи во налогот за периодот на изводот и избриши го празниот налог' : 'Прокнижи во налогот за периодот на изводот'}</button></>}
         {/колоните|форматот не е препознаен/.test(prev?.error ?? '') && files.length > 0 && <> <button type="button" className="btn sm pri" disabled={pending} onClick={() => preview(files, true)}>Прочитај го автоматски (AI)</button></>}</div>}
       {prev?.plans && (
         <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 8 }}>
+          {prev.plans.length > 1 && <p className="note" style={{ margin: '0 0 6px' }}>{prev.plans.length} датотеки · {prev.plans.reduce((a, p) => a + p.plan.days.length, 0)} изводи{badPlans ? ` · ${badPlans} со грешка (се прескокнуваат)` : ''}</p>}
+          {proposals.map((p) => (
+            <div key={p.account} className="callout warn" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>Сметката <b>{p.account}</b>{p.bank ? ` (${p.bank})` : ''} од изводот не е меѓу сметките на фирмата.</span>
+              {p.link && <button type="button" className="btn sm pri" disabled={pending} onClick={() => fixAccount(p)}>Поврзи ја сметката {p.account} со {p.link.name} ({p.link.konto})</button>}
+              {!p.link && p.create && <button type="button" className="btn sm pri" disabled={pending} onClick={() => fixAccount(p)}>Отвори сметка {p.account} – {p.create.name} (конто {p.create.konto})</button>}
+            </div>
+          ))}
           {prev.plans.map((p) => (
             <div key={p.file}>
               <h3 style={{ margin: '4px 0' }}>{p.file} <span className="pill">{p.format}</span></h3>
@@ -223,7 +344,7 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
             )}
             <span style={{ flex: 1 }} />
             <button className="btn" type="button" onClick={() => preview([])} disabled={pending}>Откажи</button>
-            <button className="btn pri" type="button" onClick={save} disabled={pending || prev.plans.some((p) => p.plan.errors.length > 0)}>{nalog ? (nalog.number ? 'Прокнижи во овој налог' : 'Прокнижи во нов налог') : 'Зачувај и прокнижи'}</button>
+            <button className="btn pri" type="button" onClick={save} disabled={pending || !okPlans}>{nalog ? (nalog.number ? 'Прокнижи во овој налог' : 'Прокнижи во нов налог') : 'Зачувај и прокнижи'}{badPlans && okPlans ? ` (${okPlans}; ${badPlans} со грешка се прескокнуваат)` : ''}</button>
           </div>
         </div>
       )}

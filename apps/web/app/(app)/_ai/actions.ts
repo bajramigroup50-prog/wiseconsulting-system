@@ -7,7 +7,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { aiErrCodeOf, aiErrText, type AiErrCode } from '@wise/core/ai/errors';
 import { z } from 'zod';
-import { aiDocuments, audit, files } from '@wise/db';
+import { aiDocuments, audit, files, reusableReads, undismissReads } from '@wise/db';
 import { requireCan, requireUser } from '@/lib/auth';
 import { actionError, firmAction } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -24,10 +24,17 @@ const Start = z.object({
   productId: z.uuid().optional(),
   /** Read all files together as ONE document (fiscal report photographed in several parts, legacy `fkTiles`). */
   group: z.boolean().optional(),
+  /**
+   * A file whose content (sha256) already has a read of this kind in the firm — finished or still running — gets that
+   * read back instead of a new one (bank statements dropped again: no second AI read, no waiting).
+   */
+  reuse: z.boolean().optional(),
+  /** „↻ Прочитај повторно“: a NEW read (`options.reread`) — never an earlier read of the file, never the free reader. */
+  reread: z.boolean().optional(),
 });
 
 /** Register uploaded files (or, for `bom`, the product) for reading; one job per row. */
-export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?: string[]; error?: string }> {
+export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?: string[]; reused?: number; error?: string }> {
   try {
     const v = Start.parse(input);
     const { u, firm } = await firmAction(AI_RESULT_KIND_ACTION[v.kind]);
@@ -38,10 +45,25 @@ export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?:
       const ok = await db().select({ id: files.id }).from(files).where(and(eq(files.firmId, firm.id), inArray(files.id, v.fileIds), eq(files.status, 'ready')));
       if (ok.length !== new Set(v.fileIds).size) return { error: 'Датотеката не е пронајдена.' };
     }
+    if (v.reuse && !v.reread && !grouped && v.kind !== 'bom') {
+      const found = await reusableReads(db(), { firmId: firm.id, kind: v.kind, fileIds: v.fileIds });
+      const fresh = [...new Set(v.fileIds.filter((id) => !found.has(id)))];
+      const made = fresh.length ? await db().transaction(async (tx) => {
+        const ids = await queueAiReads(tx, { firmId: firm.id, userId: u.id, kind: v.kind, fileIds: fresh });
+        await audit(tx, { userId: u.id, firmId: firm.id, action: 'aiRead', entityType: 'ai_document', data: { kind: v.kind, count: ids.length, reused: found.size } });
+        return ids;
+      }) : [];
+      const byFile = new Map(fresh.map((f, i) => [f, made[i]!]));
+      // a read dismissed earlier and dropped again is offered again
+      const again = [...found.values()].filter((r) => r.status === 'done').map((r) => r.id);
+      if (again.length) await undismissReads(db(), { firmId: firm.id, ids: again });
+      if (made.length) await dispatchAiReads(made);
+      return { ids: v.fileIds.map((f) => found.get(f)?.id ?? byFile.get(f)!), reused: found.size };
+    }
     const ids = await db().transaction(async (tx) => {
       const ids = await queueAiReads(tx, {
         firmId: firm.id, userId: u.id, kind: v.kind, fileIds: v.kind === 'bom' ? null : grouped ? v.fileIds.slice(0, 1) : v.fileIds,
-        ...(v.kind === 'bom' ? { options: { productId: v.productId } } : grouped ? { options: { extraFileIds: v.fileIds.slice(1) } } : {}),
+        ...(v.kind === 'bom' ? { options: { productId: v.productId } } : grouped ? { options: { extraFileIds: v.fileIds.slice(1) } } : v.reread ? { options: { reread: true, retry: true } } : {}),
       });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'aiRead', entityType: 'ai_document', data: { kind: v.kind, count: ids.length, ...(v.productId ? { productId: v.productId } : {}) } });
       return ids;

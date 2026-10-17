@@ -13,6 +13,8 @@ import { fromCents } from '../bank/cents';
 import type { ReadStatement } from '../ai/bank';
 import type { PdfItem, PdfLine } from './pdf-lines';
 import { bankPdfGrid } from './bank-grid';
+import { nlbDpsGrid } from './bank-nlb';
+import { decodeGlyphItems } from './pdf-glyphs';
 import { pdfRows } from './pdf-rows';
 
 export const isBankHeader = (cells: string[]): boolean => {
@@ -38,11 +40,15 @@ export class BankPdfError extends Error {
 
 /** One statement (one segment of the PDF) through the grid → table parser. */
 function readOne(items: readonly PdfItem[]): PdfStatement | null {
-  const G = bankPdfGrid(items);
+  // НЛБ „DpsStatement“: its own column cutting (`bank-nlb.ts`); every other layout through the generic grid
+  const N = nlbDpsGrid(items);
+  const G = N ?? bankPdfGrid(items);
   if (!G) return null;
   const R = readBankTable(G.grid, undefined, { hi: G.hi });
   if (!R.st) throw new BankPdfError('Изводот (PDF) не е прочитан: ' + (R.error ?? 'нема ставки.'));
   const st = R.st;
+  // „Вкупно за сметката … има N налози“: every order must be read
+  if (N?.count != null && N.count !== st.lines.length) R.blocking.push(`Прочитани се ${st.lines.length} ставки, а во изводот пишува ${N.count} налози.`);
   const sum = st.lines.reduce((a, l) => a + l.amount, 0);
   return {
     number: st.no, account: st.account,
@@ -111,7 +117,9 @@ export function splitPdfStatements(items: readonly PdfItem[]): PdfItem[][] {
 }
 
 /** Every statement of the PDF (one per segment, see {@link splitPdfStatements}); segments without a table are left out. */
-export function statementsFromPdfItems(items: readonly PdfItem[]): PdfStatement[] {
+export function statementsFromPdfItems(items0: readonly PdfItem[]): PdfStatement[] {
+  // fonts without a ToUnicode map (НЛБ): glyph ids → text, before any word is looked for
+  const items = decodeGlyphItems(items0);
   const S = splitPdfStatements(items);
   if (S.length <= 1) { const one = readOne(items); return one ? [one] : []; }
   const out: PdfStatement[] = [];
