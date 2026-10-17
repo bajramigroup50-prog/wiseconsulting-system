@@ -341,6 +341,8 @@ export async function bkGenAction(): Promise<ActionState> {
 const ImpIn = z.object({
   t: z.enum(['partners', 'items', 'employees', 'purchases', 'invoices', 'stock', 'journal', 'in', 'pop', 'nivel']),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), wh: z.string().max(40).nullish(),
+  /** „Шема“ of the batch (invoices / purchases); missing = by the rules (partner default, Шема 1). */
+  scheme: z.number().int().min(1).max(99).nullish(),
   rows: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.null()]))).max(50000),
 });
 export async function importAction(_p: ActionState, f: FormData): Promise<ActionState> {
@@ -348,7 +350,7 @@ export async function importAction(_p: ActionState, f: FormData): Promise<Action
   if (isErr(v)) return v;
   const r = await role();
   const st = await stockAction('impRun', ['/uvoz', '/artikli', '/partneri', '/vlez', '/izlez', '/nalozi', '/g_lager', '/m_lager', '/m_izlez', '/nivel'],
-    (tx, a) => importRows(tx, { ...a, role: r }, v.t, v.rows, { date: v.date, wh: v.wh || null, today: todayIso() }));
+    (tx, a) => importRows(tx, { ...a, role: r }, v.t, v.rows, { date: v.date, wh: v.wh || null, today: todayIso(), scheme: v.scheme ?? null }));
   if (st.error) return st;
   const R = st.data!;
   return { ok: `Готово: ${R.add} додадени, ${R.upd} ажурирани${R.newP ? `, ${R.newP} нови комитенти` : ''}${R.skip.length ? `, ${R.skip.length} прескокнати: ` + R.skip.slice(0, 12).join(' · ') + (R.skip.length > 12 ? ' …' : '') : '.'}` };

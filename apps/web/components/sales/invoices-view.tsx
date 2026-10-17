@@ -14,7 +14,7 @@ import { calcInvoiceDraft } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
-import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState } from '@/lib/sales';
+import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState, schemeChoice } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -59,7 +59,11 @@ function toEd(i: Invoice, L: (typeof invoiceLines.$inferSelect)[], A: { advanceI
     id: i.id, kind: i.kind, number: i.number, date: i.date, pdate: i.pdate ?? '', due: i.due ?? '', partnerId: i.partnerId ?? '', warehouseId: i.warehouseId ?? '',
     art32: i.art32, advance: i.advance, export: i.export, svc: i.svc, currency: i.currency, fx: s(Number(i.fx)), refInvoiceId: i.refInvoiceId ?? '',
     creditKind: i.creditKind ?? 'price', creditGross: i.creditGross ? s(Number(i.creditGross)) : '', fromDocId: i.fromDocId ?? '', note: i.note ?? '',
-    data: Object.fromEntries(Object.entries(i.data ?? {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
+    data: {
+      ...Object.fromEntries(Object.entries(i.data ?? {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
+      // „Шема за книжење“ is stored as a number
+      ...(typeof i.data?.scheme === 'number' ? { scheme: String(i.data.scheme) } : {}),
+    },
     lines: L.map(lineToEd), advances: A.map((a) => ({ advanceId: a.advanceId, amount: s(Number(a.amount)) })), status: i.status,
   };
 }
@@ -215,7 +219,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       svcOnly={FS.svcOnly === true || (FS.svcOnly !== false && !I.some((i) => i.type !== 'service'))} svcTexts={Array.isArray(FS.svcTexts) ? FS.svcTexts as string[] : []}
       vehicles={VH.map((v) => ({ code: v.code ?? '', name: v.name }))} drivers={[...new Set([...VH.map((v) => String((v.data as Record<string, unknown>)?.driver ?? '')).filter(Boolean), ...EMP.map((e) => e.name)])]}
       boms={BM} avg={avg} prodRun={prodRun} workOrders={workOrders} nextWorkOrder={nextWorkOrder}
-      nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} /></>;
+      nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} {...await schemeChoice(firm)} /></>;
   }
 
   /* ---------------- list ---------------- */

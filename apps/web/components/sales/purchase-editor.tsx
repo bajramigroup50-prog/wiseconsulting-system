@@ -6,6 +6,7 @@
  * (`readImportDocs` 4365), the scan queue / batch callouts and the fuel VAT warning on save (14361).
  */
 import Link from 'next/link';
+import { SchemeSelect, type SchemeOpt } from './scheme-select';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { allocCosts, stockLineValue } from '@wise/core/stock';
@@ -51,6 +52,9 @@ export interface PurchaseEditorProps {
   fuelRule?: FuelRule | null;
   /** Opened from „📥 Фактура со ставки од Excel“: the lines wait in sessionStorage (`PX_DRAFT_KEY`). */
   pxInfo?: string;
+  /** „Шема за книжење“: numbered schemes of the firm and the partners' defaults (empty = only Шема 1). */
+  schemes?: SchemeOpt[];
+  partnerSchemes?: Record<string, number>;
 }
 
 const RATES = ['18', '10', '5', '0'];
@@ -556,7 +560,9 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           </div>}</div>
         </div>
         <div className="fpane" hidden={tab !== 'dop'}><div className="igrid">
-          <fieldset className="fs"><legend>Параметри за финансово книжење</legend>{pf('grp1', 'Група 1')}{pf('grp2', 'Група 2')}
+          <fieldset className="fs"><legend>Параметри за финансово книжење</legend>
+            <SchemeSelect value={d.data.scheme ?? ''} onChange={(v) => setData({ scheme: v })} schemes={p.schemes ?? []} partnerDefault={p.partnerSchemes?.[d.partnerId]} />
+            {pf('grp1', 'Група 1')}{pf('grp2', 'Група 2')}
             <label className="fl"><span>Тип на трошок</span><select value={d.data.costType ?? ''} onChange={(e) => setData({ costType: e.target.value })}>{['', 'Материјален', 'Нематеријален', 'Транспорт', 'Услуга'].map((o) => <option key={o}>{o}</option>)}</select></label></fieldset>
           <fieldset className="fs"><legend>Податоци за доставувач</legend>{pf('driver', 'Шофер')}{pf('truck', 'Камион')}{pf('trailer', 'Приколка')}</fieldset>
         </div></div>

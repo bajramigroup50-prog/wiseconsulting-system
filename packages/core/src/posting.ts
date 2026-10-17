@@ -112,6 +112,17 @@ export interface FirmPostingSettings extends SchemeSettings {
   posK?: string | null;
   /** Partner id of the "POS терминал" partner (legacy `posPid()`); set on 12x card lines. */
   posPartnerId?: string | null;
+  /**
+   * Numbered posting schemes „Шема 2, 3 …“ of the firm (`firms.settings.schemeProfiles`, `scheme-profiles.ts`):
+   * override maps over Шема 1 (= this context). A document chooses one (`data.scheme`); {@link withSchemeProfile}.
+   */
+  profiles?: readonly SchemeProfileOverrides[] | null;
+}
+/** One numbered scheme: only the changed keys (empty / missing = inherit from Шема 1). */
+export interface SchemeProfileOverrides extends SchemeSettings {
+  /** 2, 3, … (Шема 1 is the firm's own scheme and is never stored as a profile). */
+  no: number;
+  name?: string;
 }
 /** Everything posting needs to know about the firm and office-wide settings. */
 export interface PostingContext {
@@ -145,6 +156,43 @@ export function schemeValue(ctx: PostingContext, key: SchemeKey | string): strin
 export function schemeOn(ctx: PostingContext, key: SchemeKey | string): boolean {
   const v = schemeRaw(ctx, key);
   return !!v && v !== '-';
+}
+
+const nonEmpty = <T,>(m: Partial<Record<string, T | null | undefined>> | null | undefined): Record<string, T> =>
+  Object.fromEntries(Object.entries(m ?? {}).filter(([, v]) => setVal(v))) as Record<string, T>;
+
+/**
+ * The posting context of „Шема N“: Шема 1 (`ctx`) with the profile's overrides on top (they win over the firm, global
+ * and default values; VAT kontos per rate over `vatInKonto`). Every key the profile leaves empty is exactly Шема 1, so a
+ * document posted with Шема N gives the same lines as with Шема 1 except for the overridden kontos.
+ */
+export function withSchemeProfile(ctx: PostingContext, p: SchemeProfileOverrides | null | undefined): PostingContext {
+  if (!p) return ctx;
+  const f = ctx.firm;
+  const merge = <T,>(a: Partial<Record<string, T | null | undefined>> | null | undefined, b: Partial<Record<string, T | null | undefined>> | null | undefined) => {
+    const o = nonEmpty(b);
+    return Object.keys(o).length ? { ...(a ?? {}), ...o } : a;
+  };
+  return {
+    ...ctx,
+    firm: {
+      ...f,
+      sch: merge(f.sch, p.sch) as SchemeMap | null | undefined,
+      vatOut: merge(f.vatOut, p.vatOut) as VatAccountMap | null | undefined,
+      vatIn: merge(f.vatIn, p.vatIn) as VatAccountMap | null | undefined,
+      vatImp: merge(f.vatImp, p.vatImp) as VatAccountMap | null | undefined,
+    },
+  };
+}
+
+/**
+ * Every VAT konto of the firm in Шема 1 AND in its numbered schemes — what the VAT close and the closed-VAT-period guard
+ * look at (a document posted with Шема 2 may use its own VAT konto).
+ */
+export function vatAccountSetAll(ctx: PostingContext): Set<string> {
+  const s = vatAccountSet(ctx);
+  for (const p of ctx.firm.profiles ?? []) for (const k of vatAccountSet(withSchemeProfile(ctx, p))) s.add(k);
+  return s;
 }
 
 /** Drop stored values equal to the old defaults (`SCH_OLD`) — the import-time equivalent of legacy `sch()` skipping them. */
@@ -917,7 +965,8 @@ export interface LedgerLineLike { account: string; date: string; debit: number; 
  * (refund). Pass the period's ledger lines *excluding* earlier VAT-close journals.
  */
 export function vatCloseEntries(ledger: readonly LedgerLineLike[], from: string, to: string, ctx: PostingContext): { lines: JournalLine[]; diff: number } {
-  const K = vatAccountSet(ctx);
+  // numbered schemes („Шема 2“…) may book VAT on their own kontos: those are closed too
+  const K = vatAccountSetAll(ctx);
   const B = new Map<string, number>();
   for (const l of ledger) {
     if (l.date < from || l.date > to || !K.has(String(l.account))) continue;

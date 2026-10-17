@@ -3,9 +3,10 @@
  * the domain error type and the actor. Stock context and moves come from Phase 7 (`stock-service.ts`).
  */
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
-import type { StockLocation } from '@wise/core';
+import { withSchemeProfile, type PostingContext, type SchemeProfileOverrides, type StockLocation } from '@wise/core';
+import { schemeNoOf, schemeProfileOf } from '@wise/core/scheme-profiles';
 import type { Tx } from '../audit';
-import { codes, firms, items, type Firm } from '../schema/index';
+import { codes, firms, items, partners, type Firm } from '../schema/index';
 import { PostingError } from '../posting';
 
 /**
@@ -58,4 +59,46 @@ export async function assertLocation(tx: Tx, firmId: string, id: string | null):
   if (!id) return;
   const [r] = await tx.select({ id: codes.id }).from(codes).where(and(eq(codes.id, id), eq(codes.firmId, firmId), inArray(codes.cb, ['warehouse', 'store']), or(isNull(codes.active), eq(codes.active, true)))).limit(1);
   if (!r) throw new DocumentError('Магацинот / продавницата не постои.');
+}
+
+/* ---------------- numbered posting schemes „Шема 1, 2, 3 …“ (`@wise/core/scheme-profiles`) ---------------- */
+
+/** The posting context a document is booked with: Шема 1 (`base`) or a numbered scheme over it (`ctx`). */
+export interface SchemePick { no: number; base: PostingContext; ctx: PostingContext; profile: SchemeProfileOverrides | null }
+
+/**
+ * Resolve the document's scheme (`data.scheme`, 1 when missing) over the firm's context. A number that no longer
+ * exists in the firm is refused (the scheme cannot be deleted while documents use it) — never silently Шема 1.
+ */
+export function pickScheme(base: PostingContext, no: unknown): SchemePick {
+  const n = schemeNoOf(no);
+  if (n <= 1) return { no: 1, base, ctx: base, profile: null };
+  const p = schemeProfileOf(base.firm.profiles, n);
+  if (!p) throw new DocumentError(`Шема ${n} не постои во оваа фирма – изберете друга шема за книжење.`);
+  return { no: n, base, ctx: withSchemeProfile(base, p), profile: p };
+}
+
+/** The partner card's default scheme („за овој купувач користи Шема 2“, `partners.data.scheme`), 1 when none. */
+export async function partnerSchemeNo(tx: Tx, firmId: string, partnerId: string | null | undefined): Promise<number> {
+  if (!partnerId) return 1;
+  const [p] = await tx.select({ data: partners.data }).from(partners).where(and(eq(partners.id, partnerId), eq(partners.firmId, firmId))).limit(1);
+  return schemeNoOf((p?.data as { scheme?: unknown } | null | undefined)?.scheme);
+}
+
+/**
+ * `data.scheme` of a document being saved: the explicit choice (also 1) when given, else the partner's default
+ * (else Шема 1). Shema 1 is stored only when chosen explicitly — so a later partner default does not override it.
+ */
+export async function docSchemeData<D extends { scheme?: unknown }>(tx: Tx, firmId: string, partnerId: string | null | undefined, data: D | null | undefined, base: PostingContext): Promise<D & { scheme?: number }> {
+  const d = { ...(data ?? {}) } as D & { scheme?: number };
+  const given = d.scheme != null && String(d.scheme).trim() !== '';
+  const no = given ? schemeNoOf(d.scheme) : await partnerSchemeNo(tx, firmId, partnerId);
+  if (no > 1 && !schemeProfileOf(base.firm.profiles, no)) {
+    if (given) throw new DocumentError(`Шема ${no} не постои во оваа фирма.`);
+    delete d.scheme; // a partner default to a removed scheme → the firm default
+    return d;
+  }
+  if (given || no > 1) d.scheme = no;
+  else delete d.scheme;
+  return d;
 }

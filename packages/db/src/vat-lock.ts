@@ -12,7 +12,7 @@
  * re-deriving the period from the firm's current month/quarter setting.
  */
 import { and, eq, gte, lte } from 'drizzle-orm';
-import { vatAccountSet } from '@wise/core';
+import { vatAccountSetAll } from '@wise/core';
 import type { Tx } from './audit';
 import { journalLines, vatPeriods, type Firm } from './schema/index';
 import { PostingError } from './posting';
@@ -63,7 +63,7 @@ export async function assertVatPeriodOpen(
     const accounts = j.accounts ?? (j.journalId
       ? (await tx.select({ a: journalLines.account }).from(journalLines).where(eq(journalLines.journalId, j.journalId))).map((r) => r.a)
       : []);
-    const K = vatAccountSet(await loadVatPostingContext(tx, firm));
+    const K = vatAccountSetAll(await loadVatPostingContext(tx, firm));
     hit = accounts.some((a) => K.has(String(a).trim()));
   }
   if (hit) {

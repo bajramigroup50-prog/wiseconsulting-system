@@ -75,6 +75,8 @@ export interface InvoiceData {
    * (`sales/invoice-nalog.ts`). The invoice keeps its own journal row inside the nalog.
    */
   nalogNo?: string;
+  /** „Шема за книжење“: numbered posting scheme (`@wise/core/scheme-profiles`); missing = Шема 1 (the firm's scheme). */
+  scheme?: number;
   /** Cancelled (сторнирана) instead of deleted — retention lock, `deleteInvoice` (docs/legal/COMPLIANCE.md). `status` = status before. */
   cancelled?: { at: string; by: string | null; reason: string; status: string };
   /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
@@ -190,6 +192,8 @@ export interface PurchaseData {
   bankAcc?: string;
   /** Pages of the linked source file with this invoice („2-3“) when the file holds several invoices. */
   srcPages?: string;
+  /** „Шема за книжење“ (see `InvoiceData.scheme`). */
+  scheme?: number;
 }
 
 export const purchases = pgTable('purchases', {
