@@ -16,7 +16,7 @@
  * (`autoSteps`, all OFF by default).
  */
 import {
-  autoMatch, BANK_FEE, bankName, bmEq, bmKey, bmNums, BKPK_RE, fifoPick, isFxAccount, isVatPayment, keywordKonto, linkPayment, matchPartner,
+  amountOnlyOk, autoMatch, BANK_FEE, isConversion, isPeriodToken, noPartnerLine, bankName, bmEq, bmKey, bmNums, BKPK_RE, fifoPick, isFxAccount, isVatPayment, keywordKonto, linkPayment, matchPartner,
   openAmount, openDocsFor, ownTransferBy, type BankRow, type DocRefAmt, type DocType, type InvKey, type MatchContext, type MatchHow,
 } from '../bank-match';
 
@@ -43,7 +43,7 @@ export function refNumbers(b: Pick<BankRow, 'bref' | 'purpose'>): InvKey[] {
   const raw = [...bmNums(b.purpose), ...bmNums(b.bref)];
   // a bare reference („2026-0045“, „45/26“, „MK 0045 26“): its digit groups as one number
   const br = String(b.bref ?? '').replace(/^\s*(MK|HR|SI)\s*\d{2}\s*/i, '').trim();
-  if (/\d/.test(br) && !raw.length) raw.push(br.replace(/\s+/g, '/'));
+  if (/\d/.test(br) && !raw.length && !isPeriodToken(br) && !/^910\d{8,}/.test(br)) raw.push(br.replace(/\s+/g, '/'));
   const out: InvKey[] = [];
   for (const x of raw) {
     const k = bmKey(x);
@@ -56,7 +56,8 @@ const openOf = (rows: BankRow[], ctx: MatchContext, b: BankRow, pid: string) => 
 
 /** A line whose text says it is not a document payment (own transfer, turnover / cash, fee, VAT). */
 function notDocPayment(b: BankRow, ctx: MatchContext): boolean {
-  return !!ownTransferBy(b, ctx) || !!keywordKonto(b, ctx.accounts, ctx.konta) || (+b.amount < 0 && BANK_FEE.test(String(b.desc ?? ''))) || isVatPayment(b);
+  return !!ownTransferBy(b, ctx) || !!keywordKonto(b, ctx.accounts, ctx.konta) || (+b.amount < 0 && BANK_FEE.test(String(b.desc ?? ''))) || isVatPayment(b)
+    || !!noPartnerLine(b, ctx) || isConversion(b);
 }
 
 /**
@@ -120,6 +121,9 @@ export function reviewMatch(ctx: MatchContext, ids?: ReadonlySet<string>): Map<s
     const O = openOf(rows, ctx, r, pid);
     if (!O.O.length) continue;
     const pick = fifoPick(r, O.O);
+    // the text names another document (e.g. an already paid „CLK-202606-1019“): no FIFO onto different invoices
+    const text = String(r.desc ?? '') + ' ' + String(r.purpose ?? '');
+    if (pick.some((z) => !amountOnlyOk(text, r, z.x))) continue;
     const l = linkPayment({ ...r, partner: pid }, pick, O.type, ctx.konta);
     if (!l) continue;
     put(i, { id: r.id, how: 'fifo', row: l.row, refs: l.refs, ...(l.excess ? { excess: l.excess } : {}) });

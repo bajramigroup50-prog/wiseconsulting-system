@@ -27,10 +27,11 @@ export async function matchContext(tx: Tx, env: BankEnv, year: number): Promise<
     tx.select().from(bankLines).where(and(eq(bankLines.firmId, env.firm.id), or(sql`${bankLines.date} between ${y0} and ${y1}`, isNotNull(bankLines.refId)))),
     openItemsSource().load(tx, env.firm.id, year),
   ]);
-  const payMatch = await payrollMatcher(tx, env, year);
+  const [payMatch, payScheme] = await Promise.all([payrollMatcher(tx, env, year), loadPayScheme(tx, env.firm)]);
   return {
     rows: L.map(toBankRow), accounts: env.accounts, invoices: items.invoices, purchases: items.purchases, partners: env.partners,
     year, firmName: env.firm.name, firmEdb: env.firm.edb ?? undefined, rules: env.rules, osnovK: env.osnovK, posPartner: env.posPartner, konta: env.konta,
+    payScheme,
     ...(payMatch ? { payMatch } : {}),
     lineStatement: new Map(L.map((l) => [l.id, l.statementId])),
   };

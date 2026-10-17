@@ -57,7 +57,10 @@ describe('autoMatch vs legacy (full 7-layer chain)', () => {
     const leg = await legacyAutoMatch(s);
     const mine = autoMatch(portCtx(s));
     expect(mine.rows.map(projPort)).toEqual(leg.rows.map(projLegacy));
-    expect(mine.changes.map((x) => x.id)).toEqual(leg.log);
+    // FIX: a salary recognised by its text („Исплата плата 02/2026“) is booked before the invoice layers (never an invoice)
+    const order = leg.log.filter((x) => x !== 'b16');
+    order.splice(order.indexOf('b15') + 1, 0, 'b16');
+    expect(mine.changes.map((x) => x.id)).toEqual(order);
     expect(mine.needPosPartner).toBe(false);
 
     const how = Object.fromEntries(mine.changes.map((x) => [x.id, x.how]));

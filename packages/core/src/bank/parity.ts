@@ -13,7 +13,7 @@
  * - payment notifications (`pnRun` 13312)
  */
 import {
-  bankEffKonto, bankName, bkCore, BKPK_RE, matchPartner,
+  bankEffKonto, bankName, bkCore, BKPK_RE, matchPartner, noPartnerLine,
   type BankKonta, type BankRow, type DocType, type OpenDoc, type Partner, BANK_KONTA,
 } from '../bank-match';
 
@@ -174,6 +174,8 @@ export function partnerFixPlan(rows: readonly BankRow[], a: {
   for (const b of rows) {
     if (a.year != null && !String(b.date).startsWith(String(a.year))) continue;
     if (!BKPK_RE.test(bankEffKonto(b))) continue;
+    // the bank (provisions, card purchases), the Treasury and employees are never partners
+    if (!b.ref && noPartnerLine(b)) continue;
     const rp = a.refPartner(b);
     const nm = bankName(b, P);
     const junk = partnerIsJunk(b, P, a.partnerKey);

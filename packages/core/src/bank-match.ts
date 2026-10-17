@@ -15,6 +15,7 @@
  * Deliberate fixes (LEGACY-MAP Phase 4 §4.4) are marked `FIX #n:`.
  */
 import { toCents, fromCents } from './bank/cents';
+import { PAY_SCH0, type PayScheme } from './payroll/entries';
 
 export { ppIban, ppIbanOn, ppAccTxt, ibanValid, mkAccountValid, bankCodeOf, bankByText, BANKS_MK } from './bank/payment-order';
 
@@ -121,13 +122,19 @@ export interface BankKonta {
   /** Cash withdrawn from the bank for the cash box (подигање готовина, материјални трошоци). */
   cashWithdraw: string; // 1020
   pos: string; // 1200001
+  /** Purchase paid with the firm's payment card (MBDP / VISA* / POS merchant) — no partner. */
+  card: string; // 1020
+  /** Monthly profit-tax advance paid to the Ministry of Finance / Treasury („уплата мдб MM/YYYY“). */
+  profitTax: string; // 2330
+  /** Interest on late tax payments („камата“ to the Treasury / УЈП). */
+  taxInterest: string; // 44792
   ddvPay: string; // 23008
   ddvClaim: string; // 1308
 }
 
 export const BANK_KONTA: BankKonta = {
   customer: '1200', supplier: '2200', importSupplier: '2210', fee: '4460', fxGain: '7810', fxLoss: '4810',
-  fxDefault: '1030', transitFx: '1039', transit: '1009', dailyTurnover: '1009', cashWithdraw: '1020', pos: '1200001', ddvPay: '23008', ddvClaim: '1308',
+  fxDefault: '1030', transitFx: '1039', transit: '1009', dailyTurnover: '1009', cashWithdraw: '1020', pos: '1200001', card: '1020', profitTax: '2330', taxInterest: '44792', ddvPay: '23008', ddvClaim: '1308',
 };
 
 /** Chart entry as needed for the bank konto defaults / validation. */
@@ -157,6 +164,10 @@ export const BANK_KONTA_FIELDS: readonly { key: keyof BankKonta; label: string; 
   { key: 'transit', label: 'Пренос меѓу сопствени сметки (денари)' },
   { key: 'transitFx', label: 'Пренос / откуп – девизни сметки' },
   { key: 'pos', label: 'Приливи од POS терминали' },
+  { key: 'card', label: 'Плаќање со платежна картичка', note: 'без комитент' },
+  { key: 'fee', label: 'Банкарски провизии / надоместоци', note: 'без комитент' },
+  { key: 'profitTax', label: 'Аконтација данок на добивка (мдб)', note: 'без комитент' },
+  { key: 'taxInterest', label: 'Камата за доцнење (даноци)', note: 'без комитент' },
 ];
 
 /** A konto the bank lines may be booked on: in the chart and a real konto (4+ digits, not a class / group). */
@@ -193,6 +204,8 @@ export interface MatchContext {
   /** POS partner id (legacy `posPid`); missing → result asks for one to be created. */
   posPartner?: string;
   konta?: Partial<BankKonta>;
+  /** Payroll posting scheme (`pay_net`, `pay_pio`, …): kontos of salary / contribution payments recognised by the text. */
+  payScheme?: Partial<PayScheme>;
   /** Payroll payment recogniser (legacy `payMatch`, owned by payroll). */
   payMatch?: (amountCents: number, date: string) => PayMatch | null;
 }
@@ -365,8 +378,70 @@ export function bmNums(text: unknown): string[] {
       if (x && !/^\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(x) && !out.includes(x)) out.push(x);
     }
   }
-  for (const x of t.match(/\b\d{1,6}[\/\-]\d{2,4}\b/g) || []) if (!out.includes(x)) out.push(x);
+  // a bare „07-2026“ / „7/2026“ is a period (salary month, rent month …), never an invoice number
+  // (unless the text speaks of invoices, or it is the tail of a lettered number such as „EX-4/2026“)
+  const docWord = /фактур|faktur|invoice|ф-?р[аи]|сметк|smetk/i.test(t);
+  for (const m of t.matchAll(/\b\d{1,6}[\/\-]\d{2,4}\b/g)) {
+    const x = m[0];
+    if (isPeriodToken(x) && !docWord && !/\p{L}[-\/]?$/u.test(t.slice(Math.max(0, m.index - 2), m.index))) continue;
+    if (!out.includes(x)) out.push(x);
+  }
   return out;
+}
+
+/** A period token „MM-YYYY“ / „MM/YYYY“ / „M.YYYY“ (month 1–12, year 2000–2099) — a payroll / rent month, not a document number. */
+export const isPeriodToken = (x: unknown): boolean => /^(0?[1-9]|1[0-2])[\/\-.]20\d\d$/.test(String(x ?? '').trim());
+/** The text mentions a period „MM-YYYY“ / „MM/YYYY“. */
+export const PERIOD_RE = /(?:^|[^\d])(0?[1-9]|1[0-2])\s*[\/\-.]\s*20\d\d(?!\d)/;
+
+/**
+ * Document numbers with a letter prefix mentioned in a text („CLK-202606-1019“, „ФК-12/26“): the normalised token
+ * (lowercase, without spaces) and its letter prefix (the series).
+ */
+export function docNoTokens(text: unknown): { raw: string; series: string }[] {
+  const out: { raw: string; series: string }[] = [];
+  for (const m of String(text ?? '').matchAll(/(?:^|[^\p{L}\d])(\p{L}{1,6}[-\/]?\d{2,}(?:[-\/.]\d+)*)/gu)) {
+    const raw = m[1]!.toLowerCase();
+    const series = raw.replace(/[\d\-\/.].*$/, '');
+    if (/^(бр|br|nr|no|фак|fak|inv|ф|f|visa|mc|mbdp)$/.test(series)) continue; // keywords / card prefixes, not a series
+    if (!out.some((o) => o.raw === raw)) out.push({ raw, series });
+  }
+  return out;
+}
+
+const normNo = (s: unknown) => String(s ?? '').replace(/\s+/g, '').toLowerCase();
+const seriesOf = (number: unknown) => normNo(number).replace(/[\d\-\/.].*$/, '');
+
+/** The text contains the full document number as a token (≥ 5 characters with a letter or a separator, e.g. „CLK-202606-1019“). */
+export function textHasDocNo(text: unknown, number: unknown): boolean {
+  const n = normNo(number);
+  if (n.length < 5 || !/\D/.test(n)) return false;
+  const t = String(text ?? '').toLowerCase();
+  let i = t.indexOf(n);
+  while (i >= 0) {
+    const a = t[i - 1], z = t[i + n.length];
+    if (!(a && /[\p{L}\d]/u.test(a)) && !(z && /\d/.test(z))) return true;
+    i = t.indexOf(n, i + 1);
+  }
+  return false;
+}
+
+/**
+ * May a payment be matched by AMOUNT ALONE to document `d`? When the text names a document (by keyword / `n/yy`, or a
+ * lettered number such as „CLK-202606-1019“), not to a DIFFERENT document of the same series and not to a document
+ * dated after the payment.
+ */
+export function amountOnlyOk(text: string, b: Pick<BankRow, 'date'>, d: Pick<OpenDoc, 'number' | 'date'>): boolean {
+  const Kn = bmNums(text).map(bmKey).filter(Boolean) as InvKey[];
+  const T = docNoTokens(text);
+  if (!Kn.length && !T.length) return true;
+  if (Kn.some((k) => bmEq(bmKey(d.number), k, false)) || textHasDocNo(text, d.number)) return true;
+  if (d.date > b.date) return false;
+  const ser = seriesOf(d.number);
+  if (ser && T.some((t) => t.series === ser)) return false;
+  // a plain „123/26“ reference and a plain-numbered document: a different number of the same kind
+  if (!ser && Kn.length) return false;
+  return true;
 }
 
 /** Legacy `bmEq` (12479): same invoice number; `weakOk` accepts a missing year on one side. */
@@ -439,7 +514,7 @@ function linkRow(b: BankRow, pick: { x: OpenDoc; o: number }[], type: DocType, p
 
 /* ================================================================== matching layers */
 
-export type MatchHow = 'pos' | 'vat' | 'osnov' | 'fx' | 'num' | 'amt' | 'sum' | 'fxnear' | 'invoice' | 'purchase' | 'fee' | 'payroll' | 'rule' | 'turnover' | 'cash';
+export type MatchHow = 'pos' | 'vat' | 'osnov' | 'fx' | 'num' | 'amt' | 'sum' | 'fxnear' | 'invoice' | 'purchase' | 'fee' | 'payroll' | 'rule' | 'turnover' | 'cash' | 'card' | 'conv';
 
 export interface MatchChange {
   id: string;
@@ -517,6 +592,44 @@ function layerVat(w: Work): void {
   }
 }
 
+/**
+ * Lines that never get a partner / invoice ({@link noPartnerLine}): bank charges → fee konto, card purchases → card konto
+ * (a learned description rule wins for both), salaries → `pay_net` (the payroll run's split when `payMatch` finds it),
+ * Treasury payroll contributions / PIT → their payroll kontos. A currency purchase on a denar account → FX bank konto.
+ */
+function layerNoPartner(w: Work): void {
+  const { ctx, K } = w;
+  const rules = ctx.rules || [];
+  for (const b of w.rows.filter((b) => !b.ref && !(b.split && b.split.length) && !b.pos && !b.own && !b.conv && +b.amount && (!b.konto || b.ai || (BKPK_RE.test(String(b.konto)) && !b.manual)))) {
+    if (!isFxAccount(ctx.accounts, b.acct) && isConversion(b)) {
+      const nb: BankRow = { ...b, konto: convFxKonto(b, ctx.accounts, K), conv: true };
+      delete nb.partner;
+      delete nb.ai;
+      commit(w, nb, 'conv');
+      continue;
+    }
+    const hit = noPartnerLine(b, ctx);
+    if (!hit?.konto) continue;
+    const desc = low(b.desc);
+    let nb: BankRow = { ...b, konto: hit.konto };
+    let how: MatchHow = hit.kind === 'fee' ? 'fee' : hit.kind === 'card' ? 'card' : 'payroll';
+    if (hit.kind === 'fee' || hit.kind === 'card') {
+      const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && !BKPK_RE.test(String(r.konto)));
+      if (rule) { nb.konto = rule.konto; how = 'rule'; }
+    } else if (hit.kind === 'wage' && ctx.payMatch) {
+      const pm = ctx.payMatch(Math.abs(+b.amount), b.date);
+      if (pm) { nb = { ...nb, konto: pm.konto, payRef: pm.month, ...(pm.split ? { split: pm.split } : {}) }; }
+    }
+    delete nb.partner;
+    delete nb.ai;
+    delete nb.refs;
+    commit(w, nb, how);
+  }
+}
+
+/** The line never closes a document (bank, Treasury, card, salary — {@link noPartnerLine}). */
+const noDoc = (b: BankRow, ctx: MatchContext) => !!noPartnerLine(b, ctx);
+
 function layerOsnov(w: Work): void {
   const M = w.ctx.osnovK || {};
   for (const b of w.rows.filter((b) => !b.ref && !b.konto && b.osnov && !b.own)) {
@@ -533,6 +646,7 @@ function layerFx(w: Work): void {
   const alloc: Record<string, number> = {};
   const L = w.rows.filter((b) => inYear(ctx, b.date) && isFxAccount(ctx.accounts, b.acct) && !b.ref && !b.own && !b.pos && +b.amount && !(b.split && b.split.length) && (!b.konto || BKPK_RE.test(String(b.konto))));
   for (const b of L) {
+    if (noDoc(b, ctx)) continue;
     const inc = +b.amount > 0;
     const type: DocType = inc ? 'invoice' : 'purchase';
     const cur = bankOf(ctx.accounts, b.acct).cur;
@@ -551,7 +665,7 @@ function layerFx(w: Work): void {
     };
     let pick: { x: OpenDoc; o: number } | null = null;
     if (Kn.length) { const pool = P.length ? P : O; pick = pool.find((z) => Kn.some((k) => bmEq(bmKey(z.x.number), k, !!P.length))) || null; }
-    if (!pick) { const pool = P.length ? P : pid ? [] : O; const ex = pool.filter(near); if (ex.length && (P.length || ex.length === 1)) pick = ex[0]!; }
+    if (!pick) { const pool = P.length ? P : pid ? [] : O; const ex = pool.filter((z) => near(z) && amountOnlyOk(rowText(b), b, z.x)); if (ex.length && (P.length || ex.length === 1)) pick = ex[0]!; }
     if (!pick) continue;
     const z = pick;
     const oc = ocur(z);
@@ -573,6 +687,7 @@ function layerBm(w: Work): void {
   const PB: Record<string, number> = {};
   const L = w.rows.filter((b) => inYear(ctx, b.date) && !b.ref && !b.pos && !(b.split && b.split.length) && +b.amount && !isFxAccount(ctx.accounts, b.acct) && (!b.konto || BKPK_RE.test(String(b.konto))));
   for (const b of L) {
+    if (noDoc(b, ctx)) continue;
     const inc = +b.amount > 0;
     const type: DocType = inc ? 'invoice' : 'purchase';
     const amt = Math.abs(+b.amount);
@@ -583,16 +698,20 @@ function layerBm(w: Work): void {
     const Kn = bmNums(b.desc).map(bmKey).filter(Boolean) as InvKey[];
     let pick: { x: OpenDoc; o: number }[] | null = null;
     let how: MatchHow = 'num';
-    if (Kn.length) {
+    const text = rowText(b);
+    // the full document number in the text („CLK-202606-1019“) wins over a partial / weak number match
+    const exact = (pid ? O.filter((z) => !z.x.partner || z.x.partner === pid) : O).filter((z) => textHasDocNo(text, z.x.number));
+    if (exact.length) { pick = exact; how = 'num'; }
+    if (!pick && Kn.length) {
       const pool = P.length ? P : O;
       const hits = pool.filter((z) => Kn.some((k) => bmEq(bmKey(z.x.number), k, !!P.length)));
       if (hits.length) { pick = hits; how = 'num'; }
     }
     if (!pick) {
-      const pool = P.length ? P : pid ? [] : O;
+      const pool = (P.length ? P : pid ? [] : O).filter((z) => amountOnlyOk(text, b, z.x));
       const ex = pool.filter((z) => z.o === amt);
       if (ex.length && (P.length || ex.length === 1)) { pick = [ex[0]!]; how = 'amt'; }
-      else if (P.length > 1) { const ss = bmSubset(P, amt); if (ss) { pick = ss; how = 'sum'; } }
+      else if (pool.length > 1 && P.length) { const ss = bmSubset(pool, amt); if (ss) { pick = ss; how = 'sum'; } }
     }
     if (!pick) continue;
     const r = linkRow(b, pick, type, pid, K);
@@ -613,6 +732,8 @@ function layerBase(w: Work): void {
     const desc = low(b.desc);
     const amt = Math.abs(+b.amount);
     if (!amt) continue;
+    if (noDoc(b, ctx)) continue;
+    const text = rowText(b);
     // a deposit of the daily turnover / a cash withdrawal says so in its description: never an invoice by amount
     const kw = keywordKonto(b, ctx.accounts, K);
     if (kw && !ownTransferBy(b, ctx)) {
@@ -636,7 +757,7 @@ function layerBase(w: Work): void {
         continue;
       }
     } else if (+b.amount > 0) {
-      const cand = invoicesOf(ctx).filter((i) => !i.pend && !used.has(i.id) && open('invoice', i) === amt);
+      const cand = invoicesOf(ctx).filter((i) => !i.pend && !used.has(i.id) && open('invoice', i) === amt && amountOnlyOk(text, b, i));
       const i = cand.find((i) => desc.includes(String(i.number).split('/')[0]!) || desc.includes(nm8(i))) || cand[0];
       if (i) hit = { type: 'invoice', doc: i };
     } else if (BANK_FEE.test(desc) && !ctx.purchases.some((p) => !used.has(p.id) && p.number && desc.includes(low(p.number)) && open('purchase', p) === amt)) {
@@ -644,7 +765,7 @@ function layerBase(w: Work): void {
       commit(w, { ...b, konto: fk ? fk.konto : K.fee }, 'fee');
       continue;
     } else {
-      const cand = ctx.purchases.filter((p) => !p.pend && !used.has(p.id) && open('purchase', p) === amt);
+      const cand = ctx.purchases.filter((p) => !p.pend && !used.has(p.id) && open('purchase', p) === amt && amountOnlyOk(text, b, p));
       const p = cand.find((p) => desc.includes(low(p.number || '~~')) || desc.includes(nm8(p))) || cand[0];
       if (p) hit = { type: 'purchase', doc: p };
     }
@@ -686,6 +807,7 @@ export function autoMatch(ctx: MatchContext): MatchResult {
   layerPos(w);
   layerVat(w);
   layerOsnov(w);
+  layerNoPartner(w);
   layerFx(w);
   layerBm(w);
   layerBase(w);
@@ -864,6 +986,8 @@ export function resolvePartner(b: BankRow, ctx: Pick<MatchContext, 'partners' | 
     const d = (r.type === 'invoice' ? ctx.invoices : ctx.purchases).find((x) => x.id === r.id);
     if (d?.partner) return { partner: d.partner };
   }
+  // the bank, the Treasury, a card merchant or an employee is never a customer / supplier
+  if (noPartnerLine(b)) return {};
   const nm = bankName(b, ctx.partners);
   if (b.konto) {
     if (!nm || nm.length < 3) return {};
@@ -874,7 +998,7 @@ export function resolvePartner(b: BankRow, ctx: Pick<MatchContext, 'partners' | 
   return pid ? { partner: pid } : {};
 }
 
-export type ImportClass = 'pos' | 'conv' | 'own' | 'turnover' | 'cash' | null;
+export type ImportClass = 'pos' | 'conv' | 'own' | 'turnover' | 'cash' | 'fee' | 'card' | null;
 
 /**
  * Deposit of the daily turnover (уплата на дневен промет / пазар). Only what the description says outright — the
@@ -897,6 +1021,108 @@ export function keywordKonto(b: BankRow, accounts: BankAccount[], konta?: Partia
   // payment code 800 = „Уплата во готово на сопствена сметка од дневен пазар“ (НБРСМ шифри на плаќање)
   if (+b.amount > 0 && (TURNOVER_RE.test(t) || String(b.osnov ?? '').trim() === '800')) return { konto: K.dailyTurnover, cls: 'turnover' };
   if (+b.amount < 0 && CASH_WD_RE.test(t)) return { konto: K.cashWithdraw, cls: 'cash' };
+  return null;
+}
+
+/* ================================================================== counterparties that are never a partner */
+
+/** Macedonian banks (and generic „банка / bank“) as a counterparty name. */
+export const BANK_NAME_RE = /(^|[^\p{L}])(нлб|nlb|халк\s*банк\S*|halk\s*bank\S*|стопанска\s+банка|stopanska\s+banka|комерцијална\s+банка|komercijalna\s+banka|шпаркасе|sparkasse|уни\s*банка|uni\s*bank\S*|прокредит|procredit|силк\s*роуд|silk\s*road|ттк\s+банка|ttk\s+bank\S*|централна\s+кооперативна|алта\s+банка|alta\s+bank\S*|капитал\s+банка|банка|banka|bank)(?![\p{L}])/iu;
+/** The Treasury („Трезор на РМ“, treasury account 100000000063095) — taxes and contributions, never a partner. */
+export const TREASURY_RE = /трезор|trezor|treasury|министерство\s+за\s+финансии|ministerstvo\s+za\s+finansii|управа\s+за\s+јавни\s+приходи|uprava\s+za\s+javni\s+prihodi|(^|[^\p{L}])(ујп|ujp)(?![\p{L}])/iu;
+const TREASURY_ACC = '100000000063095';
+/** Card purchase on the firm's payment card: „MBDP:8330:…“, „VISA*6874 -Ramstor …“, „POS купување …“. */
+export const CARD_RE = /\bMBDP\s*:\s*\d|\b(VISA|MASTER\s?CARD|MC|MAESTRO)\s*\*\s*\d{3,}|\bPOS\s*(купување|плаќање|kupuvanje|plakanje|purchase)|(плаќање|купување)\s+(со|на)\s+(платежна\s+)?картичк|\bcard\s+purchase\b/i;
+/** Bank's own charges: provisions, e-banking, account maintenance, fees. */
+export const BANK_CHARGE_RE = /\[autoprov\]|провизи|provizi|електронско\s+банкарство|elektronsko\s+bankarstvo|одржување|odrzuvanje|надоместо?к|nadomesto?k|пакет\s+(на\s+)?услуги|членарина\s+за\s+картичк/i;
+/** Salary words: плата / нето / регрес / аконтација на плата … */
+const WAGE_RE = /(^|[^\p{L}])(плат[аи]|нето|регрес|аконтациј\S*\s+(на\s+)?плат\S*|plat[aeë]|neto|regres)(?![\p{L}])/iu;
+/** Payroll payment reference „910…+ MM-YYYY“ (the salary reference followed by the payroll month). */
+const PAYREF_RE = /(^|\D)910\d{8,}\s*\+?\s*(0?[1-9]|1[0-2])\s*[\/\-.]\s*20\d\d(?!\d)/;
+/** Company-form words: the counterparty is not a natural person. */
+const FIRM_WORD_RE = /(^|[^\p{L}])(доо|дооел|ад|тп|јтд|дпту|дпу|ооо|doo|dooel|ad|tp|ltd|llc|gmbh|друштво|компанија|company|маркет|market|трезор|trezor|управа|uprava|фонд|fond|општина|opstina|агенција|agencija|центар|centar|министерство|банка|banka|bank|нлб|nlb|халк|halk)(?![\p{L}])/iu;
+/** Rent / lease to a natural person — not a salary even with a period. */
+const RENT_RE = /закуп|кирија|наем|zakup|kirija|najem|qira/i;
+
+/** The counterparty name as printed (the name field, else the description before the first digit / separator). */
+function leadName(b: BankRow): string {
+  if (b.name && String(b.name).trim()) return String(b.name).trim();
+  return String(b.desc ?? '').split(/[\d,;·*\[:]| - | – /)[0]!.trim();
+}
+
+/** A natural person's name: 2–3 words of letters, none of them a company / institution word. */
+export function isPersonName(name: unknown): boolean {
+  const n = String(name ?? '').replace(/[„“”"'.]/g, ' ').trim();
+  if (!n || FIRM_WORD_RE.test(n)) return false;
+  const w = n.split(/\s+/);
+  return w.length >= 2 && w.length <= 3 && w.every((x) => /^\p{L}{2,}(-\p{L}{2,})?$/u.test(x));
+}
+
+export type PayrollPart = 'net' | 'pio' | 'zdr' | 'vrab' | 'dop' | 'tax';
+
+/** Payroll scheme key of a payroll part. */
+const PAY_KEY: Record<PayrollPart, keyof PayScheme> = { net: 'pay_net', pio: 'pay_pio', zdr: 'pay_zdr', vrab: 'pay_vrab', dop: 'pay_dop', tax: 'pay_tax' };
+
+/** Konto of a payroll part from the firm's payroll scheme (a switched-off part → `pay_contrib`). */
+export function payrollKonto(part: PayrollPart, scheme?: Partial<PayScheme>): string {
+  const S = { ...PAY_SCH0, ...Object.fromEntries(Object.entries(scheme ?? {}).filter(([, v]) => v)) } as PayScheme;
+  const k = S[PAY_KEY[part]];
+  return k && k !== '-' ? k : S.pay_contrib;
+}
+
+export type NoPartnerKind = 'fee' | 'card' | 'bank' | 'treasury' | 'wage';
+
+export interface NoPartnerHit {
+  kind: NoPartnerKind;
+  /** Proposed konto; undefined = leave for the user (but never a partner / document). */
+  konto?: string;
+  /** Payroll part for `wage` / `treasury`. */
+  part?: PayrollPart;
+}
+
+/**
+ * Statement lines whose counterparty is NEVER a customer / supplier (no partner on 1200/2200, no invoice match):
+ * - the bank itself (the bank of the statement's account or any bank): provisions / e-banking / maintenance → `fee`
+ *   (4460); other bank lines (loan, interest) → no proposal;
+ * - a card purchase on the firm's card (MBDP / VISA* / POS merchant) → `card` (1020);
+ * - the Treasury („Трезор на РМ“): payroll contributions / PIT by the hints in the text → the payroll scheme kontos;
+ *   anything else → no proposal;
+ * - a salary payment (reference „910…+ MM-YYYY“, salary words, or a natural person with a payroll period) → `pay_net`.
+ */
+export function noPartnerLine(b: BankRow, ctx: Pick<MatchContext, 'konta' | 'payScheme'> = {}): NoPartnerHit | null {
+  const K = kOf(ctx);
+  const out = +b.amount < 0;
+  const name = leadName(b);
+  const t = [b.name, b.desc, b.purpose].filter(Boolean).join(' ');
+  const treasury = TREASURY_RE.test(name) || TREASURY_RE.test(t) || dig(b.counterAccount) === TREASURY_ACC;
+  if (treasury) {
+    // VAT, the monthly profit-tax advance („уплата мдб 06/2026“) and interest on late tax: the firm's tax kontos
+    if (/(^|[^\p{L}])(ддв|ddv)(?![\p{L}])|данок\s+на\s+додадена|danok\s+na\s+dodadena/iu.test(t)) return { kind: 'treasury', konto: out ? K.ddvPay : K.ddvClaim };
+    if (out && /камат|kamat/i.test(t)) return { kind: 'treasury', konto: K.taxInterest };
+    if (out && /(^|[^\p{L}])(мдб|mdb)(?![\p{L}])|данок\s+на\s+добивк|danok\s+na\s+dobivk|аконтациј\S*\s+(на\s+)?(данок|ддб)/iu.test(t)) return { kind: 'treasury', konto: K.profitTax };
+    const payref = PAYREF_RE.test(t) || PERIOD_RE.test(t) || WAGE_RE.test(t) || /придонес|pridones/i.test(t);
+    const part: PayrollPart | null = !payref || !out ? null
+      : /0[.,]5\s*%|дополнител|dopolnitel|dodatn|додатн/i.test(t) ? 'dop'
+        : /вработ|vrabot/i.test(t) ? 'vrab'
+          : /здравств|zdravstv/i.test(t) ? 'zdr'
+            : /пензи|penzi|(^|[^\p{L}])(пио|pio)(?![\p{L}])/iu.test(t) ? 'pio'
+              : /(данок|danok|пдд|\bpdd\b|personal)/i.test(t) && !/добивк|dobivk|ддв|\bddv\b|имот|imot/i.test(t) ? 'tax'
+                : null;
+    return part ? { kind: 'treasury', part, konto: payrollKonto(part, ctx.payScheme) } : { kind: 'treasury' };
+  }
+  const bankCp = BANK_NAME_RE.test(name);
+  if (out && CARD_RE.test(t)) return { kind: 'card', konto: K.card };
+  if (bankCp || /\[autoprov\]/i.test(t)) {
+    if (out && (BANK_CHARGE_RE.test(t) || BANK_FEE.test(t))) return { kind: 'fee', konto: K.fee };
+    return { kind: 'bank' };
+  }
+  if (out && !RENT_RE.test(t)) {
+    const period = PERIOD_RE.test(t);
+    const person = isPersonName(name);
+    if (PAYREF_RE.test(t) || (WAGE_RE.test(t) && (person || period)) || (person && (period || /надоместо?к|nadomesto?k/i.test(t)))) {
+      return { kind: 'wage', part: 'net', konto: payrollKonto('net', ctx.payScheme) };
+    }
+  }
   return null;
 }
 
@@ -949,6 +1175,13 @@ export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts
     delete b.partner;
     cls = kw.cls;
   }
+  // bank charges / card purchases: their konto, never a partner (salaries / Treasury are proposed by the review)
+  const np = free(b) && !b.own ? noPartnerLine(b, ctx) : null;
+  if (np?.konto && (np.kind === 'fee' || np.kind === 'card')) {
+    b = { ...b, konto: np.konto };
+    delete b.partner;
+    cls = np.kind;
+  }
   let newPartner: string | undefined;
   if (!b.partner && BKPK_RE.test(bankEffKonto(b))) {
     const r = resolvePartner(b, ctx);
@@ -979,7 +1212,7 @@ export function pairConversions(rows: BankRow[], accounts: BankAccount[], konta?
 export function feeFix(rows: BankRow[], year?: number | string, konta?: Partial<BankKonta>): BankRow[] {
   const K = { ...BANK_KONTA, ...(konta || {}) };
   return rows
-    .filter((b) => (year == null || String(b.date).startsWith(String(year))) && +b.amount < 0 && !b.ref && ['2200', '4400'].includes(String(b.konto)) && BANK_FEE.test(String(b.desc || '')))
+    .filter((b) => (year == null || String(b.date).startsWith(String(year))) && +b.amount < 0 && !b.ref && ['2200', '4400'].includes(String(b.konto)) && (BANK_FEE.test(String(b.desc || '')) || noPartnerLine(b)?.kind === 'fee'))
     .map((b) => { const nb = { ...b, konto: K.fee }; delete nb.ai; return nb; });
 }
 

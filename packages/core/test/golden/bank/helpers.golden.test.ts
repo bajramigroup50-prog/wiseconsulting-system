@@ -22,7 +22,9 @@ const DESCS = [
 ];
 
 describe('invoice-number helpers vs legacy (12471–12483)', () => {
-  it('bmNums', () => { for (const d of DESCS) expect(bmNums(d), d).toEqual(call('bmNums', d)); });
+  // FIX: a bare payroll period („плата 02/2026“) is not an invoice number (legacy read it as one)
+  const FIXED: Record<string, string[]> = { 'плата 02/2026': [] };
+  it('bmNums', () => { for (const d of DESCS) expect(bmNums(d), d).toEqual(FIXED[d] ?? call('bmNums', d)); });
   it('bmKey', () => {
     for (const n of ['45/2026', '2026/0045', 'F-1234', 'INV-2026-77', '12', 'ЕX 3/26', 'abc', '', '1-2-3', '2050-1', '7/2101']) expect(bmKey(n), n).toEqual(call('bmKey', n));
   });
