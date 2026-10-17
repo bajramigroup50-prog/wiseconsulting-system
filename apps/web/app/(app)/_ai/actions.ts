@@ -29,6 +29,8 @@ const Start = z.object({
    * read back instead of a new one (bank statements dropped again: no second AI read, no waiting).
    */
   reuse: z.boolean().optional(),
+  /** „↻ Прочитај повторно“: a NEW read (`options.reread`) — never an earlier read of the file, never the free reader. */
+  reread: z.boolean().optional(),
 });
 
 /** Register uploaded files (or, for `bom`, the product) for reading; one job per row. */
@@ -43,7 +45,7 @@ export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?:
       const ok = await db().select({ id: files.id }).from(files).where(and(eq(files.firmId, firm.id), inArray(files.id, v.fileIds), eq(files.status, 'ready')));
       if (ok.length !== new Set(v.fileIds).size) return { error: 'Датотеката не е пронајдена.' };
     }
-    if (v.reuse && !grouped && v.kind !== 'bom') {
+    if (v.reuse && !v.reread && !grouped && v.kind !== 'bom') {
       const found = await reusableReads(db(), { firmId: firm.id, kind: v.kind, fileIds: v.fileIds });
       const fresh = [...new Set(v.fileIds.filter((id) => !found.has(id)))];
       const made = fresh.length ? await db().transaction(async (tx) => {
@@ -61,7 +63,7 @@ export async function startAiRead(input: z.input<typeof Start>): Promise<{ ids?:
     const ids = await db().transaction(async (tx) => {
       const ids = await queueAiReads(tx, {
         firmId: firm.id, userId: u.id, kind: v.kind, fileIds: v.kind === 'bom' ? null : grouped ? v.fileIds.slice(0, 1) : v.fileIds,
-        ...(v.kind === 'bom' ? { options: { productId: v.productId } } : grouped ? { options: { extraFileIds: v.fileIds.slice(1) } } : {}),
+        ...(v.kind === 'bom' ? { options: { productId: v.productId } } : grouped ? { options: { extraFileIds: v.fileIds.slice(1) } } : v.reread ? { options: { reread: true, retry: true } } : {}),
       });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'aiRead', entityType: 'ai_document', data: { kind: v.kind, count: ids.length, ...(v.productId ? { productId: v.productId } : {}) } });
       return ids;

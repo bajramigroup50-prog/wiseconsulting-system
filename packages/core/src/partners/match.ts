@@ -15,7 +15,7 @@
  *
  * Pure: the caller passes the partners.
  */
-import { accountKey } from '../bank/mk-banks';
+import { accountKey, treasuryAccount } from '../bank/mk-banks';
 import { partnerAccounts } from '../bank/partner-accounts';
 import { fixYusciiAll, translitKey } from '../text/yuscii';
 
@@ -123,11 +123,14 @@ export function stem(t: string): string {
 }
 
 /**
- * Similarity of two tokens: 1 equal, 0.9 abbreviation („здр“ ↔ „здрав“), 0.85 same stem / one typo, 0.8 a typo in
+ * Similarity of two tokens: 1 equal (also YUSCII „x“ = „џ“), 0.9 abbreviation („здр“ ↔ „здрав“), 0.85 same stem / one typo, 0.8 a typo in
  * the stem („потрбите“ ↔ „потреба“) or a long common prefix, 0.6 a one- or two-letter abbreviation („о“ ↔ „областа“).
  */
 export function tokenSim(a: string, b: string): number {
   if (a === b) return 1;
+  // YUSCII of the old program writes Џ as „X“ („MENAXMENT“ = „МЕНАЏМЕНТ“ → menadzment)
+  // (the key writes Latin „x“ as „ks“): menaksment = menadzment
+  if (a.includes('dz') !== b.includes('dz') && a.replace(/ks/g, 'dz') === b.replace(/ks/g, 'dz')) return 1;
   const [s, l] = a.length <= b.length ? [a, b] : [b, a];
   if (/^\d+$/.test(s) || /^\d+$/.test(l)) return 0;
   if (s.length < 3) return l.startsWith(s) ? 0.6 : 0;
@@ -230,6 +233,8 @@ export function partnerById<P extends MatchablePartnerRow>(partners: readonly P[
     return x ? { p: x, by: 'embs' } : null;
   }
   if (id.kind === 'bank') {
+    // a Treasury account (bank 100) is shared by all state bodies: never a partner's identifier
+    if (treasuryAccount(id.value)) return null;
     const x = partners.find((p) => partnerAccounts(p).some((a) => accountKey(a.acc) === id.value || accountKey(a.iban) === id.value)) ?? partners.find(learned);
     return x ? { p: x, by: 'bank' } : null;
   }
@@ -248,7 +253,8 @@ export function findPartnerMatch<P extends MatchablePartnerRow>(partners: readon
   if (doc.bankAccount) {
     const b = classifyPartnerId(doc.bankAccount);
     const h = b.kind === 'bank' ? partnerById(partners, b) : null;
-    if (h) return { ...none, partner: h.p, by: 'bank', score: 1 };
+    // the document's own ЕДБ / ЕМБС differs from the bank-matched partner's: another legal entity, the account says nothing
+    if (h && !idConflict(h.p, id)) return { ...none, partner: h.p, by: 'bank', score: 1 };
   }
   const T = nameSig(doc.name);
   if (!T.t.length) return none;

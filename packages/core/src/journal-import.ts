@@ -13,7 +13,8 @@
  *   as the partner code, a partner „1029 МАЈАНЦЕ“ its code.
  * - Empty date / type / number cells take the value of the row above (the old program prints them once per nalog).
  * - Grouping: by type + number (else type + date); one WISE journal per date when every date of the nalog balances,
- *   else per month, else one journal on the last date of the nalog (with a warning).
+ *   else an unbalanced day is booked together with the following days only until the running sum is zero again (one
+ *   journal on the last day of that run, with a warning); every other day stays its own journal.
  * - The number is kept as the old program printed it, `type/number` („06/9“) like WISE's own „6/1-3“; a bare number
  *   gets the prefix „У“ so it can never be a WISE counter number (1021, 1022…), the opening „0“ or the closing „999“.
  * All sums are in integer cents.
@@ -128,7 +129,13 @@ export function jiNumber(type: string, no: string): string | null {
  */
 export function jiNameDefault(file: string): { type: string; no: string } {
   const b = file.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').trim();
-  let m = /(\d+)\s*[-_ ]\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/.exec(b);
+  // „PLATA 7“: the payroll nalog of month 7 → WISE's payroll code (12, „ПЛАТА“, per month: 12/7-7)
+  const pm = /(?:PLAT[AI]|ПЛАТ[АИ])\s*[-_ ]?\s*(\d{1,2})(?!\d)/i.exec(b);
+  if (pm && +pm[1]! >= 1 && +pm[1]! <= 12) return { type: '12', no: `${+pm[1]!}-${+pm[1]!}` };
+  // „NALOG DDV 1-3“: the VAT nalog of months 1–3 → WISE's VAT nalog code (4, „ДДВ ПРИЈАВА“)
+  let m = /(?:DDV|ДДВ)\s*[-_ ]?\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/i.exec(b);
+  if (m && +m[1]! >= 1 && +m[2]! <= 12 && +m[1]! <= +m[2]!) return { type: '4', no: `${+m[1]!}-${+m[2]!}` };
+  m = /(\d+)\s*[-_ ]\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/.exec(b);
   if (m && +m[2]! >= 1 && +m[3]! <= 12 && +m[2]! <= +m[3]!) return { type: m[1]!, no: `${+m[2]!}-${+m[3]!}` };
   m = /(\d+)\s*[-_/]\s*(\d+)/.exec(b);
   if (m) return { type: m[1]!, no: m[2]! };
@@ -163,6 +170,12 @@ const split = <T>(R: readonly JiRow[], f: (x: JiRow) => T): Map<T, JiRow[]> => {
   return M;
 };
 
+const dm = (d: string) => d.slice(8, 10) + '.' + d.slice(5, 7);
+const amt = (c: number) => (c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '.').replace(/\.(\d{2})$/, ',$1');
+/** „налогот 1020/4-6: 30.04–04.05 книжени заедно со датум 04.05.2026 – разлика 10,00 меѓу деновите“ */
+export const jiRunWarn = (label: string, from: string, to: string, gap: number): string =>
+  `налогот ${label}: ${dm(from)}–${dm(to)} книжени заедно со датум ${to.split('-').reverse().join('.')} – разлика ${amt(gap)} меѓу деновите`;
+
 /** Rows → WISE journals (see the module comment); an unbalanced nalog is returned in `unbalanced`, not as journals. */
 export function jiGroup(rows: readonly JiRow[]): { journals: JiJournal[]; unbalanced: JiUnbalanced[] } {
   const N = split(rows, (x) => (x.no ? `${x.type}|${x.no}` : `${x.type}|@${x.date}`));
@@ -176,20 +189,20 @@ export function jiGroup(rows: readonly JiRow[]): { journals: JiJournal[]; unbala
       const d = sumD(part);
       return { key, label, type, no, number: jiNumber(type, no), date, rows: part, D: d, P: sumP(part), dup: `${type}|${no}|${date}|${d}`, ...(warn ? { warn } : {}) };
     };
-    const ok = (M: Map<string, JiRow[]>) => [...M.values()].every((x) => sumD(x) === sumP(x));
-    const byDay = split(R, (x) => x.date);
-    if (ok(byDay)) { for (const [d, part] of [...byDay].sort((a, b) => (a[0] < b[0] ? -1 : 1))) journals.push(mk(part, d)); continue; }
-    const byMonth = split(R, (x) => x.date.slice(0, 7));
-    const lastOf = (part: JiRow[]) => part.reduce((m, x) => (x.date > m ? x.date : m), '');
-    if (ok(byMonth)) {
-      for (const part of byMonth.values()) {
-        const d = lastOf(part);
-        journals.push(mk(part, d, byDay.size > 1 ? `налогот ${label} не е во рамнотежа по денови – книжен со датум ${d.split('-').reverse().join('.')}` : undefined));
-      }
-      continue;
+    // day by day; an unbalanced day takes the following days until the running sum is zero again
+    const days = [...split(R, (x) => x.date)].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    let run: JiRow[] = [], first = '', bal = 0, gap = 0;
+    for (const [d, part] of days) {
+      if (!run.length) first = d;
+      run.push(...part);
+      bal += sumD(part) - sumP(part);
+      gap = Math.max(gap, Math.abs(bal));
+      if (bal !== 0) continue;
+      journals.push(mk(run, d, first !== d ? jiRunWarn(label, first, d, gap) : undefined));
+      run = []; gap = 0;
     }
-    const d = lastOf(R);
-    journals.push(mk(R, d, `налогот ${label} не е во рамнотежа по месеци – целиот е книжен со датум ${d.split('-').reverse().join('.')}`));
+    // never closes (cannot happen while the nalog balances): the rest on its last date
+    if (run.length) { const d = days[days.length - 1]![0]; journals.push(mk(run, d, jiRunWarn(label, first, d, gap))); }
   }
   journals.sort((a, b) => byDate(a, b) || a.key.localeCompare(b.key, 'mk', { numeric: true }));
   return { journals, unbalanced };
@@ -259,6 +272,8 @@ export interface JiInvoice {
 export const JI_EXEMPT_NOTE = 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ';
 export interface JiInvoiceRefused { no: string; rows: number[]; why: string }
 
+/** The legal VAT rates (ЗДДВ чл. 29 / 30). */
+const JI_RATES = [18, 10, 5];
 /** VAT rate of an output-VAT konto: 230018 → 18, 230010 → 10, 23005 → 5 (else null). */
 export const jiVatRate = (k: string): number | null => {
   const m = /^2300(18|10|5)$/.exec(k);
@@ -297,7 +312,15 @@ export function jiInvoices(rows: readonly JiRow[]): { inv: JiInvoice[]; rest: Ji
     if (!(a.d > 0) || a.p || rev.some((r) => r.d || !(r.p > 0)) || vat.some((r) => r.d || !(r.p > 0))) { refuse('не е излезна фактура (должи 120 / побарува 7 и 2300)'); continue; }
     const rates = [...new Set(vat.map((r) => jiVatRate(r.k)!))];
     if (rates.length > 1) { refuse('повеќе ДДВ стапки – приходите не може да се поврзат со стапката'); continue; }
-    const rate = rates[0] ?? 0;
+    let rate = rates[0] ?? 0;
+    // the old program books every rate on one VAT konto (5 % on 230018): when the konto's rate does not give the file's
+    // VAT but exactly one other legal rate does (to the denar), that rate is the invoice's
+    if (rate && vat.length) {
+      const b0 = rev.reduce((s, r) => s + r.p, 0), v0 = vat.reduce((s, r) => s + r.p, 0);
+      const fits = (x: number) => Math.abs(Math.round((b0 * x) / 100) - v0) < 100;
+      const alt = JI_RATES.filter((x) => x !== rate && fits(x));
+      if (!fits(rate) && alt.length === 1) rate = alt[0]!;
+    }
     // without a VAT line: on 1200009 (the old program's konto of чл. 24 sales) → exempt with the right to deduct (08);
     // with a printed exemption note of a clear kind → that kind; else not guessed („провери“, stays journal lines)
     let ex: Pick<JiInvoice, 'vatExempt' | 'vatNote'> = {};

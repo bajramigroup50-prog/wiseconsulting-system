@@ -23,12 +23,24 @@ export const PUR_BANK_ADD = `
 SUPPLIER BANK ACCOUNT: in every invoice object also return "supplierBankAccount":string = the SUPPLIER's (issuer's) bank account printed on the invoice („жиро сметка“, „трансакциска сметка“, „Ж.С.“, IBAN, e.g. 300-0000012345-67 or MK07300000001234567) exactly as printed; "" if none. NEVER the buyer's account.`;
 
 /**
+ * Utility bills (EVN, Телеком, water…) print the previous unpaid debt and „вкупно за плаќање“ = debt + this month's
+ * charge: only this invoice's own amount is booked (`prevDebtFix` in `@wise/core/sales` checks it deterministically).
+ */
+export const PUR_DEBT_ADD = `
+PREVIOUS DEBT: utility bills (electricity EVN, Телеком / phone, water, heating, waste…) often print the previous unpaid debt („долг од претходно“, „неплатен износ“, „претходно задолжување“, „салдо“, „стар долг“) and „вкупно за плаќање“ = previous debt + this month's charge. "total" MUST be ONLY this invoice's own amount (this period's charge: Σ base + VAT per rate, plus this invoice's items without VAT), NEVER including the previous debt; the previous debt is never in "groups". Return it separately as "prevDebt":number (0 if none).`;
+
+/** Every read invoice says what the document is by its title: a pro-forma / offer / delivery note is never booked. */
+export const DOC_TYPE_ADD = `
+DOCUMENT TYPE: in every invoice object also return "docType": "invoice" | "proforma" | "offer" | "delivery_note" | "statement" | "other" by the document's TITLE: „Профактура“, „Про-фактура“, „Предрачун“, „Proforma“, „Pro forma“ → "proforma"; „Понуда“ / „Offer“ → "offer"; „Испратница“ / „Отпремница“ → "delivery_note"; „Извод“ / „Изјава за состојба“ / „ИОС“ → "statement"; „Фактура“ / „Сметка“ (also a bill for electricity, phone, water) → "invoice". A note like „по профактура бр.“ on an invoice does NOT make it a pro-forma.`;
+
+/**
  * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the rule of the bank import — every
  * document is registered SEPARATELY. Several invoices in one file come back as `invoices[]`, each with its pages; never
  * one merged invoice, a number range („101-103“) or a sum.
  */
 export const INV_MULTI_ADD = `
-ONE OBJECT PER INVOICE: when the file holds several invoices (several headers „ФАКТУРА бр.“ / „Број на фактура“, different numbers or different suppliers) ALWAYS reply {"invoices":[…]} with one object per invoice in the order printed. Each object has ONLY that invoice's own supplier, ЕДБ, number, date, lines, VAT recapitulation and total. NEVER merge invoices into one object, NEVER return a range of numbers (like "101-103") and NEVER add up the totals of different invoices. In every invoice object also return "pages":string = the page(s) of the file it is printed on, e.g. "1" or "2-3" (the file's page / image order, first = 1).`;
+ONE OBJECT PER INVOICE: when the file holds several invoices (several headers „ФАКТУРА бр.“ / „Број на фактура“, different numbers or different suppliers) ALWAYS reply {"invoices":[…]} with one object per invoice in the order printed. Each object has ONLY that invoice's own supplier, ЕДБ, number, date, lines, VAT recapitulation and total. NEVER merge invoices into one object, NEVER return a range of numbers (like "101-103") and NEVER add up the totals of different invoices. In every invoice object also return "pages":string = the page(s) of the file it is printed on, e.g. "1" or "2-3" (the file's page / image order, first = 1).
+ATTACHED PAGES ARE NOT INVOICES: a page without its own invoice header and its own total / VAT recapitulation — the 2nd page of the same invoice („страна 2 од 2“), a consumption / cost specification (e.g. the EVN „спецификација на потрошувачка“ after the EVN bill), a „прилог“ / annex, a delivery note (испратница), a page repeating the same invoice number — belongs to the invoice BEFORE it: add that page to its "pages" (e.g. "3-4") and NEVER return it as an invoice object of its own. Every page of the file belongs to exactly one invoice.`;
 
 /**
  * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the VAT legal note printed on the invoice
@@ -39,7 +51,7 @@ VAT NOTE: in every invoice object also return "vatNote":string = the VAT legal n
 
 /** Added when several photos / scans are read together (`options.extraFileIds`): they are pages, maybe of several invoices. */
 export const INV_PAGES_NOTE = (n: number) => `
-The ${n} images above are the PAGES of the file in this order (page 1 = the first image). They may belong to one or to several invoices: group them by invoice header (a new „ФАКТУРА бр.“ / new number / new supplier starts a new invoice; a page without a header continues the invoice before it).`;
+The ${n} images above are the PAGES of the file in this order (page 1 = the first image). They may belong to one or to several invoices: group them by invoice header (a new „ФАКТУРА бр.“ / new number / new supplier starts a new invoice; a page without a header — a specification, annex, delivery note, page 2 — continues the invoice before it).`;
 
 /** Legacy `SALE_PROMPT` (8379–8382) — a function of the own firm. */
 export const SALE_PROMPT = (firm: { name?: string | null; edb?: string | null }) => `This is a SALES invoice (излезна фактура) ISSUED BY the company "${firm.name || ''}" (ЕДБ ${firm.edb || ''}) in North Macedonia to a customer. Extract it. The BUYER (купувач / примач) is the other party, NOT the issuer. Reply with ONLY JSON:
@@ -65,6 +77,16 @@ Rules:
 export const EMP_PROMPT = `This is an employment document from North Macedonia (договор за вработување, решение, М1/М2 пријава, лична карта or similar). Extract the employee. Reply with ONLY JSON:
 {"name":string,"embg":string,"address":string,"position":string,"start":"YYYY-MM-DD","end":"YYYY-MM-DD"|"","contract":"неопределено"|"определено"|"","hoursWeek":number,"netSalary":number,"grossSalary":number,"bankAcc":string,"bank":string,"stazPrevYears":number}
 Rules: embg = 13-digit ЕМБГ. netSalary/grossSalary in denars per month (0 if not stated). hoursWeek 40 if full time. Keep names in original language (Cyrillic if written so).`;
+
+/**
+ * Added to `BLG_PROMPT` (legacy stays verbatim): the back side / second page of a receipt is part of it — never a receipt
+ * of its own (`attachReceiptPages` in `@wise/core/ai/receipts` also merges the same number + date deterministically).
+ */
+export const BLG_PAGES_ADD = `
+BACK SIDES / PAGES: a receipt or report photographed on both sides or on several pages is ONE receipt: the back side / second page (payment breakdown, counters, slogans, other information) belongs to the receipt it continues — NEVER return it as a receipt of its own and never return the same receipt (same number and date) twice.`;
+
+/** Several photos / pages of ONE fiscal report read together (legacy `fkTiles` note 13010, plus the back side). */
+export const FISK_PAGES_NOTE = '\n\nThe images are CONSECUTIVE PARTS (top → bottom, slightly overlapping) of ONE long fiscal receipt/report – read them together as one document and do not count overlapping lines twice. A report often has 2 sides / pages: the first with the date, totals and VAT per rate, the second (back side) with other information (payment breakdown, counters, number of receipts) – the back side belongs to the SAME report: never a second report or a second day, never count its amounts again (one report = one fiscal device + report / Z number + date).';
 
 /** Legacy `BLG_PROMPT` (6525–6527) — cash-register receipts (kind `blg`, legacy `blgScanFiles`). */
 export const BLG_PROMPT = `These are receipts or invoices (fiscal receipts, fuel station receipts, toll/vignette/ferry/tunnel tickets, parking, hotel, restaurant, vehicle service, taxi…) from ANY country, paid by an employee of a company from North Macedonia (often a truck driver travelling through Europe). Extract EVERY receipt visible. Reply with ONLY JSON:

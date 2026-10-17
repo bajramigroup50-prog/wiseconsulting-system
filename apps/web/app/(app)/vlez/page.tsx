@@ -7,7 +7,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import type { ScanPurchaseDraft } from '@wise/core/sales';
 import {
-  aiDocuments, codes, draftSourceFiles, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
+  aiDocuments, codes, draftSourceFiles, refreshStaleScanDrafts, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -82,7 +82,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       title = 'Измена на влезна фактура' + (pu.number ? ' ' + pu.number : '');
       if (sp.merged) scanInfo = 'Спојената калкулација е зачувана, а старите се избришани – проверете ја и зачувајте ако менувате.';
     } else if (sp.scan) {
-      const [doc] = await db().select().from(aiDocuments).where(and(eq(aiDocuments.id, sp.scan), eq(aiDocuments.firmId, firm.id))).limit(1);
+      const [doc0] = await db().select().from(aiDocuments).where(and(eq(aiDocuments.id, sp.scan), eq(aiDocuments.firmId, firm.id))).limit(1);
+      // an unsaved read built with older rules: its drafts are rebuilt from the stored read first (no AI)
+      const doc = doc0 && write ? (await refreshStaleScanDrafts(db(), firm, [doc0], { userId: u.id })).docs[0] : doc0;
       const idx = Number(sp.i ?? 0) || 0;
       const x = doc?.drafts[idx];
       const dr = x?.draft as ScanPurchaseDraft | undefined;

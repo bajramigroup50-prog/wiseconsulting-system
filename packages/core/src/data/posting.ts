@@ -29,6 +29,11 @@ export const SCH0 = {
 export const SCH_EXTRA = {
   /** Purchase group without konto (legacy `'4000'`, and `'4100'` — rail transport — for art. 32-a groups; unified, see posting.ts). */
   purDefault: '4000',
+  /**
+   * Electricity (AI group kind `energy`) on a read incoming invoice. Empty = from the chart: 4030 when named
+   * „Електрична енергија“, else 4020 when so named, else `purDefault`.
+   */
+  costEnergy: '',
   /** Invoice / cash-sale line without konto (legacy `'7400'` literal in `calcLines`/`saleEntries`). */
   revDefault: '7400',
   /** Bank settle difference: positive FX difference (legacy literal `'7810'` in `bankEntries`). */

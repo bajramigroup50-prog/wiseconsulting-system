@@ -1,11 +1,15 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { needsPartner } from '@wise/core';
-import { audit, bankAccounts, deleteJournal, deleteStatement, firms, unpostRun, isIsoDate, journals, NalTitleError, postJournal, resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal } from '@wise/db';
-import { actionError, firmAction, type ActionState } from '@/lib/books';
+import {
+  audit, bankAccounts, deleteJournal, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
+  resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal, type NalogDeleteResult,
+} from '@wise/db';
+import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
+import { actorOf } from '@/lib/sales';
 import { db } from '@/lib/db';
 
 const amount = z.union([z.string(), z.number()]).transform((v) => String(v).trim().replace(/\s/g, '').replace(',', '.'))
@@ -85,33 +89,100 @@ export async function deleteJournalAction(id: string): Promise<ActionState> {
   return { ok: 'Налогот е избришан.' };
 }
 
-/**
- * Delete a whole nalog (all journals with this number in the year): every bank statement in it with its lines, a
- * payroll run's journal (the calculation stays in Плати), and the manual / empty journals. A nalog that holds
- * invoices, purchases or other documents is refused — those are deleted (or cancelled) on their own document.
- */
-export async function deleteNalogAction(no: string, year: number): Promise<ActionState> {
-  let n = 0;
+/** Permissions the nalog's documents need that the user lacks (their own screens need them to delete the documents). */
+function missingPerms(u: Parameters<typeof canDo>[0], firmId: string, r: NalogDeleteResult): string[] {
+  return r.perms.filter((p) => !canDo(u, p, firmId));
+}
+const noRight = (m: string[]) => new PostingError('locked', `Немате право да ги бришете документите во налогот (потребно право: ${m.join(', ')}).`);
+
+/** Confirmation text of the preview: the documents (type, number, date, partner, total), counts and consequences. */
+function previewText(r: NalogDeleteResult): string {
+  const docs = r.parts.filter((p) => !isManualJournal(p.sourceType));
+  const by = new Map<string, number>();
+  for (const p of r.parts) by.set(p.type, (by.get(p.type) ?? 0) + 1);
+  const L = r.parts.map((p) => '• ' + nalogPartLine(p) + (p.outcome === 'cancelled' ? ' – се СТОРНИРА (не е последна во серијата, бројот останува)' : '')
+    + (p.transfers ? ` – се бришат и преносниците: ${p.transfers}` : ''));
+  const shown = L.length > 40 ? [...L.slice(0, 40), `… и уште ${L.length - 40}`] : L;
+  return `\n\nЌе се избришат ${docs.length ? `${docs.length} ${docs.length === 1 ? 'документ' : 'документи'} заедно со налогот` : 'деловите на налогот'} (${[...by].map(([t, n]) => `${t}: ${n}`).join(', ')}):\n${shown.join('\n')}\nОва не може да се врати.`;
+}
+
+function doneText(r: NalogDeleteResult, what: string): string {
+  const del = r.parts.filter((p) => p.outcome === 'deleted').length, canc = r.parts.filter((p) => p.outcome === 'cancelled').length;
+  const tr = r.parts.filter((p) => p.transfers).map((p) => p.transfers).join(', ');
+  return `${what} (${del} ${del === 1 ? 'дел' : 'делови'}${canc ? `, ${canc} фактури сторнирани – бројот останува` : ''}${tr ? `, избришани и преносниците ${tr}` : ''}).`;
+}
+
+/** Preview before „🗑 Избриши“ of a whole nalog: the documents that go with it, or why it cannot be deleted. */
+export async function nalogDeletePreviewAction(no: string, year: number): Promise<{ extra?: string; block?: string }> {
   try {
     const { u, firm } = await firmAction('nalDel');
-    const J = await db().select().from(journals)
-      .where(and(eq(journals.firmId, firm.id), eq(journals.number, no), sql`${journals.date} between ${`${year}-01-01`} and ${`${year}-12-31`}`));
-    if (!J.length) return { error: 'Налогот не постои.' };
-    const other = J.filter((j) => fromDocument(j.sourceType) && !['bank_statement', 'payroll'].includes(j.sourceType!));
-    if (other.length) return { error: `Налогот содржи ${other.length} документи (фактури / калкулации…) – избришете ги или сторнирајте ги на самиот документ.` };
-    const lock = firm.lockDate;
-    if (J.some((j) => j.locked || (lock && j.date <= lock))) return { error: 'Налогот е во заклучен период – не може да се брише.' };
-    await db().transaction(async (tx) => {
-      for (const j of J) {
-        if (j.sourceType === 'bank_statement' && j.sourceId) await deleteStatement(tx, { firmId: firm.id, userId: u.id, statementId: j.sourceId });
-        else if (j.sourceType === 'payroll' && j.sourceId) await unpostRun(tx, { firmId: firm.id, runId: j.sourceId, userId: u.id });
-        else await deleteJournal(tx, { firmId: firm.id, journalId: j.id, userId: u.id });
-        n++;
-      }
+    const r = await db().transaction((tx) => previewNalogDelete(tx, { firmId: firm.id, actor: actorOf(u), no, year }));
+    const m = missingPerms(u, firm.id, r);
+    if (m.length) return { block: noRight(m).message };
+    return { extra: previewText(r) };
+  } catch (e) { return { block: e instanceof Error ? e.message : String(e) }; }
+}
+
+/**
+ * Delete a whole nalog (all journals with this number in the year) together with its documents: purchases (with the
+ * calculation's transfers), outgoing invoices (credit notes first, highest number first; one in the middle of the
+ * series becomes a storno), supplier credits, stock / cash documents, bank statements with their lines, a payroll
+ * run's journal (the calculation stays in Плати) and the manual / empty journals. Needs `nalDel` plus `del` (and the
+ * documents' own delete rights); refused in a locked period, for e-invoiced invoices (→ storno) and for documents
+ * without a delete of their own. One transaction, one summary audit row (`@wise/db` `nalog-delete.ts`).
+ */
+export async function deleteNalogAction(no: string, year: number): Promise<ActionState> {
+  let msg = '';
+  try {
+    const { u, firm } = await firmAction('nalDel');
+    const r = await db().transaction(async (tx) => {
+      const res = await deleteNalogParts(tx, { firmId: firm.id, actor: actorOf(u), no, year });
+      const m = missingPerms(u, firm.id, res);
+      if (m.length) throw noRight(m); // rolls the delete back
+      return res;
     });
+    msg = doneText(r, `Налогот ${no} е избришан`);
   } catch (e) { return actionError(e); }
-  revalidatePath('/nalozi');
-  return { ok: `Налогот ${no} е избришан (${n} ${n === 1 ? 'дел' : 'делови'}).` };
+  revalidatePath('/', 'layout');
+  return { ok: msg };
+}
+
+/** The nalog of one journal (number + year of its date), checked to be of the current firm. */
+async function journalOfFirm(firmId: string, journalId: string) {
+  const [j] = await db().select().from(journals).where(and(eq(journals.id, journalId), eq(journals.firmId, firmId))).limit(1);
+  if (!j) throw new PostingError('not_found', 'Документот не е во налогот (веќе е избришан?).');
+  return { no: j.number, year: Number(j.date.slice(0, 4)) };
+}
+
+/** Preview before „🗑 Избриши“ of one document in an opened nalog. */
+export async function nalogDocDeletePreviewAction(journalId: string): Promise<{ extra?: string; block?: string }> {
+  try {
+    const { u, firm } = await firmAction('nalDel');
+    const n = await journalOfFirm(firm.id, journalId);
+    const r = await db().transaction((tx) => previewNalogDelete(tx, { firmId: firm.id, actor: actorOf(u), ...n, journalIds: [journalId] }));
+    const m = missingPerms(u, firm.id, r);
+    if (m.length) return { block: noRight(m).message };
+    return { extra: previewText(r) };
+  } catch (e) { return { block: e instanceof Error ? e.message : String(e) }; }
+}
+
+/** Delete one document of a nalog (its lines leave the nalog; the other documents stay). Same rules as the whole nalog. */
+export async function deleteNalogDocAction(journalId: string): Promise<ActionState> {
+  let msg = '';
+  try {
+    const { u, firm } = await firmAction('nalDel');
+    const n = await journalOfFirm(firm.id, journalId);
+    const r = await db().transaction(async (tx) => {
+      const res = await deleteNalogParts(tx, { firmId: firm.id, actor: actorOf(u), ...n, journalIds: [journalId] });
+      const m = missingPerms(u, firm.id, res);
+      if (m.length) throw noRight(m);
+      return res;
+    });
+    const p = r.parts[0]!;
+    msg = doneText(r, `${p.type} ${p.number} е ${p.outcome === 'cancelled' ? 'сторнирана' : 'избришана'} од налогот ${n.no}`);
+  } catch (e) { return actionError(e); }
+  revalidatePath('/', 'layout');
+  return { ok: msg };
 }
 
 /**

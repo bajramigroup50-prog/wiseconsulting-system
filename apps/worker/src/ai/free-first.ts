@@ -9,6 +9,11 @@
  *   sale      (same)
  *   kontrola  a header (authority / document / number / date) and at least one finding
  *
+ * Purchase / sale also: no invoice with two VAT groups of the SAME rate (the sign of several invoices read as one —
+ * the reader keeps one group per rate unless it says which is goods and which services, `kind`), and on a PDF the page
+ * count must be plausible for the invoices found ({@link plausiblePages}): a 46-page scan whose text layer gave ONE
+ * invoice is many invoices, read by AI (split per invoice), never one bogus purchase.
+ *
  * Otherwise AI reads it, and the reason is kept on the read (`options.aiWhy`): „скенирано – PDF без текст“,
  * „не се совпаѓаат збировите“, … Also: an earlier read of the SAME file (sha256) of the same kind is reused instead of a
  * second AI read (`findCachedRead`).
@@ -18,6 +23,7 @@ import { buildOpening, type ParsedSheet } from '@wise/core';
 import { scanConsistent, scanInvoices, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, files, type AiDocument, type Tx } from '@wise/db';
 import { FREE_KINDS, freeRead, NOAI_MODEL } from './free-read';
+import { pdfPageCount } from './chunked';
 import { loadFile } from './read-document';
 import { readObject } from './storage';
 
@@ -32,7 +38,36 @@ export const WHY = {
   empty: 'не е пронајдена табела / податоци',
   ambiguous: 'нејасни износи (формат на броеви)',
   header: 'нема заглавие или наоди',
+  pages: 'повеќе страници / фактури – чита AI',
 } as const;
+
+/**
+ * Pages one invoice may plausibly take in a PDF read without AI: a VAT recapitulation only (no lines) is 1 page, at
+ * most 3 with an attached specification / delivery note; an invoice with item lines may run over several pages (a long
+ * item list), at most 6. More pages than that per invoice found → the text layer did not show every invoice.
+ */
+export const PAGES_PER_INVOICE = { noLines: 3, lines: 6 } as const;
+
+/** Is `pages` (the PDF's page count) plausible for the invoices of a free read? */
+export function plausiblePages(r: unknown, pages: number | null): boolean {
+  if (!pages || pages <= 1) return true;
+  const I = scanInvoices(r as ScanResult);
+  if (!I.length) return false;
+  const per = I.every((x) => (x.lines ?? []).length) ? PAGES_PER_INVOICE.lines : PAGES_PER_INVOICE.noLines;
+  return pages <= per * I.length;
+}
+
+/** Two VAT groups of the same rate in one invoice, not told apart by their `kind` (goods / services / …). */
+export function sameRateGroups(x: { groups?: { rate?: unknown; base?: unknown; kind?: string }[] }): boolean {
+  const G = (x.groups ?? []).filter((g) => n(g.base));
+  for (let i = 0; i < G.length; i++) for (let j = i + 1; j < G.length; j++) {
+    if (n(G[i]!.rate) !== n(G[j]!.rate)) continue;
+    const a = G[i]!.kind ?? '', b = G[j]!.kind ?? '';
+    // the reader distinguishes them only with two different, meaningful kinds („other“ is the reader's default)
+    if (!(a && b && a !== b && a !== 'other' && b !== 'other')) return true;
+  }
+  return false;
+}
 
 /** Does the free reader's result pass its own checks? */
 export function acceptFree(kind: string, r: unknown): FreeVerdict {
@@ -64,7 +99,10 @@ export function acceptFree(kind: string, r: unknown): FreeVerdict {
     const I = scanInvoices(r as ScanResult);
     if (!I.length) return { ok: false, why: WHY.empty };
     const ok = I.every((x) => n(x.total) > 0 && (x.groups ?? []).some((g) => n(g.base)) && scanConsistent(x));
-    return ok ? { ok: true, why: '' } : { ok: false, why: WHY.sums };
+    if (!ok) return { ok: false, why: WHY.sums };
+    // the same VAT rate twice in one invoice: several invoices merged by the reader (each group may check on its own)
+    if (I.some(sameRateGroups)) return { ok: false, why: WHY.pages };
+    return { ok: true, why: '' };
   }
   if (kind === 'kontrola') {
     const k = r as { auth?: string; doc?: string; docNo?: string; docDate?: string; findings?: unknown[] };
@@ -94,7 +132,10 @@ export async function freeFirst(kind: string, file: { name: string; mime: string
   }
   if (!r) return { result: null, why: isPdf(file) ? WHY.scan : WHY.format };
   const v = acceptFree(kind, r);
-  return v.ok ? { result: r, why: '' } : { result: null, why: v.why };
+  if (!v.ok) return { result: null, why: v.why };
+  // a multi-page PDF whose text layer (often a scanner's OCR) gave too few invoices: AI reads it (split per invoice)
+  if ((kind === 'purchase' || kind === 'sale') && isPdf(file) && !plausiblePages(r, await pdfPageCount(bytes))) return { result: null, why: WHY.pages };
+  return { result: r, why: '' };
 }
 
 /** Only real sha256 values identify a file's content. */

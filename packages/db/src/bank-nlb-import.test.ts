@@ -60,6 +60,18 @@ describe('reads are reused by content', () => {
     expect(m.has(f3)).toBe(false);
     expect((await reusableReads(db, { firmId: other, kind: 'bank', fileIds: [fo] })).size).toBe(0);
   });
+
+  it('an explicit re-read never returns the old read: none at all when asked, and the re-read supersedes the older reads', async () => {
+    const firm = await newFirm('ФИРМА Г');
+    const f1 = await file(firm, 'f'), f1b = await file(firm, 'f', 'again.pdf');
+    const old = await doc(firm, f1, 'done', { result: read() });
+    expect((await reusableReads(db, { firmId: firm, kind: 'bank', fileIds: [f1b] })).get(f1b)).toEqual({ id: old, status: 'done' });
+    // „↻ Прочитај повторно“ asks for a new read: nothing reused
+    expect((await reusableReads(db, { firmId: firm, kind: 'bank', fileIds: [f1b], reread: true })).size).toBe(0);
+    // once the content has an explicit re-read (still running), the old read is never returned again — the re-read is
+    const re = (await db.insert(schema.aiDocuments).values({ firmId: firm, fileId: f1, kind: 'bank', status: 'queued', options: { reread: true, retry: true } }).returning())[0]!.id;
+    expect((await reusableReads(db, { firmId: firm, kind: 'bank', fileIds: [f1b] })).get(f1b)).toEqual({ id: re, status: 'queued' });
+  });
 });
 
 describe('pending reads and the НЛБ account', () => {
