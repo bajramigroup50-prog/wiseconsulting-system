@@ -84,6 +84,7 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult): Promise<AiDraf
   const out: AiDraft[] = [];
   const baseUsed = used.length;
   const fm =(v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tracksStock = M.items.some((i) => i.type !== 'service');
   for (const x of scanInvoices(r)) {
     const d = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)) });
     // legacy `outCheck` (8402): existing number → „веќе внесена“; a new buyer alone does not block „спремна“
@@ -97,7 +98,9 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult): Promise<AiDraf
     if (!d.partnerId) why.push(d.buyer.name ? 'нов купувач: ' + d.buyer.name : 'купувачот не е препознаен');
     const c = calcLines(d.items, d.art32);
     if (d.total && Math.abs(c.total - d.total) > Math.max(2, d.total * 0.005)) why.push('износот не се совпаѓа (' + fm(c.total) + ' / ' + fm(d.total) + ')');
-    const free = d.items.filter((l) => !l.itemId && Number(l.qty) && !/услуг|транспорт|превоз/i.test(l.name)).length;
+    // unlinked lines matter only where stock is kept: a services firm (no goods / materials / products in the codebook)
+    // books revenue without an article, so they do not block „спремна“
+    const free = tracksStock ? d.items.filter((l) => !l.itemId && Number(l.qty) && !/услуг|транспорт|превоз/i.test(l.name)).length : 0;
     if (free) why.push(free + ' ставки не се поврзани со артикл');
     if (!d.items.length) why.push('нема ставки');
     const own = ownerCheck('sale', x, f.edb);

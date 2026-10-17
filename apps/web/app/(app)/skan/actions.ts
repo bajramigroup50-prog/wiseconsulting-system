@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { ScanPurchaseDraft, ScanSaleDraft } from '@wise/core/sales';
-import { aiDocuments, audit, draftSourceFiles, ensurePartner, fileAlreadyUsed, fileLinks, files, markDraftSaved, purchaseInputFromDraft, saveInvoice, savePurchase, skipDraft } from '@wise/db';
+import { aiDocuments, audit, draftSourceFiles, items, ensurePartner, fileAlreadyUsed, fileLinks, files, markDraftSaved, purchaseInputFromDraft, saveInvoice, savePurchase, skipDraft } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
@@ -317,11 +317,21 @@ export async function saveSalesOk(): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('saveInv');
     const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'sale'), eq(aiDocuments.status, 'done')));
+    // reads made before the services-firm rule: „ставки не се поврзани со артикл“ only matters where stock is kept,
+    // so such a draft (with at most „нов купувач“ besides) counts as ready in a firm without goods in the codebook
+    const [{ goods }] = (await db().select({ goods: sql<number>`count(*)::int` }).from(items)
+      .where(and(eq(items.firmId, firm.id), eq(items.active, true), sql`${items.type} <> 'service'`))) as [{ goods: number }];
+    const fids = docs.map((d) => d.fileId).filter((x): x is string => !!x);
+    const fname = new Map((fids.length ? await db().select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fids)) : []).map((f) => [f.id, f.name]));
+    const ready = (x: { status: string; msg?: string | null }) => x.status === 'ok' || (x.status === 'check' && !goods
+      && String(x.msg ?? '').split(' · ').every((m) => !m || m.startsWith('нов купувач') || /ставки не се поврзани со артикл$/.test(m)));
     let n = 0, tot = 0;
     const errs: string[] = [];
     for (const d of docs) {
+      // a cancelled / storno invoice is never saved in bulk – it is registered and cancelled on purpose, one by one
+      if (/cancel|сторн|storn|откаж/i.test(fname.get(d.fileId ?? '') ?? '')) continue;
       for (const [i, x] of d.drafts.entries()) {
-        if (x.status !== 'ok' || x.savedId || x.skipped) continue;
+        if (!ready(x) || x.savedId || x.skipped) continue;
         tot++;
         try {
           await db().transaction(async (tx) => {
