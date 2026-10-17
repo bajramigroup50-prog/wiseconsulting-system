@@ -4,10 +4,12 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
-import { aiDocuments, audit, fileLinks, journalLines, PartnerAccountError, partners, savePartnerAccounts } from '@wise/db';
+import { aiDocuments, audit, fileLinks, journalLines, mergePartners, PartnerAccountError, PartnerMergeError, partnerDupGroups, partners, savePartnerAccounts } from '@wise/db';
 import { fsDig, TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
+import { schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
 import { markAiReadsSaved } from '@/lib/ai';
-import { actionError, firmAction, type ActionState } from '@/lib/books';
+import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
+import { Forbidden } from '@/lib/auth';
 import { nextCode } from '@/lib/codes';
 import { db } from '@/lib/db';
 
@@ -33,6 +35,14 @@ export async function savePartner(_prev: ActionState, form: FormData): Promise<A
     if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Неважечки податоци.' };
     const v = parsed.data;
     // bank accounts (one or more, one default) — validated (15 digits + control digits / IBAN) by savePartnerAccounts
+    // „Шема за книжење“ default for this partner's documents (only when the firm has numbered schemes)
+    const schemeNo = form.get('schemeForm') ? schemeNoOf(form.get('scheme')) : null;
+    if (schemeNo && schemeNo > 1 && !schemeProfilesOf(firm.settings).some((x) => x.no === schemeNo)) return { error: `Шема ${schemeNo} не постои.` };
+    const withScheme = (d: unknown): Record<string, unknown> => {
+      const o = { ...((d ?? {}) as Record<string, unknown>) };
+      if (schemeNo && schemeNo > 1) o.scheme = schemeNo; else delete o.scheme;
+      return o;
+    };
     const accs = form.get('accForm') ? form.getAll('acc').map((a, i) => ({ acc: String(a).trim(), bank: String(form.getAll('accBank')[i] ?? '').trim(), def: String(form.get('accDef') ?? '0') === String(i) })) : null;
     await db().transaction(async (tx) => {
       const codes = await tx.select({ code: partners.code }).from(partners).where(eq(partners.firmId, firm.id));
@@ -43,12 +53,15 @@ export async function savePartner(_prev: ActionState, form: FormData): Promise<A
       if (id) {
         const [before] = await tx.select().from(partners).where(and(eq(partners.id, id), eq(partners.firmId, firm.id))).limit(1);
         if (!before) throw new DupError('Комитентот не постои.');
-        await tx.update(partners).set(v).where(eq(partners.id, id));
-        const changed = Object.fromEntries(Object.entries(v).filter(([k, x]) => before[k as keyof typeof before] !== x));
+        const data = schemeNo == null ? undefined : withScheme(before.data);
+        await tx.update(partners).set({ ...v, ...(data ? { data } : {}) }).where(eq(partners.id, id));
+        const changed: Record<string, unknown> = Object.fromEntries(Object.entries(v).filter(([k, x]) => before[k as keyof typeof before] !== x));
+        const s0 = schemeNoOf((before.data as { scheme?: unknown } | null)?.scheme);
+        if (schemeNo != null && s0 !== schemeNo) changed.scheme = `Шема ${s0} → Шема ${schemeNo}`;
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveS', entityType: 'partner', entityId: id, data: changed });
         if (accs) await savePartnerAccounts(tx, { firmId: firm.id, userId: u.id, partnerId: id, accounts: accs });
       } else {
-        const [p] = await tx.insert(partners).values({ ...v, firmId: firm.id }).returning({ id: partners.id });
+        const [p] = await tx.insert(partners).values({ ...v, firmId: firm.id, ...(schemeNo && schemeNo > 1 ? { data: withScheme({}) } : {}) }).returning({ id: partners.id });
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'newS', entityType: 'partner', entityId: p!.id, data: { name: v.name, code: v.code } });
         if (accs?.some((a) => a.acc)) await savePartnerAccounts(tx, { firmId: firm.id, userId: u.id, partnerId: p!.id, accounts: accs });
       }
@@ -185,4 +198,48 @@ export async function saveTk(_p: ActionState, f: FormData): Promise<ActionState>
   }
   revalidatePath('/partneri');
   redirect(rest ? `/partneri?tk=${encodeURIComponent(rest)}&ok=${encodeURIComponent((ex ? 'Дополнет: ' : 'Додаден: ') + name)}` : `/partneri?ok=${encodeURIComponent((ex ? 'Дополнет: ' : 'Додаден: ') + name)}`);
+}
+
+/* ---------------- „Дупликати“: merge duplicate partners (like the item merge) ---------------- */
+
+/** Merging needs `settings` (admin / senior) or `fix` (colleagues with the right); viewing the duplicates does not. */
+async function mergeActor() {
+  const { u, firm } = await firmAction('write');
+  if (!canDo(u, 'settings', firm.id) && !canDo(u, 'fix', firm.id)) throw new Forbidden('partnerMerge');
+  return { u, firm };
+}
+const mergeErr = (e: unknown): ActionState => (e instanceof PartnerMergeError ? { error: e.message } : actionError(e));
+
+/** „⇢ Спои во избраниот“: the partners of one group into the selected main partner. */
+export async function mergePartnersAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const main = z.uuid().parse(String(form.get('main') ?? ''));
+    const ids = z.array(z.uuid()).min(2).max(50).parse(String(form.get('ids') ?? '').split(',').filter(Boolean));
+    if (!ids.includes(main)) return { error: 'Изберете го главниот комитент.' };
+    const { u, firm } = await mergeActor();
+    const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, main, ids));
+    revalidatePath('/partneri');
+    return { ok: `Споени ${r.merged} комитенти (${r.refs} записи префрлени).` };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Неважечки избор.' };
+    return mergeErr(e);
+  }
+}
+
+/** „Спои ги сите сигурни“: every group with the same ЕДБ / ЕМБС or at least 90% similar, into its suggested main partner. */
+export async function mergeSurePartnersAction(): Promise<ActionState> {
+  try {
+    const { u, firm } = await mergeActor();
+    const V = await partnerDupGroups(db(), firm.id);
+    let n = 0, g = 0;
+    const errs: string[] = [];
+    for (const G of V.groups.filter((x) => x.sure)) {
+      try {
+        const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, G.main, G.members.map((m) => m.id)));
+        n += r.merged; g++;
+      } catch (e) { if (e instanceof PartnerMergeError) errs.push(e.message); else throw e; }
+    }
+    revalidatePath('/partneri');
+    return errs.length ? { error: `Споени ${g} групи (${n} комитенти); не се споени ${errs.length}: ${errs.slice(0, 3).join('; ')}` } : { ok: `Споени ${g} групи (${n} комитенти).` };
+  } catch (e) { return mergeErr(e); }
 }

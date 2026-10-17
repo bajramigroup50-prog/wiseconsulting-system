@@ -14,7 +14,7 @@ import { calcInvoiceDraft } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
-import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState } from '@/lib/sales';
+import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState, schemeChoice } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -29,6 +29,7 @@ import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-edito
 import { blankLine, mainProdLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
 import { RepostCallout } from '@/components/repost-callout';
 import { ScanUpload } from './scan-upload';
+import { ScanPartnerNote } from './scan-partner-note';
 
 /** Legacy `payPill` (3723). */
 export function PayPill({ paid, total }: { paid: number; total: number }) {
@@ -59,7 +60,11 @@ function toEd(i: Invoice, L: (typeof invoiceLines.$inferSelect)[], A: { advanceI
     id: i.id, kind: i.kind, number: i.number, date: i.date, pdate: i.pdate ?? '', due: i.due ?? '', partnerId: i.partnerId ?? '', warehouseId: i.warehouseId ?? '',
     art32: i.art32, advance: i.advance, export: i.export, svc: i.svc, currency: i.currency, fx: s(Number(i.fx)), refInvoiceId: i.refInvoiceId ?? '',
     creditKind: i.creditKind ?? 'price', creditGross: i.creditGross ? s(Number(i.creditGross)) : '', fromDocId: i.fromDocId ?? '', note: i.note ?? '',
-    data: Object.fromEntries(Object.entries(i.data ?? {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
+    data: {
+      ...Object.fromEntries(Object.entries(i.data ?? {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
+      // „Шема за книжење“ is stored as a number
+      ...(typeof i.data?.scheme === 'number' ? { scheme: String(i.data.scheme) } : {}),
+    },
     lines: L.map(lineToEd), advances: A.map((a) => ({ advanceId: a.advanceId, amount: s(Number(a.amount)) })), status: i.status,
   };
 }
@@ -95,7 +100,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     if (dt === 'invoice' && sp.prod === '1' && sp.nov !== undefined) init = { ...init, data: { ...init.data, prodInv: '1' }, lines: [mainProdLine(schemeValue(ctx, 'revProduct') || revDefault)] };
     let title: string = DT[dt].nova, sub = '', scanInfo: string | undefined, back = view;
     let nalogNo: string | null = null;
-    let buyerBox: { doc: string; i: number; name: string; edb: string } | null = null;
+    let buyerBox: { doc: string; i: number; name: string; edb: string; partnerId: string; match: ScanSaleDraft['match'] | null } | null = null;
     if (sp.edit) {
       const e = await loadFull(sp.edit);
       if (!e) return <NoFirm t="Документот не постои" />;
@@ -137,7 +142,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         data: dr.buyer.name ? { buyerName: dr.buyer.name } : {}, scanDocId: doc.id, scanIndex: idx,
       };
       scanInfo = 'Проверете ја фактурата и притиснете „Зачувај“.';
-      if (!dr.partnerId && dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb };
+      if (dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb, partnerId: dr.partnerId, match: dr.match ?? null };
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
     }
     const prodRun = sp.edit ? ((await db().select({ d: invoices.data }).from(invoices).where(and(eq(invoices.id, sp.edit), eq(invoices.firmId, firm.id))).limit(1))[0]?.d as InvoiceData | undefined)?.prodRun ?? null : null;
@@ -207,7 +212,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     }));
     return <>{dt === 'invoice' && sp.nov !== undefined && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
         label={<><b>📷 Пополни од скенирана фактура</b> — повлечете PDF / слика од излезната фактура тука: купувачот, бројот, датумот и ставките се пополнуваат автоматски.</>} />}
-      {buyerBox &&<div className="callout warn">Купувачот „{buyerBox.name}“ (ЕДБ {buyerBox.edb || '—'}) не е во комитенти. <RowAction className="btn sm pri" action={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} label="Додај го како партнер" /></div>}
+      {buyerBox && <ScanPartnerNote key={buyerBox.partnerId || "np"} docId={buyerBox.doc} index={buyerBox.i} match={buyerBox.match} partnerId={buyerBox.partnerId} name={buyerBox.name} idRaw={buyerBox.edb} who="Купувачот" onAdd={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} />}
       {sp.prevSaved && <div className="callout good">Претходната фактура е зачувана. Се отвора следната скенирана фактура.</div>}
       <InvoiceEditor key={init.partnerId || 'np'} initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
       refInvoices={refInvoices} advances={advances} revDefault={revDefault} revByType={{ service: schemeValue(ctx, 'revService'), goods: schemeValue(ctx, 'revGoods'), material: schemeValue(ctx, 'revGoods'), product: schemeValue(ctx, 'revProduct') }} advanceKonto={schemeValue(ctx, 'advance')} nonVat={!firm.vatRegistered}
@@ -215,7 +220,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       svcOnly={FS.svcOnly === true || (FS.svcOnly !== false && !I.some((i) => i.type !== 'service'))} svcTexts={Array.isArray(FS.svcTexts) ? FS.svcTexts as string[] : []}
       vehicles={VH.map((v) => ({ code: v.code ?? '', name: v.name }))} drivers={[...new Set([...VH.map((v) => String((v.data as Record<string, unknown>)?.driver ?? '')).filter(Boolean), ...EMP.map((e) => e.name)])]}
       boms={BM} avg={avg} prodRun={prodRun} workOrders={workOrders} nextWorkOrder={nextWorkOrder}
-      nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} /></>;
+      nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} {...await schemeChoice(firm)} /></>;
   }
 
   /* ---------------- list ---------------- */

@@ -5,7 +5,7 @@
  * firms only.
  */
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
@@ -132,6 +132,27 @@ describe('bulk save holds past VAT periods', () => {
     await tx((t) => setPastHold(t, { firmId: firm.id, on: true, userId: null }));
     await reload();
     expect((await ctx()).holdPrevious).toBe(true);
+  });
+});
+
+describe('sales bulk save rules (services firm, storno files, „Шема“)', () => {
+  it('a „check“ draft with only „нов купувач“ / unlinked lines is ready without goods; storno files are never saved; the scheme is kept', async () => {
+    await db.update(schema.firms).set({ settings: { ...(firm.settings as object), schemeProfiles: [{ no: 2, name: 'Услуги' }] } }).where(eq(schema.firms.id, firm.id));
+    await reload();
+    const [f] = await db.insert(schema.files).values({ firmId: firm.id, bucketKey: 'k/storno', name: 'storno-15.pdf', mime: 'application/pdf', size: 1, sha256: 'a'.repeat(64), status: 'ready' }).returning();
+    const [ok] = await db.insert(schema.aiDocuments).values({ firmId: firm.id, kind: 'sale', status: 'done', drafts: [
+      { draft: saleDraft('ИФ-С1', '2026-10-06'), status: 'check', msg: 'нов купувач: Купувач Тест ДООЕЛ · 1 ставки не се поврзани со артикл' },
+      { draft: saleDraft('ИФ-С2', '2026-10-06'), status: 'check', msg: 'збирот не се совпаѓа' },
+    ] }).returning();
+    const [st] = await db.insert(schema.aiDocuments).values({ firmId: firm.id, kind: 'sale', status: 'done', fileId: f!.id, drafts: [{ draft: saleDraft('ИФ-С3', '2026-10-06'), status: 'ok', msg: '' }] }).returning();
+    const R = await saveReadyScanDrafts(db, { firm, kind: 'sale', where: inArray(schema.aiDocuments.id, [ok!.id, st!.id]), actor: office, past: await ctx(), scheme: 2 });
+    expect(R).toMatchObject({ saved: 1, total: 1, errs: [] });
+    const [d] = await db.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, ok!.id));
+    const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, d!.drafts[0]!.savedId!));
+    expect(inv!.data).toMatchObject({ scheme: 2 });
+    expect(d!.drafts[1]!.savedId).toBeUndefined();
+    const [s2] = await db.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, st!.id));
+    expect(s2!.drafts[0]!.savedId).toBeUndefined();
   });
 });
 

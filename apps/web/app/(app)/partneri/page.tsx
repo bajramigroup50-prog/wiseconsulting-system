@@ -12,6 +12,7 @@ import { autoCodesAction, deletePartner, deletePartnersAction, setPartnerActive 
 import { partnerUsage, usedList } from '@/lib/sales-parity';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { PartnerForm } from './partner-form';
+import { schemeLabel, schemeProfilesOf } from '@wise/core/scheme-profiles';
 import { TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
 import { loadAiResult } from '@/lib/ai';
 import { filesOf } from '@/lib/office';
@@ -19,13 +20,15 @@ import { ActionForm } from '@/components/action-form';
 import { FileChips } from '@/components/file-chips';
 import { saveTk } from './actions';
 import { TkScan } from './tk-scan';
+import { PartnerDupView } from './dup-view';
 
 const LIMIT = 500;
 
-export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string }> }) {
+export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string; dup?: string }> }) {
   const sp = await searchParams;
   const { u, firm } = await booksPage('partneri');
   if (!firm) return <NoFirm t="Партнери" />;
+  if (sp.dup !== undefined) return <PartnerDupView firmId={firm.id} canMerge={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)} />;
   const q = (sp.q ?? '').trim();
   const where = and(eq(partners.firmId, firm.id), q
     ? or(ilike(partners.name, `%${q}%`), ilike(partners.edb, `%${q}%`), ilike(partners.code, `%${q}%`), ilike(partners.city, `%${q}%`))
@@ -59,6 +62,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       <Hd t="Партнери" sub={`${total?.n ?? 0} комитенти`}>
         {write && !showForm && <Link className="btn" href="/uvoz?t=partners&back=partneri">Увоз од Excel</Link>}
         {write && noCode && <RowAction className="btn" action={autoCodesAction} label="Додели шифри" title="Автоматски шифри за сите без шифра" />}
+        <Link className="btn" href="/partneri?dup" title="Комитенти со ист ЕДБ / ЕМБС или слично име – спојување">Дупликати</Link>
         {write && <Link className="btn pri" href="/partneri?nov">+ Додај</Link>}
       </Hd>
       {sp.ok && <div className="callout good">{sp.ok}</div>}
@@ -82,7 +86,8 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
           </div>
         </ActionForm>
       )}
-      {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0} />}
+      {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0}
+        schemes={schemeProfilesOf(firm.settings).map((s) => ({ no: s.no, label: schemeLabel(s.no, [s]) }))} />}
       {showForm && edit && !(used.get(edit.id) ?? 0) && canDo(u, 'del', firm.id) && <div className="row" style={{ marginTop: -6, marginBottom: 10 }}><RowAction className="btn danger" action={deletePartner.bind(null, edit.id)} label="Избриши" confirm={`Да се избрише „${edit.name}“?`} /></div>}
       {useP && <div className="card"><div className="hd"><h2>🔒 {useP.name} – се користи во {used.get(useP.id) ?? 0} документи</h2><Link className="btn sm" href="/partneri">✕</Link></div>
         <p className="note">Партнер/артикл што е користен не може да се избрише, за да не се расипат книжењата. Ако документите се погрешни, прво избришете ги нив (во нивната листа) – потоа ќе може да се избрише и овој. Инаку означете го како неактивен.</p>
@@ -93,15 +98,18 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       </form>
       {rows.length ? (<>
         {admin && <BulkBar label={`🗑 Избриши ги избраните ({n})`} confirm={`Да се избришат {n} избрани?\nТие што се користат во фактури, каса, налози или плати НЕ се бришат (може „Неактивен“).\n\nОва не може да се врати.`} action={deletePartnersAction} />}
-        <div className="tw"><table>
-          <thead><tr>{admin && <th style={{ width: 30 }}><SelAll /></th>}<th>Шифра</th><th>Назив</th><th>ЕДБ</th><th>Адреса</th><th>Град</th><th>Е-пошта</th><th>Телефон (WhatsApp/Viber)</th><th>Жиро сметка</th><th>ДДВ обврзник</th><th>Активен</th><th></th></tr></thead>
+        {/* compact: the whole table fits the screen (address + city, e-mail + phone in one cell, long names wrap) */}
+        <div className="tw"><table className="dense" style={{ fontSize: 12.5 }}>
+          <thead><tr>{admin && <th style={{ width: 26 }}><SelAll /></th>}<th>Шифра</th><th>Назив</th><th>ЕДБ / ЕМБС</th><th>Адреса, град</th><th>Контакт</th><th>Жиро сметка</th><th title="ДДВ обврзник">ДДВ</th><th title="Активен">Акт.</th><th></th></tr></thead>
           <tbody>
             {rows.map((r) => {
               const n = used.get(r.id) ?? 0;
               return (
                 <tr key={r.id} style={r.active ? undefined : { opacity: 0.55 }}>
                   {admin && <td><SelBox id={r.id} /></td>}
-                  <td>{r.code}</td><td>{r.name}{pFiles.get(r.id)?.length ? <> <FileChips files={pFiles.get(r.id)} /></> : null}</td><td>{r.edb}</td><td>{r.address}</td><td>{r.city}</td><td>{r.email}</td><td>{r.phone}</td>
+                  <td>{r.code}</td><td style={{ maxWidth: 260, whiteSpace: 'normal' }}>{r.name}{pFiles.get(r.id)?.length ? <> <FileChips files={pFiles.get(r.id)} /></> : null}</td><td>{r.edb}</td>
+                  <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{[r.address, r.city].filter(Boolean).join(', ')}</td>
+                  <td style={{ maxWidth: 180, whiteSpace: 'normal' }}>{[r.email, r.phone].filter(Boolean).join(' · ')}</td>
                   <td>{r.bankAccount}</td><td>{r.vatRegistered ? 'Да' : 'Не'}</td><td>{r.active ? 'Да' : 'Не'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {write && <Link className="btn sm" href={`/partneri?edit=${r.id}${q ? '&q=' + encodeURIComponent(q) : ''}`}>Измени</Link>}{' '}

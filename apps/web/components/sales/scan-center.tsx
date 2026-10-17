@@ -14,9 +14,12 @@ import { locationOptions } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import type { DraftPartnerMatch } from '@wise/core/partners/match';
 import { cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
 import { AutoRefresh, ScanUpload } from './scan-upload';
 import { PastReview, pastReviewData } from './past-review';
+import { SchemeParam } from './scheme-param';
+import { schemeLabel, schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
 
 /** Legacy batch pills (5361) and the sales-scan pills (8424). */
 const PILL: Record<string, [string, string]> = {
@@ -58,9 +61,9 @@ function multiFound(docs: AiDocument[], names: Map<string, string>, parents: Map
 }
 
 type PurDraft = { partnerId?: string; supplierName?: string; number?: string; date?: string; groups?: { base: number; vat: number }[]; stock?: unknown[]; art32?: boolean };
-type SaleDraft = { partnerId?: string; buyer?: { name?: string }; number?: string; date?: string; total?: number; calcTotal?: number };
+type SaleDraft = { partnerId?: string; buyer?: { name?: string }; match?: DraftPartnerMatch; number?: string; date?: string; total?: number; calcTotal?: number };
 
-export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'masovnoM'; sp: { k?: string; b?: string; wh?: string; cash?: string; cost?: string; saved?: string } }) {
+export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'masovnoM'; sp: { k?: string; b?: string; wh?: string; cash?: string; cost?: string; saved?: string; sch?: string } }) {
   const { u, firm } = await booksPage(mode);
   const title = mode === 'skan' ? 'Скенирање документ' : 'Масовно внесување на влезни фактури';
   if (!firm) return <NoFirm t={title} />;
@@ -95,6 +98,10 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const opts = { kind, batchId, cash: sp.cash === '1', warehouseId: wh, costOnly: sp.cost === '1' };
   const pills = kind === 'sale' ? PILL_SALE : PILL;
   const past = await pastReviewData(u, firm, kind);
+  // „Шема“ of the batch save (numbered posting schemes of the firm; `?sch=`)
+  const profiles = schemeProfilesOf(firm.settings);
+  const sch = profiles.length && sp.sch ? schemeNoOf(sp.sch) : null;
+  const schOpts = profiles.map((p) => ({ no: p.no, label: schemeLabel(p.no, profiles) }));
 
   return (
     <>
@@ -102,12 +109,13 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
       <Hd t={title} sub={mode === 'skan' ? 'автоматско внесување' : 'повеќе фактури одеднаш'}>
         {mode === 'skan' && <Link className={'btn' + (kind === 'purchase' ? ' pri' : '')} href="/skan">Влезни</Link>}
         {mode === 'skan' && <Link className={'btn' + (kind === 'sale' ? ' pri' : '')} href="/skan?k=sale">Излезни (издадени)</Link>}
-        {mode === 'skan' && kind === 'sale' && write && <RowAction className="btn pri" action={saveSalesOk} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
-        {mode === 'skan' && kind === 'purchase' && write && cnt('ok') > 0 && <RowAction className="btn pri" action={savePurchasesOk} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури? Секоја е посебна фактура со свој налог; дупликатите се прескокнуваат.`} />}
+        {write && cnt('ok') > 0 && <SchemeParam schemes={schOpts} />}
+        {mode === 'skan' && kind === 'sale' && write && <RowAction className="btn pri" action={saveSalesOk.bind(null, sch)} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
+        {mode === 'skan' && kind === 'purchase' && write && cnt('ok') > 0 && <RowAction className="btn pri" action={savePurchasesOk.bind(null, sch)} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури? Секоја е посебна фактура со свој налог; дупликатите се прескокнуваат.`} />}
         {busy && write && <RowAction className="btn sm" action={cancelScans.bind(null, kind, mode === 'skan' ? null : batchId ?? null)} label="Откажи читање" />}
         {mode === 'skan' && admin && <Link className="btn sm" href="/skan?cmp=1" title="Спореди брз и детален AI модел">🧪 Тест AI</Link>}
         {mode !== 'skan' && batchId && R.length > 0 && write && <RowAction className="btn" action={clearBatch.bind(null, batchId)} label="Исчисти листа" />}
-        {mode !== 'skan' && batchId && write && <RowAction className="btn pri" action={saveBatchOk.bind(null, batchId)} label={`Зачувај ги сите што се во ред (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
+        {mode !== 'skan' && batchId && write && <RowAction className="btn pri" action={saveBatchOk.bind(null, batchId, sch)} label={`Зачувај ги сите што се во ред (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
         {mode !== 'skan' && batchId && <Link className="btn" href={`/${mode}`}>Нова листа</Link>}
       </Hd>
       <PastReview data={past} />
@@ -179,7 +187,10 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
               return (
                 <tr key={r.doc.id + ':' + r.i}>
                   <td className="mini">{file}</td><td>{d.number}</td><td>{dmy(d.date)}</td>
-                  <td>{d.partnerId ? P.get(d.partnerId) : d.buyer?.name}{x && !d.partnerId && d.buyer?.name && <> <span className="pill info">нов</span>{write && !x.savedId && <RowAction action={ensureScanBuyer.bind(null, r.doc.id, r.i!)} label="+ во комитенти" />}</>}</td>
+                  <td>{d.partnerId ? P.get(d.partnerId) : d.buyer?.name}{x && !d.partnerId && d.buyer?.name && (d.match?.candidates?.length
+                    ? <> <span className="pill warn" title={d.match.candidates.map((c) => c.name).join(' · ')}>слични комитенти: {d.match.candidates.length} – проверете</span></>
+                    : <> <span className="pill info">нов</span>{write && !x.savedId && <RowAction action={ensureScanBuyer.bind(null, r.doc.id, r.i!)} label="+ во комитенти" />}</>)}
+                  {x && d.partnerId && d.match?.created && <> <span className="pill info" title="Креиран автоматски од документот">нов партнер</span></>}</td>
                   <td className="n">{x ? fmt(d.calcTotal ?? d.total ?? 0) : ''}</td>{status}{acts}
                 </tr>);
             }

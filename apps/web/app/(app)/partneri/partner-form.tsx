@@ -16,7 +16,9 @@ const F: [keyof Partner, string, string?][] = [
 const SRC: Record<string, string> = { invoice: 'од фактура', statement: 'од извод', manual: 'рачно', import: 'увоз' };
 interface Row { acc: string; bank: string; src?: string; at?: string }
 
-export function PartnerForm({ p, nextCode, used }: { p: Partner | null; nextCode: string; used: number }) {
+export function PartnerForm({ p, nextCode, used, schemes = [] }: { p: Partner | null; nextCode: string; used: number;
+  /** Numbered posting schemes of the firm („Шема 2“…) — the partner's default for its documents. */
+  schemes?: { no: number; label: string }[] }) {
   const [st, action, pending] = useActionState<ActionState, FormData>(savePartner, {});
   const init = p ? partnerAccounts(p) : [];
   const [rows, setRows] = useState<Row[]>(init.length ? init.map((a) => ({ acc: a.acc, bank: a.bank, src: a.src, at: a.at })) : [{ acc: '', bank: '' }]);
@@ -37,6 +39,16 @@ export function PartnerForm({ p, nextCode, used }: { p: Partner | null; nextCode
         <label className="chk"><input type="checkbox" name="vatRegistered" defaultChecked={p?.vatRegistered ?? true} /> ДДВ обврзник</label>
         <label className="chk"><input type="checkbox" name="foreign" defaultChecked={p?.foreign ?? false} /> Странски</label>
         <label className="chk"><input type="checkbox" name="active" defaultChecked={p?.active ?? true} /> Активен</label>
+        {schemes.length > 0 && (
+          <label className="f" title="Документите (излезни и влезни фактури) на овој комитент стандардно се книжат со оваа шема; на документот може да се смени">
+            <input type="hidden" name="schemeForm" value="1" />
+            Шема за книжење
+            <select name="scheme" defaultValue={String((p?.data as { scheme?: number } | null)?.scheme ?? 1)}>
+              <option value="1">Шема 1 – основна (на фирмата)</option>
+              {schemes.map((s) => <option key={s.no} value={s.no}>{s.label}</option>)}
+            </select>
+          </label>
+        )}
       </div>
       <fieldset className="fs" style={{ marginTop: 8 }}>
         <legend>🏦 Жиро сметки (за платни налози)</legend>
