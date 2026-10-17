@@ -17,6 +17,7 @@ import {
 import { invoiceLineKonto } from '@wise/core/scheme-profiles';
 import { checkCredit, invoiceTotals, isDraftNo, nextDocNumber, nextDraftNo, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
 import { assertInvoiceNalog } from './invoice-nalog';
+import { releaseScanDrafts } from './ai-docs';
 import { blockingIssues, deletionVerdict, invoiceLegalIssues, isLastInSeries, numberGapWarning } from '@wise/core/compliance';
 import { todaySkopje } from '@wise/core/office/dates';
 import { audit, type Tx } from '../audit';
@@ -55,6 +56,12 @@ export interface InvoiceInput {
   fromDocId?: string | null;
   note?: string | null;
   scanned?: boolean;
+  /**
+   * The number is the one printed on the document (a read / scanned invoice saved from its draft): kept as it is — a
+   * number already used is refused („веќе внесена“) instead of getting the next one, so the same invoice is never
+   * entered twice under another number.
+   */
+  keepNumber?: boolean;
   data?: InvoiceData;
   lines: InvoiceLineInput[];
   advances?: { advanceId: string; amount: number | string }[];
@@ -335,6 +342,8 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     const dn = await usedNumbers(tx, firmId, kind, input.date, existing?.id, true);
     const own = number || (existing && isDraftNo(existing.number) ? existing.number : '');
     number = own && !dn.includes(own.toUpperCase()) && !dn.includes(own) ? own.toUpperCase() : nextDraftNo(dn);
+  } else if (input.keepNumber && number && !isDraftNo(number) && used.includes(number)) {
+    throw new DocumentError(`Фактурата бр. ${number} веќе постои (${yearOf(input.date)}) – не се внесува повторно.`);
   } else if (!number || isDraftNo(number) || used.includes(number)) {
     renumbered = !!number && !isDraftNo(number);
     number = nextDocNumber(used, yearOf(input.date));
@@ -506,6 +515,8 @@ export async function deleteInvoice(tx: Tx, firmId: string, id: string, actor: D
   await tx.update(invoices).set({ invoicedId: null }).where(eq(invoices.invoicedId, id));
   await tx.update(invoices).set({ fromDocId: null }).where(eq(invoices.fromDocId, id));
   await tx.delete(invoices).where(eq(invoices.id, id));
+  // a read (скенирана) invoice saved as this one can be saved again from its draft (no new AI read)
+  await releaseScanDrafts(tx, firmId, 'sale', [id]);
   await audit(tx, { userId: actor.userId, firmId, action: 'delDoc', entityType: 'invoice', entityId: id, data: { kind: inv.kind, number: inv.number, date: inv.date } });
   return { cancelled: false };
 }

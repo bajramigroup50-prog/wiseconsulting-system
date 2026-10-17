@@ -25,6 +25,7 @@ import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } 
 import { deleteTransfer, saveLevelling } from '../stock-docs';
 import { dependentLabel, dependentTransfers } from '../transfer-links';
 import { ensurePartner } from './partners-auto';
+import { releaseScanDrafts } from './ai-docs';
 import { learnPartnerAccount } from '../partner-accounts';
 
 import { todaySkopje } from '@wise/core/office/dates';
@@ -396,7 +397,7 @@ export async function approvePurchase(tx: Tx, firmId: string, id: string, actor:
  * so the store never keeps goods without a source. A dependent transfer in a locked period, or whose goods were
  * already sold in the store, blocks the whole delete (`assertTransferRemovable`).
  */
-export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: DocActor, opts: { cascade?: boolean; /** merge: the transfers are re-linked to the merged calculation by the caller */ keepTransfers?: boolean } = {}): Promise<{ transfers: string[] }> {
+export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: DocActor, opts: { cascade?: boolean; /** merge: the transfers are re-linked to the merged calculation by the caller */ keepTransfers?: boolean; /** merge: the read drafts are re-pointed to the merged calculation by the caller */ keepScan?: boolean } = {}): Promise<{ transfers: string[] }> {
   await loadFirmForUpdate(tx, firmId);
   const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firmId))).for('update').limit(1);
   if (!pur) throw new DocumentError('Влезната фактура не постои.');
@@ -412,6 +413,8 @@ export async function deletePurchase(tx: Tx, firmId: string, id: string, actor: 
   await unpostPurchase(tx, firmId, id, actor.userId);
   await tx.delete(fileLinks).where(and(eq(fileLinks.entityType, 'purchase'), eq(fileLinks.entityId, id)));
   await tx.delete(purchases).where(eq(purchases.id, id));
+  // a read (скенирана) invoice saved as this purchase can be saved again from its draft (no new AI read)
+  if (!opts.keepScan) await releaseScanDrafts(tx, firmId, 'purchase', [id]);
   await audit(tx, { userId: actor.userId, firmId, action: 'delPur', entityType: 'purchase', entityId: id, data: { number: pur.number, date: pur.date, total: n(pur.total), ...(depIds.length ? { transfers: dep.map((d) => d.number) } : {}) } });
   return { transfers: dep.map((d) => d.number) };
 }
