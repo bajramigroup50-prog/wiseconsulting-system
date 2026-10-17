@@ -128,6 +128,9 @@ export function jiNumber(type: string, no: string): string | null {
  */
 export function jiNameDefault(file: string): { type: string; no: string } {
   const b = file.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').trim();
+  // „PLATA 7“: the payroll nalog of month 7 → WISE's payroll code (12, „ПЛАТА“, per month: 12/7-7)
+  const pm = /(?:PLAT[AI]|ПЛАТ[АИ])\s*[-_ ]?\s*(\d{1,2})(?!\d)/i.exec(b);
+  if (pm && +pm[1]! >= 1 && +pm[1]! <= 12) return { type: '12', no: `${+pm[1]!}-${+pm[1]!}` };
   // „NALOG DDV 1-3“: the VAT nalog of months 1–3 → WISE's VAT nalog code (4, „ДДВ ПРИЈАВА“)
   let m = /(?:DDV|ДДВ)\s*[-_ ]?\s*(\d{1,2})\s*[-_ ]\s*(\d{1,2})(?!\d)/i.exec(b);
   if (m && +m[1]! >= 1 && +m[2]! <= 12 && +m[1]! <= +m[2]!) return { type: '4', no: `${+m[1]!}-${+m[2]!}` };
