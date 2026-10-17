@@ -445,7 +445,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
         account: r.k, debit: mk(r.d), credit: mk(r.p), partnerId: A.partnerOf.get(r) ?? null, note: r.desc || null, doc: (r.doc || r.desc).slice(0, 100) || null,
         currency: r.curAmt != null && r.cur && r.cur !== 'MKD' ? r.cur : null, amountCur: r.curAmt != null && r.cur && r.cur !== 'MKD' ? mk(r.curAmt) : null,
       })),
-      meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r) } },
+      meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r), ...jiDates(j.rows) } },
       userId: a.userId, auditAction: 'postImportJournal', requirePartner: false,
     });
     lines += j.rows.length; D += j.D;
@@ -460,7 +460,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
         firmId: a.firmId, date: j.date, kind: 'manual', number: nb && A.used.has(nb) ? 'У' + nb : nb, description: `Увезен налог ${j.label}`,
         sourceType: 'import', sourceId: `${batch}:${n}`,
         lines: j.rows.map((r) => ({ account: r.k, debit: mk(r.d), credit: mk(r.p), partnerId: A.partnerOf.get(r) ?? null, note: r.desc || null, doc: (r.doc || r.desc).slice(0, 100) || null })),
-        meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r) } },
+        meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r), ...jiDates(j.rows) } },
         userId: a.userId, auditAction: 'postImportJournal', requirePartner: false,
       });
       lines += j.rows.length; D += j.D;
@@ -475,6 +475,9 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
     data: { file: input.file, hash: input.hash, year: input.year, ...res } });
   return res;
 }
+
+/** Days of the old program booked together in one journal: each line's own date (journal_lines has no date). */
+const jiDates = (R: readonly JiRow[]): { dates?: string[] } => (R.some((r) => r.date !== R[0]!.date) ? { dates: R.map((r) => r.date) } : {});
 
 export interface JiBatch { batch: string; file: string; at: string; journals: number; lines: number; D: number; from: string; to: string; locked: boolean }
 
