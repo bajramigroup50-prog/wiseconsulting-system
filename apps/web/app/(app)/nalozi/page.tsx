@@ -68,6 +68,15 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           : ((j.meta as { rows?: { account: string; partnerId: string | null; note: string; doc: string }[] }).rows ?? []).map((r) => ({ account: r.account, partnerId: r.partnerId ?? '', debit: '', credit: '', note: r.note ?? '', doc: r.doc ?? '' })),
       };
     }
+    // „+ Додај рачни ставки во налогот“ (`?nov&n=1/7-9`): a new manual part of an existing nalog — same number and period
+    if (!sp.edit && sp.n) {
+      const G0 = await db().select({ date: journals.date, pf: journals.periodFrom, pt: journals.periodTo }).from(journals)
+        .where(and(inYear, eq(journals.number, sp.n)));
+      if (G0.length) {
+        const last = G0.map((x) => x.date).sort().at(-1)!;
+        initial = { ...initial, number: sp.n, date: last, periodFrom: G0.find((x) => x.pf)?.pf ?? '', periodTo: G0.find((x) => x.pt)?.pt ?? '' };
+      }
+    }
     const [nums, [g]] = await Promise.all([
       db().selectDistinct({ n: journals.number }).from(journals).where(inYear).limit(300),
       db().select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1),
@@ -390,6 +399,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                   <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                     <Link className="btn sm" href={href}>Отвори</Link>
                     {one && canEdit(one) && <Link className="btn sm" href={`/nalozi?edit=${one.id}`} title="Отвори и измени (корекција)">✎ Измени</Link>}
+                    {!one && fix && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(g.no)}`} title="Налог со повеќе документи: корекција по документ">✎ Измени</Link>}
+                    {write && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?nov&n=${encodeURIComponent(g.no)}`} title="Нов рачен дел во истиот налог (ист број и период)">+ Ставки</Link>}
                     <a className="btn sm" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
                     {one && del && manualLike(one) && !locked(one) && <RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} />}
                     {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} />}
