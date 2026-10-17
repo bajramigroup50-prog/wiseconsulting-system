@@ -380,6 +380,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             {settingsOk && <Link className="btn sm" href={sp.cfg !== undefined ? '/nalozi' : '/nalozi?cfg'}>Шифри на налози…</Link>}
             {write && <BankForm action={nalFixAllAction} className="row"><button className="btn sm" title="Броевите на налозите повеќе не се менуваат ако подоцна се внесе документ со постар датум">🔒 Фиксирај броеви</button></BankForm>}
             {firm.lockDate && <span className="pill">🔒 заклучено до {dmy(firm.lockDate)}</span>}
+            {firm.lockDate && closeOk && <form action={setLockDate}><input type="hidden" name="lockDate" value="" /><button className="btn sm" title="Го отклучува периодот – налозите повторно може да се менуваат и бришат">🔓 Отклучи</button></form>}
             <ExportBar name={`Nalozi_${year}`} title={`Налози ${year}`} pdf={false} rows={[['Датум', 'Број', 'Назив', 'Ставки', 'Должи', 'Побарува', 'Салдо'],
               ...G.map((g) => {
                 const D = g.journals.reduce((s, j) => s + Number(j.D), 0), P = g.journals.reduce((s, j) => s + Number(j.P), 0);
@@ -410,13 +411,15 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             )}
           </>
         )}
-        {closeOk && (
+        {closeOk && (<>
+          <form action={setLockDate} id="nal-unlock" hidden><input type="hidden" name="lockDate" value="" /></form>
           <form action={setLockDate} className="row" style={{ gap: 8, marginBottom: 10, alignItems: 'end' }}>
             <label className="mini">Заклучи го периодот до <input type="date" name="lockDate" defaultValue={firm.lockDate ?? ''} style={{ width: 'auto' }} /></label>
             <button className="btn sm">🔒 Зачувај заклучување</button>
+            {firm.lockDate && <button className="btn sm" form="nal-unlock" title="Го отклучува периодот – налозите повторно може да се менуваат и бришат">🔓 Отклучи</button>}
             <span className="note">До овој датум налозите не може да се книжат, менуваат или бришат (празно = отклучено).</span>
           </form>
-        )}
+        </>)}
         <div className="tw" style={{ maxHeight: 520 }}><table>
           <thead><tr><th>Датум</th><th>Број</th><th>Опис</th><th className="n">Ставки</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th><th></th></tr></thead>
           <tbody>
