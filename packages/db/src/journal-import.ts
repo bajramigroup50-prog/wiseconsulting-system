@@ -446,7 +446,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
         currency: r.curAmt != null && r.cur && r.cur !== 'MKD' ? r.cur : null, amountCur: r.curAmt != null && r.cur && r.cur !== 'MKD' ? mk(r.curAmt) : null,
       })),
       meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r) } },
-      userId: a.userId, auditAction: 'postImportJournal', requirePartner: true,
+      userId: a.userId, auditAction: 'postImportJournal', requirePartner: false,
     });
     lines += j.rows.length; D += j.D;
   }
@@ -461,7 +461,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
         sourceType: 'import', sourceId: `${batch}:${n}`,
         lines: j.rows.map((r) => ({ account: r.k, debit: mk(r.d), credit: mk(r.p), partnerId: A.partnerOf.get(r) ?? null, note: r.desc || null, doc: (r.doc || r.desc).slice(0, 100) || null })),
         meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r) } },
-        userId: a.userId, auditAction: 'postImportJournal', requirePartner: true,
+        userId: a.userId, auditAction: 'postImportJournal', requirePartner: false,
       });
       lines += j.rows.length; D += j.D;
     }
