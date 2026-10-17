@@ -145,7 +145,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     if (!g) return <><Hd t="Налог за книжење" exp={false} /><div className="card empty">Налогот {sp.n} не постои за {year}. <Link href="/nalozi">Листа на налози</Link></div></>;
     const ids = g.journals.map((j) => j.id);
     const [L, chart] = await Promise.all([
-      db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { code: partners.code, name: partners.name } })
+      db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { id: partners.id, code: partners.code, name: partners.name } })
         .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).leftJoin(partners, eq(partners.id, journalLines.partnerId))
         .where(inArray(journalLines.journalId, ids)).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo)),
       effectiveChart(db(), firm.id),

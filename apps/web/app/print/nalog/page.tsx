@@ -27,7 +27,7 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
     .where(and(eq(journals.firmId, firm.id), eq(journals.number, n), sql`${journals.date} between ${`${year}-01-01`} and ${`${year}-12-31`}`))
     .orderBy(asc(journals.date), asc(journals.createdAt));
   if (!J.length) notFound();
-  const L = await db().select({ l: journalLines, j: { date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { code: partners.code, name: partners.name } })
+  const L = await db().select({ l: journalLines, j: { date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { id: partners.id, code: partners.code, name: partners.name } })
     .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).leftJoin(partners, eq(partners.id, journalLines.partnerId))
     .where(inArray(journalLines.journalId, J.map((j) => j.id))).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo));
   const D = L.reduce((s, x) => s + Number(x.l.debit), 0), P = L.reduce((s, x) => s + Number(x.l.credit), 0);
