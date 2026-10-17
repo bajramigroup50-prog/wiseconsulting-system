@@ -12,6 +12,7 @@ import { autoCodesAction, deletePartner, deletePartnersAction, setPartnerActive 
 import { partnerUsage, usedList } from '@/lib/sales-parity';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { PartnerForm } from './partner-form';
+import { schemeLabel, schemeProfilesOf } from '@wise/core/scheme-profiles';
 import { TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
 import { loadAiResult } from '@/lib/ai';
 import { filesOf } from '@/lib/office';
@@ -85,7 +86,8 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
           </div>
         </ActionForm>
       )}
-      {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0} />}
+      {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0}
+        schemes={schemeProfilesOf(firm.settings).map((s) => ({ no: s.no, label: schemeLabel(s.no, [s]) }))} />}
       {showForm && edit && !(used.get(edit.id) ?? 0) && canDo(u, 'del', firm.id) && <div className="row" style={{ marginTop: -6, marginBottom: 10 }}><RowAction className="btn danger" action={deletePartner.bind(null, edit.id)} label="Избриши" confirm={`Да се избрише „${edit.name}“?`} /></div>}
       {useP && <div className="card"><div className="hd"><h2>🔒 {useP.name} – се користи во {used.get(useP.id) ?? 0} документи</h2><Link className="btn sm" href="/partneri">✕</Link></div>
         <p className="note">Партнер/артикл што е користен не може да се избрише, за да не се расипат книжењата. Ако документите се погрешни, прво избришете ги нив (во нивната листа) – потоа ќе може да се избрише и овој. Инаку означете го како неактивен.</p>

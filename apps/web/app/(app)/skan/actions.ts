@@ -128,7 +128,10 @@ export async function removeScan(id: string): Promise<ActionState> {
  * with its own journal, in its own transaction; the source file is linked to each (with the invoice's pages).
  * Duplicates (`dup`), invoices to check and skipped ones are left as they are.
  */
-async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<ActionState> {
+/** „Шема“ chosen for the batch: a number 1…99, or `undefined` = by the rules (partner default / Шема 1). */
+const batchScheme = (v: unknown): number | undefined => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 99 ? n : undefined; };
+
+async function savePurchaseDraftsOk(where: Parameters<typeof and>[0], scheme?: number): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('savePur');
     const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), eq(aiDocuments.status, 'done'), where));
@@ -140,7 +143,9 @@ async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<A
         if (x.status !== 'ok' || x.savedId || x.skipped) continue;
         try {
           await db().transaction(async (tx) => {
-            const r = await savePurchase(tx, firm.id, purchaseInputFromDraft(x.draft as unknown as ScanPurchaseDraft, draftSourceFiles(d, i)), actorOf(u));
+            const inp = purchaseInputFromDraft(x.draft as unknown as ScanPurchaseDraft, draftSourceFiles(d, i));
+            if (scheme) inp.data = { ...(inp.data ?? {}), scheme };
+            const r = await savePurchase(tx, firm.id, inp, actorOf(u));
             await markDraftSaved(tx, firm.id, d.id, i, r.id);
           });
           n++;
@@ -160,14 +165,14 @@ async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<A
 }
 
 /** Save every draft of a batch whose check is `ok` (legacy `batchSaveAll`). */
-export async function saveBatchOk(batchId: string): Promise<ActionState> {
+export async function saveBatchOk(batchId: string, scheme?: number | null): Promise<ActionState> {
   if (!/^[0-9a-f-]{36}$/i.test(batchId)) return { error: 'Неважечка листа.' };
-  return savePurchaseDraftsOk(eq(aiDocuments.batchId, batchId));
+  return savePurchaseDraftsOk(eq(aiDocuments.batchId, batchId), batchScheme(scheme));
 }
 
 /** „Зачувај ги сите спремни“ on the scan screen: every ready invoice read there (one file may hold several). */
-export async function savePurchasesOk(): Promise<ActionState> {
-  return savePurchaseDraftsOk(and(sql`${aiDocuments.batchId} is null`, sql`not (${aiDocuments.options} ? 'inline')`));
+export async function savePurchasesOk(scheme?: number | null): Promise<ActionState> {
+  return savePurchaseDraftsOk(and(sql`${aiDocuments.batchId} is null`, sql`not (${aiDocuments.options} ? 'inline')`), batchScheme(scheme));
 }
 
 /** „Прескокни“ / „Врати“ one invoice of a read document (the others of the same file stay). */
@@ -410,7 +415,8 @@ export async function undoScanPartner(docId: string, index: number): Promise<Act
 }
 
 /** Legacy `outSaveAll` (8439): save every read sales invoice that is „✓ спремна“. */
-export async function saveSalesOk(): Promise<ActionState> {
+export async function saveSalesOk(scheme?: number | null): Promise<ActionState> {
+  const sch = batchScheme(scheme);
   try {
     const { u, firm } = await firmAction('saveInv');
     const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'sale'), eq(aiDocuments.status, 'done')));
@@ -434,7 +440,8 @@ export async function saveSalesOk(): Promise<ActionState> {
           await db().transaction(async (tx) => {
             // the source file (photos read together: the photos of this invoice's pages) linked to each invoice
             const src = draftSourceFiles(d, i).fileIds;
-            const inp = await saleDraftToInvoice(tx, firm.id, x.draft as unknown as ScanSaleDraft, src);
+            const inp0 = await saleDraftToInvoice(tx, firm.id, x.draft as unknown as ScanSaleDraft, src);
+            const inp = sch ? { ...inp0, data: { scheme: sch } } : inp0;
             const r = await saveInvoice(tx, firm.id, inp, actorOf(u));
             if (src.length) await tx.insert(fileLinks).values(src.map((fileId) => ({ fileId, entityType: 'invoice', entityId: r.id, role: 'source' }))).onConflictDoNothing();
             await markDraftSaved(tx, firm.id, d.id, i, r.id);

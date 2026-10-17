@@ -12,7 +12,7 @@ import {
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
-import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions } from '@/lib/sales';
+import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, schemeChoice } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -73,7 +73,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
           const lines = [0, 1, 2].map((i) => ({ base: s(c.lines[i]?.base ?? ''), rate: s(c.lines[i]?.rate ?? 18), vat: s(c.lines[i]?.vat ?? '') }));
           return [k, { amount: s(Number(c.amount)), fx: c.fx ? s(Number(c.fx)) : '', doc: c.doc ?? '', date: c.date ?? '', due: c.due ?? '', partnerId: c.partnerId ?? '', byQty: c.byQty, foreign: c.foreign, lines }];
         })),
-        data: Object.fromEntries(Object.entries(pu.data ?? {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
+        data: {
+          ...Object.fromEntries(Object.entries(pu.data ?? {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
+          ...(typeof pu.data?.scheme === 'number' ? { scheme: String(pu.data.scheme) } : {}),
+        },
         fileIds, scanned: pu.scanned, shifted: false, status: pu.status,
       };
       title = 'Измена на влезна фактура' + (pu.number ? ' ' + pu.number : '');
@@ -116,7 +119,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
     return <PurchaseEditor initial={init} title={title} partners={P} scanMatch={scanMatch} items={items} locations={Lc} accounts={accts} nonVat={!firm.vatRegistered}
       defMargin={Number(S.defMargin) || 25} mgRound={Number(S.mgRound) || 1} back={back} scanInfo={scanInfo} pxInfo={sp.px || undefined} files={F} nalogNo={nalogNo} queue={queue} prevSaved={!!sp.prevSaved} warn={sp.prevSaved ? sp.w : undefined}
       firmId={firm.id} canDel={del} fuelRule={fuelRule} closed={closedP.map((x) => [String(x.a), String(x.b)] as [string, string])}
-      typeKonto={{ goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), product: schemeValue(ctx, 'product') }} />;
+      typeKonto={{ goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), product: schemeValue(ctx, 'product') }} {...await schemeChoice(firm)} />;
   }
 
 

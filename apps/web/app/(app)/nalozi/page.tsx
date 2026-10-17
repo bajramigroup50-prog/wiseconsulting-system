@@ -29,6 +29,8 @@ import { ImportBox } from '../banka/import-box';
 import { deleteStatementAction } from '../banka/actions';
 import { StatementsPanel, type PanelStatement } from './statements-panel';
 import { unpostRunAction } from '../plati/actions';
+import { schemeLabel, schemeProfilesOf, schemeShort } from '@wise/core/scheme-profiles';
+import { SchemeRepostBar } from './scheme-repost';
 
 type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string };
 const KIND_LBL: Record<string, string> = {
@@ -113,6 +115,12 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
   const manualLike = (j: (typeof J)[number]) => !j.sourceType || ['opening', 'bbimp', 'yearClose'].includes(j.sourceType);
   const canEdit = (j: (typeof J)[number]) => !locked(j) && (manualLike(j) ? (j.kind === 'manual' ? write : fix) : fix);
   const ovOf = (j: (typeof J)[number]) => ((j.meta ?? {}) as { override?: { applied?: number; dropped?: number; unbalanced?: boolean } }).override;
+  /** „Ш2“: the numbered posting scheme the document was booked with (`journals.meta.scheme`, nothing for Шема 1). */
+  const profiles = schemeProfilesOf(firm.settings);
+  const schPill = (j: { meta: unknown }) => {
+    const n = Number(((j.meta ?? {}) as { scheme?: unknown }).scheme) || 1;
+    return n > 1 ? <> <span className="pill info" title={'Книжено со ' + schemeLabel(n, profiles)}>{schemeShort(n)}</span></> : null;
+  };
   const S = firmNalogSettings(firm);
   const banks = await db().select({ id: bankAccounts.id, name: bankAccounts.name, nal: bankAccounts.nal, cur: bankAccounts.cur }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
   /** Legacy `nalogMap` label: the NAL_DEF title of a ranged number (2/4-6 → ВЛЕЗНИ ФАКТУРИ), bank series → ИЗВОДИ <bank>. */
@@ -245,12 +253,21 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         )}
         {g.journals.length > 1 && (
           <div className="card">
+            {(() => {
+              // „Прекнижи ги избраните со Шема N“: open nalog, documents (invoices / purchases) only
+              const rep = write && profiles.length > 0 && g.journals.some((j) => !locked(j) && (j.sourceType === 'invoice' || j.sourceType === 'purchase'));
+              return rep ? <SchemeRepostBar schemes={profiles.map((p) => ({ no: p.no, label: schemeLabel(p.no, profiles) }))} /> : null;
+            })()}
             <h2>Документи во налогот ({g.journals.filter((j) => j.sourceId).length}){headOf(g) && <> <span className="pill info" title="Збирен налог: секоја фактура си ги чува своите ставки; бришење/сторно на една фактура ги отстранува само нејзините ставки">збирен налог · {g.journals.filter((j) => j.sourceType === 'invoice').length} фактури</span></>}</h2>
             <div className="tw"><table className="dense"><tbody>
               {g.journals.map((j) => {
                 const o = ovOf(j);
                 return (
-                  <tr key={j.id}><td>{dmy(j.date)}</td><td>{j.description}{!!o?.applied && <> <span className="pill warn" title="Налогот е рачно коригиран и се разликува од документот">🛠 коригиран</span></>}</td><td className="n">{fmt(j.D)}</td>
+                  <tr key={j.id}>
+                    {write && profiles.length > 0 && <td>{(j.sourceType === 'invoice' || j.sourceType === 'purchase') && j.sourceId
+                      ? <input type="checkbox" name="j" value={j.id} form="schrep" disabled={locked(j)} aria-label={'Избери ' + (j.description ?? j.number)} title={locked(j) ? 'Заклучен период – не се прекнижува' : undefined} />
+                      : null}</td>}
+                    <td>{dmy(j.date)}</td><td>{j.description}{schPill(j)}{!!o?.applied && <> <span className="pill warn" title="Налогот е рачно коригиран и се разликува од документот">🛠 коригиран</span></>}</td><td className="n">{fmt(j.D)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {canEdit(j) && <Link className="btn sm" href={`/nalozi?edit=${j.id}`}>✎ Корекција</Link>}{' '}
                       {!manualLike(j) && j.sourceType && DOC_SCREEN[j.sourceType] && <Link className="btn sm ghost" href={DOC_SCREEN[j.sourceType]!}>Документ →</Link>}{' '}
@@ -266,6 +283,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <div className="row" style={{ marginBottom: 8, gap: 8 }}>
             {one.periodFrom && <span className="pill info">период {dmy(one.periodFrom)} – {dmy(one.periodTo)}</span>}
             {locked(one) && <span className="pill">🔒 заклучен</span>}
+            {schPill(one)}
             {!manualLike(one) && one.sourceType && DOC_SCREEN[one.sourceType] && <Link className="btn sm ghost" href={DOC_SCREEN[one.sourceType]!}>Документ →</Link>}
           </div>
         )}
@@ -392,7 +410,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               return (
                 <tr key={g.no}>
                   <td>{dmy(g.date)}</td><td><Link href={href}><b className="num">{g.no}</b></Link></td>
-                  <td>{titleOf(g)}{g.journals.some((j) => ovOf(j)?.applied) && <> <span className="pill warn" title="Рачно коригиран – се разликува од документот">🛠</span></>}</td>
+                  <td>{titleOf(g)}{one && schPill(one)}{g.journals.some((j) => ovOf(j)?.applied) && <> <span className="pill warn" title="Рачно коригиран – се разликува од документот">🛠</span></>}</td>
                   <td className="n">{n}</td>
                   <td className="n">{fmt(D)}</td><td className="n">{fmt(P)}</td>
                   <td className="n" style={Math.abs(D - P) > 0.009 ? { color: 'var(--bad)' } : undefined}>{fmt(D - P)}</td>

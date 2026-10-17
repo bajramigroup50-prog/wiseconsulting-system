@@ -38,6 +38,7 @@ export * from './sales/purchases';
 export * from './sales/supplier-credits';
 export * from './sales/ai-docs';
 export * from './vat-context';
+export * from './scheme-profiles';
 export * from './vat-source';
 export * from './vat-lock';
 export * from './vat-service';

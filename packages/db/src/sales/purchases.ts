@@ -11,6 +11,7 @@ import {
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
+import { docKontoRemap, PURCHASE_KONTO_KEYS } from '@wise/core/scheme-profiles';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource } from '../posting';
 import {
@@ -18,7 +19,7 @@ import {
   supplierCredits, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
-  assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, stockLocations, type DocActor,
+  assertLocation, docSchemeData, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, pickScheme, stockLocations, type DocActor,
 } from './context';
 import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
 import { deleteTransfer, saveLevelling } from '../stock-docs';
@@ -116,7 +117,11 @@ export async function createMissingItems(tx: Tx, firmId: string, lines: Purchase
 }
 
 async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1], pur: Purchase, userId: string | null): Promise<void> {
-  const ctx = await firmPostingContext(tx, f);
+  // „Шема за книжење“ of the document (Шема 1 = the firm's scheme; Шема N = its overrides over Шема 1)
+  const SP = pickScheme(await firmPostingContext(tx, f), ((pur.data ?? {}) as PurchaseData).scheme);
+  const ctx = SP.ctx;
+  /** group kontos stored with Шема 1's default / stock kontos move to the profile's (only the overridden keys) */
+  const gk = docKontoRemap(SP.base, ctx, PURCHASE_KONTO_KEYS);
   const [G, ST, C] = await Promise.all([
     tx.select().from(purchaseVatGroups).where(eq(purchaseVatGroups.purchaseId, pur.id)).orderBy(asc(purchaseVatGroups.lineNo)),
     tx.select().from(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, pur.id)).orderBy(asc(purchaseStockLines.lineNo)),
@@ -143,7 +148,7 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   try {
     lines = purchaseEntries({
       id: pur.id, date: pur.date, number: pur.number, partner: pur.partnerId ?? undefined, supplierName: pur.supplierName ?? undefined,
-      groups: G.map((g) => ({ konto: g.account, rate: g.rate, base: n(g.base), vat: n(g.vat) })), art32: pur.art32, imp: pur.imp, cash: pur.cash,
+      groups: G.map((g) => ({ konto: gk(g.account), rate: g.rate, base: n(g.base), vat: n(g.vat) })), art32: pur.art32, imp: pur.imp, cash: pur.cash,
       noDed: pur.noDed, supKonto: pur.supplierAccount ?? undefined, fx: n(pur.fx), costs, stock, wh: pur.warehouseId ?? undefined, retail,
     }, ctx, loc ? { kind: loc.kind, konto: loc.konto, kMarg: loc.kMarg, kVat: loc.kVat } : null);
   } catch (e) {
@@ -151,12 +156,13 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
     throw e;
   }
   // legacy `vbLines` 3451: the off-balance VAT bases of every Влез document (Д 994… / П 999…)
-  lines = [...lines, ...vbLines(purchaseVatBases({ groups: G.map((g) => ({ konto: g.account, rate: g.rate, base: n(g.base), vat: n(g.vat) })), costs, imp: pur.imp, art32: pur.art32 }), ctx)];
+  lines = [...lines, ...vbLines(purchaseVatBases({ groups: G.map((g) => ({ konto: gk(g.account), rate: g.rate, base: n(g.base), vat: n(g.vat) })), costs, imp: pur.imp, art32: pur.art32 }), ctx)];
   await postJournal(tx, {
     firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId,
     description: 'Влезна ф-ра ' + (pur.number || '') + (pur.supplierName ? ' · ' + pur.supplierName : ''),
     lines: lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId || null, note: l.note ?? null, doc: pur.number || null, currency: l.cur ?? null, amountCur: l.amtCur ?? null })),
     auditAction: 'postPurchase',
+    ...(SP.no > 1 ? { meta: { scheme: SP.no } } : {}),
   });
   // Receipt moves carry no journal lines: their booking is the purchase journal above (legacy `pur-` moves had no lines).
   await replaceSourceMoves(tx, {
@@ -287,7 +293,7 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
     fx: String(n(input.fx) || 1), calcNo, distMode: input.distMode ?? 'val', cnames: (input.cnames ?? []).map(String),
     base: r2(RG.reduce((a, g) => a + n(g.base), 0)).toFixed(2), vat: r2(RG.reduce((a, g) => a + n(g.vat), 0)).toFixed(2),
     total: purchaseTotal({ art32, groups: RG.map((g) => ({ base: n(g.base), vat: n(g.vat) })) }).toFixed(2),
-    scanned: !!input.scanned || !!existing?.scanned, data: input.data ?? {}, updatedBy: actor.userId,
+    scanned: !!input.scanned || !!existing?.scanned, data: await docSchemeData(tx, firmId, partnerId, input.data, await firmPostingContext(tx, f)), updatedBy: actor.userId,
   } satisfies Partial<typeof purchases.$inferInsert>;
   let pur: Purchase;
   if (existing) {

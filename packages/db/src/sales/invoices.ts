@@ -11,9 +11,10 @@
 import { invoiceProdPlan, removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
-  cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
+  cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount, STOCK_SCHEME_DEFAULTS,
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
+import { invoiceLineKonto } from '@wise/core/scheme-profiles';
 import { checkCredit, invoiceTotals, isDraftNo, nextDocNumber, nextDraftNo, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
 import { assertInvoiceNalog } from './invoice-nalog';
 import { blockingIssues, deletionVerdict, invoiceLegalIssues, isLastInSeries, numberGapWarning } from '@wise/core/compliance';
@@ -21,10 +22,10 @@ import { todaySkopje } from '@wise/core/office/dates';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource, type PostLineInput } from '../posting';
 import {
-  invoiceAdvances, invoiceLines, invoices, partners, stockMoves, type Firm, type Invoice, type InvoiceData, type InvoiceLine, type InvoiceProdState,
+  invoiceAdvances, invoiceLines, invoices, items, partners, stockMoves, type Firm, type Invoice, type InvoiceData, type InvoiceLine, type InvoiceProdState,
 } from '../schema/index';
 import {
-  assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, type DocActor,
+  assertLocation, docSchemeData, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, pickScheme, type DocActor,
 } from './context';
 import { loadStockContext, removeSourceMoves, replaceSourceMoves } from '../stock-service';
 
@@ -137,10 +138,15 @@ const stockSource = (kind: DocKind) => (kind === 'dispatch' ? 'dispatch' : 'invo
  * or return moves (legacy `crMoves`), each carrying its journal lines; `replaceSourceMoves` (Phase 7) stores them and
  * posts the aggregated stock journal (`stock:invoice` / `stock:dispatch`, kind `zaliha`).
  */
-async function stockFor(tx: Tx, inv: Invoice, L: readonly InvoiceLine[], ref: Invoice | null): Promise<{ moves: StockMove[]; warnings: string[] }> {
+async function stockFor(tx: Tx, inv: Invoice, L: readonly InvoiceLine[], ref: Invoice | null, profileSch?: Readonly<Record<string, unknown>> | null): Promise<{ moves: StockMove[]; warnings: string[] }> {
   const ids = L.map((l) => l.itemId).filter((x): x is string => !!x);
   if (!ids.length) return { moves: [], warnings: [] };
   const SC: StockContext = (await loadStockContext(tx, inv.firmId, { excludeSource: { sourceType: stockSource(inv.kind), sourceId: inv.id } })).ctx;
+  // „Шема N“: its overridden stock kontos (cogs, stock …) also for the stock journal of the document
+  if (profileSch) {
+    const ov = Object.fromEntries(Object.entries(profileSch).filter(([k, v]) => k in STOCK_SCHEME_DEFAULTS && typeof v === 'string' && v && v !== '-'));
+    if (Object.keys(ov).length) SC.scheme = { ...(SC.scheme ?? {}), ...ov };
+  }
   const item = (id: string) => SC.items!.find((i) => i.id === id);
   const wh = inv.warehouseId ?? 'main';
   const moves: StockMove[] = [], warnings: string[] = [];
@@ -198,8 +204,16 @@ async function stockFor(tx: Tx, inv: Invoice, L: readonly InvoiceLine[], ref: In
 
 /** Book (or re-book) a saved document: sale journal, stock moves and stock journal. */
 async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null): Promise<string[]> {
-  const ctx = await firmPostingContext(tx, f);
-  const L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
+  // „Шема за книжење“ of the document (Шема 1 = the firm's scheme; Шема N = its overrides over Шема 1)
+  const SP = pickScheme(await firmPostingContext(tx, f), ((inv.data ?? {}) as InvoiceData).scheme);
+  const ctx = SP.ctx;
+  let L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
+  if (SP.profile) {
+    // the line kontos stored with Шема 1's revenue kontos move to the profile's (only the overridden keys)
+    const ids = [...new Set(L.map((l) => l.itemId).filter((x): x is string => !!x))];
+    const T = new Map(ids.length ? (await tx.select({ id: items.id, type: items.type }).from(items).where(inArray(items.id, ids))).map((r) => [r.id, r.type as string]) : []);
+    L = L.map((l) => ({ ...l, account: invoiceLineKonto(SP.base, ctx, l.account, l.itemId ? T.get(l.itemId) : null) }));
+  }
   const fx = n(inv.fx) || 1;
   const ref = inv.refInvoiceId ? (await tx.select().from(invoices).where(eq(invoices.id, inv.refInvoiceId)).limit(1))[0] ?? null : null;
   if (inv.kind === 'invoice' || inv.kind === 'credit') {
@@ -229,10 +243,11 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
       firmId: f.id, date: inv.date, kind: kindOfJournal(inv.kind), sourceType: 'invoice', sourceId: inv.id, userId, number: nalogNo,
       description: (inv.kind === 'credit' ? 'Одобрение ' : inv.advance ? 'Авансна фактура ' : 'Фактура ') + inv.number,
       lines: journalLinesOf(lines).map((l) => ({ ...l, doc: l.doc ?? inv.number })), auditAction: 'postInvoice',
+      ...(SP.no > 1 ? { meta: { scheme: SP.no } } : {}),
     });
   } else await unpostSource(tx, { firmId: f.id, sourceType: 'invoice', sourceId: inv.id, userId });
   const fromDispatch = inv.fromDocId ? (await tx.select({ k: invoices.kind }).from(invoices).where(eq(invoices.id, inv.fromDocId)).limit(1))[0]?.k === 'dispatch' : false;
-  const S = inv.kind === 'proforma' || fromDispatch ? { moves: [], warnings: [] } : await stockFor(tx, inv, L, ref);
+  const S = inv.kind === 'proforma' || fromDispatch ? { moves: [], warnings: [] } : await stockFor(tx, inv, L, ref, SP.profile?.sch);
   await replaceSourceMoves(tx, {
     firmId: f.id, sourceType: stockSource(inv.kind), sourceId: inv.id, moves: S.moves, date: inv.date, userId, partnerId: inv.partnerId,
     description: (inv.kind === 'dispatch' ? 'Испратница ' : inv.kind === 'credit' ? 'Повратница ' : 'Излез на залиха – фактура ') + inv.number,
@@ -351,7 +366,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     svc: !!input.svc, currency, fx: String(fx), refInvoiceId: kind === 'credit' ? input.refInvoiceId! : null,
     creditKind: kind === 'credit' ? input.creditKind ?? 'price' : null, creditGross: kind === 'credit' && input.creditGross ? r2(n(input.creditGross)).toFixed(2) : null,
     fromDocId: input.fromDocId || existing?.fromDocId || null, note: input.note?.trim() || null, scanned: !!input.scanned || !!existing?.scanned,
-    base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), data: input.data ?? {}, updatedBy: actor.userId,
+    base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), data: await docSchemeData(tx, firmId, input.partnerId, input.data, ctx), updatedBy: actor.userId,
   } satisfies Partial<typeof invoices.$inferInsert>;
 
   let inv: Invoice;

@@ -9,6 +9,7 @@
  */
 import { eq } from 'drizzle-orm';
 import type { PostingContext, SchemeSettings } from '@wise/core';
+import { schemeProfilesOf } from '@wise/core/scheme-profiles';
 import type { Tx } from './audit';
 import { appSettings, type Firm } from './schema/index';
 
@@ -39,6 +40,8 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
       vatInKonto: str(s.vatInKonto),
       posK: str(s.posK),
       posPartnerId: posPartnerId ?? null,
+      // numbered schemes „Шема 2, 3 …“ (`firms.settings.schemeProfiles`)
+      profiles: schemeProfilesOf(s),
     },
     global: global == null ? null : schemeSettingsOf(global),
   };
