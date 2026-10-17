@@ -33,7 +33,7 @@ async function readSource(f: File): Promise<{ sheets?: Sheets; error?: string }>
     const fd = new FormData(); fd.set('file', f);
     const r = await readPdfGrid(fd);
     if (!r.grid) return { error: r.error };
-    return { sheets: [...(r.bank ? [{ name: 'PDF – табела на извод', grid: r.bank, target: 'bank' }] : []), { name: 'PDF', grid: r.grid }] };
+    return { sheets: [...(r.bank ? [{ name: 'PDF – табела на извод', grid: r.bank, target: 'bank' }] : []), ...(r.journal ? [{ name: 'PDF – налог за книжење', grid: r.journal, target: 'imp:journal' }] : []), { name: 'PDF', grid: r.grid }] };
   }
   if (/\.(csv|txt|tsv|prn)$/.test(nm) || f.type.startsWith('text/')) {
     const buf = new Uint8Array(await f.arrayBuffer());

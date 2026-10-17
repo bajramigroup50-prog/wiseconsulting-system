@@ -37,3 +37,38 @@ export function fixYuscii(text: string | null | undefined): string {
     }).join('');
   }).join('');
 }
+
+/** Latin YUSCII (the old program's Latin font): [ Š, { š, ] Ć, } ć, ^ Č, ~ č, @ Ž, ` ž, \ Đ, | đ. */
+export const YUSCII_LATIN: Readonly<Record<string, string>> = {
+  '[': 'Š', '{': 'š', ']': 'Ć', '}': 'ć', '^': 'Č', '~': 'č', '@': 'Ž', '`': 'ž', '\\': 'Đ', '|': 'đ',
+};
+const LAT = /[A-Za-z]/;
+
+/**
+ * Repair YUSCII leftovers in Latin words („IN[AAT“ → „INŠAAT“) too; Cyrillic words go through {@link fixYuscii};
+ * e-mail addresses and words without letters are unchanged.
+ */
+export function fixYusciiAll(text: string | null | undefined): string {
+  const s = fixYuscii(text);
+  if (!SPECIAL.test(s) || !LAT.test(s)) return s;
+  return s.split(/(\s+)/).map((w) => (SPECIAL.test(w) && LAT.test(w) && !CYR.test(w) && !/@.*\./.test(w) ? [...w].map((c) => YUSCII_LATIN[c] ?? c).join('') : w)).join('');
+}
+
+const CYR_LAT: Readonly<Record<string, string>> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', ѓ: 'gj', е: 'e', ж: 'zh', з: 'z', ѕ: 'dz', и: 'i', ј: 'j', к: 'k', л: 'l', љ: 'lj', м: 'm',
+  н: 'n', њ: 'nj', о: 'o', п: 'p', р: 'r', с: 's', т: 't', ќ: 'kj', у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', џ: 'dzh', ш: 'sh',
+  // Serbian / Russian letters of other programs
+  ђ: 'gj', ћ: 'kj', й: 'j', ы: 'i', э: 'e', ю: 'ju', я: 'ja', щ: 'sht', ъ: '', ь: '',
+};
+const LAT_LAT: Readonly<Record<string, string>> = { š: 'sh', č: 'ch', ć: 'kj', ž: 'zh', đ: 'gj', ǵ: 'gj', ḱ: 'kj', ẑ: 'dz', w: 'v', q: 'k', y: 'i', x: 'ks' };
+
+/**
+ * A spelling-independent key of a name for matching Latin ↔ Cyrillic (Macedonian): both scripts to plain Latin
+ * („КАН ИНТЕРНАТИОНАЛ“ and „KAN INTERNATIONAL“ → „kaninternational“), YUSCII repaired, only letters and digits kept.
+ */
+export function translitKey(text: string | null | undefined): string {
+  const s = fixYusciiAll(text).toLowerCase();
+  let o = '';
+  for (const c of s) o += CYR_LAT[c] ?? LAT_LAT[c] ?? c;
+  return o.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/dzh/g, 'dz').replace(/[^a-z0-9]/g, '');
+}

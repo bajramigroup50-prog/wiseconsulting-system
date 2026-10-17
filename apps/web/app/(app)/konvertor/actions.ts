@@ -7,7 +7,7 @@
 import { revalidatePath } from 'next/cache';
 import { convPresetClean, type ConvPreset } from '@wise/core/convert/index';
 import { pdfAutoGrid, pdfLines } from '@wise/core/noai/pdf-lines';
-import { finNalogFromLines, finNalogGrid } from '@wise/core/noai/fin-nalog';
+import { finNalogFromLines, finNalogGrid, finNalogJournalGrid, finNalogsFromLines } from '@wise/core/noai/fin-nalog';
 import { bankPdfGrid } from '@wise/core/noai/bank-grid';
 import { audit, getConvPresets, putConvPresets } from '@wise/db';
 import { Forbidden, requireUser } from '@/lib/auth';
@@ -25,7 +25,7 @@ const office = async () => {
  * A PDF with a text layer as rows of cells; scanned PDFs have no text. `bank`: the same PDF cut into the columns of
  * its bank-statement table (header over several lines, values printed close together kept apart), when it has one.
  */
-export async function readPdfGrid(form: FormData): Promise<{ grid?: string[][]; bank?: string[][]; error?: string }> {
+export async function readPdfGrid(form: FormData): Promise<{ grid?: string[][]; bank?: string[][]; journal?: string[][]; error?: string }> {
   try {
     await office();
     const f = form.get('file');
@@ -34,9 +34,10 @@ export async function readPdfGrid(form: FormData): Promise<{ grid?: string[][]; 
     const items = await pdfTextItems(new Uint8Array(await f.arrayBuffer()));
     const L = pdfLines(items);
     if (!L.length) return { error: 'PDF-от нема текст (скениран документ / слика) – без AI не може да се прочита. Побарајте Excel/CSV/XML од програмата или банката.' };
-    // the old program's „Финансов налог“ (e.g. the opening journal): one clean row per record, opening-balance headings
+    // the old program's „Финансов налог“ (e.g. the opening journal): one clean row per record, opening-balance headings;
+    // `journal`: the same records with date / nalog number / partner code for the journal import (`/uvoz?t=journal`)
     const F = finNalogFromLines(L);
-    if (F) return { grid: finNalogGrid(F) };
+    if (F) return { grid: finNalogGrid(F), journal: finNalogJournalGrid(finNalogsFromLines(L)) };
     const B = bankPdfGrid(items);
     return { grid: pdfAutoGrid(L), ...(B ? { bank: B.grid } : {}) };
   } catch (e) {

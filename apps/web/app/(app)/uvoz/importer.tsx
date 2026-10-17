@@ -10,7 +10,7 @@ import type { ActionState } from '@/lib/books';
 import { importAction } from '../_retail/actions';
 import { downloadXlsx, readRows } from '../_retail/read-file';
 
-const NUM = new Set(['price', 'rate', 'min', 'weight', 'netBase', 'coef', 'base18', 'vat18', 'base10', 'vat10', 'base5', 'vat5', 'base0', 'total', 'qty', 'disc', 'cost', 'amount', 'mpc', 'cnt', 'd', 'p']);
+const NUM = new Set(['price', 'rate', 'min', 'weight', 'netBase', 'coef', 'base18', 'vat18', 'base10', 'vat10', 'base5', 'vat5', 'base0', 'total', 'qty', 'disc', 'cost', 'amount', 'mpc', 'cnt', 'd', 'p', 'amt', 'curAmt']);
 const DATE = new Set(['date', 'due', 'start', 'end']);
 const NEEDS_WH: ImpType[] = ['in', 'pop', 'nivel'];
 const NEEDS_DATE: ImpType[] = ['stock', 'in', 'pop', 'nivel'];

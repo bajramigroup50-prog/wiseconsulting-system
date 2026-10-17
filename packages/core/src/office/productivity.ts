@@ -106,6 +106,9 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['izvodi', 'c', 'bankReviewBook'],
   ['izvodi', 'u', 'bankLinkAccept bankLinkReject'],
   ['nalozi', 'u', 'autoRepost'],
+  // journal import from the old program: one movement per batch (the journals of the batch are its by-products)
+  ['nalozi', 'c', 'impJournalBatch'],
+  ['nalozi', 'd', 'impJournalUndo'],
   ['firmi', 'c', 'partnerAccLearn fxNbrm'],
   ['firmi', 'u', 'partnerAccSave'],
   ['magacin', 'c', 'fiskrNew fiskrReport'],
@@ -138,9 +141,9 @@ const NOISE = new Set((
  * (their lines still count in the volume).
  */
 const BY_PRODUCT = new Set(['postInvoice', 'postPurchase', 'postStatement', 'postCashVoucher', 'postCompensation', 'postSupplierCredit',
-  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost']);
+  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost', 'postImportJournal', 'unpostImportJournal']);
 /** Same rule as the journals screen (`fromDocument`): these sources are entered by hand, not from a document. */
-const MANUAL_SOURCES = new Set(['opening', 'bbimp', 'yearClose']);
+const MANUAL_SOURCES = new Set(['opening', 'bbimp', 'yearClose', 'import']);
 const GENERIC_JOURNAL = new Set(['postJournal', 'repostJournal', 'unpostJournal', 'deleteJournal']);
 
 /** Actions whose category depends on the entity (`approveDoc` approves an invoice or a purchase). */
@@ -150,7 +153,7 @@ const BY_ENTITY = new Set(['approveDoc']);
 const ENTITY_CAT: Record<string, WorkCat> = {
   invoice: 'izlez', recurring_invoice: 'izlez',
   purchase: 'vlez', supplier_credit: 'vlez',
-  journal: 'nalozi', loan: 'nalozi',
+  journal: 'nalozi', journal_import: 'nalozi', loan: 'nalozi',
   bank_line: 'izvodi', bank_lines: 'izvodi', bank_statement: 'izvodi', bank_import: 'izvodi', bank_rule: 'izvodi', payment_order: 'izvodi',
   cash_voucher: 'blagajna', cash_register: 'blagajna',
   payroll_run: 'plati', payroll_note: 'plati', payroll_params: 'plati', payroll_settings: 'plati', employee: 'plati', hr_doc: 'plati', mpin_inbox: 'plati', mpin_ack: 'plati',
