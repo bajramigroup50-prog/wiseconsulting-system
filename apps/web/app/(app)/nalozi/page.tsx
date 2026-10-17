@@ -374,6 +374,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             {settingsOk && <Link className="btn sm" href={sp.cfg !== undefined ? '/nalozi' : '/nalozi?cfg'}>Шифри на налози…</Link>}
             {write && <BankForm action={nalFixAllAction} className="row"><button className="btn sm" title="Броевите на налозите повеќе не се менуваат ако подоцна се внесе документ со постар датум">🔒 Фиксирај броеви</button></BankForm>}
             {firm.lockDate && <span className="pill">🔒 заклучено до {dmy(firm.lockDate)}</span>}
+            {firm.lockDate && closeOk && <form action={setLockDate}><input type="hidden" name="lockDate" value="" /><button className="btn sm" title="Го отклучува периодот – налозите повторно може да се менуваат и бришат">🔓 Отклучи</button></form>}
             <ExportBar name={`Nalozi_${year}`} title={`Налози ${year}`} pdf={false} rows={[['Датум', 'Број', 'Назив', 'Ставки', 'Должи', 'Побарува', 'Салдо'],
               ...G.map((g) => {
                 const D = g.journals.reduce((s, j) => s + Number(j.D), 0), P = g.journals.reduce((s, j) => s + Number(j.P), 0);
