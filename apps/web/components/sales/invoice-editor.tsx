@@ -660,8 +660,11 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
           </div>
         </div>
         <div className="fpane" hidden={tab !== 'pos'}>
-          {d.kind !== 'dispatch' && <label className="chk"><input type="checkbox" checked={d.art32} onChange={(e) => set({ art32: e.target.checked, lines: e.target.checked ? d.lines.map((l) => ({ ...l, rate: '18' })) : d.lines })} /> Фактура по <b>член 32-а</b> без ДДВ (градежништво — пренесување на даночна обврска)</label>}
-          {d.art32 && <div className="callout">Без ДДВ за плаќање; ДДВ 18% ({fmt(T.transferredVat)}) се прикажува како пренесен.</div>}
+          {d.kind !== 'dispatch' && <label className="chk"><input type="checkbox" checked={d.art32} onChange={(e) => set({ art32: e.target.checked, lines: e.target.checked ? d.lines.map((l) => ({ ...l, rate: '18' })) : d.lines })} /> Фактура по <b>член 32-а</b> без ДДВ (пренесување на даночната обврска – ДДВ пресметува примателот)</label>}
+          {d.art32 && <div className="callout">Без ДДВ за плаќање; ДДВ 18% ({fmt(T.transferredVat)}) се прикажува како пренесен. Побарувањето се книжи на купувачи по член 32-а (1200009), во ДДВ-04 поле 11.</div>}
+          {d.kind !== 'dispatch' && !d.art32 && !d.export && d.lines.some((l) => l.name.trim() && !Number(l.rate)) && <label className="fl"><span>Основ за ослободување од ДДВ (се печати на фактурата)</span>
+            <input value={d.data.vatNote ?? ''} maxLength={500} list="vatNoteOpts" placeholder="пр. Ослободено од ДДВ согласно член 24 од ЗДДВ" onChange={(e) => setData('vatNote', e.target.value)} />
+            <datalist id="vatNoteOpts">{['Ослободено од ДДВ согласно член 24 од ЗДДВ (без право на одбивка)', 'Ослободено од ДДВ согласно член 30 од ЗДДВ', 'Ослободено од ДДВ согласно член 23 од ЗДДВ (со право на одбивка)'].map((x) => <option key={x} value={x} />)}</datalist></label>}
           {isInv && <>
             <fieldset className="fs" style={{ maxWidth: 420 }}><legend>Изберете тип</legend><div className="row">
               <label className="rb"><input type="radio" checked={!d.advance} onChange={() => set({ advance: false })} /> Редовна</label>

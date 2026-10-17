@@ -22,6 +22,11 @@ export interface ScanInvoice {
   currency?: string;
   /** Pages of the source file this invoice is printed on („1“, „2-3“) when the file holds several invoices. */
   pages?: string;
+  /**
+   * VAT legal note printed on the invoice, as read („Пренесување на даночната обврска согласно член 32-а од ЗДДВ“,
+   * „Ослободено од ДДВ согласно член 24 од ЗДДВ“…); '' / missing = none (see {@link vatNoteOf}).
+   */
+  vatNote?: string;
 }
 /** A prompt result: one invoice, or several (`{invoices:[…]}`). */
 export type ScanResult = ScanInvoice & { invoices?: ScanInvoice[] };
@@ -139,6 +144,51 @@ export function fixSaleQty<T extends ScanInvoice>(r: T): T {
     }
   }
   return r;
+}
+
+/* ------------------------------------------------------------------ VAT notes (чл. 32-а / ослободување) */
+
+/** Printed legal note of a domestic reverse-charge invoice (ЗДДВ чл. 32-а). */
+export const ART32_NOTE = 'Пренесување на даночната обврска – ДДВ пресметува примателот согласно член 32-а од ЗДДВ';
+/** Check message of a read invoice without VAT and without a note: never guessed as exempt or as art. 32-a. */
+export const NO_VAT_NOTE_MSG = 'провери: нема ДДВ – чл. 32-а или ослободување?';
+
+/** „член 32-а“, „чл. 32 а“, „32-а ЗДДВ“, „пренесување на даночната обврска“, „ДДВ пресметува примателот“, „reverse charge“. */
+const ART32_RE = new RegExp([
+  String.raw`чл(?:ен)?\.?\s*32\s*[-–]?\s*[аa](?![\p{L}\d])`,
+  String.raw`32\s*[-–]\s*[аa]\s*(?:од\s+)?(?:ЗДДВ|закон)`,
+  String.raw`пренесување\s+на\s+(?:даночната|даночна)\s+обврска`,
+  String.raw`(?:ДДВ|данокот)\s+(?:го\s+)?пресметува\s+(?:и\s+(?:го\s+)?плаќа\s+)?примателот`,
+  String.raw`reverse[\s-]+charge`,
+].join('|'), 'iu');
+/** Exemption notes (ЗДДВ чл. 24 / 30): „ослободено од ДДВ“, „без право на одбивка“, „член 24 од ЗДДВ“… */
+const EXEMPT_RE = new RegExp([
+  String.raw`ослободен[оаи]?\s+од\s+(?:плаќање\s+(?:на\s+)?)?(?:ДДВ|данок)`,
+  String.raw`без\s+право\s+на\s+одбив(?:ка|ање|ок)`,
+  String.raw`чл(?:ен)?\.?\s*(?:24|30)(?![\p{L}\d])[^\n]{0,30}(?:ЗДДВ|закон(?:от)?\s+за\s+(?:данокот\s+на\s+)?додадена)`,
+  String.raw`не\s+се\s+пресметува\s+ДДВ|ДДВ\s+не\s+се\s+пресметува`,
+  String.raw`VAT\s+exempt`,
+].join('|'), 'iu');
+
+/**
+ * The VAT note of an invoice text (the AI's `vatNote`, or the whole text of a PDF): `art32` for a domestic reverse
+ * charge (чл. 32-а), `exempt` for an exemption (чл. 24 / 30) with the printed sentence as its legal basis; null when
+ * there is none. The reverse charge wins when both are printed.
+ */
+export function vatNoteOf(text: unknown): { kind: 'art32' | 'exempt'; note: string } | null {
+  const t = String(text ?? '');
+  if (!t.trim()) return null;
+  if (ART32_RE.test(t)) return { kind: 'art32', note: ART32_NOTE };
+  const m = EXEMPT_RE.exec(t);
+  if (!m) return null;
+  // the line / sentence around the match is the legal basis printed on the invoice
+  const before = t.slice(0, m.index);
+  const a = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('. ') >= 0 ? before.lastIndexOf('. ') + 1 : -1);
+  const rest = t.slice(m.index + m[0].length);
+  const e0 = [rest.indexOf('\n'), rest.indexOf('. ')].filter((x) => x >= 0);
+  const end = m.index + m[0].length + (e0.length ? Math.min(...e0) : rest.length);
+  const note = t.slice(a + 1, end).replace(/\s+/g, ' ').replace(/^[\s*•–-]+/, '').replace(/[\s.;,]+$/, '').trim().slice(0, 300);
+  return { kind: 'exempt', note: note || m[0] };
 }
 
 /* ------------------------------------------------------------------ matching */
@@ -265,7 +315,9 @@ export interface PurchaseDraftOptions {
  * FIX (item 17): legacy built the object with `docDate` twice.
  */
 export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions): ScanPurchaseDraft {
-  let r: ScanInvoice = fixSaleQty({ ...r0, lines: (r0.lines ?? []).map((l) => ({ ...l })) });
+  // a received invoice with the reverse-charge note (чл. 32-а) is art. 32-a even when the read missed the flag
+  const art32 = !!r0.art32 || vatNoteOf(r0.vatNote)?.kind === 'art32';
+  let r: ScanInvoice = fixSaleQty({ ...r0, art32, lines: (r0.lines ?? []).map((l) => ({ ...l })) });
   r = { ...r, lines: fixLines(r.lines) };
   const p = matchPartner(o.partners, r.supplierName, r.supplierEdb);
   const goodsInv = (r.groups ?? []).some((g) => g.kind === 'goods' || g.kind === 'material') || !!o.warehouseId;
@@ -293,7 +345,8 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
   }
   if (!G.length && n(r.total)) G = [{ rate: 18, base: r2(n(r.total) / 1.18), vat: r.art32 ? 0 : r2(n(r.total) - n(r.total) / 1.18), kind: 'other' }];
   const groups = (G.length ? G : [{ rate: 18, base: 0, vat: 0 }]).map((g) => ({
-    rate: n(g.rate), base: n(g.base), vat: r.art32 ? 0 : n(g.vat) || r2((n(g.base) * n(g.rate)) / 100), konto: kmap(g.kind),
+    // art. 32-a: the recipient's VAT is at the rate of the supply (18 when the read gave 0)
+    rate: r.art32 ? n(g.rate) || 18 : n(g.rate), base: n(g.base), vat: r.art32 ? 0 : n(g.vat) || r2((n(g.base) * n(g.rate)) / 100), konto: kmap(g.kind),
   }));
   const dd = isoDate(r.date);
   const shifted = !!dd && !!o.vatClosed?.(dd);
@@ -315,6 +368,10 @@ export interface ScanSaleDraft {
   total: number;
   /** Pages of the source file with this invoice („2-3“) when the file holds several invoices. */
   pages?: string;
+  /** Legal basis of an exempt invoice (rate 0) as printed („Ослободено од ДДВ согласно член 24…“) → `data.vatNote`. */
+  vatNote?: string;
+  /** No VAT and no note on the document: art. 32-a or exempt is not guessed — the draft is not „спремна“. */
+  vatCheck?: boolean;
 }
 
 /**
@@ -323,20 +380,31 @@ export interface ScanSaleDraft {
  * the revenue konto comes from the scheme (`revDefault`) instead of the literal '7400'.
  */
 export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly MatchPartner[]; items: readonly MatchItem[]; revKonto: string; today: string; nextNumber: string }): ScanSaleDraft {
-  let r: ScanInvoice = fixSaleQty({ ...r0, lines: (r0.lines ?? []).map((l) => ({ ...l })) });
+  // ЗДДВ notes: „член 32-а“ / „пренесување на даночната обврска“ → art. 32-a (rate 18, no VAT charged);
+  // „ослободено од ДДВ“ (чл. 24 / 30) → rate 0 with the printed legal basis
+  const vn = vatNoteOf(r0.vatNote);
+  const art32 = !!r0.art32 || vn?.kind === 'art32';
+  const exempt = !art32 && vn?.kind === 'exempt';
+  let r: ScanInvoice = fixSaleQty({ ...r0, art32, lines: (r0.lines ?? []).map((l) => ({ ...l })) });
   r = { ...r, lines: fixLines(r.lines) };
   const p = matchPartner(o.partners, r.buyerName, r.buyerEdb);
+  // the document shows no VAT at all: a recapitulation with bases and no VAT, or every line read at 0 %
+  const G0 = (r.groups ?? []).filter((g) => n(g.base));
+  const L0 = (r.lines ?? []).filter((l) => l.name || n(l.amount));
+  const zeroRate = (v: unknown) => v != null && v !== '' && !n(v);
+  const noVat = !art32 && ((G0.length > 0 && G0.every((g) => !n(g.vat))) || (!G0.length && L0.length > 0 && L0.every((l) => zeroRate(l.rate))));
   let items = (r.lines ?? []).filter((l) => l.name || n(l.amount)).map((l) => {
     const it = matchItem(o.items, l.name, l.code, l.barcode, null);
     let q = n(l.qty) || 1;
     if (Math.abs(q - Math.round(q)) < 0.01) q = Math.round(q);
     const am = n(l.amount), pp = n(l.price);
     const pr = pp && (!am || Math.abs(r2(q * pp) - am) <= 0.011) ? pp : am && q ? Math.round((am / q) * 100) / 100 : pp;
-    return { itemId: it?.id ?? '', name: it ? it.name : String(l.name ?? ''), unit: l.unit || it?.unit || 'ком', qty: q, price: pr, disc: 0, rate: r.art32 ? 18 : n(l.rate) || (l.rate === 0 ? 0 : 18), konto: o.revKonto };
+    return { itemId: it?.id ?? '', name: it ? it.name : String(l.name ?? ''), unit: l.unit || it?.unit || 'ком', qty: q, price: pr, disc: 0, rate: r.art32 ? 18 : exempt || noVat ? 0 : n(l.rate) || (l.rate === 0 ? 0 : 18), konto: o.revKonto };
   });
-  if (!items.length) items = (r.groups ?? []).filter((g) => n(g.base)).map((g) => ({ itemId: '', name: 'Според фактура ' + (r.number ?? ''), unit: '', qty: 1, price: n(g.base), disc: 0, rate: r.art32 ? 18 : n(g.rate), konto: o.revKonto }));
+  if (!items.length) items = (r.groups ?? []).filter((g) => n(g.base)).map((g) => ({ itemId: '', name: 'Според фактура ' + (r.number ?? ''), unit: '', qty: 1, price: n(g.base), disc: 0, rate: r.art32 ? 18 : exempt || noVat ? 0 : n(g.rate), konto: o.revKonto }));
   const total = n(r.total);
-  if (total && items.length) {
+  // prices read with VAT (the total is the base of the lines) — never on a document that shows no VAT
+  if (total && items.length && !noVat && !exempt) {
     const c = calcLines(items, r.art32);
     if (Math.abs(c.total - total) > Math.max(2, total * 0.005) && Math.abs(c.base - total) <= Math.max(2, total * 0.005)) {
       for (const l of items) l.price = Math.round((l.price / (1 + l.rate / 100)) * 10000) / 10000;
@@ -347,6 +415,8 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
     number: String(r.number ?? '').trim() || o.nextNumber, date: dd, due: isoDate(r.dueDate), partnerId: p?.id ?? '', art32: !!r.art32,
     buyer: { name: String(r.buyerName ?? ''), edb: String(r.buyerEdb ?? '').replace(/[^\dA-Za-z]/g, ''), address: String(r.buyerAddress ?? ''), city: String(r.buyerCity ?? '') },
     items, total, ...(r.pages ? { pages: String(r.pages) } : {}),
+    ...(exempt ? { vatNote: vn!.note } : {}),
+    ...(noVat && !exempt && items.length ? { vatCheck: true } : {}),
   };
 }
 

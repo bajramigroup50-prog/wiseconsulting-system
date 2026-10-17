@@ -117,6 +117,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['magacin', 'd', 'delTransfer'],
   // P34 bulk e-Фактура ZIP: validates and marks the invoices „извезено за е-фактура“ (single `ublDl` stays a download)
   ['izlez', 'u', 'efExport'],
+  // ЗДДВ чл. 32-а / ослободување: bulk re-marking of issued invoices without VAT (Излезни фактури)
+  ['izlez', 'u', 'vatMark32 vatMarkExempt'],
   // UX Phase 3 automations: a person confirming a prepared payroll draft (the journal itself is a by-product)
   ['plati', 'u', 'autoPayPost'],
 ];

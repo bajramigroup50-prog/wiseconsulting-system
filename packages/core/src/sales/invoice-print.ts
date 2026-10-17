@@ -13,7 +13,8 @@
  * чл. 53 footnote is printed on tax documents only (invoice, credit note) — not on proformas.
  */
 import qrcode from 'qrcode-generator';
-import { advDeduct, ART32_TXT, type AdvanceDeduction } from '../vat';
+import { advDeduct, type AdvanceDeduction } from '../vat';
+import { ART32_NOTE } from './scan';
 import { INV_NOTE0, invoiceTotals } from './docs';
 import { amountInWords } from './words';
 import { fixYuscii } from '../text/yuscii';
@@ -266,7 +267,8 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<div${sa({ flex: 1, fontSize: 10, lineHeight: 1.5 })}>${recs.map(([k, x]) => `<div${sa({ color: '#555' })}>ДДВ ${k}%: основица ${fmt(x.b)} · данок ${fmt(x.v)}</div>`).join('')}`
         + `<div${sa({ marginTop: 6 })}>${lbl('Со зборови')}${words}</div>`
         + (doc.export ? `<div${sa({ marginTop: 4 })}><b>Извоз – ослободено од ДДВ согласно член 23 од ЗДДВ.</b></div>` : '')
-        + (doc.art32 ? `<div${sa({ marginTop: 4 })}><b>* ${h(ART32_TXT)}.</b></div>` : '') + `</div>`
+        + (doc.art32 ? `<div${sa({ marginTop: 4 })}><b>* ${h(ART32_NOTE)}.</b></div>` : '')
+        + (!doc.art32 && data.vatNote ? `<div${sa({ marginTop: 4 })}><b>${h(data.vatNote)}</b></div>` : '') + `</div>`
         + `<div${sa({ width: '74mm', ...(M ? {} : { background: soft, borderRadius: 10 }), padding: '8px 12px' })}>${tr('Износ без ДДВ', fmt(T.base))}${tr('ДДВ', fmt(vatAll))}${T.advTotal ? tr('Одбиен аванс', '−' + fmt(T.advTotal)) : ''}`
         + `<div${sa({ borderTop: M ? '1.5px solid #111' : `2px solid ${Acol}`, marginTop: 5, paddingTop: 6, color: M ? '#111' : Acol })}>${tr(kind === 'credit' ? 'ИЗНОС НА ОДОБРЕНИЕТО' : 'ЗА ПЛАЌАЊЕ', fmt(pay) + ' ' + cur, true)}</div></div></div>`
         + (kind === 'invoice' ? `<div${sa({ marginTop: 12, fontSize: 10, ...(M ? { borderTop: '1px solid #ddd', paddingTop: 8 } : { borderLeft: `3px solid ${Acol}`, background: '#fafbfc', padding: '8px 12px', borderRadius: '0 8px 8px 0' }) })}>${lbl('Плаќање')}Жиро сметка <b>${h(st('bank'))}</b>${st('bankName') ? ' · ' + h(st('bankName')) : ''}${doc.due ? ` · рок до <b>${dmy(doc.due)}</b>` : ''} · повикување на број <b>${h(doc.number)}</b></div>` : '')
@@ -293,7 +295,8 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<tr><td${totCell}>${kind === 'credit' ? 'ИЗНОС НА ОДОБРЕНИЕТО' : 'ЗА ПЛАЌАЊЕ'}</td><td class="n"${totCell}>${fmt(pay)} ${h(cur)}</td></tr>`
         + (doc.currency !== 'MKD' ? `<tr><td>Денарска противвредност</td><td class="n">${fmt(pay * fx)} ден.</td></tr>` : '')
         + `</tbody></table></div>`
-        + (doc.art32 ? `<p${sa({ margin: '6px 0 0' })}><b>* ${h(ART32_TXT)}.</b> ДДВ ${fmt(vatAll)} ден. го пресметува и плаќа примателот.</p>` : '')
+        + (doc.art32 ? `<p${sa({ margin: '6px 0 0' })}><b>* ${h(ART32_NOTE)}.</b> ДДВ ${fmt(vatAll)} ден. го пресметува и плаќа примателот.</p>` : '')
+        + (!doc.art32 && data.vatNote ? `<p${sa({ margin: '6px 0 0' })}><b>${h(data.vatNote)}</b></p>` : '')
         + (kind === 'invoice' ? `<p${sa({ margin: '6px 0 0' })}>Плаќање${doc.due ? ' до ' + dmy(doc.due) : ''} на жиро сметка <b>${h(st('bank'))}</b>${st('bankName') ? ' кај ' + h(st('bankName')) : ''}, со повикување на број <b>${h(doc.number)}</b>.</p>` : '')
         + (kind === 'credit' ? `<p${sa({ margin: '6px 0 0' })}>Ве одобруваме за горенаведениот износ. Одобрението го намалува Вашиот долг по наведената фактура. Ве молиме за истиот износ да го намалите претходниот данок.</p>` : '')
         + (kind === 'proforma' ? `<p class="muted"${sa({ margin: '6px 0 0' })}>Профактурата служи за плаќање однапред и не е даночна фактура.</p>` : '')

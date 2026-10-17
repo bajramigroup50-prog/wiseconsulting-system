@@ -52,6 +52,12 @@ export const SCH_EXTRA = {
    */
   fiskMarg: '',
   fiskStock: '',
+  /**
+   * Receivables of outgoing invoices under ЗДДВ чл. 32-а (domestic reverse charge). Empty = automatic: 1200009
+   * „Побарувања од купувачи по член 32 а“ when the firm's effective chart has it, else `customer` (posting.ts
+   * `customerAccount`); '-' = always `customer`.
+   */
+  customer32: '',
 } as const;
 
 /**

@@ -288,6 +288,8 @@ async function saleDraftToInvoice(tx: Parameters<typeof ensurePartner>[0], firmI
   return {
     kind: 'invoice' as const, number: d.number, date: d.date, pdate: d.date, due: d.due || null, partnerId, art32: d.art32, scanned: true,
     lines: d.items.map((l) => ({ itemId: l.itemId || null, name: l.name, unit: l.unit, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, account: l.konto })),
+    // legal basis of an exempt invoice (ЗДДВ чл. 24 / 30) as printed — kept on the invoice and printed
+    ...(d.vatNote && !d.art32 ? { data: { vatNote: d.vatNote.slice(0, 500) } } : {}),
     fileIds,
   };
 }
@@ -323,8 +325,11 @@ export async function saveSalesOk(): Promise<ActionState> {
       .where(and(eq(items.firmId, firm.id), eq(items.active, true), sql`${items.type} <> 'service'`))) as [{ goods: number }];
     const fids = docs.map((d) => d.fileId).filter((x): x is string => !!x);
     const fname = new Map((fids.length ? await db().select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fids)) : []).map((f) => [f.id, f.name]));
-    const ready = (x: { status: string; msg?: string | null }) => x.status === 'ok' || (x.status === 'check' && !goods
-      && String(x.msg ?? '').split(' · ').every((m) => !m || m.startsWith('нов купувач') || /ставки не се поврзани со артикл$/.test(m)));
+    // reads made before the VAT-note rule: every line at 0 % with no art. 32-a and no legal basis is never saved in bulk
+    // (чл. 32-а or exempt is decided by the accountant, „провери: нема ДДВ – чл. 32-а или ослободување?“)
+    const vatUnclear = (dr: Partial<ScanSaleDraft>) => !dr.art32 && !dr.vatNote && !!dr.items?.length && dr.items.every((l) => !Number(l.rate));
+    const ready = (x: { status: string; msg?: string | null; draft: Record<string, unknown> }) => !(firm.vatRegistered && vatUnclear(x.draft as Partial<ScanSaleDraft>)) && (x.status === 'ok' || (x.status === 'check' && !goods
+      && String(x.msg ?? '').split(' · ').every((m) => !m || m.startsWith('нов купувач') || /ставки не се поврзани со артикл$/.test(m))));
     let n = 0, tot = 0;
     const errs: string[] = [];
     for (const d of docs) {

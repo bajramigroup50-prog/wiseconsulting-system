@@ -112,6 +112,11 @@ export interface FirmPostingSettings extends SchemeSettings {
   posK?: string | null;
   /** Partner id of the "POS терминал" partner (legacy `posPid()`); set on 12x card lines. */
   posPartnerId?: string | null;
+  /**
+   * Automatic receivable konto of art. 32-a sales when the scheme leaves `customer32` empty: 1200009 when the firm's
+   * effective chart has it (resolved by the db context loader), else empty → `customer`.
+   */
+  customer32Auto?: string | null;
 }
 /** Everything posting needs to know about the firm and office-wide settings. */
 export interface PostingContext {
@@ -145,6 +150,23 @@ export function schemeValue(ctx: PostingContext, key: SchemeKey | string): strin
 export function schemeOn(ctx: PostingContext, key: SchemeKey | string): boolean {
   const v = schemeRaw(ctx, key);
   return !!v && v !== '-';
+}
+
+/** Konto of the art. 32-a receivables (1200009) the automatic `customer32` uses when the chart has it. */
+export const CUSTOMER32_KONTO = '1200009';
+
+/**
+ * Receivable konto of an outgoing invoice: `customer`, or for a domestic reverse-charge invoice (ЗДДВ чл. 32-а)
+ * `customer32` — set in the scheme, else the automatic one (1200009 when the chart has it), else `customer`.
+ * `'-'` in `customer32` switches the separate konto off.
+ */
+export function customerAccount(ctx: PostingContext, art32?: boolean): string {
+  if (art32) {
+    const v = schemeRaw(ctx, 'customer32');
+    if (typeof v === 'string' && v && v !== '-') return v;
+    if (v !== '-' && ctx.firm.customer32Auto) return ctx.firm.customer32Auto;
+  }
+  return schemeValue(ctx, 'customer');
 }
 
 /** Drop stored values equal to the old defaults (`SCH_OLD`) — the import-time equivalent of legacy `sch()` skipping them. */
@@ -318,6 +340,8 @@ export interface InvoiceDoc {
   advances?: AdvanceDeduction[];
   /** Client-submitted, not yet approved: never posted or reported. */
   pend?: boolean;
+  /** Legal basis of a sale without VAT printed on the invoice (`invoices.data.vatNote`) — the ДДВ-04 annex lists it. */
+  vatNote?: string;
 }
 
 const NOTE_ADV = 'Одбиен аванс';
@@ -334,7 +358,9 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
   const nonVat = ctx.firm.ddv === false;
   const opts = { nonVat, defaultKonto: schemeValue(ctx, 'revDefault') };
   const c = calcLines(inv.items, inv.art32, opts);
-  const L: IL[] = [{ k: schemeValue(ctx, 'customer'), d: toC(c.total), p: 0, partner: inv.partner }];
+  // ЗДДВ чл. 32-а: the receivable of a reverse-charge invoice on its own konto (1200009); revenue stays as it is
+  const cust = customerAccount(ctx, inv.art32);
+  const L: IL[] = [{ k: cust, d: toC(c.total), p: 0, partner: inv.partner }];
   const m0: Record<string, string> = {};
   for (const [rev, zero] of [['revGoods', 'revGoods0'], ['revService', 'revService0'], ['revProduct', 'revProduct0']] as const) {
     m0[schemeValue(ctx, rev)] = schemeOn(ctx, zero) ? schemeValue(ctx, zero) : '';
@@ -349,7 +375,7 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
     if (A.total) {
       L.push({ k: schemeValue(ctx, 'advance'), d: toC(A.base), p: 0, note: NOTE_ADV });
       for (const g of A.by) if (g.vat) L.push({ k: vatOutOrThrow(ctx, g.rate), d: toC(g.vat), p: 0, vb: toC(g.base), note: 'ДДВ на одбиен аванс' });
-      L.push({ k: schemeValue(ctx, 'customer'), d: 0, p: toC(A.total), partner: inv.partner, note: NOTE_ADV });
+      L.push({ k: cust, d: 0, p: toC(A.total), partner: inv.partner, note: NOTE_ADV });
     }
   }
   return out(inv.credit ? L.map((l) => ({ ...l, d: l.p, p: l.d })) : L);

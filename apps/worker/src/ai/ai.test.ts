@@ -148,4 +148,18 @@ describe('ai.read-document job', () => {
     const [d] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id));
     expect(d!.drafts[0]).toMatchObject({ status: 'ok', msg: 'нов купувач: Нов купувач', draft: { number: '33/2026', items: [{ price: 1000, konto: '7400' }] } });
   });
+  it('sales scans: the 32-а note → art. 32-a draft; no VAT and no note → „провери“, never „спремна“', async () => {
+    const api = fake([JSON.stringify({ invoices: [
+      { number: '34/2026', date: '2026-02-06', buyerName: 'Нов купувач', lines: [{ name: 'Дезинсекција', qty: 1, price: 1000, amount: 1000, rate: 0 }], groups: [{ rate: 0, base: 1000, vat: 0 }], total: 1000, vatNote: 'Пренесување на даночната обврска согласно член 32-а од ЗДДВ' },
+      { number: '35/2026', date: '2026-02-07', buyerName: 'Нов купувач', lines: [{ name: 'Дезинсекција', qty: 1, price: 1000, amount: 1000, rate: 0 }], groups: [{ rate: 0, base: 1000, vat: 0 }], total: 1000 },
+    ] })]);
+    setAiClient(api);
+    const id = await doc('sale', await file('g.jpg', 'image/jpeg'));
+    await runReadDocument(db, id);
+    expect(JSON.stringify(api.calls[0]!.messages[0]!.content)).toContain('VAT NOTE');
+    const [d] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id));
+    expect(d!.drafts[0]).toMatchObject({ status: 'ok', draft: { art32: true, items: [{ rate: 18, price: 1000 }] } });
+    expect(d!.drafts[1]!.status).toBe('check');
+    expect(d!.drafts[1]!.msg).toContain('провери: нема ДДВ – чл. 32-а или ослободување?');
+  });
 });

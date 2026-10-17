@@ -6,7 +6,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
-  batchStatus, findDuplicate, nextDocNumber, ownerCheck, purchaseDraftFromScan, purchaseTotal, saleDraftFromScan, scanInvoices,
+  NO_VAT_NOTE_MSG, batchStatus, findDuplicate, nextDocNumber, ownerCheck, purchaseDraftFromScan, purchaseTotal, saleDraftFromScan, scanInvoices,
   type MatchItem, type ScanResult,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
@@ -103,6 +103,8 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult): Promise<AiDraf
     const free = tracksStock ? d.items.filter((l) => !l.itemId && Number(l.qty) && !/услуг|транспорт|превоз/i.test(l.name)).length : 0;
     if (free) why.push(free + ' ставки не се поврзани со артикл');
     if (!d.items.length) why.push('нема ставки');
+    // no VAT and no note (чл. 32-а / ослободување) on the document: never guessed, the accountant decides
+    if (d.vatCheck) why.push(NO_VAT_NOTE_MSG);
     const own = ownerCheck('sale', x, f.edb);
     if (own) why.push(own);
     const status = dup ? 'dup' : why.some((m) => !m.startsWith('нов купувач')) ? 'check' : 'ok';

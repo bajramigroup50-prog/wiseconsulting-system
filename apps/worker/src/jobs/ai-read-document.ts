@@ -38,7 +38,7 @@ import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
-import { INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_PROMPT, SALE_PROMPT } from '../ai/prompts';
+import { INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_PROMPT, SALE_PROMPT, VAT_NOTE_ADD } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts } from '../ai/drafts';
 import { readObject } from '../ai/storage';
@@ -232,7 +232,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
         content.extra += INV_PAGES_NOTE(extra.length + 1);
       }
       // the rule of the bank import: several invoices in the file → `invoices[]`, one object (one draft) per invoice
-      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD) + INV_MULTI_ADD;
+      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD) + VAT_NOTE_ADD + INV_MULTI_ADD;
       const base = { db, firmId: f.id, prompt, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
       let quick: ScanResult | null = null;
       // legacy `outDeep` / `outRunDeep`: a deeper read straight away (no quick read)

@@ -117,6 +117,8 @@ async function loadInvoices(tx: Tx, firmId: string, from: string, to: string): P
       ...(h.data?.tourM ? { tourM: true, ...(h.data.arrangementId ? { arrangementId: h.data.arrangementId } : {}) } : {}),
       ...(adv.length ? { advances: await loadAdvances(tx, adv, fx) } : {}),
       ...(h.status === 'pending' ? { pend: true } : {}),
+      // legal basis of a sale without VAT (ДДВ-04 annex „промет по членови“)
+      ...(h.data?.vatNote ? { vatNote: String(h.data.vatNote) } : {}),
     });
   }
   return out;

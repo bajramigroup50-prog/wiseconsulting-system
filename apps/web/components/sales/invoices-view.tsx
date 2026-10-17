@@ -21,7 +21,8 @@ import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { fuelBannerFor, fuelRuleNow } from '@/lib/sales-parity';
 import { DownloadCsv } from '@/components/download-csv';
-import { approveInvoiceAction, deleteInvoiceAction, deleteInvoicesAction, fuelItemsRateAction, saveCrMode, saveInvoiceStyle } from '@/app/(app)/izlez/actions';
+import { approveInvoiceAction, deleteInvoiceAction, deleteInvoicesAction, fuelItemsRateAction, markInvoicesVatAction, saveCrMode, saveInvoiceStyle } from '@/app/(app)/izlez/actions';
+import { VatMarkBar } from './vat-mark-bar';
 import { loadDunning } from '@/app/(app)/opomeni/data';
 import { BulkBar, OpGoSel, SelAll, SelBox } from './bulk-select';
 import { ensureScanBuyer } from '@/app/(app)/skan/actions';
@@ -134,9 +135,9 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       init = {
         ...init, number: dr.number, date: dr.date, pdate: dr.date, due: dr.due, partnerId: dr.partnerId, art32: dr.art32,
         lines: dr.items.map((l) => ({ ...blankLine(l.konto), itemId: l.itemId, name: l.name, unit: l.unit, qty: s(l.qty), price: s(l.price), rate: s(l.rate) })),
-        data: dr.buyer.name ? { buyerName: dr.buyer.name } : {}, scanDocId: doc.id, scanIndex: idx,
+        data: { ...(dr.buyer.name ? { buyerName: dr.buyer.name } : {}), ...(dr.vatNote && !dr.art32 ? { vatNote: dr.vatNote } : {}) }, scanDocId: doc.id, scanIndex: idx,
       };
-      scanInfo = 'Проверете ја фактурата и притиснете „Зачувај“.';
+      scanInfo = dr.vatCheck ? 'Фактурата нема ДДВ и нема напомена: проверете дали е по член 32-а (пренесување на даночната обврска) или ослободена (внесете го основот), па притиснете „Зачувај“.' : 'Проверете ја фактурата и притиснете „Зачувај“.';
       if (!dr.partnerId && dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb };
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
     }
@@ -289,7 +290,9 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   // row ticks: admin bulk delete, and (legacy v406 `opGoSel`) dunning letters for the ticked issued invoices
   const bulkDel = !!del && u.role === 'admin';
   const opSel = kind === 'invoice' && dt === 'invoice' && write && u.role !== 'klient';
-  const sel = bulkDel || opSel;
+  // ЗДДВ чл. 32-а / ослободување: bulk re-marking of invoices issued without VAT (correction right `fix`)
+  const vatSel = (kind === 'invoice' || kind === 'credit') && firm.vatRegistered && canDo(u, 'vatMark32', firm.id);
+  const sel = bulkDel || opSel || vatSel;
   const fuel = dt === 'invoice' ? await fuelBannerFor(firm) : null;
   const sg = kind === 'credit' ? -1 : 1;
 
@@ -365,6 +368,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
         {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
 Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : undefined} />}
+        {vatSel && <VatMarkBar action={markInvoicesVatAction} />}
         <div className="tw"><table className="dense">
           <thead><tr>{sel && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
           <tbody>{shown.map(({ i, p }) => (

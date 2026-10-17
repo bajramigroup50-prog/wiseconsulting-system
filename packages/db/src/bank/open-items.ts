@@ -18,14 +18,14 @@
  * firms whose open items only exist in the ledger (opening balances, imported books).
  */
 import { and, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import { advDeduct, bankPaid, ledgerOpenItems, parseLedgerItemId, r2, type DocType, type OpenDoc } from '@wise/core';
+import { advDeduct, bankPaid, customerAccount, ledgerOpenItems, parseLedgerItemId, r2, type DocType, type OpenDoc } from '@wise/core';
 import type { Tx } from '../audit';
 import { loadLedgerLines } from '../ledger-queries';
 import {
   bankLines, cashVouchers, compensations, invoiceAdvances, invoices, journals, purchases, supplierCredits,
 } from '../schema/index';
 import { loadAdvances } from '../sales/invoices';
-import { cents, den } from './context';
+import { cents, den, firmPostingContext, loadFirm } from './context';
 import { toBankRow } from './rows';
 
 export interface OpenItems { invoices: OpenDoc[]; purchases: OpenDoc[] }
@@ -145,6 +145,14 @@ async function loadDocs(tx: Tx, firmId: string, f: DocFilter): Promise<{ invoice
   const advBy = new Map<string, { advanceId: string; amount: string }[]>();
   for (const a of ADV) (advBy.get(a.invoiceId) ?? advBy.set(a.invoiceId, []).get(a.invoiceId)!).push(a);
 
+  // ЗДДВ чл. 32-а invoices are booked on their own receivable konto (`customer32`, 1200009): a payment linked to one
+  // is booked there too (`docKonto`), so it closes the invoice on the konto it was posted on
+  let k32 = '';
+  if (I.some((i) => i.art32)) {
+    const ctx = await firmPostingContext(tx, await loadFirm(tx, firmId));
+    const k = customerAccount(ctx, true);
+    if (k !== customerAccount(ctx, false)) k32 = k;
+  }
   const outI: OpenDoc[] = [];
   for (const i of I) {
     const fx = num(i.fx) || 1;
@@ -156,6 +164,7 @@ async function loadDocs(tx: Tx, firmId: string, f: DocFilter): Promise<{ invoice
       total: cents(tot * fx), paidOther: other.get('invoice|' + i.id) ?? 0,
       ...(i.status === 'pending' ? { pend: true } : {}),
       ...(i.currency !== 'MKD' ? { cur: i.currency, fx } : {}),
+      ...(i.art32 && k32 ? { konto: k32 } : {}),
     });
   }
   const outP: OpenDoc[] = P.map((p) => ({
