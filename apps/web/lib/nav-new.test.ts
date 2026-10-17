@@ -35,13 +35,13 @@ describe('classic menu (P40 „класично“) is the legacy NAV, unchanged
     expect(NAV).toHaveLength(14);
     expect(count(NAV, 'dosie')).toBe(2);
     expect(count(NAV, 'korisnici')).toBe(2);
-    expect(menuSize(NAV)).toEqual({ groups: 14, items: 197 }); // + bankSite (owner only)
+    expect(menuSize(NAV)).toEqual({ groups: 14, items: 198 }); // + bankSite and ⚙ Автоматизации (owner only)
   });
 });
 
 describe('new menu (P40 „ново“)', () => {
-  it('before → after: 14 → 13 groups, 196 → 171 entries', () => {
-    expect(menuSize(NEW)).toEqual({ groups: 13, items: 171 });
+  it('before → after: 14 → 13 groups, 197 → 172 entries', () => {
+    expect(menuSize(NEW)).toEqual({ groups: 13, items: 172 });
     expect(NEW.map(([g]) => g)).not.toContain('Излез');
   });
   it('P13 Архива once: dosie / paket only in Архива', () => {

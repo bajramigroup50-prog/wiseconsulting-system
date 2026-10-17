@@ -3,7 +3,7 @@
  * and „🧾 Месечна фактура за сметководствени услуги“ (`fee_invoices`, one row per client and month).
  * The NBRM rates live in `fx_rates` (`source = 'nbrm'`).
  */
-import { boolean, date, index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { firms, users } from './foundation';
 import { partners } from './books';
 import { invoices } from './sales';
@@ -77,5 +77,30 @@ export const feeInvoices = pgTable('fee_invoices', {
   index('fee_invoices_office_idx').on(t.officeFirmId, t.period),
 ]);
 
+/**
+ * UX Phase 3 (P35–P38, P43): work a scheduled job PREPARED for a person to confirm — one row per automation, firm and
+ * period (the unique index: a re-run updates the row, never a second one). `kind`: `close` (month ready to lock),
+ * `payroll` (draft payroll run, `data.runId`), `vat` (ДДВ-04 draft), `dunning` (suggested letters). `problems` = why
+ * it cannot be confirmed in bulk. `status`: `draft` → `confirmed` (by a person: locked / posted / closed) or `dismissed`.
+ */
+export const automationDrafts = pgTable('automation_drafts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind').notNull(),
+  firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
+  /** `YYYY-MM`, `YYYY-Тq` or `-` (one current row per firm). */
+  period: text('period').notNull(),
+  status: text('status').notNull().default('draft'),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+  problems: jsonb('problems').$type<string[]>().notNull().default([]),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  updatedAt: ts('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  decidedAt: ts('decided_at'),
+  decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'set null' }),
+}, (t) => [
+  uniqueIndex('automation_drafts_uq').on(t.kind, t.firmId, t.period),
+  index('automation_drafts_kind_idx').on(t.kind, t.status),
+]);
+
 export type RokRow = typeof rokovi.$inferSelect;
+export type AutomationDraftRow = typeof automationDrafts.$inferSelect;
 export type FeeInvoiceRow = typeof feeInvoices.$inferSelect;

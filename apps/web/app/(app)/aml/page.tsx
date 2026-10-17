@@ -6,10 +6,12 @@
  */
 import { desc } from 'drizzle-orm';
 import { AML_LAW } from '@wise/core/office';
-import { amlRecords, amlReports, users } from '@wise/db';
+import { AUTO_META } from '@wise/core/office/automations';
+import { amlPurgeList, amlRecords, amlReports, autoLastRun, users } from '@wise/db';
 import { amlAllowed, amlOffice } from '@/lib/aml';
 import { db } from '@/lib/db';
 import { allowedFirms, officePage, today } from '@/lib/office';
+import { AutoStatus } from '@/components/auto-status';
 import { Hd } from '@/components/hd';
 import { ReportForm } from './report-form';
 import { TabTasks } from './tab-tasks';
@@ -40,12 +42,21 @@ export default async function AmlPage({ searchParams }: { searchParams: Promise<
     );
   }
   const tab: Tab = (TABS.map(([k]) => k) as readonly string[]).includes(sp.tab ?? '') ? sp.tab as Tab : 'zad';
-  const [R, O, reps, U] = await Promise.all([db().select().from(amlRecords), amlOffice(),
-    db().select().from(amlReports).orderBy(desc(amlReports.createdAt)), db().select({ id: users.id, name: users.name, role: users.role, active: users.active }).from(users)]);
+  const [R, O, reps, U, last, purge] = await Promise.all([db().select().from(amlRecords), amlOffice(),
+    db().select().from(amlReports).orderBy(desc(amlReports.createdAt)), db().select({ id: users.id, name: users.name, role: users.role, active: users.active }).from(users),
+    autoLastRun(db(), 'aml').catch(() => null), amlPurgeList(db(), td)]);
+  const nPurge = purge.clients.length + purge.reports.length;
   return (
     <>
       <Hd t="🛡 Спречување перење пари и финансирање тероризам" sub="УФР · ЗСППФТ (151/2022, 208/2024)" />
       <p className="mini" style={{ margin: '0 0 6px' }}>{AML_LAW}. Податоците во овој модул ги гледаат само сопственикот и овластеното лице и се чуваат 10 години (чл. 62).</p>
+      {/* P43: the weekly monitoring and the retention list (prepared only — deleting stays the owner's „Избриши“ in Регистри) */}
+      {(last || nPurge > 0) && (
+        <p className="row noprint" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
+          {last && <AutoStatus label="Проверено автоматски" at={last.at} when={AUTO_META.aml.when} />}
+          {nPurge > 0 && <a className="pill warn" href="/aml?tab=reg" title="Рокот за чување (10 години, чл. 62) е истечен – записите се бришат само рачно, од сопственикот">🗑 За бришење (истечен рок): {nPurge}</a>}
+        </p>
+      )}
       <div className="row noprint" style={{ gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         {TABS.map(([k, n]) => <a key={k} className={`btn ${tab === k ? 'pri' : ''}`} href={`/aml?tab=${k}`}>{n}</a>)}
       </div>

@@ -13,3 +13,4 @@ export * from './bank-parity';
 export * from './suggest';
 export * from './konta';
 export * from './konta-all';
+export * from './review';

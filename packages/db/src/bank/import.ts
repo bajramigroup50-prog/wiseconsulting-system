@@ -21,6 +21,7 @@ import { bankKontoName, techAccountKonto } from '@wise/core/bank/parity';
 import { autoBankKonto, dec, loadBankEnv, loadFxSources, POS_PARTNER_NAME, type BankEnv } from './context';
 import { postStatements, type PostStatementResult } from './posting';
 import { bookStatementLines, type BookAllResult } from './suggest';
+import { afterImport, type AfterImport } from './review';
 import { toBankRow } from './rows';
 import { assertOpenPeriod, missingAccounts } from '../posting';
 
@@ -226,6 +227,8 @@ export interface ImportResult {
   book?: BookAllResult;
   /** Nalog numbers the statements were posted into. */
   numbers?: string[];
+  /** Proposed links / the owner's automatic steps after the import (UX Phase 3). */
+  auto?: AfterImport;
 }
 
 /**
@@ -356,6 +359,13 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     book = await bookStatementLines(tx, { firmId: o.firmId, userId: o.userId, statementIds: [...touched], overrides });
     res = book.posted;
   } else res = await postStatements(tx, touched, o.userId);
+  // UX Phase 3 (P29): proposed payment ↔ invoice links for the new lines; the owner's „автоматски“ steps (off by default)
+  const auto = await afterImport(tx, { firmId: o.firmId, userId: o.userId, lineIds: [...lineIds.values()], statementIds: [...touched] });
+  if (auto.linked || auto.booked) {
+    // the automatic steps re-posted some statements: their status now
+    const R = await tx.select({ id: bankStatements.id, status: bankStatements.status }).from(bankStatements).where(inArray(bankStatements.id, [...touched]));
+    for (const r of R) { const x = res.get(r.id); if (x) res.set(r.id, { ...x, status: r.status === 'posted' ? 'posted' : 'draft' }); }
+  }
   // counterparty accounts of the lines booked to a partner → the partner's bank accounts (for payment orders)
   await learnAccountsFromStatements(tx, { firmId: o.firmId, userId: o.userId, lineIds: [...lineIds.values()] });
   const posted = [...res.values()].filter((r) => r.status === 'posted').length;
@@ -364,7 +374,7 @@ export async function saveImport(tx: Tx, o: ImportOptions): Promise<ImportResult
     data: { file: o.fileName ?? null, format: o.format ?? null, statements: touched.size, lines: nLines, skipped, ...(nal ? { nalog: nal.number } : {}) },
   });
   const numbers = [...new Set([...res.values()].map((r) => r.number).filter((x): x is string => !!x))];
-  return { batch, statements: touched.size, lines: nLines, skipped, posted, drafts: touched.size - posted, plan, balances, statementIds: [...touched], numbers, ...(book ? { book } : {}) };
+  return { batch, statements: touched.size, lines: nLines, skipped, posted, drafts: touched.size - posted, plan, balances, statementIds: [...touched], numbers, ...(book ? { book } : {}), auto };
 }
 
 export class ImportError extends Error {

@@ -286,6 +286,41 @@ export function rokState(today: string, due: string, done: boolean, days = 5): R
   return n < 0 ? 'late' : n === 0 ? 'today' : n <= days ? 'soon' : 'open';
 }
 
+/* ---------------- top-bar counter, „my firms“, clean-up ---------------- */
+
+/** Note of the deadlines marked done in bulk by „Означи ги минатите како направени“ (the calendar sync keeps it). */
+export const ROK_CLEAN_NOTE = 'означено рачно (чистење)';
+
+/** „Оваа недела“ of the 📅 counter: today and the next 6 days (7 days). */
+export const rokWeekRange = (today: string): { from: string; to: string } => ({ from: today, to: addDays(today, 6) });
+
+/** Lower bound of „поминати“ (overdue): every open deadline before today, however old. */
+export const ROK_LATE_FROM = '2000-01-01';
+
+/** List range of a badge link (`r=nedela` / `r=pominati`) or `null` (normal list). */
+export function rokBadgeRange(today: string, r: unknown): { from: string; to: string; kind: 'nedela' | 'pominati' } | null {
+  if (r === 'nedela') return { ...rokWeekRange(today), kind: 'nedela' };
+  if (r === 'pominati') return { from: ROK_LATE_FROM, to: addDays(today, -1), kind: 'pominati' };
+  return null;
+}
+
+/** Default date of the clean-up: the first day of the current month. */
+export const rokCleanDefault = (today: string): string => `${today.slice(0, 7)}-01`;
+
+/** The parts of the 📅 badge (a part only when > 0) and its tooltip. */
+export function rokBadgeView(c: { week: number; late: number; mine: boolean } | null | undefined): {
+  week: number | null; late: number | null; tip: string;
+} | null {
+  if (!c || (c.week <= 0 && c.late <= 0)) return null;
+  const scope = c.mine ? 'само моите фирми (доделени или одговорен колега)' : 'сите фирми';
+  return {
+    week: c.week > 0 ? c.week : null,
+    late: c.late > 0 ? c.late : null,
+    tip: `📅 ${c.week} – рокови во наредните 7 дена што не се направени · ⚠ ${c.late} – поминати рокови што не се означени како направени · `
+      + `опфат: ${scope}. Клик ја отвора листата на рокови.`,
+  };
+}
+
 export const ROK_STATE_LBL: Record<RokState, [string, string]> = {
   done: ['✓ направено', 'good'], late: ['поминат рок', 'bad'], today: ['денес', 'bad'], soon: ['наскоро', 'warn'], open: ['отворено', 'info'],
 };

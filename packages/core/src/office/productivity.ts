@@ -98,10 +98,14 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'u', 'crPublish crHide klLang'],
   // inspection documents / AI legal analysis, legal assistant, deadlines calendar, fee invoices
   ['kanc', 'c', 'kontrolaDocAuto kontrolaAiStart kontrolaPrepStart kontrolaPkgStart lawCase lawCaseAttach feeIssue feeRemind'],
-  ['kanc', 'u', 'kontrolaFindingMark kontrolaAutoMark kontrolaSubType kontrolaVersionAccept kontrolaVersionDiscard rokDone rokOpen lawCaseDetach lawTextLink lawTextPaste'],
+  ['kanc', 'u', 'kontrolaFindingMark kontrolaAutoMark kontrolaSubType kontrolaVersionAccept kontrolaVersionDiscard rokDone rokOpen rokCleanup rokCleanupUndo lawCaseDetach lawTextLink lawTextPaste'],
   ['kanc', 'd', 'lawCaseDel'],
   ['ai', 'c', 'kontrolaAi'],
   ['izvodi', 'c', 'ppBatch bankBookAll'],
+  // UX Phase 3: „Преглед за книжење“ (P2/P28), payment ↔ invoice links (P3/P29), background re-post (P31)
+  ['izvodi', 'c', 'bankReviewBook'],
+  ['izvodi', 'u', 'bankLinkAccept bankLinkReject'],
+  ['nalozi', 'u', 'autoRepost'],
   ['firmi', 'c', 'partnerAccLearn fxNbrm'],
   ['firmi', 'u', 'partnerAccSave'],
   ['magacin', 'c', 'fiskrNew fiskrReport'],
@@ -109,6 +113,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['magacin', 'd', 'delTransfer'],
   // P34 bulk e-Фактура ZIP: validates and marks the invoices „извезено за е-фактура“ (single `ublDl` stays a download)
   ['izlez', 'u', 'efExport'],
+  // UX Phase 3 automations: a person confirming a prepared payroll draft (the journal itself is a by-product)
+  ['plati', 'u', 'autoPayPost'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
@@ -117,8 +123,11 @@ const NOISE = new Set((
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
-  + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet bankKontaAllRun offFirmSet amlOffSet mpinTplImport '
+  + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet bankKontaAllRun bankLinkPropose autoStepsSet autoRepostNote autoRepostRequest autoRepostDismiss offFirmSet amlOffSet mpinTplImport '
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
+  // UX Phase 3 automations: switches / run now, and the batch summaries of a bulk confirm (each firm's own row — zatLock,
+  // autoPayPost, ddvClose, crPublish — is the work; autoVatClose repeats ddvClose)
+  + 'autoCfgSet autoRunNow autoCloseLockAll autoPayPostAll autoVatClose autoVatCloseAll crPublishAll '
   + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
   + 'na photo mail cancel reminded dep deliv approve pct posted mrp recv action pos'

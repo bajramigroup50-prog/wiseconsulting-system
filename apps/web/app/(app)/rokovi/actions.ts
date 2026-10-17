@@ -8,11 +8,15 @@
 import { revalidatePath } from 'next/cache';
 import { addDays } from '@wise/core/office';
 import { rokYmAdd, type RokSettings } from '@wise/core/office/rokovi';
-import { audit, markRok, patchOfficeProfile, rokWindow, syncRokovi } from '@wise/db';
+import {
+  audit, markRok, OfficeError, patchOfficeProfile, rokCleanup, rokCleanupCount, rokCleanupUndo, rokMyFirmIds, rokScopeSet, rokWindow, syncRokovi,
+} from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { allowedFirms, officeError, officeGlobal, officeGlobalSide, today } from '@/lib/office';
 import { refuseDemo } from '@/lib/demo';
+import { ownerContext } from '@/lib/demo-office';
+import { rokScopeMine } from '@/lib/rokovi';
 
 const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -43,6 +47,57 @@ export async function syncRokAction(ym: string): Promise<ActionState> {
     });
     revalidatePath('/rokovi');
     return { ok: `Освежено: ${r.rows} рокови за ${r.firms} фирми${r.autoDone ? ` · автоматски направени ${r.autoDone}` : ''}.` };
+  } catch (e) { return officeError(e); }
+}
+
+/** „Само мои фирми / Сите фирми“ — remembered per user (the list and the 📅 counter). */
+export async function setRokScopeAction(mine: boolean): Promise<ActionState> {
+  try {
+    const u = await officeGlobalSide('office');
+    await rokScopeSet(db(), u.id, !!mine);
+    revalidatePath('/', 'layout');
+    return { ok: mine ? 'Само мои фирми.' : 'Сите фирми.' };
+  } catch (e) { return officeError(e); }
+}
+
+const D = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The clean-up is for the owner / an administrator; on the firms of the user's scope (🎭 a demo user: demo firms only). */
+async function cleanupCtx() {
+  const u = await officeGlobalSide('office');
+  const owner = !!(await ownerContext(u).catch(() => null));
+  if (u.role !== 'admin' && !owner) throw new OfficeError('Само за сопственикот или администраторот.');
+  const all = (await allowedFirms(u)).map((f) => f.id);
+  const ids = (await rokScopeMine(u, owner)) ? await rokMyFirmIds(db(), u.id, all) : all;
+  return { u, owner, ids, all };
+}
+
+/** Confirm text of „Означи ги минатите како направени“: how many open deadlines before the date. */
+export async function rokCleanupPreview(before: string): Promise<{ n: number; error?: string }> {
+  try {
+    if (!D.test(before)) return { n: 0, error: 'Внесете датум.' };
+    const c = await cleanupCtx();
+    return { n: await rokCleanupCount(db(), { firmIds: c.ids, before, kdog: c.owner }) };
+  } catch (e) { return { n: 0, error: officeError(e).error }; }
+}
+
+export async function rokCleanupAction(before: string): Promise<ActionState> {
+  try {
+    if (!D.test(before)) return { error: 'Внесете датум.' };
+    if (before > today()) return { error: 'Датумот не може да биде во иднина.' };
+    const c = await cleanupCtx();
+    const r = await db().transaction((tx) => rokCleanup(tx, { firmIds: c.ids, before, kdog: c.owner, userId: c.u.id }));
+    revalidatePath('/', 'layout');
+    return { ok: `Означени како направени: ${r.n} рокови пред ${before.split('-').reverse().join('.')}.` };
+  } catch (e) { return officeError(e); }
+}
+
+export async function rokCleanupUndoAction(): Promise<ActionState> {
+  try {
+    const c = await cleanupCtx();
+    const r = await db().transaction((tx) => rokCleanupUndo(tx, { firmIds: c.all, userId: c.u.id }));
+    revalidatePath('/', 'layout');
+    return r.n ? { ok: `Вратени како отворени: ${r.n} рокови.` } : { error: 'Нема чистење за враќање.' };
   } catch (e) { return officeError(e); }
 }
 

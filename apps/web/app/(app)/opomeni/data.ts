@@ -1,12 +1,12 @@
 import 'server-only';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { opGroups, opLetterHtml, opOnlyFilter, opText, type OpGroup, type OpLetter } from '@wise/core/firms/dunning';
-import { dunningLetters, invoices, type Firm, type Tx } from '@wise/db';
+import { and, eq, inArray } from 'drizzle-orm';
+import { opLetterHtml, opText, type OpGroup } from '@wise/core/firms/dunning';
+import { dunningGroups, invoices, type Firm, type PartnerInfo, type Tx } from '@wise/db';
 import { db } from '@/lib/db';
-import { invoicesWithPayments, opCostOf, opFirmOf, opRateOf, partnerNames, payDaysOf } from '@/lib/firms-office';
+import { opCostOf, opFirmOf, opRateOf } from '@/lib/firms-office';
 import { today } from '@/lib/office';
 
-export type PartnerInfo = { name: string; email: string | null; phone: string | null; address: string | null; city: string | null; edb: string | null };
+export type { PartnerInfo };
 
 /**
  * Everything `opomeni` shows: groups by customer (legacy `opData`), the letters sent, partner data. `only` = legacy
@@ -14,14 +14,8 @@ export type PartnerInfo = { name: string; email: string | null; phone: string | 
  */
 export async function loadDunning(firm: Firm, tx: Tx = db(), only: readonly string[] | null = null) {
   const td = today();
-  const [inv, letters] = await Promise.all([
-    invoicesWithPayments(firm.id, {}, tx),
-    tx.select().from(dunningLetters).where(eq(dunningLetters.firmId, firm.id)).orderBy(desc(dunningLetters.createdAt)),
-  ]);
-  const L: OpLetter[] = letters.map((d) => ({ partnerId: d.partnerId, invoiceIds: d.invoiceIds, level: d.level, channel: d.channel, date: d.date, total: Math.round(Number(d.total) * 100) }));
-  const G = opGroups(opOnlyFilter(inv, only), L, payDaysOf(firm), td);
-  const P = await partnerNames(firm.id, G.map((g) => (g.pid === '—' ? null : g.pid)), tx);
-  const pOf = (pid: string): PartnerInfo => P.get(pid) ?? { name: '(без купувач)', email: null, phone: null, address: null, city: null, edb: null };
+  // the grouping is shared with the weekly prepared list (`@wise/db` automation/dunning.ts)
+  const { G, pOf } = await dunningGroups(tx, firm, td, only);
   return { td, G, pOf, rate: opRateOf(firm), cost: Math.round(opCostOf(firm) * 100), f: opFirmOf(firm) };
 }
 

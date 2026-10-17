@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { openDocsFor } from '@wise/core';
 import { bankClassifyAnswers, type ClassifyAnswer } from '@wise/core/bank/parity';
-import { bankLines, effectiveChart, loadBankEnv, matchContext } from '@wise/db';
+import { bankLines, bookingReview, effectiveChart, loadBankEnv, matchContext } from '@wise/db';
 import { loadAiResult } from '@/lib/ai';
 import { db } from '@/lib/db';
 
@@ -11,8 +11,11 @@ export async function classifyInput(firmId: string, year: number) {
   return db().transaction(async (tx) => {
     const env = await loadBankEnv(tx, firmId);
     const ctx = await matchContext(tx, env, year);
-    const open = await tx.select({ id: bankLines.id, date: bankLines.date, amount: bankLines.amount, desc: bankLines.description }).from(bankLines)
-      .where(and(eq(bankLines.firmId, firmId), isNull(bankLines.konto), isNull(bankLines.refId), sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`)).limit(300);
+    // UX Phase 3 (P28): AI only for the lines that no rule, payment code or invoice match resolved („рачно“ in the review)
+    const left = new Set((await bookingReview(tx, firmId)).aiLines);
+    const open = (await tx.select({ id: bankLines.id, date: bankLines.date, amount: bankLines.amount, desc: bankLines.description }).from(bankLines)
+      .where(and(eq(bankLines.firmId, firmId), isNull(bankLines.konto), isNull(bankLines.refId), sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`)))
+      .filter((l) => left.has(l.id)).slice(0, 300);
     const chart = await effectiveChart(tx, firmId);
     const pn = new Map(env.partners.map((p) => [p.id, p.name]));
     const docs = [

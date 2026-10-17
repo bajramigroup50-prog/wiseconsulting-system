@@ -25,6 +25,8 @@ import { robotAsk } from './robot';
 import { firmReportAi } from './firm-report-ai';
 import { demoReset } from './demo-reset';
 import { bankKontaAll } from './bank-konta-all';
+import { AUTOMATION_JOBS } from './automations2';
+import { autoRepost } from './auto-repost';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -59,4 +61,6 @@ export const JOBS: JobDef<any>[] = [
   firmReportAi,
   demoReset,
   bankKontaAll,
+  ...AUTOMATION_JOBS,
+  autoRepost,
 ];

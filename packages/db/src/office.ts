@@ -7,7 +7,7 @@
  * due estimate, fiscal Z reports) is read through `OfficeDataSources`; `defaultSources` reads the real tables.
  * A source may still return `null` ("not available") — the check is then skipped rather than guessed.
  */
-import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, notInArray, notLike, sql } from 'drizzle-orm';
 import {
   alCompute, apExtra, apRisk, CLIENT_ENTRY_KINDS, dmy, DOS_CAT, fmtMk, INBOX_ROUTE_TARGET, recIssue, todaySkopje, type ClientMessage, type DraftInvoice, type Finding,
   type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
@@ -296,7 +296,8 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
       }
       const keys = all.map((a) => a.key);
       await tx.update(autopilotFindings).set({ resolvedAt: now })
-        .where(and(eq(autopilotFindings.firmId, f.id), isNull(autopilotFindings.resolvedAt), keys.length ? notInArray(autopilotFindings.key, keys) : undefined));
+        // the nightly tax review's findings (`lr:…`, `automation/lawrep.ts`) are resolved by that job, not here
+        .where(and(eq(autopilotFindings.firmId, f.id), isNull(autopilotFindings.resolvedAt), notLike(autopilotFindings.key, 'lr:%'), keys.length ? notInArray(autopilotFindings.key, keys) : undefined));
       for (const g of X.msgs) {
         const [ins] = await tx.insert(autopilotMessages).values({ key: g.key, firmId: f.id, type: g.type, subject: g.subj, body: g.body })
           .onConflictDoNothing().returning({ key: autopilotMessages.key });

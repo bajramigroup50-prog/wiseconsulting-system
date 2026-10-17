@@ -30,6 +30,7 @@ import { runPayNotes } from './paynotes';
 import type { FormState } from '@/components/bank-form';
 import { firmListSql } from '@/lib/demo';
 import type { SessionUser } from '@/lib/auth';
+import { queueRepostChange } from '@/lib/auto-repost';
 
 const P = ['/banka', '/devizni', '/bkAdv', '/nalozi'];
 const MAX = 20 * 1024 * 1024;
@@ -164,7 +165,10 @@ export async function saveImportAction(form: FormData): Promise<FormState> {
       const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null, replace });
       if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
       if (!x.statements && x.balances) return `„${f.name}“: водечки слог (КБ) – зачувани салдата и бројот на ${x.balances} извод(и). Ставките се во датотеката „Izvod_stavki_…“.`;
-      return `„${f.name}“: ${x.statements} изводи, ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.posted}, за довршување ${x.drafts}.`;
+      const au = x.auto;
+      const auTxt = au && (au.proposed || au.linked || au.booked)
+        ? ` Предлози: ${au.proposed} врски плаќање ↔ фактура (таб „Поврзување“)${au.linked ? `, автоматски поврзани ${au.linked}` : ''}${au.booked ? `, автоматски прокнижени ${au.booked} сигурни ставки` : ''}.` : '';
+      return `„${f.name}“: ${x.statements} изводи, ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.posted}, за довршување ${x.drafts}.${auTxt}`;
     });
     if (r.error) return { error: `„${f.name}“: ${r.error}`, ...(msgs.length ? { ok: msgs.join(' ') } : {}) };
     msgs.push(r.ok!);
@@ -484,12 +488,18 @@ const dmyS = (d: string) => d.split('-').reverse().join('.');
 
 /** Per-firm bank kontos and the bank konto layout of the statement journal; validated against the chart, audited `bankKontaSet`. */
 export async function saveBankKontaAction(_p: FormState, form: FormData): Promise<FormState> {
-  return bankRun('settings', [...P, '/bankFmt'], async ({ tx, u, firm }) => {
+  let who: { u: string; firm: string; year: number } | null = null;
+  const r = await bankRun('settings', [...P, '/bankFmt'], async ({ tx, u, firm, year }) => {
     const input = Object.fromEntries(BANK_KONTA_FIELDS.map((f) => [f.key, str(form.get(f.key))]));
     const layout = form.get('layout') === 'line' ? 'line' : 'sum';
     await saveBankKonta(tx, { firmId: firm.id, userId: u.id, input, layout });
+    who = { u: u.id, firm: firm.id, year };
     return 'Контата за изводи се зачувани. Важат за новите книжења; постоечките ставки / налози префрлете ги со копчињата подолу.';
   });
+  // UX Phase 3 (P31): background re-post of the statements (owner switch) or the „Прекнижи“ suggestion
+  const w = who as { u: string; firm: string; year: number } | null;
+  if (r.ok && w) r.ok += await queueRepostChange({ firmIds: [w.firm], reason: 'bankKonta', year: w.year, userId: w.u });
+  return r;
 }
 
 /** „↻ Префрли постоечки ставки 1009 → 10091“ (current firm and year, open periods only). Audited `bankTransitMove`. */

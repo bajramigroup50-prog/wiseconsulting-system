@@ -6,12 +6,14 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { reminderExportRows, reminderText, serviceReminders, waNumber } from '@wise/core/industry';
-import { firmAutoConfig, partners, workOrders } from '@wise/db';
+import { AUTO_META } from '@wise/core/office/automations';
+import { autoLastRun, firmAutoConfig, listDrafts, partners, SVC_KIND, workOrders } from '@wise/db';
 import { customerVehicleList } from '@/lib/auto';
 import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
 import { industryPage, today } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
+import { AutoStatus } from '@/components/auto-status';
 import { Hd } from '@/components/hd';
 import { ExportXlsx, ListPdf } from '@/components/list-tools';
 import { RowAction } from '@/components/row-action';
@@ -30,9 +32,13 @@ export default async function Potsetnici() {
     db().select({ id: partners.id, name: partners.name, phone: partners.phone, email: partners.email }).from(partners).where(eq(partners.firmId, firm.id)),
   ]);
   const R = serviceReminders(V, W, A, today());
+  // P43: the messages the hourly reminders job prepared (never sent by it)
+  const [last, [prep]] = await Promise.all([autoLastRun(db(), 'service').catch(() => null), listDrafts(db(), { kind: SVC_KIND, firmIds: [firm.id], period: '-' })]);
   return (
     <>
       <Hd t="Потсетници за сервис" sub={`${R.length} возила`}>
+        {last && <AutoStatus label="Подготвено автоматски" at={last.at} when={AUTO_META.service.when} />}
+        {prep && <span className="mini">{((prep.data.rows as unknown[] | undefined) ?? []).length} подготвени пораки – праќањето е рачно</span>}
         <Link className="btn" href="/servis">🔧 Работни налози</Link>
         <ExportXlsx name="Potsetnici_servis" rows={reminderExportRows(R, (x) => { const p = P.find((y) => y.id === x.v.partnerId); return { name: p?.name ?? '', phone: p?.phone ?? '', email: p?.email ?? '' }; })} />
         <ListPdf target="pot_list" title="Потсетници за сервис" landscape />

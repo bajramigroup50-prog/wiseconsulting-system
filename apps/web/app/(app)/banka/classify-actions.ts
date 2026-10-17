@@ -6,7 +6,7 @@
  */
 import { eq, sql } from 'drizzle-orm';
 import { bankClassifyLists } from '@wise/core/bank/parity';
-import { audit, bankLines, linkLine, setLineKonto } from '@wise/db';
+import { aiBudgetStatus, audit, bankLines, linkLine, setLineKonto } from '@wise/db';
 import { bankClassifyProposals, classifyInput } from './classify';
 import { runPayNotes } from './paynotes';
 import { firmAction } from '@/lib/books';
@@ -21,8 +21,11 @@ const P = ['/banka', '/devizni', '/bkAdv', '/nalozi'];
 export async function startBankClassifyAction(): Promise<{ id?: string; error?: string }> {
   try {
     const { u, firm, year } = await firmAction('autoMatch');
+    // the budget guard: no AI read while AI is paused (office or firm limit reached)
+    const b = await aiBudgetStatus(db(), firm.id);
+    if (b.paused) return { error: b.msg || 'AI е паузирано (лимит на трошок).' };
     const x = await classifyInput(firm.id, year);
-    if (!x.open.length) return { error: 'Нема непрокнижени ставки.' };
+    if (!x.open.length) return { error: 'Нема ставки за AI: сите се препознаени со правилата / фактурите (видете „Преглед за книжење“).' };
     const lists = bankClassifyLists({
       chart: x.chart.map((a) => ({ code: a.code, name: a.name })), bankKontos: x.bankKontos, docs: x.docs,
       lines: x.open.map((l) => ({ id: l.id, date: l.date, amount: Math.round(Number(l.amount) * 100), desc: l.desc })),
