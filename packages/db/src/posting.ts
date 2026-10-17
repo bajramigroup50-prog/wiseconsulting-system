@@ -270,7 +270,8 @@ export async function updateJournal(tx: Tx, journalId: string, input: PostJourna
   return writeJournal(tx, existing, { ...input, sourceType: input.sourceType ?? existing.sourceType, sourceId: input.sourceId ?? existing.sourceId });
 }
 
-async function removeJournals(tx: Tx, firmId: string, rows: Journal[], userId: string | null, action: string): Promise<number> {
+/** Remove journals (lock / VAT-period checks, one audit row each with `action`). */
+export async function removeJournals(tx: Tx, firmId: string, rows: Journal[], userId: string | null, action: string): Promise<number> {
   if (!rows.length) return 0;
   const f = await loadFirm(tx, firmId);
   for (const j of rows) {

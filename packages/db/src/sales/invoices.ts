@@ -32,6 +32,11 @@ import { loadStockContext, removeSourceMoves, replaceSourceMoves } from '../stoc
 export interface InvoiceLineInput {
   itemId?: string | null; code?: string | null; name: string; unit?: string | null;
   qty: number | string; price: number | string; disc?: number | string | null; rate: number | string; account?: string | null;
+  /**
+   * The line's VAT as booked by the old program (journal import only): accepted when it differs from base × rate by less
+   * than 1.00 (VAT rounded to whole denars); stored in `invoice_lines.vat_fix`.
+   */
+  vatFix?: number | string | null;
 }
 export interface InvoiceInput {
   id?: string | null;
@@ -87,8 +92,11 @@ export async function nextInvoiceNumber(tx: Tx, firmId: string, kind: DocKind, d
   return nextDocNumber(await usedNumbers(tx, firmId, kind, date), yearOf(date));
 }
 
-const toItems = (L: readonly Pick<InvoiceLine, 'name' | 'itemId' | 'unit' | 'qty' | 'price' | 'disc' | 'rate' | 'account'>[], fx = 1): InvoiceItem[] =>
-  L.map((l) => ({ name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: Number(l.qty), price: Number(l.price) * fx, disc: Number(l.disc), rate: l.rate, konto: l.account }));
+const toItems = (L: readonly (Pick<InvoiceLine, 'name' | 'itemId' | 'unit' | 'qty' | 'price' | 'disc' | 'rate' | 'account'> & { vatFix?: string | number | null })[], fx = 1): InvoiceItem[] =>
+  L.map((l) => ({
+    name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: Number(l.qty), price: Number(l.price) * fx, disc: Number(l.disc), rate: l.rate, konto: l.account,
+    ...(l.vatFix != null && l.vatFix !== '' ? { vat: Number(l.vatFix) * fx } : {}),
+  }));
 
 /** Advance deductions of an invoice, resolved to the advance invoices (for `invoiceEntries` / totals / print). */
 export async function loadAdvances(tx: Tx, rows: readonly { advanceId: string; amount: number | string }[], fx = 1): Promise<AdvanceDeduction[]> {
@@ -290,7 +298,14 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     .map((l, i) => ({
       lineNo: i + 1, itemId: l.itemId || null, code: l.code?.trim() || null, name: String(l.name ?? '').trim(), unit: l.unit?.trim() || null,
       qty: n(l.qty), price: n(l.price), disc: n(l.disc), rate: isExport ? 0 : art32 ? 18 : n(l.rate), account: String(l.account ?? '').trim(),
+      vatFix: l.vatFix == null || l.vatFix === '' ? null : r2(n(l.vatFix)),
     }));
+  // a booked VAT (journal import of the old program's invoices): only a rounding of base × rate, never another amount
+  for (const l of lines) {
+    if (l.vatFix == null) continue;
+    const calc = r2((r2(l.qty * l.price * (1 - l.disc / 100)) * l.rate) / 100);
+    if (art32 || isExport || !l.rate || Math.abs(l.vatFix - calc) >= 1) throw new DocumentError(`ДДВ ${l.vatFix.toFixed(2)} на ставката „${l.name}“ не е заокружување на ${calc.toFixed(2)}.`);
+  }
   if (!lines.length && !draftInv) throw new DocumentError('Додадете барем еден артикл.');
   const bad = lines.filter((l) => !(VALID_LINE_RATES as readonly number[]).includes(l.rate));
   if (bad.length) throw new DocumentError(`Неважечка ДДВ стапка (${bad.map((l) => l.rate).join(', ')}%). Дозволени: 18, 10, 5, 0.`);
@@ -377,7 +392,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   } else {
     [inv] = await tx.insert(invoices).values({ ...header, createdBy: actor.userId }).returning() as [Invoice];
   }
-  if (lines.length) await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc) })));
+  if (lines.length) await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc), vatFix: l.vatFix == null ? null : l.vatFix.toFixed(2) })));
   if (adv.length) await tx.insert(invoiceAdvances).values(adv.map((a) => ({ invoiceId: inv.id, advanceId: a.advanceId, amount: r2(n(a.amount)).toFixed(2) })));
 
   // production from the invoice: the old orders go, the new ones are made before the invoice issues the product
