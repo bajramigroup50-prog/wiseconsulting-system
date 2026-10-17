@@ -12,7 +12,7 @@ import {
 import { audit, type Tx } from './audit';
 import { postJournal } from './posting';
 import {
-  boms, codes, employees, itemBarcodes, items, itemSupplierCodes, partners, type Item,
+  boms, codes, employees, invoices, itemBarcodes, items, itemSupplierCodes, partners, type Item,
 } from './schema/index';
 import { StockDocError, loadStockContext, replaceSourceMoves, setRetailPrices, whId, requireLocation } from './stock-service';
 import { saveLevelling, saveStockCount, type Actor } from './stock-docs';
@@ -311,16 +311,29 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
   }
 
   if (t === 'invoices') {
+    // FIX (every document registered separately): one invoice = number + date + buyer. Rows with the same number but
+    // another date / buyer are ANOTHER invoice — never merged into the first one (lines concatenated, totals summed).
     const by = new Map<string, ImpRow[]>();
+    const buyerKey = (r: ImpRow) => (gs(r, 'edb').replace(/\D/g, '').slice(-7) || gs(r, 'partner').toLowerCase().replace(/\s+/g, ' '));
     for (const r of rows) {
       const number = gs(r, 'number');
       if (!number) { R.skip.push('ред без број'); continue; }
-      by.set(number, [...(by.get(number) ?? []), r]);
+      const key = [number, gs(r, 'date'), buyerKey(r)].join('\u0001');
+      by.set(key, [...(by.get(key) ?? []), r]);
     }
-    for (const [number, Rs] of by) {
+    const perNo = new Map<string, number>();
+    for (const Rs of by.values()) { const no = gs(Rs[0]!, 'number'); perNo.set(no, (perNo.get(no) ?? 0) + 1); }
+    for (const Rs of by.values()) {
       const r0 = Rs[0]!;
+      const number = gs(r0, 'number');
       const date = gs(r0, 'date'), pn = gs(r0, 'partner');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !pn) { R.skip.push(number + ': нема датум/купувач'); continue; }
+      // the same number for several invoices in the file (other date / buyer): none is guessed, each is reported
+      if ((perNo.get(number) ?? 0) > 1) { R.skip.push(`${number} од ${date} (${pn}): истиот број е за повеќе фактури во датотеката (различен датум / купувач) – не е увезена, проверете ги броевите`); continue; }
+      // already in the books: the same number in the same year → skipped (never a second copy with a new number)
+      const [ex] = await tx.select({ id: invoices.id, date: invoices.date, partnerId: invoices.partnerId }).from(invoices)
+        .where(and(eq(invoices.firmId, a.firmId), eq(invoices.kind, 'invoice'), eq(invoices.number, number), sql`extract(year from ${invoices.date}) = ${Number(date.slice(0, 4))}`)).limit(1);
+      if (ex) { R.skip.push(`${number} од ${date}: веќе е внесена (${String(ex.date).split('-').reverse().join('.')}) – прескокната`); continue; }
       await row(number, async () => {
         const pid = await ensureP(pn, gs(r0, 'edb'));
         const lines = [];
@@ -332,7 +345,9 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
           });
         }
         const due = gs(r0, 'due');
-        await saveInvoice(tx, a.firmId, { kind: 'invoice', number, date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : date, partnerId: pid, lines }, { userId: a.userId, role: a.role });
+        const s = await saveInvoice(tx, a.firmId, { kind: 'invoice', number, date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : date, partnerId: pid, lines }, { userId: a.userId, role: a.role });
+        // the printed number must stay: a renumbered invoice is not the document of the file
+        if (s.renumbered || s.number !== number) throw new StockDocError(`бројот е зафатен (би добила ${s.number}) – не е увезена`);
         R.add++;
       });
     }

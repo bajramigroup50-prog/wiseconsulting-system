@@ -15,7 +15,7 @@ import { statementFromPdfItems } from '@wise/core/noai/bank';
 import { obFromPdf } from '@wise/core/noai/ob';
 import { lineText, pdfLines, type PdfItem, type PdfLine } from '@wise/core/noai/pdf-lines';
 import { classifyText, classifyUbl } from '@wise/core/noai/classify';
-import { invoiceFromPdf } from '@wise/core/noai/purchase';
+import { invoicesFromPdf } from '@wise/core/noai/purchase';
 import { kontrolaFromPdf, kontrolaFromText } from '@wise/core/noai/kontrola';
 import type { ScanResult } from '@wise/core/sales';
 import { pdfTextItems } from './pdf-text';
@@ -67,8 +67,10 @@ export async function freeRead(kind: string, file: { name: string; mime: string 
     return null;
   }
   if ((kind === 'purchase' || kind === 'sale') && isPdf(file)) {
-    const inv = invoiceFromPdf(await lines(bytes), { ownEdb: o.ownEdb, kind });
-    return inv ? (inv as ScanResult) : null;
+    // a PDF with several invoices: each one on its own (`invoices`), never merged into one document
+    const I = invoicesFromPdf(await lines(bytes), { ownEdb: o.ownEdb, kind });
+    if (!I.length) return null;
+    return I.length === 1 ? (I[0] as ScanResult) : ({ invoices: I } as ScanResult);
   }
   return null;
 }

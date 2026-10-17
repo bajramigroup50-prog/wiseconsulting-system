@@ -57,6 +57,12 @@ export interface PurchaseInput {
   fileIds?: string[];
   /** Save even when the duplicate rule matches. */
   allowDuplicate?: boolean;
+  /**
+   * The source file holds SEVERAL invoices (one PDF / a batch of photos read into several drafts): every purchase saved
+   * from it links the same file, so „already attached to another document“ does not apply to it (the duplicate rule
+   * on supplier + number still does).
+   */
+  sharedSource?: boolean;
 }
 export interface PurchaseSaveResult { id: string; status: string; warnings: string[]; createdItems: number }
 
@@ -167,10 +173,10 @@ async function unpostPurchase(tx: Tx, firmId: string, id: string, userId: string
 /** Purchases of the firm as duplicate candidates (`findDuplicate`). */
 async function dupCandidates(tx: Tx, firmId: string, number: string) {
   const digits = number.replace(/\D/g, '');
-  const rows = await tx.select({ id: purchases.id, partnerId: purchases.partnerId, number: purchases.number, total: purchases.total, date: purchases.date, edb: partners.edb, sedb: purchases.supplierEdb })
+  const rows = await tx.select({ id: purchases.id, partnerId: purchases.partnerId, number: purchases.number, total: purchases.total, date: purchases.date, docDate: purchases.docDate, edb: partners.edb, sedb: purchases.supplierEdb })
     .from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
     .where(and(eq(purchases.firmId, firmId), digits ? sql`regexp_replace(${purchases.number}, '\\D', '', 'g') = ${digits}` : undefined));
-  return rows.map((r) => ({ id: r.id, partnerId: r.partnerId, partnerEdb: r.edb ?? r.sedb, number: r.number, total: n(r.total), date: r.date }));
+  return rows.map((r) => ({ id: r.id, partnerId: r.partnerId, partnerEdb: r.edb ?? r.sedb, number: r.number, total: n(r.total), date: r.docDate ?? r.date }));
 }
 
 /**
@@ -238,10 +244,14 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   const total = purchaseTotal({ art32, groups });
   const number = String(input.number ?? '').trim();
   if (!input.allowDuplicate && number) {
-    const dup = findDuplicate({ id: existing?.id, partnerId, partnerEdb: input.supplierEdb, number, total }, await dupCandidates(tx, firmId, number));
-    if (dup) throw new DocumentError(`Фактурата бр. ${number} од овој добавувач со ист износ веќе е внесена (${dup.date?.split('-').reverse().join('.')}).`);
+    const dup = findDuplicate({ id: existing?.id, partnerId, partnerEdb: input.supplierEdb, number, total, date: input.docDate || input.date }, await dupCandidates(tx, firmId, number));
+    if (dup) {
+      throw new DocumentError(Math.abs(dup.total - total) <= 1
+        ? `Фактурата бр. ${number} од овој добавувач со ист износ веќе е внесена (${dup.date?.split('-').reverse().join('.')}).`
+        : `Фактурата бр. ${number} од овој добавувач со ист датум веќе е внесена (${dup.date?.split('-').reverse().join('.')}).`);
+    }
   }
-  if (!input.allowDuplicate && input.fileIds?.length) {
+  if (!input.allowDuplicate && !input.sharedSource && input.fileIds?.length) {
     const used = await fileAlreadyUsed(tx, firmId, input.fileIds, existing ? { entityType: 'purchase', entityId: existing.id } : undefined);
     if (used) throw new DocumentError(`Документот „${used.name}“ веќе е прикачен на друг документ.`);
   }

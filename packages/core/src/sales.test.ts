@@ -173,6 +173,12 @@ describe('scan post-processing', () => {
     expect(findDuplicate({ partnerId: 'Q', number: 'Ф-12/26', total: 1180 }, ex)).toBeNull();
     expect(findDuplicate({ partnerId: 'P', number: 'Ф-12/26', total: 1300 }, ex)).toBeNull();
     expect(findDuplicate({ id: '1', partnerId: 'P', number: 'Ф-12/26', total: 1180 }, ex)).toBeNull();
+    // same supplier (ЕДБ) + number + document date: a duplicate whatever the amount; another date / supplier: not
+    const exE = [{ id: '2', partnerEdb: 'MK4030999000111', number: '101/2026', total: 1180, date: '2026-10-05' }];
+    expect(findDuplicate({ partnerEdb: '4030999000111', number: '101/2026', total: 999, date: '2026-10-05' }, exE)?.id).toBe('2');
+    expect(findDuplicate({ partnerEdb: '4030999000111', number: '101/2026', total: 999, date: '2026-10-06' }, exE)).toBeNull();
+    expect(findDuplicate({ partnerEdb: '4030999000222', number: '101/2026', total: 999, date: '2026-10-05' }, exE)).toBeNull();
+    expect(findDuplicate({ number: '101/2026', total: 999, date: '2026-10-05' }, exE)).toBeNull();
     const d = purchaseDraftFromScan({ number: '1', total: 118, supplierName: 'X' }, { partners: [], items: [], accounts: { goods: '6600', material: '3100', other: '4000' }, today: '2026-05-01' });
     expect(batchStatus(d, null, null, null).status).toBe('ok');
     expect(batchStatus(d, null, { date: '2026-01-01' }, null).status).toBe('dup');

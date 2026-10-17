@@ -31,7 +31,7 @@ const fn = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, '_');
 /**
  * Split a PDF when it holds several invoices. Returns the parts (name + bytes) or null (read the file as it is).
  */
-export async function splitInvoicePdf(a: { db: Tx; firmId: string; refId: string; userId: string | null; name: string; bytes: Uint8Array; purpose: string }): Promise<{ name: string; bytes: Uint8Array }[] | null> {
+export async function splitInvoicePdf(a: { db: Tx; firmId: string; refId: string; userId: string | null; name: string; bytes: Uint8Array; purpose: string }): Promise<{ name: string; bytes: Uint8Array; /** pages of the original file („2-3“) */ pages: string }[] | null> {
   let src: PDFDocument, n: number;
   try { src = await PDFDocument.load(a.bytes, { ignoreEncryption: true }); n = src.getPageCount(); } catch { return null; }
   if (n < 2 || n > 60) return null;
@@ -43,12 +43,12 @@ export async function splitInvoicePdf(a: { db: Tx; firmId: string; refId: string
   } catch { return null; }
   if (!G) return null;
   const base = a.name.replace(/\.pdf$/i, '');
-  const out: { name: string; bytes: Uint8Array }[] = [];
+  const out: { name: string; bytes: Uint8Array; pages: string }[] = [];
   for (const [k, g] of G.entries()) {
     const d = await PDFDocument.create();
     const pages = await d.copyPages(src, Array.from({ length: g.to - g.from + 1 }, (_, i) => g.from - 1 + i));
     pages.forEach((p) => d.addPage(p));
-    out.push({ name: base + '_' + (k + 1) + (g.number ? '_' + fn(g.number).slice(0, 30) : '') + '.pdf', bytes: await d.save() });
+    out.push({ name: base + '_' + (k + 1) + (g.number ? '_' + fn(g.number).slice(0, 30) : '') + '.pdf', bytes: await d.save(), pages: g.from === g.to ? String(g.from) : `${g.from}-${g.to}` });
   }
   return out;
 }

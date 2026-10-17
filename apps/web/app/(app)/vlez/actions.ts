@@ -5,8 +5,8 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, ensurePartner, firms, markDraftSaved,
-  partners, savePurchase, transfers, type PurchaseInput,
+  approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, draftSourceFiles, ensurePartner, firms,
+  loadAiDocument, markDraftSaved, partners, savePurchase, transfers, type PurchaseInput,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -49,6 +49,14 @@ export async function savePurchaseAction(_prev: ActionState, form: FormData): Pr
       costs: Object.fromEntries(Object.entries(v.costs).map(([k, c]) => [k, { ...c, partnerId: c.partnerId || null, date: c.date || null, due: c.due || null }])),
     };
     const res = await db().transaction(async (tx) => {
+      // one invoice of a file that holds several: the file is linked to each of their purchases (with the pages)
+      if (v.scanDocId != null && v.scanIndex != null && /^[0-9a-f-]{36}$/i.test(v.scanDocId)) {
+        const src = draftSourceFiles(await loadAiDocument(tx, firm.id, v.scanDocId), v.scanIndex);
+        if (src.shared) {
+          input.sharedSource = true;
+          if (src.pages) input.data = { ...input.data, srcPages: src.pages };
+        }
+      }
       const r = await savePurchase(tx, firm.id, input, actorOf(u));
       if (v.scanDocId != null && v.scanIndex != null) await markDraftSaved(tx, firm.id, v.scanDocId, v.scanIndex, r.id);
       return r;

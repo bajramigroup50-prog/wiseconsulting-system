@@ -38,7 +38,8 @@ export async function scanQueue(firmId: string, docId: string | undefined, index
   const open: ScanPos[] = [];
   for (const d of run) {
     if (d.status !== 'done') continue;
-    d.drafts.forEach((x, i) => { if (!x.savedId && !(d.id === docId && i === index)) open.push({ docId: d.id, i }); });
+    // skipped invoices are not offered as „next“ (each invoice of a file is its own entry)
+    d.drafts.forEach((x, i) => { if (!x.savedId && !x.skipped && !(d.id === docId && i === index)) open.push({ docId: d.id, i }); });
   }
   // the next one after the current position (wrapping to the first)
   const order = (p: ScanPos) => run.findIndex((d) => d.id === p.docId) * 1000 + p.i;
