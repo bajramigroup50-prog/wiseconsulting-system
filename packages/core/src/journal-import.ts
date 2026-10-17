@@ -13,7 +13,8 @@
  *   as the partner code, a partner „1029 МАЈАНЦЕ“ its code.
  * - Empty date / type / number cells take the value of the row above (the old program prints them once per nalog).
  * - Grouping: by type + number (else type + date); one WISE journal per date when every date of the nalog balances,
- *   else per month, else one journal on the last date of the nalog (with a warning).
+ *   else an unbalanced day is booked together with the following days only until the running sum is zero again (one
+ *   journal on the last day of that run, with a warning); every other day stays its own journal.
  * - The number is kept as the old program printed it, `type/number` („06/9“) like WISE's own „6/1-3“; a bare number
  *   gets the prefix „У“ so it can never be a WISE counter number (1021, 1022…), the opening „0“ or the closing „999“.
  * All sums are in integer cents.
@@ -169,6 +170,12 @@ const split = <T>(R: readonly JiRow[], f: (x: JiRow) => T): Map<T, JiRow[]> => {
   return M;
 };
 
+const dm = (d: string) => d.slice(8, 10) + '.' + d.slice(5, 7);
+const amt = (c: number) => (c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '.').replace(/\.(\d{2})$/, ',$1');
+/** „налогот 1020/4-6: 30.04–04.05 книжени заедно со датум 04.05.2026 – разлика 10,00 меѓу деновите“ */
+export const jiRunWarn = (label: string, from: string, to: string, gap: number): string =>
+  `налогот ${label}: ${dm(from)}–${dm(to)} книжени заедно со датум ${to.split('-').reverse().join('.')} – разлика ${amt(gap)} меѓу деновите`;
+
 /** Rows → WISE journals (see the module comment); an unbalanced nalog is returned in `unbalanced`, not as journals. */
 export function jiGroup(rows: readonly JiRow[]): { journals: JiJournal[]; unbalanced: JiUnbalanced[] } {
   const N = split(rows, (x) => (x.no ? `${x.type}|${x.no}` : `${x.type}|@${x.date}`));
@@ -182,20 +189,20 @@ export function jiGroup(rows: readonly JiRow[]): { journals: JiJournal[]; unbala
       const d = sumD(part);
       return { key, label, type, no, number: jiNumber(type, no), date, rows: part, D: d, P: sumP(part), dup: `${type}|${no}|${date}|${d}`, ...(warn ? { warn } : {}) };
     };
-    const ok = (M: Map<string, JiRow[]>) => [...M.values()].every((x) => sumD(x) === sumP(x));
-    const byDay = split(R, (x) => x.date);
-    if (ok(byDay)) { for (const [d, part] of [...byDay].sort((a, b) => (a[0] < b[0] ? -1 : 1))) journals.push(mk(part, d)); continue; }
-    const byMonth = split(R, (x) => x.date.slice(0, 7));
-    const lastOf = (part: JiRow[]) => part.reduce((m, x) => (x.date > m ? x.date : m), '');
-    if (ok(byMonth)) {
-      for (const part of byMonth.values()) {
-        const d = lastOf(part);
-        journals.push(mk(part, d, byDay.size > 1 ? `налогот ${label} не е во рамнотежа по денови – книжен со датум ${d.split('-').reverse().join('.')}` : undefined));
-      }
-      continue;
+    // day by day; an unbalanced day takes the following days until the running sum is zero again
+    const days = [...split(R, (x) => x.date)].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    let run: JiRow[] = [], first = '', bal = 0, gap = 0;
+    for (const [d, part] of days) {
+      if (!run.length) first = d;
+      run.push(...part);
+      bal += sumD(part) - sumP(part);
+      gap = Math.max(gap, Math.abs(bal));
+      if (bal !== 0) continue;
+      journals.push(mk(run, d, first !== d ? jiRunWarn(label, first, d, gap) : undefined));
+      run = []; gap = 0;
     }
-    const d = lastOf(R);
-    journals.push(mk(R, d, `налогот ${label} не е во рамнотежа по месеци – целиот е книжен со датум ${d.split('-').reverse().join('.')}`));
+    // never closes (cannot happen while the nalog balances): the rest on its last date
+    if (run.length) { const d = days[days.length - 1]![0]; journals.push(mk(run, d, jiRunWarn(label, first, d, gap))); }
   }
   journals.sort((a, b) => byDate(a, b) || a.key.localeCompare(b.key, 'mk', { numeric: true }));
   return { journals, unbalanced };

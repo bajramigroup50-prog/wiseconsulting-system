@@ -26,7 +26,7 @@ describe('journal import rows', () => {
     expect(jiSide('pobaruva')).toBe('p');
   });
 
-  it('groups by type + number: per day when every day balances, else per month, else on the last date', () => {
+  it('groups by type + number: per day; an unbalanced day with the following days until they balance', () => {
     const { rows } = jiRows([
       { date: '2026-01-05', type: '06', no: '1', k: '1000', d: 10 }, { date: '2026-01-05', type: '06', no: '1', k: '1200', p: 10 },
       { date: '2026-01-09', type: '06', no: '1', k: '1000', d: 5 }, { date: '2026-01-09', type: '06', no: '1', k: '1200', p: 5 },
@@ -43,6 +43,38 @@ describe('journal import rows', () => {
       { m: '2026-02', nalogs: 1, journals: 1, lines: 2, D: 700, P: 700 },
       { m: '2026-03', nalogs: 1, journals: 1, lines: 2, D: 300, P: 300 },
     ]);
+  });
+
+  it('an unbalanced day is booked only with the following days until the running sum is zero', () => {
+    const n = { type: '1020', no: '4-6' };
+    const pair = (date: string, x: number) => [{ date, ...n, k: '1000', d: x }, { date, ...n, k: '1200', p: x }];
+    // cash nalog 1020/4-6: 30.04 short 10.00, 04.05 over 10.00, the days around them balanced
+    const { rows } = jiRows([
+      ...pair('2026-04-29', 50), { date: '2026-04-30', ...n, k: '1000', d: 20 }, { date: '2026-04-30', ...n, k: '1200', p: 30 },
+      ...pair('2026-05-01', 7), ...pair('2026-05-04', 8), { date: '2026-05-04', ...n, k: '1000', d: 10 }, ...pair('2026-05-05', 9), ...pair('2026-06-30', 1),
+    ]);
+    const G = jiGroup(rows);
+    expect(G.unbalanced).toEqual([]);
+    expect(G.journals.map((j) => [j.date, j.rows.length, j.D, j.P])).toEqual([
+      ['2026-04-29', 2, 5000, 5000], ['2026-05-04', 7, 4500, 4500], ['2026-05-05', 2, 900, 900], ['2026-06-30', 2, 100, 100],
+    ]);
+    expect(G.journals[1]!.rows.map((r) => r.date)).toEqual(['2026-04-30', '2026-04-30', '2026-05-01', '2026-05-01', '2026-05-04', '2026-05-04', '2026-05-04']);
+    expect(G.journals.map((j) => j.warn ?? '')).toEqual(['', 'налогот 1020/4-6: 30.04–04.05 книжени заедно со датум 04.05.2026 – разлика 10,00 меѓу деновите', '', '']);
+    // a single off day closed by the next day
+    const S = jiGroup(jiRows([
+      ...pair('2026-01-05', 1), { date: '2026-01-06', type: '06', no: '1', k: '1000', d: 1234.5 }, { date: '2026-01-07', type: '06', no: '1', k: '1200', p: 1234.5 }, ...pair('2026-01-08', 2),
+    ].map((x) => ({ ...x, type: '06', no: '1' }))).rows);
+    expect(S.journals.map((j) => [j.date, j.rows.length, j.warn ?? ''])).toEqual([
+      ['2026-01-05', 2, ''], ['2026-01-07', 2, 'налогот 06/1: 06.01–07.01 книжени заедно со датум 07.01.2026 – разлика 1.234,50 меѓу деновите'], ['2026-01-08', 2, ''],
+    ]);
+    // the run closes only with the last day of the file: the rest on that day
+    const E = jiGroup(jiRows([
+      ...pair('2026-03-02', 4), { date: '2026-03-03', ...n, k: '1000', d: 5 }, ...pair('2026-03-04', 6), { date: '2026-03-31', ...n, k: '1200', p: 5 },
+    ]).rows);
+    expect(E.journals.map((j) => [j.date, j.rows.length, !!j.warn])).toEqual([['2026-03-02', 2, false], ['2026-03-31', 4, true]]);
+    // fully balanced: one journal per day, no warning
+    const B = jiGroup(jiRows([...pair('2026-02-01', 3), ...pair('2026-02-02', 4), ...pair('2026-03-01', 5)]).rows);
+    expect(B.journals.map((j) => [j.date, j.rows.length, j.warn])).toEqual([['2026-02-01', 2, undefined], ['2026-02-02', 2, undefined], ['2026-03-01', 2, undefined]]);
   });
 
   it('Latin YUSCII, Latin ↔ Cyrillic key, file-name defaults, invoice groups', () => {
