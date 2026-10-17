@@ -71,6 +71,16 @@ export const EMP_PROMPT = `This is an employment document from North Macedonia (
 {"name":string,"embg":string,"address":string,"position":string,"start":"YYYY-MM-DD","end":"YYYY-MM-DD"|"","contract":"неопределено"|"определено"|"","hoursWeek":number,"netSalary":number,"grossSalary":number,"bankAcc":string,"bank":string,"stazPrevYears":number}
 Rules: embg = 13-digit ЕМБГ. netSalary/grossSalary in denars per month (0 if not stated). hoursWeek 40 if full time. Keep names in original language (Cyrillic if written so).`;
 
+/**
+ * Added to `BLG_PROMPT` (legacy stays verbatim): the back side / second page of a receipt is part of it — never a receipt
+ * of its own (`attachReceiptPages` in `@wise/core/ai/receipts` also merges the same number + date deterministically).
+ */
+export const BLG_PAGES_ADD = `
+BACK SIDES / PAGES: a receipt or report photographed on both sides or on several pages is ONE receipt: the back side / second page (payment breakdown, counters, slogans, other information) belongs to the receipt it continues — NEVER return it as a receipt of its own and never return the same receipt (same number and date) twice.`;
+
+/** Several photos / pages of ONE fiscal report read together (legacy `fkTiles` note 13010, plus the back side). */
+export const FISK_PAGES_NOTE = '\n\nThe images are CONSECUTIVE PARTS (top → bottom, slightly overlapping) of ONE long fiscal receipt/report – read them together as one document and do not count overlapping lines twice. A report often has 2 sides / pages: the first with the date, totals and VAT per rate, the second (back side) with other information (payment breakdown, counters, number of receipts) – the back side belongs to the SAME report: never a second report or a second day, never count its amounts again (one report = one fiscal device + report / Z number + date).';
+
 /** Legacy `BLG_PROMPT` (6525–6527) — cash-register receipts (kind `blg`, legacy `blgScanFiles`). */
 export const BLG_PROMPT = `These are receipts or invoices (fiscal receipts, fuel station receipts, toll/vignette/ferry/tunnel tickets, parking, hotel, restaurant, vehicle service, taxi…) from ANY country, paid by an employee of a company from North Macedonia (often a truck driver travelling through Europe). Extract EVERY receipt visible. Reply with ONLY JSON:
 {"receipts":[{"country":"ISO 3166-1 alpha-2 of the merchant (MK, AL, XK, RS, BG, GR, HR, SI, AT, DE, IT, FR, NL, BE, HU, RO, CZ, SK, PL, CH, TR…)","currency":"ISO 4217 of the TOTAL (MKD, EUR, RSD, BGN, HUF, RON, CZK, PLN, CHF, ALL, TRY…)","date":"YYYY-MM-DD","docNo":"receipt / fiscal / invoice number exactly as printed (e.g. 'ФИСКАЛЕН БРОЈ 0012345', 'Beleg-Nr. 4711', 'Bon fiscal 123', 'Nr. paragonu 55', 'Račun br. 12-3-4'); prefer the fiscal receipt number","merchant":"company / station name","vatId":"VAT or tax number of the merchant, if printed","total":number,"vatRate":number,"vatAmount":number,"category":"fuel"|"toll"|"parking"|"accommodation"|"food"|"vehicle"|"transport"|"office"|"post"|"other","payment":"cash"|"card"|"other","liters":number|null}]}

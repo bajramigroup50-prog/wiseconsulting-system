@@ -8,7 +8,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { schema, type AiDocKind, type Tx } from '@wise/db';
 import { AI_MODELS, setAiClient, type MessagesApi } from './client';
-import { BANK_MULTI_NOTE, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_GROUPS, FISK_GROUPS_LEGACY, FISK_PROMPT, FK_SIMPLE } from './prompts';
+import { BANK_MULTI_NOTE, BANK_PROMPT, BLG_PAGES_ADD, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_GROUPS, FISK_GROUPS_LEGACY, FISK_PROMPT, FK_SIMPLE } from './prompts';
 import { setObjectReader } from './storage';
 import { runReadDocument } from '../jobs/ai-read-document';
 
@@ -90,7 +90,7 @@ describe('ai.read-document result kinds', () => {
     setAiClient(api);
     const id = await doc('blg', { name: 'r.jpg', mime: 'image/jpeg' });
     await runReadDocument(db, id);
-    expect(promptOf(api.calls[0]!)).toBe(BLG_PROMPT);
+    expect(promptOf(api.calls[0]!)).toBe(BLG_PROMPT + BLG_PAGES_ADD);
     expect(api.calls[0]!.model).toBe(AI_MODELS.default);
     expect(await load(id)).toMatchObject({ status: 'done', drafts: [], model: AI_MODELS.default, result: { receipts: [{ country: 'MK', total: '1.100,00' }] } });
     expect(await usage(id)).toMatchObject([{ firmId, purpose: 'blg', tier: 'default' }]);

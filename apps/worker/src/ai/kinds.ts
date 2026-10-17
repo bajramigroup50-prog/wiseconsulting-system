@@ -24,7 +24,7 @@ import { ZM_PROMPT } from '@wise/core/yearend/zm-import';
 import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
-import { BANK_CLASSIFY_PROMPT, BANK_MULTI_NOTE, BANK_PROMPT, BLG_PROMPT, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_BANK_ADD, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
+import { BANK_CLASSIFY_PROMPT, BANK_MULTI_NOTE, BANK_PROMPT, BLG_PAGES_ADD, BLG_PROMPT, FISK_PAGES_NOTE, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_PROMPT, OB_PROMPT, PUR_BANK_ADD, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
 import { AiReadError, AiTruncatedError, fileContent, loadFile, readContent } from './read-document';
 import { CHUNK_MAX_TOKENS, chunkNote, mergeBank, mergeOb, pdfRanges, planPdfRead, type ChunkKind } from './chunked';
 import { readObject } from './storage';
@@ -72,7 +72,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
         const c = fileContent(x, await readObject(x.bucketKey));
         content = { blocks: [...content.blocks, ...c.blocks], extra: content.extra + c.extra };
       }
-      content.extra += '\n\nThe images are CONSECUTIVE PARTS (top → bottom, slightly overlapping) of ONE long fiscal receipt/report – read them together as one document and do not count overlapping lines twice.';
+      content.extra += FISK_PAGES_NOTE;
     }
   }
   const read = async (prompt: string, tier: AiTier) => readContent<unknown>({ ...base, prompt, tier }, content);
@@ -125,7 +125,7 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
 
   switch (doc.kind) {
     case 'blg': {
-      const r = await read(BLG_PROMPT, isImage(content) ? 'default' : 'quick');
+      const r = await read(BLG_PROMPT + BLG_PAGES_ADD, isImage(content) ? 'default' : 'quick');
       return { result: why(r.data), model: r.model };
     }
     case 'emp': {
