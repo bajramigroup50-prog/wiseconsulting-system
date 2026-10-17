@@ -14,6 +14,7 @@ import {
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { autoMergeAfter } from '@/lib/partner-automerge';
 import { todayMk } from '@/lib/yearend';
 
 const amount = z.union([z.string(), z.number()]).transform((v) => Number(String(v).trim().replace(/\s/g, '').replace(',', '.')) || 0);
@@ -114,6 +115,7 @@ export async function saveOpening(_prev: ActionState, form: FormData): Promise<A
       msg = `${v.full ? 'Бруто билансот' : 'Почетната состојба'} за ${year} е зачувана (налог ${res.number}, ${rows.length} ставки)`
         + (np ? `; креирани ${np} нови партнери` : '') + (na ? `; додадени ${na} нови конта` : '') + (nb ? `; внесени ${nb} банкарски сметки кај фирмата` : '') + '.';
     });
+    msg += await autoMergeAfter(firm.id);
     revalidatePath('/pocetna');
     return { ok: msg };
   } catch (e) { return actionError(e); }

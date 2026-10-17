@@ -20,6 +20,7 @@ import type { ActionState } from '@/lib/books';
 import { getUser } from '@/lib/auth';
 import { stockAction, todayIso, numIn } from '@/lib/stock';
 import { loadArtItems } from '@/lib/retail';
+import { autoMergeAfter } from '@/lib/partner-automerge';
 
 const s = (f: FormData, k: string) => String(f.get(k) ?? '').trim();
 const nOrNull = (f: FormData, k: string) => { const v = s(f, k); if (v === '') return null; const x = numIn(v); return Number.isFinite(x) ? x : null; };
@@ -354,8 +355,10 @@ export async function importAction(_p: ActionState, f: FormData): Promise<Action
   if (isErr(v)) return v;
   const u = await getUser();
   const r = u?.role ?? 'view';
+  let fid = '';
   const st = await stockAction('impRun', ['/uvoz', '/artikli', '/partneri', '/vlez', '/izlez', '/nalozi', '/g_lager', '/m_lager', '/m_izlez', '/nivel'],
     async (tx, a) => {
+      fid = a.firmId;
       // „⏸ минат период – за проверка“: documents of past VAT periods are not imported automatically
       let past = null;
       if (v.t === 'purchases' || v.t === 'invoices') {
@@ -367,5 +370,7 @@ export async function importAction(_p: ActionState, f: FormData): Promise<Action
     });
   if (st.error) return st;
   const R = st.data!;
-  return { ok: `Готово: ${R.add} додадени, ${R.upd} ажурирани${R.newP ? `, ${R.newP} нови комитенти` : ''}${R.skip.length ? `, ${R.skip.length} прескокнати: ` + R.skip.slice(0, 12).join(' · ') + (R.skip.length > 12 ? ' …' : '') : '.'}` };
+  // „Автоматски спојувај сигурни дупликати“ after an import that brings partners
+  const am = fid && (R.newP || v.t === 'partners' || v.t === 'journal') ? await autoMergeAfter(fid) : '';
+  return { ok: `Готово: ${R.add} додадени, ${R.upd} ажурирани${R.newP ? `, ${R.newP} нови комитенти` : ''}${R.skip.length ? `, ${R.skip.length} прескокнати: ` + R.skip.slice(0, 12).join(' · ') + (R.skip.length > 12 ? ' …' : '') : '.'}${am}` };
 }

@@ -14,6 +14,7 @@ const LBL: Record<string, string> = {
   login: 'Најава', logout: 'Одјава', loginFail: 'Неуспешна најава', loginLocked: '🔒 Заклучена најава', loginUnlock: '🔓 Отклучена најава', newFirm: 'Нова фирма', saveFirm: 'Промена на фирма',
   uNew: 'Нов корисник', uSave: 'Промена на корисник', uDel: 'Бришење корисник', uMyPass: 'Промена на сопствена лозинка', uMenuStyle: 'Мени: класично / ново',
   fileUpload: 'Прикачен документ', ownerSet: 'Пренос на сопственост на канцеларијата',
+  partnerMerge: 'Спојување комитенти', partnerAutoMerge: '⚙ Автоматско спојување комитенти', partnerAutoMergeSet: 'Поставка: автоматско спојување комитенти',
 };
 const PAGE = 100;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -33,6 +34,8 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
   const od = DATE_RE.test(sp.od ?? '') ? sp.od! : '', dd = DATE_RE.test(sp.do ?? '') ? sp.do! : '';
   const fu = owner && (sp.u === '-' || isUuid(sp.u)) ? sp.u! : '';
   const ff = isUuid(sp.f) ? sp.f! : '';
+  // `?a=` one action (e.g. `partnerAutoMerge`, linked from the partners screen)
+  const fa = /^[A-Za-z]{2,40}$/.test(sp.a ?? '') ? sp.a! : '';
   const pg = Math.max(1, Math.floor(Number(sp.pg) || 1));
   // Од / До are Skopje days
   const where: (SQL | undefined)[] = [
@@ -41,6 +44,7 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
     dd ? lt(auditLog.at, skopjeDayStart(addDays(dd, 1))) : undefined,
     fu === '-' ? isNull(auditLog.userId) : fu ? eq(auditLog.userId, fu) : undefined,
     ff ? eq(auditLog.firmId, ff) : undefined,
+    fa ? eq(auditLog.action, fa) : undefined,
   ];
   const W = and(...where);
   const [L, [cnt], U, F] = await Promise.all([
@@ -57,7 +61,7 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
   ]);
   const n = cnt?.n ?? 0;
   const pages = Math.max(1, Math.ceil(n / PAGE));
-  const href = (p: number) => { const q = new URLSearchParams(); if (od) q.set('od', od); if (dd) q.set('do', dd); if (fu) q.set('u', fu); if (ff) q.set('f', ff); if (p > 1) q.set('pg', String(p)); return `/aktivnost?${q}`; };
+  const href = (p: number) => { const q = new URLSearchParams(); if (od) q.set('od', od); if (dd) q.set('do', dd); if (fu) q.set('u', fu); if (ff) q.set('f', ff); if (fa) q.set('a', fa); if (p > 1) q.set('pg', String(p)); return `/aktivnost?${q}`; };
   const kind = (action: string, entityType: string | null, data: unknown) => {
     const c = classifyAction(action, entityType, data as Record<string, unknown> | null);
     if (!c) return '—';
@@ -79,8 +83,10 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
             <option value="">Сите фирми</option>
             {F.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select></label>
+          {fa && <input type="hidden" name="a" value={fa} />}
+          {fa && <span className="pill">{LBL[fa] ?? fa}</span>}
           <button className="btn pri">Прикажи</button>
-          {(od || dd || fu || ff) && <Link className="btn" href="/aktivnost">✕ Исчисти</Link>}
+          {(od || dd || fu || ff || fa) && <Link className="btn" href="/aktivnost">✕ Исчисти</Link>}
           {owner && <Link className="btn" href={`/produktivnost${od || dd ? `?od=${od || dd}&do=${dd || od}` : ''}`}>📊 Продуктивност</Link>}
         </div>
       </form>

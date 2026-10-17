@@ -17,6 +17,7 @@ import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
 import { actorOf } from '@/lib/sales';
 import { isOfficeOwner } from '@/lib/office-owner';
+import { autoMergeAfter, withNote } from '@/lib/partner-automerge';
 import { Forbidden } from '@/lib/auth';
 import { dmy } from '@/lib/fmt';
 
@@ -142,8 +143,9 @@ async function savePurchaseDraftsOk(where: SQL | undefined, scheme?: number): Pr
   try {
     const { u, firm } = await firmAction('savePur');
     const R = await saveReadyScanDrafts(db(), { firm, kind: 'purchase', where, actor: actorOf(u), past: await pastPeriodContext(db(), firm), scheme });
+    const am = await autoMergeAfter(firm.id);
     revalidatePath('/', 'layout');
-    return bulkSaveMessage('purchase', R);
+    return withNote(bulkSaveMessage('purchase', R), am);
   } catch (e) { return actionError(e); }
 }
 
@@ -395,8 +397,9 @@ export async function saveSalesOk(scheme?: number | null): Promise<ActionState> 
   try {
     const { u, firm } = await firmAction('saveInv');
     const R = await saveReadyScanDrafts(db(), { firm, kind: 'sale', actor: actorOf(u), past: await pastPeriodContext(db(), firm), scheme: sch });
+    const am = await autoMergeAfter(firm.id);
     revalidatePath('/', 'layout');
-    return bulkSaveMessage('sale', R);
+    return withNote(bulkSaveMessage('sale', R), am);
   } catch (e) { return actionError(e); }
 }
 

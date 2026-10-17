@@ -4,9 +4,10 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
-import { aiDocuments, audit, fileLinks, journalLines, mergePartners, PartnerAccountError, PartnerMergeError, partnerDupGroups, partners, savePartnerAccounts } from '@wise/db';
+import { AUTO_MERGE_DUP_KEY, aiDocuments, audit, fileLinks, firms, journalLines, mergePartners, PartnerAccountError, PartnerMergeError, partnerDupGroups, partners, savePartnerAccounts } from '@wise/db';
 import { fsDig, TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
 import { schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
+import { dupMergeSelection } from '@wise/core/partners/match';
 import { markAiReadsSaved } from '@/lib/ai';
 import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
 import { Forbidden } from '@/lib/auth';
@@ -208,14 +209,33 @@ async function mergeActor() {
   if (!canDo(u, 'settings', firm.id) && !canDo(u, 'fix', firm.id)) throw new Forbidden('partnerMerge');
   return { u, firm };
 }
+/** „Автоматски спојувај сигурни дупликати“ (on by default): only the owner or an admin changes it. */
+export async function setAutoMergeDupAction(on: boolean): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    if (u.role !== 'admin') throw new Forbidden('Само сопственикот или администраторот ја менува оваа поставка.');
+    await db().transaction(async (tx) => {
+      await tx.update(firms).set({ settings: sql`${firms.settings} || ${JSON.stringify({ [AUTO_MERGE_DUP_KEY]: !!on })}::jsonb` }).where(eq(firms.id, firm.id));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'partnerAutoMergeSet', entityType: 'firm', entityId: firm.id, data: { on: !!on } });
+    });
+    revalidatePath('/partneri');
+    return { ok: on ? 'Автоматското спојување на сигурни дупликати е вклучено.' : 'Автоматското спојување на сигурни дупликати е исклучено.' };
+  } catch (e) { return actionError(e); }
+}
+
 const mergeErr = (e: unknown): ActionState => (e instanceof PartnerMergeError ? { error: e.message } : actionError(e));
 
-/** „⇢ Спои во избраниот“: the partners of one group into the selected main partner. */
+/**
+ * „⇢ Спои во избраниот“: the ticked members („спои“) of one group into the selected main partner. The group's
+ * partners (`group`) bound the choice; a member with another ЕДБ / ЕМБС than the main one is refused by `mergePartners`.
+ */
 export async function mergePartnersAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   try {
     const main = z.uuid().parse(String(form.get('main') ?? ''));
-    const ids = z.array(z.uuid()).min(2).max(50).parse(String(form.get('ids') ?? '').split(',').filter(Boolean));
-    if (!ids.includes(main)) return { error: 'Изберете го главниот комитент.' };
+    const group = z.array(z.uuid()).max(50).parse(String(form.get('group') ?? '').split(',').filter(Boolean));
+    const sel = dupMergeSelection(main, group, z.array(z.uuid()).max(50).parse(form.getAll('ids').map(String)));
+    if ('error' in sel) return { error: sel.error };
+    const ids = sel.ids;
     const { u, firm } = await mergeActor();
     const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, main, ids));
     revalidatePath('/partneri');
@@ -226,16 +246,23 @@ export async function mergePartnersAction(_prev: ActionState, form: FormData): P
   }
 }
 
-/** „Спои ги сите сигурни“: every group with the same ЕДБ / ЕМБС or at least 90% similar, into its suggested main partner. */
-export async function mergeSurePartnersAction(): Promise<ActionState> {
+/**
+ * „Спои ги сите сигурни“: the groups listed in the confirm (`listed`: main + members), each merged only while it is
+ * still a „сигурно“ group with that main partner and those members (re-checked now).
+ */
+export async function mergeSurePartnersAction(listed: { main: string; ids: string[] }[]): Promise<ActionState> {
   try {
+    const L = z.array(z.object({ main: z.uuid(), ids: z.array(z.uuid()).min(2).max(50) })).max(1000).parse(listed);
     const { u, firm } = await mergeActor();
     const V = await partnerDupGroups(db(), firm.id);
     let n = 0, g = 0;
     const errs: string[] = [];
-    for (const G of V.groups.filter((x) => x.sure)) {
+    const cur = new Map(V.groups.filter((x) => x.sure).map((x) => [x.main, new Set(x.members.map((m) => m.id))]));
+    for (const G of L) {
+      const now = cur.get(G.main);
+      if (!now || G.ids.some((x) => !now.has(x))) { errs.push('групата е сменета – освежете ја страницата'); continue; }
       try {
-        const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, G.main, G.members.map((m) => m.id)));
+        const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, G.main, G.ids));
         n += r.merged; g++;
       } catch (e) { if (e instanceof PartnerMergeError) errs.push(e.message); else throw e; }
     }

@@ -21,6 +21,7 @@ import { FileChips } from '@/components/file-chips';
 import { saveTk } from './actions';
 import { TkScan } from './tk-scan';
 import { PartnerDupView } from './dup-view';
+import { AutoMergeNote } from './auto-merge-note';
 
 const LIMIT = 500;
 
@@ -28,7 +29,10 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const { u, firm } = await booksPage('partneri');
   if (!firm) return <NoFirm t="Партнери" />;
-  if (sp.dup !== undefined) return <PartnerDupView firmId={firm.id} canMerge={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)} />;
+  if (sp.dup !== undefined) {
+    return <PartnerDupView firmId={firm.id} canMerge={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)}
+      note={<AutoMergeNote firm={firm} admin={u.role === 'admin'} log={canDo(u, 'users', firm.id)} />} />;
+  }
   const q = (sp.q ?? '').trim();
   const where = and(eq(partners.firmId, firm.id), q
     ? or(ilike(partners.name, `%${q}%`), ilike(partners.edb, `%${q}%`), ilike(partners.code, `%${q}%`), ilike(partners.city, `%${q}%`))
@@ -66,6 +70,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
         {write && <Link className="btn pri" href="/partneri?nov">+ Додај</Link>}
       </Hd>
       {sp.ok && <div className="callout good">{sp.ok}</div>}
+      <AutoMergeNote firm={firm} admin={u.role === 'admin'} log={canDo(u, 'users', firm.id)} />
       {write && !tk && <TkScan firmId={firm.id} />}
       {tk && (
         <ActionForm action={saveTk} reset={false} style={{ maxWidth: 720 }}>
