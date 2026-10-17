@@ -4,16 +4,16 @@ import 'server-only';
  * on Плати (`payDraft`, or `payCopyPrev` for "like the previous month": same employees and fixed deductions, hours by
  * the calendar, no overtime / bonuses).
  */
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { empCalc, payCopyPrev, payDraft, payNotesOpen, type PayEmp, type PayParams } from '@wise/core';
-import { loadRun, payrollExports, payrollNotes, payrollRuns, type Firm, type Tx } from '@wise/db';
+import { and, eq, inArray } from 'drizzle-orm';
+import { empCalc, payNotesOpen, type PayEmp, type PayParams } from '@wise/core';
+import { loadRun, payBuildDraft, payrollExports, payrollNotes, payrollRuns, PAY_AUTO_SOURCE, type Firm, type Tx } from '@wise/db';
 import { db } from '@/lib/db';
-import { coreEmp, firmEmployees, payCtx } from '@/lib/payroll/server';
+import { firmEmployees } from '@/lib/payroll/server';
 
 export type PbMode = 'prev' | 'cal';
-export type PbSt = 'ready' | 'auto' | 'done' | 'notes' | 'excel' | 'lock' | 'noemp';
+export type PbSt = 'ready' | 'draft' | 'auto' | 'done' | 'notes' | 'excel' | 'lock' | 'noemp';
 export const PB_ST: Record<PbSt, [string, string]> = {
-  ready: ['🟢 Преглед – чека потврда', 'good'], auto: ['🤖 Автоматски подготвена', 'info'], done: ['✓ Пресметана', 'good'], notes: ['⛔ Чека промени', 'bad'],
+  ready: ['🟢 Преглед – чека потврда', 'good'], draft: ['📝 Нацрт (автоматски) – „Плати – нацрти“', 'info'], auto: ['🤖 Автоматски подготвена', 'info'], done: ['✓ Пресметана', 'good'], notes: ['⛔ Чека промени', 'bad'],
   excel: ['📥 Секој месец од Excel', 'warn'], lock: ['🔒 Периодот е заклучен', 'warn'], noemp: ['— Нема вработени', ''],
 };
 
@@ -24,18 +24,10 @@ export const pbTot = (emps: readonly PayEmp[], P: PayParams): PbTot => {
   return { g, n, k: emps.length, h };
 };
 
-/** Legacy `pbBuild` (without saving). Null when there is nobody to pay. */
+/** Legacy `pbBuild` (without saving) — the shared builder in `@wise/db` (also used by the P36 payroll drafts). Null when there is nobody to pay. */
 export async function pbBuild(tx: Tx, firm: Firm, month: string, mode: PbMode): Promise<{ params: PayParams; emps: PayEmp[] } | null> {
-  const ctx = await payCtx(firm, tx);
-  const E = (await firmEmployees(firm.id, tx)).map(coreEmp);
-  const d = payDraft(month, E, ctx.overrides);
-  let emps: PayEmp[] = d.emps.map((e) => ({ ...e, lines: e.lines!.map((l) => ({ ...l, cat: 'reg' as const })) }));
-  if (mode === 'prev') {
-    const [p] = await tx.select({ id: payrollRuns.id }).from(payrollRuns).where(and(eq(payrollRuns.firmId, firm.id), lt(payrollRuns.month, month))).orderBy(desc(payrollRuns.month)).limit(1);
-    const prev = p ? await loadRun(tx, firm.id, { id: p.id }) : null;
-    if (prev?.emps.length) emps = payCopyPrev(month, prev.emps, d.params, [], ['sin']); // FIX(D11): legacy pbBuild copies only `sin` lines
-  }
-  return emps.length ? { params: d.params, emps } : null;
+  const d = await payBuildDraft(tx, firm, month, mode === 'cal' ? 'cal' : 'prev');
+  return d ? { params: d.params, emps: d.emps } : null;
 }
 
 export interface PbRow {
@@ -64,7 +56,7 @@ export async function pbScan(F: readonly Firm[], month: string, mode: PbMode): P
       const R = await loadRun(db(), f.id, { id: run.id });
       // Legacy 15327: 👁 preview also for automatic / calculated months, from the stored run.
       out.push({
-        f, st: run.source.startsWith('auto') ? 'auto' : 'done', notes: N, act, tot: R ? pbTot(R.emps, R.params) : null, source: run.source, locked: run.locked,
+        f, st: run.source === PAY_AUTO_SOURCE && run.status === 'draft' ? 'draft' : run.source.startsWith('auto') ? 'auto' : 'done', notes: N, act, tot: R ? pbTot(R.emps, R.params) : null, source: run.source, locked: run.locked,
         ...(R ? { preview: R.emps, params: R.params } : {}), autoAt: dmy(run.createdAt), mpinSaved: exp.some((x) => x.runId === run.id),
       });
       continue;

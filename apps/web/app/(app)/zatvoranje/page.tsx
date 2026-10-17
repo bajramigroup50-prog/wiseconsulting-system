@@ -5,15 +5,17 @@
  * queries for all firms (legacy loaded each firm's data in the browser).
  */
 import Link from 'next/link';
-import { and, eq, inArray, like, ne, sql } from 'drizzle-orm';
 import { can } from '@wise/core';
-import { ymAdd, zatMonthEnd, zatPrio, zatTasks, type ZatFacts, type ZatTask } from '@wise/core/firms/zatvoranje';
-import { bankStatements, employees, invoices, journalLines, journals, payrollRuns, purchases, vatPeriods } from '@wise/db';
+import { AUTO_META } from '@wise/core/office/automations';
+import { ymAdd, zatMonthEnd, zatPrio, zatTasks, type ZatTask } from '@wise/core/firms/zatvoranje';
+import { autoLastRun, CLOSE_KIND, listDrafts, zatFactsFor } from '@wise/db';
+import { isDemoUser } from '@/lib/demo';
+import { AutoStatus } from '@/components/auto-status';
 import { db } from '@/lib/db';
 import { allowedFirms, officePage, today } from '@/lib/office';
 import { Hd, dmy } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
-import { lockMonth } from './actions';
+import { lockAllPrepared, lockMonth } from './actions';
 
 const cell = (t: ZatTask) => (t.ok === null ? <span className="mini" style={{ color: 'var(--muted)' }}>—</span> : t.ok ? <span className="pill good">✓</span> : <span className="pill bad">✗</span>);
 
@@ -22,45 +24,34 @@ export default async function ZatvoranjePage({ searchParams }: { searchParams: P
   const sp = await searchParams;
   const td = today();
   const ym = sp.m && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.m) ? sp.m : ymAdd(td.slice(0, 7), -1);
-  const ms = ym + '-01', me = zatMonthEnd(ym), y0 = ym.slice(0, 4) + '-01-01';
+  const me = zatMonthEnd(ym);
   const F = await allowedFirms(u);
   const ids = F.map((f) => f.id);
-  const inM = (col: Parameters<typeof sql>[1]) => sql`${col} between ${ms} and ${me}`;
-  const none = !ids.length;
-  const [ST, PU, IN, NO, CA, EM, PR, VP] = none ? [[], [], [], [], [], [], [], []] : await Promise.all([
-    db().select({ f: bankStatements.firmId, n: sql<number>`count(*)::int` }).from(bankStatements).where(and(inArray(bankStatements.firmId, ids), inM(bankStatements.date))).groupBy(bankStatements.firmId),
-    db().select({ f: purchases.firmId, n: sql<number>`count(*)::int` }).from(purchases).where(and(inArray(purchases.firmId, ids), ne(purchases.status, 'draft'), inM(purchases.date))).groupBy(purchases.firmId),
-    db().select({ f: invoices.firmId, n: sql<number>`count(*)::int` }).from(invoices).where(and(inArray(invoices.firmId, ids), eq(invoices.kind, 'invoice'), ne(invoices.status, 'draft'), inM(invoices.date))).groupBy(invoices.firmId),
-    db().select({ f: invoices.firmId, no: invoices.number }).from(invoices).where(and(inArray(invoices.firmId, ids), eq(invoices.kind, 'invoice'), eq(invoices.advance, false), ne(invoices.status, 'draft'), sql`${invoices.date} between ${y0} and ${me}`)),
-    db().select({ f: journalLines.firmId, b: sql<string>`sum(${journalLines.debit} - ${journalLines.credit})` }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
-      .where(and(inArray(journalLines.firmId, ids), eq(journalLines.account, '1020'), sql`${journals.date} between ${y0} and ${me}`)).groupBy(journalLines.firmId),
-    db().select({ f: employees.firmId, n: sql<number>`count(*)::int` }).from(employees)
-      .where(and(inArray(employees.firmId, ids), eq(employees.active, true), sql`(${employees.start} is null or ${employees.start} <= ${me}) and (${employees.end} is null or ${employees.end} >= ${ms})`)).groupBy(employees.firmId),
-    db().select({ f: payrollRuns.firmId, locked: payrollRuns.locked }).from(payrollRuns).where(and(inArray(payrollRuns.firmId, ids), eq(payrollRuns.month, ym))),
-    db().select({ f: vatPeriods.firmId, p: vatPeriods.period }).from(vatPeriods).where(and(inArray(vatPeriods.firmId, ids), eq(vatPeriods.status, 'closed'), like(vatPeriods.period, ym.slice(0, 4) + '%'))),
+  const [facts, drafts, lastRun] = await Promise.all([
+    zatFactsFor(db(), F, ym),
+    listDrafts(db(), { kind: CLOSE_KIND, period: ym, firmIds: ids }),
+    autoLastRun(db(), 'close').catch(() => null),
   ]);
-  const cnt = (L: { f: string; n: number }[]) => new Map(L.map((r) => [r.f, r.n]));
-  const st = cnt(ST), pu = cnt(PU), inv = cnt(IN), em = cnt(EM);
-  const nos = new Map<string, string[]>(); for (const r of NO) nos.set(r.f, [...(nos.get(r.f) ?? []), r.no]);
-  const ca = new Map(CA.map((r) => [r.f, Number(r.b) || 0]));
-  const pr = new Map(PR.map((r) => [r.f, { exists: true, locked: r.locked }]));
-  const vp = new Map<string, Set<string>>(); for (const r of VP) vp.set(r.f, (vp.get(r.f) ?? new Set()).add(r.p));
+  const prepared = new Set(drafts.map((d) => d.firmId));
   const rows = F.map((f) => {
-    const facts: ZatFacts = {
-      vat: f.vatRegistered, vatPeriod: f.vatPeriod, lockDate: f.lockDate, statements: st.get(f.id) ?? 0, invoices: inv.get(f.id) ?? 0,
-      purchases: pu.get(f.id) ?? 0, invoiceNumbers: nos.get(f.id) ?? [], cash: { any: ca.has(f.id), balance: Math.round((ca.get(f.id) ?? 0) * 100) / 100 },
-      activeEmployees: em.get(f.id) ?? 0, payrollRun: pr.get(f.id) ?? null, vatClosed: vp.get(f.id) ?? new Set(),
-    };
-    const T = zatTasks(facts, ym);
-    const [p, pl] = zatPrio(facts, ym);
+    const fx = facts.get(f.id)!;
+    const T = zatTasks(fx, ym);
+    const [p, pl] = zatPrio(fx, ym);
     return { f, T, p, pl, bad: T.filter((t) => t.ok === false).length };
   }).sort((a, b) => a.p - b.p || b.bad - a.bad);
   const groups = [...new Set(rows.map((r) => r.pl))];
+  // P35 bulk lock: owner / administrator only, the firms the nightly check prepared that are still not locked
+  const readyRows = rows.filter((r) => prepared.has(r.f.id) && !r.T.find((t) => t.k === 'lock')?.ok && can(u.principal, 'fix', r.f.id));
+  const bulk = u.role === 'admin' && !isDemoUser(u) ? readyRows.length : 0;
   const tot = rows.reduce((a, r) => { const A = r.T.filter((t) => t.ok !== null); a.n += A.length; a.ok += A.filter((t) => t.ok).length; return a; }, { n: 0, ok: 0 });
   const months = Array.from({ length: 15 }, (_, i) => ymAdd(td.slice(0, 7), -i));
   return (
     <>
       <Hd t="Месечно затворање – сите фирми" sub={`${ym.slice(5)}/${ym.slice(0, 4)} · завршено ${tot.ok}/${tot.n} задачи`}>
+        {/* P35: the nightly check marks the months ready to lock (it never locks); the status line as on the other scheduled screens */}
+        <AutoStatus label="Подготвено автоматски" at={lastRun?.at} when={AUTO_META.close.when} />
+        {bulk > 0 && <RowAction className="btn pri" action={lockAllPrepared.bind(null, ym)} label={`🔒 Заклучи ги сите подготвени (${bulk})`}
+          confirm={`Да се заклучат ${bulk} фирми до ${dmy(me)}?\n\nСекоја фирма повторно се проверува пред заклучување. По заклучувањето не може да се внесуваат/менуваат документи за тој период.\n\n• ${readyRows.map((r) => r.f.name).join('\n• ')}`} />}
         <form className="row" style={{ gap: 6 }}>
           <select name="m" defaultValue={ym} style={{ width: 'auto' }}>{months.map((m) => <option key={m} value={m}>{m.slice(5)}/{m.slice(0, 4)}</option>)}</select>
           <button className="btn">↻ Провери</button>
@@ -80,7 +71,7 @@ export default async function ZatvoranjePage({ searchParams }: { searchParams: P
                 const locked = r.T.find((t) => t.k === 'lock')?.ok;
                 return (
                   <tr key={r.f.id}>
-                    <td><b>{r.f.name}</b>{due && <div className="mini" style={{ color: due < td ? 'var(--bad)' : 'var(--muted)' }}>рок: {dmy(due)}{due < td ? ' – ПОМИНАТ' : ''}</div>}</td>
+                    <td><b>{r.f.name}</b>{prepared.has(r.f.id) && !locked && <> <span className="pill good" title="Ноќната проверка: сите задачи се ✓ – месецот може да се заклучи">подготвено за заклучување</span></>}{due && <div className="mini" style={{ color: due < td ? 'var(--bad)' : 'var(--muted)' }}>рок: {dmy(due)}{due < td ? ' – ПОМИНАТ' : ''}</div>}</td>
                     <td className="n"><div style={{ minWidth: 90 }}><b>{ok}/{A.length}</b><div style={{ height: 6, background: 'var(--line)', borderRadius: 3, marginTop: 3 }}><div style={{ height: 6, width: pct + '%', background: pct === 100 ? '#1f8a4c' : pct >= 50 ? '#e08a00' : '#d11a2a', borderRadius: 3 }} /></div></div></td>
                     <td><div className="row" style={{ gap: '6px 12px', flexWrap: 'wrap' }}>
                       {r.T.map((t) => (

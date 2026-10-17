@@ -7,19 +7,21 @@
 import Link from 'next/link';
 import { desc, eq } from 'drizzle-orm';
 import { CLIENT_REPORT_STATUS, clientReportHtml, isReportLang, isReportPeriod, klLang, lastFinishedMonth, periodLabel, REPORT_LANGS, type ClientReportData, type ClientReportStatus, type KlConfig } from '@wise/core/office';
-import { clientReports, firmMail } from '@wise/db';
+import { AUTO_META } from '@wise/core/office/automations';
+import { autoLastRun, clientReports, draftReportCount, firmMail } from '@wise/db';
 import { db } from '@/lib/db';
 import { smtpConfigured } from '@/lib/mail';
-import { officePage, today } from '@/lib/office';
+import { allowedFirms, officePage, today } from '@/lib/office';
 import { isDemoUser } from '@/lib/demo';
 import { ownerContext } from '@/lib/demo-office';
 import { ActionForm } from '@/components/action-form';
 import { AiBadge, AI_COST_TAG } from '@/components/ai-badge';
 import { AutoRefresh } from '@/components/auto-refresh';
+import { AutoStatus } from '@/components/auto-status';
 import { Hd, dmyHm } from '@/components/hd';
 import { PdfButton } from '@/components/pdf-button';
 import { RowAction } from '@/components/row-action';
-import { mailClientReport, prepareAll, prepareReport, publishReport, reportAi } from './actions';
+import { mailClientReport, prepareAll, prepareReport, publishAllPrepared, publishReport, reportAi } from './actions';
 
 export default async function MesIzvPage({ searchParams }: { searchParams: Promise<{ id?: string; p?: string }> }) {
   const sp = await searchParams;
@@ -29,9 +31,18 @@ export default async function MesIzvPage({ searchParams }: { searchParams: Promi
   // the office owner, or 🎭 the demo office's owner (its batch covers the demo firms only)
   const owner = !!(await ownerContext(u));
   const demo = isDemoUser(u);
+  // P38: the reports the scheduled job (or a batch) prepared and not yet published
+  const [lastRun, waiting] = owner
+    ? await Promise.all([autoLastRun(db(), 'reports').catch(() => null), draftReportCount(db(), def, (await allowedFirms(u)).filter((x) => x.active).map((x) => x.id))])
+    : [null, 0];
   const batch = owner && (
     <ActionForm action={prepareAll} reset={false}>
-      <h2 style={{ fontSize: 15, margin: '0 0 8px' }}>Подготви за сите клиенти</h2>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 8px' }}>
+        <h2 style={{ fontSize: 15, margin: 0 }}>Подготви за сите клиенти</h2>
+        <AutoStatus label="Подготвено автоматски" at={lastRun?.at} when={AUTO_META.reports.when} />
+        {waiting > 0 && <RowAction className="btn pri" action={publishAllPrepared.bind(null, def)} label={`📢 Објави ги сите подготвени (${waiting})`}
+          confirm={`Да се објават ${waiting} извештаи за ${periodLabel(def)} во порталите на клиентите?\n\nСекој клиент добива порака во порталот. Извештаите што се веќе објавени не се менуваат.`} />}
+      </div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <input type="month" name="period" defaultValue={def} max={td.slice(0, 7)} required style={{ width: 'auto' }} />
         <button className="btn">⚙ Подготви за сите клиенти</button>

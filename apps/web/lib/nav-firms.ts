@@ -27,6 +27,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Систем', 'aktivnost', [['produktivnost', '📊 Продуктивност на вработените']]],
   // owner-only: AI cost report and monthly AI limit (docs/AI-TROSHOK.md)
   ['Систем', 'produktivnost', [['aiTrosok', '💲 AI трошок']]],
+  // owner-only (UX Phase 3): the scheduled automations' switches, schedules, last runs and waiting drafts
+  ['Систем', 'aiTrosok', [['avtomatizacii', '⚙ Автоматизации']]],
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
   // the AI reading card (also in „Податоци и резервна копија“) on its own page, with the credit check
   ['Систем', 'konvertor', [['aiCitanje', '🤖 AI читање']]],

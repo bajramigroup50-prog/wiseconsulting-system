@@ -84,3 +84,4 @@ export * from './demo/filters';
 export * from './demo/seed';
 export * from './demo/reset';
 export * from './demo/firms';
+export * from './automation/index';
