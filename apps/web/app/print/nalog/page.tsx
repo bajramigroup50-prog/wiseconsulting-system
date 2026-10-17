@@ -2,10 +2,13 @@
  * Print view of one nalog (legacy `ACT.nalogPdf` 7346 → `nalogPdfZ` 3561): firm head, „Финансов налог број“,
  * columns Бр. · Датум · Изв. Бр · КОНТО · Должи · Побарува · Комитент · Содржина · Док. + забелешка, totals,
  * signatures Книжел / Контролирал / Одговорно лице. `?n=<number>`. The title is the user's „✎ Назив“ when set.
+ * `&dev=1` = „Печатење девизен“ (Дев. должи / Дев. побарува / Вал. columns). The bank konto of a statement is one line
+ * (Должи = Σ приливи, Побарува = Σ одливи), like the old program.
  */
 import { notFound } from 'next/navigation';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { journalLines, journals, nalTitleOf, partners } from '@wise/db';
+import { journalLines, journals, loadBankAccounts, nalTitleOf, partners } from '@wise/db';
+import { mergeBankHeads } from '@/lib/nalog-grid';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { FirmHead, Sig } from '../firm-head';
@@ -19,17 +22,27 @@ const d8 = (d?: string | null) => (d ? String(d).slice(0, 10).split('-').reverse
 /** Legacy `cont()`: the description in capitals without the trailing „од dd.mm.yyyy“. */
 const nalogContent = (s: string) => s.toUpperCase().replace(/\s+ОД\s+\d{2}\.\d{2}\.\d{4}.*$/, '').replace(/БР\.\s*/, 'БР ');
 
-export default async function PrintNalog({ searchParams }: { searchParams: Promise<{ n?: string; t?: string }> }) {
-  const { n, t } = await searchParams;
+export default async function PrintNalog({ searchParams }: { searchParams: Promise<{ n?: string; t?: string; dev?: string }> }) {
+  const { n, t, dev } = await searchParams;
   const { firm, year } = await printGuard('nalozi');
   if (!n) notFound();
   const J = await db().select().from(journals)
     .where(and(eq(journals.firmId, firm.id), eq(journals.number, n), sql`${journals.date} between ${`${year}-01-01`} and ${`${year}-12-31`}`))
     .orderBy(asc(journals.date), asc(journals.createdAt));
   if (!J.length) notFound();
-  const L = await db().select({ l: journalLines, j: { date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { id: partners.id, code: partners.code, name: partners.name } })
+  const L0 = await db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta, sourceType: journals.sourceType }, p: { id: partners.id, code: partners.code, name: partners.name } })
     .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).leftJoin(partners, eq(partners.id, journalLines.partnerId))
     .where(inArray(journalLines.journalId, J.map((j) => j.id))).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo));
+  const bankK = new Set((await loadBankAccounts(db(), firm.id)).map((a) => a.konto));
+  // the two head lines of a statement (Σ приливи / Σ одливи on the bank konto) print as one line
+  const L = mergeBankHeads(L0.map((x) => ({ account: x.l.account, debit: Number(x.l.debit), credit: Number(x.l.credit), partnerId: x.l.partnerId, note: x.l.note, currency: x.l.currency, amountCur: x.l.amountCur == null ? null : Number(x.l.amountCur), journalId: x.j.id })),
+    (x) => L0.find((y) => y.j.id === x.journalId)?.j.sourceType === 'bank_statement', bankK)
+    .map((ix) => {
+      const P0 = ix.map((i) => L0[i]!);
+      const devOf = (side: 'd' | 'p') => P0.reduce((s0, x) => s0 + (x.l.currency && x.l.currency !== 'MKD' && x.l.amountCur != null && Number(side === 'd' ? x.l.debit : x.l.credit) ? Math.abs(Number(x.l.amountCur)) : 0), 0);
+      return { ...P0[0]!, l: { ...P0[0]!.l, debit: String(P0.reduce((s0, x) => s0 + Number(x.l.debit), 0)), credit: String(P0.reduce((s0, x) => s0 + Number(x.l.credit), 0)) }, dD: devOf('d'), dP: devOf('p') };
+    });
+  const showDev = dev === '1';
   const D = L.reduce((s, x) => s + Number(x.l.debit), 0), P = L.reduce((s, x) => s + Number(x.l.credit), 0);
   const date = J.map((j) => j.date).sort().at(-1)!;
   // a bank nalog collects many statements over its period: the title names the bank, never one statement („Извод бр. 201 …“)
@@ -56,7 +69,7 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
         <div className="sm" style={{ textAlign: 'right' }}>Отпечатено: {d8(new Date().toISOString())}</div>
       </div>
       <table>
-        <thead><tr><th style={{ width: 22 }}>Бр.</th><th>Датум</th><th>Изв.<br />Бр</th><th>КОНТО</th><th>Должи</th><th>Побарува</th><th>Комитент</th><th>Содржина<br /><small>(Фактура број)</small></th><th>Док. (Калк. Бр.)<br /><small>+ забелешка</small></th></tr></thead>
+        <thead><tr><th style={{ width: 22 }}>Бр.</th><th>Датум</th><th>Изв.<br />Бр</th><th>КОНТО</th><th>Должи</th><th>Побарува</th><th>Комитент</th><th>Содржина<br /><small>(Фактура број)</small></th><th>Док. (Калк. Бр.)<br /><small>+ забелешка</small></th>{showDev && <><th>Дев. должи</th><th>Дев. побарува</th><th>Вал.</th></>}</tr></thead>
         <tbody>
           {L.map((x, i) => (
             <tr key={x.l.id}>
@@ -65,10 +78,11 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
               <td>{x.p ? ((x.p.code ? x.p.code + ' ' : '') + x.p.name).slice(0, 34) : ''}</td>
               <td style={{ whiteSpace: 'normal' }}>{nalogContent(x.j.description ?? '').slice(0, 90)}</td>
               <td style={{ whiteSpace: 'normal' }}>{x.l.doc ?? ''}{x.l.note && x.l.note !== x.j.description ? <> <small>{x.l.note.slice(0, 40)}</small></> : null}</td>
+              {showDev && <><td className="n">{x.dD ? fmt(x.dD) : ''}</td><td className="n">{x.dP ? fmt(x.dP) : ''}</td><td>{x.l.currency && x.l.currency !== 'MKD' ? x.l.currency : ''}</td></>}
             </tr>
           ))}
         </tbody>
-        <tfoot><tr><td colSpan={4}>Вкупно ({L.length} ставки)</td><td className="n">{fmt(D)}</td><td className="n">{fmt(P)}</td><td colSpan={3}>{Math.abs(D - P) < 0.01 ? '' : 'Разлика: ' + fmt(D - P)}</td></tr></tfoot>
+        <tfoot><tr><td colSpan={4}>Вкупно ({L.length} ставки)</td><td className="n">{fmt(D)}</td><td className="n">{fmt(P)}</td><td colSpan={3 + (showDev ? 3 : 0)}>{Math.abs(D - P) < 0.01 ? '' : 'Разлика: ' + fmt(D - P)}</td></tr></tfoot>
       </table>
       <Sig who={['Книжел', 'Контролирал', 'Одговорно лице']} />
     </div>

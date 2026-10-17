@@ -23,8 +23,9 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { PartnerPicker } from '@/components/partner-picker';
 import { KontoField } from '@/components/konto-field';
+import { BankManualEntry } from '@/components/bank-manual-entry';
 import {
-  addManualLineAction, addRuleAction, applyMatchesAction, bookAllAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
+  addRuleAction, applyMatchesAction, bookAllAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
@@ -446,24 +447,16 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       </form>
       {del && BK.length > 0 && <BulkDeleteStatementsBox accounts={BK.map((x) => ({ id: x.id, name: x.name }))} fx={fx} year={year} acct={sp.acct} />}
 
+      {/* „Нова ставка“ dialog (fast entry): F9 = add and next line, Esc = close; Должи / Побарува of the counter konto → одлив / прилив */}
       {sp.manual && write && acct && (
-        <BankForm action={addManualLineAction} className="card form">
-          <h3 style={{ width: '100%' }}>Рачна ставка во извод</h3>
-          <label className="f">Сметка<select name="acct" defaultValue={acct.id}>{BK.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-          <label className="f">Датум<input type="date" name="date" required defaultValue={todayIso().startsWith(String(year)) ? todayIso() : `${year}-${month || '01'}-01`} /></label>
-          <label className="f">Насока<select name="dir" defaultValue="in"><option value="in">Прилив (уплата кон нас)</option><option value="out">Одлив (плаќање)</option></select></label>
-          <label className="f wide">Затвора наша / влезна фактура
-            <select name="doc" defaultValue="">
-              <option value="">— без фактура —</option>
-              {manualDocs.map((d) => <option key={d.v} value={`${d.v}|${d.o}|${d.n}|${d.p}`}>{d.t}</option>)}
-            </select></label>
-          <label className="f">{fx ? `Износ во ${acct.cur}` : 'Износ'} (празно = отвореното на фактурата)<input name="amount" inputMode="decimal" /></label>
-          {fx && <label className="f">Износ во денари (празно = по курсот на изводот)<input name="amountMkd" inputMode="decimal" /></label>}
-          <label className="f wide">Опис (празно = „Уплата“ / „Плаќање“)<input name="desc" /></label>
-          <label className="f">Конто (празно = за книжење)<input name="konto" list="bkK2" /></label>
-          <label className="f">Комитент{partnerSelect('partner')}</label>
-          <div className="row"><button className="btn pri">Зачувај ставка</button></div>
-        </BankForm>
+        <BankManualEntry closeHref={q({ manual: undefined })} chart={chartPairs} partners={pickP}
+          accounts={BK.map((x) => ({ id: x.id, label: x.name, konto: x.konto, cur: x.cur }))}
+          statements={S.map((s0) => {
+            const its = byStatement.get(s0.id) ?? [];
+            return { id: s0.id, acct: s0.bankAccountId, no: s0.number ?? '', date: s0.date, lines: its.length, net: Math.round(its.reduce((x, l) => x + Number(fx ? l.amountCur ?? 0 : l.amount), 0) * 100) / 100 };
+          })}
+          docs={manualDocs.map((d) => ({ id: d.v.split('|')[1]!, partnerId: d.p, no: d.n, open: d.o / 100, side: d.v.startsWith('inv') ? 'p' as const : 'd' as const, konto: d.v.startsWith('inv') ? env.konta.customer : env.konta.supplier, label: d.t }))}
+          initial={{ acct: acct.id, date: S.find((s0) => s0.bankAccountId === acct.id)?.date ?? (todayIso().startsWith(String(year)) ? todayIso() : `${year}-${month || '01'}-01`), stNo: S.find((s0) => s0.bankAccountId === acct.id)?.number ?? '' }} />
       )}
 
       {admin && S.length > 0 && (

@@ -4,8 +4,9 @@ import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { needsPartner } from '@wise/core';
+import type { OvRow } from '@wise/core/finpar';
 import {
-  audit, bankAccounts, deleteJournal, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
+  audit, bankAccounts, createLineKonto, deleteJournal, journalOverrideState, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
   resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal, type NalogDeleteResult,
 } from '@wise/db';
 import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
@@ -17,6 +18,8 @@ const amount = z.union([z.string(), z.number()]).transform((v) => String(v).trim
 const Row = z.object({
   account: z.string().trim().max(10), partnerId: z.string().trim().max(40).optional().default(''),
   debit: amount, credit: amount, note: z.string().trim().max(500).optional().default(''), doc: z.string().trim().max(100).optional().default(''),
+  // foreign currency / location of the line (kept when a manual nalog is corrected; „Во девизи“ of the fast entry)
+  currency: z.string().trim().max(3).nullish(), amountCur: amount.nullish(), locationId: z.string().trim().max(40).nullish(),
 });
 const JournalInput = z.object({
   id: z.string().nullish().transform((s) => s ?? ''),
@@ -62,7 +65,11 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
     const input = {
       firmId: firm.id, date: v.date, kind: existing?.kind ?? 'manual', description: v.description || 'Рачен налог',
       number: v.number || (existing ? existing.number : null), periodFrom: v.periodFrom || null, periodTo: v.periodTo || null,
-      lines: R.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note, doc: r.doc })),
+      lines: R.map((r) => ({
+        account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note, doc: r.doc,
+        ...(r.currency && r.currency !== 'MKD' && r.amountCur && Number(r.amountCur) ? { currency: r.currency.toUpperCase(), amountCur: Math.abs(Number(r.amountCur)) } : {}),
+        ...(r.locationId ? { locationId: r.locationId } : {}),
+      })),
       userId: u.id, auditAction: existing ? 'nalSave' : 'saveJ',
       // opening balances may carry 12x/22x rows without a partner (saveOpening allows them)
       requirePartner: !(existing && ['open', 'bbimp'].includes(existing.kind)),
@@ -73,6 +80,8 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
     target = res.number;
   } catch (e) { return actionError(e); }
   revalidatePath('/nalozi');
+  // the nalog grid („Промена (Enter)“) saves in place and refreshes itself
+  if (form.get('stay') === '1') return { ok: target };
   redirect(`/nalozi?n=${encodeURIComponent(target)}`);
 }
 
@@ -234,7 +243,7 @@ const OvRowZ = z.object({
  * the line edits are stored as an override of the source document and re-applied on every re-post.
  * New / changed lines on 120–128 / 220–228 need a partner (legacy 12457).
  */
-export async function saveOverrideAction(journalId: string, rows: unknown): Promise<ActionState> {
+export async function saveOverrideAction(journalId: string, rows: unknown, stay = false): Promise<ActionState> {
   let target = '';
   try {
     const R = z.array(OvRowZ).max(2000).safeParse(rows);
@@ -248,6 +257,7 @@ export async function saveOverrideAction(journalId: string, rows: unknown): Prom
     target = res.number;
   } catch (e) { return actionError(e); }
   revalidatePath('/nalozi');
+  if (stay) return { ok: target };
   redirect(`/nalozi?n=${encodeURIComponent(target)}`);
 }
 
@@ -299,4 +309,26 @@ export async function saveBankNalCodes(form: FormData): Promise<void> {
     await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveNalCodes', entityType: 'firm', entityId: firm.id, data: { banks: set } });
   });
   revalidatePath('/nalozi');
+}
+
+/** Rows of a document journal's correction (the nalog grid loads them when a line is changed; needs `fix`). */
+export async function overrideRowsAction(journalId: string): Promise<{ error?: string; rows?: OvRow[] }> {
+  try {
+    const { firm } = await firmAction('nalEdit');
+    const st = await db().transaction((tx) => journalOverrideState(tx, firm.id, journalId));
+    if (!st.rows) return { error: 'Овој налог не е креиран од документ.' };
+    if (st.journal.locked || (firm.lockDate && st.journal.date <= firm.lockDate)) return { error: 'Налогот е во заклучен период.' };
+    return { rows: st.rows };
+  } catch (e) { return actionError(e); }
+}
+
+/** „+ Ново конто“ of the fast-entry dialog in a manual nalog (chart editor rules, like the bank line form). */
+export async function createKontoAction(code: string, name: string): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    if (!/^\d{3,8}$/.test(String(code ?? '').trim())) return { error: 'Неважечко конто.' };
+    await db().transaction((tx) => createLineKonto(tx, { firmId: firm.id, userId: u.id, code: String(code).trim(), name: String(name ?? '').slice(0, 120) }));
+  } catch (e) { return actionError(e); }
+  revalidatePath('/nalozi');
+  return { ok: 'Контото е додадено.' };
 }

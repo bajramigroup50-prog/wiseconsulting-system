@@ -12,7 +12,7 @@ import {
 import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, createLineKonto, setLineKonto, setLinePartner, undoImport, unlinkLine,
-  updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
+  updateStatement, loadBankAccounts, bankLines, bankAccounts, bankStatements, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
   saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
   pendingReads, dismissReads, linkBankAccountNumber, createStatementAccount, bulkDeleteStatements, bulkDeleteStatementsPlan, type Tx,
@@ -501,19 +501,32 @@ export async function addManualLineAction(_p: FormState, form: FormData): Promis
   const amt = a0 != null && a0 !== 0 ? Math.abs(a0) : doc ? doc.open / 100 : 0;
   if (!amt) return { error: 'Внесете износ.' };
   const mkd = num(form.get('amountMkd'));
-  const desc = str(form.get('desc')) || (doc ? `${dirIn ? 'Уплата' : 'Плаќање'} по фактура ${doc.no}` : dirIn ? 'Уплата' : 'Плаќање');
+  // „Нова ставка“ dialog (fast entry): the document number is kept in the description
+  const ldoc = str(form.get('ldoc'));
+  const desc0 = str(form.get('desc')) || (doc ? `${dirIn ? 'Уплата' : 'Плаќање'} по фактура ${doc.no}` : dirIn ? 'Уплата' : 'Плаќање');
+  const desc = ldoc && !desc0.includes(ldoc) ? `${desc0} · ${ldoc}` : desc0;
+  const stNo = str(form.get('stno')).slice(0, 30);
+  const newKonto = form.get('newKonto') === '1';
   if (!isDate(date)) return { error: 'Внесете датум.' };
   return notifyAfter(await bankRun('mbSave', P, async ({ tx, u, firm, year }) => {
     const id = str(form.get('acct'));
     const [acc] = await loadBankAccounts(tx, firm.id).then((A) => A.filter((x) => x.id === id));
     if (!acc) return 'Сметката не постои.';
     const fx = acc.cur !== 'MKD';
+    const k0 = doc ? '' : str(form.get('konto')).split(/\s/)[0] ?? '';
+    if (k0 && newKonto) await createLineKonto(tx, { firmId: firm.id, userId: u.id, code: k0, name: str(form.get('newName')) });
     const lineId = await addManualLine(tx, {
       firmId: firm.id, userId: u.id, bankAccountId: id, date,
       amount: fx ? (mkd ? sign * Math.abs(mkd) : 0) : sign * amt, amountCur: fx ? sign * amt : null, desc,
       konto: doc ? null : str(form.get('konto')).split(/\s/)[0] || null, partnerId: (doc?.partner || str(form.get('partner'))) || null,
     });
     if (doc) await linkLine(tx, { firmId: firm.id, userId: u.id, year, lineId, docIds: [doc.id] });
+    // „Извод број“ of the dialog numbers a statement that has no number yet (an existing number is not changed here)
+    if (stNo) {
+      const [bl] = await tx.select({ st: bankLines.statementId }).from(bankLines).where(eq(bankLines.id, lineId)).limit(1);
+      const [st] = bl ? await tx.select({ id: bankStatements.id, number: bankStatements.number }).from(bankStatements).where(eq(bankStatements.id, bl.st)).limit(1) : [];
+      if (st && !st.number) await updateStatement(tx, { firmId: firm.id, userId: u.id, statementId: st.id, number: stNo });
+    }
     return doc ? `Ставката е додадена и ја затвора фактурата ${doc.no}.` : 'Ставката е додадена.';
   }));
 }
