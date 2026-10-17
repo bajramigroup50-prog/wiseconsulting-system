@@ -158,6 +158,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     const title = titleOf(g);
     const dev = L.some(({ l }) => l.currency && l.currency !== 'MKD' && l.amountCur != null);
     const IZ = g.journals.some((j) => j.kind === 'bank');
+    const hasDoc = L.some(({ l }) => l.doc);
     const izNo = (m: unknown) => String(((m ?? {}) as { statementNo?: string }).statementNo ?? '');
     const devOf = (l: (typeof L)[number]['l'], side: 'd' | 'p') => {
       if (!l.currency || l.currency === 'MKD' || l.amountCur == null) return 0;
@@ -304,8 +305,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             <div className={`callout ${open ? 'warn' : 'good'}`}>{stIds.length > 1 ? `Изводи (${stIds.length})` : `Извод од ${dmy(ds[0])}`}: {BL.length} ставки · прилив <b>{fmt(pr)}</b> · одлив <b>{fmt(od)}</b> ден. Изводот се книжи обратно од банката: „должува“ на изводот (одлив) = Побарува {bankK ?? 'банка'}, „побарува“ на изводот (прилив) = Должи {bankK ?? 'банка'}; спротивното конто е она што е избрано во „Изводи“.{open ? <> <b>{open} ставки не се поврзани</b> – изводот не е целосно прокнижен.</> : null}</div>
           );
         })()}
-        <div className="tw"><table className="dense nalg">
-          <thead><tr><th className="n">Р.бр.</th><th>Датум</th>{IZ && <th className="n">Изв. бр.</th>}<th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th><th>Шифра</th><th>Комитент</th><th style={{ minWidth: 240 }}>Опис / содржина</th><th>Документ</th>{dev && <><th className="n">Дев. должи</th><th className="n">Дев. побарува</th></>}</tr></thead>
+        {/* fits the screen: шифра + комитент in one cell, text wraps, „Документ“ only when some line has one (PDF / Excel keep all columns) */}
+        <div className="tw"><table className="dense nalg fit">
+          <thead><tr><th className="n">Р.бр.</th><th>Датум</th>{IZ && <th className="n">Изв. бр.</th>}<th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th><th>Шифра · Комитент</th><th style={{ minWidth: 200 }}>Опис / содржина</th>{hasDoc && <th>Документ</th>}{dev && <><th className="n">Дев. должи</th><th className="n">Дев. побарува</th></>}</tr></thead>
           <tbody>
             {L.map(({ l, j, p }, i) => (
               <tr key={l.id}>
@@ -313,16 +315,16 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                 {IZ && <td className="n"><b>{j.kind === 'bank' ? izNo(j.meta) : ''}</b></td>}
                 <td title={names.get(l.account) ?? ''}><Link href={`/kkart?k=${l.account}`}><b className="num">{l.account}</b></Link></td>
                 <td className="n">{fmt(l.debit)}</td><td className="n">{fmt(l.credit)}</td>
-                <td>{p?.code}</td><td>{p?.name}</td>
-                <td>{j.description}{l.note && l.note !== j.description && <><br /><small className="mut">{l.note}</small></>}</td>
-                <td>{l.doc}</td>
+                <td className="w" style={{ maxWidth: 240 }}>{p?.code && <span className="num" style={{ color: 'var(--muted)' }}>{p.code} </span>}{p?.name}</td>
+                <td className="w">{j.description}{l.note && l.note !== j.description && <><br /><small className="mut">{l.note}</small></>}</td>
+                {hasDoc && <td className="w">{l.doc}</td>}
                 {dev && <><td className="n">{fmt(devOf(l, 'd'))}</td><td className="n">{fmt(devOf(l, 'p'))}</td></>}
               </tr>
             ))}
           </tbody>
           <tfoot><tr>
             <td colSpan={IZ ? 4 : 3}>Вкупно ({L.length} ставки) {t.balanced ? <span className="pill good">изедначен</span> : <span className="pill bad">неизедначен · разлика {fmt(t.diff)}</span>}</td>
-            <td className="n">{fmt(t.D)}</td><td className="n">{fmt(t.P)}</td><td colSpan={4 + (dev ? 2 : 0)} />
+            <td className="n">{fmt(t.D)}</td><td className="n">{fmt(t.P)}</td><td colSpan={2 + (hasDoc ? 1 : 0) + (dev ? 2 : 0)} />
           </tr></tfoot>
         </table></div>
       </>
