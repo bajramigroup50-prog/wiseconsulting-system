@@ -4,10 +4,13 @@
  * duplicates, automatic classification) → save. XML, MT940, KB `.300`, CSV and Excel are read on the server.
  */
 import { useRouter } from 'next/navigation';
-import { useRef, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { fmt, dmy } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
+import { Uvoz } from '@/components/uvoz';
+
+const BANK_ACCEPT = '.xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
 import { previewImportAction, previewNalogImportAction, saveImportAction, saveNalogImportAction, type NalogPreviewResult, type PreviewResult } from './actions';
 import { safeAction, STALE_ACTION_MSG } from '@/lib/version';
@@ -71,7 +74,7 @@ async function readAiStatements(L: File[], firmId: string, note: (m: string) => 
 
 export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accounts: { id: string; label: string }[]; defaultAcct: string; fx: boolean; firmId: string; nalog?: NalogTarget }) {
   const router = useRouter();
-  const ref = useRef<HTMLInputElement>(null);
+
   const [files, setFiles] = useState<File[]>([]);
   const [aiIds, setAiIds] = useState<string[]>([]);
   const [acct, setAcct] = useState(defaultAcct);
@@ -125,13 +128,13 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
     const r = await saveNalogImportAction(f);
     setMsg(r);
     setPeriodErr(!!r.period);
-    if (!r.error) { setFiles([]); setPrev(null); if (ref.current) ref.current.value = ''; if (r.number) router.push(`/nalozi?n=${encodeURIComponent(r.number)}`); router.refresh(); }
+    if (!r.error) { setFiles([]); setPrev(null); if (r.number) router.push(`/nalozi?n=${encodeURIComponent(r.number)}`); router.refresh(); }
   });
   const save = () => nalog ? saveNalog(nalog.number) : start(async () => {
     const r = await saveImportAction(form());
     setMsg(r);
     // legacy 4761 / 4782 / 4807: after the import the remaining lines are matched automatically → the review
-    if (!r.error) { setFiles([]); setPrev(null); if (ref.current) ref.current.value = ''; router.push(window.location.pathname + '?review=1'); router.refresh(); }
+    if (!r.error) { setFiles([]); setPrev(null); router.push(window.location.pathname + '?review=1'); router.refresh(); }
   });
 
   return (
@@ -151,23 +154,14 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
         </label>
-        <label className="f">Датотека од е-банкарство (XML, MT940, .300, Excel, CSV)
-          <input ref={ref} type="file" multiple accept=".xml,.xls,.xlsx,.csv,.txt,.sta,.940,.mt940,.swi,.300,.pdf,.jpg,.jpeg,.png,.webp" disabled={pending}
-            onChange={(e) => preview(Array.from(e.target.files ?? []))} />
-        </label>
-
         {pending && <span className="note">{note || 'Се чита…'}</span>}
       </div>
-      {/* legacy drop zone: drag the statement (PDF / photo / XML / Excel) here or click */}
-      <div className="drop" role="button" tabIndex={0} style={{ marginTop: 10, opacity: pending ? 0.6 : 1 }}
-        onClick={() => !pending && ref.current?.click()}
-        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !pending) ref.current?.click(); }}
-        onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; }}
-        onDragLeave={(e) => { e.currentTarget.style.borderColor = ''; }}
-        onDrop={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = ''; if (!pending) preview(Array.from(e.dataTransfer.files)); }}>
-        Повлечете го изводот тука (PDF, слика, XML, MT940, Excel), или кликнете за да го изберете<br />
-        <small>PDF и слики се читаат автоматски со AI (PDF со текст и без AI) · оригиналот се чува прикачен на изводот за евиденција</small>
-      </div>
+      {/* UX P6: the shared import zone (drag the statement – PDF / photo / XML / MT940 / Excel – here or click); the
+          preview → save flow below is unchanged. Every format is passed on (a КБ file may end in any .NNN). */}
+      <Uvoz style={{ marginTop: 10 }} busy={pending} onFiles={(L) => preview(L)} pickerAccept={BANK_ACCEPT}
+        label="Повлечете го изводот тука (PDF, слика, XML, MT940, .300, Excel, CSV), или кликнете за да го изберете"
+        hint="PDF и слики се читаат автоматски со AI (PDF со текст и без AI) · оригиналот се чува прикачен на изводот за евиденција"
+        results={files.map((f) => ({ name: f.name, msg: pending ? 'се чита…' : prev?.plans?.some((p) => p.file === f.name) ? 'прочитан – прегледајте подолу' : '' }))} />
       <p className="mini" style={{ margin: '4px 0 0' }}>Excel/CSV со непознати колони или без AI: <a href="/konvertor?t=bank" target="_blank" rel="noreferrer">🔄 Конвертор на датотеки</a> → Excel за увоз.</p>
       {msg.ok && <div className="callout good" role="status">{msg.ok}</div>}
       {nalog && <datalist id="nalImpK">{nalog.chart.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</datalist>}

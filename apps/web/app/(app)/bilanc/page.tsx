@@ -99,11 +99,13 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
                   {rows.map((r) => {
                     const hasP = lvl === 'a' && withPartners.has(r.k);
                     const open = hasP && sp.exp === r.k;
-                    const href = hasP ? qs({ exp: open ? '' : r.k }) : `/kkart?k=${r.k}&sub=${lvl === 'a' ? '' : '1'}&from=${from}&to=${to}${pf ? '&p=' + pf : ''}`;
+                    // the konto always opens its card; ▸/▾ in front of it opens the partners under it
+                    const href = `/kkart?k=${r.k}&sub=${lvl === 'a' ? '' : '1'}&from=${from}&to=${to}${pf ? '&p=' + pf : ''}`;
+                    const expHref = qs({ exp: open ? '' : r.k });
                     return (
                       <Fragment key={r.k}>
                         <tr className="bbrow">
-                          <td><Link href={href}><b style={{ color: 'var(--accent)' }}>{hasP ? (open ? '▾ ' : '▸ ') : ''}{r.k}</b></Link></td>
+                          <td>{hasP && <Link href={expHref} title={open ? 'Затвори ги комитентите' : 'Прикажи ги комитентите'} style={{ textDecoration: 'none' }}>{open ? '▾ ' : '▸ '}</Link>}<Link href={href} title="Отвори картица на контото"><b style={{ color: 'var(--accent)' }}>{r.k}</b></Link></td>
                           <td>{r.name}{hasP && <> <span className="mini" style={{ color: 'var(--muted)' }}>· по комитенти</span> <Link className="mini" href={`/kkart?k=${r.k}&from=${from}&to=${to}`}>картица</Link> <Link className="mini" href={`/bbPart?k=${r.k}&from=${from}&to=${to}${withClose ? '&close=1' : ''}${pf ? '&p=' + pf : ''}${wh ? '&wh=' + wh : ''}`}>табела по комитенти</Link></>}</td>
                           {cells(r)}
                         </tr>

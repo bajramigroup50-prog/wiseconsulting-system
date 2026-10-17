@@ -148,6 +148,37 @@ export const inboxItems = pgTable('inbox_items', {
 }, (t) => [index('inbox_items_firm_idx').on(t.firmId, t.done, t.createdAt)]);
 
 /**
+ * „📥 Пристигнати документи“ (UX P7 / P32): a file that arrived through the inbox (uploaded there, into a firm or
+ * office-wide = `firm_id` null, the latter visible to the owner / admins only). The client's portal messages, the scan
+ * reads and the МПИН rows stay in their own tables and are listed next to these. `kind` / `how` / `what` = the
+ * detected type (`@wise/core/office` `detectIncoming`, worker `incoming.detect`); `status` unread → read → done |
+ * skipped; `route` / `route_ref` = where it went (`bank_import:<batch>`, `ai_document:<id>`, `dossier_doc:<id>`,
+ * `mpin_inbox:<id>`); `detect` = the statements found, the firms proposed, the import result.
+ */
+export const incomingDocs = pgTable('incoming_docs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: firmFk(),
+  fileId: uuid('file_id').notNull().references(() => files.id, { onDelete: 'cascade' }),
+  source: text('source').notNull().default('upload'),
+  kind: text('kind').notNull().default('unknown'),
+  how: text('how'),
+  what: text('what'),
+  status: text('status').notNull().default('unread'),
+  route: text('route'),
+  routeRef: text('route_ref'),
+  result: text('result'),
+  detect: jsonb('detect').$type<Record<string, unknown>>().notNull().default({}),
+  /** The AI classification started on the user's click (`ai_documents`, kind `classify`). */
+  aiDocId: uuid('ai_doc_id'),
+  createdBy: by('created_by'),
+  doneBy: by('done_by'),
+  doneAt: ts('done_at'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index('incoming_docs_firm_idx').on(t.firmId, t.status, t.createdAt), index('incoming_docs_file_idx').on(t.fileId)]);
+export type IncomingDoc = typeof incomingDocs.$inferSelect;
+
+/**
  * „📊 Месечен извештај за клиентот“: one row per firm and month. `data` = the deterministic numbers from the books
  * (`@wise/core/office` `ClientReportData`); `summary` = the optional AI text (worker `client-report.summary`, only from
  * `data`). `status`: draft (office only) → published (the client sees it in the portal) → sent (also e-mailed).

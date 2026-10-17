@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { uploadFile } from '@/lib/upload';
 import { STALE_ACTION_MSG } from '@/lib/version';
 import { UploadTarget } from '@/components/firm-guard';
+import { Uvoz } from '@/components/uvoz';
 
 async function shrink(f: File): Promise<File> {
   if (!/^image\//.test(f.type) || f.type === 'image/gif') return f;
@@ -30,7 +31,7 @@ export function UploadField({ firmId, name = 'fileIds', label = '📎 Прика
 }) {
   const [items, setItems] = useState<{ id?: string; name: string; msg: string }[]>([]);
   const [busy, setBusy] = useState(false);
-  async function onFiles(list: FileList | null) {
+  async function onFiles(list: FileList | readonly File[] | null) {
     if (!list?.length) return;
     setBusy(true);
     try {
@@ -51,10 +52,8 @@ export function UploadField({ firmId, name = 'fileIds', label = '📎 Прика
             <input type="file" multiple hidden disabled={busy} accept="image/*" capture="environment" onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
           </label>
         )}
-        <label className="btn" style={{ cursor: busy ? 'wait' : 'pointer', width: 'fit-content' }}>
-          {label}
-          <input type="file" multiple hidden disabled={busy} accept={accept} onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
-        </label>
+        {/* UX P6: the shared import input (also a drop target, format per file); the upload itself is unchanged */}
+        <Uvoz compact label={label} busy={busy} pickerAccept={accept} onFiles={(L) => onFiles(L)} title="Кликнете или повлечете датотеки тука" />
       </div>
       {firmId && <UploadTarget compact />}
       {busy && <span className="note"> Се прикачува…</span>}

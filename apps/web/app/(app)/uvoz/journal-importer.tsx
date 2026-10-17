@@ -220,7 +220,7 @@ export function JournalImporter({ year, batches, canDel }: { year: number; batch
               <div className="hd"><h2>Комитенти што ги нема во WISE ({pv.missingPartners.length})</h2></div>
               <div className="tw"><table className="dense">
                 <thead><tr><th>Назив</th><th>Шифра</th><th>ЕДБ</th><th>Конта</th><th className="num">Ставки</th></tr></thead>
-                <tbody>{pv.missingPartners.slice(0, 300).map((m) => <tr key={m.key}><td>{m.name || '—'}</td><td>{m.code}</td><td>{m.edb}</td><td>{m.kontos.join(', ')}</td><td className="num">{m.rows.length}</td></tr>)}</tbody>
+                <tbody>{pv.missingPartners.slice(0, 300).map((m) => <tr key={m.key}><td>{m.name || '—'}{m.maybe?.length ? <div className="mini mut">можеби: {m.maybe.join(' · ')}</div> : null}</td><td>{m.code}</td><td>{m.edb}</td><td>{m.kontos.join(', ')}</td><td className="num">{m.rows.length}</td></tr>)}</tbody>
               </table></div>
               <label className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center' }}>
                 <input type="checkbox" checked={create} onChange={(e) => { setCreate(e.target.checked); check(e.target.checked); }} />

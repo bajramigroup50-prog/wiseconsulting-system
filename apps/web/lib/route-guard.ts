@@ -131,6 +131,8 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   'cb_cash', 'cb_cenovnik', 'cb_country', 'cb_currency', 'cb_fgroup', 'cb_hall', 'cb_location', 'cb_municipality', 'cb_oe', 'cb_route', 'cb_store', 'cb_vehicle', 'cb_warehouse',
   // imports into the firm, AI reading (AI itself is off unless the owner allows it)
   'uvoz', 'aiCitanje',
+  // „📥 Пристигнати документи“ (UX P7): the demo firms' files only (`allowedFirms`), no office-wide rows, no AI
+  'prist',
 ];
 
 /**
@@ -250,6 +252,8 @@ const BOOK_ONLY_LIST: readonly string[] = [
   'cb_cash', 'cb_cenovnik', 'cb_country', 'cb_currency', 'cb_fgroup', 'cb_hall', 'cb_location', 'cb_municipality', 'cb_oe', 'cb_route', 'cb_store', 'cb_vehicle', 'cb_warehouse',
   // tools: imports into the firm, the converter, AI document reading (the AI budget guard still applies)
   'uvoz', 'konvertor', 'aiCitanje',
+  // „📥 Пристигнати документи“ (UX P7): bookkeeping work — only the files of the colleague's own firms (`lib/incoming-scope.ts`)
+  'prist',
   // firm selection (the top-bar picker; the firms are still only the user's own), own password, help
   'izlezF', 'lozinka', 'pomos',
 ];

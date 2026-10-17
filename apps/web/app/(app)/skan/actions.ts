@@ -7,7 +7,8 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { ScanPurchaseDraft, ScanSaleDraft } from '@wise/core/sales';
-import { aiDocuments, audit, draftSourceFiles, ensurePartner, fileAlreadyUsed, fileLinks, files, markDraftSaved, purchaseInputFromDraft, saveInvoice, savePurchase, skipDraft } from '@wise/db';
+import { learnPartnerAlias, partnerIdLabel, type DraftPartnerMatch } from '@wise/core/partners/match';
+import { aiDocuments, audit, draftSourceFiles, ensurePartner, fileAlreadyUsed, fileLinks, files, items, markDraftSaved, partners, purchaseInputFromDraft, saveInvoice, savePurchase, skipDraft } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
@@ -127,7 +128,10 @@ export async function removeScan(id: string): Promise<ActionState> {
  * with its own journal, in its own transaction; the source file is linked to each (with the invoice's pages).
  * Duplicates (`dup`), invoices to check and skipped ones are left as they are.
  */
-async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<ActionState> {
+/** „Шема“ chosen for the batch: a number 1…99, or `undefined` = by the rules (partner default / Шема 1). */
+const batchScheme = (v: unknown): number | undefined => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 99 ? n : undefined; };
+
+async function savePurchaseDraftsOk(where: Parameters<typeof and>[0], scheme?: number): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('savePur');
     const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), eq(aiDocuments.status, 'done'), where));
@@ -139,7 +143,9 @@ async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<A
         if (x.status !== 'ok' || x.savedId || x.skipped) continue;
         try {
           await db().transaction(async (tx) => {
-            const r = await savePurchase(tx, firm.id, purchaseInputFromDraft(x.draft as unknown as ScanPurchaseDraft, draftSourceFiles(d, i)), actorOf(u));
+            const inp = purchaseInputFromDraft(x.draft as unknown as ScanPurchaseDraft, draftSourceFiles(d, i));
+            if (scheme) inp.data = { ...(inp.data ?? {}), scheme };
+            const r = await savePurchase(tx, firm.id, inp, actorOf(u));
             await markDraftSaved(tx, firm.id, d.id, i, r.id);
           });
           n++;
@@ -159,14 +165,14 @@ async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<A
 }
 
 /** Save every draft of a batch whose check is `ok` (legacy `batchSaveAll`). */
-export async function saveBatchOk(batchId: string): Promise<ActionState> {
+export async function saveBatchOk(batchId: string, scheme?: number | null): Promise<ActionState> {
   if (!/^[0-9a-f-]{36}$/i.test(batchId)) return { error: 'Неважечка листа.' };
-  return savePurchaseDraftsOk(eq(aiDocuments.batchId, batchId));
+  return savePurchaseDraftsOk(eq(aiDocuments.batchId, batchId), batchScheme(scheme));
 }
 
 /** „Зачувај ги сите спремни“ on the scan screen: every ready invoice read there (one file may hold several). */
-export async function savePurchasesOk(): Promise<ActionState> {
-  return savePurchaseDraftsOk(and(sql`${aiDocuments.batchId} is null`, sql`not (${aiDocuments.options} ? 'inline')`));
+export async function savePurchasesOk(scheme?: number | null): Promise<ActionState> {
+  return savePurchaseDraftsOk(and(sql`${aiDocuments.batchId} is null`, sql`not (${aiDocuments.options} ? 'inline')`), batchScheme(scheme));
 }
 
 /** „Прескокни“ / „Врати“ one invoice of a read document (the others of the same file stay). */
@@ -303,7 +309,8 @@ export async function ensureScanBuyer(docId: string, index: number): Promise<Act
       const dr = x.draft as unknown as ScanSaleDraft;
       if (dr.partnerId || !dr.buyer?.name) return;
       const r = await ensurePartner(tx, firm.id, { name: dr.buyer.name, edb: dr.buyer.edb, address: dr.buyer.address, city: dr.buyer.city, vatRegistered: /^MK/i.test(dr.buyer.edb || ''), type: 'customer' });
-      await tx.update(aiDocuments).set({ drafts: d.drafts.map((y, k) => (k === index ? { ...y, draft: { ...y.draft, partnerId: r.id } } : y)) }).where(eq(aiDocuments.id, docId));
+      const match: DraftPartnerMatch = { ...(dr.match ?? { idKind: '', id: dr.buyer.edb, candidates: [] }), by: r.created ? 'new' : 'exact', partner: { id: r.id, name: dr.buyer.name, code: r.code }, created: r.created, declined: false };
+      await tx.update(aiDocuments).set({ drafts: d.drafts.map((y, k) => (k === index ? { ...y, draft: { ...y.draft, partnerId: r.id, match } } : y)) }).where(eq(aiDocuments.id, docId));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanBuyer', entityType: 'partner', entityId: r.id, data: { created: r.created, name: dr.buyer.name } });
     });
   } catch (e) { return actionError(e); }
@@ -312,22 +319,129 @@ export async function ensureScanBuyer(docId: string, index: number): Promise<Act
   return { ok: 'Купувачот е додаден.' };
 }
 
+/* ---------------- partner of a read document: pick a candidate, save its ЕДБ / ЕМБС, undo the automatic partner ---------------- */
+
+class ScanErr extends Error {}
+const scanErr = (e: unknown): ActionState => (e instanceof ScanErr ? { error: e.message } : actionError(e));
+type AnyDraft = Record<string, unknown> & { partnerId?: string; match?: DraftPartnerMatch; buyer?: { name?: string; edb?: string }; supplierName?: string; supplierEdb?: string };
+/** Name and identifier of the partner as read from the document (buyer of a sale, supplier of a purchase). */
+const docParty = (d: AnyDraft) => (d.buyer ? { name: d.buyer.name ?? '', id: d.buyer.edb ?? '' } : { name: d.supplierName ?? '', id: d.supplierEdb ?? '' });
+
+async function withDraft<T>(docId: string, index: number, fn: (tx: Parameters<typeof ensurePartner>[0], dr: AnyDraft, firmId: string, userId: string) => Promise<{ draft: AnyDraft; out: T }>): Promise<T> {
+  const { u, firm } = await firmAction('write');
+  return db().transaction(async (tx) => {
+    const [d] = await tx.select().from(aiDocuments).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.firmId, firm.id))).for('update').limit(1);
+    const x = d?.drafts[index];
+    if (!d || !x) throw new ScanErr('Документот не постои.');
+    if (x.savedId) throw new ScanErr('Документот е веќе зачуван.');
+    const r = await fn(tx, x.draft as AnyDraft, firm.id, u.id);
+    await tx.update(aiDocuments).set({ drafts: d.drafts.map((y, k) => (k === index ? { ...y, draft: r.draft } : y)) }).where(eq(aiDocuments.id, docId));
+    return r.out;
+  });
+}
+
+const PickIn = z.object({ docId: z.uuid(), index: z.number().int().min(0).max(500), partnerId: z.uuid() });
+
+/**
+ * „Дали е ова: …“ — the user picked a candidate: the draft gets the partner and the partner learns the document's
+ * name / ЕДБ / ЕМБС (`data.aliases`, `data.aliasIds`), so the next document matches at once. An ЕДБ / ЕМБС the
+ * partner lacks is offered to be saved on it.
+ */
+export async function pickScanPartner(docId: string, index: number, partnerId: string): Promise<ActionState & { partner?: { id: string; name: string; code: string | null; edb: string | null }; offerId?: { kind: 'edb' | 'embs'; value: string } }> {
+  try {
+    const v = PickIn.parse({ docId, index, partnerId });
+    const out = await withDraft(v.docId, v.index, async (tx, dr, firmId, userId) => {
+      const [p] = await tx.select().from(partners).where(and(eq(partners.id, v.partnerId), eq(partners.firmId, firmId))).limit(1);
+      if (!p) throw new ScanErr('Комитентот не постои.');
+      const L = learnPartnerAlias(p, docParty(dr));
+      if (L.changed) await tx.update(partners).set({ data: L.data }).where(eq(partners.id, p.id));
+      await audit(tx, { userId, firmId, action: 'scanPickPartner', entityType: 'partner', entityId: p.id, data: { name: docParty(dr).name, learned: L.changed } });
+      const m: DraftPartnerMatch = { ...(dr.match ?? { idKind: '', id: '', candidates: [] }), by: 'picked', partner: { id: p.id, name: p.name, code: p.code }, created: false, ...(L.saveId ? { offerId: L.saveId } : {}) };
+      if (!L.saveId) delete m.offerId;
+      return { draft: { ...dr, partnerId: p.id, match: m }, out: { partner: { id: p.id, name: p.name, code: p.code, edb: p.edb }, offerId: L.saveId } };
+    });
+    revalidatePath('/skan');
+    return { ok: 'Комитентот е избран и запомнет.', ...out };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Неважечки податоци.' };
+    return scanErr(e);
+  }
+}
+
+/** Save the document's ЕДБ / ЕМБС on the picked partner (only when the partner has none). */
+export async function saveScanPartnerId(docId: string, index: number): Promise<ActionState> {
+  try {
+    const v = PickIn.omit({ partnerId: true }).parse({ docId, index });
+    const label = await withDraft(v.docId, v.index, async (tx, dr, firmId, userId) => {
+      const o = dr.match?.offerId;
+      if (!o || !dr.partnerId) return { draft: dr, out: '' };
+      const [p] = await tx.select().from(partners).where(and(eq(partners.id, dr.partnerId), eq(partners.firmId, firmId))).limit(1);
+      if (!p) throw new ScanErr('Комитентот не постои.');
+      if (!(o.kind === 'edb' ? p.edb : p.embs)?.trim()) {
+        await tx.update(partners).set(o.kind === 'edb' ? { edb: o.value, vatRegistered: /^MK/i.test(o.value) || p.vatRegistered } : { embs: o.value }).where(eq(partners.id, p.id));
+        await audit(tx, { userId, firmId, action: 'scanPartnerId', entityType: 'partner', entityId: p.id, data: { [o.kind]: o.value } });
+      }
+      const { offerId: _o, ...m } = dr.match!;
+      return { draft: { ...dr, match: m }, out: partnerIdLabel(o.kind) };
+    });
+    revalidatePath('/skan');
+    return { ok: label ? `${label} е запишан кај комитентот.` : 'ok' };
+  } catch (e) { return scanErr(e); }
+}
+
+/**
+ * „откажи“ the partner created automatically from the document: deleted when nothing uses it yet (else only
+ * unlinked); the draft then asks „Додај го како партнер“ instead of creating it again.
+ */
+export async function undoScanPartner(docId: string, index: number): Promise<ActionState> {
+  try {
+    const v = PickIn.omit({ partnerId: true }).parse({ docId, index });
+    await withDraft(v.docId, v.index, async (tx, dr, firmId, userId) => {
+      const pid = dr.partnerId;
+      if (!dr.match?.created || !pid) return { draft: dr, out: null };
+      let deleted = false;
+      try {
+        await tx.transaction(async (sp) => { await sp.delete(partners).where(and(eq(partners.id, pid), eq(partners.firmId, firmId))); });
+        deleted = true;
+      } catch { /* already used by a document: only unlinked */ }
+      await audit(tx, { userId, firmId, action: 'scanUndoPartner', entityType: 'partner', entityId: pid, data: { deleted, name: docParty(dr).name } });
+      const { partner: _p, ...m } = dr.match;
+      return { draft: { ...dr, partnerId: '', match: { ...m, by: '', created: false, declined: true } }, out: null };
+    });
+    revalidatePath('/skan');
+    revalidatePath('/izlez');
+    return { ok: 'Автоматскиот комитент е откажан.' };
+  } catch (e) { return scanErr(e); }
+}
+
 /** Legacy `outSaveAll` (8439): save every read sales invoice that is „✓ спремна“. */
-export async function saveSalesOk(): Promise<ActionState> {
+export async function saveSalesOk(scheme?: number | null): Promise<ActionState> {
+  const sch = batchScheme(scheme);
   try {
     const { u, firm } = await firmAction('saveInv');
     const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'sale'), eq(aiDocuments.status, 'done')));
+    // reads made before the services-firm rule: „ставки не се поврзани со артикл“ only matters where stock is kept,
+    // so such a draft (with at most „нов купувач“ besides) counts as ready in a firm without goods in the codebook
+    const [{ goods }] = (await db().select({ goods: sql<number>`count(*)::int` }).from(items)
+      .where(and(eq(items.firmId, firm.id), eq(items.active, true), sql`${items.type} <> 'service'`))) as [{ goods: number }];
+    const fids = docs.map((d) => d.fileId).filter((x): x is string => !!x);
+    const fname = new Map((fids.length ? await db().select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fids)) : []).map((f) => [f.id, f.name]));
+    const ready = (x: { status: string; msg?: string | null }) => x.status === 'ok' || (x.status === 'check' && !goods
+      && String(x.msg ?? '').split(' · ').every((m) => !m || m.startsWith('нов купувач') || /ставки не се поврзани со артикл$/.test(m)));
     let n = 0, tot = 0;
     const errs: string[] = [];
     for (const d of docs) {
+      // a cancelled / storno invoice is never saved in bulk – it is registered and cancelled on purpose, one by one
+      if (/cancel|сторн|storn|откаж/i.test(fname.get(d.fileId ?? '') ?? '')) continue;
       for (const [i, x] of d.drafts.entries()) {
-        if (x.status !== 'ok' || x.savedId || x.skipped) continue;
+        if (!ready(x) || x.savedId || x.skipped) continue;
         tot++;
         try {
           await db().transaction(async (tx) => {
             // the source file (photos read together: the photos of this invoice's pages) linked to each invoice
             const src = draftSourceFiles(d, i).fileIds;
-            const inp = await saleDraftToInvoice(tx, firm.id, x.draft as unknown as ScanSaleDraft, src);
+            const inp0 = await saleDraftToInvoice(tx, firm.id, x.draft as unknown as ScanSaleDraft, src);
+            const inp = sch ? { ...inp0, data: { scheme: sch } } : inp0;
             const r = await saveInvoice(tx, firm.id, inp, actorOf(u));
             if (src.length) await tx.insert(fileLinks).values(src.map((fileId) => ({ fileId, entityType: 'invoice', entityId: r.id, role: 'source' }))).onConflictDoNothing();
             await markDraftSaved(tx, firm.id, d.id, i, r.id);

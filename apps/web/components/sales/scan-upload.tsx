@@ -8,15 +8,19 @@
  * queue and open after saving.
  */
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { uploadFile } from '@/lib/upload';
 import { UploadTarget } from '@/components/firm-guard';
+import { Uvoz } from '@/components/uvoz';
 import { scanStatus, startScans } from '@/app/(app)/skan/actions';
 
 export interface ScanOpts { kind: 'purchase' | 'sale'; batchId: string | null; cash?: boolean; warehouseId?: string; costOnly?: boolean }
 
 /** Legacy `scanErr` (4687) for the stored worker errors. */
 export const scanErrText = (e: string | null | undefined) => e || 'Читањето не успеа. Обидете се повторно.';
+
+/** What the scan zones take: PDF, photos / scans, UBL e-invoice XML. */
+export const SCAN_ACCEPT = 'application/pdf,.pdf,image/*,.jpg,.jpeg,.png,.webp,.xml,text/xml,application/xml';
 
 const isImage = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
 
@@ -28,10 +32,10 @@ export function ScanUpload({ firmId, opts, label, small, autoOpen, batchView }: 
   batchView?: string;
 }) {
   const router = useRouter();
-  const ref = useRef<HTMLInputElement>(null);
+
   const [msg, setMsg] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [on, setOn] = useState(false);
+
   const [wait, setWait] = useState<{ ids: string[]; t0: number; name: string } | null>(null);
   const [tick, setTick] = useState(0);
   const [pagesTogether, setPagesTogether] = useState(true);
@@ -114,17 +118,14 @@ export function ScanUpload({ firmId, opts, label, small, autoOpen, batchView }: 
   return (
     <div>
       <UploadTarget compact={small} />
-      <label className={'drop' + (small ? ' drop-sm' : '') + (on ? ' on' : '')} onDragOver={(e) => { e.preventDefault(); setOn(true); }} onDragLeave={() => setOn(false)}
-        onDrop={(e) => { e.preventDefault(); setOn(false); void run([...e.dataTransfer.files]); }} onClick={() => ref.current?.click()} style={{ display: 'block', cursor: busy ? 'progress' : 'pointer' }}>
-        {label}
-      </label>
+      {/* UX P6: the shared import zone (drag and drop, several files, format per file); the read flow below is unchanged */}
+      <Uvoz onFiles={run} accept={SCAN_ACCEPT} label={label} busy={busy} zoneClass={small ? 'drop-sm' : undefined} />
       {canGroup && (
         <label className="mini" style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }} title="Повеќе фотографии прикачени заедно се читаат како страници; секоја фактура меѓу нив е посебна">
           <input type="checkbox" checked={pagesTogether} onChange={(e) => setPagesTogether(e.target.checked)} style={{ width: 'auto' }} />
           Фотографиите прикачени заедно се страници (од една или повеќе фактури)
         </label>
       )}
-      <input ref={ref} type="file" multiple hidden accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.xml" onChange={(e) => { const f = [...(e.target.files ?? [])]; e.target.value = ''; void run(f); }} />
       {wait && <div className="note"><span className="pill info">{sec < 25 ? 'Брзо читање…' : 'Подетално читање…'} {sec} сек.</span> „{wait.name}“ <button type="button" className="btn sm ghost" onClick={() => setWait(null)}>Откажи</button></div>}
       {msg.length > 0 && <div className="note" id="scanOut">{msg.map((m, i) => <div key={i}>{m}</div>)}</div>}
     </div>

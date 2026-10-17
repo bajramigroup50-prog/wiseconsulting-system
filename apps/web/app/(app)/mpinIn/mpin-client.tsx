@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { uploadFile } from '@/lib/upload';
+import { Uvoz } from '@/components/uvoz';
 import { distributeMpinRows, setMpinFirm, startMpinRead } from './actions';
 
 export function MpinUpload({ pending }: { pending: boolean }) {
@@ -31,10 +32,8 @@ export function MpinUpload({ pending }: { pending: boolean }) {
   };
   return (
     <>
-      <label className="btn pri" style={{ cursor: busy ? 'progress' : 'pointer' }}>📎 Прикачи МПИН (PDF / слики)
-        <input type="file" multiple accept="application/pdf,image/*" style={{ display: 'none' }} disabled={busy}
-          onChange={(e) => { const fs = [...(e.target.files ?? [])]; e.target.value = ''; if (fs.length) void add(fs); }} />
-      </label>
+      {/* UX P6: the shared import input (click or drop; PDF / photos only) */}
+      <Uvoz compact label="📎 Прикачи МПИН (PDF / слики)" accept="application/pdf,.pdf,image/*,.jpg,.jpeg,.png,.webp" busy={busy} onFiles={add} />
       {msg && <span className="note">{msg}</span>}
     </>
   );

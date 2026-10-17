@@ -2,11 +2,15 @@
  * Legacy `VIEWS.semi` 5221 (+ `schEx`, `SCH_UI`, `custHTML`) — Систем › Шеми за автоматско книжење: the kontos every
  * document is booked with (office-wide), VAT kontos per rate, method flags, and the user's own schemes (`custom`).
  */
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
+import { schemeLabel, schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
 import { schemeRaw, SCH0, SCH_EXTRA } from '@wise/core/posting';
 import { vatAccount } from '@wise/core/vat';
 import type { CustomScheme } from '@wise/core/finance';
-import { appSettings, effectiveChart, SCHEMES_SETTINGS_KEY, vatPostingContext } from '@wise/db';
+import { appSettings, effectiveChart, firms, schemeProfileUse, SCHEMES_SETTINGS_KEY, vatPostingContext } from '@wise/db';
+import { firmListSql } from '@/lib/demo';
+import { isOfficeOwner } from '@/lib/office-owner';
+import { ProfileForm, SchemeTabs } from './profiles';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { ActionForm } from '@/components/action-form';
@@ -21,13 +25,39 @@ import { SCH_FLAGS, SCH_UI, VAT_RATES, VB_TYPES } from './schema';
 
 const DEF = { ...SCH0, ...SCH_EXTRA } as Record<string, string | boolean>;
 
-export default async function SemiPage() {
+export default async function SemiPage({ searchParams }: { searchParams: Promise<{ sema?: string }> }) {
+  const sp = await searchParams;
   const { u, firm, year } = await booksPage('semi');
   if (!firm) return <NoFirm t="Шеми за автоматско книжење" />;
   const [[g], chart] = await Promise.all([db().select().from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1), effectiveChart(db(), firm.id)]);
   const G = (g?.value ?? {}) as { custom?: CustomScheme[]; updated?: string; by?: string; hidden?: string[]; names?: Record<string, string> };
   const ctx = vatPostingContext(firm, g?.value ?? null);
   const nm = new Map(chart.map((a) => [a.code, a.name]));
+  /* ---------- numbered schemes „Шема 2, 3 …“ of the firm (tabs) ---------- */
+  const profiles = schemeProfilesOf(firm.settings);
+  const sNo = sp.sema === 'nova' ? 'nova' as const : schemeNoOf(sp.sema);
+  const pEd = canDo(u, 'schSave', firm.id);
+  const tabs = <SchemeTabs profiles={profiles} active={sNo} ed={pEd} />;
+  if (sNo === 'nova' || sNo > 1) {
+    const p = sNo === 'nova' ? null : profiles.find((x) => x.no === sNo) ?? null;
+    if (sNo !== 'nova' && !p) return <><Hd t="Шеми на книжење" exp={false} />{tabs}<div className="card empty">Шема {sNo} не постои.</div></>;
+    if (!p && !pEd) return <><Hd t="Шеми на книжење" exp={false} />{tabs}<div className="callout warn">Немате право да креирате шеми.</div></>;
+    const [others, use, owner] = await Promise.all([
+      db().select({ id: firms.id, name: firms.name }).from(firms).where(firmListSql(u)).orderBy(asc(firms.name)),
+      p ? db().transaction((tx) => schemeProfileUse(tx, firm.id, p.no)) : Promise.resolve(undefined),
+      isOfficeOwner(u),
+    ]);
+    return (
+      <>
+        <Hd t={p ? schemeLabel(p.no, profiles) : 'Нова шема за книжење'} sub={`${firm.name} · шемите се на фирмата; Шема 1 е основната`} exp={false}>
+          <RepostCallout u={u} firmId={firm.id} year={year} always />
+        </Hd>
+        {tabs}
+        <datalist id="kpl">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
+        <ProfileForm p={p} ctx={ctx} names={nm} ed={pEd} firms={others.filter((x) => x.id !== firm.id && canDo(u, 'schSave', x.id))} owner={owner} use={use} />
+      </>
+    );
+  }
   const val = (k: string) => { const v = schemeRaw(ctx, k); return typeof v === 'string' ? v : ''; };
   const ed = canDo(u, 'schSaveAll', firm.id);
   // legacy schEx: the scheme values the example journals show (VAT kontos per rate included)
@@ -50,6 +80,7 @@ export default async function SemiPage() {
         <RepostCallout u={u} firmId={firm.id} year={year} always />
       </Hd>
       <RepostCallout u={u} firmId={firm.id} year={year} />
+      {tabs}
       <div className={`callout ${firm.vatRegistered ? 'good' : 'warn'}`}><b>{firm.name}</b> е {firm.vatRegistered
         ? <><b>ДДВ обврзник</b> – влезниот ДДВ се одбива, излезниот се пресметува.</>
         : <><b>НЕ е ДДВ обврзник</b> – на излезните фактури не се пресметува ДДВ, а ДДВ од влезните фактури влегува во набавната вредност / трошокот.</>} Статусот се менува во Фирми → регистрација на фирмата.</div>

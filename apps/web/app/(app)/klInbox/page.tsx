@@ -42,6 +42,7 @@ export default async function KlInboxPage({ searchParams }: { searchParams: Prom
         </form>
       </Hd>
 
+      <p className="note">Сите документи што пристигнуваат (од клиентите, прикачени, скенирани, МПИН) на едно место: <Link href="/prist?src=portal">📥 Пристигнати документи</Link>.</p>
       <div className="card" style={{ borderLeft: '4px solid #e08a00' }}>
         <h2 style={{ fontSize: 15, margin: '0 0 8px' }}>⏳ Внесено од клиентот – чека ваше одобрување ({pend.length})</h2>
         <p className="note" style={{ margin: '0 0 8px' }}>Овие документи <b>не се прокнижени</b>: не влегуваат во налози, ДДВ и залиха додека не ги одобрите.</p>

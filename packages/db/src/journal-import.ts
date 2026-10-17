@@ -20,7 +20,7 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { normalizeName } from '@wise/core';
 import { obBankRows } from '@wise/core/finpar-ob';
 import { jiGroup, jiInvoices, jiIsOpening, jiMonths, jiNumber, jiRows, jiSynthetic, needsPartner, type JiIn, type JiInvoice, type JiJournal, type JiMonth, type JiRow } from '@wise/core/journal-import';
-import { translitKey } from '@wise/core/text/yuscii';
+import { findPartnerMatch, type MatchablePartnerRow } from '@wise/core/partners/match';
 import { audit, type Tx } from './audit';
 import { missingAccounts, PostingError, postJournal, removeJournals } from './posting';
 import { saveBankAccount } from './bank/lines';
@@ -60,7 +60,11 @@ export interface JiProblem { kind: JiProblemKind; msg: string; rows: number[] }
  * equal its trial balance); missing partners do not block when they are created from the file.
  */
 export const jiBlocks = (p: Pick<JiProblem, 'kind'>, createPartners?: boolean): boolean => p.kind !== 'synthetic' && !(p.kind === 'partner' && createPartners);
-export interface JiMissingPartner { key: string; name: string; code: string; edb: string; rows: number[]; kontos: string[] }
+export interface JiMissingPartner {
+  key: string; name: string; code: string; edb: string; rows: number[]; kontos: string[];
+  /** similar partners of WISE that were not taken automatically (check before creating a new one) */
+  maybe?: string[];
+}
 export interface JiTbRow { k: string; name: string; d: number; p: number; s: number }
 export interface JiPreview {
   file: string;
@@ -101,44 +105,39 @@ interface Analysis {
 const mk = (c: number) => Math.round(c) / 100;
 const dmy = (d: string) => d.split('-').reverse().join('.');
 
-type PRow = { id: string; code: string | null; name: string; edb: string | null; embs: string | null };
+type PRow = MatchablePartnerRow & { code: string | null };
+const CYR = /[Ѐ-ӿ]/, LAT = /[A-Za-z]/;
 
-/** Partner matcher: code → ЕДБ / ЕМБС → exact name → normalised name → Latin ↔ Cyrillic transliteration. */
+/**
+ * Partner matcher: the old program's partner code (Ком.ш.) first, then the shared matching of documents read from
+ * outside (`@wise/core/partners/match` `findPartnerMatch`: ЕДБ → ЕМБС → learned name → same name, Latin ↔ Cyrillic and
+ * YUSCII included → one clear similar name). `by` for the preview: `name` = the same spelling, `translit` = the same
+ * name in the other script, `norm` = a similar name (legal forms, abbreviations, cut-off names).
+ */
 function partnerMatcher(P: readonly PRow[]) {
-  const byCode = new Map<string, string>(), byNum = new Map<string, string>(), byEdb = new Map<string, string>();
-  const byName = new Map<string, string>(), byNorm = new Map<string, string | null>(), byTr = new Map<string, string | null>();
-  const uniq = (M: Map<string, string | null>, k: string, id: string) => { if (k) M.set(k, M.has(k) && M.get(k) !== id ? null : id); }; // ambiguous → null
+  const byCode = new Map<string, string>(), byNum = new Map<string, string>();
   for (const p of P) {
     const c = (p.code ?? '').trim();
     if (c) { byCode.set(c, p.id); if (/^\d+$/.test(c)) byNum.set(String(+c), p.id); }
-    for (const e of [p.edb, p.embs]) { const d = String(e ?? '').replace(/\D/g, ''); if (d.length >= 7 && !byEdb.has(d)) byEdb.set(d, p.id); }
-    const n = p.name.trim().toLowerCase();
-    if (n && !byName.has(n)) byName.set(n, p.id);
-    uniq(byNorm, normalizeName(p.name), p.id);
-    uniq(byTr, translitKey(normalizeName(p.name)), p.id);
   }
   return (r: Pick<JiRow, 'pcode' | 'pedb' | 'pname'>): { id: string; by: JiMatchBy } | null => {
     if (r.pcode) {
       const x = byCode.get(r.pcode) ?? (/^\d+$/.test(r.pcode) ? byNum.get(String(+r.pcode)) : undefined);
       if (x) return { id: x, by: 'code' };
     }
-    if (r.pedb.length >= 7) {
-      const x = byEdb.get(r.pedb);
-      if (x) return { id: x, by: 'edb' };
-    }
-    if (r.pname) {
-      const x = byName.get(r.pname.toLowerCase());
-      if (x) return { id: x, by: 'name' };
-      const nn = normalizeName(r.pname);
-      const y = nn ? byNorm.get(nn) : undefined;
-      if (y) return { id: y, by: 'norm' };
-      const t = translitKey(nn);
-      const z = t.length >= 3 ? byTr.get(t) : undefined;
-      if (z) return { id: z, by: 'translit' };
-    }
-    return null;
+    const m = findPartnerMatch(P, { name: r.pname || null, id: r.pedb || null });
+    if (!m.partner) return null;
+    if (m.by === 'edb' || m.by === 'embs' || m.by === 'bank') return { id: m.partner.id, by: 'edb' };
+    if (m.by === 'name') return { id: m.partner.id, by: 'norm' };
+    const same = m.partner.name.trim().toLowerCase() === r.pname.trim().toLowerCase();
+    const other = (CYR.test(r.pname) && !CYR.test(m.partner.name) && LAT.test(m.partner.name)) || (LAT.test(r.pname) && !CYR.test(r.pname) && CYR.test(m.partner.name));
+    return { id: m.partner.id, by: same ? 'name' : other ? 'translit' : 'norm' };
   };
 }
+
+/** Up to 3 uncertain candidates for a partner that was not found (shown next to the missing partner). */
+const partnerCandidates = (P: readonly PRow[], r: Pick<JiRow, 'pname' | 'pedb'>): string[] =>
+  r.pname ? findPartnerMatch(P, { name: r.pname, id: r.pedb || null }).candidates.map((c) => c.name) : [];
 
 const partnerKey = (r: JiRow) => (r.pedb.length >= 7 ? 'e:' + r.pedb : r.pcode ? 'c:' + r.pcode : r.pname ? 'n:' + normalizeName(r.pname) : '');
 
@@ -185,7 +184,7 @@ async function analyze(tx: Tx, firmId: string, input: JiInput): Promise<Analysis
   }
 
   // partners
-  const P = await tx.select({ id: partners.id, code: partners.code, name: partners.name, edb: partners.edb, embs: partners.embs }).from(partners).where(eq(partners.firmId, firmId));
+  const P = await tx.select({ id: partners.id, code: partners.code, name: partners.name, edb: partners.edb, embs: partners.embs, bankAccount: partners.bankAccount, data: partners.data }).from(partners).where(eq(partners.firmId, firmId));
   const match = partnerMatcher(P);
   const partnerOf = new Map<JiRow, string | null>();
   const by: Record<JiMatchBy, Set<string>> = { code: new Set(), edb: new Set(), name: new Set(), norm: new Set(), translit: new Set() };
@@ -199,7 +198,7 @@ async function analyze(tx: Tx, firmId: string, input: JiInput): Promise<Analysis
     if (id || !needsPartner(r.k)) continue;
     const key = partnerKey(r);
     if (!key) { if (!jiIsOpening(r)) noPartner.push(r.r); continue; } // the opening may keep 12x / 22x without a partner
-    const m = missing.get(key) ?? { key, name: r.pname, code: r.pcode, edb: r.pedb, rows: [], kontos: [] };
+    const m = missing.get(key) ?? { key, name: r.pname, code: r.pcode, edb: r.pedb, rows: [], kontos: [], maybe: partnerCandidates(P, r) };
     m.rows.push(r.r);
     if (!m.name && r.pname) m.name = r.pname;
     if (!m.code && r.pcode) m.code = r.pcode;

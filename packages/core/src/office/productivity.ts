@@ -51,7 +51,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['vlez', 'u', 'editPur ksMerge purNoDed scrSave'],
   ['vlez', 'd', 'delPur scrDel'],
   ['nalozi', 'c', 'saveJ postJournal impJournal kamNote posFee kompSave lnCreateSel newNalog'],
-  ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost lnSave'],
+  ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost schemeRepost lnSave'],
   ['nalozi', 'd', 'unpostJournal deleteJournal kompDel lnDel'],
   ['izvodi', 'c', 'importBank importReplace izvSave mbSave addRule pnRun ppSave trClose'],
   ['izvodi', 'u', 'bankKonto bankPartner bkPickSave autoMatch aiClassifyApply bkpFix feeFix flipBank izvFill numIzv unlinkBank lnLinkBank lnMisK ppPrint bankTransitMove bankRepostLayout bankAcctKonto bankKontaAll'],
@@ -72,9 +72,9 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['os', 'c', 'osImport osDoc osPhoto runDep'],
   ['os', 'u', 'saveAsset'],
   ['os', 'd', 'delAsset osFileDel'],
-  ['firmi', 'c', 'newFirm fimpGo fsGo ncCreateFirm legacyImport legacyImportStart newS partnerNew addPartner addSupplier obMkP bkpMkP scanBuyer posEnsure accImport importAcc cbNew cbImport cbSeedCity paySifSeed fxImport bankAccountAuto addBankAcct'],
-  ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct'],
-  ['firmi', 'd', 'delFirm delS slDel delAcc cbDelRow fxDel rmBankAcct'],
+  ['firmi', 'c', 'newFirm fimpGo fsGo ncCreateFirm legacyImport legacyImportStart newS partnerNew addPartner addSupplier obMkP bkpMkP scanBuyer scanAutoPartner posEnsure accImport importAcc cbNew cbImport cbSeedCity paySifSeed fxImport bankAccountAuto addBankAcct'],
+  ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge partnerMerge scanPickPartner scanPartnerId artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct'],
+  ['firmi', 'd', 'delFirm delS scanUndoPartner slDel delAcc cbDelRow fxDel rmBankAcct'],
   ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend klFoto lnAtt'],
   ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave fileMove'],
   ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear fileDelete'],
@@ -109,6 +109,10 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   // journal import from the old program: one movement per batch (the journals of the batch are its by-products)
   ['nalozi', 'c', 'impJournalBatch'],
   ['nalozi', 'd', 'impJournalUndo'],
+  // UX Phase 3: „📥 Пристигнати документи“ (P7 / P32): uploads, the automatic statement import by IBAN, routing
+  ['dokumenti', 'c', 'inUpload'],
+  ['izvodi', 'c', 'inAuto inBank'],
+  ['dokumenti', 'u', 'inRoute inSkip inUnskip inFirm'],
   ['firmi', 'c', 'partnerAccLearn fxNbrm'],
   ['firmi', 'u', 'partnerAccSave'],
   ['magacin', 'c', 'fiskrNew fiskrReport'],
@@ -125,7 +129,7 @@ const NOISE = new Set((
   'login logout loginFail loginLocked loginUnlock uMyPass uMenuStyle uNew uSave uDel ownerSet bookOnlySet userViewsSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip kontrolaPkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
-  + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
+  + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel schProfileSave schProfileDel schProfileCopy carryByDoc defMargin saveNalCodes '
   + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet bankKontaAllRun bankLinkPropose autoStepsSet autoRepostNote autoRepostRequest autoRepostDismiss offFirmSet amlOffSet mpinTplImport '
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
   // UX Phase 3 automations: switches / run now, and the batch summaries of a bulk confirm (each firm's own row — zatLock,

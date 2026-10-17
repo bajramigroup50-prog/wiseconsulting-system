@@ -205,7 +205,9 @@ async function findPartner(tx: Tx, firmId: string, name: string, edb: string) {
  * Import parsed rows of one type (legacy `impExec` 5434 + stock-list imports `lagImpGo` 7926 / `lagImport` 4949).
  * Each row runs in its own savepoint: a failing row is skipped with a message, the others are kept.
  */
-export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType, rows: readonly ImpRow[], o: { date: string; wh?: string | null; today: string }): Promise<RetailImportResult> {
+export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType, rows: readonly ImpRow[], o: { date: string; wh?: string | null; today: string; scheme?: number | null }): Promise<RetailImportResult> {
+  // „Шема“ of the batch (invoices / purchases): a number = that scheme for every document; none = the partner's default / Шема 1
+  const schData = o.scheme ? { data: { scheme: o.scheme } } : {};
   const R: RetailImportResult = { add: 0, upd: 0, newP: 0, skip: [] };
   const ensureP = async (name: string, edb: string): Promise<string> => {
     const p = await findPartner(tx, a.firmId, name, edb);
@@ -304,7 +306,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         if (!groups.length) throw new StockDocError('нема износи');
         const pid = await ensureP(pn, gs(r, 'edb'));
         const due = gs(r, 'due');
-        await savePurchase(tx, a.firmId, { number, date, docDate: date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, partnerId: pid, ptype: 'cost', groups }, { userId: a.userId, role: a.role });
+        await savePurchase(tx, a.firmId, { number, date, docDate: date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, partnerId: pid, ptype: 'cost', groups, ...schData }, { userId: a.userId, role: a.role });
         R.add++;
       });
     }
@@ -345,7 +347,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
           });
         }
         const due = gs(r0, 'due');
-        const s = await saveInvoice(tx, a.firmId, { kind: 'invoice', number, date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : date, partnerId: pid, lines }, { userId: a.userId, role: a.role });
+        const s = await saveInvoice(tx, a.firmId, { kind: 'invoice', number, date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : date, partnerId: pid, lines, ...schData }, { userId: a.userId, role: a.role });
         // the printed number must stay: a renumbered invoice is not the document of the file
         if (s.renumbered || s.number !== number) throw new StockDocError(`бројот е зафатен (би добила ${s.number}) – не е увезена`);
         R.add++;

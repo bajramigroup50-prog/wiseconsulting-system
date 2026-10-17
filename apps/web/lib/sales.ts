@@ -3,8 +3,9 @@ import 'server-only';
  * Shared server helpers for the Phase 3 screens (Излез, Услуги, Одобренија, Профактури, Испратници, Влез,
  * Повратници, Е-Фактура, Скенирање, Масовно).
  */
-import { and, asc, eq, inArray } from 'drizzle-orm';
-import { documentPayments, effectiveChart, codes, itemBarcodes, items, type DocPayment, type Firm } from '@wise/db';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { schemeLabel, schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
+import { documentPayments, effectiveChart, codes, itemBarcodes, items, partners, type DocPayment, type Firm } from '@wise/db';
 import type { DocActor } from '@wise/db';
 import type { SessionUser } from './auth';
 import { db } from './db';
@@ -57,4 +58,18 @@ export async function listPayments(firmId: string, ids: { invoiceIds?: string[];
 /** Legacy `payPill` (3723): платена / делумно / отворена. */
 export function payState(paid: number, total: number): 'paid' | 'part' | 'open' {
   return paid >= total - 0.009 ? 'paid' : paid > 0 ? 'part' : 'open';
+}
+
+/** „Шема за книжење“ on a document: the firm's numbered schemes and the partners' defaults (`partners.data.scheme`). */
+export interface SchemeChoice { schemes: { no: number; label: string }[]; partnerSchemes: Record<string, number> }
+
+export async function schemeChoice(firm: Pick<Firm, 'id' | 'settings'>): Promise<SchemeChoice> {
+  const P = schemeProfilesOf(firm.settings);
+  if (!P.length) return { schemes: [], partnerSchemes: {} };
+  const rows = await db().select({ id: partners.id, s: sql<string>`${partners.data}->>'scheme'` }).from(partners)
+    .where(and(eq(partners.firmId, firm.id), sql`${partners.data} ? 'scheme'`));
+  return {
+    schemes: P.map((p) => ({ no: p.no, label: schemeLabel(p.no, P) })),
+    partnerSchemes: Object.fromEntries(rows.map((r) => [r.id, schemeNoOf(r.s)]).filter(([, n]) => (n as number) > 1)),
+  };
 }
