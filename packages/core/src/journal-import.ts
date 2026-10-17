@@ -238,8 +238,13 @@ export interface JiInvoice {
   /** the receivable line (120x debit, with the partner) */
   ar: JiRow;
   /** revenue lines: konto, base and VAT rate (from the VAT konto 2300<rate>) — cents */
-  lines: { account: string; base: number; rate: number }[];
+  lines: { account: string; base: number; rate: number; vat?: number }[];
   base: number; vat: number; total: number;
+  /**
+   * the old program rounded the VAT (to whole denars): WISE's own VAT `calc` and the file's `file` (cents); the
+   * difference is booked on the first line of the rate as its VAT (`vat`, saved as `invoice_lines.vat_fix`)
+   */
+  vatRound?: { rate: number; calc: number; file: number };
 }
 export interface JiInvoiceRefused { no: string; rows: number[]; why: string }
 
@@ -282,15 +287,22 @@ export function jiInvoices(rows: readonly JiRow[]): { inv: JiInvoice[]; rest: Ji
     const rates = [...new Set(vat.map((r) => jiVatRate(r.k)!))];
     if (rates.length > 1) { refuse('повеќе ДДВ стапки – приходите не може да се поврзат со стапката'); continue; }
     const rate = rates[0] ?? 0;
-    const lines = rev.map((r) => ({ account: r.k, base: r.p, rate }));
+    const lines: JiInvoice['lines'] = rev.map((r) => ({ account: r.k, base: r.p, rate }));
     const C = calcLines(lines.map((l) => ({ qty: 1, price: l.base / 100, rate: l.rate, konto: l.account })));
     const base = rev.reduce((s, r) => s + r.p, 0), v = vat.reduce((s, r) => s + r.p, 0);
     const cV = Math.round(C.vat * 100), cT = Math.round(C.total * 100);
-    if (cV !== v || cT !== a.d || base + v !== a.d) {
-      refuse(`не се добива точно: во датотеката основа ${f(base)} + ДДВ ${f(v)} = ${f(a.d)}, WISE пресметува ДДВ ${f(cV)} (вкупно ${f(cT)})`);
+    if (base + v !== a.d) { refuse(`основа ${f(base)} + ДДВ ${f(v)} ≠ вкупно ${f(a.d)}`); continue; }
+    if (cV === v && cT === a.d) { inv.push({ no, date: a.date, rows: R, ar: a, lines, base, vat: v, total: a.d }); continue; }
+    // the old program rounds the VAT to whole denars (legal in MK): a difference below 1.00 per rate is the file's VAT,
+    // booked as the VAT of the first line of the rate; anything more is not this invoice
+    const diff = v - cV;
+    if (!rate || Math.abs(diff) >= 100) {
+      refuse(`не се добива точно: во датотеката основа ${f(base)} + ДДВ ${f(v)} = ${f(a.d)}, WISE пресметува ДДВ ${f(cV)} (разлика ${f(diff)} – повеќе од заокружување)`);
       continue;
     }
-    inv.push({ no, date: a.date, rows: R, ar: a, lines, base, vat: v, total: a.d });
+    const v0 = Math.round(Math.round(lines[0]!.base * rate) / 100);
+    lines[0] = { ...lines[0]!, vat: v0 + diff };
+    inv.push({ no, date: a.date, rows: R, ar: a, lines, base, vat: v, total: a.d, vatRound: { rate, calc: cV, file: v } });
   }
   return { inv, rest, refused };
 }

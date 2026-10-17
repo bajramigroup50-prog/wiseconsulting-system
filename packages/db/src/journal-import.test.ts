@@ -13,6 +13,11 @@ import { impAuto } from '@wise/core/retail/import';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import { commitJournalImport, deleteJournalImport, listJournalImports, previewJournalImport, type JiInput } from './journal-import';
+import { vatBookOut } from '@wise/core';
+import { invoicePrintHtml } from '@wise/core/sales';
+import { computeVatPeriod } from './vat-service';
+import { saveInvoice } from './sales/invoices';
+import { loadInvoicePrintData } from './sales/invoice-print';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -279,29 +284,56 @@ describe('the old program\'s exports (synthetic fixtures with the real layouts)'
     expect(await tx((t) => commitJournalImport(t, F.a, inp({ rows, nalog })))).toMatchObject({ journals: 0, duplicates: 3 });
   });
 
-  it('„NALOG1“ layout as outgoing invoices: clean groups become invoices with the same lines; a group WISE cannot reproduce stays journal lines', async () => {
-    const rows = fromGrid(NALOG1);
+  it('„NALOG1“ layout as outgoing invoices: the same lines; VAT rounded to denars by the old program is kept; more than a rounding stays journal lines', async () => {
+    // + an invoice whose VAT is not a rounding of base × rate (1,500 × 18 % = 270 ≠ 500)
+    const g = [...NALOG1.slice(0, -1), ln(10, 46112, 'F-31032026/00658', '1200', 2000, 0, '0184', 'GULERMAK'), ln(11, 46112, 'F-31032026/00658', '230018', 0, 500), ln(12, 46112, 'F-31032026/00658', '7414', 0, 1500)];
+    const rows = fromGrid(g);
     const F = await setup('NALOG1 b');
     const pv = await tx((t) => previewJournalImport(t, F.firmId, inp({ rows, nalog, mode: 'invoices' })));
     expect(pv.ok).toBe(true);
-    expect(pv.invoices).toMatchObject({ n: 2, total: 14160, dups: [] });
-    expect(pv.invoices!.refused).toEqual([expect.objectContaining({ no: 'F-05012026/00546', rows: [2, 3, 4] })]);
-    expect(pv.invoices!.refused[0]!.why).toMatch(/11853\.36/);
+    expect(pv.invoices).toMatchObject({ n: 3, total: 91865, rounded: 1, dups: [] });
+    expect(pv.invoices!.refused).toEqual([expect.objectContaining({ no: 'F-31032026/00658', rows: [11, 12, 13] })]);
+    expect(pv.invoices!.refused[0]!.why).toMatch(/повеќе од заокружување/);
     const R = await tx((t) => commitJournalImport(t, F.a, inp({ rows, nalog, mode: 'invoices' })));
-    expect(R).toMatchObject({ invoices: 2, invoicesRefused: [], journals: 3, lines: 9, D: 91865, statLines: 4 });
+    expect(R).toMatchObject({ invoices: 3, invoicesRefused: [], vatRounded: 1, journals: 4, lines: 12, D: 93865, statLines: 6 });
     const I = await db.select().from(schema.invoices).where(eq(schema.invoices.firmId, F.firmId));
-    expect(I.map((i) => [i.number, i.date, i.total, i.partnerId]).sort()).toEqual([
-      ['F-06012026/00547', '2026-01-06', '2360.00', F.P[1]], ['F-31032026/00657', '2026-03-31', '11800.00', F.P[2]],
+    expect(I.map((i) => [i.number, i.date, i.base, i.vat, i.total, i.partnerId]).sort()).toEqual([
+      ['F-05012026/00546', '2026-01-05', '65852.00', '11853.00', '77705.00', F.P[0]],
+      ['F-06012026/00547', '2026-01-06', '2000.00', '360.00', '2360.00', F.P[1]],
+      ['F-31032026/00657', '2026-03-31', '10000.00', '1800.00', '11800.00', F.P[2]],
     ]);
-    // the books are the file's: per konto the same totals as the journal mode
+    // the invoice with the rounded VAT: its journal lines are the file's, the VAT book and the print say 11,853.00
+    const inv = I.find((i) => i.number === 'F-05012026/00546')!;
+    const JL = await db.select({ k: schema.journalLines.account, d: schema.journalLines.debit, p: schema.journalLines.credit }).from(schema.journalLines)
+      .innerJoin(schema.journals, eq(schema.journals.id, schema.journalLines.journalId))
+      .where(and(eq(schema.journals.sourceType, 'invoice'), eq(schema.journals.sourceId, inv.id)));
+    expect(JL.filter((l) => !/^99/.test(l.k)).map((l) => [l.k, Number(l.d), Number(l.p)]).sort()).toEqual([['1200', 77705, 0], ['230018', 0, 11853], ['7414', 0, 65852]]);
+    const [line] = await db.select().from(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, inv.id));
+    expect(line!.vatFix).toBe('11853.00');
+    const [firm] = await db.select().from(schema.firms).where(eq(schema.firms.id, F.firmId));
+    const C = await tx((t) => computeVatPeriod(t, firm!, '2026-Т1'));
+    const book = vatBookOut(C.data.docs, C.from, C.to, C.ctx, { partners: C.data.partners });
+    expect(book.find((r) => r.no === 'F-05012026/00546')).toMatchObject({ b18: 65852, v18: 11853, tot: 77705 });
+    // + the 500 of the group booked as journal lines on 230018 (the VAT books also read VAT-konto postings without a document)
+    expect(book.reduce((s, r) => s + r.v18, 0)).toBe(14513);
+    const P = await loadInvoicePrintData(db, inv.id);
+    const html = invoicePrintHtml(P!.input);
+    expect(html).toContain('11.853,00');
+    expect(html).toContain('77.705,00');
+    expect(html).not.toContain('11.853,36');
+    const au = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.firmId, F.firmId), eq(schema.auditLog.action, 'impVatRound')));
+    expect(au.map((a) => a.data)).toEqual([expect.objectContaining({ number: 'F-05012026/00546', rate: 18, computed: 11853.36, fileVat: 11853, diff: -0.36 })]);
+    // the books are the file's (plus WISE's statistical VAT base of the three invoices, 994018 = 999018)
     const tb = await db.select({ k: schema.journalLines.account, d: sql<string>`sum(debit)`, p: sql<string>`sum(credit)` }).from(schema.journalLines)
       .where(eq(schema.journalLines.firmId, F.firmId)).groupBy(schema.journalLines.account);
-    // (plus WISE's statistical VAT base of the two invoices, 994018 = 999018)
     expect(Object.fromEntries(tb.map((r) => [r.k, [Number(r.d), Number(r.p)]]))).toEqual({
-      '1200': [91865, 0], '230018': [0, 14013], '7414': [0, 67852], '7423': [0, 10000], '994018': [12000, 0], '999018': [0, 12000],
+      '1200': [93865, 0], '230018': [0, 14513], '7414': [0, 69352], '7423': [0, 10000], '994018': [77852, 0], '999018': [0, 77852],
     });
     // again: the invoices exist, the journal of the refused one too → nothing added
     expect(await tx((t) => commitJournalImport(t, F.a, inp({ rows, nalog, mode: 'invoices' })))).toMatchObject({ journals: 0, invoices: 0 });
-    expect(await db.select().from(schema.invoices).where(eq(schema.invoices.firmId, F.firmId))).toHaveLength(2);
+    expect(await db.select().from(schema.invoices).where(eq(schema.invoices.firmId, F.firmId))).toHaveLength(3);
+    // the invoice save path accepts a booked VAT only as a rounding (< 1.00)
+    await expect(tx((t) => saveInvoice(t, F.firmId, { kind: 'invoice', date: '2026-04-01', partnerId: F.P[0]!, lines: [{ name: 'x', qty: 1, price: 1000, rate: 18, account: '7414', vatFix: 181.5 }] }, { userId: null, role: 'admin' })))
+      .rejects.toThrow(/не е заокружување/);
   });
 });

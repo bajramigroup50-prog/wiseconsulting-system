@@ -93,7 +93,7 @@ export function JournalImporter({ year, batches, canDel }: { year: number; batch
       if (r.error) { setMsg({ error: r.error }); return; }
       const R = r.data!;
       setMsg({ ok: `Готово: увезени ${R.journals} книжења, ${R.lines} ставки (должи = побарува = ${fmt(R.D)})`
-        + (R.invoices != null ? `; ${R.invoices} излезни фактури` : '') + (R.invoicesRefused?.length ? `; ${R.invoicesRefused.length} групи увезени како ставки (${R.invoicesRefused.slice(0, 3).map((x) => x.no + ': ' + x.why).join(' · ')})` : '')
+        + (R.invoices != null ? `; ${R.invoices} излезни фактури${R.vatRounded ? ` (${R.vatRounded} со ДДВ заокружен на денари)` : ''}` : '') + (R.invoicesRefused?.length ? `; ${R.invoicesRefused.length} групи увезени како ставки (${R.invoicesRefused.slice(0, 3).map((x) => x.no + ': ' + x.why).join(' · ')})` : '')
         + (R.opening === 'posted' ? '; почетната состојба е внесена (налог 0)' : R.opening === 'exists' ? '; почетната состојба веќе постоеше – прескокната' : '')
         + (R.newPartners ? `; ${R.newPartners} нови комитенти` : '') + (R.duplicates ? `; ${R.duplicates} веќе внесени се прескокнати` : '') + '.' });
       setPv(null); setRows(null);
@@ -193,7 +193,7 @@ export function JournalImporter({ year, batches, canDel }: { year: number; batch
             )}
             <p className="note">Комитенти пронајдени: по шифра {pv.matchedBy.code} · по ЕДБ {pv.matchedBy.edb} · по назив {pv.matchedBy.name} · по сличен назив {pv.matchedBy.norm} · латиница ↔ кирилица {pv.matchedBy.translit}{pv.missingPartners.length ? ` · не се пронајдени ${pv.missingPartners.length}` : ''}</p>
             {pv.invoices && (
-              <p className="note"><b>Излезни фактури:</b> {pv.invoices.n} (вкупно {fmt(pv.invoices.total)}){pv.invoices.dups.length ? `, ${pv.invoices.dups.length} веќе постојат – се прескокнуваат` : ''}
+              <p className="note"><b>Излезни фактури:</b> {pv.invoices.n} (вкупно {fmt(pv.invoices.total)}){pv.invoices.rounded ? `, од нив ${pv.invoices.rounded} со ДДВ заокружен на денари во старата програма – се зачувува ДДВ од датотеката` : ''}{pv.invoices.dups.length ? `, ${pv.invoices.dups.length} веќе постојат – се прескокнуваат` : ''}
                 {pv.invoices.refused.length > 0 && <> · <span style={{ color: 'var(--bad)' }}>{pv.invoices.refused.length} не се добиваат точно</span> (се увезуваат како ставки): {pv.invoices.refused.slice(0, 30).map((x) => `${x.no} – ${x.why}`).join(' · ')}{pv.invoices.refused.length > 30 ? ' …' : ''}</>}</p>
             )}
             <div className="tw"><table className="dense">

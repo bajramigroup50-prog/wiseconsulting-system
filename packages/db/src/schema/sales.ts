@@ -167,6 +167,12 @@ export const invoiceLines = pgTable('invoice_lines', {
   rate: integer('rate').notNull(),
   /** Revenue konto. */
   account: text('account').notNull(),
+  /**
+   * VAT of the line as booked (document currency), when it is not base × rate rounded to cents: the old program's
+   * VAT rounded to whole denars, kept by the journal import (`journal-import.ts`, audited `impVatRound`). Null = computed.
+   * Posting, totals, the VAT books and the print all take it (`calcLines`).
+   */
+  vatFix: numeric('vat_fix', { precision: 18, scale: 2 }),
 }, (t) => [index('invoice_lines_invoice_idx').on(t.invoiceId), index('invoice_lines_item_idx').on(t.itemId)]);
 
 /** Advance invoices deducted on a final invoice (legacy `advances = {advInvId: base}`). */

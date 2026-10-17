@@ -141,7 +141,7 @@ const NOISE = new Set((
  * (their lines still count in the volume).
  */
 const BY_PRODUCT = new Set(['postInvoice', 'postPurchase', 'postStatement', 'postCashVoucher', 'postCompensation', 'postSupplierCredit',
-  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost', 'postImportJournal', 'unpostImportJournal']);
+  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost', 'postImportJournal', 'unpostImportJournal', 'impVatRound']);
 /** Same rule as the journals screen (`fromDocument`): these sources are entered by hand, not from a document. */
 const MANUAL_SOURCES = new Set(['opening', 'bbimp', 'yearClose', 'import']);
 const GENERIC_JOURNAL = new Set(['postJournal', 'repostJournal', 'unpostJournal', 'deleteJournal']);

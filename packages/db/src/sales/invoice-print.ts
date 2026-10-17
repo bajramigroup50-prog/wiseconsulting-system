@@ -45,7 +45,7 @@ export async function loadInvoicePrintData(tx: Tx, id: string, k?: string | null
       },
       firm: { name: f.name, address: f.address, city: f.city, phone: f.phone, email: f.email, edb: f.edb, embs: f.embs, vatRegistered: f.vatRegistered, settings: f.settings },
       partner: p ? { name: p.name, address: p.address, city: p.city, edb: p.edb } : null,
-      lines: L.map(({ l, code }) => ({ name: l.name, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, unit: l.unit, code: l.code, itemCode: code, account: l.account })),
+      lines: L.map(({ l, code }) => ({ name: l.name, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, unit: l.unit, code: l.code, itemCode: code, account: l.account, vatFix: l.vatFix })),
       advances,
       ref: ref ? { number: ref.number, date: ref.date } : null,
       from: from ? { kind: from.kind, number: from.number } : null,

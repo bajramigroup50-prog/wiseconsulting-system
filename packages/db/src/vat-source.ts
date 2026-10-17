@@ -107,6 +107,8 @@ async function loadInvoices(tx: Tx, firmId: string, from: string, to: string): P
     const fx = num(h.fx) || 1;
     const items: InvoiceItem[] = (LB.get(h.id) ?? []).map((l) => ({
       name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: num(l.qty), price: num(l.price) * fx, disc: num(l.disc), rate: l.rate, konto: l.account,
+      // the VAT booked on an imported invoice (old program, rounded to whole denars) is the VAT of the books too
+      ...(l.vatFix != null ? { vat: num(l.vatFix) * fx } : {}),
     }));
     const adv = h.kind === 'invoice' && !h.advance ? AB.get(h.id) ?? [] : [];
     out.push({

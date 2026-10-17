@@ -232,6 +232,13 @@
       "when": 1792153758220,
       "tag": "0032_automations2",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792233159827,
+      "tag": "0033_invoice_line_vat_fix",
+      "breakpoints": true
     }
   ]
 }

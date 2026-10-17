@@ -86,7 +86,7 @@ export interface JiPreview {
   /** partners found, per method (distinct partners) */
   matchedBy: Record<JiMatchBy, number>;
   /** mode `invoices`: clean invoice groups, their total, the groups that do not reproduce exactly, the ones already in WISE */
-  invoices: { n: number; total: number; refused: { no: string; rows: number[]; why: string }[]; dups: string[] } | null;
+  invoices: { n: number; total: number; /** with the VAT rounded by the old program (the file's VAT is kept) */ rounded: number; refused: { no: string; rows: number[]; why: string }[]; dups: string[] } | null;
   /** nothing blocks the import (missing partners count only without `createPartners`) */
   ok: boolean;
 }
@@ -300,7 +300,7 @@ async function analyze(tx: Tx, firmId: string, input: JiInput): Promise<Analysis
     duplicates: J.filter((j) => j.dupOf != null).map((j) => ({ label: j.label, date: j.date, total: mk(j.D), file: j.dupOf! })),
     sameFile, warnings, tb, tbTo, tbTotal, opening,
     matchedBy: { code: by.code.size, edb: by.edb.size, name: by.name.size, norm: by.norm.size, translit: by.translit.size },
-    invoices: input.mode === 'invoices' ? { n: invs.length, total: mk(invs.reduce((s, v) => s + v.total, 0)), refused: invRefused, dups: invs.filter((v) => invNos.has(v.no)).map((v) => v.no) } : null,
+    invoices: input.mode === 'invoices' ? { n: invs.length, total: mk(invs.reduce((s, v) => s + v.total, 0)), rounded: invs.filter((v) => v.vatRound).length, refused: invRefused, dups: invs.filter((v) => invNos.has(v.no)).map((v) => v.no) } : null,
     list: J.slice(0, 400).map((j) => ({ label: j.label, number: j.number, date: j.date, lines: j.rows.length, total: mk(j.D), dup: j.dupOf != null })),
     ok: !blocking.length && R0.rows.length > 0,
   };
@@ -318,6 +318,8 @@ export interface JiResult {
   invoices?: number; invoicesRefused?: { no: string; why: string }[];
   /** WISE's statistical VAT-base lines (994… / 999…) the invoices added beyond the file's lines */
   statLines?: number;
+  /** invoices saved with the file's VAT (the old program rounded it to whole denars; audited `impVatRound`) */
+  vatRounded?: number;
   /** the opening balance of the file: posted as „Почетна состојба“, left out, or already in WISE (skipped) */
   opening?: 'posted' | 'skipped' | 'exists';
 }
@@ -348,7 +350,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
   }
   const batch = crypto.randomUUID();
   let n = 0, lines = 0, D = 0;
-  let nInv = 0, statLines = 0;
+  let nInv = 0, statLines = 0, vatRounded = 0;
   const fallback: JiRow[] = [];
   const invRefused: { no: string; why: string }[] = [];
   const key = (k: string, d: number, p: number, pid: string | null) => `${k}|${d}|${p}|${needsPartner(k) ? pid ?? '' : ''}`;
@@ -360,7 +362,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
       const r = await tx.transaction(async () => {
         const sv = await saveInvoice(tx, a.firmId, {
           kind: 'invoice', number: v.no, date: v.date, due: v.date, partnerId: A.partnerOf.get(v.ar) ?? null,
-          lines: v.lines.map((l) => ({ name: `Увезено од старата програма (${v.no})`, unit: 'ком', qty: 1, price: l.base / 100, rate: l.rate, account: l.account })),
+          lines: v.lines.map((l) => ({ name: `Увезено од старата програма (${v.no})`, unit: 'ком', qty: 1, price: l.base / 100, rate: l.rate, account: l.account, ...(l.vat != null ? { vatFix: l.vat / 100 } : {}) })),
           note: `Увезено од ${input.file}`,
         }, { userId: a.userId, role: a.role ?? 'admin' });
         if (sv.renumbered || sv.number !== v.no) throw new JournalImportError(`бројот ${v.no} е зафатен`);
@@ -375,6 +377,12 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
         const want = v.rows.map((x) => key(x.k, x.d, x.p, A.partnerOf.get(x) ?? null)).sort();
         if (got.join(';') !== want.join(';')) throw new JournalImportError(`WISE би книжел поинаку (${L.map((l) => `${l.k} ${Number(l.d) || -Number(l.p)}`).join(', ')})`);
         statLines += L.filter((l) => stat(l.k)).length;
+        // the file's VAT instead of base × rate (rounded to whole denars by the old program): one audit row per invoice
+        if (v.vatRound) {
+          vatRounded++;
+          await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'impVatRound', entityType: 'invoice', entityId: sv.id,
+            data: { number: v.no, rate: v.vatRound.rate, computed: mk(v.vatRound.calc), fileVat: mk(v.vatRound.file), diff: mk(v.vatRound.file - v.vatRound.calc), batch, file: input.file } });
+        }
         return true;
       }).catch((e: unknown) => {
         if (e instanceof JournalImportError || e instanceof PostingError) { invRefused.push({ no: v.no, why: e.message }); fallback.push(...v.rows); return false; }
@@ -430,7 +438,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
   const res: JiResult = {
     batch, journals: n, lines, D: mk(D), duplicates: A.J.filter((j) => j.dupOf != null).length, newPartners,
     ...(A.P.opening ? { opening: A.P.opening.exists ? 'exists' as const : A.P.opening.skip ? 'skipped' as const : 'posted' as const } : {}),
-    ...(input.mode === 'invoices' ? { invoices: nInv, invoicesRefused: invRefused, statLines } : {}),
+    ...(input.mode === 'invoices' ? { invoices: nInv, invoicesRefused: invRefused, statLines, vatRounded } : {}),
   };
   if (n) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'impJournalBatch', entityType: 'journal_import', entityId: batch,
     data: { file: input.file, hash: input.hash, year: input.year, ...res } });

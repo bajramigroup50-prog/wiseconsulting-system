@@ -288,6 +288,11 @@ export interface InvoiceItem {
   rate?: number | string;
   /** Revenue konto. */
   konto?: string;
+  /**
+   * VAT of the line as booked, when it is not base × rate rounded to cents (an invoice of the old program with the VAT
+   * rounded to whole denars, kept by the journal import). Null / missing = computed.
+   */
+  vat?: number | string | null;
 }
 
 /** How a zero-rated sale is reported on ДДВ-04 (new; legacy only knew `export`). */

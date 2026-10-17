@@ -59,9 +59,16 @@ describe('journal import rows', () => {
       { date: '2026-01-07', desc: 'Извод', k: '1000', d: 100 }, { date: '2026-01-07', desc: 'Извод', k: '1200', p: 100, pcode: '1' },
     ]);
     const I = jiInvoices(rows);
-    expect(I.inv.map((v) => [v.no, v.lines, v.total])).toEqual([['F-1', [{ account: '7414', base: 200000, rate: 18 }], 236000]]);
-    expect(I.refused.map((x) => x.no)).toEqual(['F-2']);
-    expect(I.rest).toHaveLength(5);
+    // F-2: the old program's VAT rounded to whole denars (65,852 × 18 % = 11,853.36 → 11,853): kept as the line's VAT
+    expect(I.inv.map((v) => [v.no, v.lines, v.total, v.vatRound])).toEqual([
+      ['F-1', [{ account: '7414', base: 200000, rate: 18 }], 236000, undefined],
+      ['F-2', [{ account: '7414', base: 6585200, rate: 18, vat: 1185300 }], 7770500, { rate: 18, calc: 1185336, file: 1185300 }],
+    ]);
+    expect(I.refused).toEqual([]);
+    expect(I.rest).toHaveLength(2);
+    // more than a rounding: refused (stays journal lines)
+    const X = jiInvoices(jiRows([{ date: '2026-01-06', desc: 'F-3', k: '1200', d: 2000, pcode: '1' }, { date: '2026-01-06', desc: 'F-3', k: '230018', p: 500 }, { date: '2026-01-06', desc: 'F-3', k: '7414', p: 1500 }]).rows);
+    expect([X.inv.length, X.refused.map((x) => x.no), X.rest.length]).toEqual([0, ['F-3'], 3]);
     expect(jiVatRate('23005')).toBe(5);
     expect(jiIsOpening({ date: '2026-03-01', type: '', no: '', ob: true })).toBe(true);
     expect(jiIsOpening({ date: '2026-01-01', type: 'ПОЧЕТНА СОСТОЈБА', no: '0' })).toBe(true);
