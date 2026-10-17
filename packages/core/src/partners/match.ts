@@ -129,7 +129,8 @@ export function stem(t: string): string {
 export function tokenSim(a: string, b: string): number {
   if (a === b) return 1;
   // YUSCII of the old program writes Џ as „X“ („MENAXMENT“ = „МЕНАЏМЕНТ“ → menadzment)
-  if (a.includes('x') !== b.includes('x') && a.replace(/x/g, 'dz') === b.replace(/x/g, 'dz')) return 1;
+  // (the key writes Latin „x“ as „ks“): menaksment = menadzment
+  if (a.includes('dz') !== b.includes('dz') && a.replace(/ks/g, 'dz') === b.replace(/ks/g, 'dz')) return 1;
   const [s, l] = a.length <= b.length ? [a, b] : [b, a];
   if (/^\d+$/.test(s) || /^\d+$/.test(l)) return 0;
   if (s.length < 3) return l.startsWith(s) ? 0.6 : 0;

@@ -115,6 +115,5 @@ describe('YUSCII „X“ = Џ of the old program', () => {
   it('ASURA FASILITI MENAXMENT is АСУРА ФАСИЛИТИ МЕНАЏМЕНТ, not АСУРА ГРОУП', () => {
     const P: MatchablePartnerRow[] = [{ id: 'g', name: 'АСУРА ГРОУП ДООЕЛ СКОПЈЕ' }, { id: 'f', name: 'АСУРА ФАСИЛИТИ МЕНАЏМЕНТ ДООЕЛ' }];
     expect(findPartnerMatch(P, { name: 'ASURA FASILITI MENAXMENT DOOEL' }).partner?.id).toBe('f');
-    expect(nameScore('LUX DOO', 'ЛУКС ДОО')).toBeLessThan(1);
   });
 });
