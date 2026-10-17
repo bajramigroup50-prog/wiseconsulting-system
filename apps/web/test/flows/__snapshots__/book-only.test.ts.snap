@@ -5,6 +5,7 @@ exports[`a colleague (acc / senior / admin who is not the owner) > the menu: onl
   "Фирми:home",
   "Фирми:prist",
   "Фирми:izlezF",
+  "Финансово:akart",
   "Финансово:banka",
   "Финансово:devizni",
   "Финансово:blagajna",
@@ -109,6 +110,7 @@ exports[`a colleague (acc / senior / admin who is not the owner) > the „нов
 [
   "Фирми:home",
   "Фирми:prist",
+  "Финансово:akart",
   "Финансово:banka",
   "Финансово:devizni",
   "Финансово:blagajna",

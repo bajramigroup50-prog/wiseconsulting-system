@@ -28,13 +28,15 @@ import { locationNames, poRange } from '../../../(app)/poobjekti/data';
 import { FirmHead, Sig } from '../../firm-head';
 import { PotvrdaDoc } from '../potvrda-doc';
 import { confirmationList } from '../../../(app)/kartici/potvrdi-data';
+import { curAmount } from '@/lib/akart';
+import { r2 } from '@wise/core/money';
 import { printGuard } from '../../guard';
 import { requireUser } from '@/lib/auth';
 import { viewAllowed } from '@/lib/nav';
 
 export const metadata = { title: 'Печатење' };
 
-type SP = KcSP & { all?: string; bal?: string; id?: string; /** potvrda: difference found by the card reconciliation (legacy `recDocHTML` opt.diff) */ diff?: string };
+type SP = KcSP & { all?: string; bal?: string; id?: string; /** ios: „Девизен ИОС“ */ cur?: string; /** potvrda: difference found by the card reconciliation (legacy `recDocHTML` opt.diff) */ diff?: string };
 const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'kartici', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd', pozajmica: 'pozajmici' };
 
 export default async function PrintFin({ params, searchParams }: { params: Promise<{ doc: string }>; searchParams: Promise<SP> }) {
@@ -209,14 +211,20 @@ async function Analitika({ firm, year, sp, doc }: P & { doc: string }) {
       {pids.map((id, i) => {
         const p = P.get(id);
         const X = iosStatement(lines, id);
+        // „Девизен ИОС“ (`cur=1`, from „Аналитика“): the foreign currency and amount of every line, the saldo per currency
+        const cur = sp.cur === '1';
+        const CS = new Map<string, number>();
+        if (cur) for (const l of X.lines) { const a = curAmount(l); if (a != null) CS.set(l.currency!.toUpperCase(), r2((CS.get(l.currency!.toUpperCase()) ?? 0) + a)); }
         return (
           <Fragment key={id}>
             <Pb i={i} />
             <FirmHead firm={firm} title="ИЗВОД НА ОТВОРЕНИ СТАВКИ (ИОС)" sub={'Состојба на ' + dmy(today())} />
             <div className="box"><b>До:</b> {p?.name}<br />{p?.address}<br />ЕДБ: {p?.edb}</div>
-            <table><thead><tr><th>Датум</th><th>Документ</th><th className="n">Должи</th><th className="n">Побарува</th></tr></thead>
-              <tbody>{X.lines.map((l) => <tr key={l.id}><td>{dmy(l.date)}</td><td>{lineText(l)}</td><td className="n">{l.debit ? fmt(l.debit) : ''}</td><td className="n">{l.credit ? fmt(l.credit) : ''}</td></tr>)}</tbody>
-              <tfoot><tr><td colSpan={2}>Салдо {X.saldo > 0 ? 'во наша корист' : 'во ваша корист'}</td><td className="n" colSpan={2}>{fmt(Math.abs(X.saldo))} ден.</td></tr></tfoot></table>
+            <table><thead><tr><th>Датум</th><th>Документ</th>{cur && <><th>Валута</th><th className="n">Девизен износ</th></>}<th className="n">Должи</th><th className="n">Побарува</th></tr></thead>
+              <tbody>{X.lines.map((l) => { const a = cur ? curAmount(l) : null; return <tr key={l.id}><td>{dmy(l.date)}</td><td>{lineText(l)}</td>{cur && <><td>{a == null ? '' : l.currency!.toUpperCase()}</td><td className="n">{a == null ? '' : fmt(a)}</td></>}<td className="n">{l.debit ? fmt(l.debit) : ''}</td><td className="n">{l.credit ? fmt(l.credit) : ''}</td></tr>; })}</tbody>
+              <tfoot>
+                {[...CS].map(([c, v]) => <tr key={c}><td colSpan={3}>Салдо во {c}</td><td className="n">{fmt(v)}</td><td colSpan={2} /></tr>)}
+                <tr><td colSpan={cur ? 4 : 2}>Салдо {X.saldo > 0 ? 'во наша корист' : 'во ваша корист'}</td><td className="n" colSpan={2}>{fmt(Math.abs(X.saldo))} ден.</td></tr></tfoot></table>
             <p>Ве молиме да ја потврдите состојбата во рок од 8 дена од приемот. Доколку не добиеме одговор, ќе сметаме дека состојбата е усогласена.</p>
             <Sig who={['Потврдуваме', 'Оспоруваме', 'За ' + firm.name]} />
           </Fragment>

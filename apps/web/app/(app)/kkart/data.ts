@@ -35,7 +35,7 @@ export async function kkData(firmId: string, year: number, sp: KkSP) {
   const pf = !noPartner && sp.p && P.some((p) => p.id === sp.p) ? sp.p : null;
   const rows = await db().select({
     id: journalLines.id, account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, partnerId: journalLines.partnerId,
-    note: journalLines.note, doc: journalLines.doc, lineNo: journalLines.lineNo,
+    note: journalLines.note, doc: journalLines.doc, lineNo: journalLines.lineNo, currency: journalLines.currency, amountCur: journalLines.amountCur,
     date: journals.date, kind: journals.kind, journalId: journals.id, number: journals.number, description: journals.description,
     sourceType: journals.sourceType, sourceId: journals.sourceId, meta: journals.meta,
     pcode: partners.code, pname: partners.name,
@@ -44,18 +44,20 @@ export async function kkData(firmId: string, year: number, sp: KkSP) {
       sub ? like(journalLines.account, `${k}%`) : eq(journalLines.account, k)))
     .orderBy(asc(journals.date), asc(journals.createdAt), asc(journals.id), asc(journalLines.lineNo));
   const pinfo = new Map(rows.map((r) => [r.partnerId, r.pname ? (r.pcode ? r.pcode + ' ' : '') + r.pname : '']));
-  const L: LedgerLine[] = rows.map((r) => ({ ...r, debit: Number(r.debit), credit: Number(r.credit) }));
+  const pcode = new Map(rows.map((r) => [r.partnerId, r.pcode ?? '']));
+  const L: LedgerLine[] = rows.map((r) => ({ ...r, debit: Number(r.debit), credit: Number(r.credit), amountCur: r.amountCur == null ? null : Number(r.amountCur) }));
   const X = accountCard(L, { account: k, sub, partnerId: pf, noPartner, from, to });
   // documents: due date and calculation number
   const uuid = (x: string | null) => !!x && /^[0-9a-f-]{36}$/i.test(x);
   const invIds = [...new Set(rows.filter((r) => r.sourceType === 'invoice' && uuid(r.sourceId)).map((r) => r.sourceId!))];
   const purIds = [...new Set(rows.filter((r) => r.sourceType === 'purchase' && uuid(r.sourceId)).map((r) => r.sourceId!))];
   const [I, Pu] = await Promise.all([
-    invIds.length ? db().select({ id: invoices.id, due: invoices.due }).from(invoices).where(inArray(invoices.id, invIds)) : [],
-    purIds.length ? db().select({ id: purchases.id, due: purchases.due, calc: purchases.calcNo }).from(purchases).where(inArray(purchases.id, purIds)) : [],
+    invIds.length ? db().select({ id: invoices.id, due: invoices.due, date: invoices.date }).from(invoices).where(inArray(invoices.id, invIds)) : [],
+    purIds.length ? db().select({ id: purchases.id, due: purchases.due, calc: purchases.calcNo, date: purchases.date }).from(purchases).where(inArray(purchases.id, purIds)) : [],
   ]);
   const due = new Map<string, string | null>([...I.map((x) => [x.id, x.due] as const), ...Pu.map((x) => [x.id, x.due] as const)]);
   const calc = new Map(Pu.map((x) => [x.id, x.calc ?? '']));
+  const ddoc = new Map<string, string>([...I.map((x) => [x.id, x.date] as const), ...Pu.map((x) => [x.id, x.date] as const)]);
   // nalog date (end of the nalog) and the row number inside the nalog (legacy `kkRowNo`)
   const nums = [...new Set(rows.map((r) => r.number))];
   const NJ = nums.length ? await db().select({ id: journalLines.id, number: journals.number, date: journals.date }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
@@ -75,6 +77,9 @@ export async function kkData(firmId: string, year: number, sp: KkSP) {
       rb: rowNo.get(r.id) ?? '', nd: ndate.get(r.number) ?? '', sod: kkSod({ ...r, statementNo: String(((r.meta ?? {}) as { statementNo?: string }).statementNo ?? '') }),
       calc: r.sourceType === 'purchase' && r.sourceId ? calc.get(r.sourceId) ?? '' : '', due: r.sourceId ? due.get(r.sourceId) ?? '' : '',
       partner: pinfo.get(r.partnerId ?? null) ?? '',
+      /** „Аналитика“ card: partner code, document date, foreign currency of the line */
+      pcode: pcode.get(r.partnerId ?? null) ?? '', ddoc: r.sourceId ? ddoc.get(r.sourceId) ?? '' : '',
+      currency: r.currency ?? '', amountCur: r.amountCur == null ? null : Number(r.amountCur),
     };
   };
   const name = chart.find((a) => a.code === k)?.name ?? '';
