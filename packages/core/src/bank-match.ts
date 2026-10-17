@@ -605,7 +605,7 @@ function layerNoPartner(w: Work): void {
   const rules = ctx.rules || [];
   for (const b of w.rows.filter((b) => !b.ref && !(b.split && b.split.length) && !b.pos && !b.own && !b.conv && +b.amount && (!b.konto || b.ai || (BKPK_RE.test(String(b.konto)) && !b.manual)))) {
     if (!isFxAccount(ctx.accounts, b.acct) && isConversion(b)) {
-      const nb: BankRow = { ...b, konto: convFxKonto(b, ctx.accounts, K), conv: true };
+      const nb: BankRow = { ...b, konto: convKonto(K), conv: true };
       delete nb.partner;
       delete nb.ai;
       commit(w, nb, 'conv');
@@ -843,6 +843,18 @@ export function openDocsFor(b: BankRow, ctx: MatchContext): { type: DocType; pid
   return { type, pid, O };
 }
 
+/**
+ * The receivable / payable konto of a partner's open documents for a payment without a document link: when all of
+ * them are booked on one konto (e.g. 1200009 for invoices exempt under чл. 24 / чл. 32-а), that konto — so the payment
+ * closes the open items where they were posted; else undefined (the customer / supplier default).
+ */
+export function partnerOpenKonto(ctx: MatchContext, pid: string, amount: number): string | undefined {
+  if (!pid || !amount) return undefined;
+  const { type, O } = openDocsFor({ id: '', date: '', amount, desc: '', partner: pid }, ctx);
+  const ks = new Set(O.map((z) => docKonto(type, z.x, ctx.konta)));
+  return ks.size === 1 ? [...ks][0] : undefined;
+}
+
 /** Legacy "close in order" choice (12519): oldest documents until the payment is used up. */
 export function fifoPick(b: BankRow, O: { x: OpenDoc; o: number }[]): { x: OpenDoc; o: number }[] {
   let rem = Math.abs(+b.amount);
@@ -978,6 +990,9 @@ export function convFxKonto(b: BankRow, accounts: BankAccount[], konta?: Partial
   return String((hit || F[0]!).konto || K.fxDefault);
 }
 
+/** Counter konto of a currency purchase / sale (both sides): the FX transit 1039 „Предони девизни сметки“. */
+export const convKonto = (konta?: Partial<BankKonta>): string => ({ ...BANK_KONTA, ...(konta || {}) }).transitFx;
+
 /**
  * Partner for a row on 12x/22x (legacy save wrapper 12421 / `bankFindPartner`): the linked document's
  * partner, else a partner matched by the bank name. When the row already has a konto and no partner
@@ -1032,7 +1047,7 @@ export function keywordKonto(b: BankRow, accounts: BankAccount[], konta?: Partia
 /** Macedonian banks (and generic „банка / bank“) as a counterparty name. */
 export const BANK_NAME_RE = /(^|[^\p{L}])(нлб|nlb|халк\s*банк\S*|halk\s*bank\S*|стопанска\s+банка|stopanska\s+banka|комерцијална\s+банка|komercijalna\s+banka|шпаркасе|sparkasse|уни\s*банка|uni\s*bank\S*|прокредит|procredit|силк\s*роуд|silk\s*road|ттк\s+банка|ttk\s+bank\S*|централна\s+кооперативна|алта\s+банка|alta\s+bank\S*|капитал\s+банка|банка|banka|bank)(?![\p{L}])/iu;
 /** The Treasury („Трезор на РМ“, treasury account 100000000063095) — taxes and contributions, never a partner. */
-export const TREASURY_RE = /трезор|trezor|treasury|министерство\s+за\s+финансии|ministerstvo\s+za\s+finansii|управа\s+за\s+јавни\s+приходи|uprava\s+za\s+javni\s+prihodi|(^|[^\p{L}])(ујп|ujp)(?![\p{L}])/iu;
+export const TREASURY_RE = /трезор|trezor|treasury|буџет\s+на\s+(рсм|рм|република)|budzet\s+na\s+(rsm|rm)|министерство\s+за\s+финансии|ministerstvo\s+za\s+finansii|управа\s+за\s+јавни\s+приходи|uprava\s+za\s+javni\s+prihodi|(^|[^\p{L}])(ујп|ujp)(?![\p{L}])/iu;
 const TREASURY_ACC = '100000000063095';
 /** Card purchase on the firm's payment card: „MBDP:8330:…“, „VISA*6874 -Ramstor …“, „POS купување …“. */
 export const CARD_RE = /\bMBDP\s*:\s*\d|\b(VISA|MASTER\s?CARD|MC|MAESTRO)\s*\*\s*\d{3,}|\bPOS\s*(купување|плаќање|kupuvanje|plakanje|purchase)|(плаќање|купување)\s+(со|на)\s+(платежна\s+)?картичк|\bcard\s+purchase\b/i;
@@ -1043,7 +1058,7 @@ const WAGE_RE = /(^|[^\p{L}])(плат[аи]|нето|регрес|аконта�
 /** Payroll payment reference „910…+ MM-YYYY“ (the salary reference followed by the payroll month). */
 const PAYREF_RE = /(^|\D)910\d{8,}\s*\+?\s*(0?[1-9]|1[0-2])\s*[\/\-.]\s*20\d\d(?!\d)/;
 /** Company-form words: the counterparty is not a natural person. */
-const FIRM_WORD_RE = /(^|[^\p{L}])(доо|дооел|ад|тп|јтд|дпту|дпу|ооо|doo|dooel|ad|tp|ltd|llc|gmbh|друштво|компанија|company|маркет|market|трезор|trezor|управа|uprava|фонд|fond|општина|opstina|агенција|agencija|центар|centar|министерство|банка|banka|bank|нлб|nlb|халк|halk)(?![\p{L}])/iu;
+const FIRM_WORD_RE = /(^|[^\p{L}])(доо|дооел|ад|тп|јтд|дпту|дпу|ооо|doo|dooel|ad|tp|ltd|llc|gmbh|на|na|рсм|рм|rsm|република|буџет|budzet|друштво|компанија|company|маркет|market|трезор|trezor|управа|uprava|фонд|fond|општина|opstina|агенција|agencija|центар|centar|министерство|банка|banka|bank|нлб|nlb|халк|halk)(?![\p{L}])/iu;
 /** Rent / lease to a natural person — not a salary even with a period. */
 const RENT_RE = /закуп|кирија|наем|zakup|kirija|najem|qira/i;
 
@@ -1133,7 +1148,7 @@ export function noPartnerLine(b: BankRow, ctx: Pick<MatchContext, 'konta' | 'pay
  * Classify a freshly imported row (legacy `save('bank')` wrappers, outermost first — FIX #5: one
  * explicit pipeline instead of order-dependent persistence hooks):
  * 1. POS card inflow → POS konto + POS partner (13072)
- * 2. currency purchase/sale → FX bank konto (denar side) or neutral FX side (12758)
+ * 2. currency purchase/sale → the FX transit 1039 on both sides (FIX, owner's rule; legacy 12758: FX bank konto / neutral FX side)
  * 3. own-account transfer (counterparty = the firm itself, `ownTransferBy`) → transit 1039 (FX) / `transit` (10091 when
  *    in the chart, else 1009) (12568), on both sides of the transfer
  * 4. deposit of the daily turnover → `dailyTurnover` (1009), cash withdrawal → `cashWithdraw` (1020) — by the description
@@ -1154,8 +1169,10 @@ export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts
   }
   if (free(b) && isConversion(b)) {
     const fx = isFxAccount(ctx.accounts, b.acct);
-    b = { ...b, konto: fx ? String(bankOf(ctx.accounts, b.acct).konto || K.fxDefault) : convFxKonto(b, ctx.accounts, K), conv: true };
-    if (fx) b.own = true;
+    // both sides of a currency purchase / sale go through the FX transit „Предони девизни сметки“ (1039): денари → 1039,
+    // девизи ← 1039 (the owner's rule; legacy booked the denar side straight on the FX bank konto)
+    b = { ...b, konto: convKonto(K), conv: true };
+    if (isFxAccount(ctx.accounts, b.acct)) b.own = true;
     else delete b.own;
     delete b.partner;
     cls = 'conv';
@@ -1178,13 +1195,8 @@ export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts
     delete b.partner;
     cls = kw.cls;
   }
-  // bank charges / card purchases: their konto, never a partner (salaries / Treasury are proposed by the review)
-  const np = free(b) && !b.own ? noPartnerLine(b, ctx) : null;
-  if (np?.konto && (np.kind === 'fee' || np.kind === 'card')) {
-    b = { ...b, konto: np.konto };
-    delete b.partner;
-    cls = np.kind;
-  }
+  // bank charges / card purchases / salaries / the Treasury are never a partner (`resolvePartner`); their kontos are
+  // proposed by the matching / review, not set at import
   let newPartner: string | undefined;
   if (!b.partner && BKPK_RE.test(bankEffKonto(b))) {
     const r = resolvePartner(b, ctx);
@@ -1196,8 +1208,9 @@ export function classifyImported(row: BankRow, ctx: Pick<MatchContext, 'accounts
 
 /**
  * Legacy `convPair` (12769): an FX-account row parked on the FX transit konto (1039) on the same day as
- * an opposite denar currency purchase/sale (within 5 %) is the neutral FX side of that conversion.
- * Returns the rows to update.
+ * an opposite denar currency purchase/sale (within 5 %) is the FX side of that conversion. FIX (owner's rule): it stays
+ * on 1039 (the denar side is booked on 1039 too, so the transit closes; the residue is the FX difference) — legacy made
+ * it neutral on the FX bank konto. Returns the rows to update.
  */
 export function pairConversions(rows: BankRow[], accounts: BankAccount[], konta?: Partial<BankKonta>): BankRow[] {
   const K = { ...BANK_KONTA, ...(konta || {}) };
@@ -1206,7 +1219,8 @@ export function pairConversions(rows: BankRow[], accounts: BankAccount[], konta?
     if (!isFxAccount(accounts, x.acct) || x.conv || x.ref || String(x.konto) !== K.transitFx) continue;
     const sgn = Math.sign(+x.amount);
     const mk = rows.find((y) => !isFxAccount(accounts, y.acct) && y.conv && y.date === x.date && Math.sign(+y.amount) === -sgn && Math.abs(Math.abs(+y.amount) - Math.abs(+x.amount)) <= Math.abs(+x.amount) * 0.05);
-    if (mk) out.push({ ...x, konto: String(bankOf(accounts, x.acct).konto || K.fxDefault), conv: true, own: true });
+    // the FX side stays on the transit (the denar side is booked there too); it is only marked as the conversion
+    if (mk) out.push({ ...x, conv: true });
   }
   return out;
 }

@@ -8,7 +8,7 @@
  */
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import {
-  autoMatch, Bank, BANK_FEE, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, ruleSideOk, schemeValue,
+  autoMatch, Bank, BANK_FEE, partnerOpenKonto, type MatchContext, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, ruleSideOk, schemeValue,
   wrongSideWarning, type BankRow, type NoPartnerKind, type PayScheme,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
@@ -139,13 +139,15 @@ export async function statementSuggestions(tx: Tx, firmId: string, statementIds:
   const env = env0 ?? (await loadBankEnv(tx, firmId));
   const years = [...new Set(open.map((l) => Number(l.date.slice(0, 4))))];
   const ids = new Set(open.map((l) => l.id));
+  const ctxOf = new Map<number, MatchContext>();
   for (const y of years) {
     const ctx = await matchContext(tx, env, y);
+    ctxOf.set(y, ctx);
     for (const c of autoMatch(ctx).changes) {
       if (!ids.has(c.id) || !c.row.konto) continue;
       out.set(c.id, {
         konto: c.row.konto, ...(c.row.partner ? { partnerId: c.row.partner } : {}), ...(c.newPartner ? { newPartner: c.newPartner } : {}),
-        why: c.row.ref ? `${Number(c.row.amount) > 0 ? 'наша фактура' : 'влезна фактура'} ${c.row.ref.label}` : AUTO_WHY[c.how] ?? c.how,
+        why: c.row.ref ? `${Number(c.row.amount) > 0 ? 'наша фактура' : 'влезна фактура'} ${c.row.ref.label}` : (AUTO_WHY[c.how] ?? c.how) + (c.row.osnov && /^(payroll|fee|card)$/.test(c.how) ? ` (шифра ${c.row.osnov})` : ''),
         how: c.how, ...(c.row.ref ? { refLabel: c.row.ref.label } : {}),
       });
     }
@@ -158,7 +160,11 @@ export async function statementSuggestions(tx: Tx, firmId: string, statementIds:
     // (an inflow left on 22x / an outflow on 12x is re-proposed: customers pay to 1200, suppliers are paid from 2200)
     if (l.konto && BKPK_RE.test(l.konto) && s.konto !== l.konto && !wrongSideWarning(l.konto, amt, false) && !s.how.match(/^(fee|card|payroll|tax|vat|contrib)$/)) {
       out.set(l.id, { konto: l.konto, ...(l.newPartner ? { newPartner: l.newPartner } : {}), why: l.newPartner ? `нов комитент „${l.newPartner}“` : 'изберете комитент', how: 'partner' });
-    } else out.set(l.id, s);
+    } else {
+      // a partner whose open items are all on another receivable / payable konto (1200009 …): that konto
+      const pk = s.how === 'partner' && s.partnerId ? partnerOpenKonto(ctxOf.get(Number(l.date.slice(0, 4)))!, s.partnerId, amt) : undefined;
+      out.set(l.id, pk && pk !== s.konto ? { ...s, konto: pk, why: `${s.why} · отворените ставки се на ${pk}` } : s);
+    }
   }
   await flagMissing(tx, firmId, out.values());
   return out;

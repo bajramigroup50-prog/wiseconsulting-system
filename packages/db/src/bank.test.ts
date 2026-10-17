@@ -193,7 +193,7 @@ describe('FX statements, conversions, transit', () => {
     expect(j2!.lines).toEqual([['1030', '0.00', '6170.00', '', 'EUR', '100.00'], ['2210', '6150.00', '0.00', 'P', '', ''], ['4810', '20.00', '0.00', '', '', '']]);
   });
 
-  it('currency purchase: MKD side to the FX bank konto, FX side neutral; transit residue closes to 4810/7810', async () => {
+  it('currency purchase: both sides through the FX transit 1039 („Предони девизни сметки“); transit residue closes to 4810/7810', async () => {
     const mkSt: Statement = { format: 'table', account: '300000000123420', no: '', date: '2026-02-10', currency: 'MKD', opening: null, closing: null, debit: null, credit: null,
       lines: [{ date: '2026-02-10', amount: -615000, counterparty: '', ref: '', purpose: '', desc: 'Откуп на девизи EUR' }] };
     const fxSt: Statement = { format: 'table', account: 'MK07300000000999999', no: '', date: '2026-02-10', currency: 'EUR', opening: null, closing: null, debit: null, credit: null,
@@ -203,19 +203,19 @@ describe('FX statements, conversions, transit', () => {
     const L = await db.select().from(schema.bankLines).where(and(eq(schema.bankLines.firmId, firmId), eq(schema.bankLines.date, '2026-02-10')));
     const m = L.find((x) => x.bankAccountId === mkd)!;
     const f = L.find((x) => x.bankAccountId === eur)!;
-    expect(m).toMatchObject({ konto: '1030', conv: true });
-    expect(f).toMatchObject({ konto: '1030', conv: true, own: true }); // paired by pairConversions
+    // owner's rule (FIX vs legacy 12758 / 12772): денари → 1039, девизи ← 1039; the FX difference is the residue on 1039
+    expect(m).toMatchObject({ konto: '1039', conv: true });
+    expect(f).toMatchObject({ konto: '1039', conv: true, own: true }); // paired by pairConversions
     const jm = await journalOf('bank_statement', m.statementId);
-    expect(jm!.lines).toEqual([['1000', '0.00', '6150.00', '', '', ''], ['1030', '6150.00', '0.00', '', '', '']]); // bank konto first („збирно“)
-    const [sf] = await db.select().from(schema.bankStatements).where(eq(schema.bankStatements.id, f.statementId));
-    expect(sf!.status).toBe('posted'); // FX side books nothing
-    expect(await journalOf('bank_statement', f.statementId)).toBeNull();
+    expect(jm!.lines).toEqual([['1000', '0.00', '6150.00', '', '', ''], ['1039', '6150.00', '0.00', '', '', '']]); // bank konto first („збирно“)
+    const jf = await journalOf('bank_statement', f.statementId);
+    expect(jf!.lines.map((l) => [l[0], Number(l[1]) > 0 ? 'D' : 'P'])).toEqual([['1030', 'D'], ['1039', 'P']]);
     // own transfer through the FX transit konto with a small residue
     await T((tx) => postJournal(tx, { firmId, date: '2026-02-11', kind: 'manual', userId: null, lines: [{ account: '1039', debit: 6150 }, { account: '1000', credit: 6150 }] }));
     await T((tx) => postJournal(tx, { firmId, date: '2026-02-11', kind: 'manual', userId: null, lines: [{ account: '1030', debit: 6140 }, { account: '1039', credit: 6140 }] }));
-    expect(await T((tx) => transitResidues(tx, firmId, 2026))).toEqual([{ konto: '1039', date: '2026-02-11', residue: 10 }]);
+    expect((await T((tx) => transitResidues(tx, firmId, 2026))).filter((x) => x.date === '2026-02-11')).toEqual([{ konto: '1039', date: '2026-02-11', residue: 10 }]);
     await T((tx) => closeTransit(tx, { firmId, userId: null, konto: '1039', date: '2026-02-11' }));
-    expect(await T((tx) => transitResidues(tx, firmId, 2026))).toEqual([]);
+    expect((await T((tx) => transitResidues(tx, firmId, 2026))).filter((x) => x.date === '2026-02-11')).toEqual([]);
   });
 });
 

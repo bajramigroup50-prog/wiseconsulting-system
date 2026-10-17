@@ -66,13 +66,13 @@ describe('rules and helpers', () => {
   it('orphan rows (FIX #9)', () => {
     expect(orphanBankRows([{ id: '1', acct: 'gone', date: '', amount: 1 }, { id: '2', date: '', amount: 1 }], acc).map((r) => r.id)).toEqual(['1']);
   });
-  it('pairConversions marks the FX side neutral', () => {
+  it('pairConversions marks the FX side of the conversion; it stays on the transit 1039 (owner\'s rule)', () => {
     const rows: BankRow[] = [
-      { id: 'm', acct: 'main', date: '2026-03-01', amount: -61500, konto: '1030', conv: true },
+      { id: 'm', acct: 'main', date: '2026-03-01', amount: -61500, konto: '1039', conv: true },
       { id: 'f', acct: 'eur', date: '2026-03-01', amount: 61400, amountCur: 100000, konto: '1039', own: true },
       { id: 'g', acct: 'eur', date: '2026-03-02', amount: 61400, konto: '1039', own: true },
     ];
-    expect(pairConversions(rows, acc)).toEqual([{ ...rows[1], konto: '1030', conv: true, own: true }]);
+    expect(pairConversions(rows, acc)).toEqual([{ ...rows[1], conv: true }]);
   });
   it('rows already booked or linked are never touched', () => {
     const r = autoMatch({

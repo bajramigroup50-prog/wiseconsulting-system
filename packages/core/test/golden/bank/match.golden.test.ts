@@ -241,8 +241,10 @@ describe('classifyImported vs legacy save chain (13072 → 12758 → 12568 → 1
     // c6: legacy silently created partner "new1"; the port reports it instead (FIX #5)
     expect(leg.find((r) => r.id === 'c6')!.partner).toMatch(/^new/);
     expect(out.find((o) => o.row.id === 'c6')!.newPartner).toBe('Нов Купувач ДООЕЛ');
-    expect(final.map(pr)).toEqual(leg.map((r) => pr(r.id === 'c6' ? { ...r, partner: undefined } : r)));
+    // FIX (owner's rule): both sides of a currency purchase / sale stay on the FX transit 1039 (legacy: FX bank konto, neutral FX side)
+    const convFix = (r: LRow) => (r.conv ? { ...r, konto: '1039' } : r);
+    expect(final.map(pr)).toEqual(leg.map((r) => pr(convFix(r.id === 'c6' ? { ...r, partner: undefined } : r))));
     expect(out.map((o) => o.cls)).toEqual(['pos', 'conv', 'conv', 'own', null, null, 'own', null]);
-    expect(final.find((r) => r.id === 'c7')).toMatchObject({ konto: '1030', conv: true, own: true }); // paired with c2
+    expect(final.find((r) => r.id === 'c7')).toMatchObject({ konto: '1039', conv: true }); // paired with c2
   });
 });

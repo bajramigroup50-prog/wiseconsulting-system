@@ -81,16 +81,16 @@ describe('Изводи во налогот (open bank nalog)', () => {
     const before = await totals();
     const L = await stLines();
     const pio = L[6]!;
-    expect(pio.konto).toBe('2349');
+    expect(pio.konto).toBe('2341'); // „Придонес ПИО“ → the payroll scheme's ПИО konto (pay_pio)
     revalidated.length = 0;
-    const r = await setKontoAction({}, form({ line: pio.id, konto: '2341', partner: '' }));
+    const r = await setKontoAction({}, form({ line: pio.id, konto: '2349', partner: '' }));
     expect(r.error).toBeUndefined();
     expect(revalidated).toContain('/nalozi');
-    expect(await onK('2341')).toBe(723_900);
+    expect(await onK('2349')).toBe(723_900);
     expect(await totals()).toEqual(before);
     expect(before.D).toBe(before.P);
     const h = await html(number);
-    expect(h).toMatch(/2341<\/b>|value="2341"/);
+    expect(h).toMatch(/2349<\/b>|value="2349"/);
   });
 
   it('„Зачувај ги сите промени“ saves several lines, re-posting the statement once; untouched lines stay', async () => {
@@ -105,8 +105,9 @@ describe('Изводи во налогот (open bank nalog)', () => {
     const r = await saveStatementLinesAction({}, form({ items: JSON.stringify(items) }));
     expect(r.error).toBeUndefined();
     expect(r.ok).toMatch(/Зачувани 3 ставки; прекнижани 1 изводи/);
-    // the earlier hand edit (ПИО → 2341) is kept
-    expect(await onK('2341')).toBe(723_900 + 19_300 + 167_900);
+    // the earlier hand edit (ПИО → 2349) is kept
+    expect(await onK('2341')).toBe(19_300 + 167_900);
+    expect(await onK('2349')).toBe(723_900);
     const JL = await jLines();
     expect(JL.some((l) => l.account === '2200' && l.partnerId === beta && cents(l.debit) === 288_800)).toBe(true);
     expect((await stLines())[0]!.konto).toBe('4460');

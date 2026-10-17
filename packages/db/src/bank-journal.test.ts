@@ -89,11 +89,11 @@ describe('statement from /banka: suggestions, per-line and all posting', () => {
     expect(k).toEqual([
       ['4460', ''], // 666 провизија
       ['2340', ''], // 840 персонален данок
-      ['2349', ''], // 843 придонеси
+      ['2344', ''], // 843 придонес за вработување → its payroll konto (pay_vrab), the konto the payroll credited
       ['23008', ''], // ДДВ
-      ['2349', ''],
+      ['2342', ''], // здравствено (pay_zdr)
       ['2200', 'P'], // Алфа ДОО
-      ['2349', ''],
+      ['2341', ''], // ПИО (pay_pio)
       ['2200', 'Нов Добавувач ДООЕЛ'],
     ]);
     expect(S.get(L[1]!.id)!.why).toMatch(/840/);
@@ -166,7 +166,7 @@ describe('import inside a nalog (Налози → ИЗВОДИ → „📥 Ув�
     const plan = await T((tx) => planImport(tx, { firmId: F.firmId, userId: null, statements: [halk()] }));
     const S = await T((tx) => previewSuggestions(tx, F.firmId, plan));
     expect(S[lineKey(0, 0)]).toMatchObject({ konto: '4460' });
-    expect(S[lineKey(0, 2)]).toMatchObject({ konto: '2349' });
+    expect(S[lineKey(0, 2)]).toMatchObject({ konto: '2344' });
     expect(S[lineKey(0, 5)]).toMatchObject({ konto: '2200', partnerId: F.alfa });
     // the user changes the contributions line to 2341 (ПИО) before saving
     const lineKonto = Object.fromEntries(Object.entries(S).map(([k, s]) => [k, { konto: s.konto, partnerId: s.partnerId ?? null, createPartner: s.newPartner ?? null }]));

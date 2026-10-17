@@ -100,11 +100,12 @@ describe('the bank as counterparty: fees on 4460, card purchases on 1020, never 
     expect(m.rows[0]).toMatchObject({ konto: '4010' });
   });
 
-  it('import classification: fee / card konto, no partner to create', () => {
-    const c = classifyImported(row('i', -15_000, 'НЛБ Банка- Провизии'), ctx([]));
-    expect(c).toMatchObject({ cls: 'fee', row: { konto: '4460' } });
-    expect(c.newPartner).toBeUndefined();
-    expect(classifyImported(lines[4]!, ctx([]))).toMatchObject({ cls: 'card', row: { konto: '1020' } });
+  it('import classification: no partner to create for the bank / a card merchant (the konto is proposed by the review)', () => {
+    for (const r of [row('i', -15_000, 'НЛБ Банка- Провизии', { konto: '2200' }), { ...lines[4]!, konto: '2200' }]) {
+      const c = classifyImported(r, ctx([]));
+      expect(c.newPartner).toBeUndefined();
+      expect(c.row.partner).toBeUndefined();
+    }
   });
 
   it('„Поврзи ги со комитентот од изводот“ does not list the bank, the Treasury or employees', () => {
@@ -171,10 +172,10 @@ describe('МИНИСТЕРСТВО ЗА ФИНАНСИИ / Treasury: tax payment
   });
 });
 
-describe('currency purchase on a denar account → FX bank konto', () => {
-  it('„купопродажба на девизи“ → 1030, no partner', () => {
+describe('currency purchase on a denar account → FX transit 1039 („Предони девизни сметки“)', () => {
+  it('„купопродажба на девизи“ → 1039, no partner', () => {
     const m = autoMatch(ctx([row('k', -6_150_000, 'НЛБ Банка купопродажба на девизи EUR 1000')]));
-    expect(m.rows[0]).toMatchObject({ konto: '1030', conv: true });
+    expect(m.rows[0]).toMatchObject({ konto: '1039', conv: true });
     expect(m.rows[0]!.partner).toBeUndefined();
   });
 });

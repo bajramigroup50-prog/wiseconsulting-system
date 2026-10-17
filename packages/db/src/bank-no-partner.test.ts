@@ -50,8 +50,10 @@ beforeAll(async () => {
 describe('import & suggestions', () => {
   it('provisions → 4460, card → 1020, without a partner; nothing proposed as a new partner', async () => {
     const L = await lines();
-    expect(L.slice(0, 3).map((l) => [l.konto, l.partnerId, l.newPartner])).toEqual([['4460', null, null], ['4460', null, null], ['1020', null, null]]);
-    expect(L.every((l) => !l.newPartner || l.name === 'ВЕНГ ХАУС ДОО Скопје')).toBe(true);
+    expect(L.every((l) => !l.partnerId && !l.newPartner)).toBe(true);
+    const S = await T((tx) => statementSuggestions(tx, firmId, [L[0]!.statementId]));
+    expect(L.slice(0, 3).map((l) => [S.get(l.id)!.konto, S.get(l.id)!.partnerId ?? null, S.get(l.id)!.newPartner ?? null]))
+      .toEqual([['4460', null, null], ['4460', null, null], ['1020', null, null]]);
   });
 
   it('salary → net-salary konto, Treasury → pension, Ministry of Finance → 2330 / 44792; the customer → 1200 with VENG HAUS', async () => {
