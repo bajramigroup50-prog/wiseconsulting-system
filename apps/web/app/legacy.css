@@ -329,6 +329,9 @@ table.fit .btn.sm{padding:2px 5px}
 }
 table.fit .sub2{display:block;font-size:11px;color:var(--muted);line-height:1.25}
 table.fit .dp{font-size:10.5px;color:var(--muted);margin-left:3px;font-family:var(--f-body);font-weight:600}
+/* keyboard lists („Аналитика“, бруто биланс: components/key-nav.tsx): the selected row */
+table.knav tbody tr[data-href]{cursor:default;user-select:none}
+table.knav tbody tr.sel td,table.knav tbody tr.sel:nth-child(even) td{background:var(--accent-soft);box-shadow:inset 0 1px 0 var(--accent),inset 0 -1px 0 var(--accent)}
 
 /* bank statement lines: одлив (должува) | прилив (побарува) as on the bank statement — separated, tinted, printable */
 th.amt-od,td.amt-od{border-left:2px solid var(--line);color:var(--bad)}

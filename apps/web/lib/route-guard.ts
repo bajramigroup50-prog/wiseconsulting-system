@@ -107,7 +107,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   'firmi', 'izlezF', 'lozinka', 'pomos', 'kontroli', 'zakon', 'insp', 'lawrep', 'dosie', 'paket', 'moduli',
   // finance
   'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
-  'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
+  'akart', 'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
   'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pozajmici', 'prenos',
   // year end
   'zsProc', 'zsDos', 'zsNPO', 'zsTP', 'zsRok', 'zsBel', 'zsKontrola', 'zsXml', 'zs_aop', 'zs_bs', 'zs_bu', 'zs_db', 'zs_de', 'zs_pr', 'zs_skr', 'zs_sp', 'zs_vp',
@@ -233,7 +233,7 @@ export const BOOK_ONLY_MSG = 'Немате пристап до овој дел �
 const BOOK_ONLY_LIST: readonly string[] = [
   // Финансово: statements and banks, cash, payment orders, the journal (+ dnevnik print), cards, reconciliation, trial balance
   'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi',
-  'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'kamati',
+  'akart', 'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'kamati',
   // ДДВ
   'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
   // payroll (the МПИН of the selected firm is `plati/[month]/mpin`; the all-firms `mpinIn` / `payBatch` stay hidden), travel orders
@@ -267,14 +267,14 @@ export const BOOK_ALWAYS_VIEWS: readonly string[] = ['izlezF', 'lozinka', 'pomos
 /** `/print/<x>` → the views that print it (any one of them suffices). An unknown print needs the view of its name. */
 const PRINT_VIEWS: Readonly<Record<string, readonly string[]>> = {
   analizi: ['analizi'], bilanc: ['bilanc'], cenovnik: ['sifrarnik', 'artikli'], ddv04: ['ddv'], ddv04Prilog: ['ddv'], ddv04All: ['ddv04All'], ddvKniga: ['ddv', 'ddvKnigi'],
-  ddvKnigi: ['ddvKnigi'], ddvTab: ['ddv', 'ddvTab'], dnevnik: ['nalozi'], nalog: ['nalozi'], kkart: ['kkart'], kartice: ['g_kartica', 'm_kartica', 'zaliha'],
+  ddvKnigi: ['ddvKnigi'], ddvTab: ['ddv', 'ddvTab'], dnevnik: ['nalozi'], nalog: ['nalozi'], kkart: ['kkart', 'akart', 'bilanc'], kartice: ['g_kartica', 'm_kartica', 'zaliha'],
   doc: ['izlez', 'vlez', 'profakturi', 'ispratnici', 'porachki', 'nabavki', 'uslugi', 'odobrenija', 'm_izlez', 'periodicni', 'kasa'],
   kalk: ['kalkG', 'kalkM', 'vlez'], prodKalk: ['prodCost', 'prod'], metg: ['g_trg', 'm_trg'], prenos: ['prenosi'], scr: ['povratDob'],
   firmIzv: ['firmIzv'], firmPregled: ['firmi'], firmi: ['firmi'], izjava: ['korisnici'], klNote: ['klPortal'], produktivnost: ['produktivnost'],
 };
 /** `/print/fin/<doc>` (`app/print/fin/[doc]`). */
 const FIN_PRINT: Readonly<Record<string, readonly string[]>> = {
-  kartici: ['kartici'], sinteticka: ['kartici'], potvrda: ['kartici'], ios: ['kartici', 'analitika'], analitika: ['analitika'], pkartica: ['analitika'],
+  kartici: ['kartici'], sinteticka: ['kartici'], potvrda: ['kartici'], ios: ['kartici', 'analitika', 'akart'], analitika: ['analitika'], pkartica: ['analitika'],
   poobjekti: ['poobjekti'], pdd: ['pdd'], pozajmica: ['pozajmici'],
 };
 /** API endpoints of a restricted colleague: the shared ones, the firm list (picker), the UBL e-invoice, the device check. */

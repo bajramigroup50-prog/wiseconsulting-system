@@ -8,7 +8,7 @@ import type { CardLine } from '@wise/core/finance';
 import { invoices, journalLines, journals, partners, purchases } from '@wise/db';
 import { db } from './db';
 
-export type FinLine = CardLine & { id: string; journalId: string; lineNo: number; locationId: string | null };
+export type FinLine = CardLine & { id: string; journalId: string; lineNo: number; locationId: string | null; currency: string | null; amountCur: number | null };
 
 /** Journal lines of the firm in [from, to] (optionally only accounts starting with one of `kontos`, or one partner), in booking order. */
 export async function finLines(firmId: string, from: string, to: string, o: { kontos?: readonly string[]; partnerId?: string; accountRe?: string; excludeClose?: boolean } = {}): Promise<FinLine[]> {
@@ -21,6 +21,7 @@ export async function finLines(firmId: string, from: string, to: string, o: { ko
   const rows = await db().select({
     id: journalLines.id, account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, partnerId: journalLines.partnerId,
     note: journalLines.note, doc: journalLines.doc, lineNo: journalLines.lineNo, locationId: journalLines.locationId,
+    currency: journalLines.currency, amountCur: journalLines.amountCur,
     date: journals.date, kind: journals.kind, journalId: journals.id, number: journals.number, description: journals.description,
     sourceType: journals.sourceType, sourceId: journals.sourceId,
   }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
@@ -35,7 +36,7 @@ export async function finLines(firmId: string, from: string, to: string, o: { ko
   ]);
   const due = new Map<string, string | null>([...I, ...P].map((x) => [x.id, x.due]));
   return rows.map((r) => ({
-    ...r, id: String(r.id), debit: Number(r.debit), credit: Number(r.credit),
+    ...r, id: String(r.id), debit: Number(r.debit), credit: Number(r.credit), amountCur: r.amountCur == null ? null : Number(r.amountCur),
     due: (r.sourceType === 'invoice' || r.sourceType === 'purchase') && r.sourceId ? due.get(r.sourceId) ?? null : null,
   }));
 }
