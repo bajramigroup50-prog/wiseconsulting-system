@@ -14,6 +14,7 @@ import { locationOptions } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import type { DraftPartnerMatch } from '@wise/core/partners/match';
 import { cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
 import { AutoRefresh, ScanUpload } from './scan-upload';
 
@@ -57,7 +58,7 @@ function multiFound(docs: AiDocument[], names: Map<string, string>, parents: Map
 }
 
 type PurDraft = { partnerId?: string; supplierName?: string; number?: string; date?: string; groups?: { base: number; vat: number }[]; stock?: unknown[]; art32?: boolean };
-type SaleDraft = { partnerId?: string; buyer?: { name?: string }; number?: string; date?: string; total?: number; calcTotal?: number };
+type SaleDraft = { partnerId?: string; buyer?: { name?: string }; match?: DraftPartnerMatch; number?: string; date?: string; total?: number; calcTotal?: number };
 
 export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'masovnoM'; sp: { k?: string; b?: string; wh?: string; cash?: string; cost?: string; saved?: string } }) {
   const { u, firm } = await booksPage(mode);
@@ -176,7 +177,10 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
               return (
                 <tr key={r.doc.id + ':' + r.i}>
                   <td className="mini">{file}</td><td>{d.number}</td><td>{dmy(d.date)}</td>
-                  <td>{d.partnerId ? P.get(d.partnerId) : d.buyer?.name}{x && !d.partnerId && d.buyer?.name && <> <span className="pill info">нов</span>{write && !x.savedId && <RowAction action={ensureScanBuyer.bind(null, r.doc.id, r.i!)} label="+ во комитенти" />}</>}</td>
+                  <td>{d.partnerId ? P.get(d.partnerId) : d.buyer?.name}{x && !d.partnerId && d.buyer?.name && (d.match?.candidates?.length
+                    ? <> <span className="pill warn" title={d.match.candidates.map((c) => c.name).join(' · ')}>слични комитенти: {d.match.candidates.length} – проверете</span></>
+                    : <> <span className="pill info">нов</span>{write && !x.savedId && <RowAction action={ensureScanBuyer.bind(null, r.doc.id, r.i!)} label="+ во комитенти" />}</>)}
+                  {x && d.partnerId && d.match?.created && <> <span className="pill info" title="Креиран автоматски од документот">нов партнер</span></>}</td>
                   <td className="n">{x ? fmt(d.calcTotal ?? d.total ?? 0) : ''}</td>{status}{acts}
                 </tr>);
             }

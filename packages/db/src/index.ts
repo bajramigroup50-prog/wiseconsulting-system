@@ -65,6 +65,7 @@ export * from './parity-retail';
 export * from './fiscal-receipts';
 export * from './parity-stock';
 export * from './sales/partners-auto';
+export * from './partners-merge';
 export * from './sales/invoice-production';
 export * from './sales/invoice-nalog';
 export * from './repost';

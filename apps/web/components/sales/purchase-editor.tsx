@@ -16,6 +16,8 @@ import { fmt, todayIso } from '@/lib/fmt';
 import { uploadFile } from '@/lib/upload';
 import { addSupplierAction, createItemsAction, deletePurchaseAction, purchaseDeletePreviewAction, saveMarginDefaults, savePurchaseAction } from '@/app/(app)/vlez/actions';
 import { scanStatus, scanTaken, startScans } from '@/app/(app)/skan/actions';
+import { classifyPartnerId } from '@wise/core/partners/match';
+import { ScanPartnerNote } from './scan-partner-note';
 import { fxDefaultRate } from '@/app/(app)/_fx/actions';
 import { AI_OPEN_FAILED_MSG, AI_UNAVAILABLE_MSG, aiReadDoneMsg, isAiUnavailable } from '@wise/core/ai/messages';
 import { startAiRead, aiReadStatus } from '@/app/(app)/_ai/actions';
@@ -29,6 +31,8 @@ export interface PurchaseEditorProps {
   initial: EdPurchase;
   title: string;
   partners: { id: string; code: string | null; name: string; edb: string | null }[];
+  /** Opened from a read document: how its supplier was matched (candidates, created automatically…). */
+  scanMatch?: ScanPurchaseDraft['match'] | null;
   items: PurItemOpt[];
   locations: { id: string; code: string | null; name: string; kind: string }[];
   accounts: [string, string][];
@@ -75,6 +79,10 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const [bc, setBc] = useState('');
   const [toast, setToast] = useState('');
   const [parts, setParts] = useState(p.partners);
+  /** The read document this purchase was filled from (its partner match: candidates / created / learned). */
+  const [scanP, setScanP] = useState<{ docId: string; index: number; match: ScanPurchaseDraft['match'] | null } | null>(
+    p.initial.scanDocId ? { docId: p.initial.scanDocId, index: p.initial.scanIndex ?? 0, match: p.scanMatch ?? null } : null);
+  const addPart = (x: { id: string; code: string | null; name: string; edb?: string | null }) => setParts((P0) => (P0.some((y) => y.id === x.id) ? P0 : [...P0, { id: x.id, code: x.code, name: x.name, edb: x.edb ?? null }]));
   const [files, setFiles] = useState(p.files);
   const [mgCustom, setMgCustom] = useState('');
   const [mgRound, setMgRound] = useState(String(p.mgRound || 1));
@@ -281,7 +289,10 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           for (const s of S) {
             if (s.status === 'done' && s.drafts[0]) {
               const first = s.drafts[0];
-              mergeScan(first.draft as unknown as ScanPurchaseDraft);
+              const fd = first.draft as unknown as ScanPurchaseDraft;
+              if (fd.partnerId && fd.match?.partner?.id === fd.partnerId) addPart(fd.match.partner);
+              mergeScan(fd);
+              setScanP({ docId: first.docId, index: first.index, match: fd.match ?? null });
               setReading((R) => R.filter((r) => r.id !== s.id));
               // one file, several invoices: only the first comes into this editor, each of the others is its own
               // purchase (never merged) and waits on the scan screen
@@ -480,7 +491,9 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           </div>
           <div className="fcol">
             <label className="fl b"><span>Комитент</span><select value={d.partnerId} onChange={(e) => set({ partnerId: e.target.value })}>{pOpts}</select></label>
-            {!d.partnerId && d.supplierName && <div className="callout">Добавувачот „{d.supplierName}“ (ЕДБ {d.supplierEdb || '—'}) не е во шифрарникот. <button type="button" className="btn sm" onClick={addSupplier}>Додај го како партнер</button></div>}
+            {scanP && d.supplierName ? <ScanPartnerNote key={scanP.docId + scanP.index} docId={scanP.docId} index={scanP.index} match={scanP.match} partnerId={d.partnerId} name={d.supplierName} idRaw={d.supplierEdb} who="Добавувачот"
+              onAdd={addSupplier} onPicked={(x) => { addPart(x); set({ partnerId: x.id }); }} onUndone={() => { setParts((P0) => P0.filter((y) => y.id !== d.partnerId)); set({ partnerId: '' }); }} />
+              : !d.partnerId && d.supplierName && <div className="callout">Добавувачот „{d.supplierName}“ ({classifyPartnerId(d.supplierEdb).kind === 'embs' ? 'ЕМБС' : 'ЕДБ'} {d.supplierEdb || '—'}) не е во шифрарникот. <button type="button" className="btn sm" onClick={addSupplier}>Додај го како партнер</button></div>}
             {!d.partnerId && <><label className="fl"><span>или нов добавувач</span><input value={d.supplierName} placeholder="назив (се додава во комитенти)" onChange={(e) => set({ supplierName: e.target.value })} /></label>
               <label className="fl"><span>ЕДБ на добавувач</span><input value={d.supplierEdb} onChange={(e) => set({ supplierEdb: e.target.value })} /></label></>}
             {!d.imp && pf('bankAcc', 'Жиро сметка на добавувач', { ph: 'се памети кај комитентот' })}

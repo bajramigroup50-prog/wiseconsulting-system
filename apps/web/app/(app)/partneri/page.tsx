@@ -19,13 +19,15 @@ import { ActionForm } from '@/components/action-form';
 import { FileChips } from '@/components/file-chips';
 import { saveTk } from './actions';
 import { TkScan } from './tk-scan';
+import { PartnerDupView } from './dup-view';
 
 const LIMIT = 500;
 
-export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string }> }) {
+export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string; dup?: string }> }) {
   const sp = await searchParams;
   const { u, firm } = await booksPage('partneri');
   if (!firm) return <NoFirm t="Партнери" />;
+  if (sp.dup !== undefined) return <PartnerDupView firmId={firm.id} canMerge={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)} />;
   const q = (sp.q ?? '').trim();
   const where = and(eq(partners.firmId, firm.id), q
     ? or(ilike(partners.name, `%${q}%`), ilike(partners.edb, `%${q}%`), ilike(partners.code, `%${q}%`), ilike(partners.city, `%${q}%`))
@@ -59,6 +61,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       <Hd t="Партнери" sub={`${total?.n ?? 0} комитенти`}>
         {write && !showForm && <Link className="btn" href="/uvoz?t=partners&back=partneri">Увоз од Excel</Link>}
         {write && noCode && <RowAction className="btn" action={autoCodesAction} label="Додели шифри" title="Автоматски шифри за сите без шифра" />}
+        <Link className="btn" href="/partneri?dup" title="Комитенти со ист ЕДБ / ЕМБС или слично име – спојување">Дупликати</Link>
         {write && <Link className="btn pri" href="/partneri?nov">+ Додај</Link>}
       </Hd>
       {sp.ok && <div className="callout good">{sp.ok}</div>}
