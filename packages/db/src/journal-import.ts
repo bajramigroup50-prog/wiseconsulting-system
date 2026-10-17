@@ -57,9 +57,11 @@ export type JiProblemKind = 'row' | 'konto' | 'synthetic' | 'partner' | 'nopartn
 export interface JiProblem { kind: JiProblemKind; msg: string; rows: number[] }
 /**
  * Does the problem block the import? A synthetic konto is only listed (the old program booked on it, the books must
- * equal its trial balance); missing partners do not block when they are created from the file.
+ * equal its trial balance); missing partners do not block when they are created from the file; lines on a partner konto
+ * without any partner in the file (the old program booked them so, e.g. 22055 „Бонус по договор за вработување“) are
+ * imported without a partner, as in the old program, and only listed.
  */
-export const jiBlocks = (p: Pick<JiProblem, 'kind'>, createPartners?: boolean): boolean => p.kind !== 'synthetic' && !(p.kind === 'partner' && createPartners);
+export const jiBlocks = (p: Pick<JiProblem, 'kind'>, createPartners?: boolean): boolean => p.kind !== 'synthetic' && p.kind !== 'nopartner' && !(p.kind === 'partner' && createPartners);
 export interface JiMissingPartner {
   key: string; name: string; code: string; edb: string; rows: number[]; kontos: string[];
   /** similar partners of WISE that were not taken automatically (check before creating a new one) */
@@ -233,7 +235,7 @@ async function analyze(tx: Tx, firmId: string, input: JiInput): Promise<Analysis
     const C = [...clash.values()];
     warnings.push(`Шифрата се совпаѓа со друг комитент во WISE – комитентот се бара по ЕДБ / назив (${C.length}): ${C.slice(0, 10).map((c) => `${c.code} „${c.file}“ ≠ „${c.wise}“`).join('; ')}${C.length > 10 ? '…' : ''}.`);
   }
-  if (noPartner.length) add('nopartner', `${noPartner.length} ставки на конто за комитенти (12x / 22x) немаат комитент во датотеката (ред ${noPartner.slice(0, 8).join(', ')}${noPartner.length > 8 ? '…' : ''}) – дополнете шифра, ЕДБ или назив.`, noPartner);
+  if (noPartner.length) add('nopartner', `${noPartner.length} ставки на конто за комитенти (12x / 22x) немаат комитент во датотеката (ред ${noPartner.slice(0, 8).join(', ')}${noPartner.length > 8 ? '…' : ''}) – се увезуваат без комитент, како во старата програма (по потреба дополнете шифра, ЕДБ или назив).`, noPartner);
   const M = [...missing.values()];
   if (M.length && !input.createPartners) {
     for (const m of M) add('partner', `Комитентот „${m.name || '—'}“${m.code ? ` (шифра ${m.code})` : ''}${m.edb ? ` (ЕДБ ${m.edb})` : ''} не е најден – ${m.rows.length} ставки на ${m.kontos.join(', ')} (ред ${m.rows.slice(0, 5).join(', ')}${m.rows.length > 5 ? '…' : ''}).`, m.rows);
