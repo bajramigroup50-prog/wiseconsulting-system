@@ -28,3 +28,31 @@ export const repostConfirm = (year: number | string) => `Да се прекни�
 /** Legacy result toast of `schRepost`. */
 export const repostResult = (n: number, locked: number, failed = 0) =>
   `${n} документи се прекнижани.${locked ? ` ${locked} се прескокнати – заклучен период (не се менуваат).` : ''}${failed ? ` ${failed} не можеа да се прекнижат (проверете ги рачно).` : ''}`;
+
+/* ---------------- UX Phase 3 (P31): automatic re-posting in the background ---------------- */
+
+/** Debit / credit of one konto (cents). */
+export interface KontoTotals { d: number; c: number }
+
+/** One konto whose totals changed with the re-posting (denars, before → after). */
+export interface KontoDiff { konto: string; d0: number; c0: number; d1: number; c1: number }
+
+/** „разлики“: kontos whose debit or credit changed (before / after per konto), by konto code. */
+export function repostDiffs(before: ReadonlyMap<string, KontoTotals>, after: ReadonlyMap<string, KontoTotals>): KontoDiff[] {
+  const out: KontoDiff[] = [];
+  for (const k of new Set([...before.keys(), ...after.keys()])) {
+    const b = before.get(k) ?? { d: 0, c: 0 }, a = after.get(k) ?? { d: 0, c: 0 };
+    if (b.d !== a.d || b.c !== a.c) out.push({ konto: k, d0: b.d / 100, c0: b.c / 100, d1: a.d / 100, c1: a.c / 100 });
+  }
+  return out.sort((x, y) => (x.konto < y.konto ? -1 : x.konto > y.konto ? 1 : 0));
+}
+
+/** What changed that may make posted documents differ from the current rules. */
+export type RepostReason = 'schemes' | 'bankKonta' | 'chart' | 'manual';
+export const REPOST_REASON_LBL: Record<RepostReason, string> = {
+  schemes: 'променети шеми за книжење', bankKonta: 'променети конта за изводи', chart: 'променет контен план', manual: 'рачно барање',
+};
+
+/** The notice after a background re-post. */
+export const autoRepostText = (docs: number, statements: number, locked: number, diffs: number) =>
+  `Прекнижени ${docs + statements} налози (${docs} документи, ${statements} изводи)${locked ? ` · ${locked} во заклучен период – не се менувани` : ''} · ${diffs ? `${diffs} конта со разлики` : 'без разлики во салдата'}.`;

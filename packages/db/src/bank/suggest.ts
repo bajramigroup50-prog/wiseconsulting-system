@@ -111,7 +111,7 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
 }
 
 /** Lines that can still be booked: unbooked, or on a customer / supplier konto without a document. */
-const unbooked = (l: BankLine) => !l.refId && !(l.split && l.split.length) && (!l.konto || (BKPK_RE.test(l.konto) && !l.partnerId));
+export const lineUnbooked = (l: BankLine) => !l.refId && !(l.split && l.split.length) && (!l.konto || (BKPK_RE.test(l.konto) && !l.partnerId));
 
 /**
  * Suggestions for the unbooked lines of one or more statements (keyed by line id). The automatic matching wins
@@ -121,7 +121,7 @@ export async function statementSuggestions(tx: Tx, firmId: string, statementIds:
   const out = new Map<string, LineSuggestion>();
   if (!statementIds.length) return out;
   const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), inArray(bankLines.statementId, statementIds))).orderBy(asc(bankLines.lineNo));
-  const open = L.filter(unbooked);
+  const open = L.filter(lineUnbooked);
   if (!open.length) return out;
   const env = env0 ?? (await loadBankEnv(tx, firmId));
   const years = [...new Set(open.map((l) => Number(l.date.slice(0, 4))))];
@@ -200,7 +200,7 @@ export function nalogPeriod(number: string, year: number, own?: { from?: string 
 
 const CLS_WHY: Record<string, string> = { pos: 'POS картички', conv: 'откуп на девизи', own: 'пренос меѓу свои сметки', fee: 'провизија', tech: 'посебна сметка' };
 
-const AUTO_WHY: Record<string, string> = {
+export const AUTO_WHY: Record<string, string> = {
   pos: 'POS картички', vat: 'ДДВ (УЈП)', osnov: 'запомнато правило за шифрата', fee: 'провизија на банката', payroll: 'плата / придонеси по пресметката',
   rule: 'правило за описот', num: 'по број на фактура', amt: 'по износ на фактура', sum: 'збир на фактури',
 };
@@ -229,12 +229,20 @@ export async function bookStatementLines(tx: Tx, a: {
   overrides?: Record<string, { konto: string; partnerId?: string | null; createPartner?: string | null }>;
   /** Book only these lines (one-click „✓ Прокнижи“ on a line); default every line of the statements. */
   onlyLines?: string[];
+  /**
+   * Suggestions and matched rows computed by the caller (the „Преглед за книжење“ pass, `review.ts`) instead of
+   * `statementSuggestions` + `autoMatch` here — what the user confirmed is exactly what is booked.
+   */
+  pre?: { sugg: Map<string, LineSuggestion>; rows: Map<string, BankRow> };
+  /** Audit action (default `bankBookAll`) and extra audit data. */
+  auditAction?: string;
+  auditData?: Record<string, unknown>;
 }): Promise<BookAllResult> {
   const S = a.statementIds.length ? await tx.select().from(bankStatements).where(and(eq(bankStatements.firmId, a.firmId), inArray(bankStatements.id, a.statementIds))) : [];
   if (S.length !== new Set(a.statementIds).size) throw new BankError('Изводот не постои.');
   for (const st of S) await assertStatementOpen(tx, st);
   const env = await loadBankEnv(tx, a.firmId);
-  const sugg = await statementSuggestions(tx, a.firmId, a.statementIds, env);
+  const sugg = a.pre?.sugg ?? (await statementSuggestions(tx, a.firmId, a.statementIds, env));
   const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, a.firmId), inArray(bankLines.statementId, a.statementIds))).orderBy(asc(bankLines.lineNo));
   const bankK = new Set(env.accounts.map((x) => x.konto));
   const ov = a.overrides ?? {};
@@ -242,11 +250,12 @@ export async function bookStatementLines(tx: Tx, a: {
   const ovK = Object.values(ov).map((o) => o.konto).filter(Boolean);
   const miss = new Set(await missingAccounts(tx, a.firmId, ovK));
   const skipped: BookAllResult['skipped'] = [];
-  const matchRows = new Map<string, BankRow>();
-  const years = [...new Set(L.map((l) => Number(l.date.slice(0, 4))))];
-  for (const y of years) {
-    const ctx = await matchContext(tx, env, y);
-    for (const c of autoMatch(ctx).changes) matchRows.set(c.id, c.row);
+  const matchRows = a.pre?.rows ?? new Map<string, BankRow>();
+  if (!a.pre) {
+    for (const y of [...new Set(L.map((l) => Number(l.date.slice(0, 4))))]) {
+      const ctx = await matchContext(tx, env, y);
+      for (const c of autoMatch(ctx).changes) matchRows.set(c.id, c.row);
+    }
   }
   const fx = (l: BankLine) => !!l.cur && l.cur !== 'MKD';
   let booked = 0;
@@ -254,8 +263,8 @@ export async function bookStatementLines(tx: Tx, a: {
     if (a.onlyLines && !a.onlyLines.includes(l.id)) continue;
     const o0 = ov[l.id];
     // an override equal to an existing booking (POS, conversion, own transfer) keeps that booking
-    const o = o0 && !(l.konto && o0.konto === l.konto && !unbooked(l)) ? o0 : undefined;
-    if (!unbooked(l) && !o) continue;
+    const o = o0 && !(l.konto && o0.konto === l.konto && !lineUnbooked(l)) ? o0 : undefined;
+    if (!lineUnbooked(l) && !o) continue;
     const s = sugg.get(l.id);
     let konto = o?.konto?.trim() || '';
     const same = !!s && (!o || s.konto === konto);
@@ -288,8 +297,8 @@ export async function bookStatementLines(tx: Tx, a: {
   }
   const posted = new Map<string, PostStatementResult>();
   for (const st of S) posted.set(st.id, await postStatement(tx, st.id, a.userId, env));
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bankBookAll', entityType: 'bank_statement', entityId: a.statementIds[0],
-    data: { statements: a.statementIds, booked, skipped: skipped.map((x) => ({ line: x.lineNo, why: x.why })), overrides: Object.keys(ov).length } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: a.auditAction ?? 'bankBookAll', entityType: 'bank_statement', entityId: a.statementIds[0],
+    data: { statements: a.statementIds, booked, skipped: skipped.map((x) => ({ line: x.lineNo, why: x.why })), overrides: Object.keys(ov).length, ...(a.auditData ?? {}) } });
   return { booked, skipped, posted };
 }
 

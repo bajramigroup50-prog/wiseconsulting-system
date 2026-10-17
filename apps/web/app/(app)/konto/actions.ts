@@ -8,7 +8,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { NEW_ACCOUNT_CODE_RE } from '@wise/core';
-import { accounts, audit, journalLines } from '@wise/db';
+import { accounts, audit, journalLines, oldVatDocs } from '@wise/db';
+import { queueRepostChange } from '@/lib/auto-repost';
 import { missingVatAccounts } from '@/lib/parity-fin';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -60,7 +61,7 @@ export async function deleteAccount(code: string): Promise<ActionState> {
 
 export async function addVatAccounts(): Promise<ActionState> {
   try {
-    const { u, firm } = await firmAction('write');
+    const { u, firm, year } = await firmAction('write');
     const M = await missingVatAccounts(firm);
     if (!M.length) return { ok: 'Сите ДДВ конта се во контниот план.' };
     await db().transaction(async (tx) => {
@@ -71,14 +72,23 @@ export async function addVatAccounts(): Promise<ActionState> {
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveAcc', entityType: 'account', entityId: M.map((a) => a.code).join(','), data: { vat: M } });
     });
     revalidatePath('/konto');
-    return { ok: `Додадени ${M.length} ДДВ конта.` };
+    return { ok: `Додадени ${M.length} ДДВ конта.` + (await chartChanged(u, firm.id, year)) };
   } catch (e) { return actionError(e); }
+}
+
+/**
+ * UX Phase 3 (P31): a chart change that affects posted documents (documents of the year still booked with VAT on a
+ * summary konto, now that the per-rate kontos exist) → background re-post or the „Прекнижи“ suggestion.
+ */
+async function chartChanged(u: { id: string }, firmId: string, year: number): Promise<string> {
+  const n = await db().transaction((tx) => oldVatDocs(tx, firmId, year));
+  return n ? queueRepostChange({ firmIds: [firmId], reason: 'chart', year, userId: u.id }) : '';
 }
 
 /** Excel/CSV import of firm accounts (columns Конто, Назив): new analytic kontos or renamed ones. Needs `write`. */
 export async function importAccounts(rows: (string | number | null)[][]): Promise<ActionState> {
   try {
-    const { u, firm } = await firmAction('write');
+    const { u, firm, year } = await firmAction('write');
     const hi = rows.findIndex((r) => r.some((c) => /конто|konto|сметка/i.test(String(c ?? ''))));
     const head = hi >= 0 ? rows[hi]!.map((c) => String(c ?? '').toLowerCase()) : [];
     const cK = hi >= 0 ? head.findIndex((c) => /конто|konto|сметка/.test(c)) : 0;
@@ -96,7 +106,7 @@ export async function importAccounts(rows: (string | number | null)[][]): Promis
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'importAcc', entityType: 'account', data: { n: L.length } });
     });
     revalidatePath('/konto');
-    return { ok: `Увезени ${L.length} конта.` };
+    return { ok: `Увезени ${L.length} конта.` + (await chartChanged(u, firm.id, year)) };
   } catch (e) { return actionError(e); }
 }
 

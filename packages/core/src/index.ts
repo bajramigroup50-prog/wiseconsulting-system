@@ -36,6 +36,7 @@ export * from './bank/pp-fill';
 export * from './text/yuscii';
 export * from './bank/cash';
 export * from './bank/komp';
+export * from './bank/review';
 export * as Sales from './sales';
 export * as Office from './office';
 export * from './stock-books';

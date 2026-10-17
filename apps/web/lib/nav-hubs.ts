@@ -61,6 +61,16 @@ export const HUBS: readonly Hub[] = [
     ],
     alt: ['банки', 'банкарски сметки', 'формати на изводи', 'банки и формати'],
   },
+  {
+    // UX Phase 3 P2/P3: the statements, ONE review for booking all of them, and the payment ↔ invoice links (was bkAdv)
+    key: 'izvodi', label: '🏦 Изводи',
+    tabs: [
+      { view: 'banka', label: '📄 Изводи', href: '/banka' },
+      { view: 'banka', label: '✓ Преглед за книжење', href: '/banka/pregled' },
+      { view: 'bkAdv', label: '🔗 Поврзување' },
+    ],
+    alt: ['преглед за книжење', 'прокнижи изводи', 'поврзување', 'плаќања без фактура', 'аванси', 'поврзи со фактура'],
+  },
 ];
 
 export const hubByKey = (key: string): Hub | undefined => HUBS.find((h) => h.key === key);
