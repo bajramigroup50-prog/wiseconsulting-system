@@ -52,6 +52,17 @@ export const SCH_EXTRA = {
    */
   fiskMarg: '',
   fiskStock: '',
+  /**
+   * Receivables of outgoing invoices under ЗДДВ чл. 32-а (domestic reverse charge). Empty = `customer` (1200 — the
+   * old program kept 1200009 for чл. 24 exempt sales, see `customerExempt`).
+   */
+  customer32: '',
+  /**
+   * Receivables of outgoing invoices exempt from VAT with the right to deduct (ЗДДВ чл. 24, ДДВ-04 field 08): an
+   * invoice with `vatExempt = 'ded'`, or with no VAT at all (not art. 32-a / export / `noded`). Empty = automatic:
+   * 1200009 when the firm's effective chart has it (the old program's konto for these sales), else `customer`; '-' = off.
+   */
+  customerExempt: '',
 } as const;
 
 /**

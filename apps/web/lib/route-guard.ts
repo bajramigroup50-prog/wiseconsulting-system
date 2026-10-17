@@ -145,7 +145,7 @@ export const DEMO_OFFICE_VIEWS: readonly string[] = [
 
 /** `/print/<x>` documents of the demo firm. */
 export const DEMO_PRINT: readonly string[] = [
-  'analizi', 'bilanc', 'cenovnik', 'ddv04', 'ddvKniga', 'ddvKnigi', 'ddvTab', 'dnevnik', 'doc', 'fin', 'firmi', 'kalk', 'kartice', 'kkart', 'metg', 'nalog', 'prenos', 'prodKalk', 'scr',
+  'analizi', 'bilanc', 'cenovnik', 'ddv04', 'ddv04Prilog', 'ddvKniga', 'ddvKnigi', 'ddvTab', 'dnevnik', 'doc', 'fin', 'firmi', 'kalk', 'kartice', 'kkart', 'metg', 'nalog', 'prenos', 'prodKalk', 'scr',
 ];
 
 /** API endpoints a demo user may call (each checks the firm itself; the firm list is the demo firms only). */
@@ -266,7 +266,7 @@ export const BOOK_ALWAYS_VIEWS: readonly string[] = ['izlezF', 'lozinka', 'pomos
 
 /** `/print/<x>` → the views that print it (any one of them suffices). An unknown print needs the view of its name. */
 const PRINT_VIEWS: Readonly<Record<string, readonly string[]>> = {
-  analizi: ['analizi'], bilanc: ['bilanc'], cenovnik: ['sifrarnik', 'artikli'], ddv04: ['ddv'], ddv04All: ['ddv04All'], ddvKniga: ['ddv', 'ddvKnigi'],
+  analizi: ['analizi'], bilanc: ['bilanc'], cenovnik: ['sifrarnik', 'artikli'], ddv04: ['ddv'], ddv04Prilog: ['ddv'], ddv04All: ['ddv04All'], ddvKniga: ['ddv', 'ddvKnigi'],
   ddvKnigi: ['ddvKnigi'], ddvTab: ['ddv', 'ddvTab'], dnevnik: ['nalozi'], nalog: ['nalozi'], kkart: ['kkart'], kartice: ['g_kartica', 'm_kartica', 'zaliha'],
   doc: ['izlez', 'vlez', 'profakturi', 'ispratnici', 'porachki', 'nabavki', 'uslugi', 'odobrenija', 'm_izlez', 'periodicni', 'kasa'],
   kalk: ['kalkG', 'kalkM', 'vlez'], prodKalk: ['prodCost', 'prod'], metg: ['g_trg', 'm_trg'], prenos: ['prenosi'], scr: ['povratDob'],

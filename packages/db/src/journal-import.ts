@@ -363,6 +363,9 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
           kind: 'invoice', number: v.no, date: v.date, due: v.date, partnerId: A.partnerOf.get(v.ar) ?? null,
           lines: v.lines.map((l) => ({ name: `Увезено од старата програма (${v.no})`, unit: 'ком', qty: 1, price: l.base / 100, rate: l.rate, account: l.account, ...(l.vat != null ? { vatFix: l.vat / 100 } : {}) })),
           note: `Увезено од ${input.file}`,
+          // an invoice without VAT: its exemption kind and basis (1200009 in the old program = чл. 24, field 08)
+          // (its revenue stays on the file's konto: no zero-rate revenue konto)
+          ...(v.vatExempt ? { data: { vatExempt: v.vatExempt, vatNote: v.vatNote ?? '', keepKonto: '1' } } : {}),
         }, { userId: a.userId, role: a.role ?? 'admin' });
         if (sv.renumbered || sv.number !== v.no) throw new JournalImportError(`бројот ${v.no} е зафатен`);
         const L = await tx.select({ k: journalLines.account, d: journalLines.debit, p: journalLines.credit, pid: journalLines.partnerId })

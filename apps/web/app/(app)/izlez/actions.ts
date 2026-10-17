@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { isFuel } from '@wise/core/sales';
 import { z } from 'zod';
-import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, draftSourceFiles, fileLinks, firms, invoices, items, markDraftSaved, saveInvoice } from '@wise/db';
+import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, draftSourceFiles, fileLinks, firms, invoices, items, markDraftSaved, markInvoicesVat, saveInvoice } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -225,6 +225,25 @@ export async function deleteInvoicesAction(ids: string[]): Promise<ActionState> 
     await db().transaction((tx) => audit(tx, { userId: u.id, firmId: firm.id, action: 'bulkDelete', entityType: 'invoice', data: { text: `Масовно бришење (излез): ${n} избришани, ${c} сторнирани од ${L.length}` } }));
     revalidatePath('/', 'layout');
     return { ok: 'Избришани ' + n + (c ? `, сторнирани ${c} (издадени, не се последни по ред – бројот се чува)` : '') + ' од ' + L.length + (n + c < L.length ? ' – останатите не може (заклучен период или поврзани документи).' : '.') };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * „Означи како чл. 32-а“ / „Означи како ослободено“ on the ticked issued invoices without VAT (`markInvoicesVat`):
+ * needs the correction right (`fix`: admin), open periods only, every invoice audited.
+ */
+export async function markInvoicesVatAction(ids: string[], mode: 'art32' | 'ded' | 'noded', note?: string): Promise<ActionState> {
+  try {
+    const m = mode === 'art32' || mode === 'ded' || mode === 'noded' ? mode : null;
+    if (!m) return { error: 'Непознат вид.' };
+    const { u, firm } = await firmAction(m === 'art32' ? 'vatMark32' : 'vatMarkExempt');
+    const L = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 2000);
+    if (!L.length) return { error: 'Изберете фактури (кутичката лево).' };
+    const r = await db().transaction((tx) => markInvoicesVat(tx, firm.id, L, m, actorOf(u), { note: String(note ?? '').slice(0, 500) }));
+    revalidatePath('/', 'layout');
+    const what = m === 'art32' ? 'како чл. 32-а (поле 11, купувачи 1200009)' : m === 'noded' ? 'како ослободени без право на одбивка (поле 09)' : 'како ослободени со право на одбивка (поле 08)';
+    const sk = r.skipped.length ? ` Прескокнати ${r.skipped.length}: ${r.skipped.slice(0, 6).map((x) => `${x.number} – ${x.why}`).join('; ')}${r.skipped.length > 6 ? '…' : ''}` : '';
+    return r.changed.length ? { ok: `Означени ${r.changed.length} фактури ${what} и повторно прокнижени.${sk}` } : { error: `Ниедна фактура не е изменета.${sk}` };
   } catch (e) { return actionError(e); }
 }
 

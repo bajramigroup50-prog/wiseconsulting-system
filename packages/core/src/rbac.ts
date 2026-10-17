@@ -32,6 +32,8 @@ export const RP: Record<Role, readonly Perm[]> = {
 
 /** Named actions → the permission they need (legacy `ACT_NEED`). Unlisted actions need `write`. */
 export const ACT_NEED: Record<string, Perm> = {
+  // bulk „Означи како чл. 32-а / ослободено“ on issued invoices: re-posts booked documents (correction right)
+  vatMark32: 'fix', vatMarkExempt: 'fix',
   nalDel: 'del', nalEdit: 'fix', nalSave: 'fix', nalAddRow: 'fix', nalRmOrig: 'fix', nalRmAdd: 'fix',
   fxNew: 'settings', fxSave: 'settings', fxDel: 'settings', fxEdit: 'settings',
   tNew: 'office', tSave: 'office', tDel: 'office', tSt: 'office',

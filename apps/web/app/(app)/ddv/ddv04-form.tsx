@@ -43,14 +43,16 @@ const CSS = `
 
 type FirmInfo = Pick<Firm, 'name' | 'edb' | 'address' | 'city' | 'phone' | 'email' | 'settings'>;
 
-export function Ddv04Form({ firm, period, fields: F, amendmentNo, today }: {
+export function Ddv04Form({ firm, period, fields: F, amendmentNo, today, links }: {
   firm: FirmInfo; period: string; fields: Record<string, number>; amendmentNo?: string; today: string;
+  /** Field → link to the documents behind it (screen only; the print view has none). */
+  links?: Record<string, string>;
 }) {
   const [od, do_] = perRange(period);
   const s = (firm.settings ?? {}) as Record<string, string | undefined>;
   const prep = [s.dc_first, s.dc_last].filter(Boolean).join(' ');
   const bx = (k: string | null | undefined) => (k
-    ? <><td className="k">{k}</td><td className="b">{fi(F[k])}</td></>
+    ? <><td className="k">{k}</td><td className="b">{links?.[k] ? <a href={links[k]} title="Документи по кои е пресметан износот" style={{ color: 'inherit' }}>{fi(F[k])}</a> : fi(F[k])}</td></>
     : <><td className="k" /><td /></>);
   const rows = (R: typeof DDV04_FORM_ROWS1) => R.map(([t, a, b]) => (
     <tr key={t} className={b && ['20', '29', '31'].includes(b) && !a ? 't' : undefined}>

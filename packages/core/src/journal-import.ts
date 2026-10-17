@@ -20,6 +20,8 @@
  */
 import { fixYusciiAll } from './text/yuscii';
 import { calcLines } from './vat';
+import { NO_VAT_NOTE_MSG, vatNoteOf } from './sales/scan';
+import { CUSTOMER_EXEMPT_KONTO } from './posting';
 import { kontoParse, partnerSplit } from './tb-rows';
 import { ACCOUNT_CODE_RE, needsPartner } from './ledger';
 import { IMP_T, impAuto, impDate, impNum, impNumFormats, type DecMode } from './retail/import';
@@ -245,7 +247,16 @@ export interface JiInvoice {
    * difference is booked on the first line of the rate as its VAT (`vat`, saved as `invoice_lines.vat_fix`)
    */
   vatRound?: { rate: number; calc: number; file: number };
+  /**
+   * An invoice without VAT: its exemption kind and legal basis (`invoices.data.vatExempt` / `vatNote`). In the old program
+   * a receivable on 1200009 marks a sale exempt with the right to deduct (ЗДДВ чл. 24, field 08).
+   */
+  vatExempt?: 'ded' | 'noded';
+  vatNote?: string;
 }
+
+/** Legal basis given to an invoice imported from a 1200009 receivable (old program: чл. 24 exempt sales). */
+export const JI_EXEMPT_NOTE = 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ';
 export interface JiInvoiceRefused { no: string; rows: number[]; why: string }
 
 /** VAT rate of an output-VAT konto: 230018 → 18, 230010 → 10, 23005 → 5 (else null). */
@@ -287,12 +298,21 @@ export function jiInvoices(rows: readonly JiRow[]): { inv: JiInvoice[]; rest: Ji
     const rates = [...new Set(vat.map((r) => jiVatRate(r.k)!))];
     if (rates.length > 1) { refuse('повеќе ДДВ стапки – приходите не може да се поврзат со стапката'); continue; }
     const rate = rates[0] ?? 0;
+    // without a VAT line: on 1200009 (the old program's konto of чл. 24 sales) → exempt with the right to deduct (08);
+    // with a printed exemption note of a clear kind → that kind; else not guessed („провери“, stays journal lines)
+    let ex: Pick<JiInvoice, 'vatExempt' | 'vatNote'> = {};
+    if (!vat.length) {
+      const vn = vatNoteOf(R.map((r) => r.desc).join('\n'));
+      if (a.k === CUSTOMER_EXEMPT_KONTO) ex = { vatExempt: 'ded', vatNote: JI_EXEMPT_NOTE };
+      else if (vn?.kind === 'exempt' && vn.exempt) ex = { vatExempt: vn.exempt, vatNote: vn.note };
+      else { refuse(NO_VAT_NOTE_MSG); continue; }
+    }
     const lines: JiInvoice['lines'] = rev.map((r) => ({ account: r.k, base: r.p, rate }));
     const C = calcLines(lines.map((l) => ({ qty: 1, price: l.base / 100, rate: l.rate, konto: l.account })));
     const base = rev.reduce((s, r) => s + r.p, 0), v = vat.reduce((s, r) => s + r.p, 0);
     const cV = Math.round(C.vat * 100), cT = Math.round(C.total * 100);
     if (base + v !== a.d) { refuse(`основа ${f(base)} + ДДВ ${f(v)} ≠ вкупно ${f(a.d)}`); continue; }
-    if (cV === v && cT === a.d) { inv.push({ no, date: a.date, rows: R, ar: a, lines, base, vat: v, total: a.d }); continue; }
+    if (cV === v && cT === a.d) { inv.push({ no, date: a.date, rows: R, ar: a, lines, base, vat: v, total: a.d, ...ex }); continue; }
     // the old program rounds the VAT to whole denars (legal in MK): a difference below 1.00 per rate is the file's VAT,
     // booked as the VAT of the first line of the rate; anything more is not this invoice
     const diff = v - cV;
