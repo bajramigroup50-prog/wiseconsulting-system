@@ -93,15 +93,18 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       </form>
       {rows.length ? (<>
         {admin && <BulkBar label={`🗑 Избриши ги избраните ({n})`} confirm={`Да се избришат {n} избрани?\nТие што се користат во фактури, каса, налози или плати НЕ се бришат (може „Неактивен“).\n\nОва не може да се врати.`} action={deletePartnersAction} />}
-        <div className="tw"><table>
-          <thead><tr>{admin && <th style={{ width: 30 }}><SelAll /></th>}<th>Шифра</th><th>Назив</th><th>ЕДБ</th><th>Адреса</th><th>Град</th><th>Е-пошта</th><th>Телефон (WhatsApp/Viber)</th><th>Жиро сметка</th><th>ДДВ обврзник</th><th>Активен</th><th></th></tr></thead>
+        {/* compact: the whole table fits the screen (address + city, e-mail + phone in one cell, long names wrap) */}
+        <div className="tw"><table className="dense" style={{ fontSize: 12.5 }}>
+          <thead><tr>{admin && <th style={{ width: 26 }}><SelAll /></th>}<th>Шифра</th><th>Назив</th><th>ЕДБ / ЕМБС</th><th>Адреса, град</th><th>Контакт</th><th>Жиро сметка</th><th title="ДДВ обврзник">ДДВ</th><th title="Активен">Акт.</th><th></th></tr></thead>
           <tbody>
             {rows.map((r) => {
               const n = used.get(r.id) ?? 0;
               return (
                 <tr key={r.id} style={r.active ? undefined : { opacity: 0.55 }}>
                   {admin && <td><SelBox id={r.id} /></td>}
-                  <td>{r.code}</td><td>{r.name}{pFiles.get(r.id)?.length ? <> <FileChips files={pFiles.get(r.id)} /></> : null}</td><td>{r.edb}</td><td>{r.address}</td><td>{r.city}</td><td>{r.email}</td><td>{r.phone}</td>
+                  <td>{r.code}</td><td style={{ maxWidth: 260, whiteSpace: 'normal' }}>{r.name}{pFiles.get(r.id)?.length ? <> <FileChips files={pFiles.get(r.id)} /></> : null}</td><td>{r.edb}</td>
+                  <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{[r.address, r.city].filter(Boolean).join(', ')}</td>
+                  <td style={{ maxWidth: 180, whiteSpace: 'normal' }}>{[r.email, r.phone].filter(Boolean).join(' · ')}</td>
                   <td>{r.bankAccount}</td><td>{r.vatRegistered ? 'Да' : 'Не'}</td><td>{r.active ? 'Да' : 'Не'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {write && <Link className="btn sm" href={`/partneri?edit=${r.id}${q ? '&q=' + encodeURIComponent(q) : ''}`}>Измени</Link>}{' '}
