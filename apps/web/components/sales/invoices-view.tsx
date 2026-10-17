@@ -370,14 +370,14 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
         {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
 Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : undefined} />}
-        <div className="tw"><table className="dense">
+        <div className="tw"><table className="dense" style={{ fontSize: 12.5 }}>
           <thead><tr>{sel && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
           <tbody>{shown.map(({ i, p }) => (
             <tr key={i.id}>
               {sel && <td><SelBox id={i.id} /></td>}
               <td className="num"><b>{i.number}</b></td>{inv && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
               <td>{dmy(i.date)}</td><td style={i.due && i.due < addDays(todayIso(), 0) ? { color: 'var(--bad)' } : undefined}>{dmy(i.due)}</td>
-              <td style={{ maxWidth: 280 }}>{p?.name}</td><td className="num">{p?.code}</td>
+              <td style={{ maxWidth: 240, whiteSpace: 'normal' }}>{p?.name}</td><td className="num">{p?.code}</td>
               <td className="n">{fmt(i.base)}</td><td className="n">{fmt(i.vat)}</td><td className="n"><b>{fmt(i.total)}</b>{i.currency !== 'MKD' && <small className="mini"> {i.currency}</small>}</td>
               {payCols && (() => { const pm = payOf(i); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && i.due && i.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td></>; })()}
               <td>{st(i)}{((i.data ?? {}) as InvoiceData).prodRun?.orders?.map((o) => <Link key={o.id} className="pill info" href={JP.get(o.id) ? `/nalozi?n=${encodeURIComponent(JP.get(o.id)!)}` : '/prod'} title={`Налог за производство бр. ${o.number}${JP.get(o.id) ? ' · налог за книжење ' + JP.get(o.id) : ''}`}> 🏭 {o.number}</Link>)}{i.art32 && <span className="pill info"> 32-а</span>}{i.advance && <span className="pill warn"> авансна</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
@@ -386,11 +386,19 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
                 {kind === 'invoice' && ((i.data ?? {}) as InvoiceData).prodRun?.lines?.length ? <Link className="btn sm" href={`/print/prodKalk/${i.id}`} target="_blank" title="Калкулација на производство (печатење / PDF)">🏭</Link> : null}
                 {inv && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉</Link>}
                 {write && <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Измени">✎</Link>}
-                {write && kind === 'invoice' && !i.advance && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница (купувачот враќа стока) кон оваа фактура">↩ Одобр.</Link>}
+                {write && kind === 'invoice' && !i.advance && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница (купувачот враќа стока) кон оваа фактура">↩</Link>}
                 {write && (kind === 'proforma' || kind === 'dispatch') && !i.invoicedId && <Link className="btn sm" href={`/izlez?from=${i.id}`}>Во фактура</Link>}
-                {kind === 'invoice' && <Link className="btn sm" href={`/print/doc/${i.id}?k=dispatch`} target="_blank">Испратница</Link>}
-                {kind !== 'proforma' && kind !== 'credit' && <Link className="btn sm" href={`/print/doc/${i.id}?k=waybill`} target="_blank">Товарен лист</Link>}
-                {inv && <Link className="btn sm" href={`/api/ubl/${i.id}`} title="UBL е-фактура (XML)">XML</Link>}
+                {/* rare prints / exports in a „⋯“ menu, so the row (and the table) fits the screen */}
+                {(kind === 'invoice' || kind === 'dispatch' || inv) && (
+                  <details style={{ display: 'inline-block', position: 'relative' }}>
+                    <summary className="btn sm" style={{ listStyle: 'none', cursor: 'pointer' }} title="Повеќе">⋯</summary>
+                    <div style={{ position: 'absolute', right: 0, zIndex: 20, background: 'var(--surface, #fff)', border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 6, display: 'grid', gap: 4, minWidth: 150 }}>
+                      {kind === 'invoice' && <Link className="btn sm" href={`/print/doc/${i.id}?k=dispatch`} target="_blank">Испратница</Link>}
+                      {(kind === 'invoice' || kind === 'dispatch') && <Link className="btn sm" href={`/print/doc/${i.id}?k=waybill`} target="_blank">Товарен лист</Link>}
+                      {inv && <Link className="btn sm" href={`/api/ubl/${i.id}`} title="UBL е-фактура (XML)">XML (е-фактура)</Link>}
+                    </div>
+                  </details>
+                )}
                 {approve && isDraft(i) && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Прокнижи" confirm={`Да се прокнижи нацртот ${i.number}?${isDraftNo(i.number) ? ' Фактурата го добива следниот број од серијата.' : ''}`} />}
                 {approve && i.status === 'pending' && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Одобри" confirm={`Да се одобри и прокнижи ${i.number}?`} />}
                 {del && <RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} />}
