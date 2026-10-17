@@ -37,6 +37,8 @@ export * from './sales/invoices';
 export * from './sales/purchases';
 export * from './sales/supplier-credits';
 export * from './sales/ai-docs';
+export * from './sales/scan-save';
+export * from './vat-past';
 export * from './vat-context';
 export * from './vat-source';
 export * from './vat-lock';

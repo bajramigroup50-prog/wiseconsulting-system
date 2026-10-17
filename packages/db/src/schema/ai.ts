@@ -55,8 +55,13 @@ export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 export interface AiDraft {
   /** `ScanPurchaseDraft` / `ScanSaleDraft` from `@wise/core/sales`. */
   draft: Record<string, unknown>;
-  /** Batch check: `ok` | `check` | `dup`. */
-  status: 'ok' | 'check' | 'dup';
+  /**
+   * Batch check: `ok` | `check` | `dup`; `past` = „⏸ минат период – за проверка“: a bulk save held it because its date is
+   * in a past VAT period (`@wise/core/vat/past-period` `PastPeriodHit`) — the owner decides (`vat-past.ts`).
+   */
+  status: 'ok' | 'check' | 'dup' | 'past';
+  /** Why the draft is held (`status = 'past'`). */
+  past?: { period: string; from: string; to: string; reason: 'closed' | 'previous' | 'locked'; closed: boolean; submittedAt?: string | null; text: string; heldAt: string };
   msg: string;
   /** Id of the purchase / invoice saved from this draft. */
   savedId?: string;

@@ -16,15 +16,16 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
 import { AutoRefresh, ScanUpload } from './scan-upload';
+import { PastReview, pastReviewData } from './past-review';
 
 /** Legacy batch pills (5361) and the sales-scan pills (8424). */
 const PILL: Record<string, [string, string]> = {
   queued: ['', 'чека'], reading: ['info', 'се чита…'], ok: ['good', '✓ во ред'], check: ['warn', 'провери'], dup: ['bad', 'дупликат'],
-  error: ['bad', 'грешка'], saved: ['good', '✓ зачувано'], skip: ['', 'прескокната'],
+  error: ['bad', 'грешка'], saved: ['good', '✓ зачувано'], skip: ['', 'прескокната'], past: ['warn', '⏸ минат период – за проверка'],
 };
 const PILL_SALE: Record<string, [string, string]> = {
   queued: ['info', 'се чита…'], reading: ['info', 'се чита…'], ok: ['good', '✓ спремна'], check: ['warn', 'провери'], dup: ['bad', 'веќе внесена'],
-  error: ['bad', 'грешка'], saved: ['good', 'зачувана'], skip: ['', 'прескокната'],
+  error: ['bad', 'грешка'], saved: ['good', 'зачувана'], skip: ['', 'прескокната'], past: ['warn', '⏸ минат период – за проверка'],
 };
 
 type Row = { doc: AiDocument; i: number | null; fileName: string };
@@ -93,6 +94,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const newBatch = randomUUID();
   const opts = { kind, batchId, cash: sp.cash === '1', warehouseId: wh, costOnly: sp.cost === '1' };
   const pills = kind === 'sale' ? PILL_SALE : PILL;
+  const past = await pastReviewData(u, firm, kind);
 
   return (
     <>
@@ -108,6 +110,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         {mode !== 'skan' && batchId && write && <RowAction className="btn pri" action={saveBatchOk.bind(null, batchId)} label={`Зачувај ги сите што се во ред (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
         {mode !== 'skan' && batchId && <Link className="btn" href={`/${mode}`}>Нова листа</Link>}
       </Hd>
+      <PastReview data={past} />
       {mode !== 'skan' && !batchId ? (
         <form className="card" method="get">
           <input type="hidden" name="b" value={newBatch} />
@@ -141,7 +144,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         </div>
       )}
       {R.length > 0 && mode !== 'skan' && (
-        <div className="tiles kpi k4">{[['Вкупно', R.length, 't3'], ['Во ред', cnt('ok'), 't1'], ['За проверка', cnt('check') + cnt('dup') + cnt('error'), 't2'], ['Зачувани', cnt('saved'), 't8']].map(([a, b, t]) => <div key={String(a)} className={'tile kt ' + t}><span>{a}</span><b className="num">{b}</b></div>)}</div>
+        <div className="tiles kpi k4">{[['Вкупно', R.length, 't3'], ['Во ред', cnt('ok'), 't1'], ['За проверка', cnt('check') + cnt('dup') + cnt('error') + cnt('past'), 't2'], ['Зачувани', cnt('saved'), 't8']].map(([a, b, t]) => <div key={String(a)} className={'tile kt ' + t}><span>{a}</span><b className="num">{b}</b></div>)}</div>
       )}
       {found.length > 0 && (
         <div className="callout">{found.map((g, k) => (

@@ -17,7 +17,8 @@ import {
   DETECT_HOW, INBOX_ROUTES, INCOMING_KINDS, INCOMING_SOURCES, INCOMING_STATUS, incomingFromCapture, incomingFromClassify,
   type IncomingKind, type IncomingSource, type IncomingStatus,
 } from '@wise/core/office';
-import { aiDocuments, files, inboxItems, incomingDocs, mpinInbox, OFFICE_FILE_ENTITY } from '@wise/db';
+import { aiDocuments, files, heldScanCount, inboxItems, incomingDocs, mpinInbox, OFFICE_FILE_ENTITY } from '@wise/db';
+import { PastReview, pastReviewData } from '@/components/sales/past-review';
 import { booksPage } from '@/lib/books';
 import { db } from '@/lib/db';
 import { allowedFirms, filesOf } from '@/lib/office';
@@ -98,11 +99,12 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
     })),
     ...SCAN.map(({ d, f }): Row => {
       const live = d.drafts.filter((x) => !x.savedId && !x.skipped);
+      const held = live.filter((x) => x.status === 'past').length;
       const status: IncomingStatus = d.status === 'queued' || d.status === 'reading' ? 'unread'
         : d.status === 'saved' || (d.status === 'done' && d.drafts.length > 0 && !live.length) ? (d.drafts.every((x) => x.skipped) ? 'skipped' : 'done') : 'read';
       return {
         key: 's' + d.id, at: d.createdAt, src: 'scan', firmId: d.firmId, files: [f], kind: d.kind === 'sale' ? 'out' : 'in', how: '', what: d.drafts.length > 1 ? `${d.drafts.length} фактури во датотеката` : '',
-        status, result: d.status === 'error' ? d.error : d.status === 'done' && live.length ? `${live.length} за преглед / зачувување` : null,
+        status, result: d.status === 'error' ? d.error : d.status === 'done' && live.length ? `${live.length} за преглед / зачувување${held ? ` · ⏸ ${held} минат период – за проверка` : ''}` : null,
         link: d.batchId ? { href: `/masovno?b=${d.batchId}`, label: '🧾 Масовно' } : { href: d.kind === 'sale' ? '/skan?k=sale' : '/skan', label: '🧾 Преглед на скенирани' },
       };
     }),
@@ -118,11 +120,13 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
   const cnt = (s: IncomingStatus) => rows.filter((r) => r.status === s).length;
   const writable = F.filter((f) => can(u.principal, 'write', f.id)).map((f) => ({ id: f.id, name: f.name }));
   const mayUpload = firm ? can(u.principal, 'write', firm.id) : scope.office;
+  const heldN = await heldScanCount(db(), ids);
+  const past = heldN && firm && ids.includes(firm.id) ? await pastReviewData(u, firm) : null;
   const busy = rows.some((r) => r.status === 'unread' && r.src !== 'portal' && r.src !== 'capture') || rows.some((r) => r.inc?.aiBusy);
 
   return (
     <>
-      <Hd t="📥 Пристигнати документи" sub={`${cnt('unread')} непрочитани · ${cnt('read')} прочитани · ${cnt('done')} обработени`}>
+      <Hd t="📥 Пристигнати документи" sub={`${cnt('unread')} непрочитани · ${cnt('read')} прочитани · ${cnt('done')} обработени${heldN ? ` · ⏸ ${heldN} минат период` : ''}`}>
         <form className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <select name="firm" defaultValue={onlyOffice ? 'office' : ids.length === 1 && want !== 'all' ? ids[0] : 'all'} style={{ width: 'auto', maxWidth: 220 }}>
             <option value="all">Сите мои фирми{scope.office ? ' + канцеларија' : ''}</option>
@@ -138,6 +142,8 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
         </form>
       </Hd>
       <AutoRefresh active={busy} />
+      {heldN > 0 && !(firm && ids.includes(firm.id)) && <div className="callout warn">⏸ За проверка – минат период: <span className="pill warn">{heldN}</span> документи од минат ДДВ период чекаат одлука. Изберете ја фирмата за да ги видите.</div>}
+      {past && <PastReview data={past} hideEmpty />}
       {mayUpload && <InUpload firmId={firm?.id ?? null} office={scope.office} />}
       <p className="note">Тука е сè што пристигнува: прикачено овде, од клиентите (портал, 📷 телефон), скенирано во <Link href="/skan">Скенирање</Link>, МПИН. Пораките од клиентите се и во <Link href="/klInbox">Пристигнато од клиенти</Link>.</p>
       {R.length ? (

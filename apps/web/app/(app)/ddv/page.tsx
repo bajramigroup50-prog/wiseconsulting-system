@@ -12,7 +12,8 @@ import {
 } from '@wise/core';
 import {
   computeVatPeriod, effectiveChart, firmVatPeriodKind, fixtureVatSource, journalLines, journals, loadVatPostingContext,
-  normalizeVatPeriod, users, vatPeriodLabel, vatYearOverview, type Firm, type VatPeriodOverview,
+  latePostedDocuments, normalizeVatPeriod, pastCorrections, users, vatPeriodLabel, vatYearOverview, type Firm, type LatePostedDoc, type PastCorrection,
+  type VatPeriodOverview,
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -33,7 +34,7 @@ import { PeriodKind } from './period-kind';
 import { TarifiView } from './tarifi-view';
 import { ddvEvidenceRows } from '@wise/core/vat/evidence';
 
-type SP = { p?: string; view?: string; tab?: string; y?: string | string[]; mode?: string; c?: string | string[] };
+type SP = { p?: string; view?: string; tab?: string; y?: string | string[]; mode?: string; c?: string | string[]; late?: string };
 const today = () => todayIso();
 const list = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
@@ -47,6 +48,49 @@ function defaultPeriod(P: VatPeriodOverview[], kind: 'month' | 'quarter', year: 
   const prev = periodOf(d.toISOString().slice(0, 10), kind);
   if (prev.startsWith(String(year)) && t <= periodDue(prev) && P.some((p) => p.period === prev)) return prev;
   return P.some((p) => p.period === cur) ? cur : P[0]!.period;
+}
+
+const BASIS: Record<LatePostedDoc['basis'], string> = { closed: 'по поднесувањето во WISE', due: 'по рокот за пријава (периодот не е затворен во WISE)', after: 'по избраниот датум' };
+
+/**
+ * ⚠ the selected period: documents posted after its ДДВ-04 was filed (or after the filing deadline / a chosen date),
+ * and the held documents confirmed „во својот период“ — the cases where ДДВ-04 of the period must be corrected.
+ */
+function LateDocs({ id, sel, late, corr, after, closed }: { id: string; sel: string; late: LatePostedDoc[]; corr: PastCorrection[]; after: string | null; closed: boolean }) {
+  const href = (d: { entityType: string; id: string }) => (d.entityType === 'purchase' ? `/vlez?edit=${d.id}` : `/izlez?edit=${d.id}`);
+  return (
+    <div className="card" id={id}>
+      <div className="hd" style={{ margin: '0 0 6px', gap: 8, flexWrap: 'wrap' }}>
+        <b>Документи книжени во минат/затворен ДДВ период по затворањето</b>
+        <span className={`pill ${late.length ? 'bad' : 'good'}`}>{late.length ? `⚠ ${late.length}` : 'нема'}</span>
+        <form className="row" style={{ gap: 4 }}>
+          <input type="hidden" name="p" value={sel} />
+          <label className="mini">книжени по датум <input type="date" name="late" defaultValue={after ?? ''} style={{ width: 'auto' }} /></label>
+          <button className="btn sm">Провери</button>
+        </form>
+      </div>
+      {late.length > 0 && <div className="callout warn">⚠ {late.length} документи се книжени во овој период {after ? `по ${dmy(after)}` : closed ? 'по поднесувањето на ДДВ-04' : 'по рокот за пријава'} – ДДВ-04 за тој период треба да се коригира (исправка на пријавата).</div>}
+      {late.length > 0 && (
+        <div className="tw"><table className="dense">
+          <thead><tr><th>Документ</th><th>Број</th><th>Датум</th><th>Комитент</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th>Книжен</th><th>Основ</th></tr></thead>
+          <tbody>{late.map((d) => (
+            <tr key={d.entityType + d.id}><td>{d.entityType === 'purchase' ? 'Влезна' : 'Излезна'}</td><td><Link href={href(d)}>{d.number}</Link></td><td>{dmy(d.date)}</td><td>{d.party}</td>
+              <td className="n">{fmt(d.vat)}</td><td className="n">{fmt(d.total)}</td><td>{dmy(d.createdAt.toISOString())}</td><td className="mini">{BASIS[d.basis]}</td></tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      <div className="hd" style={{ margin: '10px 0 6px' }}><b>Корекции на ДДВ-04 потребни</b><span className={`pill ${corr.length ? 'warn' : ''}`}>{corr.length || 'нема'}</span></div>
+      {corr.length ? (
+        <div className="tw"><table className="dense">
+          <thead><tr><th>Документ</th><th>Број</th><th>Датум</th><th>Задржан како</th><th>Потврден</th></tr></thead>
+          <tbody>{corr.map((c) => (
+            <tr key={c.entityType + c.id}><td>{c.entityType === 'purchase' ? 'Влезна' : 'Излезна'}</td><td>{c.exists ? <Link href={href(c)}>{c.number}</Link> : <>{c.number} <span className="mini">(избришан)</span></>}</td>
+              <td>{dmy(c.date)}</td><td className="mini">{c.heldText}</td><td>{dmy(c.at.toISOString())}</td></tr>
+          ))}</tbody>
+        </table></div>
+      ) : <div className="mini">Нема документи потврдени „во својот период“ за овој период.</div>}
+    </div>
+  );
 }
 
 function statusPill(p: VatPeriodOverview) {
@@ -100,6 +144,13 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
     Object.fromEntries(Object.entries(C.result.in).map(([r, x]) => [r, x.b])));
   const tot = (k: string) => P.filter((p) => p.kind === kind).reduce((s, p) => s + (p.fields[k] ?? 0), 0);
   const evid = ddvEvidenceRows(ov.data.docs, cur.from, cur.to, { partners: ov.data.partners });
+  // „Документи книжени во минат/затворен ДДВ период по затворањето“ (the year; the selected period below) and
+  // „Корекции на ДДВ-04 потребни“ (held documents confirmed into their own past period)
+  const lateAfter = sp.late && /^\d{4}-\d{2}-\d{2}$/.test(sp.late) ? sp.late : null;
+  const LATE = await latePostedDocuments(db(), firm, { from: P[0]!.from, to: P[P.length - 1]!.to, after: lateAfter });
+  const lateBy = (p: VatPeriodOverview) => LATE.filter((d) => p.from <= d.date && d.date <= p.to);
+  const lateSel = lateBy(cur);
+  const corr = await pastCorrections(db(), firm.id, sel);
 
   return (
     <>
@@ -137,7 +188,7 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
               <td><b>{vatPeriodLabel(p.period)}</b>{p.kind !== kind && <span className="mini"> · {p.kind === 'month' ? 'месечно' : 'тримесечно'}</span>}</td>
               <td className="n">{fi(p.fields['20'])}</td><td className="n">{fi(p.fields['29'])}</td>
               <td className="n" style={{ color: (p.fields['31'] ?? 0) > 0 ? 'var(--bad)' : (p.fields['31'] ?? 0) < 0 ? 'var(--good)' : 'inherit' }}>{fi(p.fields['31'])}</td>
-              <td>{dmy(p.due)}</td><td>{statusPill(p)}</td>
+              <td>{dmy(p.due)}</td><td>{statusPill(p)}{lateBy(p).length > 0 && <> <span className="pill bad" title="Документи книжени по затворањето / рокот – ДДВ-04 треба да се коригира">⚠ {lateBy(p).length} книжени подоцна</span></>}</td>
               <td><Link className="btn sm" href={qs({ p: p.period })}>Отвори</Link></td>
             </tr>
           ))}
@@ -158,6 +209,8 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
       {changedAfterFiling && (
         <div className="callout warn">Документите за периодот се променети по поднесувањето: сега пресметаниот ДДВ-04 дава поле 31 = {fi(live['31'])} ден. (поднесено {fi(F['31'])}). Прикажана е поднесената пријава.</div>
       )}
+
+      <LateDocs id="late" sel={sel} late={lateSel} corr={corr} after={lateAfter} closed={closed} />
 
       {vbc && firm.vatRegistered && (
         <div className="card"><div className="hd" style={{ margin: '0 0 6px' }}><b>Контрола: ДДВ-04 ↔ основици во налозите (994/999)</b><span className={`pill ${vbc.ok ? 'good' : 'bad'}`}>{vbc.ok ? 'се совпаѓа' : 'разлика'}</span></div>

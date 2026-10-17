@@ -44,6 +44,9 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
   const [err, setErr] = useState('');
   /** „Децимали“: '' = from the file; required when a column has only ambiguous amounts („10.000“). */
   const [decSel, setDecSel] = useState<DecMode>('');
+  /** „Дозволи минати ДДВ периоди“ (purchases / invoices; the server allows it only for the owner / `fix` / `settings`). */
+  const [allowPast, setAllowPast] = useState(false);
+  const pastT = t === 'purchases' || t === 'invoices';
   const inp = useRef<HTMLInputElement>(null);
   const whs = t === 'nivel' ? locs.filter((l) => l.kind === 'store') : locs;
 
@@ -81,7 +84,7 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
       return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : String(v instanceof Date ? impDate(v) : v ?? '').trim()];
     })));
     const fd = new FormData();
-    fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, rows: out }));
+    fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, rows: out, ...(pastT && allowPast ? { allowPast: true } : {}) }));
     startTransition(() => run(fd));
   };
 
@@ -115,6 +118,8 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
                 <option value="">— нема —</option>{hdr.map((x, i) => <option key={i} value={i}>{String(x || 'Колона ' + (i + 1)).slice(0, 40)}</option>)}
               </select></label>
             ))}</div>
+            {pastT && <p className="note" style={{ margin: '8px 0 0' }}>⏸ Фактурите со датум во минат ДДВ период (затворен / поднесен или пред тековниот) не се увезуваат автоматски – се прескокнуваат со причина.{' '}
+              <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={allowPast} onChange={(e) => setAllowPast(e.target.checked)} style={{ width: 'auto' }} /> Дозволи минати ДДВ периоди (миграција; само сопственик / право „поставки“ – ДДВ-04 на тие периоди треба да се коригира)</label></p>}
             <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label className="mini">Заглавие во ред <input type="number" min={1} value={hi + 1} style={{ width: 60 }} onChange={(e) => { const h = Math.max(0, (Number(e.target.value) || 1) - 1); setHi(h); setMap(impAuto(t, rows[h] ?? [])); }} /></label>
               <label className="mini">Децимали <select value={decSel} onChange={(e) => setDecSel(e.target.value as DecMode)} style={{ width: 'auto' }}>

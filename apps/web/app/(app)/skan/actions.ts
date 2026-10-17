@@ -4,14 +4,20 @@
  * 5357, `batchSaveAll` 5376, `outRun` 8415). The reading itself runs in the worker job `ai.read-document`.
  */
 import { revalidatePath } from 'next/cache';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { canDecidePast, vatPeriodName } from '@wise/core/vat/past-period';
 import { z } from 'zod';
-import type { ScanPurchaseDraft, ScanSaleDraft } from '@wise/core/sales';
-import { aiDocuments, audit, draftSourceFiles, ensurePartner, fileAlreadyUsed, fileLinks, files, markDraftSaved, purchaseInputFromDraft, saveInvoice, savePurchase, skipDraft } from '@wise/db';
+import type { ScanSaleDraft } from '@wise/core/sales';
+import {
+  aiDocuments, audit, bulkSaveMessage, confirmPastDraft, ensurePartner, fileAlreadyUsed, files, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
+} from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { enqueue } from '@/lib/jobs';
 import { actorOf } from '@/lib/sales';
+import { isOfficeOwner } from '@/lib/office-owner';
+import { Forbidden } from '@/lib/auth';
+import { dmy } from '@/lib/fmt';
 
 const AI_READ_DOCUMENT = 'ai.read-document';
 
@@ -125,36 +131,15 @@ export async function removeScan(id: string): Promise<ActionState> {
 /**
  * Save every purchase draft whose check is `ok` (legacy `batchSaveAll`): each invoice of a file is its own purchase
  * with its own journal, in its own transaction; the source file is linked to each (with the invoice's pages).
- * Duplicates (`dup`), invoices to check and skipped ones are left as they are.
+ * Duplicates (`dup`), invoices to check and skipped ones are left as they are. A draft dated in a PAST VAT period is
+ * held („⏸ минат период – за проверка“, `@wise/db` `saveReadyScanDrafts`) for the owner's decision.
  */
-async function savePurchaseDraftsOk(where: Parameters<typeof and>[0]): Promise<ActionState> {
+async function savePurchaseDraftsOk(where: SQL | undefined): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('savePur');
-    const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), eq(aiDocuments.status, 'done'), where));
-    let n = 0, dup = 0;
-    const errs: string[] = [];
-    for (const d of docs) {
-      for (const [i, x] of d.drafts.entries()) {
-        if (x.status === 'dup' && !x.savedId && !x.skipped) dup++;
-        if (x.status !== 'ok' || x.savedId || x.skipped) continue;
-        try {
-          await db().transaction(async (tx) => {
-            const r = await savePurchase(tx, firm.id, purchaseInputFromDraft(x.draft as unknown as ScanPurchaseDraft, draftSourceFiles(d, i)), actorOf(u));
-            await markDraftSaved(tx, firm.id, d.id, i, r.id);
-          });
-          n++;
-        } catch (e) {
-          errs.push(`${(x.draft as { number?: string }).number ?? '?'}: ${e instanceof Error ? e.message : String(e)}`);
-          // the document as it is now (an earlier invoice of the same file may have just been saved)
-          const [cur] = await db().select({ drafts: aiDocuments.drafts }).from(aiDocuments).where(eq(aiDocuments.id, d.id)).limit(1);
-          const D = cur?.drafts ?? d.drafts;
-          await db().update(aiDocuments).set({ drafts: D.map((y, k) => (k === i ? { ...y, status: 'check' as const, msg: e instanceof Error ? e.message : 'грешка' } : y)) }).where(eq(aiDocuments.id, d.id));
-        }
-      }
-    }
+    const R = await saveReadyScanDrafts(db(), { firm, kind: 'purchase', where, actor: actorOf(u), past: await pastPeriodContext(db(), firm) });
     revalidatePath('/', 'layout');
-    const dupMsg = dup ? ` Прескокнати ${dup} дупликати (веќе заведени).` : '';
-    return errs.length ? { error: `Зачувани ${n}; не се зачувани: ${errs.slice(0, 5).join('; ')}${dupMsg}` } : { ok: `${n} фактури се прокнижени.${dupMsg}` };
+    return bulkSaveMessage('purchase', R);
   } catch (e) { return actionError(e); }
 }
 
@@ -280,18 +265,6 @@ export async function deepScan(id: string): Promise<ActionState> {
   return { ok: 'Подетално читање…' };
 }
 
-/** A read sales invoice as service input; the buyer is found or created (legacy `outEnsurePartner` 8408). */
-async function saleDraftToInvoice(tx: Parameters<typeof ensurePartner>[0], firmId: string, d: ScanSaleDraft, fileIds: string[]) {
-  let partnerId = d.partnerId || null;
-  if (!partnerId && d.buyer.name) partnerId = (await ensurePartner(tx, firmId, { name: d.buyer.name, edb: d.buyer.edb, address: d.buyer.address, city: d.buyer.city, vatRegistered: /^MK/i.test(d.buyer.edb || ''), type: 'customer' })).id;
-  if (!partnerId) throw new Error('Изберете го купувачот.');
-  return {
-    kind: 'invoice' as const, number: d.number, date: d.date, pdate: d.date, due: d.due || null, partnerId, art32: d.art32, scanned: true,
-    lines: d.items.map((l) => ({ itemId: l.itemId || null, name: l.name, unit: l.unit, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, account: l.konto })),
-    fileIds,
-  };
-}
-
 /** Legacy `outEnsurePartner` from the review list: add the read buyer to the partners and link it to the draft. */
 export async function ensureScanBuyer(docId: string, index: number): Promise<ActionState> {
   try {
@@ -312,31 +285,60 @@ export async function ensureScanBuyer(docId: string, index: number): Promise<Act
   return { ok: 'Купувачот е додаден.' };
 }
 
-/** Legacy `outSaveAll` (8439): save every read sales invoice that is „✓ спремна“. */
+/** Legacy `outSaveAll` (8439): save every read sales invoice that is „✓ спремна“ (past VAT periods are held). */
 export async function saveSalesOk(): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('saveInv');
-    const docs = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'sale'), eq(aiDocuments.status, 'done')));
-    let n = 0, tot = 0;
-    const errs: string[] = [];
-    for (const d of docs) {
-      for (const [i, x] of d.drafts.entries()) {
-        if (x.status !== 'ok' || x.savedId || x.skipped) continue;
-        tot++;
-        try {
-          await db().transaction(async (tx) => {
-            // the source file (photos read together: the photos of this invoice's pages) linked to each invoice
-            const src = draftSourceFiles(d, i).fileIds;
-            const inp = await saleDraftToInvoice(tx, firm.id, x.draft as unknown as ScanSaleDraft, src);
-            const r = await saveInvoice(tx, firm.id, inp, actorOf(u));
-            if (src.length) await tx.insert(fileLinks).values(src.map((fileId) => ({ fileId, entityType: 'invoice', entityId: r.id, role: 'source' }))).onConflictDoNothing();
-            await markDraftSaved(tx, firm.id, d.id, i, r.id);
-          });
-          n++;
-        } catch (e) { errs.push(`${(x.draft as { number?: string }).number ?? '?'}: ${e instanceof Error ? e.message : String(e)}`); }
-      }
-    }
+    const R = await saveReadyScanDrafts(db(), { firm, kind: 'sale', actor: actorOf(u), past: await pastPeriodContext(db(), firm) });
     revalidatePath('/', 'layout');
-    return errs.length ? { error: `Зачувани ${n} од ${tot} фактури. ${errs.slice(0, 5).join('; ')}` } : { ok: `Зачувани ${n} од ${tot} фактури.` };
+    return bulkSaveMessage('sale', R);
+  } catch (e) { return actionError(e); }
+}
+
+/* ---------------- „⏸ За проверка – минат период“ ---------------- */
+
+/** The owner / a user with the `fix` or `settings` right decides held documents (book-only colleagues only see them). */
+async function pastDecider() {
+  const { u, firm } = await firmAction('write');
+  if (!canDecidePast(u.principal, firm.id, await isOfficeOwner(u))) throw new Forbidden('Само сопственикот или корисник со право „поправка“ / „поставки“ одлучува за документи од минат ДДВ период.');
+  return { u, firm };
+}
+
+const revalidatePast = () => { for (const p of ['/skan', '/masovno', '/masovnoM', '/prist', '/ddv', '/vlez', '/izlez', '/nalozi']) revalidatePath(p); };
+
+/**
+ * „✓ Прокнижи во својот период“ (`own`, keeps the date — ДДВ-04 of that period must be corrected) or, for an incoming
+ * invoice only, „Прокнижи со датум на прием во тековниот период“ (`receipt`). Audited `pastPost` / `pastRecv`.
+ */
+export async function confirmPastAction(docId: string, index: number, mode: 'own' | 'receipt', receiptDate?: string | null): Promise<ActionState> {
+  try {
+    if (!/^[0-9a-f-]{36}$/i.test(docId) || !Number.isInteger(index) || index < 0 || (mode !== 'own' && mode !== 'receipt')) return { error: 'Неважечко барање.' };
+    const { u, firm } = await pastDecider();
+    const r = await db().transaction((tx) => confirmPastDraft(tx, { firm, docId, index, mode, receiptDate: receiptDate || null, actor: actorOf(u) }));
+    revalidatePast();
+    return { ok: mode === 'receipt'
+      ? `Прокнижена со датум на прием ${dmy(r.date)} во тековниот ДДВ период (${vatPeriodName(r.period)}).`
+      : `Прокнижена во ${r.hit?.text ?? vatPeriodName(r.period)}.${r.correction ? ' ДДВ-04 за тој период треба да се коригира – видете „Корекции на ДДВ-04 потребни“.' : ''}` };
+  } catch (e) { return actionError(e); }
+}
+
+/** „✕ Отфрли“: the held draft is deleted. Audited `pastReject`. */
+export async function rejectPastAction(docId: string, index: number): Promise<ActionState> {
+  try {
+    if (!/^[0-9a-f-]{36}$/i.test(docId) || !Number.isInteger(index) || index < 0) return { error: 'Неважечко барање.' };
+    const { u, firm } = await pastDecider();
+    await db().transaction((tx) => rejectPastDraft(tx, { firmId: firm.id, docId, index, userId: u.id }));
+    revalidatePast();
+    return { ok: 'Документот е отфрлен.' };
+  } catch (e) { return actionError(e); }
+}
+
+/** The firm setting (b) „Задржи ги сите документи од претходни ДДВ периоди“. */
+export async function setPastHoldAction(on: boolean): Promise<ActionState> {
+  try {
+    const { u, firm } = await pastDecider();
+    await db().transaction((tx) => setPastHold(tx, { firmId: firm.id, on: !!on, userId: u.id }));
+    revalidatePast();
+    return { ok: on ? 'Се задржуваат сите документи од претходни ДДВ периоди.' : 'Се задржуваат само документите од затворени (поднесени) ДДВ периоди.' };
   } catch (e) { return actionError(e); }
 }

@@ -119,6 +119,10 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['izlez', 'u', 'efExport'],
   // UX Phase 3 automations: a person confirming a prepared payroll draft (the journal itself is a by-product)
   ['plati', 'u', 'autoPayPost'],
+  // „⏸ За проверка – минат период“: the owner's decision on a held document (the document's own savePur / saveInv row
+  // is written too) — posted into its past period / with a receipt date now, or rejected (the draft deleted)
+  ['ddv', 'u', 'pastPost pastRecv'],
+  ['ai', 'd', 'pastReject'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
@@ -131,6 +135,8 @@ const NOISE = new Set((
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
   // UX Phase 3 automations: switches / run now, and the batch summaries of a bulk confirm (each firm's own row — zatLock,
   // autoPayPost, ddvClose, crPublish — is the work; autoVatClose repeats ddvClose)
+  // „⏸ минат период“: the summary row of a bulk save that held documents, and the firm setting (b)
+  + 'pastHold pastHoldSet '
   + 'autoCfgSet autoRunNow autoCloseLockAll autoPayPostAll autoVatClose autoVatCloseAll crPublishAll '
   + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
