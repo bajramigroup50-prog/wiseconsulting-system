@@ -29,6 +29,7 @@ import { InvoiceEditor, type AdvanceOpt, type RefInvoice } from './invoice-edito
 import { blankLine, mainProdLine, newInvoice, s, type EdInvoice, type EdLine } from './model';
 import { RepostCallout } from '@/components/repost-callout';
 import { ScanUpload } from './scan-upload';
+import { ScanPartnerNote } from './scan-partner-note';
 
 /** Legacy `payPill` (3723). */
 export function PayPill({ paid, total }: { paid: number; total: number }) {
@@ -95,7 +96,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     if (dt === 'invoice' && sp.prod === '1' && sp.nov !== undefined) init = { ...init, data: { ...init.data, prodInv: '1' }, lines: [mainProdLine(schemeValue(ctx, 'revProduct') || revDefault)] };
     let title: string = DT[dt].nova, sub = '', scanInfo: string | undefined, back = view;
     let nalogNo: string | null = null;
-    let buyerBox: { doc: string; i: number; name: string; edb: string } | null = null;
+    let buyerBox: { doc: string; i: number; name: string; edb: string; partnerId: string; match: ScanSaleDraft['match'] | null } | null = null;
     if (sp.edit) {
       const e = await loadFull(sp.edit);
       if (!e) return <NoFirm t="Документот не постои" />;
@@ -137,7 +138,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         data: dr.buyer.name ? { buyerName: dr.buyer.name } : {}, scanDocId: doc.id, scanIndex: idx,
       };
       scanInfo = 'Проверете ја фактурата и притиснете „Зачувај“.';
-      if (!dr.partnerId && dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb };
+      if (dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb, partnerId: dr.partnerId, match: dr.match ?? null };
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
     }
     const prodRun = sp.edit ? ((await db().select({ d: invoices.data }).from(invoices).where(and(eq(invoices.id, sp.edit), eq(invoices.firmId, firm.id))).limit(1))[0]?.d as InvoiceData | undefined)?.prodRun ?? null : null;
@@ -207,7 +208,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     }));
     return <>{dt === 'invoice' && sp.nov !== undefined && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
         label={<><b>📷 Пополни од скенирана фактура</b> — повлечете PDF / слика од излезната фактура тука: купувачот, бројот, датумот и ставките се пополнуваат автоматски.</>} />}
-      {buyerBox &&<div className="callout warn">Купувачот „{buyerBox.name}“ (ЕДБ {buyerBox.edb || '—'}) не е во комитенти. <RowAction className="btn sm pri" action={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} label="Додај го како партнер" /></div>}
+      {buyerBox && <ScanPartnerNote key={buyerBox.partnerId || "np"} docId={buyerBox.doc} index={buyerBox.i} match={buyerBox.match} partnerId={buyerBox.partnerId} name={buyerBox.name} idRaw={buyerBox.edb} who="Купувачот" onAdd={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} />}
       {sp.prevSaved && <div className="callout good">Претходната фактура е зачувана. Се отвора следната скенирана фактура.</div>}
       <InvoiceEditor key={init.partnerId || 'np'} initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
       refInvoices={refInvoices} advances={advances} revDefault={revDefault} revByType={{ service: schemeValue(ctx, 'revService'), goods: schemeValue(ctx, 'revGoods'), material: schemeValue(ctx, 'revGoods'), product: schemeValue(ctx, 'revProduct') }} advanceKonto={schemeValue(ctx, 'advance')} nonVat={!firm.vatRegistered}

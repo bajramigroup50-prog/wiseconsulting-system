@@ -4,10 +4,11 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
-import { aiDocuments, audit, fileLinks, journalLines, PartnerAccountError, partners, savePartnerAccounts } from '@wise/db';
+import { aiDocuments, audit, fileLinks, journalLines, mergePartners, PartnerAccountError, PartnerMergeError, partnerDupGroups, partners, savePartnerAccounts } from '@wise/db';
 import { fsDig, TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
 import { markAiReadsSaved } from '@/lib/ai';
-import { actionError, firmAction, type ActionState } from '@/lib/books';
+import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
+import { Forbidden } from '@/lib/auth';
 import { nextCode } from '@/lib/codes';
 import { db } from '@/lib/db';
 
@@ -185,4 +186,48 @@ export async function saveTk(_p: ActionState, f: FormData): Promise<ActionState>
   }
   revalidatePath('/partneri');
   redirect(rest ? `/partneri?tk=${encodeURIComponent(rest)}&ok=${encodeURIComponent((ex ? 'Дополнет: ' : 'Додаден: ') + name)}` : `/partneri?ok=${encodeURIComponent((ex ? 'Дополнет: ' : 'Додаден: ') + name)}`);
+}
+
+/* ---------------- „Дупликати“: merge duplicate partners (like the item merge) ---------------- */
+
+/** Merging needs `settings` (admin / senior) or `fix` (colleagues with the right); viewing the duplicates does not. */
+async function mergeActor() {
+  const { u, firm } = await firmAction('write');
+  if (!canDo(u, 'settings', firm.id) && !canDo(u, 'fix', firm.id)) throw new Forbidden('partnerMerge');
+  return { u, firm };
+}
+const mergeErr = (e: unknown): ActionState => (e instanceof PartnerMergeError ? { error: e.message } : actionError(e));
+
+/** „⇢ Спои во избраниот“: the partners of one group into the selected main partner. */
+export async function mergePartnersAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const main = z.uuid().parse(String(form.get('main') ?? ''));
+    const ids = z.array(z.uuid()).min(2).max(50).parse(String(form.get('ids') ?? '').split(',').filter(Boolean));
+    if (!ids.includes(main)) return { error: 'Изберете го главниот комитент.' };
+    const { u, firm } = await mergeActor();
+    const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, main, ids));
+    revalidatePath('/partneri');
+    return { ok: `Споени ${r.merged} комитенти (${r.refs} записи префрлени).` };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Неважечки избор.' };
+    return mergeErr(e);
+  }
+}
+
+/** „Спои ги сите сигурни“: every group with the same ЕДБ / ЕМБС or at least 90% similar, into its suggested main partner. */
+export async function mergeSurePartnersAction(): Promise<ActionState> {
+  try {
+    const { u, firm } = await mergeActor();
+    const V = await partnerDupGroups(db(), firm.id);
+    let n = 0, g = 0;
+    const errs: string[] = [];
+    for (const G of V.groups.filter((x) => x.sure)) {
+      try {
+        const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, G.main, G.members.map((m) => m.id)));
+        n += r.merged; g++;
+      } catch (e) { if (e instanceof PartnerMergeError) errs.push(e.message); else throw e; }
+    }
+    revalidatePath('/partneri');
+    return errs.length ? { error: `Споени ${g} групи (${n} комитенти); не се споени ${errs.length}: ${errs.slice(0, 3).join('; ')}` } : { ok: `Споени ${g} групи (${n} комитенти).` };
+  } catch (e) { return mergeErr(e); }
 }

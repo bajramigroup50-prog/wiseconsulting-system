@@ -146,6 +146,24 @@ describe('ai.read-document job', () => {
     expect((api.calls[0]!.messages[0]!.content as Anthropic.ContentBlockParam[])[0]!.type).toBe('image');
     expect(JSON.stringify(api.calls[0]!.messages[0]!.content)).toContain('ISSUED BY the company \\"Наша фирма\\"');
     const [d] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id));
-    expect(d!.drafts[0]).toMatchObject({ status: 'ok', msg: 'нов купувач: Нов купувач', draft: { number: '33/2026', items: [{ price: 1000, konto: '7400' }] } });
+    // no partner matched, no similar candidate: the buyer is created from the document (undo while a draft)
+    expect(d!.drafts[0]).toMatchObject({ status: 'ok', msg: 'нов партнер креиран: Нов купувач', draft: { number: '33/2026', items: [{ price: 1000, konto: '7400' }], match: { by: 'new', created: true, idKind: 'edb' } } });
+    const [p] = await pg.select().from(schema.partners).where(eq(schema.partners.id, (d!.drafts[0]!.draft as { partnerId: string }).partnerId));
+    expect([p!.name, p!.edb, p!.embs]).toEqual(['Нов купувач', '4030111000222', null]);
+  });
+  it('a buyer with a 7-digit ЕМБС is created with the ЕМБС in its field, and found again instead of a duplicate', async () => {
+    const inv = (n: string, name: string) => JSON.stringify({ number: n, date: '2026-02-06', buyerName: name, buyerEdb: '6558500', lines: [{ name: 'Услуга', qty: 1, price: 100, amount: 100, rate: 18 }], total: 118 });
+    setAiClient(fake([inv('40/2026', 'Гиро Мамас ДООЕЛ')]));
+    const id = await doc('sale', await file('g.pdf', 'application/pdf'));
+    await runReadDocument(db, id);
+    const [d] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id));
+    const pid = (d!.drafts[0]!.draft as { partnerId: string }).partnerId;
+    const [p] = await pg.select().from(schema.partners).where(eq(schema.partners.id, pid));
+    expect([p!.name, p!.edb, p!.embs]).toEqual(['Гиро Мамас ДООЕЛ', null, '6558500']);
+    setAiClient(fake([inv('41/2026', 'GIRO MAMAS DOOEL')]));
+    const id2 = await doc('sale', await file('h.pdf', 'application/pdf'));
+    await runReadDocument(db, id2);
+    const [d2] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id2));
+    expect(d2!.drafts[0]!.draft).toMatchObject({ partnerId: pid, match: { by: 'embs', idKind: 'embs' } });
   });
 });

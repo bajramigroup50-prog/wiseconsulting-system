@@ -39,6 +39,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const S = (firm.settings ?? {}) as Record<string, unknown>;
 
   if (write && (sp.nov !== undefined || sp.imp !== undefined || sp.edit || sp.scan)) {
+    let scanMatch: ScanPurchaseDraft['match'] | null = null;
     const ctx = await firmPostingContext(db(), firm);
     const acc = { supplierFx: schemeValue(ctx, 'supplierFx'), stock: schemeValue(ctx, 'stock'), purDefault: schemeValue(ctx, 'purDefault') };
     const [eur] = await db().select({ d: codes.data }).from(codes).where(and(isNull(codes.firmId), eq(codes.cb, 'currency'), eq(codes.code, 'EUR'))).limit(1);
@@ -85,6 +86,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       if (!doc || !dr) return <NoFirm t="Скенираниот документ не постои" />;
       // the read file (photos read together: only the photos of this invoice's pages)
       fileIds = draftSourceFiles(doc, idx).fileIds;
+      scanMatch = dr.match ?? null;
       init = {
         ...init, number: dr.number, date: dr.date, docDate: dr.docDate, due: dr.due, partnerId: dr.partnerId, supplierName: dr.supplierName, supplierEdb: dr.supplierEdb,
         ptype: dr.ptype, art32: dr.art32, cash: dr.cash, warehouseId: dr.warehouseId ?? '', shifted: dr.shifted, credit: dr.credit,
@@ -111,7 +113,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
     const lastCost = new Map<string, number>();
     for (const m of last) if (!lastCost.has(m.item) && Number(m.q) > 0) lastCost.set(m.item, Math.round((Number(m.v) / Number(m.q)) * 1e4) / 1e4);
     const items: PurItemOpt[] = I.map((i) => ({ ...i, lastCost: lastCost.get(i.id) }));
-    return <PurchaseEditor initial={init} title={title} partners={P} items={items} locations={Lc} accounts={accts} nonVat={!firm.vatRegistered}
+    return <PurchaseEditor initial={init} title={title} partners={P} scanMatch={scanMatch} items={items} locations={Lc} accounts={accts} nonVat={!firm.vatRegistered}
       defMargin={Number(S.defMargin) || 25} mgRound={Number(S.mgRound) || 1} back={back} scanInfo={scanInfo} pxInfo={sp.px || undefined} files={F} nalogNo={nalogNo} queue={queue} prevSaved={!!sp.prevSaved} warn={sp.prevSaved ? sp.w : undefined}
       firmId={firm.id} canDel={del} fuelRule={fuelRule} closed={closedP.map((x) => [String(x.a), String(x.b)] as [string, string])}
       typeKonto={{ goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), product: schemeValue(ctx, 'product') }} />;
