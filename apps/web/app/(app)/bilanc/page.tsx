@@ -88,7 +88,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
       {sp.p && !pf && <div className="callout warn">Комитентот не е најден.</div>}
       {tb.bbimpMixed && <div className="callout warn">Во периодот има и увезен бруто биланс и книжени документи – прометите може да се дуплираат. Проверете ја „Почетна состојба“.</div>}
       {R.length ? (
-        <div className="tw"><table>
+        <div className="tw"><table className="fit">
           <thead><tr><th>Конто</th><th>Назив</th><th className="n">Салдо</th><th className="n">Вк. должи</th><th className="n">Вк. побарува</th><th className="n">Поч. сост. должи</th><th className="n">Поч. сост. побарува</th><th className="n">Должи од тек. година</th><th className="n">Побарува од тек. година</th></tr></thead>
           <tbody>
             {classes.map((c) => {
@@ -105,8 +105,8 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
                     return (
                       <Fragment key={r.k}>
                         <tr className="bbrow">
-                          <td>{hasP && <Link href={expHref} title={open ? 'Затвори ги комитентите' : 'Прикажи ги комитентите'} style={{ textDecoration: 'none' }}>{open ? '▾ ' : '▸ '}</Link>}<Link href={href} title="Отвори картица на контото"><b style={{ color: 'var(--accent)' }}>{r.k}</b></Link></td>
-                          <td>{r.name}{hasP && <> <span className="mini" style={{ color: 'var(--muted)' }}>· по комитенти</span> <Link className="mini" href={`/kkart?k=${r.k}&from=${from}&to=${to}`}>картица</Link> <Link className="mini" href={`/bbPart?k=${r.k}&from=${from}&to=${to}${withClose ? '&close=1' : ''}${pf ? '&p=' + pf : ''}${wh ? '&wh=' + wh : ''}`}>табела по комитенти</Link></>}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{hasP && <Link href={expHref} title={open ? 'Затвори ги комитентите' : 'Прикажи ги комитентите'} style={{ textDecoration: 'none' }}>{open ? '▾ ' : '▸ '}</Link>}<Link href={href} title="Отвори картица на контото"><b style={{ color: 'var(--accent)' }}>{r.k}</b></Link></td>
+                          <td className="w">{r.name}{hasP && <> <span className="mini" style={{ color: 'var(--muted)' }}>· по комитенти</span> <Link className="mini" href={`/kkart?k=${r.k}&from=${from}&to=${to}`}>картица</Link> <Link className="mini" href={`/bbPart?k=${r.k}&from=${from}&to=${to}${withClose ? '&close=1' : ''}${pf ? '&p=' + pf : ''}${wh ? '&wh=' + wh : ''}`}>табела по комитенти</Link></>}</td>
                           {cells(r)}
                         </tr>
                         {open && expRows.map((p) => (
