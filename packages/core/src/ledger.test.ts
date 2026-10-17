@@ -119,7 +119,15 @@ describe('numbering', () => {
     const G = groupNalozi([
       { number: '1021', date: '2026-01-05' }, { number: '2/1-3', date: '2026-01-10' }, { number: '2/1-3', date: '2026-02-10' }, { number: '0', date: '2026-01-01' },
     ]);
-    expect(G.map((g) => [g.no, g.journals.length, g.date])).toEqual([['0', 1, '2026-01-01'], ['2/1-3', 2, '2026-02-10'], ['1021', 1, '2026-01-05']]);
+    expect(G.map((g) => [g.no, g.journals.length, g.date])).toEqual([['0', 1, '2026-01-01'], ['1021', 1, '2026-01-05'], ['2/1-3', 2, '2026-02-10']]);
+  });
+  it('groupNalozi: by period first, then the type code (imports made later stay in their period)', () => {
+    const G = groupNalozi([
+      { number: '66/7-9', date: '2026-09-30' }, { number: '1/4-6', date: '2026-06-30' }, { number: '12/5-5', date: '2026-05-31' },
+      { number: '1020/1-3', date: '2026-03-31' }, { number: '6/1-3', date: '2026-03-23' }, { number: '1/1-3', date: '2026-03-31' },
+      { number: '66/1-3', date: '2026-03-28' }, { number: '0', date: '2026-01-01' }, { number: '6/4-6', date: '2026-06-30' },
+    ]);
+    expect(G.map((g) => g.no)).toEqual(['0', '1/1-3', '6/1-3', '66/1-3', '1020/1-3', '1/4-6', '6/4-6', '12/5-5', '66/7-9']);
   });
 });
 

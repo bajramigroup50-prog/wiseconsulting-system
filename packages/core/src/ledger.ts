@@ -410,6 +410,7 @@ export interface NalogGroup<J> { no: string; date: string; journals: J[] }
  * Group journals into nalozi by number (legacy `nalogList` 3511): sorted by the numeric code,
  * then date. Within a business year, journals sharing a period number (e.g. `2/1-3`) form one nalog.
  */
+/** Nalozi of the year, sorted by period (months of the number or of the date), then type code, then date. */
 export function groupNalozi<J extends { number: string; date: string }>(journals: readonly J[]): NalogGroup<J>[] {
   const G = new Map<string, NalogGroup<J>>();
   for (const j of journals) {
@@ -418,8 +419,20 @@ export function groupNalozi<J extends { number: string; date: string }>(journals
     g.journals.push(j);
     G.set(j.number, g);
   }
-  const num = (x: string) => parseFloat(x) || 0;
-  return [...G.values()].sort((a, b) => num(a.no) - num(b.no) || (a.date < b.date ? -1 : a.date > b.date ? 1 : a.no.localeCompare(b.no)));
+  const num = (x: string) => parseFloat(x.replace(/^\D+/, '')) || 0;
+  // by period first (the user's request): „1/1-3“, „12/2-2“ → months of the number, a plain counter → the month of
+  // its date; the opening (0) first; then the type code, then the date
+  const per = (g: NalogGroup<J>): [number, number] => {
+    if (/^0$/.test(g.no)) return [0, 0];
+    const m = /\/(\d{1,2})-(\d{1,2})$/.exec(g.no);
+    if (m) return [+m[1]!, +m[2]!];
+    const mo = +g.date.slice(5, 7) || 0;
+    return [mo, mo];
+  };
+  return [...G.values()].sort((a, b) => {
+    const [a1, a2] = per(a), [b1, b2] = per(b);
+    return a1 - b1 || a2 - b2 || num(a.no) - num(b.no) || (a.date < b.date ? -1 : a.date > b.date ? 1 : a.no.localeCompare(b.no));
+  });
 }
 
 /* ------------------------------------------------------------------ */
