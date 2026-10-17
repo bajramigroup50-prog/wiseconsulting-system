@@ -665,7 +665,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
           {d.art32 && <div className="callout">Без ДДВ за плаќање; ДДВ 18% ({fmt(T.transferredVat)}) се прикажува како пренесен. Побарувањето се книжи на купувачи по член 32-а (1200009), во ДДВ-04 поле 11.</div>}
           {d.kind !== 'dispatch' && !d.art32 && !d.export && d.lines.some((l) => l.name.trim() && !Number(l.rate)) && <div className="fl"><span>Ослободување од ДДВ (ставки со 0%) – мапирање на членовите за проверка</span>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              {/* data.vatExempt: 'ded' → ДДВ-04 поле 08, 'noded' (чл. 24) → поле 09; празно = поле 08 како досега */}
+              {/* data.vatExempt: 'ded' (чл. 24) → ДДВ-04 поле 08, 'noded' (чл. 23) → поле 09; празно = поле 08 како досега */}
               <select value={d.data.vatExempt ?? ''} aria-label="Вид на ослободување" style={{ width: 'auto' }} onChange={(e) => {
                 const k = e.target.value as '' | 'ded' | 'noded';
                 setD((o) => ({ ...o, data: { ...o.data, vatExempt: k, ...(k && !String(o.data.vatNote ?? '').trim() ? { vatNote: EXEMPT_BASES[k] } : {}) } }));
@@ -674,7 +674,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
                 <option value="ded">{EXEMPT_LABEL.ded}</option>
                 <option value="noded">{EXEMPT_LABEL.noded}</option>
               </select>
-              <input value={d.data.vatNote ?? ''} maxLength={500} placeholder="Основ (се печати на фактурата), пр. Ослободено од ДДВ согласно член 24 од ЗДДВ" aria-label="Основ за ослободување" style={{ flex: 1, minWidth: 240 }} onChange={(e) => setData('vatNote', e.target.value)} />
+              <input value={d.data.vatNote ?? ''} maxLength={500} placeholder="Основ (се печати на фактурата), пр. Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ" aria-label="Основ за ослободување" style={{ flex: 1, minWidth: 240 }} onChange={(e) => setData('vatNote', e.target.value)} />
             </div></div>}
           {isInv && <>
             <fieldset className="fs" style={{ maxWidth: 420 }}><legend>Изберете тип</legend><div className="row">

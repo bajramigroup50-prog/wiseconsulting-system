@@ -172,19 +172,19 @@ const EXEMPT_RE = new RegExp([
 ].join('|'), 'iu');
 
 /**
- * Kind of an exemption note (ЗА ПРОВЕРКА — the article mapping is to be confirmed by the owner):
- * `noded` = without the right to deduct (ЗДДВ чл. 24 — health, education, financial, social…) → ДДВ-04 field 09;
- * `ded` = with the right to deduct (чл. 23 and related: извоз, ТИРЗ / слободна зона, international agreements) → 08;
- * null = unclear (the draft is not „спремна“). An explicit „без / со право на одбивка“ wins over the article.
+ * Kind of an exemption note (ЗДДВ as stored in law_articles; ЗА ПРОВЕРКА by the owner):
+ * `noded` = чл. 23 „Даночни ослободувања во земјата без право на одбивка на претходниот данок“ → ДДВ-04 field 09;
+ * `ded` = чл. 24 „… со право на одбивка на претходниот данок“ (извоз, ТИРЗ / слободна зона, international
+ * agreements…) → field 08; null = unclear (the draft is not „спремна“). An explicit „без / со право на одбивка“ wins.
  */
 export function exemptKindOf(text: string): 'ded' | 'noded' | null {
   const no = /без\s+право\s+на\s+одбив/iu.test(text);
   const yes = /(?:^|[^\p{L}])со\s+право\s+на\s+одбив/iu.test(text);
   if (no !== yes) return no ? 'noded' : 'ded';
   if (no && yes) return null;
-  const a24 = /чл(?:ен)?\.?\s*24(?![\p{L}\d])/iu.test(text);
-  const a23 = /чл(?:ен)?\.?\s*23(?![\p{L}\d])|извоз|ТИРЗ|слободн[аи]\s+(?:економск[аи]\s+)?зон|меѓународн[аи]\s+(?:договор|спогодб)/iu.test(text);
-  return a24 === a23 ? null : a24 ? 'noded' : 'ded';
+  const a23 = /чл(?:ен)?\.?\s*23(?![\p{L}\d])/iu.test(text);
+  const a24 = /чл(?:ен)?\.?\s*24(?![\p{L}\d])|извоз|ТИРЗ|слободн[аи]\s+(?:економск[аи]\s+)?зон|меѓународн[аи]\s+(?:договор|спогодб)/iu.test(text);
+  return a24 === a23 ? null : a24 ? 'ded' : 'noded';
 }
 
 /**
@@ -387,7 +387,7 @@ export interface ScanSaleDraft {
   pages?: string;
   /** Legal basis of an exempt invoice (rate 0) as printed („Ослободено од ДДВ согласно член 24…“) → `data.vatNote`. */
   vatNote?: string;
-  /** Kind of the exemption (`data.vatExempt`): 'ded' → ДДВ-04 field 08, 'noded' (чл. 24) → field 09. */
+  /** Kind of the exemption (`data.vatExempt`): 'ded' (чл. 24) → ДДВ-04 field 08, 'noded' (чл. 23) → field 09. */
   vatExempt?: 'ded' | 'noded';
   /** No VAT and no (clear) note: art. 32-a or the kind of exemption is not guessed — the draft is not „спремна“. */
   vatCheck?: boolean;
@@ -400,7 +400,7 @@ export interface ScanSaleDraft {
  */
 export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly MatchPartner[]; items: readonly MatchItem[]; revKonto: string; today: string; nextNumber: string }): ScanSaleDraft {
   // ЗДДВ notes: „член 32-а“ / „пренесување на даночната обврска“ → art. 32-a (rate 18, no VAT charged);
-  // „ослободено од ДДВ“ (чл. 24 / 30) → rate 0 with the printed legal basis
+  // „ослободено од ДДВ“ (чл. 23 / 24) → rate 0 with the printed legal basis and its kind
   const vn = vatNoteOf(r0.vatNote);
   const art32 = !!r0.art32 || vn?.kind === 'art32';
   const exempt = !art32 && vn?.kind === 'exempt';

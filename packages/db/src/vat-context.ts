@@ -8,7 +8,7 @@
  * `firms.settings` under the same names and in `app_settings` under the key `schemes`.
  */
 import { and, eq, isNull, or } from 'drizzle-orm';
-import { CUSTOMER32_KONTO, type PostingContext, type SchemeSettings } from '@wise/core';
+import { CUSTOMER_EXEMPT_KONTO, type PostingContext, type SchemeSettings } from '@wise/core';
 import type { Tx } from './audit';
 import { accounts, appSettings, type Firm } from './schema/index';
 
@@ -30,7 +30,7 @@ export function schemeSettingsOf(s: unknown): SchemeSettings {
 }
 
 /** Pure: build the posting context from a firm row and the global scheme settings. */
-export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>, global?: unknown, posPartnerId?: string | null, customer32Auto?: string | null): PostingContext {
+export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>, global?: unknown, posPartnerId?: string | null, customerExemptAuto?: string | null): PostingContext {
   const s = (firm.settings ?? {}) as Obj;
   return {
     firm: {
@@ -39,7 +39,7 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
       vatInKonto: str(s.vatInKonto),
       posK: str(s.posK),
       posPartnerId: posPartnerId ?? null,
-      customer32Auto: customer32Auto ?? null,
+      customerExemptAuto: customerExemptAuto ?? null,
     },
     global: global == null ? null : schemeSettingsOf(global),
   };
@@ -51,7 +51,7 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
  */
 export async function loadVatPostingContext(tx: Tx, firm: Pick<Firm, 'vatRegistered' | 'settings'> & { id?: string }, posPartnerId?: string | null): Promise<PostingContext> {
   const [g] = await tx.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);
-  return vatPostingContext(firm, g?.v ?? null, posPartnerId, await chartHas(tx, firm.id ?? null, CUSTOMER32_KONTO) ? CUSTOMER32_KONTO : null);
+  return vatPostingContext(firm, g?.v ?? null, posPartnerId, await chartHas(tx, firm.id ?? null, CUSTOMER_EXEMPT_KONTO) ? CUSTOMER_EXEMPT_KONTO : null);
 }
 
 /** A konto is in the firm's effective chart (`effectiveChart`): a firm row that is not hidden, or a global one not hidden by the firm. */

@@ -84,7 +84,7 @@ export interface InvoiceData {
    * (from a scan, the editor or the bulk „Означи како ослободено“). Art. 32-a invoices print `ART32_NOTE` instead.
    */
   vatNote?: string;
-  /** Kind of that exemption: 'ded' (with the right to deduct, чл. 23…) → ДДВ-04 field 08; 'noded' (чл. 24) → 09; missing = 08. */
+  /** Kind of that exemption: 'ded' (with the right to deduct, чл. 24) → ДДВ-04 field 08; 'noded' (чл. 23) → 09; missing = 08. */
   vatExempt?: string;
   /** Buyer as read from a scanned sales invoice (before a partner is chosen). */
   buyer?: { name: string; edb: string; address: string; city: string };

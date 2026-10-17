@@ -32,7 +32,7 @@ ONE OBJECT PER INVOICE: when the file holds several invoices (several headers �
 
 /**
  * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the VAT legal note printed on the invoice
- * (ЗДДВ чл. 32-а reverse charge, or an exemption under чл. 24 / 30), read by `vatNoteOf` in `@wise/core/sales`.
+ * (ЗДДВ чл. 32-а reverse charge, or an exemption under чл. 23 / 24), read by `vatNoteOf` in `@wise/core/sales`.
  */
 export const VAT_NOTE_ADD = `
 VAT NOTE: in every invoice object also return "vatNote":string = the VAT legal note printed on the invoice, copied exactly (e.g. "Пренесување на даночната обврска согласно член 32-а од ЗДДВ", "ДДВ пресметува примателот", "Ослободено од ДДВ согласно член 24 од ЗДДВ", "без право на одбивка"); "" if none. When the note is about член 32-а / пренесување на даночната обврска / reverse charge set "art32":true and give each line the VAT rate of the supply (normally 18) even though no VAT is charged. Never invent a note.`;

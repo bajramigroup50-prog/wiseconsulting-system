@@ -18,10 +18,11 @@ describe('vatNoteOf', () => {
     'пренесување на даночна обврска', 'ДДВ пресметува примателот', 'Reverse charge', 'член 32-a (latin a)',
   ])('art. 32-a: %s', (t) => expect(vatNoteOf(t)).toEqual({ kind: 'art32', note: ART32_NOTE }));
   it('exemption with the printed basis', () => {
-    expect(vatNoteOf('Фактура бр. 5\nОслободено од ДДВ согласно член 24 од ЗДДВ.\nПотпис')).toEqual({ kind: 'exempt', note: 'Ослободено од ДДВ согласно член 24 од ЗДДВ', exempt: 'noded' });
+    expect(vatNoteOf('Фактура бр. 5\nОслободено од ДДВ согласно член 24 од ЗДДВ.\nПотпис')).toEqual({ kind: 'exempt', note: 'Ослободено од ДДВ согласно член 24 од ЗДДВ', exempt: 'ded' });
     expect(vatNoteOf('Промет без право на одбивка')).toMatchObject({ kind: 'exempt', exempt: 'noded' });
     expect(vatNoteOf('Ослободено со право на одбивка')).toMatchObject({ kind: 'exempt', exempt: 'ded' });
-    expect(vatNoteOf('Ослободено од ДДВ согласно чл. 23 од ЗДДВ')).toMatchObject({ exempt: 'ded' });
+    expect(vatNoteOf('Ослободено од ДДВ согласно чл. 23 од ЗДДВ')).toMatchObject({ exempt: 'noded' });
+    expect(vatNoteOf('Ослободено од ДДВ без право на одбивка согласно член 24')).toMatchObject({ exempt: 'noded' }); // the explicit right wins
     expect(vatNoteOf('Испорака во ТИРЗ – ослободено од ДДВ')).toMatchObject({ exempt: 'ded' });
     expect(vatNoteOf('Извоз – ослободено од ДДВ')).toMatchObject({ exempt: 'ded' });
     // unclear: no article / right named, or both
@@ -73,15 +74,18 @@ describe('free PDF reader', () => {
   });
 });
 
-describe('customer32 receivable', () => {
+describe('customer32 / customerExempt receivable', () => {
   const inv = { date: '2026-07-01', partner: 'p', art32: true, items: [{ qty: 1, price: 1000, rate: 18, konto: '7400' }] };
-  it('1200009 when the chart has it, the scheme value when set, 1200 otherwise or with „-“', () => {
-    expect(customerAccount(ctx({ customer32Auto: '1200009' }), true)).toBe('1200009');
-    expect(customerAccount(ctx({ customer32Auto: '1200009' }), false)).toBe('1200');
+  it('art. 32-a → customer32 when set, else 1200; exempt чл. 24 → customerExempt, else 1200009 from the chart, else 1200', () => {
+    // defaults: art. 32-a → customer (1200); exempt чл. 24 → 1200009 when the chart has it
+    expect(customerAccount(ctx({ customerExemptAuto: '1200009' }), true)).toBe('1200');
+    expect(customerAccount(ctx({ customerExemptAuto: '1200009' }), false, true)).toBe('1200009');
+    expect(customerAccount(ctx({ customerExemptAuto: '1200009' }), false)).toBe('1200');
+    expect(customerAccount(ctx(), false, true)).toBe('1200');
+    expect(customerAccount(ctx({ customerExemptAuto: '1200009', sch: { customerExempt: '-' } }), false, true)).toBe('1200');
     expect(customerAccount(ctx(), true)).toBe('1200');
-    expect(customerAccount(ctx({ customer32Auto: '1200009', sch: { customer32: '-' } }), true)).toBe('1200');
     expect(customerAccount(ctx({ sch: { customer32: '1209' } }), true)).toBe('1209');
-    const L = invoiceEntries(inv, ctx({ customer32Auto: '1200009' }));
+    const L = invoiceEntries(inv, ctx({ sch: { customer32: '1200009' } }));
     // revenue stays as now (the line konto), no output VAT line
     expect(L.map((l) => [l.account, l.debit, l.credit])).toEqual([['1200009', 1000, 0], ['7400', 0, 1000]]);
     expect(L[0]).toMatchObject({ account: '1200009', debit: 1000, partnerId: 'p' });
@@ -110,7 +114,7 @@ describe('ДДВ-04 annex per field', () => {
       { id: 'a', number: '1', date: '2026-07-01', partner: 'p', items: it0(100.4), vatNote: 'чл. 24' },
       { id: 'b', number: '2', date: '2026-07-02', partner: 'p', items: it0(200.4) },
       { id: 'c', number: '3', date: '2026-07-03', partner: 'p', items: it0(300.3), zeroKind: 'exemptNoDed' as const },
-      { id: 'c2', number: '3a', date: '2026-07-03', partner: 'p', items: it0(50.1), vatExempt: 'noded' as const, vatNote: 'чл. 24 ЗДДВ' },
+      { id: 'c2', number: '3a', date: '2026-07-03', partner: 'p', items: it0(50.1), vatExempt: 'noded' as const, vatNote: 'чл. 23 ЗДДВ' },
       { id: 'c3', number: '3b', date: '2026-07-03', partner: 'p', items: it0(0.05), vatExempt: 'ded' as const },
       { id: 'd', number: '4', date: '2026-07-04', partner: 'p', items: it0(400.6), zeroKind: 'nonResident' as const },
       { id: 'e', number: '5', date: '2026-07-05', partner: 'p', art32: true, items: it0(1000.45, 18) },
@@ -134,7 +138,7 @@ describe('ДДВ-04 annex per field', () => {
     expect(by['08']!.sum).toBe(361.2); // 100.40 + 200.40 + 0.05 (ded) + 50.25 + Z 10.10
     expect([F['08'], by['08']!.rounding]).toEqual([361, -0.2]);
     expect(by['08']!.rows.map((r) => [r.number, r.basis])).toEqual([['1', 'чл. 24'], ['2', 'ослободено со право на одбивка'], ['3b', 'ослободено со право на одбивка'], ['7', 'ослободено со право на одбивка'], ['Z1', 'ослободено со право на одбивка']]);
-    expect(by['09']!.rows.map((r) => [r.number, r.base, r.basis])).toEqual([['3', 300.3, 'ослободено без право на одбивка'], ['3a', 50.1, 'чл. 24 ЗДДВ']]);
+    expect(by['09']!.rows.map((r) => [r.number, r.base, r.basis])).toEqual([['3', 300.3, 'ослободено без право на одбивка'], ['3a', 50.1, 'чл. 23 ЗДДВ']]);
     expect(by['11']!.rows.map((r) => [r.kind, r.base])).toEqual([['invoice', 1000.45], ['credit', -100.2]]);
     expect([by['11']!.sum, F['11']]).toEqual([900.25, 900]);
     expect([F['09'], F['10']]).toEqual([350, 401]); // 300.30 + 50.10 → 350

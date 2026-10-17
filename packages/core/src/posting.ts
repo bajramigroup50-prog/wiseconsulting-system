@@ -113,10 +113,11 @@ export interface FirmPostingSettings extends SchemeSettings {
   /** Partner id of the "POS терминал" partner (legacy `posPid()`); set on 12x card lines. */
   posPartnerId?: string | null;
   /**
-   * Automatic receivable konto of art. 32-a sales when the scheme leaves `customer32` empty: 1200009 when the firm's
-   * effective chart has it (resolved by the db context loader), else empty → `customer`.
+   * Automatic receivable konto of sales exempt with the right to deduct (ЗДДВ чл. 24, field 08) when the scheme leaves
+   * `customerExempt` empty: 1200009 when the firm's effective chart has it (resolved by the db context loader) — the
+   * old program's marker of these sales; else empty → `customer`.
    */
-  customer32Auto?: string | null;
+  customerExemptAuto?: string | null;
 }
 /** Everything posting needs to know about the firm and office-wide settings. */
 export interface PostingContext {
@@ -152,21 +153,35 @@ export function schemeOn(ctx: PostingContext, key: SchemeKey | string): boolean 
   return !!v && v !== '-';
 }
 
-/** Konto of the art. 32-a receivables (1200009) the automatic `customer32` uses when the chart has it. */
-export const CUSTOMER32_KONTO = '1200009';
+/** 1200009 „Побарувања од купувачи по член 32 а“ — in the old program the konto of sales exempt under чл. 24 (field 08). */
+export const CUSTOMER_EXEMPT_KONTO = '1200009';
 
 /**
- * Receivable konto of an outgoing invoice: `customer`, or for a domestic reverse-charge invoice (ЗДДВ чл. 32-а)
- * `customer32` — set in the scheme, else the automatic one (1200009 when the chart has it), else `customer`.
- * `'-'` in `customer32` switches the separate konto off.
+ * Receivable konto of an outgoing invoice: `customer`; for a domestic reverse-charge invoice (ЗДДВ чл. 32-а)
+ * `customer32` when the scheme sets it (else `customer`); for a sale exempt with the right to deduct (чл. 24,
+ * {@link exemptReceivable}) `customerExempt` — set in the scheme, else 1200009 when the chart has it, else `customer`.
+ * `'-'` switches a separate konto off.
  */
-export function customerAccount(ctx: PostingContext, art32?: boolean): string {
+export function customerAccount(ctx: PostingContext, art32?: boolean, exempt?: boolean): string {
   if (art32) {
     const v = schemeRaw(ctx, 'customer32');
     if (typeof v === 'string' && v && v !== '-') return v;
-    if (v !== '-' && ctx.firm.customer32Auto) return ctx.firm.customer32Auto;
+  } else if (exempt) {
+    const v = schemeRaw(ctx, 'customerExempt');
+    if (typeof v === 'string' && v && v !== '-') return v;
+    if (v !== '-' && ctx.firm.customerExemptAuto) return ctx.firm.customerExemptAuto;
   }
   return schemeValue(ctx, 'customer');
+}
+
+/**
+ * The receivable of an invoice belongs on `customerExempt` (exempt with the right to deduct, ЗДДВ чл. 24): a VAT
+ * firm's invoice marked `vatExempt = 'ded'`, or one that charges no VAT on a non-zero base, unless it is art. 32-a,
+ * an export or marked `noded` (чл. 23). The same rule for posting and for the open items (`vat` / `base` of the invoice).
+ */
+export function exemptReceivable(o: { art32?: boolean | null; export?: boolean | null; vatExempt?: string | null; vat: number; base: number }, ctx: PostingContext): boolean {
+  if (o.art32 || o.export || ctx.firm.ddv === false || o.vatExempt === 'noded') return false;
+  return o.vatExempt === 'ded' || (!o.vat && !!o.base);
 }
 
 /** Drop stored values equal to the old defaults (`SCH_OLD`) — the import-time equivalent of legacy `sch()` skipping them. */
@@ -344,7 +359,7 @@ export interface InvoiceDoc {
   vatNote?: string;
   /**
    * Kind of the exemption of the 0 % lines (`invoices.data.vatExempt`): 'noded' = without the right to deduct
-   * (ЗДДВ чл. 24) → ДДВ-04 field 09; 'ded' = with the right to deduct (чл. 23 and related) → 08; missing = 08 (as before).
+   * (ЗДДВ чл. 23) → ДДВ-04 field 09; 'ded' = with the right to deduct (чл. 24: извоз, слободни зони…) → 08; missing = 08.
    */
   vatExempt?: 'ded' | 'noded';
 }
@@ -364,7 +379,7 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
   const opts = { nonVat, defaultKonto: schemeValue(ctx, 'revDefault') };
   const c = calcLines(inv.items, inv.art32, opts);
   // ЗДДВ чл. 32-а: the receivable of a reverse-charge invoice on its own konto (1200009); revenue stays as it is
-  const cust = customerAccount(ctx, inv.art32);
+  const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx));
   const L: IL[] = [{ k: cust, d: toC(c.total), p: 0, partner: inv.partner }];
   const m0: Record<string, string> = {};
   for (const [rev, zero] of [['revGoods', 'revGoods0'], ['revService', 'revService0'], ['revProduct', 'revProduct0']] as const) {

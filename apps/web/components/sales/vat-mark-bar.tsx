@@ -1,7 +1,7 @@
 'use client';
 /**
- * Bulk „Означи како чл. 32-а“ / „Ослободено со право на одбивка (поле 08)“ / „Ослободено без право на одбивка –
- * чл. 24 (поле 09)“ for the ticked issued invoices (Излезни фактури): invoices issued without VAT are re-marked as
+ * Bulk „Означи како чл. 32-а“ / „Ослободено со право на одбивка – чл. 24 (поле 08)“ / „Ослободено без право на
+ * одбивка – чл. 23 (поле 09)“ for the ticked issued invoices (Излезни фактури): invoices issued without VAT are re-marked as
  * domestic reverse charge (ДДВ-04 поле 11, купувачи 1200009) or as exempt with an editable legal basis, and re-posted.
  * Open periods only; the server skips the others. Article mapping ЗА ПРОВЕРКА (to be confirmed by the owner).
  */
@@ -11,12 +11,12 @@ import { ticked } from './bulk-select';
 
 /** Default basis per kind (the same texts as `EXEMPT_NOTE_DEFAULT` in @wise/db). */
 export const EXEMPT_BASES: Record<'ded' | 'noded', string> = {
-  ded: 'Ослободено од ДДВ со право на одбивка на претходниот данок согласно член 23 од ЗДДВ',
-  noded: 'Ослободено од ДДВ без право на одбивка на претходниот данок согласно член 24 од ЗДДВ',
+  ded: 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ',
+  noded: 'Ослободено од ДДВ без право на одбивка согласно член 23 од ЗДДВ',
 };
 export const EXEMPT_LABEL: Record<'ded' | 'noded', string> = {
-  ded: 'Ослободено со право на одбивка (поле 08)',
-  noded: 'Ослободено без право на одбивка – чл. 24 (поле 09)',
+  ded: 'Ослободено со право на одбивка – чл. 24 (поле 08)',
+  noded: 'Ослободено без право на одбивка – чл. 23 (поле 09)',
 };
 
 export function VatMarkBar({ group = 'r', action }: {
@@ -46,7 +46,7 @@ export function VatMarkBar({ group = 'r', action }: {
           <input value={note[k]} maxLength={500} onChange={(e) => setNote((o) => ({ ...o, [k]: e.target.value }))} aria-label={'Основ – ' + EXEMPT_LABEL[k]} style={{ maxWidth: 300 }} />
         </span>
       ))}
-      <span className="mini" title="Мапирањето на членовите (чл. 23 → поле 08, чл. 24 → поле 09) треба да го потврди сопственикот">за проверка</span>
+      <span className="mini" title="Мапирањето на членовите (чл. 24 → поле 08, чл. 23 → поле 09) треба да го потврди сопственикот">за проверка</span>
       {msg && <span className="note">{msg}</span>}
     </div>
   );

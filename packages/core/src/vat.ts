@@ -506,7 +506,7 @@ export function ddvFor(docs: VatDocuments, period: string, per: VatPeriodKind | 
         if (g.rate === 0 && isPassThroughAccount(g.konto)) continue;
         const b = sg * toC(g.base);
         if (g.rate === 0) {
-          // `vatExempt: 'noded'` (ЗДДВ чл. 24, без право на одбивка) → 09; 'ded' and no kind (as before) → 08
+          // `vatExempt: 'noded'` (ЗДДВ чл. 23, без право на одбивка) → 09; 'ded' (чл. 24) and no kind (as before) → 08
           const kind = inv.zeroKind ?? (inv.export ? 'export' : inv.vatExempt === 'noded' ? 'exemptNoDed' : 'exempt');
           if (kind === 'export') exportBase += b;
           else if (kind === 'exemptNoDed') exemptNoDed += b;
@@ -646,7 +646,7 @@ export interface DdvFieldDocRow {
   edb: string;
   /** Base in denars (2 decimals); credit notes / deducted advances negative. */
   base: number;
-  /** Legal basis / article: `vatNote`, „чл. 32-а ЗДДВ“, „чл. 23 ЗДДВ (извоз)“… */
+  /** Legal basis / article: `vatNote`, „чл. 32-а ЗДДВ“, „извоз“… */
   basis: string;
 }
 export interface DdvFieldSection {
@@ -663,7 +663,7 @@ export interface DdvFieldSection {
 
 const DOC_FIELDS: readonly DdvDocField[] = ['07', '08', '09', '10', '11'];
 const BASIS: Record<DdvDocField, string> = {
-  '07': 'чл. 23 ЗДДВ (извоз)', '08': 'ослободено со право на одбивка', '09': 'ослободено без право на одбивка',
+  '07': 'извоз', '08': 'ослободено со право на одбивка', '09': 'ослободено без право на одбивка',
   '10': 'промет кон нерезидент', '11': 'чл. 32-а ЗДДВ – ДДВ пресметува примателот',
 };
 

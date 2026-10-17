@@ -205,7 +205,7 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
   if (inv.kind === 'invoice' || inv.kind === 'credit') {
     const adv = inv.kind === 'invoice' && !inv.advance ? await loadAdvances(tx, await tx.select().from(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, inv.id)), fx) : [];
     const lines = wrapCore(() => invoiceEntries({
-      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32,
+      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32, vatExempt: ((inv.data ?? {}) as InvoiceData).vatExempt === 'ded' ? 'ded' : ((inv.data ?? {}) as InvoiceData).vatExempt === 'noded' ? 'noded' : undefined,
       credit: inv.kind === 'credit', advance: inv.advance, export: inv.export, advances: adv,
     }, ctx));
     // Legacy `stornoOn` / `stF` (3444): credit notes are booked with minus on the original side (red storno) unless the
@@ -488,24 +488,24 @@ export async function repostInvoice(tx: Tx, f: Firm, id: string, userId: string 
 
 /* ---------------- ЗДДВ чл. 32-а / ослободување: bulk marking of issued invoices ---------------- */
 
-/** `art32`; `ded` = exempt WITH the right to deduct (field 08); `noded` = exempt WITHOUT it, ЗДДВ чл. 24 (field 09). */
+/** `art32`; `ded` = exempt WITH the right to deduct (field 08); `noded` = exempt WITHOUT it, ЗДДВ чл. 23 (field 09); `ded` is чл. 24. */
 export type VatMarkMode = 'art32' | 'ded' | 'noded';
 export interface VatMarkResult { changed: { id: string; number: string }[]; skipped: { id: string; number: string; why: string }[] }
 
 /** Default legal basis of the bulk „Означи како ослободено“ per kind (ЗА ПРОВЕРКА: article mapping to be confirmed). */
 export const EXEMPT_NOTE_DEFAULT: Record<'ded' | 'noded', string> = {
-  ded: 'Ослободено од ДДВ со право на одбивка на претходниот данок согласно член 23 од ЗДДВ',
-  noded: 'Ослободено од ДДВ без право на одбивка на претходниот данок согласно член 24 од ЗДДВ',
+  ded: 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ',
+  noded: 'Ослободено од ДДВ без право на одбивка согласно член 23 од ЗДДВ',
 };
 
 /**
- * „Означи како чл. 32-а“ / „Означи како ослободено (чл. 24)“ on ticked issued invoices (Излезни фактури).
+ * „Означи како чл. 32-а“ / „Ослободено со / без право на одбивка“ on ticked issued invoices (Излезни фактури).
  * Only invoices that charge NO VAT are changed (every line at 0 %, or already art. 32-a / exempt) — an invoice that
  * charged VAT to the buyer is never rewritten here.
  * - `art32`: `art32 = true`, the lines get rate 18 (the recipient's VAT, no VAT charged; ДДВ treats art. 32-a at 18 %),
  *   the printed note is the art. 32-a one (`data.vatNote` removed); ДДВ-04 field 08 → 11, receivable 1200 → `customer32`.
  * - `ded` / `noded`: `art32 = false`, the lines stay / go to 0 %, `data.vatNote` = the chosen legal basis (printed),
- *   `data.vatExempt` = the kind → ДДВ-04 field 08 (with the right to deduct) / 09 (without, чл. 24).
+ *   `data.vatExempt` = the kind → ДДВ-04 field 08 (with the right to deduct) (чл. 24) / 09 (without, чл. 23).
  * A booked invoice is re-posted in place; the firm's lock date, a closed VAT period or a locked nalog skip it (open
  * periods only). Each changed invoice is audited (`vatMark32` / `vatMarkExempt`).
  */
@@ -519,7 +519,7 @@ export async function markInvoicesVat(tx: Tx, firmId: string, ids: readonly stri
     const skip = (why: string) => out.skipped.push({ id: inv.id, number: inv.number, why });
     if (inv.kind !== 'invoice' && inv.kind !== 'credit') { skip('не е фактура / одобрение'); continue; }
     if (isCancelled(inv)) { skip('сторнирана'); continue; }
-    if (inv.export) { skip('извоз (чл. 23)'); continue; }
+    if (inv.export) { skip('извоз'); continue; }
     if (f.lockDate && inv.date <= f.lockDate) { skip('заклучен период'); continue; }
     const L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
     if (!inv.art32 && L.some((l) => n(l.rate) !== 0)) { skip('фактурата има пресметан ДДВ'); continue; }
