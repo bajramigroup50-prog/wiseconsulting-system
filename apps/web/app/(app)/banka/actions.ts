@@ -15,6 +15,7 @@ import {
   updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
   saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
+  pendingReads, dismissReads, linkBankAccountNumber, createStatementAccount,
 } from '@wise/db';
 import { BANK_KONTA_FIELDS } from '@wise/core';
 import { statementsFromRead } from '@wise/core/ai/bank';
@@ -33,6 +34,8 @@ import type { SessionUser } from '@/lib/auth';
 import { queueRepostChange } from '@/lib/auto-repost';
 
 const P = ['/banka', '/devizni', '/bkAdv', '/nalozi'];
+/** Permission of adding / editing a bank account (legacy `addBankAcct`). */
+const BANK_ACCT_ACTION = 'addBankAcct';
 const MAX = 20 * 1024 * 1024;
 
 /** A file-reading problem shown to the user (handled like the bank services' domain errors). */
@@ -110,7 +113,13 @@ async function ownerFirms(u: Pick<SessionUser, 'id' | 'principal'>): Promise<Own
   return F.map((f) => ({ ...f, accounts: B.filter((b) => b.firmId === f.id).flatMap((b) => [b.account, b.iban]) }));
 }
 
-export interface PreviewResult { error?: string; plans?: { file: string; format: string; plan: ImportPlan }[] }
+export interface PreviewResult {
+  error?: string;
+  /** `i`: index of the file in the form (files of a batch may share a name). */
+  plans?: { file: string; format: string; plan: ImportPlan; i?: number }[];
+  /** Files that could not be read (the reason): left out of the preview, the others go on. */
+  skipped?: { file: string; error: string }[];
+}
 
 /** Files with the id of their AI read (`aiDoc`, same order; '' = parse the file itself). */
 function filesOf(form: FormData): { f: File; ai: string }[] {
@@ -128,9 +137,17 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
     const { u, firm } = await firmAction('write');
     const acct = str(form.get('acct')) || null;
     const out: NonNullable<PreviewResult['plans']> = [];
+    const skipped: NonNullable<PreviewResult['skipped']> = [];
     let others: OwnerFirm[] | null = null;
-    for (const { f, ai } of filesOf(form)) {
-      const { statements, format, warnings, blocking } = await readStatements(f, firm.id, ai);
+    const L = filesOf(form);
+    for (const [fi, { f, ai }] of L.entries()) {
+      let read: ReadStatements;
+      // one unreadable file of a batch is listed with its reason; the others are previewed (a single file: the error)
+      try { read = await readStatements(f, firm.id, ai); } catch (e) {
+        if (L.length > 1 && e instanceof Error && e.name === 'BankError') { skipped.push({ file: f.name, error: e.message }); continue; }
+        throw e;
+      }
+      const { statements, format, warnings, blocking } = read;
       const plan = await db().transaction((tx) => planImport(tx, { firmId: firm.id, userId: null, statements, defaultAccountId: acct }));
       if (warnings?.length) plan.warnings.push(...warnings);
       if (blocking?.length) plan.errors.push(...blocking);
@@ -141,10 +158,10 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
         const w = ownerCheck(cur, others, { name: st.owner, acct: st.account || st.iban });
         if (w?.other) plan.warnings.push(w.message);
       }
-      out.push({ file: f.name, format, plan });
+      out.push({ file: f.name, format, plan, i: fi });
     }
-    if (!out.length) return { error: 'Изберете датотека.' };
-    return { plans: out };
+    if (!out.length) return { error: skipped.length ? skipped.map((x) => x.error).join(' ') : 'Изберете датотека.' };
+    return { plans: out, ...(skipped.length ? { skipped } : {}) };
   } catch (e) {
     // Next.js redirects / not-found carry a digest and must propagate.
     if (e instanceof Error && 'digest' in e) throw e;
@@ -153,14 +170,22 @@ export async function previewImportAction(form: FormData): Promise<PreviewResult
 }
 
 /** Step 2: import (one transaction per file), post complete statements. */
-export async function saveImportAction(form: FormData): Promise<FormState> {
+export async function saveImportAction(form: FormData): Promise<FormState & { failed?: FailedFile[] }> {
   const acct = str(form.get('acct')) || null;
   const skip = form.get('dups') !== 'on';
   const replace = form.get('replace') === 'on';
   const msgs: string[] = [];
-  for (const { f, ai } of filesOf(form)) {
+  const failed: FailedFile[] = [];
+  for (const [fi, { f, ai }] of filesOf(form).entries()) {
+    // the file / stored read is read before the transaction (no second connection while it holds the rows)
+    let read: ReadStatements;
+    try { const { firm } = await firmAction('write'); read = await readStatements(f, firm.id, ai); } catch (e) {
+      if (e instanceof Error && 'digest' in e) throw e;
+      failed.push({ file: f.name, error: bankError(e).error ?? 'Грешка.', i: fi });
+      continue;
+    }
     const r = await bankRun('write', P, async ({ tx, u, firm }) => {
-      const { statements, format, fileId, blocking } = await readStatements(f, firm.id, ai);
+      const { statements, format, fileId, blocking } = read;
       if (blocking?.length) throw fail(blocking.join(' '));
       const x = await saveImport(tx, { firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null, replace });
       if (ai) await markAiReadsSaved(tx, firm.id, [ai]);
@@ -170,9 +195,11 @@ export async function saveImportAction(form: FormData): Promise<FormState> {
         ? ` Предлози: ${au.proposed} врски плаќање ↔ фактура (таб „Поврзување“)${au.linked ? `, автоматски поврзани ${au.linked}` : ''}${au.booked ? `, автоматски прокнижени ${au.booked} сигурни ставки` : ''}.` : '';
       return `„${f.name}“: ${x.statements} изводи, ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.posted}, за довршување ${x.drafts}.${auTxt}`;
     });
-    if (r.error) return { error: `„${f.name}“: ${r.error}`, ...(msgs.length ? { ok: msgs.join(' ') } : {}) };
+    // one file that fails does not stop the others of a batch (it is reported and can be imported again)
+    if (r.error) { failed.push({ file: f.name, error: r.error, i: fi }); continue; }
     msgs.push(r.ok!);
   }
+  if (failed.length) return { error: failed.map((x) => `„${x.file}“: ${x.error}`).join(' '), failed, ...(msgs.length ? { ok: msgs.join(' ') } : {}) };
   return msgs.length ? { ok: msgs.join(' ') } : { error: 'Изберете датотека.' };
 }
 
@@ -194,7 +221,9 @@ export async function previewNalogImportAction(form: FormData): Promise<NalogPre
   }
 }
 
-export interface NalogImportResult extends FormState { number?: string; period?: boolean }
+/** A file of a batch that was not imported, with the reason (`period`: the statement is of another nalog's period). */
+export interface FailedFile { file: string; error: string; period?: boolean; /** index of the file in the form */ i?: number }
+export interface NalogImportResult extends FormState { number?: string; period?: boolean; failed?: FailedFile[] }
 const LK = z.record(z.string(), z.object({ konto: z.string().trim().max(10), partnerId: z.string().max(40).nullish(), createPartner: z.string().max(120).nullish() }));
 
 /**
@@ -208,8 +237,9 @@ export async function saveNalogImportAction(form: FormData): Promise<NalogImport
   const nalogNo = str(form.get('nalog')) || null;
   const dropEmpty = str(form.get('dropEmpty')) || null;
   let kontos: z.infer<typeof LK>[] = [];
-  try { kontos = z.array(LK).max(50).parse(JSON.parse(str(form.get('kontos')) || '[]')); } catch { return { error: 'Неважечки конта.' }; }
+  try { kontos = z.array(LK).max(500).parse(JSON.parse(str(form.get('kontos')) || '[]')); } catch { return { error: 'Неважечки конта.' }; }
   const msgs: string[] = [];
+  const failed: FailedFile[] = [];
   let number = '';
   try {
     const { u, firm, year } = await firmAction('write');
@@ -221,8 +251,10 @@ export async function saveNalogImportAction(form: FormData): Promise<NalogImport
       period = nalogPeriod(nalogNo, year, own ? { from: own.periodFrom, to: own.periodTo } : undefined);
     }
     for (const [i, { f, ai }] of filesOf(form).entries()) {
-      const x = await db().transaction(async (tx) => {
-        const { statements, format, fileId, blocking } = await readStatements(f, firm.id, ai);
+      let x: Awaited<ReturnType<typeof saveImport>>;
+      try {
+      const { statements, format, fileId, blocking } = await readStatements(f, firm.id, ai);
+      x = await db().transaction(async (tx) => {
         if (blocking?.length) throw fail(blocking.join(' '));
         const r = await saveImport(tx, {
           firmId: firm.id, userId: u.id, statements, defaultAccountId: acct, skipDuplicates: skip, fileName: f.name, format, fileId: fileId ?? null,
@@ -237,6 +269,14 @@ export async function saveNalogImportAction(form: FormData): Promise<NalogImport
         }
         return r;
       });
+      } catch (e) {
+        // one file that fails does not stop the batch: reported with its reason (a period error offers the
+        // statement's own period nalog for the files that failed)
+        if (e instanceof Error && 'digest' in e) throw e;
+        const r = bankError(e);
+        failed.push({ file: f.name, error: r.error ?? 'Грешка.', i, ...(/не припаѓа во периодот/.test(r.error ?? '') ? { period: true } : {}) });
+        continue;
+      }
       number ||= x.numbers?.[0] ?? '';
       const sk = x.book?.skipped ?? [];
       msgs.push(`„${f.name}“: ${x.statements} извод(и), ${x.lines} ставки${x.skipped ? `, ${x.skipped} дупликати прескокнати` : ''}; прокнижени ${x.book?.booked ?? 0}`
@@ -248,7 +288,62 @@ export async function saveNalogImportAction(form: FormData): Promise<NalogImport
     return { ...r, ...(msgs.length ? { ok: msgs.join(' ') } : {}), ...(/не припаѓа во периодот/.test(r.error ?? '') ? { period: true } : {}) };
   }
   for (const p of P) revalidatePath(p);
+  if (failed.length) {
+    return {
+      error: failed.map((x) => `„${x.file}“: ${x.error}`).join(' '), failed, ...(failed.some((x) => x.period) ? { period: true } : {}),
+      ...(msgs.length ? { ok: msgs.join(' '), number } : {}),
+    };
+  }
   return msgs.length ? { ok: msgs.join(' '), number } : { error: 'Изберете датотека.' };
+}
+
+/* ---------------- reads waiting for import, statement accounts ---------------- */
+
+export interface PendingBankReads { items: { id: string; name: string; at: string }[]; reading: number }
+
+/**
+ * „📄 Прочитани изводи што чекаат увоз (N)“: statements read (AI or free) that were never imported — the page was
+ * closed, the browser stopped waiting, a restart. They are previewed and imported like a fresh read.
+ */
+export async function pendingBankReadsAction(): Promise<PendingBankReads> {
+  try {
+    const { firm } = await firmAction('write');
+    const r = await pendingReads(db(), { firmId: firm.id, kind: 'bank' });
+    return { items: r.items.map((x) => ({ id: x.id, name: x.name, at: x.createdAt.toISOString() })), reading: r.reading };
+  } catch (e) {
+    if (e instanceof Error && 'digest' in e) throw e;
+    return { items: [], reading: 0 };
+  }
+}
+
+/** „✕ Отфрли ги“: the waiting reads leave the list (the reads and their files are kept). */
+export async function dismissBankReadsAction(ids: string[]): Promise<FormState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const n = await db().transaction(async (tx) => {
+      const n = await dismissReads(tx, { firmId: firm.id, ids: ids.slice(0, 1000) });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'aiRead', entityType: 'ai_document', data: { kind: 'bank', dismissed: n } });
+      return n;
+    });
+    return { ok: `Отфрлени ${n} прочитани изводи.` };
+  } catch (e) { return bankError(e); }
+}
+
+/** „Поврзи ја сметката 210… со …“: the statement's account number is filled into the firm's numberless account. */
+export async function linkStatementAccountAction(accountId: string, account: string): Promise<FormState> {
+  if (!/^[0-9a-f-]{36}$/i.test(accountId)) return { error: 'Неважечки податоци.' };
+  return bankRun(BANK_ACCT_ACTION, P, async ({ tx, u, firm }) => {
+    await linkBankAccountNumber(tx, { firmId: firm.id, userId: u.id, accountId, account });
+    return `Сметката ${account} е поврзана.`;
+  });
+}
+
+/** „Отвори ја сметката 210…“: a new account for the statement's account, on the konto of its bank. */
+export async function createStatementAccountAction(account: string): Promise<FormState> {
+  return bankRun(BANK_ACCT_ACTION, P, async ({ tx, u, firm }) => {
+    await createStatementAccount(tx, { firmId: firm.id, userId: u.id, account });
+    return `Сметката ${account} е отворена.`;
+  });
 }
 
 /**

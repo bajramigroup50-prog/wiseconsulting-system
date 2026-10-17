@@ -23,6 +23,7 @@ import { postStatements, type PostStatementResult } from './posting';
 import { bookStatementLines, type BookAllResult } from './suggest';
 import { afterImport, type AfterImport } from './review';
 import { toBankRow } from './rows';
+import { proposeStatementAccount, type AccountProposal } from './account-link';
 import { assertOpenPeriod, missingAccounts } from '../posting';
 
 export interface ImportOptions {
@@ -102,6 +103,8 @@ export interface ImportPlan {
   days: PreviewDay[]; warnings: string[]; errors: string[]; needPosPartner: boolean;
   /** Counterparty accounts recognised as the firm itself (name / ЕДБ) that are not registered as its bank accounts. */
   ownAccounts?: string[];
+  /** Statement accounts the firm does not have: fill the number into its numberless account of that bank, or open one. */
+  accountProposals?: AccountProposal[];
 }
 
 const FOREIGN_FEE_DESC = 'Провизија на странска банка';
@@ -117,6 +120,7 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
   let needPosPartner = false;
   if (!o.statements.length) errors.push('Во датотеката нема ставки од извод.');
   const accts = env.accountRows;
+  const proposals = new Map<string, AccountProposal | null>();
   const byId = new Map(accts.map((a) => [a.id, a]));
   const numbers = new Map<string, Record<string, string>>();
   const numsFor = async (a: BankAccountRow) => {
@@ -139,7 +143,15 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
       warnings.push(`Банкарската сметка ${st.iban || st.account} не постои – ќе се отвори при зачувување (конто ${acct.konto}).`);
     }
     if (!acct) { errors.push(`Не е пронајдена банкарска сметка за изводот${st.account ? ' ' + st.account : ''} – додадете ја сметката или изберете ја.`); continue; }
-    if (!hit && (st.account || st.iban)) warnings.push(`Сметката од датотеката (${st.iban || st.account}) не е меѓу сметките на фирмата – увезено во „${acct.name}“.`);
+    if (!hit && (st.account || st.iban)) {
+      warnings.push(`Сметката од датотеката (${st.iban || st.account}) не е меѓу сметките на фирмата – увезено во „${acct.name}“.`);
+      const key = String(st.account || st.iban).replace(/\D/g, '').slice(-15);
+      if (!proposals.has(key)) {
+        const p = (st.currency || 'MKD') === 'MKD' ? await proposeStatementAccount(tx, o.firmId, st.account || st.iban || '', accts) : null;
+        // a new account is opened on save anyway when the statement goes nowhere else
+        proposals.set(key, p && (p.link || !acct.id.startsWith('new:')) ? p : null);
+      }
+    }
     const fx = (acct.cur || 'MKD') !== 'MKD';
     if (st.currency && st.currency !== (acct.cur || 'MKD') && !(st.currency === 'MKD' && !fx)) warnings.push(`Валутата на изводот (${st.currency}) е различна од валутата на сметката „${acct.name}“ (${acct.cur}).`);
     if (statementOwnerMismatch(st.owner, env.firm.name)) warnings.push(`Изводот е на „${st.owner}“, а работите во фирмата „${env.firm.name}“. Проверете дали е вистинската фирма.`);
@@ -214,7 +226,8 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
     }
   }
   for (const a of ownAccts) warnings.push(`Сметката ${a} е на самата фирма (по назив / ЕДБ), а не е внесена меѓу банкарските сметки – ставките се книжат како пренос меѓу сопствени сметки (${env.konta.transit}). Внесете ја сметката во „Банкарски сметки…“.`);
-  return { days, warnings: [...new Set(warnings)], errors, needPosPartner, ...(ownAccts.size ? { ownAccounts: [...ownAccts] } : {}) };
+  const P = [...proposals.values()].filter((x): x is AccountProposal => !!x);
+  return { days, warnings: [...new Set(warnings)], errors, needPosPartner, ...(ownAccts.size ? { ownAccounts: [...ownAccts] } : {}), ...(P.length ? { accountProposals: P } : {}) };
 }
 
 export interface ImportResult {
