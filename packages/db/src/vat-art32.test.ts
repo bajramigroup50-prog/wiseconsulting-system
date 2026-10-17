@@ -32,7 +32,7 @@ let firm: schema.Firm, firmId = '', cust = '', bankId = '';
 const fromDraft = (d: ScanSaleDraft): InvoiceInput => ({
   kind: 'invoice', number: d.number, date: d.date, partnerId: cust, art32: d.art32, scanned: true,
   lines: d.items.map((l) => ({ name: l.name, qty: l.qty, price: l.price, rate: l.rate, account: l.konto })),
-  ...(d.vatNote && !d.art32 ? { data: { vatNote: d.vatNote } } : {}),
+  ...(d.vatNote && !d.art32 ? { data: { vatNote: d.vatNote, ...(d.vatExempt ? { vatExempt: d.vatExempt } : {}) } } : {}),
 });
 const draft = (o: Record<string, unknown>) => saleDraftFromScan({ buyerName: 'Купувач ДОО', lines: [{ name: 'Дезинсекција', qty: 1, price: 10000, amount: 10000, rate: 0 }], groups: [{ rate: 0, base: 10000, vat: 0 }], total: 10000, ...o },
   { partners: [], items: [], revKonto: '7400', today: '2026-07-01', nextNumber: '1/2026' });
@@ -69,16 +69,31 @@ describe('reading the VAT note', () => {
     expect([C.fields['08'], C.fields['11'], C.fields['02']]).toEqual([0, 10000, 0]);
   });
 
-  it('an exemption note gives rate 0 with the legal basis, in field 08', async () => {
+  it('an exemption note чл. 24 (без право на одбивка) gives rate 0 with the legal basis, in field 09', async () => {
     const d = draft({ number: 'CLK-202608-1123', date: '2026-08-02', vatNote: 'Ослободено од ДДВ согласно член 24 од ЗДДВ' });
-    expect([d.art32, d.items[0]!.rate, d.vatNote, d.vatCheck]).toEqual([false, 0, 'Ослободено од ДДВ согласно член 24 од ЗДДВ', undefined]);
+    expect([d.art32, d.items[0]!.rate, d.vatNote, d.vatExempt, d.vatCheck]).toEqual([false, 0, 'Ослободено од ДДВ согласно член 24 од ЗДДВ', 'noded', undefined]);
     const r = await T((tx) => saveInvoice(tx, firmId, fromDraft(d), office));
     expect(((await db.select().from(schema.invoices).where(eq(schema.invoices.id, r.id)))[0]!.data as { vatNote?: string }).vatNote).toBe('Ослободено од ДДВ согласно член 24 од ЗДДВ');
     expect(await recv(r.id)).toEqual([['1200', 10000]]);
     const C = await T((tx) => computeVatPeriod(tx, firm, '2026-Т3'));
-    expect([C.fields['08'], C.fields['11']]).toEqual([10000, 10000]);
-    const s08 = C.annex.find((a) => a.field === '08')!;
-    expect(s08.rows.map((x) => [x.number, x.base, x.basis])).toEqual([['CLK-202608-1123', 10000, 'Ослободено од ДДВ согласно член 24 од ЗДДВ']]);
+    expect([C.fields['08'], C.fields['09'], C.fields['11']]).toEqual([0, 10000, 10000]);
+    const s09 = C.annex.find((a) => a.field === '09')!;
+    expect(s09.rows.map((x) => [x.number, x.base, x.basis])).toEqual([['CLK-202608-1123', 10000, 'Ослободено од ДДВ согласно член 24 од ЗДДВ']]);
+    expect(C.annex.find((a) => a.field === '08')).toBeUndefined();
+  });
+
+  it('an exemption note „со право на одбивка“ / чл. 23 gives rate 0 in field 08', async () => {
+    const d = draft({ number: 'CLK-202608-1124', date: '2026-08-04', vatNote: 'Ослободено од ДДВ со право на одбивка согласно член 23 од ЗДДВ' });
+    expect([d.vatExempt, d.vatCheck]).toEqual(['ded', undefined]);
+    await T((tx) => saveInvoice(tx, firmId, fromDraft(d), office));
+    const C = await T((tx) => computeVatPeriod(tx, firm, '2026-Т3'));
+    expect([C.fields['08'], C.fields['09']]).toEqual([10000, 10000]);
+    expect(C.annex.map((a) => a.field)).toEqual(['08', '09', '11']);
+  });
+
+  it('an exemption note whose kind is unclear is not „спремна“', () => {
+    const d = draft({ number: 'X-2', date: '2026-08-03', vatNote: 'Ослободено од ДДВ' });
+    expect([d.items[0]!.rate, d.vatNote, d.vatExempt, d.vatCheck]).toEqual([0, 'Ослободено од ДДВ', undefined, true]);
   });
 
   it('a no-VAT document without a note is not „спремна“ (never guessed)', () => {
@@ -98,7 +113,8 @@ describe('bulk „Означи како чл. 32-а“', () => {
       ids.push((await T((tx) => saveInvoice(tx, firmId, plain(no, d, p), office))).id);
     }
     const before = await T((tx) => computeVatPeriod(tx, firm, '2026-Т3'));
-    expect([before.fields['08'], before.fields['11']]).toEqual([25001, 10000]); // 10000 + 15001.15 → 25001
+    // existing 0 % invoices without a kind stay in field 08 (as before): 10000 (ded) + 15001.15 → 25001
+    expect([before.fields['08'], before.fields['09'], before.fields['11']]).toEqual([25001, 10000, 10000]);
     expect(await recv(ids[0]!)).toEqual([['1200', 5000.4]]);
 
     const r = await T((tx) => markInvoicesVat(tx, firmId, [...ids, closedId], 'art32', office));
@@ -121,12 +137,18 @@ describe('bulk „Означи како чл. 32-а“', () => {
     expect(s11.rows.every((x) => x.name === 'Купувач ДОО' && x.edb === 'MK4030000000999' && /32-а/.test(x.basis))).toBe(true);
   });
 
-  it('the reverse action marks them exempt with the chosen basis (field 08)', async () => {
-    const r = await T((tx) => markInvoicesVat(tx, firmId, [ids[2]!], 'exempt', office, { note: 'Ослободено од ДДВ согласно член 30 од ЗДДВ' }));
+  it('the reverse actions: exempt without the right to deduct (09) or with it (08), with the chosen basis', async () => {
+    const r = await T((tx) => markInvoicesVat(tx, firmId, [ids[2]!], 'noded', office, { note: 'Ослободено од ДДВ согласно член 24 став 1 од ЗДДВ' }));
     expect(r.changed).toHaveLength(1);
-    const C = await T((tx) => computeVatPeriod(tx, firm, '2026-Т3'));
-    expect([C.fields['08'], C.fields['11']]).toEqual([13000, 22001]); // 10000 + 3000.45; 10000 + 12000.70
+    let C = await T((tx) => computeVatPeriod(tx, firm, '2026-Т3'));
+    expect([C.fields['08'], C.fields['09'], C.fields['11']]).toEqual([10000, 13000, 22001]); // 09: 10000 + 3000.45; 11: 10000 + 12000.70
+    expect(C.annex.find((a) => a.field === '09')!.rows.find((x) => x.number === 'CLK-202608-1132')!.basis).toBe('Ослободено од ДДВ согласно член 24 став 1 од ЗДДВ');
     expect(await recv(ids[2]!)).toEqual([['1200', 3000.45]]);
+    await T((tx) => markInvoicesVat(tx, firmId, [ids[2]!], 'ded', office));
+    C = await T((tx) => computeVatPeriod(tx, firm, '2026-Т3'));
+    expect([C.fields['08'], C.fields['09']]).toEqual([13000, 10000]);
+    const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, ids[2]!));
+    expect(inv!.data).toMatchObject({ vatExempt: 'ded', vatNote: 'Ослободено од ДДВ со право на одбивка на претходниот данок согласно член 23 од ЗДДВ' });
     // and back again, for the payment test
     await T((tx) => markInvoicesVat(tx, firmId, [ids[2]!], 'art32', office));
   });

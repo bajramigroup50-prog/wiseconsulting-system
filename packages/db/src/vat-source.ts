@@ -119,6 +119,7 @@ async function loadInvoices(tx: Tx, firmId: string, from: string, to: string): P
       ...(h.status === 'pending' ? { pend: true } : {}),
       // legal basis of a sale without VAT (ДДВ-04 annex „промет по членови“)
       ...(h.data?.vatNote ? { vatNote: String(h.data.vatNote) } : {}),
+      ...(h.data?.vatExempt === 'noded' || h.data?.vatExempt === 'ded' ? { vatExempt: h.data.vatExempt } : {}),
     });
   }
   return out;

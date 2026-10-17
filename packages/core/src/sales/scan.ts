@@ -161,21 +161,38 @@ const ART32_RE = new RegExp([
   String.raw`(?:ДДВ|данокот)\s+(?:го\s+)?пресметува\s+(?:и\s+(?:го\s+)?плаќа\s+)?примателот`,
   String.raw`reverse[\s-]+charge`,
 ].join('|'), 'iu');
-/** Exemption notes (ЗДДВ чл. 24 / 30): „ослободено од ДДВ“, „без право на одбивка“, „член 24 од ЗДДВ“… */
+/** Exemption notes (ЗДДВ чл. 23 / 24 / 30): „ослободено од ДДВ“, „без / со право на одбивка“, „член 24 од ЗДДВ“… */
 const EXEMPT_RE = new RegExp([
   String.raw`ослободен[оаи]?\s+од\s+(?:плаќање\s+(?:на\s+)?)?(?:ДДВ|данок)`,
-  String.raw`без\s+право\s+на\s+одбив(?:ка|ање|ок)`,
-  String.raw`чл(?:ен)?\.?\s*(?:24|30)(?![\p{L}\d])[^\n]{0,30}(?:ЗДДВ|закон(?:от)?\s+за\s+(?:данокот\s+на\s+)?додадена)`,
+  String.raw`(?:без|со)\s+право\s+на\s+одбив(?:ка|ање|ок)`,
+  String.raw`чл(?:ен)?\.?\s*(?:23|24|30)(?![\p{L}\d])[^\n]{0,30}(?:ЗДДВ|закон(?:от)?\s+за\s+(?:данокот\s+на\s+)?додадена)`,
+  String.raw`ТИРЗ|слободн[аи]\s+(?:економск[аи]\s+)?зон`,
   String.raw`не\s+се\s+пресметува\s+ДДВ|ДДВ\s+не\s+се\s+пресметува`,
   String.raw`VAT\s+exempt`,
 ].join('|'), 'iu');
 
 /**
- * The VAT note of an invoice text (the AI's `vatNote`, or the whole text of a PDF): `art32` for a domestic reverse
- * charge (чл. 32-а), `exempt` for an exemption (чл. 24 / 30) with the printed sentence as its legal basis; null when
- * there is none. The reverse charge wins when both are printed.
+ * Kind of an exemption note (ЗА ПРОВЕРКА — the article mapping is to be confirmed by the owner):
+ * `noded` = without the right to deduct (ЗДДВ чл. 24 — health, education, financial, social…) → ДДВ-04 field 09;
+ * `ded` = with the right to deduct (чл. 23 and related: извоз, ТИРЗ / слободна зона, international agreements) → 08;
+ * null = unclear (the draft is not „спремна“). An explicit „без / со право на одбивка“ wins over the article.
  */
-export function vatNoteOf(text: unknown): { kind: 'art32' | 'exempt'; note: string } | null {
+export function exemptKindOf(text: string): 'ded' | 'noded' | null {
+  const no = /без\s+право\s+на\s+одбив/iu.test(text);
+  const yes = /(?:^|[^\p{L}])со\s+право\s+на\s+одбив/iu.test(text);
+  if (no !== yes) return no ? 'noded' : 'ded';
+  if (no && yes) return null;
+  const a24 = /чл(?:ен)?\.?\s*24(?![\p{L}\d])/iu.test(text);
+  const a23 = /чл(?:ен)?\.?\s*23(?![\p{L}\d])|извоз|ТИРЗ|слободн[аи]\s+(?:економск[аи]\s+)?зон|меѓународн[аи]\s+(?:договор|спогодб)/iu.test(text);
+  return a24 === a23 ? null : a24 ? 'noded' : 'ded';
+}
+
+/**
+ * The VAT note of an invoice text (the AI's `vatNote`, or the whole text of a PDF): `art32` for a domestic reverse
+ * charge (чл. 32-а), `exempt` for an exemption with the printed sentence as its legal basis and its kind
+ * (`exempt`, {@link exemptKindOf}; null = unclear); null when there is none. The reverse charge wins when both are printed.
+ */
+export function vatNoteOf(text: unknown): { kind: 'art32' | 'exempt'; note: string; exempt?: 'ded' | 'noded' | null } | null {
   const t = String(text ?? '');
   if (!t.trim()) return null;
   if (ART32_RE.test(t)) return { kind: 'art32', note: ART32_NOTE };
@@ -188,7 +205,7 @@ export function vatNoteOf(text: unknown): { kind: 'art32' | 'exempt'; note: stri
   const e0 = [rest.indexOf('\n'), rest.indexOf('. ')].filter((x) => x >= 0);
   const end = m.index + m[0].length + (e0.length ? Math.min(...e0) : rest.length);
   const note = t.slice(a + 1, end).replace(/\s+/g, ' ').replace(/^[\s*•–-]+/, '').replace(/[\s.;,]+$/, '').trim().slice(0, 300);
-  return { kind: 'exempt', note: note || m[0] };
+  return { kind: 'exempt', note: note || m[0], exempt: exemptKindOf(t) };
 }
 
 /* ------------------------------------------------------------------ matching */
@@ -370,7 +387,9 @@ export interface ScanSaleDraft {
   pages?: string;
   /** Legal basis of an exempt invoice (rate 0) as printed („Ослободено од ДДВ согласно член 24…“) → `data.vatNote`. */
   vatNote?: string;
-  /** No VAT and no note on the document: art. 32-a or exempt is not guessed — the draft is not „спремна“. */
+  /** Kind of the exemption (`data.vatExempt`): 'ded' → ДДВ-04 field 08, 'noded' (чл. 24) → field 09. */
+  vatExempt?: 'ded' | 'noded';
+  /** No VAT and no (clear) note: art. 32-a or the kind of exemption is not guessed — the draft is not „спремна“. */
   vatCheck?: boolean;
 }
 
@@ -415,8 +434,9 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
     number: String(r.number ?? '').trim() || o.nextNumber, date: dd, due: isoDate(r.dueDate), partnerId: p?.id ?? '', art32: !!r.art32,
     buyer: { name: String(r.buyerName ?? ''), edb: String(r.buyerEdb ?? '').replace(/[^\dA-Za-z]/g, ''), address: String(r.buyerAddress ?? ''), city: String(r.buyerCity ?? '') },
     items, total, ...(r.pages ? { pages: String(r.pages) } : {}),
-    ...(exempt ? { vatNote: vn!.note } : {}),
-    ...(noVat && !exempt && items.length ? { vatCheck: true } : {}),
+    ...(exempt ? { vatNote: vn!.note, ...(vn!.exempt ? { vatExempt: vn!.exempt } : {}) } : {}),
+    // no VAT and no note, or an exemption note whose kind (с / без право на одбивка) is unclear: never guessed
+    ...((noVat && !exempt && items.length) || (exempt && !vn!.exempt) ? { vatCheck: true } : {}),
   };
 }
 

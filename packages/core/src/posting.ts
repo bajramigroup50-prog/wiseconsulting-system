@@ -342,6 +342,11 @@ export interface InvoiceDoc {
   pend?: boolean;
   /** Legal basis of a sale without VAT printed on the invoice (`invoices.data.vatNote`) — the ДДВ-04 annex lists it. */
   vatNote?: string;
+  /**
+   * Kind of the exemption of the 0 % lines (`invoices.data.vatExempt`): 'noded' = without the right to deduct
+   * (ЗДДВ чл. 24) → ДДВ-04 field 09; 'ded' = with the right to deduct (чл. 23 and related) → 08; missing = 08 (as before).
+   */
+  vatExempt?: 'ded' | 'noded';
 }
 
 const NOTE_ADV = 'Одбиен аванс';

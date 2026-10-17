@@ -20,6 +20,7 @@ import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
 import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';
 import { buyerHint, EDB_HINT, firstEmptyRow, headerMissing, headerMissingText, headerSummary } from './invoice-steps';
 import type { ProdBom, ProdCostInput, ProdSpec } from '@wise/core/sales';
+import { EXEMPT_BASES, EXEMPT_LABEL } from './vat-mark-bar';
 
 export interface InvItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
 export interface RefInvoice { id: string; number: string; date: string; partnerId: string | null; total: number; art32: boolean; export: boolean; lines: EdLine[];
@@ -662,9 +663,19 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         <div className="fpane" hidden={tab !== 'pos'}>
           {d.kind !== 'dispatch' && <label className="chk"><input type="checkbox" checked={d.art32} onChange={(e) => set({ art32: e.target.checked, lines: e.target.checked ? d.lines.map((l) => ({ ...l, rate: '18' })) : d.lines })} /> Фактура по <b>член 32-а</b> без ДДВ (пренесување на даночната обврска – ДДВ пресметува примателот)</label>}
           {d.art32 && <div className="callout">Без ДДВ за плаќање; ДДВ 18% ({fmt(T.transferredVat)}) се прикажува како пренесен. Побарувањето се книжи на купувачи по член 32-а (1200009), во ДДВ-04 поле 11.</div>}
-          {d.kind !== 'dispatch' && !d.art32 && !d.export && d.lines.some((l) => l.name.trim() && !Number(l.rate)) && <label className="fl"><span>Основ за ослободување од ДДВ (се печати на фактурата)</span>
-            <input value={d.data.vatNote ?? ''} maxLength={500} list="vatNoteOpts" placeholder="пр. Ослободено од ДДВ согласно член 24 од ЗДДВ" onChange={(e) => setData('vatNote', e.target.value)} />
-            <datalist id="vatNoteOpts">{['Ослободено од ДДВ согласно член 24 од ЗДДВ (без право на одбивка)', 'Ослободено од ДДВ согласно член 30 од ЗДДВ', 'Ослободено од ДДВ согласно член 23 од ЗДДВ (со право на одбивка)'].map((x) => <option key={x} value={x} />)}</datalist></label>}
+          {d.kind !== 'dispatch' && !d.art32 && !d.export && d.lines.some((l) => l.name.trim() && !Number(l.rate)) && <div className="fl"><span>Ослободување од ДДВ (ставки со 0%) – мапирање на членовите за проверка</span>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {/* data.vatExempt: 'ded' → ДДВ-04 поле 08, 'noded' (чл. 24) → поле 09; празно = поле 08 како досега */}
+              <select value={d.data.vatExempt ?? ''} aria-label="Вид на ослободување" style={{ width: 'auto' }} onChange={(e) => {
+                const k = e.target.value as '' | 'ded' | 'noded';
+                setD((o) => ({ ...o, data: { ...o.data, vatExempt: k, ...(k && !String(o.data.vatNote ?? '').trim() ? { vatNote: EXEMPT_BASES[k] } : {}) } }));
+              }}>
+                <option value="">— изберете (досега: поле 08)</option>
+                <option value="ded">{EXEMPT_LABEL.ded}</option>
+                <option value="noded">{EXEMPT_LABEL.noded}</option>
+              </select>
+              <input value={d.data.vatNote ?? ''} maxLength={500} placeholder="Основ (се печати на фактурата), пр. Ослободено од ДДВ согласно член 24 од ЗДДВ" aria-label="Основ за ослободување" style={{ flex: 1, minWidth: 240 }} onChange={(e) => setData('vatNote', e.target.value)} />
+            </div></div>}
           {isInv && <>
             <fieldset className="fs" style={{ maxWidth: 420 }}><legend>Изберете тип</legend><div className="row">
               <label className="rb"><input type="radio" checked={!d.advance} onChange={() => set({ advance: false })} /> Редовна</label>

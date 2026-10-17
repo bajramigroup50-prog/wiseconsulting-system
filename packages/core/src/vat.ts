@@ -506,7 +506,8 @@ export function ddvFor(docs: VatDocuments, period: string, per: VatPeriodKind | 
         if (g.rate === 0 && isPassThroughAccount(g.konto)) continue;
         const b = sg * toC(g.base);
         if (g.rate === 0) {
-          const kind = inv.zeroKind ?? (inv.export ? 'export' : 'exempt');
+          // `vatExempt: 'noded'` (ЗДДВ чл. 24, без право на одбивка) → 09; 'ded' and no kind (as before) → 08
+          const kind = inv.zeroKind ?? (inv.export ? 'export' : inv.vatExempt === 'noded' ? 'exemptNoDed' : 'exempt');
           if (kind === 'export') exportBase += b;
           else if (kind === 'exemptNoDed') exemptNoDed += b;
           else if (kind === 'nonResident') nonRes += b;

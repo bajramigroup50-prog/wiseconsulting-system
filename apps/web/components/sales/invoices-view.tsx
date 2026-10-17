@@ -135,7 +135,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       init = {
         ...init, number: dr.number, date: dr.date, pdate: dr.date, due: dr.due, partnerId: dr.partnerId, art32: dr.art32,
         lines: dr.items.map((l) => ({ ...blankLine(l.konto), itemId: l.itemId, name: l.name, unit: l.unit, qty: s(l.qty), price: s(l.price), rate: s(l.rate) })),
-        data: { ...(dr.buyer.name ? { buyerName: dr.buyer.name } : {}), ...(dr.vatNote && !dr.art32 ? { vatNote: dr.vatNote } : {}) }, scanDocId: doc.id, scanIndex: idx,
+        data: { ...(dr.buyer.name ? { buyerName: dr.buyer.name } : {}), ...(dr.vatNote && !dr.art32 ? { vatNote: dr.vatNote, ...(dr.vatExempt ? { vatExempt: dr.vatExempt } : {}) } : {}) }, scanDocId: doc.id, scanIndex: idx,
       };
       scanInfo = dr.vatCheck ? 'Фактурата нема ДДВ и нема напомена: проверете дали е по член 32-а (пренесување на даночната обврска) или ослободена (внесете го основот), па притиснете „Зачувај“.' : 'Проверете ја фактурата и притиснете „Зачувај“.';
       if (!dr.partnerId && dr.buyer.name) buyerBox = { doc: doc.id, i: idx, name: dr.buyer.name, edb: dr.buyer.edb };
