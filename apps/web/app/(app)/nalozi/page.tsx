@@ -409,6 +409,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <form action={setLockDate} className="row" style={{ gap: 8, marginBottom: 10, alignItems: 'end' }}>
             <label className="mini">Заклучи го периодот до <input type="date" name="lockDate" defaultValue={firm.lockDate ?? ''} style={{ width: 'auto' }} /></label>
             <button className="btn sm">🔒 Зачувај заклучување</button>
+            {firm.lockDate && <button className="btn sm" formAction={setLockDate} name="lockDate" value="" title="Го отклучува периодот – налозите повторно може да се менуваат и бришат">🔓 Отклучи</button>}
             <span className="note">До овој датум налозите не може да се книжат, менуваат или бришат (празно = отклучено).</span>
           </form>
         )}
