@@ -21,6 +21,7 @@ import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice
 import { buyerHint, EDB_HINT, firstEmptyRow, headerMissing, headerMissingText, headerSummary } from './invoice-steps';
 import type { ProdBom, ProdCostInput, ProdSpec } from '@wise/core/sales';
 import { EXEMPT_BASES, EXEMPT_LABEL } from './vat-mark-bar';
+import { SchemeSelect, type SchemeOpt } from './scheme-select';
 
 export interface InvItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
 export interface RefInvoice { id: string; number: string; date: string; partnerId: string | null; total: number; art32: boolean; export: boolean; lines: EdLine[];
@@ -76,6 +77,9 @@ export interface InvoiceEditorProps {
   /** „🏭 Фактура од производство“: earlier work orders of the firm and the proposed number of a new one. */
   workOrders?: WorkOrderOpt[];
   nextWorkOrder?: string;
+  /** „Шема за книжење“: numbered schemes of the firm and the partners' defaults (empty = only Шема 1). */
+  schemes?: SchemeOpt[];
+  partnerSchemes?: Record<string, number>;
 }
 export interface NalogOpt { number: string; description: string; from: string; to: string; periodFrom: string | null; periodTo: string | null; invoices: number; collective: boolean }
 
@@ -636,7 +640,9 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
         <div className="fpane" hidden={tab !== 'dop'}>
           <div className="igrid">
             <div className="fcol">
-              <fieldset className="fs"><legend>Параметри за финансово книжење</legend>{I('grp1', 'Група 1')}{I('grp2', 'Група 2')}
+              <fieldset className="fs"><legend>Параметри за финансово книжење</legend>
+                {d.kind !== 'proforma' && <SchemeSelect value={d.data.scheme ?? ''} onChange={(v) => setData('scheme', v)} schemes={p.schemes ?? []} partnerDefault={p.partnerSchemes?.[d.partnerId]} />}
+                {I('grp1', 'Група 1')}{I('grp2', 'Група 2')}
                 <label className="fl"><span>Тип на трошок</span><select value={d.data.costType ?? ''} onChange={(e) => setData('costType', e.target.value)}>{['', 'Материјален', 'Нематеријален', 'Транспорт', 'Услуга'].map((x) => <option key={x} value={x}>{x || '—'}</option>)}</select></label></fieldset>
               <fieldset className="fs"><legend>Дестинација</legend>{I('placeFrom', 'Место од')}{I('placeTo', 'Место до')}</fieldset>
               <div className="row" style={{ gap: 18 }}>

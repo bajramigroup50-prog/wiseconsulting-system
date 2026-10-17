@@ -22,6 +22,8 @@ import { markInvoicesVat, saveInvoice, type InvoiceInput } from './sales/invoice
 import type { DocActor } from './sales/context';
 import { addManualLine, documentPayments, linkLine, saveBankAccount } from './bank/index';
 import { closeVatPeriod, computeVatPeriod } from './vat-service';
+import { commitJournalImport, previewJournalImport } from './journal-import';
+import type { JiIn } from '@wise/core/journal-import';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -210,5 +212,33 @@ describe('customerExempt (ослободен промет со право на �
     expect((await T((tx) => documentPayments(tx, fid, { invoiceIds: [a] }))).get(a)).toMatchObject({ remaining: 0 });
     const J = await db.select().from(schema.journalLines).where(and(eq(schema.journalLines.firmId, fid), eq(schema.journalLines.account, '1200009'), eq(schema.journalLines.partnerId, p)));
     expect(J.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0)).toBe(0); // E-1 closed on 1200009
+  });
+});
+
+describe('import from the old program (invoices mode)', () => {
+  it('D 1200009 = P 74xx without VAT → exempt invoice чл. 24 (field 08, receivable 1200009); on 1200 without a note → „провери“, journal lines', async () => {
+    const [f4] = await db.insert(schema.firms).values({ name: 'Увоз ДООЕЛ', vatRegistered: true, vatPeriod: 'quarter' }).returning();
+    const fid = f4!.id;
+    await db.insert(schema.partners).values({ firmId: fid, name: 'Купувач Стар ДОО', code: '9' });
+    const rows: JiIn[] = [
+      { r: 2, date: '2026-07-10', type: '40', no: '7', k: '1200009', d: 5000, pcode: '9', doc: 'ST-1', desc: 'Фактура ST-1' },
+      { r: 3, date: '2026-07-10', type: '40', no: '7', k: '7400', p: 5000, doc: 'ST-1', desc: 'Фактура ST-1' },
+      { r: 4, date: '2026-07-11', type: '40', no: '7', k: '1200', d: 3000, pcode: '9', doc: 'ST-2', desc: 'Фактура ST-2' },
+      { r: 5, date: '2026-07-11', type: '40', no: '7', k: '7400', p: 3000, doc: 'ST-2', desc: 'Фактура ST-2' },
+    ];
+    const input = { file: 'stara.xlsx', hash: 'h-imp', year: 2026, rows, mode: 'invoices' as const };
+    const pv = await T((tx) => previewJournalImport(tx, fid, input));
+    expect(pv.invoices).toMatchObject({ n: 1 });
+    expect(pv.invoices!.refused).toEqual([expect.objectContaining({ no: 'ST-2', why: 'провери: нема ДДВ – чл. 32-а или ослободување?' })]);
+    const R = await T((tx) => commitJournalImport(tx, { firmId: fid, userId: null }, input));
+    expect(R).toMatchObject({ invoices: 1, invoicesRefused: [] });
+    const I = await db.select().from(schema.invoices).where(eq(schema.invoices.firmId, fid));
+    expect(I.map((i) => [i.number, i.art32, Number(i.vat), i.data])).toEqual([['ST-1', false, 0, expect.objectContaining({ vatExempt: 'ded', vatNote: 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ' })]]);
+    expect(await recv(I[0]!.id)).toEqual([['1200009', 5000]]);
+    const C = await T((tx) => computeVatPeriod(tx, f4!, '2026-Т3'));
+    expect([C.fields['08'], C.fields['09'], C.fields['11']]).toEqual([5000, 0, 0]);
+    // ST-2 stays as the file's journal lines on 1200
+    const L = await db.select().from(schema.journalLines).where(and(eq(schema.journalLines.firmId, fid), eq(schema.journalLines.account, '1200')));
+    expect(L.map((l) => Number(l.debit))).toEqual([3000]);
   });
 });

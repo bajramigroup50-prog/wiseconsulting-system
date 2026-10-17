@@ -6,6 +6,7 @@
 import { nextNumericCode } from './sales/partners-auto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
+import { pastPeriodOf, type PastPeriodCtx } from '@wise/core/vat/past-period';
 import {
   artFixName, artRoleFields, eanNextInternal, impItemType, impPurchaseGroups, impYes, type ArtRole, type ImpType,
 } from '@wise/core/retail';
@@ -205,8 +206,16 @@ async function findPartner(tx: Tx, firmId: string, name: string, edb: string) {
  * Import parsed rows of one type (legacy `impExec` 5434 + stock-list imports `lagImpGo` 7926 / `lagImport` 4949).
  * Each row runs in its own savepoint: a failing row is skipped with a message, the others are kept.
  */
-export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType, rows: readonly ImpRow[], o: { date: string; wh?: string | null; today: string }): Promise<RetailImportResult> {
+export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType, rows: readonly ImpRow[], o: { date: string; wh?: string | null; today: string; scheme?: number | null; past?: PastPeriodCtx | null }): Promise<RetailImportResult> {
+  // „Шема“ of the batch (invoices / purchases): a number = that scheme for every document; none = the partner's default / Шема 1
+  const schData = o.scheme ? { data: { scheme: o.scheme } } : {};
   const R: RetailImportResult = { add: 0, upd: 0, newP: 0, skip: [] };
+  // „⏸ минат период – за проверка“: a purchase / an invoice dated in a past VAT period is not imported automatically
+  const held = (label: string, date: string): boolean => {
+    const h = o.past ? pastPeriodOf(date, o.past) : null;
+    if (h) R.skip.push(`${label}: ⏸ минат период – за проверка (${h.text}) – не е увезена; внесете ја поединечно или увезете со „Дозволи минати ДДВ периоди“`);
+    return !!h;
+  };
   const ensureP = async (name: string, edb: string): Promise<string> => {
     const p = await findPartner(tx, a.firmId, name, edb);
     if (p) return p.id;
@@ -299,12 +308,13 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
     for (const r of rows) {
       const number = gs(r, 'number'), date = gs(r, 'date'), pn = gs(r, 'partner');
       if (!number || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !pn) { R.skip.push((number || '?') + ': нема број/датум/добавувач'); continue; }
+      if (held(number, date)) continue;
       await row(number, async () => {
         const groups = impPurchaseGroups((k) => gn(r, k), (k) => has(r, k), gs(r, 'konto') || '4000');
         if (!groups.length) throw new StockDocError('нема износи');
         const pid = await ensureP(pn, gs(r, 'edb'));
         const due = gs(r, 'due');
-        await savePurchase(tx, a.firmId, { number, date, docDate: date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, partnerId: pid, ptype: 'cost', groups }, { userId: a.userId, role: a.role });
+        await savePurchase(tx, a.firmId, { number, date, docDate: date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, partnerId: pid, ptype: 'cost', groups, ...schData }, { userId: a.userId, role: a.role });
         R.add++;
       });
     }
@@ -328,6 +338,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
       const number = gs(r0, 'number');
       const date = gs(r0, 'date'), pn = gs(r0, 'partner');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !pn) { R.skip.push(number + ': нема датум/купувач'); continue; }
+      if (held(`${number} од ${date}`, date)) continue;
       // the same number for several invoices in the file (other date / buyer): none is guessed, each is reported
       if ((perNo.get(number) ?? 0) > 1) { R.skip.push(`${number} од ${date} (${pn}): истиот број е за повеќе фактури во датотеката (различен датум / купувач) – не е увезена, проверете ги броевите`); continue; }
       // already in the books: the same number in the same year → skipped (never a second copy with a new number)
@@ -345,7 +356,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
           });
         }
         const due = gs(r0, 'due');
-        const s = await saveInvoice(tx, a.firmId, { kind: 'invoice', number, date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : date, partnerId: pid, lines }, { userId: a.userId, role: a.role });
+        const s = await saveInvoice(tx, a.firmId, { kind: 'invoice', number, date, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : date, partnerId: pid, lines, ...schData }, { userId: a.userId, role: a.role });
         // the printed number must stay: a renumbered invoice is not the document of the file
         if (s.renumbered || s.number !== number) throw new StockDocError(`бројот е зафатен (би добила ${s.number}) – не е увезена`);
         R.add++;

@@ -75,6 +75,8 @@ export interface InvoiceData {
    * (`sales/invoice-nalog.ts`). The invoice keeps its own journal row inside the nalog.
    */
   nalogNo?: string;
+  /** „Шема за книжење“: numbered posting scheme (`@wise/core/scheme-profiles`); missing = Шема 1 (the firm's scheme). */
+  scheme?: number;
   /** Cancelled (сторнирана) instead of deleted — retention lock, `deleteInvoice` (docs/legal/COMPLIANCE.md). `status` = status before. */
   cancelled?: { at: string; by: string | null; reason: string; status: string };
   /** Production run from the invoice („Производство = Да“, `sales/invoice-production.ts`). */
@@ -86,6 +88,8 @@ export interface InvoiceData {
   vatNote?: string;
   /** Kind of that exemption: 'ded' (with the right to deduct, чл. 24) → ДДВ-04 field 08; 'noded' (чл. 23) → 09; missing = 08. */
   vatExempt?: string;
+  /** '1': the 0 % lines keep their revenue konto (no `revGoods0` / `revService0`) — imported from the old program. */
+  keepKonto?: string;
   /** Buyer as read from a scanned sales invoice (before a partner is chosen). */
   buyer?: { name: string; edb: string; address: string; city: string };
   /** Phase 10 travel agency: margin scheme (чл. 38) — maps to core `InvoiceDoc.tourM` / `arrangementId` for the VAT source. */
@@ -174,6 +178,12 @@ export const invoiceLines = pgTable('invoice_lines', {
   rate: integer('rate').notNull(),
   /** Revenue konto. */
   account: text('account').notNull(),
+  /**
+   * VAT of the line as booked (document currency), when it is not base × rate rounded to cents: the old program's
+   * VAT rounded to whole denars, kept by the journal import (`journal-import.ts`, audited `impVatRound`). Null = computed.
+   * Posting, totals, the VAT books and the print all take it (`calcLines`).
+   */
+  vatFix: numeric('vat_fix', { precision: 18, scale: 2 }),
 }, (t) => [index('invoice_lines_invoice_idx').on(t.invoiceId), index('invoice_lines_item_idx').on(t.itemId)]);
 
 /** Advance invoices deducted on a final invoice (legacy `advances = {advInvId: base}`). */
@@ -197,6 +207,8 @@ export interface PurchaseData {
   bankAcc?: string;
   /** Pages of the linked source file with this invoice („2-3“) when the file holds several invoices. */
   srcPages?: string;
+  /** „Шема за книжење“ (see `InvoiceData.scheme`). */
+  scheme?: number;
 }
 
 export const purchases = pgTable('purchases', {

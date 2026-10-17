@@ -11,9 +11,10 @@
 import { invoiceProdPlan, removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
-  cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount,
+  cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount, STOCK_SCHEME_DEFAULTS,
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
+import { invoiceLineKonto } from '@wise/core/scheme-profiles';
 import { checkCredit, invoiceTotals, isDraftNo, nextDocNumber, nextDraftNo, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
 import { assertInvoiceNalog } from './invoice-nalog';
 import { blockingIssues, deletionVerdict, invoiceLegalIssues, isLastInSeries, numberGapWarning } from '@wise/core/compliance';
@@ -21,16 +22,21 @@ import { todaySkopje } from '@wise/core/office/dates';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource, type PostLineInput } from '../posting';
 import {
-  invoiceAdvances, invoiceLines, invoices, partners, stockMoves, type Firm, type Invoice, type InvoiceData, type InvoiceLine, type InvoiceProdState,
+  invoiceAdvances, invoiceLines, invoices, items, partners, stockMoves, type Firm, type Invoice, type InvoiceData, type InvoiceLine, type InvoiceProdState,
 } from '../schema/index';
 import {
-  assertLocation, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, type DocActor,
+  assertLocation, docSchemeData, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, pickScheme, type DocActor,
 } from './context';
 import { loadStockContext, removeSourceMoves, replaceSourceMoves } from '../stock-service';
 
 export interface InvoiceLineInput {
   itemId?: string | null; code?: string | null; name: string; unit?: string | null;
   qty: number | string; price: number | string; disc?: number | string | null; rate: number | string; account?: string | null;
+  /**
+   * The line's VAT as booked by the old program (journal import only): accepted when it differs from base × rate by less
+   * than 1.00 (VAT rounded to whole denars); stored in `invoice_lines.vat_fix`.
+   */
+  vatFix?: number | string | null;
 }
 export interface InvoiceInput {
   id?: string | null;
@@ -86,8 +92,11 @@ export async function nextInvoiceNumber(tx: Tx, firmId: string, kind: DocKind, d
   return nextDocNumber(await usedNumbers(tx, firmId, kind, date), yearOf(date));
 }
 
-const toItems = (L: readonly Pick<InvoiceLine, 'name' | 'itemId' | 'unit' | 'qty' | 'price' | 'disc' | 'rate' | 'account'>[], fx = 1): InvoiceItem[] =>
-  L.map((l) => ({ name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: Number(l.qty), price: Number(l.price) * fx, disc: Number(l.disc), rate: l.rate, konto: l.account }));
+const toItems = (L: readonly (Pick<InvoiceLine, 'name' | 'itemId' | 'unit' | 'qty' | 'price' | 'disc' | 'rate' | 'account'> & { vatFix?: string | number | null })[], fx = 1): InvoiceItem[] =>
+  L.map((l) => ({
+    name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: Number(l.qty), price: Number(l.price) * fx, disc: Number(l.disc), rate: l.rate, konto: l.account,
+    ...(l.vatFix != null && l.vatFix !== '' ? { vat: Number(l.vatFix) * fx } : {}),
+  }));
 
 /** Advance deductions of an invoice, resolved to the advance invoices (for `invoiceEntries` / totals / print). */
 export async function loadAdvances(tx: Tx, rows: readonly { advanceId: string; amount: number | string }[], fx = 1): Promise<AdvanceDeduction[]> {
@@ -137,10 +146,15 @@ const stockSource = (kind: DocKind) => (kind === 'dispatch' ? 'dispatch' : 'invo
  * or return moves (legacy `crMoves`), each carrying its journal lines; `replaceSourceMoves` (Phase 7) stores them and
  * posts the aggregated stock journal (`stock:invoice` / `stock:dispatch`, kind `zaliha`).
  */
-async function stockFor(tx: Tx, inv: Invoice, L: readonly InvoiceLine[], ref: Invoice | null): Promise<{ moves: StockMove[]; warnings: string[] }> {
+async function stockFor(tx: Tx, inv: Invoice, L: readonly InvoiceLine[], ref: Invoice | null, profileSch?: Readonly<Record<string, unknown>> | null): Promise<{ moves: StockMove[]; warnings: string[] }> {
   const ids = L.map((l) => l.itemId).filter((x): x is string => !!x);
   if (!ids.length) return { moves: [], warnings: [] };
   const SC: StockContext = (await loadStockContext(tx, inv.firmId, { excludeSource: { sourceType: stockSource(inv.kind), sourceId: inv.id } })).ctx;
+  // „Шема N“: its overridden stock kontos (cogs, stock …) also for the stock journal of the document
+  if (profileSch) {
+    const ov = Object.fromEntries(Object.entries(profileSch).filter(([k, v]) => k in STOCK_SCHEME_DEFAULTS && typeof v === 'string' && v && v !== '-'));
+    if (Object.keys(ov).length) SC.scheme = { ...(SC.scheme ?? {}), ...ov };
+  }
   const item = (id: string) => SC.items!.find((i) => i.id === id);
   const wh = inv.warehouseId ?? 'main';
   const moves: StockMove[] = [], warnings: string[] = [];
@@ -198,14 +212,23 @@ async function stockFor(tx: Tx, inv: Invoice, L: readonly InvoiceLine[], ref: In
 
 /** Book (or re-book) a saved document: sale journal, stock moves and stock journal. */
 async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null): Promise<string[]> {
-  const ctx = await firmPostingContext(tx, f);
-  const L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
+  // „Шема за книжење“ of the document (Шема 1 = the firm's scheme; Шема N = its overrides over Шема 1)
+  const SP = pickScheme(await firmPostingContext(tx, f), ((inv.data ?? {}) as InvoiceData).scheme);
+  const ctx = SP.ctx;
+  let L = await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id)).orderBy(asc(invoiceLines.lineNo));
+  if (SP.profile) {
+    // the line kontos stored with Шема 1's revenue kontos move to the profile's (only the overridden keys)
+    const ids = [...new Set(L.map((l) => l.itemId).filter((x): x is string => !!x))];
+    const T = new Map(ids.length ? (await tx.select({ id: items.id, type: items.type }).from(items).where(inArray(items.id, ids))).map((r) => [r.id, r.type as string]) : []);
+    L = L.map((l) => ({ ...l, account: invoiceLineKonto(SP.base, ctx, l.account, l.itemId ? T.get(l.itemId) : null) }));
+  }
   const fx = n(inv.fx) || 1;
   const ref = inv.refInvoiceId ? (await tx.select().from(invoices).where(eq(invoices.id, inv.refInvoiceId)).limit(1))[0] ?? null : null;
   if (inv.kind === 'invoice' || inv.kind === 'credit') {
     const adv = inv.kind === 'invoice' && !inv.advance ? await loadAdvances(tx, await tx.select().from(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, inv.id)), fx) : [];
     const lines = wrapCore(() => invoiceEntries({
       id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32, vatExempt: ((inv.data ?? {}) as InvoiceData).vatExempt === 'ded' ? 'ded' : ((inv.data ?? {}) as InvoiceData).vatExempt === 'noded' ? 'noded' : undefined,
+      keepKonto: ((inv.data ?? {}) as InvoiceData).keepKonto === '1',
       credit: inv.kind === 'credit', advance: inv.advance, export: inv.export, advances: adv,
     }, ctx));
     // Legacy `stornoOn` / `stF` (3444): credit notes are booked with minus on the original side (red storno) unless the
@@ -229,10 +252,11 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
       firmId: f.id, date: inv.date, kind: kindOfJournal(inv.kind), sourceType: 'invoice', sourceId: inv.id, userId, number: nalogNo,
       description: (inv.kind === 'credit' ? 'Одобрение ' : inv.advance ? 'Авансна фактура ' : 'Фактура ') + inv.number,
       lines: journalLinesOf(lines).map((l) => ({ ...l, doc: l.doc ?? inv.number })), auditAction: 'postInvoice',
+      ...(SP.no > 1 ? { meta: { scheme: SP.no } } : {}),
     });
   } else await unpostSource(tx, { firmId: f.id, sourceType: 'invoice', sourceId: inv.id, userId });
   const fromDispatch = inv.fromDocId ? (await tx.select({ k: invoices.kind }).from(invoices).where(eq(invoices.id, inv.fromDocId)).limit(1))[0]?.k === 'dispatch' : false;
-  const S = inv.kind === 'proforma' || fromDispatch ? { moves: [], warnings: [] } : await stockFor(tx, inv, L, ref);
+  const S = inv.kind === 'proforma' || fromDispatch ? { moves: [], warnings: [] } : await stockFor(tx, inv, L, ref, SP.profile?.sch);
   await replaceSourceMoves(tx, {
     firmId: f.id, sourceType: stockSource(inv.kind), sourceId: inv.id, moves: S.moves, date: inv.date, userId, partnerId: inv.partnerId,
     description: (inv.kind === 'dispatch' ? 'Испратница ' : inv.kind === 'credit' ? 'Повратница ' : 'Излез на залиха – фактура ') + inv.number,
@@ -275,7 +299,14 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     .map((l, i) => ({
       lineNo: i + 1, itemId: l.itemId || null, code: l.code?.trim() || null, name: String(l.name ?? '').trim(), unit: l.unit?.trim() || null,
       qty: n(l.qty), price: n(l.price), disc: n(l.disc), rate: isExport ? 0 : art32 ? 18 : n(l.rate), account: String(l.account ?? '').trim(),
+      vatFix: l.vatFix == null || l.vatFix === '' ? null : r2(n(l.vatFix)),
     }));
+  // a booked VAT (journal import of the old program's invoices): only a rounding of base × rate, never another amount
+  for (const l of lines) {
+    if (l.vatFix == null) continue;
+    const calc = r2((r2(l.qty * l.price * (1 - l.disc / 100)) * l.rate) / 100);
+    if (art32 || isExport || !l.rate || Math.abs(l.vatFix - calc) >= 1) throw new DocumentError(`ДДВ ${l.vatFix.toFixed(2)} на ставката „${l.name}“ не е заокружување на ${calc.toFixed(2)}.`);
+  }
   if (!lines.length && !draftInv) throw new DocumentError('Додадете барем еден артикл.');
   const bad = lines.filter((l) => !(VALID_LINE_RATES as readonly number[]).includes(l.rate));
   if (bad.length) throw new DocumentError(`Неважечка ДДВ стапка (${bad.map((l) => l.rate).join(', ')}%). Дозволени: 18, 10, 5, 0.`);
@@ -351,7 +382,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     svc: !!input.svc, currency, fx: String(fx), refInvoiceId: kind === 'credit' ? input.refInvoiceId! : null,
     creditKind: kind === 'credit' ? input.creditKind ?? 'price' : null, creditGross: kind === 'credit' && input.creditGross ? r2(n(input.creditGross)).toFixed(2) : null,
     fromDocId: input.fromDocId || existing?.fromDocId || null, note: input.note?.trim() || null, scanned: !!input.scanned || !!existing?.scanned,
-    base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), data: input.data ?? {}, updatedBy: actor.userId,
+    base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), data: await docSchemeData(tx, firmId, input.partnerId, input.data, ctx), updatedBy: actor.userId,
   } satisfies Partial<typeof invoices.$inferInsert>;
 
   let inv: Invoice;
@@ -362,7 +393,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   } else {
     [inv] = await tx.insert(invoices).values({ ...header, createdBy: actor.userId }).returning() as [Invoice];
   }
-  if (lines.length) await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc) })));
+  if (lines.length) await tx.insert(invoiceLines).values(lines.map((l) => ({ ...l, invoiceId: inv.id, qty: n4(l.qty), price: n4(l.price), disc: n4(l.disc), vatFix: l.vatFix == null ? null : l.vatFix.toFixed(2) })));
   if (adv.length) await tx.insert(invoiceAdvances).values(adv.map((a) => ({ invoiceId: inv.id, advanceId: a.advanceId, amount: r2(n(a.amount)).toFixed(2) })));
 
   // production from the invoice: the old orders go, the new ones are made before the invoice issues the product

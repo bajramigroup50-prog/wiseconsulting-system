@@ -10,7 +10,7 @@ import type { ActionState } from '@/lib/books';
 import { importAction } from '../_retail/actions';
 import { downloadXlsx, readRows } from '../_retail/read-file';
 
-const NUM = new Set(['price', 'rate', 'min', 'weight', 'netBase', 'coef', 'base18', 'vat18', 'base10', 'vat10', 'base5', 'vat5', 'base0', 'total', 'qty', 'disc', 'cost', 'amount', 'mpc', 'cnt', 'd', 'p']);
+const NUM = new Set(['price', 'rate', 'min', 'weight', 'netBase', 'coef', 'base18', 'vat18', 'base10', 'vat10', 'base5', 'vat5', 'base0', 'total', 'qty', 'disc', 'cost', 'amount', 'mpc', 'cnt', 'd', 'p', 'amt', 'curAmt']);
 const DATE = new Set(['date', 'due', 'start', 'end']);
 const NEEDS_WH: ImpType[] = ['in', 'pop', 'nivel'];
 const NEEDS_DATE: ImpType[] = ['stock', 'in', 'pop', 'nivel'];
@@ -28,8 +28,10 @@ function rowErr(t: ImpType, get: (k: string) => unknown, num: (k: string) => num
   return '';
 }
 
-export function Importer({ t, locs, date0, wh0, tpl }: {
+export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
   t: ImpType; locs: { id: string; name: string; kind: string }[]; date0: string; wh0: string;
+  /** „Шема“ for the batch of invoices / purchases (numbered posting schemes of the firm). */
+  schemes?: { no: number; label: string }[];
   /** Own template (header + example row) instead of the generic one, e.g. the retail stock list. */
   tpl?: { name: string; rows: (string | number)[][] };
 }) {
@@ -41,9 +43,14 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
   const [map, setMap] = useState<Record<string, number>>({});
   const [date, setDate] = useState(date0);
   const [wh, setWh] = useState(wh0);
+  const [scheme, setScheme] = useState('');
+  const withScheme = (t === 'invoices' || t === 'purchases') && schemes.length > 0;
   const [err, setErr] = useState('');
   /** „Децимали“: '' = from the file; required when a column has only ambiguous amounts („10.000“). */
   const [decSel, setDecSel] = useState<DecMode>('');
+  /** „Дозволи минати ДДВ периоди“ (purchases / invoices; the server allows it only for the owner / `fix` / `settings`). */
+  const [allowPast, setAllowPast] = useState(false);
+  const pastT = t === 'purchases' || t === 'invoices';
   const inp = useRef<HTMLInputElement>(null);
   const whs = t === 'nivel' ? locs.filter((l) => l.kind === 'store') : locs;
 
@@ -81,7 +88,7 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
       return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : String(v instanceof Date ? impDate(v) : v ?? '').trim()];
     })));
     const fd = new FormData();
-    fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, rows: out }));
+    fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, ...(withScheme && scheme ? { scheme: Number(scheme) } : {}), rows: out, ...(pastT && allowPast ? { allowPast: true } : {}) }));
     startTransition(() => run(fd));
   };
 
@@ -115,12 +122,17 @@ export function Importer({ t, locs, date0, wh0, tpl }: {
                 <option value="">— нема —</option>{hdr.map((x, i) => <option key={i} value={i}>{String(x || 'Колона ' + (i + 1)).slice(0, 40)}</option>)}
               </select></label>
             ))}</div>
+            {pastT && <p className="note" style={{ margin: '8px 0 0' }}>⏸ Фактурите со датум во минат ДДВ период (затворен / поднесен или пред тековниот) не се увезуваат автоматски – се прескокнуваат со причина.{' '}
+              <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={allowPast} onChange={(e) => setAllowPast(e.target.checked)} style={{ width: 'auto' }} /> Дозволи минати ДДВ периоди (миграција; само сопственик / право „поставки“ – ДДВ-04 на тие периоди треба да се коригира)</label></p>}
             <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label className="mini">Заглавие во ред <input type="number" min={1} value={hi + 1} style={{ width: 60 }} onChange={(e) => { const h = Math.max(0, (Number(e.target.value) || 1) - 1); setHi(h); setMap(impAuto(t, rows[h] ?? [])); }} /></label>
               <label className="mini">Децимали <select value={decSel} onChange={(e) => setDecSel(e.target.value as DecMode)} style={{ width: 'auto' }}>
                 <option value="">од датотеката</option><option value="comma">1.234,56 – „10.000“ = десет илјади</option><option value="dot">1,234.56 – „10.000“ = десет</option>
               </select></label>
               {NEEDS_DATE.includes(t) && <label className="mini">Датум <input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>}
+              {withScheme && <label className="mini" title="Со која шема на книжење се книжат сите документи од датотеката">Шема <select value={scheme} onChange={(e) => setScheme(e.target.value)} style={{ width: 'auto' }}>
+                <option value="">Автоматски (според комитентот / Шема 1)</option><option value="1">Шема 1 – основна</option>
+                {schemes.map((s) => <option key={s.no} value={s.no}>{s.label}</option>)}</select></label>}
               {NEEDS_WH.includes(t) && <label className="mini">{t === 'nivel' ? 'Продавница' : 'Објект'} <select value={wh} onChange={(e) => setWh(e.target.value)} style={{ width: 'auto' }}><option value="">—</option>{whs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>}
             </div>
           </div>

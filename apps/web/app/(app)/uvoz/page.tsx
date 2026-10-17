@@ -10,7 +10,11 @@ import { locationOptions } from '@/lib/sales';
 import { todayIso } from '@/lib/stock';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
+import { listJournalImports } from '@wise/db';
+import { db } from '@/lib/db';
 import { Importer } from './importer';
+import { JournalImporter } from './journal-importer';
+import { schemeLabel, schemeProfilesOf } from '@wise/core/scheme-profiles';
 
 const MAIN: ImpType[] = ['partners', 'items', 'employees', 'purchases', 'invoices', 'stock', 'journal'];
 
@@ -33,7 +37,8 @@ export default async function UvozPage({ searchParams }: { searchParams: Promise
         <p className="note" style={{ margin: '8px 0 0' }}>{IMP_T[t].note}</p>
         <p className="note" style={{ margin: '4px 0 0' }}>Електронски фактури (UBL XML од е-Фактура) се внесуваат директно во <b>Влез</b> или <b>Масовно внесување</b> – без читање, со точни износи.</p>
       </div>
-      {write ? <Importer key={t} t={t} locs={locs} date0={today.startsWith(String(year)) ? today : `${year}-01-01`} wh0={locs.some((l) => l.id === sp.wh) ? sp.wh! : t === 'nivel' ? locs.find((l) => l.kind === 'store')?.id ?? '' : 'main'} />
+      {write && t === 'journal' ? <JournalImporter year={year} batches={await listJournalImports(db(), firm.id, year)} canDel={canDo(u, 'nalDel', firm.id)} />
+        : write ? <Importer key={t} t={t} locs={locs} schemes={schemeProfilesOf(firm.settings).map((p, _i, A) => ({ no: p.no, label: schemeLabel(p.no, A) }))} date0={today.startsWith(String(year)) ? today : `${year}-01-01`} wh0={locs.some((l) => l.id === sp.wh) ? sp.wh! : t === 'nivel' ? locs.find((l) => l.kind === 'store')?.id ?? '' : 'main'} />
         : <div className="card empty">Немате право за увоз.</div>}
     </>
   );

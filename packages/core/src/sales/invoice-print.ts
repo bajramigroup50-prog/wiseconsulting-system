@@ -33,6 +33,8 @@ export interface InvoicePrintLine {
   /** Code of the linked item. */
   itemCode?: string | null;
   account?: string | null;
+  /** VAT of the line as booked (imported invoice of the old program, rounded to whole denars); else base × rate */
+  vatFix?: number | string | null;
 }
 
 export interface InvoicePrintInput {
@@ -146,7 +148,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
   };
   const nonVat = !f.vatRegistered;
   const fx = Number(doc.fx) || 1;
-  const items0 = L.map((l) => ({ name: l.name, qty: Number(l.qty), price: Number(l.price), disc: Number(l.disc), rate: l.rate, konto: l.account ?? undefined, unit: l.unit ?? '' }));
+  const items0 = L.map((l) => ({ name: l.name, qty: Number(l.qty), price: Number(l.price), disc: Number(l.disc), rate: l.rate, konto: l.account ?? undefined, unit: l.unit ?? '', ...(l.vatFix != null && l.vatFix !== '' ? { vat: Number(l.vatFix) } : {}) }));
   const adv = doc.kind === 'invoice' && !doc.advance ? p.advances ?? [] : [];
   const T = invoiceTotals({ items: items0, art32: !!doc.art32, advance: !!doc.advance, credit: doc.kind === 'credit', advances: adv }, { nonVat });
   const cur = doc.currency === 'MKD' ? 'ден.' : doc.currency;
@@ -225,7 +227,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
       const b = Math.round(Number(l.qty) * Number(l.price) * (1 - Number(l.disc) / 100) * 100) / 100;
       const rate = nonVat ? 0 : doc.art32 ? 18 : l.rate;
       // legacy docHTML 4288: art. 32-a rows show the 18% VAT the buyer computes (display only, nothing to pay)
-      return { l, code: l.itemCode ?? null, b, rate, v: nonVat ? 0 : Math.round(b * rate) / 100 };
+      return { l, code: l.itemCode ?? null, b, rate, v: nonVat ? 0 : l.vatFix != null && l.vatFix !== '' && !doc.art32 ? Number(l.vatFix) : Math.round(b * rate) / 100 };
     });
     const rec = new Map<number, { b: number; v: number }>();
     for (const r of rows) { const x = rec.get(r.rate) ?? { b: 0, v: 0 }; x.b += r.b; x.v += r.v; rec.set(r.rate, x); }

@@ -22,7 +22,7 @@
  */
 import { and, asc, between, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import {
-  schemeOn, schemeValue, vatAccount,
+  schemeOn, schemeValue, vatAccount, withSchemeProfile,
   type CashVoucher, type CostSlot, type InvoiceDoc, type InvoiceItem, type PartnerInfo, type PostingContext, type PurchaseCostKey,
   type PurchaseDoc, type SalesDoc, type SupplierCreditDoc, type TravelMarginOptions, type VatDocuments,
 } from '@wise/core';
@@ -107,6 +107,8 @@ async function loadInvoices(tx: Tx, firmId: string, from: string, to: string): P
     const fx = num(h.fx) || 1;
     const items: InvoiceItem[] = (LB.get(h.id) ?? []).map((l) => ({
       name: l.name, itemId: l.itemId ?? undefined, unit: l.unit ?? undefined, qty: num(l.qty), price: num(l.price) * fx, disc: num(l.disc), rate: l.rate, konto: l.account,
+      // the VAT booked on an imported invoice (old program, rounded to whole denars) is the VAT of the books too
+      ...(l.vatFix != null ? { vat: num(l.vatFix) * fx } : {}),
     }));
     const adv = h.kind === 'invoice' && !h.advance ? AB.get(h.id) ?? [] : [];
     out.push({
@@ -235,14 +237,17 @@ type Role = { kind: 'out' | 'in' | 'imp' | 'r32in'; rate: number };
 /** Map every VAT konto of the firm to its role (output / input / import VAT per rate, art. 32-a input). */
 export function vatAccountRoles(ctx: PostingContext): Map<string, Role> {
   const M = new Map<string, Role>();
-  for (const rate of [18, 10, 5]) {
-    for (const kind of ['out', 'in', 'imp'] as const) {
-      const k = vatAccount(ctx, kind, rate);
-      if (k && !M.has(k)) M.set(k, { kind, rate });
+  // Шема 1 first, then the numbered schemes („Шема 2“…) — their own VAT kontos keep the same role
+  for (const c of [ctx, ...(ctx.firm.profiles ?? []).map((p) => withSchemeProfile(ctx, p))]) {
+    for (const rate of [18, 10, 5]) {
+      for (const kind of ['out', 'in', 'imp'] as const) {
+        const k = vatAccount(c, kind, rate);
+        if (k && !M.has(k)) M.set(k, { kind, rate });
+      }
     }
+    const r32 = schemeOn(c, 'r32in') ? schemeValue(c, 'r32in') : '';
+    if (r32 && !M.has(r32)) M.set(r32, { kind: 'r32in', rate: 18 });
   }
-  const r32 = schemeOn(ctx, 'r32in') ? schemeValue(ctx, 'r32in') : '';
-  if (r32 && !M.has(r32)) M.set(r32, { kind: 'r32in', rate: 18 });
   return M;
 }
 

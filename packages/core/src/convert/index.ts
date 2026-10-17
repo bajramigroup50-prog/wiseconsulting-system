@@ -69,7 +69,7 @@ export interface ConvPrep {
 }
 
 const syn = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
-const NUMK = new Set(['price', 'rate', 'min', 'weight', 'netBase', 'coef', 'qty', 'cost', 'amount', 'mpc', 'cnt', 'd', 'p', 'disc',
+const NUMK = new Set(['price', 'rate', 'min', 'weight', 'netBase', 'coef', 'qty', 'cost', 'amount', 'mpc', 'cnt', 'd', 'p', 'amt', 'curAmt', 'disc',
   'base18', 'vat18', 'base10', 'vat10', 'base5', 'vat5', 'base0', 'total']);
 const DATEK = new Set(['date', 'due', 'start', 'end']);
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -362,7 +362,7 @@ export interface ConvResult {
 /** Konto / text / amount fields of the targets whose rows are trial-balance or journal lines (row reconstruction). */
 const KONTO_T: Record<string, { k: string; name?: string; partner?: string; code?: string; amt: string[] }> = {
   ob: { k: 'konto', name: 'name', partner: 'partner', code: 'code', amt: ['debit', 'credit', 'saldo'] },
-  'imp:journal': { k: 'k', name: 'desc', partner: 'partner', amt: ['d', 'p'] },
+  'imp:journal': { k: 'k', name: 'desc', partner: 'partner', code: 'pcode', amt: ['d', 'p', 'amt'] },
 };
 
 /**

@@ -9,6 +9,7 @@
  */
 import { and, eq, isNull, or } from 'drizzle-orm';
 import { CUSTOMER_EXEMPT_KONTO, type PostingContext, type SchemeSettings } from '@wise/core';
+import { schemeProfilesOf } from '@wise/core/scheme-profiles';
 import type { Tx } from './audit';
 import { accounts, appSettings, type Firm } from './schema/index';
 
@@ -40,6 +41,8 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
       posK: str(s.posK),
       posPartnerId: posPartnerId ?? null,
       customerExemptAuto: customerExemptAuto ?? null,
+      // numbered schemes „Шема 2, 3 …“ (`firms.settings.schemeProfiles`)
+      profiles: schemeProfilesOf(s),
     },
     global: global == null ? null : schemeSettingsOf(global),
   };

@@ -51,7 +51,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['vlez', 'u', 'editPur ksMerge purNoDed scrSave'],
   ['vlez', 'd', 'delPur scrDel'],
   ['nalozi', 'c', 'saveJ postJournal impJournal kamNote posFee kompSave lnCreateSel newNalog'],
-  ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost lnSave'],
+  ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost schemeRepost lnSave'],
   ['nalozi', 'd', 'unpostJournal deleteJournal kompDel lnDel'],
   ['izvodi', 'c', 'importBank importReplace izvSave mbSave addRule pnRun ppSave trClose'],
   ['izvodi', 'u', 'bankKonto bankPartner bkPickSave autoMatch aiClassifyApply bkpFix feeFix flipBank izvFill numIzv unlinkBank lnLinkBank lnMisK ppPrint bankTransitMove bankRepostLayout bankAcctKonto bankKontaAll'],
@@ -72,9 +72,9 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['os', 'c', 'osImport osDoc osPhoto runDep'],
   ['os', 'u', 'saveAsset'],
   ['os', 'd', 'delAsset osFileDel'],
-  ['firmi', 'c', 'newFirm fimpGo fsGo ncCreateFirm legacyImport legacyImportStart newS partnerNew addPartner addSupplier obMkP bkpMkP scanBuyer posEnsure accImport importAcc cbNew cbImport cbSeedCity paySifSeed fxImport bankAccountAuto addBankAcct'],
-  ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct'],
-  ['firmi', 'd', 'delFirm delS slDel delAcc cbDelRow fxDel rmBankAcct'],
+  ['firmi', 'c', 'newFirm fimpGo fsGo ncCreateFirm legacyImport legacyImportStart newS partnerNew addPartner addSupplier obMkP bkpMkP scanBuyer scanAutoPartner posEnsure accImport importAcc cbNew cbImport cbSeedCity paySifSeed fxImport bankAccountAuto addBankAcct'],
+  ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge partnerMerge scanPickPartner scanPartnerId artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct'],
+  ['firmi', 'd', 'delFirm delS scanUndoPartner slDel delAcc cbDelRow fxDel rmBankAcct'],
   ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend klFoto lnAtt'],
   ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave fileMove'],
   ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear fileDelete'],
@@ -106,6 +106,9 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['izvodi', 'c', 'bankReviewBook'],
   ['izvodi', 'u', 'bankLinkAccept bankLinkReject'],
   ['nalozi', 'u', 'autoRepost'],
+  // journal import from the old program: one movement per batch (the journals of the batch are its by-products)
+  ['nalozi', 'c', 'impJournalBatch'],
+  ['nalozi', 'd', 'impJournalUndo'],
   // UX Phase 3: „📥 Пристигнати документи“ (P7 / P32): uploads, the automatic statement import by IBAN, routing
   ['dokumenti', 'c', 'inUpload'],
   ['izvodi', 'c', 'inAuto inBank'],
@@ -121,6 +124,10 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['izlez', 'u', 'vatMark32 vatMarkExempt'],
   // UX Phase 3 automations: a person confirming a prepared payroll draft (the journal itself is a by-product)
   ['plati', 'u', 'autoPayPost'],
+  // „⏸ За проверка – минат период“: the owner's decision on a held document (the document's own savePur / saveInv row
+  // is written too) — posted into its past period / with a receipt date now, or rejected (the draft deleted)
+  ['ddv', 'u', 'pastPost pastRecv'],
+  ['ai', 'd', 'pastReject'],
 ];
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
@@ -128,11 +135,13 @@ const NOISE = new Set((
   'login logout loginFail loginLocked loginUnlock uMyPass uMenuStyle uNew uSave uDel ownerSet bookOnlySet userViewsSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip kontrolaPkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
-  + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel carryByDoc defMargin saveNalCodes '
+  + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel schProfileSave schProfileDel schProfileCopy carryByDoc defMargin saveNalCodes '
   + 'ddvPerKind trSave efSet lnIgnore inspProf klOnlyBase klProf klSave tplOff autoNotify bankKontaSet bankKontaAllRun bankLinkPropose autoStepsSet autoRepostNote autoRepostRequest autoRepostDismiss offFirmSet amlOffSet mpinTplImport '
   + 'demoUserSet demoSeed demoReset demoLinkNew demoLinkRevoke demoLinkOpen demoAiSet demoRefused '
   // UX Phase 3 automations: switches / run now, and the batch summaries of a bulk confirm (each firm's own row — zatLock,
   // autoPayPost, ddvClose, crPublish — is the work; autoVatClose repeats ddvClose)
+  // „⏸ минат период“: the summary row of a bulk save that held documents, and the firm setting (b)
+  + 'pastHold pastHoldSet '
   + 'autoCfgSet autoRunNow autoCloseLockAll autoPayPostAll autoVatClose autoVatCloseAll crPublishAll '
   + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
@@ -144,9 +153,9 @@ const NOISE = new Set((
  * (their lines still count in the volume).
  */
 const BY_PRODUCT = new Set(['postInvoice', 'postPurchase', 'postStatement', 'postCashVoucher', 'postCompensation', 'postSupplierCredit',
-  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost']);
+  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost', 'postImportJournal', 'unpostImportJournal', 'impVatRound']);
 /** Same rule as the journals screen (`fromDocument`): these sources are entered by hand, not from a document. */
-const MANUAL_SOURCES = new Set(['opening', 'bbimp', 'yearClose']);
+const MANUAL_SOURCES = new Set(['opening', 'bbimp', 'yearClose', 'import']);
 const GENERIC_JOURNAL = new Set(['postJournal', 'repostJournal', 'unpostJournal', 'deleteJournal']);
 
 /** Actions whose category depends on the entity (`approveDoc` approves an invoice or a purchase). */
@@ -156,7 +165,7 @@ const BY_ENTITY = new Set(['approveDoc']);
 const ENTITY_CAT: Record<string, WorkCat> = {
   invoice: 'izlez', recurring_invoice: 'izlez',
   purchase: 'vlez', supplier_credit: 'vlez',
-  journal: 'nalozi', loan: 'nalozi',
+  journal: 'nalozi', journal_import: 'nalozi', loan: 'nalozi',
   bank_line: 'izvodi', bank_lines: 'izvodi', bank_statement: 'izvodi', bank_import: 'izvodi', bank_rule: 'izvodi', payment_order: 'izvodi',
   cash_voucher: 'blagajna', cash_register: 'blagajna',
   payroll_run: 'plati', payroll_note: 'plati', payroll_params: 'plati', payroll_settings: 'plati', employee: 'plati', hr_doc: 'plati', mpin_inbox: 'plati', mpin_ack: 'plati',

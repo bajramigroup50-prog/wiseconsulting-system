@@ -181,7 +181,8 @@ export function calcLines(items: readonly InvoiceItem[] | undefined, art32?: boo
   for (const it of items ?? []) {
     const b = toC(n0(it.qty) * n0(it.price) * (1 - n0(it.disc) / 100));
     const rate = art32 ? 18 : opts.nonVat ? 0 : n0(it.rate);
-    const v = art32 || opts.nonVat ? 0 : rh((b * rate) / 100);
+    // a booked VAT of the line (imported invoice, VAT rounded to whole denars) wins over base × rate
+    const v = art32 || opts.nonVat ? 0 : it.vat != null && it.vat !== '' ? toC(it.vat) : rh((b * rate) / 100);
     base += b;
     vat += v;
     const konto = it.konto || defK;

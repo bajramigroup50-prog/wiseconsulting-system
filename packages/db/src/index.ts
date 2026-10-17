@@ -28,6 +28,7 @@ export function getDb(url = process.env.DATABASE_URL): DB {
   return _db;
 }
 export * from './posting';
+export * from './journal-import';
 export * from './ledger-queries';
 export { seedReference } from './seed/reference';
 export * from './bank/index';
@@ -37,7 +38,10 @@ export * from './sales/invoices';
 export * from './sales/purchases';
 export * from './sales/supplier-credits';
 export * from './sales/ai-docs';
+export * from './sales/scan-save';
+export * from './vat-past';
 export * from './vat-context';
+export * from './scheme-profiles';
 export * from './vat-source';
 export * from './vat-lock';
 export * from './vat-service';
@@ -65,6 +69,7 @@ export * from './parity-retail';
 export * from './fiscal-receipts';
 export * from './parity-stock';
 export * from './sales/partners-auto';
+export * from './partners-merge';
 export * from './sales/invoice-production';
 export * from './sales/invoice-nalog';
 export * from './repost';

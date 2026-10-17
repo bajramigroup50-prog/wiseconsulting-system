@@ -7,6 +7,7 @@ import { r2 } from '../money';
 import { calcLines } from '../vat';
 import { normDocNo } from './docs';
 import { accountKey } from '../bank/mk-banks';
+import { draftMatchOf, findPartnerMatch, type DraftPartnerMatch, type MatchablePartnerRow } from '../partners/match';
 
 export interface ScanLine { code?: string; barcode?: string; name?: string; unit?: string; qty?: number | string; price?: number | string; discount?: number | string; amount?: number | string; rate?: number | string }
 export interface ScanGroup { rate?: number | string; base?: number | string; vat?: number | string; kind?: string }
@@ -200,9 +201,13 @@ export function vatNoteOf(text: unknown): { kind: 'art32' | 'exempt'; note: stri
   if (!m) return null;
   // the line / sentence around the match is the legal basis printed on the invoice
   const before = t.slice(0, m.index);
-  const a = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('. ') >= 0 ? before.lastIndexOf('. ') + 1 : -1);
+  // a sentence ends at a period followed by a capital letter („чл. 23“ is no sentence end)
+  const SE = /\.\s+(?=[\p{Lu}])/gu;
+  const lastSE = [...before.matchAll(SE)].pop();
+  const a = Math.max(before.lastIndexOf('\n'), lastSE ? lastSE.index! : -1);
   const rest = t.slice(m.index + m[0].length);
-  const e0 = [rest.indexOf('\n'), rest.indexOf('. ')].filter((x) => x >= 0);
+  const nextSE = /\.\s+(?=[\p{Lu}])/u.exec(rest);
+  const e0 = [rest.indexOf('\n'), nextSE ? nextSE.index : -1].filter((x) => x >= 0);
   const end = m.index + m[0].length + (e0.length ? Math.min(...e0) : rest.length);
   const note = t.slice(a + 1, end).replace(/\s+/g, ' ').replace(/^[\s*•–-]+/, '').replace(/[\s.;,]+$/, '').trim().slice(0, 300);
   return { kind: 'exempt', note: note || m[0], exempt: exemptKindOf(t) };
@@ -216,7 +221,7 @@ export interface MatchItem {
   /** Supplier item codes: partner id → code (legacy `supCodes`; key '' = unknown supplier). */
   supCodes?: Readonly<Record<string, string>>;
 }
-export interface MatchPartner { id: string; name: string; edb?: string | null }
+export type MatchPartner = MatchablePartnerRow;
 
 /** Legacy `matchItem` (4643 → 11252): barcode → supplier code → any supplier code → name/alias → contained name. */
 export function matchItem(items: readonly MatchItem[], name?: string, code?: string, barcode?: string, partnerId?: string | null): MatchItem | null {
@@ -235,12 +240,12 @@ export function matchItem(items: readonly MatchItem[], name?: string, code?: str
 }
 
 const edbDigits = (e: unknown) => String(e ?? '').replace(/\D/g, '');
-/** Partner by ЕДБ (last 7 digits, legacy) or exact name. */
-export function matchPartner(partners: readonly MatchPartner[], name?: string, edb?: string): MatchPartner | null {
-  const ed = edbDigits(edb);
-  const low = String(name ?? '').toLowerCase().trim();
-  return partners.find((x) => ed.length >= 7 && edbDigits(x.edb).endsWith(ed.slice(-7)))
-    ?? partners.find((x) => low && x.name.toLowerCase().trim() === low) ?? null;
+/**
+ * Partner of a read document: ЕДБ / ЕМБС / bank account, learned name, same or clearly similar name
+ * (`@wise/core/partners/match`). FIX: legacy compared the last 7 digits of the ЕДБ, so a 7-digit ЕМБС never matched.
+ */
+export function matchPartner(partners: readonly MatchPartner[], name?: string, edb?: string, bankAccount?: string): MatchPartner | null {
+  return findPartnerMatch(partners, { name, id: edb, bankAccount }).partner;
 }
 
 /* ------------------------------------------------------------------ owner check */
@@ -310,6 +315,8 @@ export interface ScanPurchaseDraft {
   bankAcc?: string;
   /** Pages of the source file with this invoice („2-3“) when the file holds several invoices. */
   pages?: string;
+  /** How the supplier was recognised (candidates when uncertain). */
+  match?: DraftPartnerMatch;
 }
 export interface PurchaseDraftOptions {
   partners: readonly MatchPartner[];
@@ -336,7 +343,8 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
   const art32 = !!r0.art32 || vatNoteOf(r0.vatNote)?.kind === 'art32';
   let r: ScanInvoice = fixSaleQty({ ...r0, art32, lines: (r0.lines ?? []).map((l) => ({ ...l })) });
   r = { ...r, lines: fixLines(r.lines) };
-  const p = matchPartner(o.partners, r.supplierName, r.supplierEdb);
+  const pm = findPartnerMatch(o.partners, { name: r.supplierName, id: r.supplierEdb, bankAccount: r.supplierBankAccount });
+  const p = pm.partner;
   const goodsInv = (r.groups ?? []).some((g) => g.kind === 'goods' || g.kind === 'material') || !!o.warehouseId;
   const onlyMat = (r.groups ?? []).some((g) => g.kind === 'material') && !(r.groups ?? []).some((g) => g.kind === 'goods');
   const mg = o.defMargin || 25, rd = o.mgRound || 1;
@@ -374,7 +382,7 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
     art32: !!r.art32, cash: !!o.cash, warehouseId: o.warehouseId ?? null,
     ptype: o.costOnly ? 'cost' : stock.length || goodsInv ? 'stock' : 'cost',
     groups, stock, credit: !!r.credit, bankAcc: accountKey(r.supplierBankAccount),
-    ...(r.pages ? { pages: String(r.pages) } : {}),
+    ...(r.pages ? { pages: String(r.pages) } : {}), match: draftMatchOf(pm),
   };
 }
 
@@ -391,6 +399,8 @@ export interface ScanSaleDraft {
   vatExempt?: 'ded' | 'noded';
   /** No VAT and no (clear) note: art. 32-a or the kind of exemption is not guessed — the draft is not „спремна“. */
   vatCheck?: boolean;
+  /** How the buyer was recognised (candidates when uncertain; `created` = added automatically). */
+  match?: DraftPartnerMatch;
 }
 
 /**
@@ -406,7 +416,8 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
   const exempt = !art32 && vn?.kind === 'exempt';
   let r: ScanInvoice = fixSaleQty({ ...r0, art32, lines: (r0.lines ?? []).map((l) => ({ ...l })) });
   r = { ...r, lines: fixLines(r.lines) };
-  const p = matchPartner(o.partners, r.buyerName, r.buyerEdb);
+  const pm = findPartnerMatch(o.partners, { name: r.buyerName, id: r.buyerEdb });
+  const p = pm.partner;
   // the document shows no VAT at all: a recapitulation with bases and no VAT, or every line read at 0 %
   const G0 = (r.groups ?? []).filter((g) => n(g.base));
   const L0 = (r.lines ?? []).filter((l) => l.name || n(l.amount));
@@ -433,7 +444,7 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
   return {
     number: String(r.number ?? '').trim() || o.nextNumber, date: dd, due: isoDate(r.dueDate), partnerId: p?.id ?? '', art32: !!r.art32,
     buyer: { name: String(r.buyerName ?? ''), edb: String(r.buyerEdb ?? '').replace(/[^\dA-Za-z]/g, ''), address: String(r.buyerAddress ?? ''), city: String(r.buyerCity ?? '') },
-    items, total, ...(r.pages ? { pages: String(r.pages) } : {}),
+    items, total, ...(r.pages ? { pages: String(r.pages) } : {}), match: draftMatchOf(pm),
     ...(exempt ? { vatNote: vn!.note, ...(vn!.exempt ? { vatExempt: vn!.exempt } : {}) } : {}),
     // no VAT and no note, or an exemption note whose kind (с / без право на одбивка) is unclear: never guessed
     ...((noVat && !exempt && items.length) || (exempt && !vn!.exempt) ? { vatCheck: true } : {}),
@@ -445,6 +456,7 @@ export function batchStatus(d: ScanPurchaseDraft, raw: ScanInvoice | null, dup: 
   if (dup) return { status: 'dup', msg: 'веќе е заведена' + (dup.date ? ' (' + dup.date.split('-').reverse().join('.') + ')' : '') };
   const why: string[] = [];
   if (!d.partnerId && !d.supplierName) why.push('нема добавувач');
+  if (!d.partnerId && d.match?.candidates.length) why.push('изберете го добавувачот (слични комитенти)');
   if (!d.number) why.push('нема број');
   if (!d.groups.some((g) => g.base)) why.push('нема износ');
   if (raw && !scanConsistent(raw)) why.push('износите не се совпаѓаат со рекапитулацијата');

@@ -1,0 +1,1 @@
+ALTER TABLE "invoice_lines" ADD COLUMN "vat_fix" numeric(18, 2);

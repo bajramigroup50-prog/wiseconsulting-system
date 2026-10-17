@@ -26,7 +26,7 @@
  * checks pass; an earlier AI read of the same file (sha256) is reused; the monthly AI limit pauses AI (code `budget`)
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, TransactionRollbackError } from 'drizzle-orm';
 import { fixRates, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
@@ -259,9 +259,16 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     const srcPages = (doc.options as { pages?: string }).pages;
     if (srcPages && scanInvoices(result).length === 1) scanInvoices(result)[0]!.pages ??= srcPages;
     const opts = doc.options as { cash?: boolean; warehouseId?: string | null; costOnly?: boolean };
-    const drafts = doc.kind === 'sale' ? await saleDrafts(db, f, result) : await purchaseDrafts(db, f, result, opts);
-    await db.update(aiDocuments).set({ status: 'done', result, drafts, model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
-    log(`${docId}: ${drafts.length} draft(s) via ${model}`);
+    // drafts (with the partners created from the document) and the result in one transaction: a read cancelled
+    // meanwhile leaves no new partners behind
+    const res = result;
+    const n = await db.transaction(async (tx) => {
+      const drafts = doc.kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy }) : await purchaseDrafts(tx, f, res, opts, { userId: doc.createdBy });
+      const up = await tx.update(aiDocuments).set({ status: 'done', result: res, drafts, model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
+      if (!up.length) tx.rollback();
+      return drafts.length;
+    }).catch((e: unknown) => { if (e instanceof TransactionRollbackError) return -1; throw e; });
+    log(n < 0 ? `${docId}: cancelled meanwhile` : `${docId}: ${n} draft(s) via ${model}`);
   } catch (e) {
     const p = e instanceof ReadFail ? { code: e.code, msg: e.message, detail: e.detail } : aiProviderError(e);
     const msg = p ? p.msg : e instanceof Error ? e.message : String(e);

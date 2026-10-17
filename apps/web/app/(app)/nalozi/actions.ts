@@ -25,7 +25,7 @@ const JournalInput = z.object({
 });
 
 /** Kinds whose journals belong to a source document and are edited through that document, not here. */
-const fromDocument = (sourceType: string | null) => !!sourceType && !['opening', 'bbimp', 'yearClose'].includes(sourceType);
+const fromDocument = (sourceType: string | null) => !!sourceType && !['opening', 'bbimp', 'yearClose', 'import'].includes(sourceType);
 
 /**
  * Save a manual journal (legacy `saveJ` 7258 + checks 12981 + period 13463/13464 + number 13475/13476).

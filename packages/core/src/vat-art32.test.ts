@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { customerAccount, invoiceEntries, type PostingContext } from './posting';
 import { ddv04FromResult, ddvFieldDocs, ddvFor } from './vat';
-import { ART32_NOTE, purchaseDraftFromScan, saleDraftFromScan, vatNoteOf } from './sales/scan';
+import { ART32_NOTE, NO_VAT_NOTE_MSG, purchaseDraftFromScan, saleDraftFromScan, vatNoteOf } from './sales/scan';
+import { JI_EXEMPT_NOTE, jiInvoices, jiRows } from './journal-import';
 import { invoicePrintHtml } from './sales/invoice-print';
 import { invoiceFromPdf } from './noai/purchase';
 import { pdfLines, type PdfItem } from './noai/pdf-lines';
@@ -143,5 +144,18 @@ describe('ДДВ-04 annex per field', () => {
     expect([by['11']!.sum, F['11']]).toEqual([900.25, 900]);
     expect([F['09'], F['10']]).toEqual([350, 401]); // 300.30 + 50.10 → 350
     expect(by['09']!.rows[0]).toMatchObject({ name: 'Купувач', edb: 'MK1', base: 300.3 });
+  });
+});
+
+describe('journal import: groups without VAT', () => {
+  it('1200009 → exempt чл. 24 (ded); 1200 with a clear exemption note → its kind; 1200 without a note → refused „провери“', () => {
+    const { rows } = jiRows([
+      { date: '2026-07-01', desc: 'A-1', k: '1200009', d: 1000, pcode: '1' }, { date: '2026-07-01', desc: 'A-1', k: '7400', p: 1000 },
+      { date: '2026-07-02', desc: 'A-2', k: '1200', d: 500, pcode: '1' }, { date: '2026-07-02', desc: 'A-2', k: '7400', p: 500 },
+      { date: '2026-07-03', doc: 'A-3', desc: 'без право на одбивка, чл. 23', k: '1200', d: 300, pcode: '1' }, { date: '2026-07-03', doc: 'A-3', desc: 'Услуга', k: '7400', p: 300 },
+    ]);
+    const X = jiInvoices(rows);
+    expect(X.inv.map((v) => [v.no, v.vatExempt, v.vatNote])).toEqual([['A-1', 'ded', JI_EXEMPT_NOTE], ['A-3', 'noded', 'без право на одбивка, чл. 23']]);
+    expect(X.refused).toEqual([expect.objectContaining({ no: 'A-2', why: NO_VAT_NOTE_MSG })]);
   });
 });

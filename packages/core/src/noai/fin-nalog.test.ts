@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { finNalogFromLines, finNalogGrid } from './fin-nalog';
+import { finNalogFromLines, finNalogGrid, finNalogJournalGrid, finNalogsFromLines } from './fin-nalog';
+import { impAuto, impDate } from '../retail/import';
+import { jiGroup, jiRows } from '../journal-import';
 import { obFromPdf } from './ob';
 import type { PdfLine } from './pdf-lines';
 
@@ -43,6 +45,28 @@ describe('„Финансов налог“ of the old program, without AI', () 
     expect(r.printed).toEqual([235000, 235000]);
     expect(r.balanced).toBe(true);
     expect(finNalogGrid(r)[0]).toEqual(['Конто', 'Назив на конто', 'Комитент', 'Шифра на комитент / ЕДБ', 'Салдо должи', 'Салдо побарува']);
+  });
+  it('the journal import reads the PDF as journal rows (date per record, nalog number, partner code, description)', () => {
+    const G = finNalogJournalGrid(finNalogFromLines(L)!);
+    const map = impAuto('journal', G[0]!);
+    const rows = G.slice(1).map((r, i) => ({ r: i + 2, ...Object.fromEntries(Object.entries(map).map(([k, c]) => [k, k === 'date' ? impDate(r[c]) : ['d', 'p'].includes(k) ? (r[c] ? Number(r[c]) : null) : r[c]])) }));
+    const R = jiRows(rows);
+    expect(R.bad).toEqual([]);
+    expect(R.rows.map((x) => [x.date, x.no, x.k, x.d, x.p, x.pcode, x.pname, x.desc])).toEqual([
+      ['2026-01-01', '00126', '0030', 20000000, 0, '', '', 'САЛДО'],
+      ['2026-01-01', '00126', '0192', 0, 15000000, '', '', 'САЛДО'],
+      ['2026-01-01', '00126', '1200', 0, 431200, '24', 'ДРИТОН КОМЕРЦ', 'П.С.2026 ДРИТОН'],
+      ['2026-01-01', '00126', '1200', 3500000, 0, '1025', 'НАЦИОНАЛЕН', 'П.С.2026'],
+      ['2026-01-01', '00126', '9400', 0, 8068800, '', '', 'САЛДО'],
+    ]);
+    const J = jiGroup(R.rows);
+    expect(J.unbalanced).toEqual([]);
+    expect(J.journals.map((j) => [j.number, j.date, j.D])).toEqual([['00126', '2026-01-01', 23500000]]);
+    // two nalozi printed one after the other
+    const L2 = L.map((l) => ({ ...l, page: 2, cells: l.cells.map((c) => (c.s === '00126' ? { ...c, s: '00127' } : c)) }));
+    const N = finNalogsFromLines([...L, ...L2]);
+    expect(N.map((x) => [x.number, x.rows.length, x.balanced])).toEqual([['00126', 5, true], ['00127', 5, true]]);
+    expect(finNalogJournalGrid(N)).toHaveLength(11);
   });
   it('a wrong amount is not balanced; the opening reader uses it', () => {
     const bad = L.map((l) => (l.y === 616 ? ln(616, [160, '36,000.00']) : l));
