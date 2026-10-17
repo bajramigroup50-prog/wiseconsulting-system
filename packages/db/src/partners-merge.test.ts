@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { findPartnerMatch } from '@wise/core/partners/match';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
-import { mergePartners, partnerDupGroups, PartnerMergeError } from './partners-merge';
+import { AUTO_MERGE_DUP_KEY, autoMergePartnerDups, mergePartners, PARTNER_AUTO_MERGE, partnerAutoMergeStats, partnerDupGroups, PartnerMergeError } from './partners-merge';
 import { ensurePartner } from './sales/partners-auto';
 
 const db = drizzle(new PGlite(), { schema });
@@ -112,5 +112,80 @@ describe('partner duplicates', () => {
     const [p] = await db.select().from(schema.partners).where(eq(schema.partners.id, r.id));
     expect([p!.edb, p!.embs]).toEqual([null, '6558500']);
     expect(await tx((t) => ensurePartner(t, firmId, { name: 'GIRO MAMAS', edb: '6558500' }))).toMatchObject({ id: r.id, created: false });
+  });
+
+  it('Звезден Океан: no chained group; only the ticked members merge; another ЕМБС is refused', async () => {
+    const add = async (code: string, name: string, embs: string | null) => (await db.insert(schema.partners).values({ firmId, code, name, embs }).returning())[0]!.id;
+    const Z = {
+      a: await add('0331', 'ЗВЕЗДЕН ОКЕАН ЛИУ ДООЕЛ Скопје (star ocean)', '7475071'),
+      h: await add('0324', 'Хаилонг ЛИУ ДООЕЛ Скопје (Звезден Океан Центар)', '7739680'),
+      j: await add('0377', 'ХАИЈАН ЛИУ ДООЕЛ СКОПЈЕ (Звезден Океан СЕГ)', '7661878'),
+      b: await add('0248', 'ЗВЕЗДЕН ОКЕАН ЛИУ ДООЕЛ', null),
+      c: await add('0249', 'Звезден Океан Лиу', null),
+    };
+    const V = await partnerDupGroups(db, firmId);
+    const g = V.groups.find((x) => x.main === Z.a)!;
+    expect(g.rows.map((r) => r.code).sort()).toEqual(['0248', '0249', '0331']);
+    expect(V.groups.some((x) => x.rows.filter((r) => [Z.a, Z.h, Z.j].includes(r.id)).length > 1)).toBe(false);
+    // „спои“ ticked only on 0248: 0249 stays
+    expect(await tx((t) => mergePartners(t, { firmId, userId: null }, Z.a, [Z.a, Z.b]))).toMatchObject({ merged: 1 });
+    const left = new Set((await db.select({ id: schema.partners.id }).from(schema.partners).where(eq(schema.partners.firmId, firmId))).map((p) => p.id));
+    expect([left.has(Z.b), left.has(Z.c)]).toEqual([false, true]);
+    // a member with another ЕМБС than the main one is refused on the server, nothing merged
+    const e = await tx((t) => mergePartners(t, { firmId, userId: null }, Z.a, [Z.c, Z.h])).catch((x: unknown) => x as Error);
+    expect(e).toBeInstanceOf(PartnerMergeError);
+    expect((e as Error).message).toMatch(/0324.*друг ЕДБ \/ ЕМБС/);
+    expect((await db.select().from(schema.partners).where(eq(schema.partners.id, Z.c))).length).toBe(1);
+  });
+});
+
+describe('automatic merging of certain duplicates', () => {
+  let f3 = '';
+  const add = async (code: string, name: string, x: { edb?: string; embs?: string } = {}) => (await db.insert(schema.partners).values({ firmId: f3, code, name, ...x }).returning())[0]!.id;
+  const exists = async (id: string) => (await db.select().from(schema.partners).where(eq(schema.partners.id, id))).length === 1;
+  beforeAll(async () => { f3 = (await db.insert(schema.firms).values({ name: 'Авто ДООЕЛ' }).returning())[0]!.id; });
+
+  it('the setting off: nothing is merged', async () => {
+    await db.update(schema.firms).set({ settings: { [AUTO_MERGE_DUP_KEY]: false } }).where(eq(schema.firms.id, f3));
+    const a = await add('0001', 'Алфа Трејд ДООЕЛ', { edb: '4030990000101' });
+    const b = await add('0002', 'ALFA TREJD', { edb: '4030990000101' });
+    expect(await autoMergePartnerDups(db, f3)).toEqual({ groups: 0, merged: 0, skipped: [] });
+    expect([await exists(a), await exists(b)]).toEqual([true, true]);
+    await db.update(schema.firms).set({ settings: {} }).where(eq(schema.firms.id, f3));
+  });
+
+  it('the same ЕДБ is merged (audited as automatic); legal-form conflicts, parenthetical matches and a locked period are not', async () => {
+    const shpk = await add('0091', 'ТРУЛИ НОЛЕН ШПК');
+    const intl = await add('0074', 'ТРУЛИ НОЛЕН ИНТЕРНАТИО НАЛ');
+    const dooel = await add('0075', 'ТРУЛИ НОЛЕН ДООЕЛ');
+    const star = await add('0331', 'ЗВЕЗДЕН ОКЕАН ЛИУ ДООЕЛ (star ocean)', { embs: '7475071' });
+    const hai = await add('0324', 'Хаилонг ЛИУ ДООЕЛ (Звезден Океан Центар)', { embs: '7739680' });
+    const zc = await add('0325', 'Звезден Океан Центар');
+    // a locked pair: the merged one has a nalog in the locked period
+    const l1 = await add('0500', 'Гама ДОО', { embs: '1234567' });
+    const l2 = await add('0501', 'GAMA DOO', { embs: '1234567' });
+    const [j] = await db.insert(schema.journals).values({ firmId: f3, date: '2026-01-10', kind: 'manual', number: '1' }).returning();
+    await db.insert(schema.journalLines).values([
+      { journalId: j!.id, firmId: f3, lineNo: 1, account: '1200', partnerId: l2, debit: '10', credit: '0' },
+      { journalId: j!.id, firmId: f3, lineNo: 2, account: '7600', debit: '0', credit: '10' },
+    ]);
+    // l2 has the movement → it is the main one; give l1 the movement instead so the locked one is merged away
+    await db.update(schema.journalLines).set({ partnerId: l1 }).where(eq(schema.journalLines.partnerId, l2));
+    await db.insert(schema.invoices).values({ firmId: f3, kind: 'invoice', number: '1', date: '2026-01-10', partnerId: l2 });
+    await db.insert(schema.invoices).values({ firmId: f3, kind: 'invoice', number: '2', date: '2026-01-11', partnerId: l1 });
+    await db.insert(schema.invoices).values({ firmId: f3, kind: 'invoice', number: '3', date: '2026-01-12', partnerId: l1 });
+    await db.update(schema.firms).set({ lockDate: '2026-01-31' }).where(eq(schema.firms.id, f3));
+    const [a, b] = (await db.select().from(schema.partners).where(eq(schema.partners.firmId, f3))).filter((p) => p.edb === '4030990000101').map((p) => p.id);
+
+    const r = await autoMergePartnerDups(db, f3);
+    expect(r.groups).toBe(1);
+    expect(r.skipped.join(' ')).toMatch(/заклучен/);
+    expect([await exists(a!), await exists(b!)].sort()).toEqual([false, true]);
+    for (const id of [shpk, intl, dooel, star, hai, zc, l1, l2]) expect(await exists(id)).toBe(true);
+    const [log] = await db.select().from(schema.auditLog).where(eq(schema.auditLog.action, PARTNER_AUTO_MERGE));
+    expect(log).toMatchObject({ firmId: f3, userId: null, data: { auto: true } });
+    expect(await partnerAutoMergeStats(db, f3)).toMatchObject({ n: 1 });
+    // a second run: nothing new
+    expect((await autoMergePartnerDups(db, f3)).groups).toBe(0);
   });
 });

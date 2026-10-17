@@ -277,37 +277,89 @@ function idConflict(p: MatchablePartnerRow, id: PartnerId): boolean {
 
 /* ------------------------------------------------------------------ duplicates */
 
-export interface DupMember { id: string; score: number; sameId: boolean }
+export interface DupMember {
+  id: string; score: number; sameId: boolean;
+  /** The names differ in a distinctive word — another legal form („ШПК“ ↔ „ИНТЕРНАЦИОНАЛ“) or each has its own word: never „сигурно“. */
+  distinct?: boolean;
+}
 export interface PartnerDupGroup {
   /** Suggested main partner (with ЕДБ / ЕМБС, then more movements, then the older code). */
   main: string;
   members: DupMember[];
-  /** Every member is the same identifier or at least {@link SURE_SCORE} similar to the main one. */
+  /** Every member is the same identifier, or at least {@link SURE_SCORE} similar to the main one with no distinctive word of its own. */
   sure: boolean;
 }
-/** Names at least this similar are listed as duplicates. */
+/** Names at least this similar (to the group's main partner) are listed as duplicates. */
 export const DUP_SCORE = 0.85;
-/** „Спои ги сите сигурни“: the same identifier or at least this similar. */
+/** „Спои ги сите сигурни“: the same identifier or at least this similar (and no distinctive word). */
 export const SURE_SCORE = 0.9;
 
 const idsOf = (p: MatchablePartnerRow) => ({ edb: digits(p.edb).length === 13 ? digits(p.edb) : '', embs: digits(p.embs).length === 7 ? digits(p.embs) : digits(p.edb).length === 7 ? digits(p.edb) : '' });
-const sameIdent = (a: MatchablePartnerRow, b: MatchablePartnerRow) => {
+/** Both have the same ЕДБ (or the same ЕМБС). */
+export const partnerSameIds = (a: MatchablePartnerRow, b: MatchablePartnerRow) => {
   const x = idsOf(a), y = idsOf(b);
   return (!!x.edb && x.edb === y.edb) || (!!x.embs && x.embs === y.embs);
 };
-/** Both have an ЕДБ (or both an ЕМБС) and they differ: different legal entities. */
-const diffIdent = (a: MatchablePartnerRow, b: MatchablePartnerRow) => {
+const sameIdent = partnerSameIds;
+/** Both have an ЕДБ (or both an ЕМБС) and they differ: different legal entities, never one partner. */
+export const partnerIdsDiffer = (a: MatchablePartnerRow, b: MatchablePartnerRow) => {
   const x = idsOf(a), y = idsOf(b);
   return (!!x.edb && !!y.edb && x.edb !== y.edb) || (!!x.embs && !!y.embs && x.embs !== y.embs);
 };
+const diffIdent = partnerIdsDiffer;
+
+/** The name without its parenthetical parts („Хаилонг ЛИУ ДООЕЛ (Звезден Океан Центар)“ → „Хаилонг ЛИУ ДООЕЛ“), and those parts. */
+export function nameParts(name: unknown): { main: string; paren: string[] } {
+  const s = String(name ?? '');
+  const paren = [...s.matchAll(/\(([^()]*)\)?/g)].map((m) => m[1]!.trim()).filter(Boolean);
+  const main = s.replace(/\([^()]*\)?/g, ' ').replace(/\s+/g, ' ').trim();
+  return { main: main && nameTokens(main).length ? main : s, paren };
+}
+
+/** Legal forms that tell two companies apart (generic institution words are not forms). */
+const NOT_FORM = new Set(['zdruzhenie', 'fondacija', 'agencija', 'ustanova', 'javna', 'javno', 'pretprijatie', 'drzhavno', 'trgovec', 'poedinec']);
+const FORM_EQ: Record<string, string> = { shpkp: 'shpk', dshpk: 'shpk' };
+const isIntl = (t: string) => t.length >= 9 && /^interna[ct]/.test(t);
+const formOf = (t: string) => (isIntl(t) ? 'international' : LEGAL.has(t) && !NOT_FORM.has(t) ? FORM_EQ[t] ?? t : '');
+/** Legal forms and „international“ of a name (Latin key form; „SH.P.K.“, „ИНТЕРНАТИО НАЛ“ joined). */
+export function nameForms(name: unknown): string[] {
+  const T = rawTokens(nameParts(name).main);
+  const out = new Set<string>();
+  for (let i = 0; i < T.length; i++) {
+    const one = formOf(T[i]!);
+    const two = i + 1 < T.length ? formOf(T[i]! + T[i + 1]!) : '';
+    if (two && (!one || two !== one)) { out.add(two); i++; continue; }
+    if (one) out.add(one);
+  }
+  return [...out].sort();
+}
 
 /**
- * Groups of likely duplicate partners of one firm: the same ЕДБ / ЕМБС, or names at least {@link DUP_SCORE} similar
- * (never two partners with different ЕДБ / ЕМБС). `moves` = number of movements per partner (for the main one).
+ * Two similar names that are still different companies: different legal forms („ТРУЛИ НОЛЕН ШПК“ ↔ „ТРУЛИ НОЛЕН
+ * ИНТЕРНАЦИОНАЛ“), „international“ in only one of them, or each name with a word of its own the other lacks.
+ * A name cut short (extra words in one name only) or a legal form on one side only is no difference.
+ */
+export function namesDistinct(a: unknown, b: unknown): boolean {
+  const fa = nameForms(a), fb = nameForms(b);
+  if (fa.includes('international') !== fb.includes('international')) return true;
+  if (fa.length && fb.length && fa.join(' ') !== fb.join(' ')) return true;
+  const ta = nameTokens(nameParts(a).main), tb = nameTokens(nameParts(b).main);
+  const extra = (X: string[], Y: string[]) => X.filter((x) => !isIntl(x) && !Y.some((y) => tokenSim(x, y) > 0));
+  return extra(ta, tb).length > 0 && extra(tb, ta).length > 0;
+}
+
+/**
+ * Groups of likely duplicate partners of one firm. Not transitive: every member has the same ЕДБ / ЕМБС as the
+ * group's main partner or a name at least {@link DUP_SCORE} similar to the main one (not merely to another member),
+ * and no two members have different ЕДБ / ЕМБС. A parenthetical part of a name („(Звезден Океан Центар)“) counts as
+ * another name of the partner, never enough for „сигурно“. `moves` = number of movements per partner (for the main one).
  */
 export function partnerDuplicates(partners: readonly MatchablePartnerRow[], moves: ReadonlyMap<string, number> = new Map()): PartnerDupGroup[] {
   const P = partners.filter((p) => p.name || p.edb || p.embs);
-  const S = P.map((p) => [nameSig(p.name), ...partnerAliases(p).map(nameSig)]);
+  const parts = P.map((p) => nameParts(p.name));
+  // signatures: the name without parentheses and the learned aliases; apart: the parenthetical parts
+  const S = P.map((p, i) => [nameSig(parts[i]!.main), ...partnerAliases(p).map(nameSig)]);
+  const SP = parts.map((x) => x.paren.map(nameSig));
   const parent = P.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
   const join = (i: number, j: number) => { const a = find(i), b = find(j); if (a !== b) parent[b] = a; };
@@ -316,14 +368,21 @@ export function partnerDuplicates(partners: readonly MatchablePartnerRow[], move
   P.forEach((p, i) => { const x = idsOf(p); for (const k of [x.edb && 'e' + x.edb, x.embs && 'm' + x.embs]) if (k) { const j = byId.get(k); if (j === undefined) byId.set(k, i); else join(j, i); } });
   // similar names: compared only within blocks of a shared token start
   const blocks = new Map<string, number[]>();
-  S.forEach((sigs, i) => { for (const k of new Set(sigs.flatMap((g) => g.t.filter((t) => t.length >= 3).map((t) => t.slice(0, 3))))) { const L = blocks.get(k) ?? []; L.push(i); blocks.set(k, L); } });
+  P.forEach((_, i) => { for (const k of new Set([...S[i]!, ...SP[i]!].flatMap((g) => g.t.filter((t) => t.length >= 3).map((t) => t.slice(0, 3))))) { const L = blocks.get(k) ?? []; L.push(i); blocks.set(k, L); } });
   const sc = new Map<string, number>();
+  const best = (A: NameSig[], B: NameSig[]) => (A.length && B.length ? Math.max(...A.flatMap((a) => B.map((b) => sigScore(a, b)))) : 0);
   const pairScore = (i: number, j: number) => {
     const k = i < j ? i + ':' + j : j + ':' + i;
     let v = sc.get(k);
-    if (v === undefined) { v = diffIdent(P[i]!, P[j]!) ? 0 : Math.max(...S[i]!.flatMap((a) => S[j]!.map((b) => sigScore(a, b)))); sc.set(k, v); }
+    if (v === undefined) {
+      // a match through a parenthetical part only stays below „сигурно“
+      const par = Math.max(best(SP[i]!, S[j]!), best(S[i]!, SP[j]!), best(SP[i]!, SP[j]!));
+      v = diffIdent(P[i]!, P[j]!) ? 0 : Math.max(best(S[i]!, S[j]!), Math.min(SURE_SCORE - 0.01, par));
+      sc.set(k, v);
+    }
     return v;
   };
+  // the candidate pairs only bring together the partners to look at; the groups are formed around a main partner below
   for (const L of blocks.values()) {
     if (L.length > 400) continue;
     for (let a = 0; a < L.length; a++) for (let b = a + 1; b < L.length; b++) if (pairScore(L[a]!, L[b]!) >= DUP_SCORE) join(L[a]!, L[b]!);
@@ -334,16 +393,57 @@ export function partnerDuplicates(partners: readonly MatchablePartnerRow[], move
   const out: PartnerDupGroup[] = [];
   for (const I of G.values()) {
     if (I.length < 2) continue;
-    const rank = [...I].sort((a, b) => {
+    let rest = [...I].sort((a, b) => {
       const pa = P[a]!, pb = P[b]!;
       const ia = +!!(idsOf(pa).edb || idsOf(pa).embs), ib = +!!(idsOf(pb).edb || idsOf(pb).embs);
       return ib - ia || (moves.get(pb.id) ?? 0) - (moves.get(pa.id) ?? 0) || codeN(pa) - codeN(pb) || pa.name.localeCompare(pb.name);
     });
-    const m = rank[0]!;
-    const members = rank.map((i) => { const same = i === m || sameIdent(P[i]!, P[m]!); return { id: P[i]!.id, sameId: same, score: i === m ? 1 : same ? 1 : pairScore(i, m) }; });
-    out.push({ main: P[m]!.id, members, sure: members.every((x) => x.sameId || x.score >= SURE_SCORE) && !members.some((x, k) => k && diffIdent(P[rank[k]!]!, P[m]!)) });
+    // the best-ranked partner left is the main one; its members: the same identifier or ≥ DUP_SCORE similar to IT,
+    // never one with another ЕДБ / ЕМБС than a member already taken; the rest form their own groups
+    while (rest.length >= 2) {
+      const m = rest[0]!;
+      const take = [m];
+      for (const i of rest.slice(1)) {
+        if ((sameIdent(P[i]!, P[m]!) || pairScore(i, m) >= DUP_SCORE) && !take.some((k) => diffIdent(P[k]!, P[i]!))) take.push(i);
+      }
+      rest = rest.filter((i) => !take.includes(i));
+      if (take.length < 2) continue;
+      const members = take.map((i): DupMember => {
+        if (i === m) return { id: P[i]!.id, sameId: true, score: 1 };
+        const same = sameIdent(P[i]!, P[m]!);
+        const distinct = !same && namesDistinct(P[i]!.name, P[m]!.name);
+        return { id: P[i]!.id, sameId: same, score: same ? 1 : pairScore(i, m), ...(distinct ? { distinct } : {}) };
+      });
+      out.push({ main: P[m]!.id, members, sure: members.every((x) => x.sameId || (x.score >= SURE_SCORE && !x.distinct)) });
+    }
   }
   return out.sort((a, b) => +b.sure - +a.sure || b.members.length - a.members.length);
+}
+
+/** Automatic merging („Автоматски спојувај сигурни дупликати“): a name at least this similar, with nothing distinctive. */
+export const AUTO_MERGE_SCORE = 0.95;
+
+/**
+ * The partners of a group merged automatically: the main one and the members that are certainly the same — the same
+ * ЕДБ / ЕМБС, or a name at least {@link AUTO_MERGE_SCORE} similar with no distinctive word (legal form…) and no other
+ * identifier (no two different ЕДБ / ЕМБС are ever in one group). A match through a parenthetical part never qualifies.
+ * Fewer than two → nothing to merge.
+ */
+export function autoMergeIds(g: PartnerDupGroup): string[] {
+  const ids = [g.main, ...g.members.filter((m) => m.id !== g.main && (m.sameId || (m.score >= AUTO_MERGE_SCORE && !m.distinct))).map((m) => m.id)];
+  return ids.length >= 2 ? ids : [];
+}
+
+/**
+ * „⇢ Спои ги штиклираните во избраниот“: the partners to merge — the selected main one and the ticked members of its
+ * group. An error text when the main one or a ticked partner is not of the group, or nothing besides the main is ticked.
+ */
+export function dupMergeSelection(main: string, group: readonly string[], ticked: readonly string[]): { ids: string[] } | { error: string } {
+  const G = new Set(group);
+  if (!G.has(main)) return { error: 'Изберете го главниот комитент.' };
+  if (ticked.some((x) => !G.has(x))) return { error: 'Неважечки избор.' };
+  const ids = [...new Set([main, ...ticked])];
+  return ids.length < 2 ? { error: 'Штиклирајте барем еден комитент „спои“ освен главниот.' } : { ids };
 }
 
 /** Main partner after a merge: missing ЕДБ, ЕМБС, address, city… filled from the merged ones; their names kept as aliases. */

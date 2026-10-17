@@ -10,7 +10,7 @@
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { addPartnerAccount, partnerAccountPatch, partnerAccounts, type PartnerAccount } from '@wise/core/bank/partner-accounts';
-import { mergedPartnerFields, partnerDuplicates, type PartnerDupGroup } from '@wise/core/partners/match';
+import { autoMergeIds, mergedPartnerFields, partnerDuplicates, partnerIdsDiffer, type PartnerDupGroup } from '@wise/core/partners/match';
 import { audit, type Tx } from './audit';
 import { firms, invoices, itemSupplierCodes, journalLines, journals, partners, purchases } from './schema/index';
 
@@ -32,7 +32,7 @@ export async function partnerMoves(tx: Tx, firmId: string): Promise<Map<string, 
   return new Map(R.map((r) => [r.p, Number(r.n)]));
 }
 
-export interface PartnerDupView { groups: (PartnerDupGroup & { rows: (Row & { moves: number; score: number; sameId: boolean })[] })[] }
+export interface PartnerDupView { groups: (PartnerDupGroup & { rows: (Row & { moves: number; score: number; sameId: boolean; distinct: boolean })[] })[] }
 
 /** The „Дупликати“ view: groups of likely duplicate partners with their movements. */
 export async function partnerDupGroups(tx: Tx, firmId: string): Promise<PartnerDupView> {
@@ -40,7 +40,7 @@ export async function partnerDupGroups(tx: Tx, firmId: string): Promise<PartnerD
   const by = new Map(P.map((p) => [p.id, p]));
   return {
     groups: partnerDuplicates(P, M).map((g) => ({
-      ...g, rows: g.members.map((m) => ({ ...by.get(m.id)!, moves: M.get(m.id) ?? 0, score: m.score, sameId: m.sameId })),
+      ...g, rows: g.members.map((m) => ({ ...by.get(m.id)!, moves: M.get(m.id) ?? 0, score: m.score, sameId: m.sameId, distinct: !!m.distinct })),
     })),
   };
 }
@@ -57,13 +57,18 @@ export interface PartnerMergeResult { main: string; merged: number; refs: number
  * Merge partners `ids` into `mainId` (same firm). Throws {@link PartnerMergeError} when a partner is not of the firm
  * or an affected journal / document is in a locked period.
  */
-export async function mergePartners(tx: Tx, a: { firmId: string; userId: string | null }, mainId: string, ids: readonly string[]): Promise<PartnerMergeResult> {
+export async function mergePartners(tx: Tx, a: { firmId: string; userId: string | null; auto?: boolean }, mainId: string, ids: readonly string[]): Promise<PartnerMergeResult> {
   const others = [...new Set(ids.filter((x) => x !== mainId))];
   if (!others.length) return { main: mainId, merged: 0, refs: 0, byTable: {} };
   const R = await tx.select().from(partners).where(and(eq(partners.firmId, a.firmId), inArray(partners.id, [mainId, ...others]))).for('update');
   const M = R.find((p) => p.id === mainId);
   const D = R.filter((p) => p.id !== mainId);
   if (!M || D.length !== others.length) throw new PartnerMergeError('Комитентите не се од оваа фирма – се спојуваат само комитенти на иста фирма.');
+  // another ЕДБ / ЕМБС than the main partner's is another legal entity: never merged
+  const conflict = D.filter((d) => partnerIdsDiffer(d, M));
+  if (conflict.length) {
+    throw new PartnerMergeError(`Не може да се спои: ${conflict.map((d) => `${d.code ?? ''} „${d.name}“ (${[d.edb && 'ЕДБ ' + d.edb, d.embs && 'ЕМБС ' + d.embs].filter(Boolean).join(', ')})`).join('; ')} има друг ЕДБ / ЕМБС од главниот „${M.name}“ – тоа е друг субјект.`);
+  }
 
   // locked period / locked nalog → refused, listed
   const [f] = await tx.select({ lock: firms.lockDate }).from(firms).where(eq(firms.id, a.firmId)).limit(1);
@@ -130,8 +135,57 @@ export async function mergePartners(tx: Tx, a: { firmId: string; userId: string 
   if (after !== before) throw new PartnerMergeError('Спојувањето би ги сменило салдата по конта – откажано.');
   const refs = Object.values(byTable).reduce((s, n) => s + n, 0);
   await audit(tx, {
-    userId: a.userId, firmId: a.firmId, action: 'partnerMerge', entityType: 'partner', entityId: M.id,
-    data: { main: { id: M.id, code: M.code, name: M.name }, merged: D.map((d) => ({ id: d.id, code: d.code, name: d.name, edb: d.edb, embs: d.embs })), refs, byTable },
+    userId: a.userId, firmId: a.firmId, action: a.auto ? PARTNER_AUTO_MERGE : 'partnerMerge', entityType: 'partner', entityId: M.id,
+    data: { main: { id: M.id, code: M.code, name: M.name }, merged: D.map((d) => ({ id: d.id, code: d.code, name: d.name, edb: d.edb, embs: d.embs })), refs, byTable, ...(a.auto ? { auto: true } : {}) },
   });
   return { main: M.id, merged: D.length, refs, byTable };
+}
+
+/* ---------------- automatic merging of certain duplicates ---------------- */
+
+/** Audit action of an automatic merge (the „Дневник на активности“ filter `?a=partnerAutoMerge`). */
+export const PARTNER_AUTO_MERGE = 'partnerAutoMerge';
+/** Firm setting (`firms.settings.autoMergeDup`): „Автоматски спојувај сигурни дупликати“, on unless set to false. */
+export const AUTO_MERGE_DUP_KEY = 'autoMergeDup';
+export const autoMergeDupOn = (settings: Record<string, unknown> | null | undefined): boolean => settings?.[AUTO_MERGE_DUP_KEY] !== false;
+
+export interface AutoMergeResult { groups: number; merged: number; skipped: string[] }
+
+/**
+ * „Автоматски спојувај сигурни дупликати“ (after a scan bulk save, an Excel / journal import, and nightly): every group
+ * with certain duplicates ({@link autoMergeIds}: the same ЕДБ / ЕМБС, or a ≥ 95% name with nothing distinctive) is
+ * merged into its main partner (identifiers, then movements) by {@link mergePartners} — each group in its own
+ * (sub)transaction, with all its safety (locked period refused → skipped, konto totals checked) and audited as
+ * automatic. Nothing when the firm's setting is off.
+ */
+export async function autoMergePartnerDups(db: Tx, firmId: string): Promise<AutoMergeResult> {
+  const res: AutoMergeResult = { groups: 0, merged: 0, skipped: [] };
+  const [f] = await db.select({ settings: firms.settings }).from(firms).where(eq(firms.id, firmId)).limit(1);
+  if (!f || !autoMergeDupOn(f.settings)) return res;
+  const [P, M] = await Promise.all([db.select().from(partners).where(eq(partners.firmId, firmId)), partnerMoves(db, firmId)]);
+  for (const g of partnerDuplicates(P, M)) {
+    const ids = autoMergeIds(g);
+    if (!ids.length) continue;
+    try {
+      const r = await db.transaction((tx) => mergePartners(tx as unknown as Tx, { firmId, userId: null, auto: true }, g.main, ids));
+      res.groups++; res.merged += r.merged;
+    } catch (e) {
+      if (e instanceof PartnerMergeError) res.skipped.push(e.message); else throw e;
+    }
+  }
+  return res;
+}
+
+/** Never lets an automatic merge break the save / import it follows: the error is only returned. */
+export async function autoMergePartnerDupsSafe(db: Tx, firmId: string): Promise<AutoMergeResult | { error: string }> {
+  try { return await autoMergePartnerDups(db, firmId); } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+}
+
+/** For the partners screen: „Автоматски споени: N (последно …)“. */
+export async function partnerAutoMergeStats(db: Tx, firmId: string): Promise<{ n: number; last: Date | null }> {
+  const R = rowsOf<{ n: number | string; last: Date | string | null }>(await db.execute(sql`
+    select coalesce(sum(jsonb_array_length(coalesce(data->'merged', '[]'::jsonb))), 0)::int as n, max(at) as last
+      from audit_log where firm_id = ${firmId}::uuid and action = ${PARTNER_AUTO_MERGE}`));
+  const r = R[0];
+  return { n: Number(r?.n ?? 0), last: r?.last ? new Date(r.last) : null };
 }
