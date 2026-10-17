@@ -98,7 +98,7 @@ describe('ai.read-document result kinds', () => {
 
   it('blg PDF → quick tier; emp, bank and classify use their prompts', async () => {
     for (const [kind, prompt, tier, ans] of [
-      ['blg', BLG_PROMPT, 'quick', '{"receipts":[]}'],
+      ['blg', BLG_PROMPT + BLG_PAGES_ADD, 'quick', '{"receipts":[]}'],
       ['emp', EMP_PROMPT, 'default', '{"name":"Ана","embg":"0101990455001"}'],
       ['bank', BANK_PROMPT + BANK_MULTI_NOTE, 'default', '{"items":[{"date":"2026-03-02","amount":5}]}'],
       // classification is a short answer: Haiku (cost tiers, ../ai/budget.ts)
