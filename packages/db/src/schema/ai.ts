@@ -57,9 +57,10 @@ export interface AiDraft {
   draft: Record<string, unknown>;
   /**
    * Batch check: `ok` | `check` | `dup`; `past` = „⏸ минат период – за проверка“: a bulk save held it because its date is
-   * in a past VAT period (`@wise/core/vat/past-period` `PastPeriodHit`) — the owner decides (`vat-past.ts`).
+   * in a past VAT period (`@wise/core/vat/past-period` `PastPeriodHit`) — the owner decides (`vat-past.ts`); `skip` = not an
+   * invoice (pro-forma, offer, delivery note: „профактура – не се книжи“), never saved by a bulk save.
    */
-  status: 'ok' | 'check' | 'dup' | 'past';
+  status: 'ok' | 'check' | 'dup' | 'past' | 'skip';
   /** Why the draft is held (`status = 'past'`). */
   past?: { period: string; from: string; to: string; reason: 'closed' | 'previous' | 'locked'; closed: boolean; submittedAt?: string | null; text: string; heldAt: string };
   msg: string;

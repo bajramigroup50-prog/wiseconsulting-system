@@ -15,7 +15,7 @@
  *
  * Pure: the caller passes the partners.
  */
-import { accountKey } from '../bank/mk-banks';
+import { accountKey, treasuryAccount } from '../bank/mk-banks';
 import { partnerAccounts } from '../bank/partner-accounts';
 import { fixYusciiAll, translitKey } from '../text/yuscii';
 
@@ -233,6 +233,8 @@ export function partnerById<P extends MatchablePartnerRow>(partners: readonly P[
     return x ? { p: x, by: 'embs' } : null;
   }
   if (id.kind === 'bank') {
+    // a Treasury account (bank 100) is shared by all state bodies: never a partner's identifier
+    if (treasuryAccount(id.value)) return null;
     const x = partners.find((p) => partnerAccounts(p).some((a) => accountKey(a.acc) === id.value || accountKey(a.iban) === id.value)) ?? partners.find(learned);
     return x ? { p: x, by: 'bank' } : null;
   }
@@ -251,7 +253,8 @@ export function findPartnerMatch<P extends MatchablePartnerRow>(partners: readon
   if (doc.bankAccount) {
     const b = classifyPartnerId(doc.bankAccount);
     const h = b.kind === 'bank' ? partnerById(partners, b) : null;
-    if (h) return { ...none, partner: h.p, by: 'bank', score: 1 };
+    // the document's own ЕДБ / ЕМБС differs from the bank-matched partner's: another legal entity, the account says nothing
+    if (h && !idConflict(h.p, id)) return { ...none, partner: h.p, by: 'bank', score: 1 };
   }
   const T = nameSig(doc.name);
   if (!T.t.length) return none;
