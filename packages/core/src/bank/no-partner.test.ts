@@ -179,3 +179,11 @@ describe('currency purchase on a denar account → FX transit 1039 („Пред�
     expect(m.rows[0]!.partner).toBeUndefined();
   });
 });
+
+describe('currency purchase wording of NLB', () => {
+  it('„Плаќање на средства (денарска противвредност) за откуп на с-ва од девизи“ is a currency purchase', async () => {
+    const { CONV_RE } = await import('../bank-match');
+    expect(CONV_RE.test('Плаќање на средства (денарска противвредност) за откуп на с-ва од деви')).toBe(true);
+    expect(CONV_RE.test('Плаќање по фактура 12/2026')).toBe(false);
+  });
+});

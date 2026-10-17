@@ -975,7 +975,7 @@ export function ownTransferBy(b: BankRow, ctx: Pick<MatchContext, 'firmName' | '
 }
 
 /** Legacy `CONV_RE` / `isConv` (12754, 12757): currency purchase/sale. */
-export const CONV_RE = /откуп\s+на\s+(денари|девиз)|откуп\s+девиз|продажба\s+на\s+девиз|купување\s+(на\s+)?девиз|купопродажба\s+(на\s+)?девиз|конверзиј|менувач|otkup\s+(na\s+)?(denar|deviz)|kupoprodaj|kupoprodazb|konverzij|currency\s+exchange|fx\s+(deal|conversion)/i;
+export const CONV_RE = /откуп\s+на\s+(денари|девиз)|откуп\s+на\s+с[-‐]?(редст)?ва\s+од\s+деви|денарска\s+противвредност|откуп\s+девиз|продажба\s+на\s+девиз|купување\s+(на\s+)?девиз|купопродажба\s+(на\s+)?девиз|конверзиј|менувач|otkup\s+(na\s+)?(denar|deviz)|kupoprodaj|kupoprodazb|konverzij|currency\s+exchange|fx\s+(deal|conversion)/i;
 export const isConversion = (b: BankRow): boolean => CONV_RE.test(String(b.desc || '') + ' ' + String(b.purpose || '') + ' ' + String(b.name || ''));
 
 /** Legacy `convFxKonto` (12755): FX bank konto for the denar side of a currency purchase/sale. */
