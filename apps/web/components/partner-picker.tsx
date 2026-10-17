@@ -20,6 +20,8 @@ export function PartnerPicker({ partners, name, value, onChange, placeholder, wi
   const [text, setText] = useState(partnerLabel(byId.get(value ?? '')));
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
+  /** Typed or moved in the list since the field got focus — only then Enter picks (Enter on an untouched field moves on). */
+  const [nav, setNav] = useState(false);
   const listId = useId();
   const box = useRef<HTMLDivElement>(null);
   const hits = useMemo(() => (open ? searchPartners(partners, text === partnerLabel(byId.get(id)) ? '' : text, 15) : []), [open, partners, text, id, byId]);
@@ -38,12 +40,12 @@ export function PartnerPicker({ partners, name, value, onChange, placeholder, wi
       <input value={text} aria-label={ariaLabel ?? 'Комитент'} role="combobox" aria-expanded={open} aria-controls={listId} aria-autocomplete="list"
         placeholder={placeholder ?? 'комитент – пребарај (кирилица / латиница)'} autoComplete="off"
         style={{ width: '100%', ...(invalid && !id ? { borderColor: 'var(--bad)' } : {}) }}
-        onFocus={() => { setOpen(true); setHi(0); }}
-        onChange={(e) => { setText(e.target.value); setOpen(true); setHi(0); if (!e.target.value.trim() && id) { setId(''); onChange?.(''); } }}
+        onFocus={() => { setOpen(true); setHi(0); setNav(false); }}
+        onChange={(e) => { setText(e.target.value); setOpen(true); setHi(0); setNav(true); if (!e.target.value.trim() && id) { setId(''); onChange?.(''); } }}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi((h) => Math.min(h + 1, hits.length - 1)); }
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setNav(true); setHi((h) => Math.min(h + 1, hits.length - 1)); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
-          else if (e.key === 'Enter' && open && hits[hi]) { e.preventDefault(); pick(hits[hi]!.id); }
+          else if (e.key === 'Enter' && open && nav && hits[hi]) { e.preventDefault(); pick(hits[hi]!.id); setNav(false); }
           else if (e.key === 'Escape') setOpen(false);
         }} />
       {open && (

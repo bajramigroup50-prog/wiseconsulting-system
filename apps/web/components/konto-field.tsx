@@ -26,6 +26,33 @@ export function KontoHintNote({ chart, value, onPick }: { chart: { code: string;
   return null;
 }
 
+/** „+ Ново конто“ choice of a controlled konto input (`mk` = create it, `name` = its name). */
+export interface NewKonto { mk: boolean; name: string }
+
+/**
+ * Controlled konto input with the same hints as `KontoField` (name, synthetic → analytics, „+ Ново конто“) — used by
+ * the fast-entry dialog („Нова ставка“), which keeps the value in its own state.
+ */
+export function KontoInput({ chart, value, onChange, nk, onNk, list, inputRef, id, onKeyDown }: {
+  chart: { code: string; name: string }[]; value: string; onChange: (v: string) => void; nk: NewKonto; onNk: (n: NewKonto) => void;
+  list?: string; inputRef?: React.Ref<HTMLInputElement>; id?: string; onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+}) {
+  const code = value.trim().split(/\s/)[0] ?? '';
+  const h = useMemo(() => kontoHint(chart, code), [chart, code]);
+  return (
+    <>
+      <input id={id} ref={inputRef} list={list} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Конто" autoComplete="off" data-fe="konto" onKeyDown={onKeyDown} />
+      {h.kind === 'new' ? (
+        <span style={{ display: 'block', marginTop: 4 }}>
+          <label className="chk"><input type="checkbox" checked={nk.mk} onChange={(e) => onNk({ mk: e.target.checked, name: nk.name || h.parent.name })} /> + Ново конто {code}</label>
+          {nk.mk && <input value={nk.name} onChange={(e) => onNk({ mk: true, name: e.target.value })} aria-label="Назив на новото конто" placeholder="назив на контото" style={{ marginTop: 4 }} />}
+          {!nk.mk && <small className="mut" style={{ display: 'block' }}>нема во контниот план (под {h.parent.code} {h.parent.name})</small>}
+        </span>
+      ) : <KontoHintNote chart={chart} value={code} onPick={onChange} />}
+    </>
+  );
+}
+
 export function KontoField({ chart, name = 'konto', defaultValue, list, required }: {
   chart: [string, string][]; name?: string; defaultValue?: string; list?: string; required?: boolean;
 }) {

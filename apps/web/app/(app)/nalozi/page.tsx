@@ -33,8 +33,11 @@ import { StatementsPanel, type PanelStatement } from './statements-panel';
 import { unpostRunAction } from '../plati/actions';
 import { schemeLabel, schemeProfilesOf, schemeShort } from '@wise/core/scheme-profiles';
 import { SchemeRepostBar } from './scheme-repost';
+import { NalogGrid, type GridJournal, type GridRow } from './nalog-grid';
+import { ListKeys } from './list-keys';
+import { mergeBankHeads } from '@/lib/nalog-grid';
 
-type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string };
+type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string; fast?: string; sort?: string; sint?: string };
 const KIND_LBL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(NAL_DEF).map(([k, v]) => [k, v[1]])), bank: 'ИЗВОД', manual: 'РАЧЕН НАЛОГ', bbimp: 'БРУТО БИЛАНС', pos: 'POS ПРОВИЗИЈА',
 };
@@ -68,7 +71,10 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         id: j.id, number: j.number, date: j.date, description: j.description ?? '', periodFrom: j.periodFrom ?? '', periodTo: j.periodTo ?? '',
         // An opened nalog without amounts keeps its konto rows in `meta.rows`.
         rows: L.length
-          ? L.map((l) => ({ account: l.account, partnerId: l.partnerId ?? '', debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '', doc: l.doc ?? '' }))
+          ? L.map((l) => ({
+            account: l.account, partnerId: l.partnerId ?? '', debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '', doc: l.doc ?? '',
+            currency: l.currency, amountCur: l.amountCur == null ? null : String(Number(l.amountCur)), locationId: l.locationId,
+          }))
           : ((j.meta as { rows?: { account: string; partnerId: string | null; note: string; doc: string }[] }).rows ?? []).map((r) => ({ account: r.account, partnerId: r.partnerId ?? '', debit: '', credit: '', note: r.note ?? '', doc: r.doc ?? '' })),
       };
     }
@@ -86,7 +92,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       db().select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1),
     ]);
     const schemes = ((g?.v ?? {}) as { custom?: CustomScheme[] }).custom ?? [];
-    return <JournalEditor initial={initial} chart={chart.map((a) => [a.code, a.name])} partners={P} numbers={nums.map((x) => x.n)} schemes={schemes} />;
+    // „+ Рачен налог“ / „+ Ставки“ open with the „Нова ставка“ dialog (fast entry); „Нова (Ins)“ of the nalog grid passes `fast`
+    return <JournalEditor initial={initial} chart={chart.map((a) => [a.code, a.name])} partners={P} numbers={nums.map((x) => x.n)} schemes={schemes} fast={!sp.edit || sp.fast !== undefined} />;
   }
 
   /* ---------- „+ Нов налог – изводи“: the statement is imported first, the nalog is numbered / dated by it ---------- */
@@ -139,7 +146,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     if (!g) return <><Hd t="Налог за книжење" exp={false} /><div className="card empty">Налогот {sp.n} не постои за {year}. <Link href="/nalozi">Листа на налози</Link></div></>;
     const ids = g.journals.map((j) => j.id);
     const [L, chart] = await Promise.all([
-      db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta }, p: { id: partners.id, code: partners.code, name: partners.name } })
+      db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta, sourceType: journals.sourceType }, p: { id: partners.id, code: partners.code, name: partners.name } })
         .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).leftJoin(partners, eq(partners.id, journalLines.partnerId))
         .where(inArray(journalLines.journalId, ids)).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo)),
       effectiveChart(db(), firm.id),
@@ -179,7 +186,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     ]) : [[], []];
     const openL = write ? allBL.filter((l) => lineProblem(l, !!l.cur && l.cur !== 'MKD')) : [];
     const sugg = openL.length ? await db().transaction((tx) => statementSuggestions(tx, firm.id, [...new Set(openL.map((l) => l.statementId))])) : new Map<string, LineSuggestion>();
-    const [impAccts, impP] = showImport || stAll.length ? await Promise.all([loadBankAccounts(db(), firm.id), partnerOptions(firm.id)]) : [[], []];
+    const [impAccts, impP] = showImport || stAll.length || write || fix ? await Promise.all([loadBankAccounts(db(), firm.id), partnerOptions(firm.id)]) : [[], []];
     const bankKs = new Set(impAccts.map((a) => a.konto));
     const acctById = new Map(impAccts.map((a) => [a.id, a]));
     const stLocked = (st: { id: string; date: string }) => {
@@ -191,7 +198,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       const a = acctById.get(st.bankAccountId);
       const fxA = !!a && a.cur !== 'MKD';
       return {
-        id: st.id, number: st.number ?? '', date: st.date, acct: a ? `${a.name}${a.account || a.iban ? ' ' + (a.account || a.iban) : ''}` : '', bankKonto: a?.konto ?? '',
+        id: st.id, acctId: st.bankAccountId, number: st.number ?? '', date: st.date, acct: a ? `${a.name}${a.account || a.iban ? ' ' + (a.account || a.iban) : ''}` : '', bankKonto: a?.konto ?? '',
         fx: fxA, cur: a?.cur ?? 'MKD', opening: st.opening == null ? null : Number(st.opening), closing: st.closing == null ? null : Number(st.closing), status: st.status, locked: stLocked(st),
         lines: allBL.filter((l) => l.statementId === st.id).map((l) => {
           const s = sugg.get(l.id);
@@ -210,6 +217,33 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       };
     });
     const ov = one ? ovOf(one) : undefined;
+    /* ---------- the grid („Содржина (книжење) на финансов налог“) ---------- */
+    const bankJ = new Set(g.journals.filter((j) => j.sourceType === 'bank_statement').map((j) => j.id));
+    const lockWhy = (j: (typeof g.journals)[number]) => (locked(j) ? (j.locked ? 'Налогот е заклучен.' : `Заклучен период (до ${dmy(firm.lockDate)}).`) : '');
+    const gridJ: GridJournal[] = g.journals.map((j) => {
+      const man = manualLike(j);
+      const ok = !locked(j) && (man ? (j.kind === 'manual' ? write : fix) && !['opening', 'bbimp', 'yearClose'].includes(j.sourceType ?? '') : fix);
+      return {
+        id: j.id, mode: !ok ? 'none' : man ? 'manual' : 'override', bank: bankJ.has(j.id), number: j.number, date: j.date, description: j.description ?? '',
+        periodFrom: j.periodFrom ?? '', periodTo: j.periodTo ?? '',
+        why: lockWhy(j) || (ok ? '' : man && j.sourceType ? 'Почетната состојба / бруто билансот се менуваат во својот екран (✎ Корекција).' : 'Немате право на корекција на налози.'),
+      };
+    });
+    const ML = L.map(({ l, j }) => ({ account: l.account, debit: Number(l.debit), credit: Number(l.credit), partnerId: l.partnerId, note: l.note, currency: l.currency, amountCur: l.amountCur == null ? null : Number(l.amountCur), journalId: j.id }));
+    const groups = mergeBankHeads(ML, (x) => bankJ.has(x.journalId), new Set(impAccts.map((a) => a.konto)));
+    const gridRows: GridRow[] = groups.map((ix) => {
+      const P0 = ix.map((i) => L[i]!);
+      const { l, j, p } = P0[0]!;
+      const d = P0.reduce((s0, x) => s0 + Number(x.l.debit), 0), c = P0.reduce((s0, x) => s0 + Number(x.l.credit), 0);
+      return {
+        key: P0.map((x) => x.l.id).join('+'), ids: P0.map((x) => x.l.id), jid: j.id, date: j.date, izNo: j.kind === 'bank' ? izNo(j.meta) : '',
+        jdesc: j.description ?? '', note: l.note ?? '', account: l.account, debit: Math.round(d * 100) / 100, credit: Math.round(c * 100) / 100, doc: l.doc ?? '',
+        devD: P0.reduce((s0, x) => s0 + devOf(x.l, 'd'), 0), devP: P0.reduce((s0, x) => s0 + devOf(x.l, 'p'), 0), cur: l.currency ?? '', amountCur: l.amountCur == null ? null : Number(l.amountCur),
+        locationId: l.locationId, partnerId: p?.id ?? '', pcode: p?.code ?? '', pname: p?.name ?? '',
+        head: ix.length > 1 || (bankJ.has(j.id) && impAccts.some((a) => a.konto === l.account) && !l.partnerId && /^Извод/.test(l.note ?? '')),
+        src: P0.map((x) => ({ debit: Number(x.l.debit), credit: Number(x.l.credit) })),
+      };
+    });
     const xl = [['Р.бр.', 'Датум', 'Опис', 'Конто', 'Назив на конто', 'Должи', 'Побарува', 'Документ', 'Дев. должи', 'Дев. побарува', 'Шифра', 'Комитент'],
       ...L.map(({ l, j, p }, i) => [i + 1, dmy(j.date), (j.description ?? '') + (l.note && l.note !== j.description ? ' – ' + l.note : ''), l.account, names.get(l.account) ?? '',
         Number(l.debit), Number(l.credit), l.doc ?? '', devOf(l, 'd'), devOf(l, 'p'), p?.code ?? '', p?.name ?? ''])];
@@ -313,28 +347,32 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             <div className={`callout ${open ? 'warn' : 'good'}`}>{stIds.length > 1 ? `Изводи (${stIds.length})` : `Извод од ${dmy(ds[0])}`}: {BL.length} ставки · прилив <b>{fmt(pr)}</b> · одлив <b>{fmt(od)}</b> ден. Изводот се книжи обратно од банката: „должува“ на изводот (одлив) = Побарува {bankK ?? 'банка'}, „побарува“ на изводот (прилив) = Должи {bankK ?? 'банка'}; спротивното конто е она што е избрано во „Изводи“.{open ? <> <b>{open} ставки не се поврзани</b> – изводот не е целосно прокнижен.</> : null}</div>
           );
         })()}
-        {/* fits the screen: шифра + комитент in one cell, text wraps, „Документ“ only when some line has one (PDF / Excel keep all columns) */}
-        <div className="tw"><table className="dense nalg fit">
-          <thead><tr><th className="n">Р.бр.</th><th>Датум</th>{IZ && <th className="n">Изв. бр.</th>}<th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th><th>Шифра · Комитент</th><th style={{ minWidth: 200 }}>Опис / содржина</th>{hasDoc && <th>Документ</th>}{dev && <><th className="n">Дев. должи</th><th className="n">Дев. побарува</th></>}</tr></thead>
-          <tbody>
-            {L.map(({ l, j, p }, i) => (
-              <tr key={l.id}>
-                <td className="n">{i + 1}</td><td style={{ whiteSpace: 'nowrap' }}>{dmy(j.date)}</td>
-                {IZ && <td className="n"><b>{j.kind === 'bank' ? izNo(j.meta) : ''}</b></td>}
-                <td title={names.get(l.account) ?? ''}><Link href={`/kkart?k=${l.account}`}><b className="num">{l.account}</b></Link></td>
-                <td className="n">{fmt(l.debit)}</td><td className="n">{fmt(l.credit)}</td>
-                <td className="w" style={{ maxWidth: 240 }}>{p?.code && <span className="num" style={{ color: 'var(--muted)' }}>{p.code} </span>}{p?.name}</td>
-                <td className="w">{j.description}{l.note && l.note !== j.description && <><br /><small className="mut">{l.note}</small></>}</td>
-                {hasDoc && <td className="w">{l.doc}</td>}
-                {dev && <><td className="n">{fmt(devOf(l, 'd'))}</td><td className="n">{fmt(devOf(l, 'p'))}</td></>}
-              </tr>
-            ))}
-          </tbody>
-          <tfoot><tr>
-            <td colSpan={IZ ? 4 : 3}>Вкупно ({L.length} ставки) {t.balanced ? <span className="pill good">изедначен</span> : <span className="pill bad">неизедначен · разлика {fmt(t.diff)}</span>}</td>
-            <td className="n">{fmt(t.D)}</td><td className="n">{fmt(t.P)}</td><td colSpan={2 + (hasDoc ? 1 : 0) + (dev ? 2 : 0)} />
-          </tr></tfoot>
-        </table></div>
+        {sp.sint !== undefined && (() => {
+          // „Синтетики“ (F8): the nalog summed per synthetic konto (first 3 digits)
+          const m = new Map<string, { D: number; P: number }>();
+          for (const { l } of L) { const k = l.account.slice(0, 3); const x = m.get(k) ?? { D: 0, P: 0 }; x.D += Number(l.debit); x.P += Number(l.credit); m.set(k, x); }
+          const S0 = [...m].sort(([a], [b]) => (a < b ? -1 : 1));
+          return (
+            <div className="card" id="sintetiki">
+              <div className="hd"><h2>Синтетики на налог бр. {g.no}</h2><Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(g.no)}`}>✕ Затвори</Link></div>
+              <div className="tw"><table className="dense fit">
+                <thead><tr><th>Синтетика</th><th>Назив</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th></tr></thead>
+                <tbody>{S0.map(([k, x]) => <tr key={k}><td><b className="num">{k}</b></td><td>{names.get(k) ?? ''}</td><td className="n">{fmt(x.D)}</td><td className="n">{fmt(x.P)}</td><td className="n">{fmt(x.D - x.P)}</td></tr>)}</tbody>
+                <tfoot><tr><td colSpan={2}>Вкупно</td><td className="n">{fmt(t.D)}</td><td className="n">{fmt(t.P)}</td><td className="n">{fmt(t.D - t.P)}</td></tr></tfoot>
+              </table></div>
+            </div>
+          );
+        })()}
+        {/* the nalog as a keyboard grid: Нова (Ins) / Промена (Enter) / Бришење (Del) / Аналитика (F3) / печатење; PDF / Excel keep all columns */}
+        <NalogGrid rows={gridRows} journals={gridJ} firmName={firm.name} no={g.no} date={ds.at(-1) ?? ds[0]!}
+          chart={chart.filter((a) => !bankKs.has(a.code)).map((a) => [a.code, a.name])} partners={impP.map((p) => ({ id: p.id, code: p.code, name: p.name }))}
+          canDel={canDo(u, 'del', firm.id)} sintHref={`/nalozi?n=${encodeURIComponent(g.no)}&sint`} printHref={`/print/nalog?n=${encodeURIComponent(g.no)}`}
+          newHref={write && !g.journals.some(locked) ? `/nalozi?nov&n=${encodeURIComponent(g.no)}` : undefined}
+          bank={panel.length ? {
+            write,
+            accounts: [...new Map(panel.map((st) => [st.acctId!, { id: st.acctId!, label: st.acct, konto: st.bankKonto, cur: st.cur }])).values()],
+            statements: panel.filter((st) => !st.locked).map((st) => ({ id: st.id, acct: st.acctId!, no: st.number, date: st.date, lines: st.lines.length, net: Math.round(st.lines.reduce((x, l) => x + (st.fx ? l.amountCur ?? 0 : l.amount), 0) * 100) / 100 })),
+          } : undefined} />
       </>
     );
   }
@@ -355,6 +393,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
   ]);
   const kn = new Map(chartAll.map((a) => [a.code, a.name]));
   const settingsOk = canDo(u, 'settings', firm.id), closeOk = canDo(u, 'close', firm.id);
+  // „Сортирање: по период“ (default) / „по број“ (text order like the old program: 00126, 1/1-3, 1/4-6, 1020/1-3, 12/1-1 …)
+  const sortNo = sp.sort === 'no';
+  const GL = sortNo ? [...G].sort((a, b) => (a.no < b.no ? -1 : a.no > b.no ? 1 : 0)) : G;
 
   return (
     <>
@@ -420,36 +461,51 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             <span className="note">До овој датум налозите не може да се книжат, менуваат или бришат (празно = отклучено).</span>
           </form>
         </>)}
-        <div className="tw" style={{ maxHeight: 520 }}><table>
-          <thead><tr><th>Датум</th><th>Број</th><th>Опис</th><th className="n">Ставки</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th><th></th></tr></thead>
+        <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+          <span className="mini">Сортирање:</span>
+          {sortNo ? <Link className="btn sm" href="/nalozi">по период</Link> : <span className="pill info">по период</span>}
+          {sortNo ? <span className="pill info">по број</span> : <Link className="btn sm" href="/nalozi?sort=no">по број</Link>}
+          <span style={{ flex: 1 }} />
+          <ListKeys tableId="nal-list" newHref={write ? '/nalozi?nov' : undefined} />
+        </div>
+        <div className="tw" style={{ maxHeight: 520 }}><table id="nal-list" className="dense fit">
+          <thead><tr><th>Датум</th><th>Број</th><th>Статус</th><th className="n">Салдо</th><th>Опис</th><th title="Се зема при затворање на годината">За кл.</th><th title="Прекнижан / непрекнижан">Прекн.</th><th className="n">Ставки</th><th className="n">Должи</th><th className="n">Побарува</th><th></th></tr></thead>
           <tbody>
-            {G.map((g) => {
+            {GL.map((g) => {
               const D = g.journals.reduce((s, j) => s + Number(j.D), 0), P = g.journals.reduce((s, j) => s + Number(j.P), 0);
               const n = g.journals.reduce((s, j) => s + j.n, 0);
               const one = g.journals.length === 1 ? g.journals[0]! : null;
               const href = `/nalozi?n=${encodeURIComponent(g.no)}`;
+              const lk = g.journals.some(locked);
+              const status = lk ? '🔒 Заклучен' : !n ? 'Празен' : Math.abs(D - P) > 0.009 ? 'Неизедначен' : 'Отворен';
+              const pending = g.journals.some((j) => { const o = ovOf(j); return !!(o && !o.applied && (o.dropped || o.unbalanced)); });
+              const zaKl = !g.journals.some((j) => j.sourceType === 'yearClose' || j.kind === 'close');
               return (
-                <tr key={g.no}>
+                <tr key={g.no} data-nal={g.no} data-d={D} data-p={P}>
                   <td>{dmy(g.date)}</td><td><Link href={href}><b className="num">{g.no}</b></Link></td>
+                  <td><span className={`pill ${lk ? '' : !n || Math.abs(D - P) > 0.009 ? 'warn' : 'good'}`}>{status}</span></td>
+                  <td className="n" style={Math.abs(D - P) > 0.009 ? { color: 'var(--bad)' } : undefined}>{fmt(D - P)}</td>
                   <td>{titleOf(g)}{one && schPill(one)}{g.journals.some((j) => ovOf(j)?.applied) && <> <span className="pill warn" title="Рачно коригиран – се разликува од документот">🛠</span></>}</td>
+                  <td>{zaKl ? 'Да' : 'Не'}</td>
+                  <td>{pending ? <span className="pill warn" title="Документот е изменет по рачната корекција – корекцијата не е применета">Непрекн.</span> : 'Прекн.'}</td>
                   <td className="n">{n}</td>
                   <td className="n">{fmt(D)}</td><td className="n">{fmt(P)}</td>
-                  <td className="n" style={Math.abs(D - P) > 0.009 ? { color: 'var(--bad)' } : undefined}>{fmt(D - P)}</td>
                   <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-                    <Link className="btn sm" href={href}>Отвори</Link>
+                    <Link className="btn sm" href={href} data-open>Отвори</Link>
+                    <Link className="btn sm ghost" href={`${href}&sint`} data-sint title="Синтетики (F8): збир по синтетичко конто">Σ</Link>
                     {one && canEdit(one) && <Link className="btn sm" href={`/nalozi?edit=${one.id}`} title="Отвори и измени (корекција)">✎ Измени</Link>}
                     {!one && fix && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(g.no)}`} title="Налог со повеќе документи: корекција по документ">✎ Измени</Link>}
-                    {write && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?nov&n=${encodeURIComponent(g.no)}`} title="Нов рачен дел во истиот налог (ист број и период)">+ Ставки</Link>}
+                    {write && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?nov&n=${encodeURIComponent(g.no)}`} data-book title="Нов рачен дел во истиот налог (ист број и период) – F10 „Книжење“">+ Ставки</Link>}
                     <a className="btn sm" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
-                    {one && del && manualLike(one) && !locked(one) && <RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} />}
-                    {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} />}
-                    {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <RowAction className="btn sm danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Го брише налогот на платата; пресметката останува зачувана во Плати" confirm={`Да се избрише налогот бр. ${g.no} на платата? Пресметката на платата останува зачувана (може повторно да се прокнижи).`} />}
-                    {(!one || docOne(one)) && del && !g.journals.some(locked) && <RowAction className="btn sm danger" action={deleteNalogAction.bind(null, g.no, year)} preview={nalogDeletePreviewAction.bind(null, g.no, year)} label="🗑 Избриши" title="Го брише налогот заедно со документите во него (фактури, калкулации, изводи…); пред бришење ги прикажува документите" confirm={`Да се избрише налогот бр. ${g.no} заедно со документите во него?`} />}
+                    {one && del && manualLike(one) && !locked(one) && <span data-del><RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} /></span>}
+                    {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <span data-del><RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} /></span>}
+                    {one && del && one.sourceType === 'payroll' && one.sourceId && !locked(one) && <span data-del><RowAction className="btn sm danger" action={unpostRunAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Го брише налогот на платата; пресметката останува зачувана во Плати" confirm={`Да се избрише налогот бр. ${g.no} на платата? Пресметката на платата останува зачувана (може повторно да се прокнижи).`} /></span>}
+                    {(!one || docOne(one)) && del && !g.journals.some(locked) && <span data-del><RowAction className="btn sm danger" action={deleteNalogAction.bind(null, g.no, year)} preview={nalogDeletePreviewAction.bind(null, g.no, year)} label="🗑 Избриши" title="Го брише налогот заедно со документите во него (фактури, калкулации, изводи…); пред бришење ги прикажува документите" confirm={`Да се избрише налогот бр. ${g.no} заедно со документите во него?`} /></span>}
                   </td>
                 </tr>
               );
             })}
-            {!G.length && <tr><td colSpan={8} className="empty">Нема налози за {year}.</td></tr>}
+            {!G.length && <tr><td colSpan={11} className="empty">Нема налози за {year}.</td></tr>}
           </tbody>
         </table></div>
       </div>

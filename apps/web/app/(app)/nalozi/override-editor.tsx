@@ -91,6 +91,7 @@ export function NalogKeys({ edit, list }: { edit?: string; list: string }) {
   const router = useRouter();
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return; // a dialog (fast entry) or the grid handled it
       const tg = (e.target as HTMLElement)?.tagName;
       if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
       if (e.key === 'F2' && edit) { e.preventDefault(); router.push(edit); }

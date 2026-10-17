@@ -14,6 +14,7 @@ import {
 import { lineDocsAction, saveStatementLinesAction, type LineDoc } from './statement-actions';
 import { PartnerPicker } from '@/components/partner-picker';
 import { KontoHintNote } from '@/components/konto-field';
+import { BankManualEntry } from '@/components/bank-manual-entry';
 import { wrongSideWarning } from '@wise/core/bank/side';
 
 export interface PanelLine {
@@ -27,6 +28,8 @@ export interface PanelLine {
 }
 export interface PanelStatement {
   id: string; number: string; date: string; acct: string; bankKonto: string; fx: boolean; cur: string;
+  /** Bank account id (the „✍️ Рачна ставка“ dialog adds the line to this statement). */
+  acctId?: string;
   opening: number | null; closing: number | null; status: string;
   /** Why it is read-only (locked period / locked nalog), '' = editable. */
   locked: string;
@@ -64,6 +67,8 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
   const [msg, setMsg] = useState<FormState | null>(null);
   const [picker, setPicker] = useState<{ line: string; docs?: LineDoc[]; error?: string } | null>(null);
   const [pending, start] = useTransition();
+  /** „✍️ Рачна ставка“: the statement the fast-entry dialog adds to (null = closed). */
+  const [manual, setManual] = useState<string | null>(null);
   /** Bumped by „Откажи“ so the (uncontrolled) partner inputs show the saved partner again. */
   const [gen, setGen] = useState(0);
 
@@ -132,12 +137,23 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
             <button type="button" className="btn sm" onClick={() => setOpen(new Set(statements.map((s) => s.id)))}>Отвори ги сите</button>
             <button type="button" className="btn sm" onClick={() => setOpen(new Set())}>Затвори ги сите</button>
           </>}
+          {write && statements.some((s) => s.acctId && !s.locked) && <button type="button" className="btn sm" onClick={() => setManual(statements.find((s) => s.acctId && !s.locked)!.id)} title="Нова ставка во извод: F9 = зачувај и следна, Esc = излез">✍️ Рачна ставка</button>}
           {saveBar}
           {/* UX Phase 3 (P2): ONE review for all unbooked lines of the firm (rules + invoices / FIFO + AI), by confidence */}
           {write && statements.some((s) => s.lines.some((l) => l.prob)) && <a className="btn sm pri" href="/banka/pregled" title="Сите непрокнижени ставки од сите изводи на фирмата, по сигурност, со причина">✓ Преглед за книжење</a>}
         </span>
       </div>
       {!write && <div className="callout">🔒 Само преглед – немате право на внес. Контата и комитентите не може да се менуваат.</div>}
+      {manual && (() => {
+        const s0 = statements.find((s) => s.id === manual);
+        const open = statements.filter((s) => s.acctId && !s.locked);
+        const accts = [...new Map(open.map((s) => [s.acctId!, { id: s.acctId!, label: s.acct, konto: s.bankKonto, cur: s.cur }])).values()];
+        return (
+          <BankManualEntry chart={chart} partners={partners} accounts={accts} onClose={() => setManual(null)}
+            statements={open.map((s) => ({ id: s.id, acct: s.acctId!, no: s.number, date: s.date, lines: s.lines.length, net: Math.round(s.lines.reduce((x, l) => x + (s.fx ? l.amountCur ?? 0 : l.amount), 0) * 100) / 100 }))}
+            initial={{ acct: s0?.acctId ?? '', date: s0?.date ?? '', stNo: s0?.number ?? '' }} />
+        );
+      })()}
       {msg && <div className={`callout ${msg.error ? 'bad' : 'good'}`} role={msg.error ? 'alert' : 'status'}>{msg.error ?? msg.ok}</div>}
       {statements.map((s) => {
         const ro = !write || !!s.locked;
@@ -158,6 +174,7 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
                 : <span className="pill bad" title="Почетно + прилив − одлив ≠ ново салдо">⚠ разлика {fmt(diff)}</span>}
               {s.status === 'posted' ? <span className="pill good">прокнижен</span> : <span className="pill warn">{probs} за книжење</span>}
               {s.locked && <span className="pill">🔒 {s.locked}</span>}
+              {write && !s.locked && s.acctId && <button type="button" className="btn sm ghost" onClick={() => setManual(s.id)} title="Нова ставка во овој извод (F9 = зачувај и следна)">✍️ Рачна ставка</button>}
             </div>
             {isOpen && (
               <>
