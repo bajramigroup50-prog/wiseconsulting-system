@@ -70,6 +70,9 @@ describe('journal import rows', () => {
     const X = jiInvoices(jiRows([{ date: '2026-01-06', desc: 'F-3', k: '1200', d: 2000, pcode: '1' }, { date: '2026-01-06', desc: 'F-3', k: '230018', p: 500 }, { date: '2026-01-06', desc: 'F-3', k: '7414', p: 1500 }]).rows);
     expect([X.inv.length, X.refused.map((x) => x.no), X.rest.length]).toEqual([0, ['F-3'], 3]);
     expect(jiVatRate('23005')).toBe(5);
+    // the old program books 5 % on 230018: the rate comes from the amounts (300 000 × 5 % = 15 000)
+    const F = jiInvoices(jiRows([{ date: '2026-02-10', desc: 'F-5', k: '1200', d: 315000, pcode: '1' }, { date: '2026-02-10', desc: 'F-5', k: '230018', p: 15000 }, { date: '2026-02-10', desc: 'F-5', k: '7414', p: 300000 }]).rows);
+    expect([F.inv.length, F.refused.length, F.inv[0]?.lines[0]?.rate]).toEqual([1, 0, 5]);
     expect(jiIsOpening({ date: '2026-03-01', type: '', no: '', ob: true })).toBe(true);
     expect(jiIsOpening({ date: '2026-01-01', type: 'ПОЧЕТНА СОСТОЈБА', no: '0' })).toBe(true);
     expect(jiIsOpening({ date: '2026-01-01', type: '40', no: '1' })).toBe(false);

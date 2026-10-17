@@ -123,11 +123,13 @@ export function stem(t: string): string {
 }
 
 /**
- * Similarity of two tokens: 1 equal, 0.9 abbreviation („здр“ ↔ „здрав“), 0.85 same stem / one typo, 0.8 a typo in
+ * Similarity of two tokens: 1 equal (also YUSCII „x“ = „џ“), 0.9 abbreviation („здр“ ↔ „здрав“), 0.85 same stem / one typo, 0.8 a typo in
  * the stem („потрбите“ ↔ „потреба“) or a long common prefix, 0.6 a one- or two-letter abbreviation („о“ ↔ „областа“).
  */
 export function tokenSim(a: string, b: string): number {
   if (a === b) return 1;
+  // YUSCII of the old program writes Џ as „X“ („MENAXMENT“ = „МЕНАЏМЕНТ“ → menadzment)
+  if (a.includes('x') !== b.includes('x') && a.replace(/x/g, 'dz') === b.replace(/x/g, 'dz')) return 1;
   const [s, l] = a.length <= b.length ? [a, b] : [b, a];
   if (/^\d+$/.test(s) || /^\d+$/.test(l)) return 0;
   if (s.length < 3) return l.startsWith(s) ? 0.6 : 0;

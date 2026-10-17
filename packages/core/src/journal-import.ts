@@ -259,6 +259,8 @@ export interface JiInvoice {
 export const JI_EXEMPT_NOTE = 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ';
 export interface JiInvoiceRefused { no: string; rows: number[]; why: string }
 
+/** The legal VAT rates (ЗДДВ чл. 29 / 30). */
+const JI_RATES = [18, 10, 5];
 /** VAT rate of an output-VAT konto: 230018 → 18, 230010 → 10, 23005 → 5 (else null). */
 export const jiVatRate = (k: string): number | null => {
   const m = /^2300(18|10|5)$/.exec(k);
@@ -297,7 +299,15 @@ export function jiInvoices(rows: readonly JiRow[]): { inv: JiInvoice[]; rest: Ji
     if (!(a.d > 0) || a.p || rev.some((r) => r.d || !(r.p > 0)) || vat.some((r) => r.d || !(r.p > 0))) { refuse('не е излезна фактура (должи 120 / побарува 7 и 2300)'); continue; }
     const rates = [...new Set(vat.map((r) => jiVatRate(r.k)!))];
     if (rates.length > 1) { refuse('повеќе ДДВ стапки – приходите не може да се поврзат со стапката'); continue; }
-    const rate = rates[0] ?? 0;
+    let rate = rates[0] ?? 0;
+    // the old program books every rate on one VAT konto (5 % on 230018): when the konto's rate does not give the file's
+    // VAT but exactly one other legal rate does (to the denar), that rate is the invoice's
+    if (rate && vat.length) {
+      const b0 = rev.reduce((s, r) => s + r.p, 0), v0 = vat.reduce((s, r) => s + r.p, 0);
+      const fits = (x: number) => Math.abs(Math.round((b0 * x) / 100) - v0) < 100;
+      const alt = JI_RATES.filter((x) => x !== rate && fits(x));
+      if (!fits(rate) && alt.length === 1) rate = alt[0]!;
+    }
     // without a VAT line: on 1200009 (the old program's konto of чл. 24 sales) → exempt with the right to deduct (08);
     // with a printed exemption note of a clear kind → that kind; else not guessed („провери“, stays journal lines)
     let ex: Pick<JiInvoice, 'vatExempt' | 'vatNote'> = {};
