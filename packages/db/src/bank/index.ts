@@ -6,6 +6,7 @@ export * from './posting';
 export * from './import';
 export * from './match';
 export * from './lines';
+export * from './bulk-delete';
 export * from './cash';
 export * from './orders';
 export * from './komp';

@@ -169,12 +169,13 @@ export async function deleteLine(tx: Tx, a: { firmId: string; userId: string | n
 }
 
 /** Delete a whole statement with its lines and journal. */
-export async function deleteStatement(tx: Tx, a: { firmId: string; userId: string | null; statementId: string }): Promise<void> {
+/** `audit: false` — the caller writes one audit row for a whole batch (bulk delete of statements). */
+export async function deleteStatement(tx: Tx, a: { firmId: string; userId: string | null; statementId: string; audit?: boolean }): Promise<void> {
   const st = await statementOf(tx, a.firmId, a.statementId);
   await unpostSource(tx, { firmId: a.firmId, sourceType: BANK_SOURCE_TYPE, sourceId: st.id, userId: a.userId });
   const [{ n }] = (await tx.select({ n: sql<number>`count(*)::int` }).from(bankLines).where(eq(bankLines.statementId, st.id))) as [{ n: number }];
   await tx.delete(bankStatements).where(eq(bankStatements.id, st.id));
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'delStatement', entityType: 'bank_statement', entityId: st.id, data: { date: st.date, number: st.number, lines: n } });
+  if (a.audit !== false) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'delStatement', entityType: 'bank_statement', entityId: st.id, data: { date: st.date, number: st.number, lines: n } });
 }
 
 /** Legacy `undoImp`: remove every line of one import batch (and statements left empty). */

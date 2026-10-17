@@ -30,6 +30,7 @@ import {
 } from './actions';
 import { ImportBox } from './import-box';
 import { KontaPanel } from './konta-panel';
+import { BulkDeleteStatementsBox } from './bulk-delete-box';
 import { hubTabs } from '@/components/hub-tabs';
 import { ClassifyButton } from './classify-button';
 import type { PnLast } from './paynotes';
@@ -443,6 +444,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <span style={{ flex: 1 }} />
         {write && BK.length > 0 && <Link className="btn" href={q({ manual: sp.manual ? undefined : '1' })}>✍️ Рачна ставка</Link>}
       </form>
+      {del && BK.length > 0 && <BulkDeleteStatementsBox accounts={BK.map((x) => ({ id: x.id, name: x.name }))} fx={fx} year={year} acct={sp.acct} />}
 
       {sp.manual && write && acct && (
         <BankForm action={addManualLineAction} className="card form">

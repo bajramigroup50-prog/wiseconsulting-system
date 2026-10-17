@@ -15,7 +15,7 @@ import {
   updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
   saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
-  pendingReads, dismissReads, linkBankAccountNumber, createStatementAccount,
+  pendingReads, dismissReads, linkBankAccountNumber, createStatementAccount, bulkDeleteStatements, bulkDeleteStatementsPlan, type Tx,
 } from '@wise/db';
 import { BANK_KONTA_FIELDS } from '@wise/core';
 import { statementsFromRead } from '@wise/core/ai/bank';
@@ -28,6 +28,7 @@ import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
 import { bankError, bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
 import { runPayNotes } from './paynotes';
+import { bulkPreviewText, bulkSkippedText } from './bulk-delete-text';
 import type { FormState } from '@/components/bank-form';
 import { firmListSql } from '@/lib/demo';
 import type { SessionUser } from '@/lib/auth';
@@ -430,6 +431,34 @@ export async function deleteLineAction(lineId: string): Promise<FormState> {
 }
 export async function deleteStatementAction(statementId: string): Promise<FormState> {
   return bankRun('del', P, ({ tx, u, firm }) => deleteStatement(tx, { firmId: firm.id, userId: u.id, statementId }).then(() => 'Изводот е избришан.'));
+}
+/** „🗑 Избриши ги сите изводи“: one account (or `all` accounts of the view — MKD or FX) and a date range. */
+export interface BulkStatementsInput { acct: string; fx: boolean; from: string; to: string }
+
+async function bulkFilter(tx: Tx, firmId: string, a: BulkStatementsInput) {
+  if (!isDate(a.from) || !isDate(a.to) || a.from > a.to) throw fail('Неважечки период.');
+  const BK = (await loadBankAccounts(tx, firmId)).filter((x) => (x.cur !== 'MKD') === !!a.fx);
+  const accountIds = a.acct === 'all' ? BK.map((x) => x.id) : BK.filter((x) => x.id === a.acct).map((x) => x.id);
+  if (!accountIds.length) throw fail('Изберете банкарска сметка.');
+  return { firmId, accountIds, from: a.from, to: a.to };
+}
+
+/** Preview before the confirm (RowAction `preview`): counts per account, numbers, dates, totals, posted, skipped. */
+export async function bulkDeleteStatementsPreviewAction(a: BulkStatementsInput): Promise<{ extra?: string; block?: string }> {
+  try {
+    const { firm } = await firmAction('del');
+    const p = await db().transaction(async (tx) => bulkDeleteStatementsPlan(tx, await bulkFilter(tx, firm.id, a)));
+    if (!p.total) return { block: 'Нема изводи за бришење во избраниот период.' + bulkSkippedText(p) };
+    return { extra: bulkPreviewText(p, a) };
+  } catch (e) { return { block: e instanceof Error ? e.message : String(e) }; }
+}
+
+/** Delete them all through `deleteStatement` in ONE transaction with one audit row; locked ones are skipped and listed. */
+export async function bulkDeleteStatementsAction(a: BulkStatementsInput): Promise<FormState> {
+  return bankRun('del', P, async ({ tx, u, firm }) => {
+    const r = await bulkDeleteStatements(tx, { ...(await bulkFilter(tx, firm.id, a)), userId: u.id });
+    return `Избришани ${r.total} изводи (${r.posted} со налог).` + bulkSkippedText(r);
+  });
 }
 export async function undoImportAction(batch: string): Promise<FormState> {
   return bankRun('del', P, async ({ tx, u, firm }) => `Поништени ${await undoImport(tx, { firmId: firm.id, userId: u.id, batch })} ставки.`);
