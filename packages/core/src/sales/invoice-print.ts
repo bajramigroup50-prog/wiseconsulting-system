@@ -268,7 +268,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<div${sa({ display: 'flex', justifyContent: 'space-between', gap: 14, marginTop: 12, alignItems: 'flex-start' })}>`
         + `<div${sa({ flex: 1, fontSize: 10, lineHeight: 1.5 })}>${recs.map(([k, x]) => `<div${sa({ color: '#555' })}>ДДВ ${k}%: основица ${fmt(x.b)} · данок ${fmt(x.v)}</div>`).join('')}`
         + `<div${sa({ marginTop: 6 })}>${lbl('Со зборови')}${words}</div>`
-        + (doc.export ? `<div${sa({ marginTop: 4 })}><b>Извоз – ослободено од ДДВ согласно член 23 од ЗДДВ.</b></div>` : '')
+        + (doc.export ? `<div${sa({ marginTop: 4 })}><b>Извоз – ослободено од ДДВ согласно член 24 од ЗДДВ.</b></div>` : '')
         + (doc.art32 ? `<div${sa({ marginTop: 4 })}><b>* ${h(ART32_NOTE)}.</b></div>` : '')
         + (!doc.art32 && data.vatNote ? `<div${sa({ marginTop: 4 })}><b>${h(data.vatNote)}</b></div>` : '') + `</div>`
         + `<div${sa({ width: '74mm', ...(M ? {} : { background: soft, borderRadius: 10 }), padding: '8px 12px' })}>${tr('Износ без ДДВ', fmt(T.base))}${tr('ДДВ', fmt(vatAll))}${T.advTotal ? tr('Одбиен аванс', '−' + fmt(T.advTotal)) : ''}`
@@ -288,7 +288,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${h(r.l.name)}</td><td>${h(r.l.unit)}</td><td class="n">${fq(r.l.qty)}</td><td class="n">${fmt(r.l.price)}</td><td class="n">${Number(r.l.disc) ? Number(r.l.disc) + '%' : ''}</td><td class="n">${fmt(r.b)}</td><td class="n">${r.rate}%${doc.art32 ? '*' : ''}</td><td class="n">${fmt(r.v)}</td><td class="n">${fmt(doc.art32 ? r.b : r.b + r.v)}</td></tr>`).join('')}</tbody></table>`
         + `<div${sa({ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 4 })}>`
         + `<div${sa({ flex: 1, minWidth: 0 })}><table><thead><tr><th>Стапка</th><th class="n">Основица</th><th class="n">ДДВ</th></tr></thead><tbody>${recs.map(([k, x]) => `<tr><td>${k}%${doc.art32 ? '*' : ''}</td><td class="n">${fmt(x.b)}</td><td class="n">${fmt(x.v)}</td></tr>`).join('')}</tbody></table>`
-        + (doc.export ? `<div${sa({ marginTop: 4 })}><b>Извоз – ослободено од ДДВ согласно член 23 од ЗДДВ.</b>${data.icd ? ' ИЦД: ' + h(data.icd) : ''}</div>` : '')
+        + (doc.export ? `<div${sa({ marginTop: 4 })}><b>Извоз – ослободено од ДДВ согласно член 24 од ЗДДВ.</b>${data.icd ? ' ИЦД: ' + h(data.icd) : ''}</div>` : '')
         + extra.map((x) => `<div class="muted"${sa({ marginTop: 3 })}>${h(x)}</div>`).join('')
         + `<div${sa({ marginTop: 6 })}><span class="muted">Со зборови:</span> ${words}</div></div>`
         + `<table${sa({ width: '78mm', margin: '4px 0 0' })}><tbody><tr><td>Износ без ДДВ</td><td class="n">${fmt(T.base)}</td></tr>`
