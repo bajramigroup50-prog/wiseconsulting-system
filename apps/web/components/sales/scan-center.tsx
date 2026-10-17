@@ -98,6 +98,12 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const opts = { kind, batchId, cash: sp.cash === '1', warehouseId: wh, costOnly: sp.cost === '1' };
   const pills = kind === 'sale' ? PILL_SALE : PILL;
   const past = await pastReviewData(u, firm, kind);
+  // lists still open (documents not saved / skipped), so a list started from „Влезни фактури“ is found again from the menu
+  const openLists = mode !== 'skan' && !batchId ? await db().select({
+    b: aiDocuments.batchId, at: sql<string>`max(${aiDocuments.createdAt})::text`, n: sql<number>`count(*)::int`,
+    open: sql<number>`count(*) filter (where ${aiDocuments.status} <> 'saved' and not (${aiDocuments.drafts} @> '[{"skipped": true}]'::jsonb))::int`,
+  }).from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, kind), sql`${aiDocuments.batchId} is not null`, sql`${aiDocuments.createdAt} > now() - interval '90 days'`))
+    .groupBy(aiDocuments.batchId).orderBy(desc(sql`max(${aiDocuments.createdAt})`)).limit(10) : [];
   // „Шема“ of the batch save (numbered posting schemes of the firm; `?sch=`)
   const profiles = schemeProfilesOf(firm.settings);
   const sch = profiles.length && sp.sch ? schemeNoOf(sp.sch) : null;
@@ -119,6 +125,8 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         {mode !== 'skan' && batchId && <Link className="btn" href={`/${mode}`}>Нова листа</Link>}
       </Hd>
       <PastReview data={past} />
+      {openLists.some((l) => l.open > 0) && <div className="callout info"><b>Отворени листи:</b>{openLists.filter((l) => l.open > 0).map((l) => (
+        <span key={l.b} style={{ marginLeft: 10 }}><Link className="btn sm" href={`/${mode}?b=${l.b}`}>{dmy(l.at.slice(0, 10))} · {l.n} документи · {l.open} незачувани →</Link></span>))}</div>}
       {mode !== 'skan' && !batchId ? (
         <form className="card" method="get">
           <input type="hidden" name="b" value={newBatch} />
