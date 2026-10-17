@@ -6,8 +6,9 @@
  */
 import Link from 'next/link';
 import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
-import { bankEffKonto, groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
+import { bankEffKonto, bankName, noPartnerLine, groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
 import type { CustomScheme } from '@wise/core/finance';
+import { findPartnerMatch } from '@wise/core/partners/match';
 import {
   appSettings, bankAccounts, bankLines, bankStatements, effectiveChart, firmNalogSettings, journalLines, journalOverrideState, journals, lineProblem, loadBankAccounts, partners, purchases,
   SCHEMES_SETTINGS_KEY, statementSuggestions, toBankRow, type LineSuggestion,
@@ -200,9 +201,14 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         fx: fxA, cur: a?.cur ?? 'MKD', opening: st.opening == null ? null : Number(st.opening), closing: st.closing == null ? null : Number(st.closing), status: st.status, locked: stLocked(st),
         lines: allBL.filter((l) => l.statementId === st.id).map((l) => {
           const s = sugg.get(l.id);
+          // the partner named on the statement (Latin ↔ Cyrillic: „ВЕНГ ХАУС ДОО Скопје“ ↔ „VENG HAUS DOO SKOPJE“) —
+          // never the bank, the Treasury or an employee
+          const r = toBankRow(l);
+          const guessPid = !l.partnerId && !l.refId && !noPartnerLine(r)
+            ? s?.partnerId || findPartnerMatch(impP, { name: l.name || bankName(r), bankAccount: l.counterAccount }).partner?.id || '' : '';
           return {
             id: l.id, date: l.date, name: l.name ?? '', purpose: l.purpose || l.description, amount: Number(l.amount), amountCur: l.amountCur == null ? null : Number(l.amountCur), cur: l.cur,
-            osnov: l.osnov ?? '', konto: l.konto ?? '', effK: l.konto || l.refId ? bankEffKonto(toBankRow(l)) : '', partnerId: l.partnerId ?? '', newPartner: l.newPartner ?? '',
+            osnov: l.osnov ?? '', konto: l.konto ?? '', effK: l.konto || l.refId ? bankEffKonto(r) : '', partnerId: l.partnerId ?? '', newPartner: l.newPartner ?? '', guessPid,
             linked: !!l.refId, refLabel: l.refLabel ?? '', refType: l.refType ?? '', manual: l.manual, prob: lineProblem(l, !!l.cur && l.cur !== 'MKD') || '',
             sugg: s ? { konto: s.konto, partnerId: s.partnerId ?? '', why: s.why, ok: !!s.konto && !s.missing } : null,
           };

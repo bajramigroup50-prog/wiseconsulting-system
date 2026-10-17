@@ -317,3 +317,9 @@ body.picking .mbar #nav,body.picking .topbar,body.picking #navMob{display:none!i
 .nsk-list li[aria-selected="true"]{background:var(--accent-soft)}
 .nsk-list li small{color:var(--muted);text-align:right}
 .nsk-foot{padding:6px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+
+/* bank statement lines: одлив (должува) | прилив (побарува) as on the bank statement — separated, tinted, printable */
+th.amt-od,td.amt-od{border-left:2px solid var(--line);color:var(--bad)}
+th.amt-pr,td.amt-pr{border-left:2px solid var(--line);border-right:2px solid var(--line);color:var(--good)}
+th.amt-od,th.amt-pr{color:inherit}
+@media print{td.amt-od,td.amt-pr{color:inherit}}

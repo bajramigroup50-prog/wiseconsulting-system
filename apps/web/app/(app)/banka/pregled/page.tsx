@@ -58,8 +58,8 @@ export default async function PregledPage({ searchParams }: { searchParams: Prom
       <td>{dmy(i.date)}</td>
       <td><small>{i.account}<br />бр. {i.statementNo || '—'} · ред {i.lineNo}</small></td>
       <td style={{ minWidth: 200 }}>{i.name ? <b>{i.name}</b> : null}{i.name ? <br /> : null}<small>{i.desc}</small></td>
-      <td className="n">{i.amount > 0 ? fmt(i.amount) : ''}</td>
-      <td className="n">{i.amount < 0 ? fmt(-i.amount) : ''}</td>
+      <td className="n amt-od">{i.amount < 0 ? fmt(-i.amount) : ''}</td>
+      <td className="n amt-pr">{i.amount > 0 ? fmt(i.amount) : ''}</td>
       <td>
         {i.konto ? <><b>{i.konto}</b> <small>{kName.get(i.konto) ?? ''}</small></> : <span className="mini">—</span>}
         {i.partnerId ? <div><small>{pName.get(i.partnerId) ?? ''}</small></div> : i.newPartner ? <div><small>нов комитент: <b>{i.newPartner}</b></small></div> : null}
@@ -73,7 +73,7 @@ export default async function PregledPage({ searchParams }: { searchParams: Prom
   );
   const table = (L: ReviewItem[], pick: boolean) => (
     <div className="tw"><table className="dense">
-      <thead><tr><th></th><th>Датум</th><th>Извод</th><th>Комитент / опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Предлог</th><th>Причина</th></tr></thead>
+      <thead><tr><th></th><th>Датум</th><th>Извод</th><th>Комитент / опис</th><th className="n amt-od" title="должува по изводот">Одлив</th><th className="n amt-pr" title="побарува по изводот">Прилив</th><th>Предлог</th><th>Причина</th></tr></thead>
       <tbody>{L.map((i) => row(i, pick))}</tbody>
     </table></div>
   );

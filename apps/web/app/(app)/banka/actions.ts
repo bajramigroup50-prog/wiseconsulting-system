@@ -11,7 +11,7 @@ import {
 } from '@wise/core/bank-parsers';
 import {
   addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
-  planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, setLineKonto, setLinePartner, undoImport, unlinkLine,
+  planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, createLineKonto, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, loadBankAccounts, bankLines, bankAccounts, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
   saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
@@ -394,8 +394,12 @@ export async function setKontoAction(_p: FormState, form: FormData): Promise<For
   const partnerId = str(form.get('partner')) || null;
   const learn = form.get('learn') === 'on';
   const note = form.has('note') ? str(form.get('note')) : null;
+  // „+ Ново конто“: a konto typed in the form that is not in the chart is created first (chart editor rules)
+  const newKonto = form.get('newKonto') === '1';
+  const newName = str(form.get('newName'));
   // legacy toast 4843: „Прокнижено. Запомнато: „key“ → konto; следниот пат автоматски.“
-  return bankRun('write', P, ({ tx, u, firm }) => setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId, konto, partnerId, learn })
+  return bankRun('write', [...P, '/konto'], async ({ tx, u, firm }) => (newKonto ? createLineKonto(tx, { firmId: firm.id, userId: u.id, code: konto, name: newName }) : Promise.resolve(konto))
+    .then(() => setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId, konto, partnerId, learn }))
     .then(async (L) => {
       // legacy `bkPickSave` 12703: „на кого / за што“ is appended to the description as ` · [note]`
       if (note != null) {

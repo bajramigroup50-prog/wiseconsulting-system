@@ -7,14 +7,14 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   assignStatementNumbers, bankDupKey, counterparty, feeFix, fxRate, fxToMkd, learnOsnov, learnRule, statementGaps, statementKey, transitCloseLines, transitResidue,
-  type StatementBalance,
+  BKPK_RE, newKontoCheck, type StatementBalance,
 } from '@wise/core';
 import { learnAccountsFromStatements } from '../partner-accounts';
 import { audit, type Tx } from '../audit';
 import { assertOpenPeriod, missingAccounts, postJournal, unpostSource } from '../posting';
 import { bankKontoName } from '@wise/core/bank/parity';
 import { accounts } from '../schema/index';
-import { loadLedgerLines } from '../ledger-queries';
+import { effectiveChart, loadLedgerLines } from '../ledger-queries';
 import { bankAccounts, bankLines, bankRules, bankStatements, partners, type BankLine, type BankStatement } from '../schema/index';
 import { autoBankKonto, BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, loadFxSources, markKontoManual, syncFirmBanks } from './context';
 
@@ -55,6 +55,11 @@ export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string |
   const { line, st } = await lineOf(tx, a.firmId, a.lineId);
   // legacy `kontoOpts(…, k => !bankKontos().includes(k))`: a bank account's own konto is not a counter konto
   if ((await loadBankAccounts(tx, a.firmId)).some((x) => x.konto === a.konto)) throw new BankError(`Конто ${a.konto} е конто на банкарска сметка – изберете спротивно конто.`);
+  // bank charges / card purchases / cash: never a partner (the bank itself was left as partner on card lines)
+  if (a.partnerId && !BKPK_RE.test(a.konto)) {
+    const K = (await loadBankEnv(tx, a.firmId)).konta;
+    if ([K.fee, K.card, K.cashWithdraw].includes(a.konto)) a = { ...a, partnerId: null };
+  }
   if (a.partnerId) {
     const [p] = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.id, a.partnerId), eq(partners.firmId, a.firmId))).limit(1);
     if (!p) throw new BankError('Комитентот не постои.');
@@ -420,5 +425,23 @@ export async function removeBankAccount(tx: Tx, a: { firmId: string; userId: str
   if (!r) throw new BankError('Сметката не постои.');
   await syncFirmBanks(tx, a.firmId);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'rmBankAcct', entityType: 'bank_account', entityId: r.id, data: { name: r.name, konto: r.konto } });
+}
+
+/**
+ * „+ Ново конто“ from the bank line form: a konto typed there that is not in the chart is created with the chart
+ * editor's rules (4–8 digits, the parent synthetic exists; `newKontoCheck`); the name defaults to the parent's name.
+ * Returns the code. Nothing happens when it already exists.
+ */
+export async function createLineKonto(tx: Tx, a: { firmId: string; userId: string | null; code: string; name?: string | null }): Promise<string> {
+  const code = String(a.code ?? '').trim();
+  if (!(await missingAccounts(tx, a.firmId, [code])).length) return code;
+  const chart = await effectiveChart(tx, a.firmId);
+  const chk = newKontoCheck(chart, code);
+  if ('error' in chk) throw new BankError(chk.error);
+  const name = String(a.name ?? '').trim() || chk.parent.name;
+  await tx.insert(accounts).values({ firmId: a.firmId, code, name })
+    .onConflictDoUpdate({ target: [accounts.firmId, accounts.code], targetWhere: sql`${accounts.firmId} is not null`, set: { name, hidden: false } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'saveAcc', entityType: 'account', entityId: code, data: { name, from: 'bankLine' } });
+  return code;
 }
 

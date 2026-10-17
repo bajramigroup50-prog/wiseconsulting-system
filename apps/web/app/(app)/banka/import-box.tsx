@@ -305,13 +305,13 @@ export function ImportBox({ accounts, defaultAcct, fx, firmId, nalog }: { accoun
                       {d.rate != null && <> · курс {d.rate}</>}
                       {d.opening != null && <> · салдо {fmt(d.opening / 100)} → {fmt((d.closing ?? 0) / 100)} {d.cur}</>}
                       {d.statedDebit != null && <> · по изводот должува {fmt((d.statedDebit ?? 0) / 100)} / побарува {fmt((d.statedCredit ?? 0) / 100)}</>}</td></tr>
-                    <tr><th>Датум</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Препознаено</th>{nalog && <th>Спротивно конто (предлог)</th>}</tr>
+                    <tr><th>Датум</th><th>Опис</th><th className="n amt-od" title="должува по изводот">Одлив</th><th className="n amt-pr" title="побарува по изводот">Прилив</th><th>Препознаено</th>{nalog && <th>Спротивно конто (предлог)</th>}</tr>
                   </thead>
                   <tbody>{d.lines.map((l, i) => (
                     <tr key={i} style={l.dup ? { opacity: 0.5 } : undefined}>
                       <td>{dmy(l.date)}</td><td>{l.desc}</td>
-                      <td className="n">{l.amount > 0 ? fmt(l.amount / 100) : ''}{l.amountCur != null && l.amount > 0 ? <><br /><small className="note">{d.cur} {fmt(l.amountCur / 100)}</small></> : null}</td>
-                      <td className="n">{l.amount < 0 ? fmt(-l.amount / 100) : ''}{l.amountCur != null && l.amount < 0 ? <><br /><small className="note">{d.cur} {fmt(-l.amountCur / 100)}</small></> : null}</td>
+                      <td className="n amt-od">{l.amount < 0 ? fmt(-l.amount / 100) : ''}{l.amountCur != null && l.amount < 0 ? <><br /><small className="note">{d.cur} {fmt(-l.amountCur / 100)}</small></> : null}</td>
+                      <td className="n amt-pr">{l.amount > 0 ? fmt(l.amount / 100) : ''}{l.amountCur != null && l.amount > 0 ? <><br /><small className="note">{d.cur} {fmt(l.amountCur / 100)}</small></> : null}</td>
                       <td>{l.dup && <span className="pill bad">дупликат</span>} {l.cls && <span className="pill info">{CLS[l.cls] ?? l.cls}{l.konto ? ' → ' + l.konto : ''}</span>}
                         {l.newPartner && <span className="pill warn" title="Комитентот не постои – ќе може да се додаде при книжењето">нов комитент: {l.newPartner}</span>}</td>
                       {nalog && (() => {

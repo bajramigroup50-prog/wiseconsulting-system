@@ -5,8 +5,9 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { BKPK_RE, bankEffKonto, feeFix, BANKS_MK, bankCodeOf, openDocsFor, unlinkedPayments } from '@wise/core';
+import { BKPK_RE, bankEffKonto, bankName, feeFix, BANKS_MK, bankCodeOf, noPartnerLine, openDocsFor, unlinkedPayments, wrongSideWarning } from '@wise/core';
 import { sameRefKey, transitOpen, transitResidueLabel } from '@wise/core/bank/parity';
+import { findPartnerMatch } from '@wise/core/partners/match';
 import {
   bankLines, bankPartnerFixPlan, bankRules, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
   loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
@@ -20,6 +21,8 @@ import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
+import { PartnerPicker } from '@/components/partner-picker';
+import { KontoField } from '@/components/konto-field';
 import {
   addManualLineAction, addRuleAction, applyMatchesAction, bookAllAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
@@ -87,6 +90,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       .groupBy(journalLines.account, journals.date) : Promise.resolve([]),
   ]);
   const kName = (k: string | null | undefined) => chart.find((a) => a.code === k)?.name ?? '';
+  // line kontos: the bank kontos themselves are not offered
+  const chartPairs: [string, string][] = chart.filter((a) => !all.some((b) => b.konto === a.code)).map((a) => [a.code, a.name]);
   /* finance parity: legacy wrappers 12401 (izvFill), 12443 (bkpFix), 12522 (unlinked), 12764 (trOpen), 13082 (POS box), 12652 (FX balance) */
   const [env, sugg, bkp, pos] = await Promise.all([
     db().transaction((tx) => loadBankEnv(tx, firm.id)),
@@ -134,12 +139,13 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const sameRef = refKey ? (await db().select().from(bankLines).where(and(eq(bankLines.firmId, firm.id), sql`${bankLines.id} <> ${edLine!.id}`, sql`${bankLines.partnerId} is not null`,
     sql`(coalesce(${bankLines.bref}, '') || ' ' || ${bankLines.description} || ' ' || coalesce(${bankLines.counterAccount}, '')) like ${'%' + refKey + '%'}`)).limit(10)) : [];
 
-  const partnerSelect = (name: string, value?: string | null) => (
-    <select name={name} defaultValue={value ?? ''} style={{ maxWidth: 260 }}>
-      <option value="">— без комитент —</option>
-      {P.map((p) => <option key={p.id} value={p.id}>{p.code ? p.code + ' · ' : ''}{p.name}</option>)}
-    </select>
-  );
+  // searchable in both scripts („ВЕНГ“ ↔ „VENG HAUS“)
+  const pickP = P.map((p) => ({ id: p.id, code: p.code ?? null, name: p.name }));
+  const partnerSelect = (name: string, value?: string | null) => <PartnerPicker partners={pickP} name={name} value={value ?? ''} width={280} />;
+  // the partner named on the statement (Latin ↔ Cyrillic), preselected in the line form — never the bank / Treasury / an employee
+  const edRow = edLine ? toBankRow(edLine) : null;
+  const edGuess = edLine && edRow && !noPartnerLine(edRow, { konta: env.konta })
+    ? findPartnerMatch(pickP, { name: edLine.name || bankName(edRow, env.partners), bankAccount: edLine.counterAccount }).partner?.id ?? '' : '';
 
   return (
     <>
@@ -364,8 +370,11 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
                 <h3>Директно на конто</h3>
                 <BankForm action={setKontoAction} className="form">
                   <input type="hidden" name="line" value={edLine.id} />
-                  <label className="f">Конто<input name="konto" list="bkK2" defaultValue={edLine.konto ?? suggs.get(edLine.id)?.konto ?? ''} required /></label>
-                  <label className="f">Комитент{partnerSelect('partner', edLine.partnerId ?? suggs.get(edLine.id)?.partnerId)}</label>
+                  <label className="f">Конто<KontoField chart={chartPairs} list="bkK2" defaultValue={edLine.konto ?? suggs.get(edLine.id)?.konto ?? ''} required /></label>
+                  <label className="f">Комитент{partnerSelect('partner', edLine.partnerId ?? suggs.get(edLine.id)?.partnerId ?? edGuess)}</label>
+                  {wrongSideWarning(edLine.konto ?? suggs.get(edLine.id)?.konto ?? '', Number(edLine.amount), !!edLine.refId) && (
+                    <p className="callout warn" style={{ width: '100%', margin: 0 }}>⚠ {wrongSideWarning(edLine.konto ?? suggs.get(edLine.id)?.konto ?? '', Number(edLine.amount), !!edLine.refId)} {Number(edLine.amount) > 0 ? 'Прилив од купувач се книжи на 1200.' : 'Плаќање на добавувач се книжи на 2200.'}</p>
+                  )}
                   {suggs.get(edLine.id) && <p className="note" style={{ width: '100%', margin: 0 }}>Предлог: {suggs.get(edLine.id)!.konto ? <b>{suggs.get(edLine.id)!.konto} {kName(suggs.get(edLine.id)!.konto)}</b> : '—'} · {suggs.get(edLine.id)!.why}</p>}
                   <label className="f wide">На кого / за што (белешка, се додава на описот)<input name="note" defaultValue={/ · \[(.*)\]$/.exec(edLine.description)?.[1] ?? ''} /></label>
                   <label className="chk"><input type="checkbox" name="learn" defaultChecked /> запомни правило за овој опис / шифра</label>
@@ -463,7 +472,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
       )}
       {S.length ? (
         <div className="tw"><table>
-          <thead><tr><th>Датум</th><th>Опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Поврзување / конто</th><th></th></tr></thead>
+          <thead><tr><th>Датум</th><th>Опис</th><th className="n amt-od" title="должува по изводот">Одлив</th><th className="n amt-pr" title="побарува по изводот">Прилив</th><th>Поврзување / конто</th><th></th></tr></thead>
           <tbody>
             {S.map((s) => {
               const a = acctOf.get(s.bankAccountId)!;
@@ -561,8 +570,9 @@ function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk
       <td>{dmy(l.date)}</td>
       <td style={{ minWidth: 200 }}>{l.description}{l.manual && <span className="pill"> рачно</span>}
         {(l.osnov || l.bref) && <><br /><small className="note">{[l.osnov ? 'шифра ' + l.osnov : '', l.bref ? 'реф. ' + l.bref : ''].filter(Boolean).join(' · ')}</small></>}</td>
-      <td className="n">{cell(true)}</td>
-      <td className="n">{cell(false)}</td>
+      {/* the bank's order: одлив (должува) left, прилив (побарува) right */}
+      <td className="n amt-od">{cell(false)}</td>
+      <td className="n amt-pr">{cell(true)}</td>
       <td>
         {l.refId || l.konto ? (
           <div className="row" style={{ gap: 4 }}>
@@ -576,6 +586,7 @@ function LineRow({ l, fx, kName, pName, write, del, href, active, unlinked, bulk
             {l.conv && l.auto !== 'conv' && <span className="pill">💱 откуп (неутрално)</span>}
             {l.pos && l.auto !== 'pos' && <span className="pill">💳 POS</span>}
             {unlinked && <span className="pill warn" title="Плаќање на купувач / добавувач без поврзана фактура">без фактура</span>}
+            {wrongSideWarning(effK, amt, !!l.refId) && <span className="pill bad" title="Прилив од купувач се книжи на 1200, плаќање на добавувач на 2200 – проверете го контото">⚠ {wrongSideWarning(effK, amt, !!l.refId)}</span>}
             {prob && <span className="pill bad">{prob}{effK && BKPK_RE.test(effK) && l.newPartner ? ` (${l.newPartner})` : ''}</span>}
             {write && <Link className="btn sm ghost" href={href}>Промени</Link>}
           </div>

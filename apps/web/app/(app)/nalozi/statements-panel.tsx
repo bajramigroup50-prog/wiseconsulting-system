@@ -12,11 +12,16 @@ import {
   bookAllAction, deleteLineAction, flipLineAction, linkLineAction, setKontoAction, setPartnerAction, unlinkLineAction, updateStatementAction,
 } from '../banka/actions';
 import { lineDocsAction, saveStatementLinesAction, type LineDoc } from './statement-actions';
+import { PartnerPicker } from '@/components/partner-picker';
+import { KontoHintNote } from '@/components/konto-field';
+import { wrongSideWarning } from '@wise/core/bank/side';
 
 export interface PanelLine {
   id: string; date: string; name: string; purpose: string; amount: number; amountCur: number | null; cur: string | null; osnov: string;
   /** Own konto of the line ('' = none) and the effective konto (invoice link → the customer / supplier konto). */
   konto: string; effK: string; partnerId: string; newPartner: string;
+  /** Partner matched from the statement's counterparty name (Latin ↔ Cyrillic), preselected when the line has none. */
+  guessPid: string;
   linked: boolean; refLabel: string; refType: string; manual: boolean; prob: string;
   sugg: { konto: string; partnerId: string; why: string; ok: boolean } | null;
 }
@@ -41,6 +46,7 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
   write: boolean; del: boolean; flip: boolean;
 }) {
   const kName = useMemo(() => new Map(chart), [chart]);
+  const chartRows = useMemo(() => chart.map(([code, name]) => ({ code, name })), [chart]);
   const pById = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const pLabel = (id: string) => { const p = pById.get(id); return p ? (p.code ? `${p.code} · ` : '') + p.name : ''; };
   const pByLabel = useMemo(() => {
@@ -63,7 +69,7 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
 
   const lineById = useMemo(() => new Map(statements.flatMap((s) => s.lines.map((l) => [l.id, { l, s }] as const))), [statements]);
   const origK = (l: PanelLine) => l.konto || l.effK;
-  const cur = (l: PanelLine): Edit => edits[l.id] ?? { konto: origK(l), partnerId: l.partnerId };
+  const cur = (l: PanelLine): Edit => edits[l.id] ?? { konto: origK(l), partnerId: l.partnerId || (PK.test(origK(l)) ? l.guessPid : '') };
   const dirty = (l: PanelLine) => {
     const e = edits[l.id];
     if (!e) return false;
@@ -71,7 +77,7 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
     return !!k && (k !== origK(l) || e.partnerId !== l.partnerId);
   };
   const dirtyLines = [...lineById.values()].filter(({ l, s }) => !s.locked && dirty(l)).map(({ l }) => l);
-  const setEdit = (l: PanelLine, p: Partial<Edit>) => setEdits((E) => ({ ...E, [l.id]: { ...(E[l.id] ?? { konto: origK(l), partnerId: l.partnerId }), ...p } }));
+  const setEdit = (l: PanelLine, p: Partial<Edit>) => setEdits((E) => ({ ...E, [l.id]: { ...(E[l.id] ?? cur(l)), ...p } }));
   const drop = (ids: string[]) => setEdits((E) => { const n = { ...E }; for (const id of ids) delete n[id]; return n; });
 
   const run = (f: () => Promise<FormState>, done?: () => void) => start(async () => {
@@ -174,42 +180,26 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
                   </BankForm>
                 )}
                 <div className="tw"><table className="dense">
-                  <thead><tr><th>Датум</th><th>Комитент (налогодавач)</th><th style={{ minWidth: 200 }}>Цел / опис</th><th className="n">Прилив</th><th className="n">Одлив</th><th>Шифра</th><th>Конто</th><th>Комитент</th><th>Фактура</th><th></th></tr></thead>
+                  <thead><tr><th>Датум</th><th>Комитент (налогодавач)</th><th style={{ minWidth: 200 }}>Цел / опис</th><th className="n amt-od" title="должува по изводот">Одлив</th><th className="n amt-pr" title="побарува по изводот">Прилив</th><th>Шифра</th><th></th></tr></thead>
                   <tbody>{s.lines.map((l) => {
                     const e = cur(l);
                     const k = e.konto.trim().split(/\s/)[0] ?? '';
                     const d = dirty(l);
                     const a = av(l);
                     const pk = PK.test(k);
+                    // a partner preselected from the statement (not saved yet)
+                    const pre = !ro && !d && pk && !l.partnerId && !!e.partnerId;
+                    const ws = wrongSideWarning(k, a, l.linked);
                     return [
-                      <tr key={l.id} style={d ? { background: 'var(--warn-bg, #fff7e0)' } : undefined}>
+                      <tr key={l.id} className="izv-l1" style={d ? { background: 'var(--warn-bg, #fff7e0)' } : undefined}>
                         <td style={{ whiteSpace: 'nowrap' }}>{dmy(l.date)}</td>
                         <td>{l.name}</td>
-                        <td>{l.purpose}{l.manual && <span className="pill"> рачно</span>}{l.prob && <><br /><span className="pill bad">{l.prob}</span></>}</td>
-                        <td className="n">{a > 0 ? fmt(a) : ''}</td><td className="n">{a < 0 ? fmt(-a) : ''}</td>
+                        <td>{l.purpose}{l.manual && <span className="pill"> рачно</span>}{l.prob && <> <span className="pill bad">{l.prob}</span></>}</td>
+                        {/* the bank's order: одлив (должува) left, прилив (побарува) right */}
+                        <td className="n amt-od">{a < 0 ? fmt(-a) : ''}</td><td className="n amt-pr">{a > 0 ? fmt(a) : ''}</td>
                         <td>{l.osnov}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>
-                          {ro ? <b className="num">{origK(l) || '—'}</b> : (
-                            <input list="nalBkK2" value={e.konto} aria-label="Конто" placeholder={l.sugg?.konto || 'конто'}
-                              onChange={(ev) => setEdit(l, { konto: ev.target.value })}
-                              onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); if (d) saveLine(l); } }}
-                              style={{ width: 90, ...(!k && l.prob ? { borderColor: 'var(--bad)' } : {}) }} />
-                          )}
-                          {!ro && !k && l.sugg?.konto && <button type="button" className="btn sm ghost" title={l.sugg.why} onClick={() => setEdit(l, { konto: l.sugg!.konto, partnerId: l.sugg!.partnerId || e.partnerId })}>← {l.sugg.konto}</button>}
-                          <br /><small className="mut">{kName.get(k) ?? (k ? 'нема во контниот план' : l.sugg?.why ?? '')}</small>
-                        </td>
-                        <td>
-                          {pk ? (ro ? pLabel(e.partnerId) : (
-                            <input key={`${l.partnerId}-${gen}`} list="nalBkP" aria-label="Комитент" defaultValue={pLabel(e.partnerId)} placeholder={l.newPartner || 'комитент'} style={{ width: 180, ...(!e.partnerId ? { borderColor: 'var(--bad)' } : {}) }}
-                              onChange={(ev) => setEdit(l, { partnerId: pByLabel.get(ev.target.value.trim()) ?? '' })} />
-                          )) : <span className="mut">{pLabel(e.partnerId)}</span>}
-                        </td>
-                        <td>
-                          {l.linked && <span className="pill good">{l.refType === 'invoice' ? 'Наша ф-ра' : 'Влезна ф-ра'} {l.refLabel || 'без број'}</span>}
-                          {!ro && <button type="button" className="btn sm ghost" title="Поврзи со отворена фактура" onClick={() => openPicker(l)}>🔗</button>}
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          {!ro && d && <button type="button" className="btn sm pri" disabled={pending} onClick={() => saveLine(l)} title="Зачувај и прекнижи го изводот">✓</button>}
+                          {!ro && (d || pre) && <button type="button" className="btn sm pri" disabled={pending} onClick={() => saveLine(l)} title="Зачувај и прекнижи го изводот">✓</button>}
                           {!ro && (
                             <details className="rowmenu" style={{ display: 'inline-block', position: 'relative' }}>
                               <summary className="btn sm ghost" aria-label="Мени на ставката" style={{ listStyle: 'none' }}>⋮</summary>
@@ -223,8 +213,39 @@ export function StatementsPanel({ statements, chart, partners, write, del, flip 
                           )}
                         </td>
                       </tr>,
+                      // the posting controls on their own full-width line under the description (no horizontal scroll)
+                      <tr key={l.id + '-k'} className="izv-l2" style={d ? { background: 'var(--warn-bg, #fff7e0)' } : undefined}>
+                        <td></td>
+                        <td colSpan={6} style={{ borderTop: 'none', paddingTop: 0 }}>
+                          <div className="row" style={{ gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                            <span style={{ minWidth: 200, maxWidth: 420 }}>
+                              <span className="mini">Конто </span>
+                              {ro ? <b className="num">{origK(l) || '—'}</b> : (
+                                <input list="nalBkK2" value={e.konto} aria-label="Конто" placeholder={l.sugg?.konto || 'конто'}
+                                  onChange={(ev) => { const v = ev.target.value; const nk = v.trim().split(/\s/)[0] ?? ''; setEdit(l, PK.test(nk) ? { konto: v } : { konto: v, partnerId: '' }); }}
+                                  onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); if (d) saveLine(l); } }}
+                                  style={{ width: 100, ...(!k && l.prob ? { borderColor: 'var(--bad)' } : {}) }} />
+                              )}
+                              {!ro && !k && l.sugg?.konto && <button type="button" className="btn sm ghost" title={l.sugg.why} onClick={() => setEdit(l, { konto: l.sugg!.konto, partnerId: PK.test(l.sugg!.konto) ? l.sugg!.partnerId || e.partnerId : '' })}>← {l.sugg.konto}</button>}
+                              {k ? <KontoHintNote chart={chartRows} value={k} onPick={(c) => setEdit(l, { konto: c })} /> : <small className="mut" style={{ display: 'block' }}>{l.sugg?.why ?? ''}</small>}
+                            </span>
+                            <span style={{ flex: '1 1 300px', minWidth: 260, maxWidth: 480 }}>
+                              {pk ? (ro ? <><span className="mini">Комитент </span>{pLabel(e.partnerId)}</> : (
+                                <PartnerPicker key={`${l.partnerId}-${gen}`} partners={partners} value={e.partnerId} invalid placeholder={l.newPartner ? `нов: ${l.newPartner} – или пребарај` : undefined}
+                                  onChange={(pid) => setEdit(l, { partnerId: pid })} />
+                              )) : e.partnerId ? <span className="mut">{pLabel(e.partnerId)}</span> : null}
+                              {pre && <small className="mut" style={{ display: 'block' }}>комитентот е препознаен од изводот – потврдете со ✓</small>}
+                            </span>
+                            <span>
+                              {l.linked && <span className="pill good">{l.refType === 'invoice' ? 'Наша ф-ра' : 'Влезна ф-ра'} {l.refLabel || 'без број'}</span>}
+                              {!ro && <button type="button" className="btn sm ghost" title="Поврзи со отворена фактура" onClick={() => openPicker(l)}>🔗 фактура</button>}
+                              {ws && <span className="pill bad" title={a > 0 ? 'Прилив од купувач се книжи на 1200' : 'Плаќање на добавувач се книжи на 2200'}>⚠ {ws}</span>}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>,
                       picker?.line === l.id && (
-                        <tr key={l.id + '-pick'}><td colSpan={10}>
+                        <tr key={l.id + '-pick'}><td colSpan={7}>
                           {picker.error ? <div className="callout bad">{picker.error}</div> : !picker.docs ? <span className="note">се вчитуваат отворените фактури…</span>
                             : picker.docs.length ? (
                               <BankForm action={async (p, f) => { const r = await linkLineAction(p, f); if (!r.error) setPicker(null); return r; }}>

@@ -241,6 +241,9 @@ export const BKPK_RE = /^(12[0-8]|22[0-8])/;
 export const bankEffKonto = (b: BankRow): string =>
   b.split && b.split.length && +b.amount < 0 ? '' : String(b.konto || (+b.amount >= 0 ? '1200' : '2200'));
 
+export { ruleSideOk, wrongSideWarning } from './bank/side';
+import { ruleSideOk } from './bank/side';
+
 /** Supplier konto for a purchase. FIX #3: legacy base `autoMatch` always used 2200, even for imports. */
 export const supplierKonto = (p: OpenDoc, konta?: Partial<BankKonta>): string => {
   const K = { ...BANK_KONTA, ...(konta || {}) };
@@ -737,7 +740,7 @@ function layerBase(w: Work): void {
     // a deposit of the daily turnover / a cash withdrawal says so in its description: never an invoice by amount
     const kw = keywordKonto(b, ctx.accounts, K);
     if (kw && !ownTransferBy(b, ctx)) {
-      const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()));
+      const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, +b.amount));
       commit(w, { ...b, konto: rule ? rule.konto : kw.konto }, rule ? 'rule' : kw.cls);
       continue;
     }
@@ -761,7 +764,7 @@ function layerBase(w: Work): void {
       const i = cand.find((i) => desc.includes(String(i.number).split('/')[0]!) || desc.includes(nm8(i))) || cand[0];
       if (i) hit = { type: 'invoice', doc: i };
     } else if (BANK_FEE.test(desc) && !ctx.purchases.some((p) => !used.has(p.id) && p.number && desc.includes(low(p.number)) && open('purchase', p) === amt)) {
-      const fk = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()));
+      const fk = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, +b.amount));
       commit(w, { ...b, konto: fk ? fk.konto : K.fee }, 'fee');
       continue;
     } else {
@@ -786,7 +789,7 @@ function layerBase(w: Work): void {
       commit(w, nb, hit.type);
       continue;
     }
-    const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()));
+    const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, +b.amount));
     if (rule) commit(w, { ...b, konto: rule.konto }, 'rule');
   }
 }

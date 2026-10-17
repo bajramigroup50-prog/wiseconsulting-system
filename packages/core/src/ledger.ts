@@ -53,9 +53,9 @@ export interface LedgerLine {
 export const PARTNER_ACCOUNT_RE = /^(12[0-8]|22[0-8])/;
 export const needsPartner = (account: string): boolean => PARTNER_ACCOUNT_RE.test(String(account));
 
-/** Codes in the built-in chart have 2–10 digits; user-created accounts 3–8 digits (legacy saveAcc/saveOpen). */
-export const ACCOUNT_CODE_RE = /^\d{2,10}$/;
-export const NEW_ACCOUNT_CODE_RE = /^\d{3,8}$/;
+export { ACCOUNT_CODE_RE, NEW_ACCOUNT_CODE_RE } from './ledger-codes';
+export * from './konto-hint';
+
 
 /** Legacy `KONTO` 3167: parse `KONTO_SRC` (`konto|name` per line). */
 export function parseKontoSrc(src: string): [string, string][] {

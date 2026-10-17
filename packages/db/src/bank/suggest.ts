@@ -8,8 +8,8 @@
  */
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import {
-  autoMatch, Bank, BANK_FEE, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, ownTransferBy, schemeValue,
-  type BankRow,
+  autoMatch, Bank, BANK_FEE, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, ruleSideOk, schemeValue,
+  wrongSideWarning, type BankRow, type NoPartnerKind, type PayScheme,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
 import { missingAccounts } from '../posting';
@@ -62,6 +62,14 @@ export interface SuggestInput {
 
 const lc = (s: unknown) => String(s ?? '').toLowerCase();
 
+const NP_WHY: Record<NoPartnerKind, string> = {
+  fee: 'провизија / надоместок на банката (без комитент)', card: 'плаќање со платежна картичка (без комитент)', bank: 'банката не е комитент',
+  treasury: 'јавни приходи (Трезор / Министерство за финансии) – без комитент', wage: 'исплата на плата (нето) – без комитент',
+};
+/** Payroll kontos from the posting scheme (`pay_*`), for the salary / contribution lines. */
+const payScheme = (posting: BankEnv['posting']): Partial<PayScheme> =>
+  Object.fromEntries(PAY_SCH_KEYS.map((k) => [k, schemeValue(posting, k)]).filter(([, v]) => !!v)) as Partial<PayScheme>;
+
 /**
  * Heuristic counter konto of one line (pure, no database): learned payment-code rule → description rule →
  * bank fee → public revenue (840 / 843 / Treasury) → counterparty partner (1200 / 2200).
@@ -75,8 +83,13 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
     const k = env.osnovK[code + '|' + (out ? 'out' : 'in')];
     if (k) return { konto: k, why: `запомнато правило за шифра ${code}`, how: 'osnov' };
   }
-  const rule = env.rules.find((r) => r.match && t.includes(r.match.toLowerCase()));
+  const rule = env.rules.find((r) => r.match && t.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, x.amount));
   if (rule) return { konto: rule.konto, why: `правило „${rule.match}“`, how: 'rule' };
+  // the bank itself, card purchases, salaries, the Treasury / Ministry of Finance: never a customer / supplier
+  const np = noPartnerLine({ id: '', date: x.date ?? '', amount: x.amount, desc: x.desc ?? '', ...(x.name ? { name: x.name } : {}), ...(x.purpose ? { purpose: x.purpose } : {}),
+    ...(x.counterAccount ? { counterAccount: x.counterAccount } : {}) }, { konta: env.konta, payScheme: payScheme(env.posting) });
+  if (np?.konto) return { konto: np.konto, why: NP_WHY[np.kind], how: np.kind === 'fee' ? 'fee' : np.kind === 'card' ? 'card' : np.kind === 'wage' ? 'payroll' : 'tax' };
+  if (np?.kind === 'bank') return { konto: '', why: 'банката не е комитент – изберете конто (кредит, камата …)', how: '' };
   if (out && (FEE_CODES.has(code) || BANK_FEE.test(t))) return { konto: env.konta.fee, why: code && FEE_CODES.has(code) ? `шифра ${code} – провизија на банката` : 'провизија на банката', how: 'fee' };
   const pub = code === '840' || code === '843' || TREASURY_RE.test(String(x.counterAccount ?? '').replace(/\s/g, '')) || PUBLIC_RE.test(text);
   if (pub) {
@@ -141,7 +154,9 @@ export async function statementSuggestions(tx: Tx, firmId: string, statementIds:
     if (out.has(l.id)) continue;
     const s = suggestByCode({ amount: Math.round(Number(l.amount) * 100), desc: l.description, name: l.name, purpose: l.purpose, osnov: l.osnov, counterAccount: l.counterAccount, acct: l.bankAccountId, date: l.date }, env);
     // a line already on 1200 / 2200 that only lacks the partner keeps its konto
-    if (l.konto && BKPK_RE.test(l.konto) && s.konto !== l.konto) {
+    const amt = Math.round(Number(l.amount) * 100);
+    // (an inflow left on 22x / an outflow on 12x is re-proposed: customers pay to 1200, suppliers are paid from 2200)
+    if (l.konto && BKPK_RE.test(l.konto) && s.konto !== l.konto && !wrongSideWarning(l.konto, amt, false) && !s.how.match(/^(fee|card|payroll|tax|vat|contrib)$/)) {
       out.set(l.id, { konto: l.konto, ...(l.newPartner ? { newPartner: l.newPartner } : {}), why: l.newPartner ? `нов комитент „${l.newPartner}“` : 'изберете комитент', how: 'partner' });
     } else out.set(l.id, s);
   }
