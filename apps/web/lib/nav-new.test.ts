@@ -35,13 +35,13 @@ describe('classic menu (P40 „класично“) is the legacy NAV, unchanged
     expect(NAV).toHaveLength(14);
     expect(count(NAV, 'dosie')).toBe(2);
     expect(count(NAV, 'korisnici')).toBe(2);
-    expect(menuSize(NAV)).toEqual({ groups: 14, items: 198 }); // + bankSite and ⚙ Автоматизации (owner only)
+    expect(menuSize(NAV)).toEqual({ groups: 14, items: 199 }); // + bankSite and ⚙ Автоматизации (owner only), 📥 Пристигнати документи (UX P7)
   });
 });
 
 describe('new menu (P40 „ново“)', () => {
   it('before → after: 14 → 13 groups, 197 → 172 entries', () => {
-    expect(menuSize(NEW)).toEqual({ groups: 13, items: 172 });
+    expect(menuSize(NEW)).toEqual({ groups: 13, items: 173 }); // + 📥 Пристигнати документи (UX P7)
     expect(NEW.map(([g]) => g)).not.toContain('Излез');
   });
   it('P13 Архива once: dosie / paket only in Архива', () => {
@@ -56,7 +56,7 @@ describe('new menu (P40 „ново“)', () => {
     expect(F.filter((x) => x[0] === '-').length).toBeGreaterThanOrEqual(3);
     expect(all(NEW)).not.toContain('izlezF');
     // the top-level Фирми list is short now (was 29 items)
-    expect(F.filter((x) => x[0] !== '-').length).toBeLessThan(20);
+    expect(F.filter((x) => x[0] !== '-').length).toBeLessThan(21); // 20 with 📥 Пристигнати документи (UX P7)
   });
   it('P15 Корисници only in Систем', () => {
     expect(count(NEW, 'korisnici')).toBe(1);

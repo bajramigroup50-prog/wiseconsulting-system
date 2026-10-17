@@ -50,7 +50,8 @@ export const isDemoFirm = (f: { name: string | null | undefined; settings?: unkn
 
 /** Demo job policy: which background jobs a demo user may start (everything else — mail, УЈП, NBRM, imports… — is off). */
 export const DEMO_AI_JOBS: readonly string[] = ['ai.read-document', 'ai.read-firm-resh', 'robot.ask', 'kontrola.ai', 'law.ask', 'law.case', 'firm-report.ai', 'client-report.summary', 'inbox.combine'];
-export const DEMO_FREE_JOBS: readonly string[] = ['pdf.render'];
+/** `incoming.detect`: the free type detection of „📥 Пристигнати документи“ (no AI, nothing outward; a statement imports only into the demo firm). */
+export const DEMO_FREE_JOBS: readonly string[] = ['pdf.render', 'incoming.detect'];
 export function demoJobAllowed(name: string, _aiOn?: boolean): boolean {
   // no AI job for a demo user, whatever the settings say: the demo never spends the AI budget
   return DEMO_FREE_JOBS.includes(name);

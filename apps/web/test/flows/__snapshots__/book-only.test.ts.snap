@@ -3,6 +3,7 @@
 exports[`a colleague (acc / senior / admin who is not the owner) > the menu: only bookkeeping (nav ids snapshot), none of the hidden items 1`] = `
 [
   "Фирми:home",
+  "Фирми:prist",
   "Фирми:izlezF",
   "Финансово:banka",
   "Финансово:devizni",
@@ -107,6 +108,7 @@ exports[`a colleague (acc / senior / admin who is not the owner) > the menu: onl
 exports[`a colleague (acc / senior / admin who is not the owner) > the „ново“ menu: the same bookkeeping views only (snapshot), and Ctrl+K finds nothing else 1`] = `
 [
   "Фирми:home",
+  "Фирми:prist",
   "Финансово:banka",
   "Финансово:devizni",
   "Финансово:blagajna",

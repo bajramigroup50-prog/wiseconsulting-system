@@ -106,6 +106,10 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['izvodi', 'c', 'bankReviewBook'],
   ['izvodi', 'u', 'bankLinkAccept bankLinkReject'],
   ['nalozi', 'u', 'autoRepost'],
+  // UX Phase 3: „📥 Пристигнати документи“ (P7 / P32): uploads, the automatic statement import by IBAN, routing
+  ['dokumenti', 'c', 'inUpload'],
+  ['izvodi', 'c', 'inAuto inBank'],
+  ['dokumenti', 'u', 'inRoute inSkip inUnskip inFirm'],
   ['firmi', 'c', 'partnerAccLearn fxNbrm'],
   ['firmi', 'u', 'partnerAccSave'],
   ['magacin', 'c', 'fiskrNew fiskrReport'],
