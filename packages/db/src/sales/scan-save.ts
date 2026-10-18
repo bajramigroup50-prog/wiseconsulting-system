@@ -42,10 +42,13 @@ export const saleVatUnclear = (dr: Partial<ScanSaleDraft>): boolean =>
 /** Save draft `i` of a read document as a purchase / an invoice and mark it saved (in the caller's transaction). */
 export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: number, actor: DocActor, over?: { date?: string; docDate?: string | null }, scheme?: number): Promise<string> {
   const x = d.drafts[i]!;
+  // scanned inside an opened nalog: the document is posted into that nalog
+  const nalogNo = String(((d.options ?? {}) as { nalogNo?: string }).nalogNo ?? '').trim();
   if (d.kind === 'sale') {
     const src = draftSourceFiles(d, i).fileIds;
     const dr = { ...(x.draft as unknown as ScanSaleDraft), ...(over?.date ? { date: over.date } : {}) };
-    const inp = await saleInputFromDraft(tx, firmId, dr);
+    const inp0 = await saleInputFromDraft(tx, firmId, dr);
+    const inp = nalogNo ? { ...inp0, data: { ...(inp0.data ?? {}), nalogNo } } : inp0;
     // „Шема“ chosen for the batch (numbered posting schemes)
     const r = await saveInvoice(tx, firmId, scheme ? { ...inp, data: { ...(inp.data ?? {}), scheme } } : inp, actor);
     if (src.length) await tx.insert(fileLinks).values(src.map((fileId) => ({ fileId, entityType: 'invoice', entityId: r.id, role: 'source' }))).onConflictDoNothing();
@@ -56,6 +59,7 @@ export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: nu
   const dr = over ? { ...dr0, ...(over.date ? { date: over.date } : {}), ...(over.docDate !== undefined ? { docDate: over.docDate ?? '' } : {}) } : dr0;
   const pin = purchaseInputFromDraft(dr, draftSourceFiles(d, i));
   if (scheme) pin.data = { ...(pin.data ?? {}), scheme };
+  if (nalogNo) pin.data = { ...(pin.data ?? {}), nalogNo };
   const r = await savePurchase(tx, firmId, pin, actor);
   await markDraftSaved(tx, firmId, d.id, i, r.id);
   return r.id;

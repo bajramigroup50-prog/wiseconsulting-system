@@ -26,6 +26,7 @@ import { deleteJournalAction, deleteNalogAction, deleteNalogDocAction, nalogDocD
 import { collectiveHead, nalogTitler } from '@/lib/nalog-title';
 import { JournalEditor } from './journal-editor';
 import { NalogKeys, OverrideEditor } from './override-editor';
+import { ScanUpload } from '@/components/sales/scan-upload';
 import { newJournal, type EditorJournal } from './editor-model';
 import { ImportBox } from '../banka/import-box';
 import { deleteStatementAction } from '../banka/actions';
@@ -295,6 +296,20 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               nalog={{ number: g.no, emptyId: one && empty && manualLike(one) ? one.id : null, chart: chart.map((a) => [a.code, a.name]), partners: impP.map((p) => ({ id: p.id, name: p.name })) }} />
           </div>
         )}
+        {/* scan the documents of this nalog (the cash nalog 1020/7-9: receipts paid in cash) — read, approved on
+            „За физичка проверка“ and posted INTO this nalog */}
+        {write && !isIzv && !g.journals.some(locked) && (() => {
+          const cashNal = /^10[2-5]\d*$/.test(g.no.split('/')[0] ?? '');
+          return (
+            <div className="card noprint" id="sken-nalog">
+              <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: cashNal, nalogNo: g.no }}
+                  label={<><b>📷 Скенирај документи во овој налог</b> — {cashNal ? 'сметки / фискални платени во готово (трошок + ДДВ / благајна)' : 'влезни фактури'}; се читаат, ги одобрувате на листата и се книжат во налог бр. {g.no}</>} />
+                <Link className="btn" href="/skan/proverka">📋 За физичка проверка – одобри</Link>
+              </div>
+            </div>
+          );
+        })()}
         {panel.length > 0 && (
           <StatementsPanel statements={panel} chart={chart.filter((a) => !bankKs.has(a.code)).map((a) => [a.code, a.name])}
             partners={impP.map((p) => ({ id: p.id, code: p.code, name: p.name }))}

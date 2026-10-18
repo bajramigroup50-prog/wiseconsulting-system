@@ -97,6 +97,20 @@ export async function createInvoiceNalog(tx: Tx, f: Pick<Firm, 'id' | 'settings'
  * holds only sale journals, nothing in it is locked or in the locked period, and an opened nalog's period covers the
  * invoice date. Throws {@link DocumentError} with the reason.
  */
+/**
+ * A document scanned inside an opened nalog is posted into it: the nalog must exist in the document's year, not be
+ * locked nor in the locked period. Any kind of nalog (a cash nalog 1020/7-9, a manual one…).
+ */
+export async function assertTargetNalog(tx: Tx, f: Pick<Firm, 'id' | 'lockDate'>, number: string, doc: { sourceType: string; id: string; date: string }): Promise<void> {
+  const y = yearOf(doc.date);
+  const all = await tx.select().from(journals).where(and(eq(journals.firmId, f.id), eq(journals.number, number), sql`${journals.date} between ${y + '-01-01'} and ${y + '-12-31'}`));
+  const L = all.filter((j) => !(j.sourceType === doc.sourceType && j.sourceId === doc.id));
+  if (!L.length && all.length) return;
+  if (!L.length) throw new DocumentError(`Налогот за книжење бр. ${number} не постои во ${y}.`);
+  if (L.some((j) => j.locked)) throw new DocumentError(`Налогот бр. ${number} е заклучен.`);
+  if (f.lockDate && doc.date <= f.lockDate) throw new DocumentError(`Документот е во заклучениот период (до ${dmy(f.lockDate)}).`);
+}
+
 export async function assertInvoiceNalog(tx: Tx, f: Pick<Firm, 'id' | 'lockDate'>, number: string, inv: { id: string; date: string }): Promise<void> {
   const y = yearOf(inv.date);
   const all = await tx.select().from(journals).where(and(eq(journals.firmId, f.id), eq(journals.number, number), sql`${journals.date} between ${y + '-01-01'} and ${y + '-12-31'}`));

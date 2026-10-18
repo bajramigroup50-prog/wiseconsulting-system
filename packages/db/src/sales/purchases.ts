@@ -26,6 +26,7 @@ import { deleteTransfer, saveLevelling } from '../stock-docs';
 import { dependentLabel, dependentTransfers } from '../transfer-links';
 import { ensurePartner } from './partners-auto';
 import { releaseScanDrafts } from './ai-docs';
+import { assertTargetNalog } from './invoice-nalog';
 import { learnPartnerAccount } from '../partner-accounts';
 
 import { todaySkopje } from '@wise/core/office/dates';
@@ -158,8 +159,11 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   }
   // legacy `vbLines` 3451: the off-balance VAT bases of every Влез document (Д 994… / П 999…)
   lines = [...lines, ...vbLines(purchaseVatBases({ groups: G.map((g) => ({ konto: gk(g.account), rate: g.rate, base: n(g.base), vat: n(g.vat) })), costs, imp: pur.imp, art32: pur.art32 }), ctx)];
+  // scanned inside an opened nalog (the cash nalog 1020/7-9…): posted into it
+  const nalogNo = String(((pur.data ?? {}) as PurchaseData).nalogNo ?? '').trim() || null;
+  if (nalogNo) await assertTargetNalog(tx, f, nalogNo, { sourceType: 'purchase', id: pur.id, date: pur.date });
   await postJournal(tx, {
-    firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId,
+    firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId, number: nalogNo,
     description: 'Влезна ф-ра ' + (pur.number || '') + (pur.supplierName ? ' · ' + pur.supplierName : ''),
     lines: lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId || null, note: l.note ?? null, doc: pur.number || null, currency: l.cur ?? null, amountCur: l.amtCur ?? null })),
     auditAction: 'postPurchase',

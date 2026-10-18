@@ -28,6 +28,8 @@ const Start = z.object({
   kind: z.enum(['purchase', 'sale']),
   batchId: z.uuid().nullable(),
   cash: z.boolean().default(false), warehouseId: z.string().max(40).default(''), costOnly: z.boolean().default(false),
+  /** Scanned inside an opened nalog: the saved documents are posted into it. */
+  nalogNo: z.string().trim().max(40).default(''),
   /** Read a file that is already attached (legacy `readAtt`): no duplicate-file check. */
   reread: z.boolean().default(false),
   /** Read for an open editor (legacy `readIntoDraft`): not listed on the scan screen. */
@@ -58,7 +60,7 @@ export async function startScans(input: z.input<typeof Start>): Promise<ActionSt
         if (used) { skipped.push(`${used.name}: веќе е прикачен на ${used.entityType === 'purchase' ? 'влезна фактура' : 'излезна фактура'}`); return; }
         const [d] = await tx.insert(aiDocuments).values({
           firmId: firm.id, fileId: F[0]!.id, kind: v.kind, batchId: v.batchId, createdBy: u.id,
-          options: { cash: v.cash, warehouseId: v.warehouseId || null, costOnly: v.costOnly, extraFileIds: F.slice(1).map((f) => f.id), ...(v.inline ? { inline: true } : {}) },
+          options: { cash: v.cash, warehouseId: v.warehouseId || null, costOnly: v.costOnly, extraFileIds: F.slice(1).map((f) => f.id), ...(v.inline ? { inline: true } : {}), ...(v.nalogNo ? { nalogNo: v.nalogNo } : {}) },
         }).returning({ id: aiDocuments.id });
         ids.push(d!.id);
         await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanStart', entityType: 'ai_document', data: { count: 1, pages: F.length, kind: v.kind, batchId: v.batchId } });
@@ -70,7 +72,7 @@ export async function startScans(input: z.input<typeof Start>): Promise<ActionSt
         if (used) { skipped.push(`${f.name}: веќе е прикачен на ${used.entityType === 'purchase' ? 'влезна фактура' : 'излезна фактура'}`); continue; }
         const [d] = await tx.insert(aiDocuments).values({
           firmId: firm.id, fileId: f.id, kind: v.kind, batchId: v.batchId, createdBy: u.id,
-          options: { cash: v.cash, warehouseId: v.warehouseId || null, costOnly: v.costOnly, ...(v.inline ? { inline: true } : {}) },
+          options: { cash: v.cash, warehouseId: v.warehouseId || null, costOnly: v.costOnly, ...(v.inline ? { inline: true } : {}), ...(v.nalogNo ? { nalogNo: v.nalogNo } : {}) },
         }).returning({ id: aiDocuments.id });
         ids.push(d!.id);
       }

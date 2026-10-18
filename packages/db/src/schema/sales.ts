@@ -209,6 +209,8 @@ export interface PurchaseData {
   srcPages?: string;
   /** „Шема за книжење“ (see `InvoiceData.scheme`). */
   scheme?: number;
+  /** The nalog it is posted into (scanned inside an opened nalog, e.g. the cash nalog 1020/7-9); empty = automatic. */
+  nalogNo?: string;
 }
 
 export const purchases = pgTable('purchases', {
