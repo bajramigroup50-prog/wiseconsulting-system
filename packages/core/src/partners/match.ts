@@ -330,6 +330,10 @@ const diffIdent = partnerIdsDiffer;
 export function nameParts(name: unknown): { main: string; paren: string[] } {
   const s = String(name ?? '');
   const paren = [...s.matchAll(/\(([^()]*)\)?/g)].map((m) => m[1]!.trim()).filter(Boolean);
+  // „АСУРА - ЕАСТ ГАТЕ МОЛ“, „АСУРА ГРОУП - Soravia Center“: the name before „ - “ is the company, the rest its object /
+  // location — compared like a parenthetical part (a candidate in „Дупликати“, never merged automatically)
+  const dash = /^(.+?)\s+[-–—]\s+(.+)$/.exec(s.replace(/\([^()]*\)?/g, ' ').trim());
+  if (dash && nameTokens(dash[1]).length) paren.push(dash[1]!.trim());
   const main = s.replace(/\([^()]*\)?/g, ' ').replace(/\s+/g, ' ').trim();
   return { main: main && nameTokens(main).length ? main : s, paren };
 }

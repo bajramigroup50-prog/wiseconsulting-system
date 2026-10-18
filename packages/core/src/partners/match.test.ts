@@ -145,3 +145,20 @@ describe('the same giro account', () => {
     expect(g.some((x) => x.members.some((m) => m.id === 'e') && x.members.some((m) => m.id === 'f'))).toBe(false);
   });
 });
+
+describe('company - object / location', () => {
+  it('„АСУРА - ЕАСТ ГАТЕ МОЛ“, „АСУРА ГРОУП - Soravia Center“ and „АСУРА ГРОУП ДООЕЛ СКОПЈЕ“ are one candidate group (not sure); АСУРА ФАСИЛИТИ is not in it', () => {
+    const P = [
+      { id: 'a', code: '0378', name: 'АСУРА ГРОУП - Soravia Center', embs: '6546676' },
+      { id: 'b', code: null, name: 'АСУРА ГРОУП ДООЕЛ СКОПЈЕ' },
+      { id: 'c', code: '0293', name: 'АСУРА - ЕАСТ ГАТЕ МОЛ' },
+      { id: 'd', code: '0367', name: 'АСУРА - East Gate Living' },
+      { id: 'e', code: '0063', name: 'АСУРА ФАСИЛИТИ МЕНАЏМЕНТ ДООЕЛ' },
+    ];
+    const g = partnerDuplicates(P);
+    const G = g.find((x) => x.members.some((m) => m.id === 'b'))!;
+    expect(G.members.map((m) => m.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(G.sure).toBe(false);
+    expect(g.some((x) => x.members.some((m) => m.id === 'e'))).toBe(false);
+  });
+});
