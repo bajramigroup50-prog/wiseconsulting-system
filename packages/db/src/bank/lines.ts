@@ -47,6 +47,29 @@ async function upsertRule(tx: Tx, firmId: string, kind: 'desc' | 'osnov', match:
 }
 
 /**
+ * Remember a statement line's konto for the next import: the description rule (`learnRule`, not for 12x / 22x or a
+ * bank konto) and the payment-code rule (`learnOsnov`). Returns the learned keys. Used by „Директно на конто“ and by
+ * a konto corrected inside the bank nalog („запомни правило“).
+ */
+export async function learnLineKonto(tx: Tx, firmId: string, line: BankLine, konto: string): Promise<string[]> {
+  const learned: string[] = [];
+  const env = await loadBankEnv(tx, firmId);
+  const bankK = new Set(env.accounts.map((x) => x.konto));
+  if (bankK.has(konto)) return learned;
+  if (!/^(12|22)/.test(konto) && learnRule(env.rules, line.description, konto)) {
+    const key = counterparty(line.description);
+    await upsertRule(tx, firmId, 'desc', key, konto, true);
+    learned.push(key);
+  }
+  if (learnOsnov(env.osnovK, { ...toBankRow(line), konto, ref: undefined })) {
+    const k = String(line.osnov) + '|' + (Number(line.amount) > 0 ? 'in' : 'out');
+    await upsertRule(tx, firmId, 'osnov', k, konto, true);
+    learned.push(k);
+  }
+  return learned;
+}
+
+/**
  * Book a line directly on a konto (with an optional partner), clearing any document link. With `learn`, the
  * description rule (`learnRule`) and the payment-code rule (`learnOsnov`) are remembered for the next import.
  */
@@ -67,23 +90,7 @@ export async function setLineKonto(tx: Tx, a: { firmId: string; userId: string |
   await tx.update(bankLines).set({ ...UNBOOKED, konto: a.konto, partnerId: a.partnerId || null, pos: line.pos, own: line.own, conv: line.conv, newPartner: a.partnerId ? null : line.newPartner })
     .where(eq(bankLines.id, line.id));
   if (a.partnerId) await learnAccountsFromStatements(tx, { firmId: a.firmId, userId: a.userId, lineIds: [line.id] });
-  const learned: string[] = [];
-  if (a.learn !== false) {
-    const env = await loadBankEnv(tx, a.firmId);
-    const bankK = new Set(env.accounts.map((x) => x.konto));
-    if (!bankK.has(a.konto) && !/^(12|22)/.test(a.konto)) {
-      if (learnRule(env.rules, line.description, a.konto)) {
-        const key = counterparty(line.description);
-        await upsertRule(tx, a.firmId, 'desc', key, a.konto, true);
-        learned.push(key);
-      }
-    }
-    if (learnOsnov(env.osnovK, { ...toBankRow(line), konto: a.konto, ref: undefined })) {
-      const k = String(line.osnov) + '|' + (Number(line.amount) > 0 ? 'in' : 'out');
-      await upsertRule(tx, a.firmId, 'osnov', k, a.konto, true);
-      learned.push(k);
-    }
-  }
+  const learned = a.learn !== false ? await learnLineKonto(tx, a.firmId, line, a.konto) : [];
   if (a.post !== false) await postStatement(tx, st.id, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bankKonto', entityType: 'bank_line', entityId: line.id, data: { konto: a.konto, partnerId: a.partnerId ?? null, learned } });
   return learned;

@@ -243,8 +243,8 @@ const OvRowZ = z.object({
  * the line edits are stored as an override of the source document and re-applied on every re-post.
  * New / changed lines on 120–128 / 220–228 need a partner (legacy 12457).
  */
-export async function saveOverrideAction(journalId: string, rows: unknown, stay = false): Promise<ActionState> {
-  let target = '';
+export async function saveOverrideAction(journalId: string, rows: unknown, stay = false, learn = false): Promise<ActionState & { learned?: number }> {
+  let target = '', learned = 0;
   try {
     const R = z.array(OvRowZ).max(2000).safeParse(rows);
     if (!R.success) return { error: 'Неважечки редови.' };
@@ -253,12 +253,14 @@ export async function saveOverrideAction(journalId: string, rows: unknown, stay 
     if (bad) return { error: `Неважечко конто „${bad.account}“.` };
     const np = R.data.find((r) => !r.del && (r.debit || r.credit) && needsPartner(r.account) && !r.partnerId);
     if (np) return { error: `Новите ставки на конто ${[...new Set(R.data.filter((r) => !r.del && (r.debit || r.credit) && needsPartner(r.account) && !r.partnerId).map((r) => r.account))].join(', ')} бараат комитент – изберете го во колоната „Комитент“.` };
-    const res = await db().transaction((tx) => saveJournalOverride(tx, { firmId: firm.id, journalId, rows: R.data, userId: u.id }));
-    target = res.number;
+    // „запомни правило“ (bank nalog): a changed konto also teaches the bank rule of its statement line
+    const res = await db().transaction((tx) => saveJournalOverride(tx, { firmId: firm.id, journalId, rows: R.data, userId: u.id, learn }));
+    target = res.number; learned = res.learned.length;
   } catch (e) { return actionError(e); }
   revalidatePath('/nalozi');
-  if (stay) return { ok: target };
-  redirect(`/nalozi?n=${encodeURIComponent(target)}`);
+  revalidatePath('/banka');
+  if (stay) return { ok: target, learned };
+  redirect(`/nalozi?n=${encodeURIComponent(target)}${learned ? `&pr=${learned}` : ''}`);
 }
 
 /** „↺ Врати како во документот“ — remove the correction (needs `fix`). */

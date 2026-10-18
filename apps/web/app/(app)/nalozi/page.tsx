@@ -37,7 +37,7 @@ import { NalogGrid, type GridJournal, type GridRow } from './nalog-grid';
 import { ListKeys } from './list-keys';
 import { mergeBankHeads } from '@/lib/nalog-grid';
 
-type SP = { n?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string; fast?: string; sort?: string; sint?: string };
+type SP = { n?: string; pr?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string; fast?: string; sort?: string; sint?: string };
 const KIND_LBL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(NAL_DEF).map(([k, v]) => [k, v[1]])), bank: 'ИЗВОД', manual: 'РАЧЕН НАЛОГ', bbimp: 'БРУТО БИЛАНС', pos: 'POS ПРОВИЗИЈА',
 };
@@ -68,7 +68,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       if (isDoc) {
         if (!fix || locked(j)) return <><Hd t={'Налог ' + j.number} exp={false} /><div className="callout bad">Налогот не може да се коригира ({locked(j) ? 'заклучен период' : 'немате право на корекција'}).</div></>;
         const st = await db().transaction((tx) => journalOverrideState(tx, firm.id, j.id));
-        return <OverrideEditor journalId={j.id} number={j.number} title={title} rows={st.rows ?? []} chart={chart.map((a) => [a.code, a.name])} partners={P} />;
+        return <OverrideEditor journalId={j.id} number={j.number} title={title} bank={j.sourceType === 'bank_statement'} rows={st.rows ?? []} chart={chart.map((a) => [a.code, a.name])} partners={P} />;
       }
       const L = await db().select().from(journalLines).where(eq(journalLines.journalId, j.id)).orderBy(asc(journalLines.lineNo));
       initial = {
@@ -367,6 +367,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             </div>
           );
         })()}
+        {sp.pr && <div className="callout good">🧠 Запомнети правила за изводите: {sp.pr} – следниот извод со ист опис / шифра се книжи на истото конто (Банка › Правила за автоматско книжење).</div>}
         {/* the nalog as a keyboard grid: Нова (Ins) / Промена (Enter) / Бришење (Del) / Аналитика (F3) / печатење; PDF / Excel keep all columns */}
         <NalogGrid rows={gridRows} journals={gridJ} firmName={firm.name} no={g.no} date={ds.at(-1) ?? ds[0]!}
           chart={chart.filter((a) => !bankKs.has(a.code)).map((a) => [a.code, a.name])} partners={impP.map((p) => ({ id: p.id, code: p.code, name: p.name }))}

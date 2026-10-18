@@ -9,7 +9,9 @@ import { lineTotals } from '@wise/core';
 import { audit, type Tx } from './audit';
 import { journalOverridesReady } from './journal-override';
 import { PostingError, updateJournal, type PostLineInput } from './posting';
-import { journalLines, journalOverrides, journals, type JournalOverrideBase } from './schema/index';
+import { bankLines, journalLines, journalOverrides, journals, type JournalOverrideBase } from './schema/index';
+import { learnLineKonto } from './bank/lines';
+import { BANK_SOURCE_TYPE } from './bank/open-items';
 
 const OVERRIDABLE = (kind: string, sourceType: string | null) => !!sourceType && !['manual', 'open', 'bbimp', 'close'].includes(kind);
 
@@ -34,7 +36,7 @@ export async function journalOverrideState(tx: Tx, firmId: string, journalId: st
 const baseLines = (base: JournalOverrideBase[]): PostLineInput[] => base.map((b) => ({ ...b }));
 
 /** Store the correction (rows of the editor) and re-write the journal. Throws when unbalanced. */
-export async function saveJournalOverride(tx: Tx, a: { firmId: string; journalId: string; rows: OvRow[]; userId: string | null }) {
+export async function saveJournalOverride(tx: Tx, a: { firmId: string; journalId: string; rows: OvRow[]; userId: string | null; learn?: boolean }) {
   const st = await journalOverrideState(tx, a.firmId, a.journalId);
   if (!st.base) throw new PostingError('not_found', 'Овој налог не е креиран од документ – се менува како рачен налог.');
   const live = a.rows.filter((r) => !r.del);
@@ -57,7 +59,29 @@ export async function saveJournalOverride(tx: Tx, a: { firmId: string; journalId
   });
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: overrideEmpty(data) ? 'nalOverrideReset' : 'nalOverride', entityType: 'journal', entityId: j.id,
     data: { number: j.number, sourceType: j.sourceType, sourceId: j.sourceId, edits: data.edits.length, adds: data.adds.length } });
-  return res;
+  const learned = a.learn && j.sourceType === BANK_SOURCE_TYPE ? await learnFromBankNalog(tx, a.firmId, j.sourceId!, st.base, live) : [];
+  return { ...res, learned };
+}
+
+const C = (v: unknown) => Math.round((Number(v ?? 0) || 0) * 100);
+
+/**
+ * „запомни правило“ in a bank nalog: a counter line whose konto was changed teaches the bank rules of its statement line,
+ * as „Директно на конто“ in Банка does. The journal line is matched to the statement line by its note (the line's
+ * name / description) and amount; lines that cannot be matched (splits, FX sides) teach nothing.
+ */
+async function learnFromBankNalog(tx: Tx, firmId: string, statementId: string, base: JournalOverrideBase[], rows: OvRow[]): Promise<string[]> {
+  const changed = rows.filter((r) => r.i != null && base[r.i] && r.account !== base[r.i]!.account);
+  if (!changed.length) return [];
+  const L = await tx.select().from(bankLines).where(and(eq(bankLines.statementId, statementId), eq(bankLines.firmId, firmId))).orderBy(asc(bankLines.lineNo));
+  const learned: string[] = [];
+  for (const r of changed) {
+    const b = base[r.i!]!;
+    const amt = C(b.debit) || C(b.credit);
+    const line = L.find((l) => (l.name || l.description || '').slice(0, 200) === (b.note ?? '') && C(Math.abs(Number(l.amount))) === Math.abs(amt));
+    if (line) learned.push(...await learnLineKonto(tx, firmId, line, r.account));
+  }
+  return [...new Set(learned)];
 }
 
 /** „Врати како во документот“: remove the correction and re-write the generated lines. */

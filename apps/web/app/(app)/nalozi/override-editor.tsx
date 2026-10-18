@@ -11,11 +11,13 @@ import type { OvRow } from '@wise/core/finpar';
 import { fmt } from '@/lib/fmt';
 import { saveOverrideAction } from './actions';
 
-export function OverrideEditor({ journalId, number, title = '', rows: initial, chart, partners }: {
-  journalId: string; number: string; /** The nalog's „✎ Назив“. */ title?: string; rows: OvRow[]; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[];
+export function OverrideEditor({ journalId, number, title = '', bank = false, rows: initial, chart, partners }: {
+  journalId: string; number: string; /** The nalog's „✎ Назив“. */ title?: string;
+  /** A bank statement nalog: offers „запомни правило“ (a changed konto teaches the bank rule of its statement line). */ bank?: boolean; rows: OvRow[]; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[];
 }) {
   const [rows, setRows] = useState<OvRow[]>(initial);
   const [err, setErr] = useState('');
+  const [learn, setLearn] = useState(true);
   const [pending, start] = useTransition();
   const router = useRouter();
   const names = new Map(chart);
@@ -25,7 +27,7 @@ export function OverrideEditor({ journalId, number, title = '', rows: initial, c
   const t = lineTotals(rows.filter((r) => !r.del).map((r) => ({ debit: r.debit, credit: r.credit })));
   const save = () => start(async () => {
     setErr('');
-    const res = await saveOverrideAction(journalId, rows.filter((r) => r.i != null || r.debit || r.credit));
+    const res = await saveOverrideAction(journalId, rows.filter((r) => r.i != null || r.debit || r.credit), false, bank && learn);
     if (res?.error) setErr(res.error);
   });
   useEffect(() => {
@@ -43,6 +45,7 @@ export function OverrideEditor({ journalId, number, title = '', rows: initial, c
       <div className="hd">
         <h1>Налог за книжење бр. {number}<span className="mk">{title ? title + ' · ' : ''}рачна корекција</span></h1>
         <div className="row">
+          {bank && <label className="chk" title="Кога ќе го смените контото на ставка од изводот, програмот го памети правилото (опис / шифра на плаќање) – следниот извод се книжи на истото конто, исто како во Банка"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} /> запомни правило за изменетите конта</label>}
           <button type="button" className="btn" onClick={add}>+ Нов ред (Ins)</button>
           <button type="button" className="btn" onClick={() => router.push(back)}>Откажи (Esc)</button>
           <button type="button" className="btn pri" disabled={pending} onClick={save}>{pending ? 'Се зачувува…' : 'Зачувај (F4)'}</button>

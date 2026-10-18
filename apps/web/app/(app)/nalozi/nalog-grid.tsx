@@ -101,6 +101,8 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
   const [bankNew, setBankNew] = useState(false);
   const [msg, setMsg] = useState<{ ok?: string; error?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** „запомни правило“: a konto changed on a statement line of a bank nalog teaches the bank rule (as in Банка). */
+  const [learn, setLearn] = useState(true);
   const box = useRef<HTMLDivElement>(null);
   const J = useMemo(() => new Map(journals.map((j) => [j.id, j])), [journals]);
   const names = useMemo(() => new Map(chart), [chart]);
@@ -119,11 +121,12 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
 
   /* ---------- saving ---------- */
   const saveJournals = async (G: GridRow[], D: Set<string>, O: Record<string, OvState>) => {
+    let learned = 0;
     const ready = [...D].filter((jid) => Math.abs(r2(G.reduce((s, r) => (r.jid === jid ? s + r.debit - r.credit : s), 0))) <= 0.004);
     for (const jid of ready) {
       const j = J.get(jid)!;
       const mine = G.filter((r) => r.jid === jid);
-      let res: { ok?: string; error?: string };
+      let res: { ok?: string; error?: string; learned?: number };
       if (j.mode === 'manual') {
         const f = new FormData();
         f.set('stay', '1');
@@ -135,12 +138,13 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
           })),
         }));
         res = await saveJournal({}, f);
-      } else res = await saveOverrideAction(jid, O[jid]?.rows ?? [], true);
+      } else res = await saveOverrideAction(jid, O[jid]?.rows ?? [], true, j.bank && learn);
       if (res.error) { setMsg({ error: res.error }); return false; }
+      learned += res.learned ?? 0;
       D.delete(jid);
     }
     setDirty(new Set(D));
-    if (ready.length) { setMsg({ ok: 'Промената е зачувана; налогот е прекнижан.' }); router.refresh(); }
+    if (ready.length) { setMsg({ ok: 'Промената е зачувана; налогот е прекнижан.' + (learned ? ` 🧠 Запомнети правила за изводите: ${learned}.` : '') }); router.refresh(); }
     return true;
   };
 
@@ -327,6 +331,11 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
         <button type="button" className="btn sm" onClick={() => print(true)}>Печатење девизен (F6)</button>
         {sintHref && <button type="button" className="btn sm" onClick={() => router.push(sintHref)}>Синтетики (F8)</button>}
         {bank?.write && MASS.map((k) => <button key={k} type="button" className="btn sm ghost" disabled={busy} onClick={() => void massClose(k)} title={`Плаќањата на ${k} без фактура се поврзуваат со отворените фактури на комитентот (FIFO / по број) – со преглед пред потврда`}>Масовно затворање {k}</button>)}
+        {IZ && journals.some((j) => j.bank && j.mode === 'override') && (
+          <label className="chk mini" title="Кога ќе го смените контото на ставка од изводот, програмот го памети правилото (опис / шифра на плаќање) – следниот извод се книжи на истото конто, исто како во Банка">
+            <input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} /> запомни правило
+          </label>
+        )}
         <span className="note">↑ ↓ избор · + / − селекција · клик на конто = промена</span>
       </div>
       <div className="row mini" style={{ gap: 14, flexWrap: 'wrap', padding: '4px 6px', background: 'var(--accent-soft, #eef4ff)', borderRadius: 6 }} data-testid="grid-head">
