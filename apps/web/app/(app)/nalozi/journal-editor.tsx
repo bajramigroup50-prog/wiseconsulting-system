@@ -20,8 +20,8 @@ import { blankRow as blank, fastToRow, isBlankRow, rowToFast, type EditorJournal
 /** End of month for "period from" (legacy 13461). */
 const monthEnd = (d: string) => { const [y, m] = d.split('-').map(Number); return new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10); };
 
-export function JournalEditor({ initial, chart: chart0, partners, numbers, schemes = [], fast = false }: {
-  initial: EditorJournal; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[]; numbers: string[];
+export function JournalEditor({ initial, title = '', chart: chart0, partners, numbers, schemes = [], fast = false }: {
+  initial: EditorJournal; /** The nalog's „✎ Назив“ shown in the header. */ title?: string; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[]; numbers: string[];
   /** Custom posting schemes (legacy `S.gsch.custom`, „Од шема“ `jFromSch` 7254). */
   schemes?: CustomScheme[];
   /** Open „Нова ставка“ right away („+ Рачен налог“ / „+ Ставки“). */
@@ -73,7 +73,7 @@ export function JournalEditor({ initial, chart: chart0, partners, numbers, schem
     <form ref={formRef} action={action} onKeyDown={(e) => { if (e.key === 'Insert' && !fe) { e.preventDefault(); setFe({ i: null }); } }}>
       <input type="hidden" name="payload" value={JSON.stringify(j)} />
       <div className="hd">
-        <h1>{j.id ? 'Корекција на налог ' + j.number : 'Рачен налог за книжење'}</h1>
+        <h1>{j.id ? 'Корекција на налог ' + j.number : 'Рачен налог за книжење'}{title && <span className="mk">{title}</span>}</h1>
         <div className="row">
           <Link className="btn" href={cancelHref}>Откажи (Esc)</Link>
           <button className="btn pri" disabled={pending}>Зачувај (F4)</button>

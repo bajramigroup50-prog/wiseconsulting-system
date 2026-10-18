@@ -10,7 +10,7 @@ import { bankEffKonto, bankName, noPartnerLine, groupNalozi, lineTotals, NAL_DEF
 import type { CustomScheme } from '@wise/core/finance';
 import { findPartnerMatch } from '@wise/core/partners/match';
 import {
-  appSettings, bankAccounts, bankLines, bankStatements, effectiveChart, firmNalogSettings, journalLines, journalOverrideState, journals, lineProblem, loadBankAccounts, partners, purchases,
+  appSettings, bankAccounts, bankLines, bankStatements, effectiveChart, firmNalogSettings, isManualJournal, journalLines, journalOverrideState, journals, lineProblem, nalTitlesOf, loadBankAccounts, partners, purchases,
   SCHEMES_SETTINGS_KEY, statementSuggestions, toBankRow, type LineSuggestion,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions, yearRange } from '@/lib/books';
@@ -55,16 +55,20 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
 
   /* ---------- editor ---------- */
   if (sp.nov !== undefined || sp.edit) {
+    let title = '';
     let initial: EditorJournal = newJournal(todayIso().startsWith(String(year)) ? todayIso() : `${year}-12-31`);
     const [chart, P] = await Promise.all([effectiveChart(db(), firm.id), partnerOptions(firm.id)]);
     if (sp.edit) {
       const [j] = await db().select().from(journals).where(and(eq(journals.id, sp.edit), eq(journals.firmId, firm.id))).limit(1);
       if (!j) return <NoFirm t="Налогот не постои" />;
-      const isDoc = !!j.sourceType && !['opening', 'bbimp', 'yearClose'].includes(j.sourceType);
+      // an imported nalog (`journal-import`) is a manual nalog: it opens with its lines for manual posting, not as a document correction
+      const isDoc = !isManualJournal(j.sourceType);
+      // the header names the nalog by its „✎ Назив“ when it has one
+      title = nalTitlesOf(firm.settings, year)[j.number] ?? '';
       if (isDoc) {
         if (!fix || locked(j)) return <><Hd t={'Налог ' + j.number} exp={false} /><div className="callout bad">Налогот не може да се коригира ({locked(j) ? 'заклучен период' : 'немате право на корекција'}).</div></>;
         const st = await db().transaction((tx) => journalOverrideState(tx, firm.id, j.id));
-        return <OverrideEditor journalId={j.id} number={j.number} rows={st.rows ?? []} chart={chart.map((a) => [a.code, a.name])} partners={P} />;
+        return <OverrideEditor journalId={j.id} number={j.number} title={title} rows={st.rows ?? []} chart={chart.map((a) => [a.code, a.name])} partners={P} />;
       }
       const L = await db().select().from(journalLines).where(eq(journalLines.journalId, j.id)).orderBy(asc(journalLines.lineNo));
       initial = {
@@ -93,7 +97,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     ]);
     const schemes = ((g?.v ?? {}) as { custom?: CustomScheme[] }).custom ?? [];
     // „+ Рачен налог“ / „+ Ставки“ open with the „Нова ставка“ dialog (fast entry); „Нова (Ins)“ of the nalog grid passes `fast`
-    return <JournalEditor initial={initial} chart={chart.map((a) => [a.code, a.name])} partners={P} numbers={nums.map((x) => x.n)} schemes={schemes} fast={!sp.edit || sp.fast !== undefined} />;
+    return <JournalEditor initial={initial} title={title} chart={chart.map((a) => [a.code, a.name])} partners={P} numbers={nums.map((x) => x.n)} schemes={schemes} fast={!sp.edit || sp.fast !== undefined} />;
   }
 
   /* ---------- „+ Нов налог – изводи“: the statement is imported first, the nalog is numbered / dated by it ---------- */
@@ -121,7 +125,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
   }).from(journals).leftJoin(journalLines, eq(journalLines.journalId, journals.id)).where(inYear)
     .groupBy(journals.id).orderBy(asc(journals.date), asc(journals.createdAt));
   const G = groupNalozi(J);
-  const manualLike = (j: (typeof J)[number]) => !j.sourceType || ['opening', 'bbimp', 'yearClose'].includes(j.sourceType);
+  const manualLike = (j: (typeof J)[number]) => isManualJournal(j.sourceType);
   /** A nalog of one document (invoice, purchase…) — deleted with its document through „🗑 Избриши“ (with a preview). */
   const docOne = (j: (typeof J)[number]) => !manualLike(j) && j.sourceType !== 'bank_statement' && j.sourceType !== 'payroll';
   const canEdit = (j: (typeof J)[number]) => !locked(j) && (manualLike(j) ? (j.kind === 'manual' ? write : fix) : fix);

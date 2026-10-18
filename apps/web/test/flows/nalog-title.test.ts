@@ -1,7 +1,8 @@
 /**
  * „✎ Назив“ in Налози за книжење: the imported VAT nalog „1/3 – Увезен налог 1/3“ is renamed to „ДДВ 01-03“ — the list,
  * the opened nalog, the print and the Excel/CSV journal use the name; clearing it brings back the automatic title; the
- * same number in another year and other numbers keep theirs; a viewer cannot rename; a locked period still allows it (PGlite).
+ * same number in another year and other numbers keep theirs; a viewer cannot rename; a locked period still allows it; an
+ * imported nalog opens in the manual editor with its lines, headed by its name (PGlite).
  */
 import { eq } from 'drizzle-orm';
 import { prerender } from 'react-dom/static';
@@ -88,6 +89,19 @@ describe('✎ Назив на налог', () => {
     expect(await page()).toContain('Увезен налог 1/3');
     expect(await print('1/3')).toContain('УВЕЗЕН НАЛОГ 1/3');
     expect(await csv()).toMatch(/1\/3;Увезен налог 1\/3;/);
+  });
+
+  it('an imported nalog opens in the manual editor with its lines and its name (not an empty document correction)', async () => {
+    jar.set('wc_sess', owner);
+    const j = await pg.transaction((tx) => postJournal(tx as never, { firmId, date: '2026-06-30', kind: 'manual', number: '4/4-6', description: 'Увезен налог 4/4-6',
+      sourceType: 'import', sourceId: 'b1:4', userId: null, lines: [{ account: '230018', debit: 500 }, { account: '130018', credit: 500 }] }));
+    await rename('4/4-6', 'ДДВ 04-06');
+    const h = await page({ edit: j.id });
+    expect(h).toContain('Корекција на налог 4/4-6');
+    expect(h).toContain('ДДВ 04-06');
+    expect(h).not.toContain('рачна корекција');
+    expect(h).toContain('230018');
+    expect(h).toContain('130018');
   });
 
   it('a viewer sees no ✎ Назив and cannot rename; an unknown nalog is refused', async () => {

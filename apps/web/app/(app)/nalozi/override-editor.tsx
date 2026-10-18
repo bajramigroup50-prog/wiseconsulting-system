@@ -11,8 +11,8 @@ import type { OvRow } from '@wise/core/finpar';
 import { fmt } from '@/lib/fmt';
 import { saveOverrideAction } from './actions';
 
-export function OverrideEditor({ journalId, number, rows: initial, chart, partners }: {
-  journalId: string; number: string; rows: OvRow[]; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[];
+export function OverrideEditor({ journalId, number, title = '', rows: initial, chart, partners }: {
+  journalId: string; number: string; /** The nalog's „✎ Назив“. */ title?: string; rows: OvRow[]; chart: [string, string][]; partners: { id: string; code: string | null; name: string }[];
 }) {
   const [rows, setRows] = useState<OvRow[]>(initial);
   const [err, setErr] = useState('');
@@ -41,7 +41,7 @@ export function OverrideEditor({ journalId, number, rows: initial, chart, partne
   return (
     <>
       <div className="hd">
-        <h1>Налог за книжење бр. {number}<span className="mk">рачна корекција</span></h1>
+        <h1>Налог за книжење бр. {number}<span className="mk">{title ? title + ' · ' : ''}рачна корекција</span></h1>
         <div className="row">
           <button type="button" className="btn" onClick={add}>+ Нов ред (Ins)</button>
           <button type="button" className="btn" onClick={() => router.push(back)}>Откажи (Esc)</button>
