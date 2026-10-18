@@ -82,3 +82,24 @@ describe('rules and helpers', () => {
     expect(r.changes).toEqual([]);
   });
 });
+
+describe('a payer partner without open documents (created by a statement, a name read differently)', () => {
+  it('the payment closes the unique open invoice of the same amount and goes to the partner of the invoice', () => {
+    const r = autoMatch({
+      rows: [{ id: 'p', acct: 'main', date: '2026-08-13', amount: 70800, konto: '1200', partner: 'stmt', desc: 'АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РМ-ГЛАВН: ДЕЗИНФЕКЦИЈА' }],
+      accounts: acc, invoices: [doc('CLK-202607-1086', 70800, { partner: 'agency', date: '2026-07-28' }), doc('CLK-202609-1153', 35400, { partner: 'agency', date: '2026-09-07' })],
+      purchases: [], partners: [{ id: 'agency', name: 'АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РЕПУБЛИКА С.МАКЕДОНИЈА СКОПЈЕ' }, { id: 'stmt', name: 'АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РМ-ГЛАВН' }], year: 2026,
+    });
+    const c = r.changes.find((x) => x.id === 'p')!;
+    expect(c.row.ref?.id).toBe('CLK-202607-1086');
+    expect(c.row.partner).toBe('agency');
+  });
+  it('two open invoices of the same amount of other partners: not guessed', () => {
+    const r = autoMatch({
+      rows: [{ id: 'p', acct: 'main', date: '2026-08-13', amount: 1000, konto: '1200', partner: 'stmt', desc: 'уплата' }],
+      accounts: acc, invoices: [doc('A-1', 1000, { partner: 'x' }), doc('B-1', 1000, { partner: 'y' })],
+      purchases: [], partners: [{ id: 'x', name: 'Икс' }, { id: 'y', name: 'Ипсилон' }, { id: 'stmt', name: 'Трет' }], year: 2026,
+    });
+    expect(r.changes.find((x) => x.id === 'p')?.row.ref).toBeUndefined();
+  });
+});

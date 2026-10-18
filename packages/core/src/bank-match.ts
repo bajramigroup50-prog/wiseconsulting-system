@@ -698,26 +698,32 @@ function layerBm(w: Work): void {
     const O = byDate(docs.map((x) => ({ x, o: x.total - (x.paidOther || 0) - (PB[type + x.id] ??= bankPaid(w.rows, type, x.id)) - (alloc[x.id] || 0) })).filter((z) => z.o > 0 && !z.x.pend));
     const pid = b.partner || matchPartner(ctx.partners, bankName(b, ctx.partners), '');
     const P = pid ? O.filter((z) => z.x.partner === pid) : [];
+    // the payer's partner has no open document at all (a partner the statement created, a name read differently —
+    // „АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РМ-ГЛАВН“): the documents decide — every open document is searched by its number
+    // and by a unique exact amount, and the payment goes to the document's own partner
+    const known = P.length > 0;
     const Kn = bmNums(b.desc).map(bmKey).filter(Boolean) as InvKey[];
     let pick: { x: OpenDoc; o: number }[] | null = null;
     let how: MatchHow = 'num';
     const text = rowText(b);
     // the full document number in the text („CLK-202606-1019“) wins over a partial / weak number match
-    const exact = (pid ? O.filter((z) => !z.x.partner || z.x.partner === pid) : O).filter((z) => textHasDocNo(text, z.x.number));
+    const exact = (known ? O.filter((z) => !z.x.partner || z.x.partner === pid) : O).filter((z) => textHasDocNo(text, z.x.number));
     if (exact.length) { pick = exact; how = 'num'; }
     if (!pick && Kn.length) {
-      const pool = P.length ? P : O;
-      const hits = pool.filter((z) => Kn.some((k) => bmEq(bmKey(z.x.number), k, !!P.length)));
+      const pool = known ? P : O;
+      const hits = pool.filter((z) => Kn.some((k) => bmEq(bmKey(z.x.number), k, known)));
       if (hits.length) { pick = hits; how = 'num'; }
     }
     if (!pick) {
-      const pool = (P.length ? P : pid ? [] : O).filter((z) => amountOnlyOk(text, b, z.x));
+      const pool = (known ? P : O).filter((z) => amountOnlyOk(text, b, z.x));
       const ex = pool.filter((z) => z.o === amt);
-      if (ex.length && (P.length || ex.length === 1)) { pick = [ex[0]!]; how = 'amt'; }
-      else if (pool.length > 1 && P.length) { const ss = bmSubset(pool, amt); if (ss) { pick = ss; how = 'sum'; } }
+      if (ex.length && (known || ex.length === 1)) { pick = [ex[0]!]; how = 'amt'; }
+      else if (pool.length > 1 && known) { const ss = bmSubset(pool, amt); if (ss) { pick = ss; how = 'sum'; } }
     }
     if (!pick) continue;
-    const r = linkRow(b, pick, type, pid, K);
+    // a document of another partner found for an unknown / document-less payer: the document's partner
+    const owner = known ? pid : (pick.every((z) => z.x.partner === pick![0]!.x.partner) && pick[0]!.x.partner) || pid;
+    const r = linkRow(b, pick, type, owner, K);
     if (!r) continue;
     commit(w, r.nb, how, { refs: r.refs, ...(r.excess ? { excess: r.excess } : {}) });
     for (const x of r.refs) alloc[x.id] = (alloc[x.id] || 0) + x.amt;
