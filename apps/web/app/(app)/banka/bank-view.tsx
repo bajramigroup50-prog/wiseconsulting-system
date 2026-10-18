@@ -62,7 +62,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const acct = BK.find((a) => a.id === sp.acct) ?? BK[0];
   const month = /^(0[1-9]|1[0-2])$/.test(sp.m ?? '') ? sp.m! : '';
   const onlyOpen = sp.open === '1';
-  const [from, to] = month ? [`${year}-${month}-01`, `${year}-${month}-31`] : [`${year}-01-01`, `${year}-12-31`];
+  // the month's real last day (2026-09-31 is not a date – Postgres refused the query and the page broke)
+  const [from, to] = month ? [`${year}-${month}-01`, `${year}-${month}-${String(new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate()).padStart(2, '0')}`] : [`${year}-01-01`, `${year}-12-31`];
   const q = (o: Partial<BankSP>) => {
     const p = new URLSearchParams();
     const m = { m: month || undefined, open: onlyOpen ? '1' : undefined, acct: sp.acct, ...o };
