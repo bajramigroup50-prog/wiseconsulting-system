@@ -44,6 +44,7 @@ export * from './vat-past';
 export * from './vat-context';
 export * from './scheme-profiles';
 export * from './vat-source';
+export * from './entry-overview';
 export * from './vat-lock';
 export * from './vat-service';
 export * from './yearend';
