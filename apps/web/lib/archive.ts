@@ -57,7 +57,25 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
   // files attached to nothing (or only to screens without a row) — legacy had none of those, the server shows them
   const shown = new Set(R.flatMap((r) => r.files.map((f) => f.id)));
   const linked = new Set(L.filter((l) => l.entityType !== 'firm').map((l) => l.fileId));
-  for (const f of F) if (!shown.has(f.id) && !linked.has(f.id)) R.push({ key: `file:${f.id}`, date: f.at.toISOString().slice(0, 10), kind: 'Датотека', no: '', pn: '', amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], loose: true });
+  // files attached to nothing but known from their read (ai_documents): sorted into the archive's folders
+  const A = await db().select({ id: aiDocuments.id, kind: aiDocuments.kind, fileId: aiDocuments.fileId, options: aiDocuments.options, drafts: aiDocuments.drafts, at: aiDocuments.createdAt })
+    .from(aiDocuments).where(eq(aiDocuments.firmId, firmId));
+  const readOf = new Map<string, (typeof A)[number]>();
+  for (const a of A) for (const id of [a.fileId, ...(((a.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [])]) if (id && !readOf.has(id)) readOf.set(id, a);
+  for (const f of F) {
+    if (shown.has(f.id) || linked.has(f.id)) continue;
+    const a = readOf.get(f.id);
+    const dr = (a?.drafts ?? []) as { draft?: Record<string, unknown>; status?: string; msg?: string; savedId?: string; skipped?: boolean; archived?: string }[];
+    const x = dr.find((y) => !y.savedId) ?? dr[0];
+    const d = (x?.draft ?? {}) as { date?: string; docDate?: string; number?: string; supplierName?: string; buyer?: { name?: string }; total?: number };
+    const date = String(d.docDate || d.date || f.at.toISOString().slice(0, 10)).slice(0, 10);
+    const base = { key: `file:${f.id}`, date, no: String(d.number ?? ''), pn: String(d.supplierName ?? d.buyer?.name ?? ''), amt: d.total != null ? String(d.total) : null, files: [{ id: f.id, name: f.name, mime: f.mime }] };
+    if (a?.kind === 'bank') R.push({ ...base, date: f.at.toISOString().slice(0, 10), kind: 'Извод – не е увезен', folder: 'bank', note: 'прочитан, но изводот не е во книгите – увезете го повторно во Банка (без нов AI)', href: '/banka' });
+    else if (a?.kind === 'ob') R.push({ ...base, date: f.at.toISOString().slice(0, 10), kind: 'Почетна состојба – документ', folder: 'opening', href: '/pocetna' });
+    else if (dr.length && dr.every((y) => y.savedId || y.skipped) && dr.some((y) => y.archived || y.skipped)) R.push({ ...base, kind: 'Архивирано – не се книжи', folder: 'archived', note: x?.msg ?? '' });
+    else if (dr.length && dr.some((y) => !y.savedId && !y.skipped)) R.push({ ...base, kind: 'Чека одобрување', folder: 'pending', note: x?.msg ?? '', href: a?.kind === 'sale' ? '/skan/proverka?k=sale' : '/skan/proverka' });
+    else R.push({ ...base, kind: 'Датотека', loose: true });
+  }
   return archSort(R.filter((r) => r.files.length));
 }
 

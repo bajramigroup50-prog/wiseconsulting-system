@@ -28,12 +28,16 @@ export interface EntryMonth {
   bank: Record<string, number>;
   warn: ('dupOut' | 'dupIn' | 'scans' | 'bankGap' | 'noSales')[];
 }
-export interface EntryOverview { year: number; accounts: { id: string; name: string }[]; months: EntryMonth[] }
+export interface EntryOverview {
+  year: number; accounts: { id: string; name: string }[]; months: EntryMonth[];
+  /** Bank statements read (PDF / scan) whose statement is not in the books (deleted, or the import never finished). */
+  readNotImported: number;
+}
 
 const rowsOf = <T>(r: unknown): T[] => (Array.isArray(r) ? r : (r as { rows: T[] }).rows) as T[];
 const num = (v: unknown) => Number(v ?? 0) || 0;
 
-export async function entryOverview(tx: Tx, firm: Pick<Firm, 'id' | 'vatRegistered' | 'settings'>, year: number): Promise<EntryOverview> {
+export async function entryOverview(tx: Tx, firm: Pick<Firm, 'id' | 'vatRegistered' | 'settings'>, year: number, today = new Date().toISOString().slice(0, 10)): Promise<EntryOverview> {
   const from = `${year}-01-01`, to = `${year}-12-31`;
   const mOf = (d: unknown) => sql<number>`extract(month from ${d})::int`;
   const roles = vatAccountRoles(await loadVatPostingContext(tx, firm));
@@ -92,8 +96,21 @@ export async function entryOverview(tx: Tx, firm: Pick<Firm, 'id' | 'vatRegister
     if (x.purchases.vat > 0 && x.imported.inVat > 0) x.warn.push('dupIn');
     const sc = (s: EntryScans) => s.ready + s.check + s.held;
     if (sc(x.scanSales) + sc(x.scanPurchases) > 0) x.warn.push('scans');
-    if (A.some((a) => !x.bank[a.id] && months.some((y) => y.m < x.m && y.bank[a.id]) && months.some((y) => y.m > x.m && y.bank[a.id]))) x.warn.push('bankGap');
+    // a month without a statement for an account that has statements before it: between two months, or a month that
+    // is already over (the last months were never imported — no warning was given before)
+    const over = `${year}-${String(x.m).padStart(2, '0')}-31` < today.slice(0, 7) + '-01' || Number(today.slice(0, 4)) > year;
+    if (A.some((a) => !x.bank[a.id] && months.some((y) => y.m < x.m && y.bank[a.id]) && (over || months.some((y) => y.m > x.m && y.bank[a.id])))) x.warn.push('bankGap');
     if (x.m < lastSales && !hasSales(x)) x.warn.push('noSales');
   }
-  return { year, accounts: A, months };
+  return { year, accounts: A, months, readNotImported: await bankReadsNotImported(tx, firm.id) };
+}
+
+/** Bank statements read (PDF / scan) whose statement is not in the books — another read of the same file name imported counts as in. */
+export async function bankReadsNotImported(tx: Pick<Tx, 'execute'>, firmId: string): Promise<number> {
+  const [rn] = rowsOf<{ n: number }>(await tx.execute(sql`select count(distinct a.file_id)::int as n from ${aiDocuments} a
+    where a.firm_id = ${firmId} and a.kind = 'bank' and a.status in ('done', 'saved') and a.file_id is not null
+      and not exists (select 1 from ${bankStatements} b where b.file_id = a.file_id)
+      and not exists (select 1 from ${aiDocuments} a2 join ${bankStatements} b2 on b2.file_id = a2.file_id where a2.firm_id = a.firm_id and a2.kind = 'bank' and a2.id <> a.id
+        and (select name from files where id = a2.file_id) = (select name from files where id = a.file_id))`));
+  return Number(rn?.n ?? 0);
 }

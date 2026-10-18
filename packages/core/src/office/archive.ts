@@ -25,6 +25,15 @@ export interface ArchRow {
   nalog?: string;
   /** Server addition: a file attached to nothing (`file:<id>` row) — may be deleted or moved to another firm. */
   loose?: boolean;
+  /**
+   * A file attached to no document but known from its read: `archived` — the user chose „📁 Само за архива“ (not
+   * posted: cancelled, a work order, a blank page…); `pending` — read, waiting for approval („За физичка проверка“);
+   * `bank` — a read bank statement whose statement is not in the books (import it again); `opening` — the opening
+   * balance document.
+   */
+  folder?: 'archived' | 'pending' | 'bank' | 'opening';
+  /** Why (the read's note). */
+  note?: string;
 }
 
 export interface ArchFilter { q?: string; kind?: string; from?: string; to?: string; year?: number }

@@ -49,7 +49,8 @@ beforeAll(async () => {
 
 describe('entry overview by month', () => {
   it('counts and warnings', async () => {
-    const O = await T((tx) => entryOverview(tx, firm, 2026));
+    // seen in March: only the gap between two months with statements
+    const O = await T((tx) => entryOverview(tx, firm, 2026, '2026-04-15'));
     const M = (m: number) => O.months[m - 1]!;
     expect(O.accounts.map((a) => a.name)).toEqual(['Халк']);
     expect(M(1)).toMatchObject({ sales: { n: 1, vat: 180, total: 1180 }, bank: { [acct]: 1 }, warn: [] });
@@ -60,5 +61,11 @@ describe('entry overview by month', () => {
     expect(M(5)).toMatchObject({ sales: { n: 0 }, imported: { n: 1, outVat: 180 }, warn: [] });
     expect(M(6)).toMatchObject({ scanSales: { ready: 0, check: 1, held: 1 }, warn: ['scans'] });
     expect(M(12).warn).toEqual([]);
+    expect(O.readNotImported).toBe(0);
+  });
+  it('a month that is over without a statement is flagged (the last months were never imported)', async () => {
+    const O = await T((tx) => entryOverview(tx, firm, 2026, '2026-10-18'));
+    expect(O.months.slice(3, 9).every((x) => x.warn.includes('bankGap'))).toBe(true);
+    expect(O.months[9]!.warn.includes('bankGap')).toBe(false);
   });
 });

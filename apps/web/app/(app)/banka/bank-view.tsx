@@ -11,7 +11,7 @@ import { findPartnerMatch } from '@wise/core/partners/match';
 import {
   bankLines, bankPartnerFixPlan, bankRules, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
   loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
-  statementSuggestions, type LineSuggestion,
+  statementSuggestions, type LineSuggestion, bankReadsNotImported,
 } from '@wise/db';
 import { booksPage, canDo, partnerOptions } from '@/lib/books';
 import { AUTO_LBL } from '@/lib/bank';
@@ -56,6 +56,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const admin = del && u.role === 'admin';
   const all = await loadBankAccounts(db(), firm.id);
+  // read statements whose statement is not in the books (deleted, import never finished): never silent
+  const readsLost = fx ? 0 : await bankReadsNotImported(db(), firm.id);
   const BK = all.filter((a) => (a.cur !== 'MKD') === fx);
   const acct = BK.find((a) => a.id === sp.acct) ?? BK[0];
   const month = /^(0[1-9]|1[0-2])$/.test(sp.m ?? '') ? sp.m! : '';
@@ -163,6 +165,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
         <Link className={`btn ${sp.banks ? 'pri' : ''}`} href={q({ banks: sp.banks ? undefined : '1' })} aria-pressed={!!sp.banks} title="Банкарски сметки, конта и правила за книжење, формати по банка">⚙ Поставки{sp.banks ? ' ✕' : '…'}</Link>
         <Link className="btn" href="/bkAdv">Извештај: плаќања без фактура</Link>
       </Hd>
+      {readsLost > 0 && <div className="callout bad">⚠ <b>{readsLost} прочитани изводи не се во книгите</b> (изводот е избришан или увозот не е завршен) – <Link href="/arhiva?nal=@bank">Архива → Изводи – не се увезени</Link>. Увезете ги повторно (истите PDF – читањето се користи повторно без AI).</div>}
       {write && <AutoRepostCallout u={u} firmId={firm.id} />}
       <datalist id="bkK">{chart.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}</datalist>
       {/* line kontos: the bank kontos themselves are not offered (legacy `kontoOpts(…, k => !bankKontos().includes(k))`) */}

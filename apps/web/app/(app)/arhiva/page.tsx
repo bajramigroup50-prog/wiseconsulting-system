@@ -39,7 +39,9 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
   const N = await nalogDocs(firm.id, year);
   const titles = nalTitlesOf(firm.settings, year);
   const R0 = archFilter(all, f);
-  const R = sp.nal === '-' ? R0.filter((r) => !r.nalog && !r.loose) : sp.nal === '~' ? R0.filter((r) => r.loose) : sp.nal ? R0.filter((r) => r.nalog === sp.nal) : R0;
+  const FOLDERS = { arch: 'archived', pend: 'pending', bank: 'bank', ob: 'opening' } as const;
+  const fk = sp.nal?.startsWith('@') ? FOLDERS[sp.nal.slice(1) as keyof typeof FOLDERS] : undefined;
+  const R = fk ? R0.filter((r) => r.folder === fk) : sp.nal === '-' ? R0.filter((r) => !r.nalog && !r.loose && !r.folder) : sp.nal === '~' ? R0.filter((r) => r.loose) : sp.nal ? R0.filter((r) => r.nalog === sp.nal) : R0;
   const withFile = new Set(all.filter((r) => r.files.length).map((r) => r.key));
   const missing = sp.nal && N.get(sp.nal) ? N.get(sp.nal)!.docs.filter((d) => !withFile.has(d.key)) : [];
   const nalList = [...N.entries()].map(([no, g]) => {
@@ -48,7 +50,8 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
     return { no, ...g, title: titles[no] ?? g.desc, n: docs.size, files, without: [...docs].filter((k) => !withFile.has(k)).length };
   }).sort((a, b) => nalKey(a.no, a.from).localeCompare(nalKey(b.no, b.from)));
   const yr = all.filter((r) => !r.date || r.date.slice(0, 4) === String(year));
-  const noNal = yr.filter((r) => !r.nalog && !r.loose).length, looseN = yr.filter((r) => r.loose).length;
+  const noNal = yr.filter((r) => !r.nalog && !r.loose && !r.folder).length, looseN = yr.filter((r) => r.loose).length;
+  const fn = (k: string) => yr.filter((r) => r.folder === k).length;
   const kinds = archKinds(all, year);
   const nf = R.reduce((a, r) => a + r.files.length, 0);
   const del = can(u.principal, 'del', firm.id);
@@ -75,8 +78,14 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
         <Link className={`btn ${view === 'nalog' && !sp.nal ? 'pri' : ''}`} href="/arhiva">По налог</Link>
         <Link className={`btn ${view === 'list' && !sp.nal ? 'pri' : ''}`} href="/arhiva?v=list">Сите документи</Link>
         <Link className={`btn ${sp.nal === '-' ? 'pri' : ''}`} href="/arhiva?nal=-">Без налог (досие, вработени…) · {noNal}</Link>
+        <Link className={`btn ${sp.nal === '@arch' ? 'pri' : ''}`} href="/arhiva?nal=@arch">📁 Архивирани (не се книжат) · {fn('archived')}</Link>
+        {fn('pending') > 0 && <Link className={`btn ${sp.nal === '@pend' ? 'pri' : ''}`} href="/arhiva?nal=@pend">⏳ Чека одобрување · {fn('pending')}</Link>}
+        {fn('bank') > 0 && <Link className={`btn ${sp.nal === '@bank' ? 'pri' : ''}`} href="/arhiva?nal=@bank">⚠ Изводи – не се увезени · {fn('bank')}</Link>}
+        {fn('opening') > 0 && <Link className={`btn ${sp.nal === '@ob' ? 'pri' : ''}`} href="/arhiva?nal=@ob">Почетна состојба · {fn('opening')}</Link>}
         <Link className={`btn ${sp.nal === '~' ? 'pri' : ''}`} href="/arhiva?nal=~">Неповрзани датотеки · {looseN}</Link>
       </div>
+      {sp.nal === '@arch' && <div className="callout">📁 Документи што сте ги прегледале и <b>не се книжат</b> (откажани, работни налози, празни страници…) – по месеци. Остануваат во архивата.</div>}
+      {sp.nal === '@bank' && <div className="callout warn">⚠ Изводи што се прочитани, но <b>не се во книгите</b> (изводот е избришан). Увезете ги повторно во <Link href="/banka">Банка</Link> – истите PDF, читањето се користи повторно без AI; датотеката се поврзува сама.</div>}
       {view === 'nalog' && !sp.nal && (
         <div className="tw card">
           <h2 style={{ marginTop: 0 }}>Налози {year} – документи и датотеки</h2>
@@ -124,7 +133,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
               {R.map((r) => (
                 <tr key={r.key}>
                   {tools && <td>{r.loose && <SelBox id={r.files[0]!.id} group="ar" />}</td>}
-                  <td>{r.date ? dmy(r.date) : ''}</td><td>{r.kind}</td><td>{r.no}</td><td>{r.pn}</td>
+                  <td>{r.date ? dmy(r.date) : ''}</td><td>{r.kind}{r.note && <div className="mini">{r.note}</div>}</td><td>{r.no}</td><td>{r.pn}</td>
                   <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td>
                   <td>{r.nalog && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(r.nalog)}`}>{r.nalog}</Link>}</td>
                   <td><div className="row" style={{ gap: 4 }}>{r.files.map((x) => <FilePreview key={x.id} id={x.id} name={x.name} mime={x.mime} label={<>👁 {archFileLabel(x)}</>} title={`Преглед: ${x.name}`} />)}</div></td>
