@@ -20,7 +20,13 @@ import { lineCalc, LineProdPanel, reProd, startProd } from './prod-panel';
 import { MainProductCard, WorkOrderBox, type WorkOrderOpt } from './prod-invoice';
 import { buyerHint, EDB_HINT, firstEmptyRow, headerMissing, headerMissingText, headerSummary } from './invoice-steps';
 import type { ProdBom, ProdCostInput, ProdSpec } from '@wise/core/sales';
-import { EXEMPT_BASES, EXEMPT_LABEL } from './vat-mark-bar';
+import { EXEMPT_BASES } from './vat-mark-bar';
+
+/** Printed legal basis of the special exemptions in „ДДВ основ“ (field 08). */
+const VAT_BASIS_NOTE: Record<string, string> = {
+  ded15: 'ДДВ не е пресметан согласно член 15 од Законот за утврдување на јавен интерес и номинирање на стратешки партнер за имплементација на проектот за изградба на инфраструктурниот Коридор 8 и Коридорот 10Д во РСМ',
+  tirz: 'Ослободено од ДДВ со право на одбивка – промет во технолошка индустриска развојна зона (ТИРЗ)',
+};
 import { SchemeSelect, type SchemeOpt } from './scheme-select';
 
 export interface InvItemOpt { id: string; code: string | null; name: string; unit: string | null; price: number; rate: number; type: string; account: string | null; barcodes: string[]; sp: Record<string, number> }
@@ -667,21 +673,37 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
           </div>
         </div>
         <div className="fpane" hidden={tab !== 'pos'}>
-          {d.kind !== 'dispatch' && <label className="chk"><input type="checkbox" checked={d.art32} onChange={(e) => set({ art32: e.target.checked, lines: e.target.checked ? d.lines.map((l) => ({ ...l, rate: '18' })) : d.lines })} /> Фактура по <b>член 32-а</b> без ДДВ (пренесување на даночната обврска – ДДВ пресметува примателот)</label>}
+          {/* „ДДВ основ“ – one choice per invoice (was: Тип Извозна, the чл. 32-а box and the exemption select): it sets the
+              rates, art. 32-a / export and the exemption kind + the printed legal basis → ДДВ-04 field 01–06 / 07 / 08 / 09 / 11 */}
+          {d.kind !== 'dispatch' && (() => {
+            const note = String(d.data.vatNote ?? '');
+            const cur = d.art32 ? 'art32' : d.export ? 'export' : d.data.vatExempt === 'noded' ? 'noded'
+              : d.data.vatExempt === 'ded' ? (/член\s*15|коридор/i.test(note) ? 'ded15' : /ТИРЗ|зона/i.test(note) ? 'tirz' : 'ded') : '';
+            const pick = (k: string) => setD((o) => {
+              const zero = (L: typeof o.lines) => L.map((l) => ({ ...l, rate: '0' }));
+              if (k === 'art32') return { ...o, art32: true, export: false, lines: o.lines.map((l) => ({ ...l, rate: '18' })), data: { ...o.data, vatExempt: '' } };
+              if (k === 'export') return { ...o, art32: false, export: true, lines: zero(o.lines), data: { ...o.data, vatExempt: '' } };
+              if (k === '') return { ...o, art32: false, export: false, data: { ...o.data, vatExempt: '' } };
+              const kind = k === 'noded' ? 'noded' : 'ded';
+              return { ...o, art32: false, export: false, lines: zero(o.lines), data: { ...o.data, vatExempt: kind, vatNote: VAT_BASIS_NOTE[k] ?? EXEMPT_BASES[kind] } };
+            });
+            return (
+              <div className="fl"><span>ДДВ основ</span>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  <select value={cur} aria-label="ДДВ основ" style={{ width: 'auto' }} onChange={(e) => pick(e.target.value)}>
+                    <option value="">Редовна – ДДВ по стапки (поле 01–06)</option>
+                    <option value="ded">Ослободено со право на одбивка – чл. 24 ЗДДВ (поле 08)</option>
+                    <option value="ded15">Ослободено – посебен закон: чл. 15, Коридор 8 и 10Д (поле 08)</option>
+                    <option value="tirz">Ослободено – ТИРЗ / слободна зона (поле 08)</option>
+                    <option value="noded">Ослободено без право на одбивка – чл. 23 ЗДДВ (поле 09)</option>
+                    <option value="art32">Пренесување на даночна обврска – чл. 32-а (поле 11)</option>
+                    <option value="export">Извоз (поле 07, купувач на 1210)</option>
+                  </select>
+                  {(cur === 'ded' || cur === 'ded15' || cur === 'tirz' || cur === 'noded') && <input value={note} maxLength={500} placeholder="Основ (се печати на фактурата)" aria-label="Основ за ослободување" style={{ flex: 1, minWidth: 240 }} onChange={(e) => setData('vatNote', e.target.value)} />}
+                </div></div>
+            );
+          })()}
           {d.art32 && <div className="callout">Без ДДВ за плаќање; ДДВ 18% ({fmt(T.transferredVat)}) се прикажува како пренесен. Побарувањето се книжи на купувачи по член 32-а (1200009), во ДДВ-04 поле 11.</div>}
-          {d.kind !== 'dispatch' && !d.art32 && !d.export && d.lines.some((l) => l.name.trim() && !Number(l.rate)) && <div className="fl"><span>Ослободување од ДДВ (ставки со 0%) – мапирање на членовите за проверка</span>
-            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              {/* data.vatExempt: 'ded' (чл. 24) → ДДВ-04 поле 08, 'noded' (чл. 23) → поле 09; празно = поле 08 како досега */}
-              <select value={d.data.vatExempt ?? ''} aria-label="Вид на ослободување" style={{ width: 'auto' }} onChange={(e) => {
-                const k = e.target.value as '' | 'ded' | 'noded';
-                setD((o) => ({ ...o, data: { ...o.data, vatExempt: k, ...(k && !String(o.data.vatNote ?? '').trim() ? { vatNote: EXEMPT_BASES[k] } : {}) } }));
-              }}>
-                <option value="">— изберете (досега: поле 08)</option>
-                <option value="ded">{EXEMPT_LABEL.ded}</option>
-                <option value="noded">{EXEMPT_LABEL.noded}</option>
-              </select>
-              <input value={d.data.vatNote ?? ''} maxLength={500} placeholder="Основ (се печати на фактурата), пр. Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ" aria-label="Основ за ослободување" style={{ flex: 1, minWidth: 240 }} onChange={(e) => setData('vatNote', e.target.value)} />
-            </div></div>}
           {isInv && <>
             <fieldset className="fs" style={{ maxWidth: 420 }}><legend>Изберете тип</legend><div className="row">
               <label className="rb"><input type="radio" checked={!d.advance} onChange={() => set({ advance: false })} /> Редовна</label>

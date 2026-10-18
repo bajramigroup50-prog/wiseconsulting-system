@@ -48,8 +48,9 @@ beforeAll(async () => {
 }, 120_000);
 
 describe('„Аналитика“ (/akart)', () => {
-  it('is the first item of Финансово', () => {
-    expect(NAV.find(([g]) => g === 'Финансово')![1][0]).toEqual(['akart', 'Аналитика']);
+  it('is the first item of Финансово („Аналитика ▸“ holds every analytic screen, /akart first)', () => {
+    const first = NAV.find(([g]) => g === 'Финансово')![1][0]!;
+    expect([first[0], first[1], first[2]?.[0]?.[0]]).toEqual(['>', 'Аналитика', 'akart']);
   });
 
   it('1. konto list: chart kontos with turnover, search data (code / name), the old program\'s buttons', async () => {

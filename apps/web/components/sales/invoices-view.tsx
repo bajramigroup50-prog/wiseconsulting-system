@@ -373,7 +373,8 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
         {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
 Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : undefined} />}
-        {vatSel && <VatMarkBar action={markInvoicesVatAction} />}
+        {/* the ДДВ основ is chosen inside the invoice („ДДВ основ“); here only for many ticked invoices at once */}
+        {vatSel && <details className="noprint" style={{ margin: '4px 0' }}><summary className="mini" style={{ cursor: 'pointer' }}>Масовно: ДДВ основ на штиклираните фактури (32-а / чл. 24 / чл. 23)…</summary><VatMarkBar action={markInvoicesVatAction} /></details>}
         <div className="tw"><table className="dense" style={{ fontSize: 12.5 }}>
           <thead><tr>{sel && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
           <tbody>{shown.map(({ i, p }) => (

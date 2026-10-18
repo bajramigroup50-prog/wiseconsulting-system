@@ -49,9 +49,16 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
   for (const d of D) R.push({ key: `dossier_doc:${d.id}`, date: d.date ?? '', kind: d.category || 'Документ', no: d.number ?? '', pn: d.partnerName ?? d.title ?? '', amt: null, files: filesOf(OFFICE_FILE_ENTITY.dossier, d.id), href: '/dosie', archId: d.id });
   for (const e of E) R.push({ key: `employee:${e.id}`, date: e.start ?? '', kind: 'Вработен', no: e.no ?? '', pn: e.name, amt: null, files: filesOf('employee', e.id), href: `/vraboteni?edit=${e.id}` });
   for (const c of C) R.push({ key: `cash_voucher:${c.id}`, date: c.date, kind: 'Фискална сметка', no: c.docNo || c.number, pn: c.merchant ?? '', amt: c.amt, files: filesOf('cash_voucher', c.id), href: '/blagajna', nalog: nal.get(`cash_voucher:${c.id}`) });
+  // a statement not posted yet (its lines wait for a konto) belongs to the nalog of its account and quarter: the nalog of
+  // the other statements of that account in the same quarter
+  const qOf = (d: string) => `${d.slice(0, 4)}Q${Math.floor((Number(d.slice(5, 7)) - 1) / 3)}`;
+  const accQ = new Map<string, string>();
+  for (const { s: b } of B) { const n = nal.get(`bank_statement:${b.id}`); if (n) accQ.set(`${b.bankAccountId}|${qOf(b.date)}`, n); }
   for (const { s: b, an, acc, cur } of B) {
     const f = b.fileId ? byId.get(b.fileId) : undefined;
-    if (f) R.push({ key: `bank_statement:${b.id}`, nalog: nal.get(`bank_statement:${b.id}`), date: b.date, kind: 'Извод', no: b.number ?? '', pn: [an, acc].filter(Boolean).join(' · '), amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], href: `${cur === 'MKD' ? '/banka' : '/devizni'}?acct=${b.bankAccountId}&m=${b.date.slice(5, 7)}` });
+    const own = nal.get(`bank_statement:${b.id}`);
+    const guess = own ? undefined : accQ.get(`${b.bankAccountId}|${qOf(b.date)}`);
+    if (f) R.push({ key: `bank_statement:${b.id}`, nalog: own ?? guess, ...(guess ? { note: 'за довршување – ставките чекаат конто (Банка)' } : {}), date: b.date, kind: 'Извод', no: b.number ?? '', pn: [an, acc].filter(Boolean).join(' · '), amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], href: `${cur === 'MKD' ? '/banka' : '/devizni'}?acct=${b.bankAccountId}&m=${b.date.slice(5, 7)}` });
   }
   for (const f of F) if (img.has(f.id)) R.push({ key: `firm_image:${f.id}`, date: f.at.toISOString().slice(0, 10), kind: 'Лого / потпис / печат', no: '', pn: '', amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], href: `/firmi?edit=${firmId}` });
   // files attached to nothing (or only to screens without a row) — legacy had none of those, the server shows them

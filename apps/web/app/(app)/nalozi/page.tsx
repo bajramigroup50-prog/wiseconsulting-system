@@ -488,7 +488,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <span style={{ flex: 1 }} />
           <ListKeys tableId="nal-list" newHref={write ? '/nalozi?nov' : undefined} />
         </div>
-        <div className="tw" style={{ maxHeight: 520 }}><table id="nal-list" className="dense fit">
+        <div className="tw" style={{ maxHeight: 'calc(100vh - 140px)', minHeight: 520 }}><table id="nal-list" className="dense fit">
           <thead><tr><th>Датум</th><th>Број</th><th>Статус</th><th className="n">Салдо</th><th>Опис</th><th title="Се зема при затворање на годината">За кл.</th><th title="Прекнижан / непрекнижан">Прекн.</th><th className="n">Ставки</th><th className="n">Должи</th><th className="n">Побарува</th><th></th></tr></thead>
           <tbody>
             {GL.map((g) => {
