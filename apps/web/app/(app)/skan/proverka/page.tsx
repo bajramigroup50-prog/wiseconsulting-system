@@ -9,7 +9,7 @@
  */
 import Link from 'next/link';
 import { and, eq, inArray } from 'drizzle-orm';
-import { aiDocuments, files, journals, partners, type AiDocument } from '@wise/db';
+import { aiDocuments, files, journals, partners, refreshStaleScanDrafts, releaseDeletedScanDrafts, type AiDocument } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -29,7 +29,11 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
   if (!firm) return <NoFirm t="За физичка проверка" />;
   const kind: 'sale' | 'purchase' = sp.k === 'sale' ? 'sale' : 'purchase';
   const write = canDo(u, 'write', firm.id);
-  const D = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, kind), inArray(aiDocuments.status, ['done', 'saved'])));
+  // as on the scan screen: reads whose invoice was deleted are free again, and unsaved reads built with older rules are
+  // rebuilt from the stored read with the current rules (no AI) — e.g. „0 % = чл. 24“, a work order archived
+  await releaseDeletedScanDrafts(db(), firm.id, [kind]);
+  const D0 = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, kind), inArray(aiDocuments.status, ['done', 'saved'])));
+  const { docs: D } = write ? await refreshStaleScanDrafts(db(), firm, D0, { userId: u.id }) : { docs: D0 };
   const dateOf = (r: Draft) => String(r.docDate ?? r.date ?? '');
   const all: Row[] = D.flatMap((d) => d.drafts.map((x, i) => ({ d, x, i, r: (x.draft ?? {}) as Draft }))).sort((a, b) => dateOf(a.r).localeCompare(dateOf(b.r)));
   const open = all.filter(({ x }) => !x.savedId && !x.skipped);
@@ -46,7 +50,7 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
   const back = `/skan/proverka${kind === 'sale' ? '?k=sale' : ''}`;
   const party = (r: Draft) => (r.partnerId && P.get(r.partnerId)) || (kind === 'sale' ? r.buyer?.name : r.supplierName) || <i className="mut">непознат</i>;
   const file = (d: AiDocument) => (d.fileId ? <a href={`/api/files/${d.fileId}`} target="_blank" rel="noreferrer">{(names.get(d.fileId) ?? 'датотека').slice(0, 32)}</a> : '—');
-  const cancelled = (d: AiDocument) => !!d.fileId && /откажан|сторн|поништ/i.test(names.get(d.fileId) ?? '');
+  const cancelled = (d: AiDocument) => !!d.fileId && /откажан|сторн|поништ|cancel|storno|anulua/i.test(names.get(d.fileId) ?? '');
   const head = (g: string, extra: string) => (
     <thead><tr><th style={{ width: 22 }}>{write ? <SelAll group={g} /> : '☐'}</th><th>#</th><th>Датум</th><th>Број</th><th>{kind === 'sale' ? 'Купувач' : 'Добавувач'}</th><th className="n">Износ</th><th>{extra}</th><th>Датотека</th><th className="noprint" /></tr></thead>
   );
