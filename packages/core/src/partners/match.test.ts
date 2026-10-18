@@ -126,3 +126,22 @@ describe('a country appended by the statement', () => {
     expect(g[0]!.members.map((m) => m.id).sort()).toEqual(['a', 'b']);
   });
 });
+
+describe('the same giro account', () => {
+  it('„КАН ИНТЕРНАТИОНАЛ ДООЕЛ СКОПЈЕ“ from a statement = „КАН Интернационал дооел - kfc“: one sure group; a Treasury account or another ЕМБС never', () => {
+    const P = [
+      { id: 'a', code: '0334', name: 'КАН Интернационал дооел - kfc', embs: '7242441', bankAccount: '270072424410172' },
+      { id: 'b', code: null, name: 'КАН ИНТЕРНАТИОНАЛ ДООЕЛ СКОПЈЕ', bankAccount: '270-0724244101-72' },
+      { id: 'c', code: null, name: 'Општина Аеродром', bankAccount: '100000000063095' },
+      { id: 'd', code: null, name: 'Општина Бутел', bankAccount: '100000000063095' },
+      { id: 'e', code: null, name: 'Друга ДОО', embs: '1111111', bankAccount: '300000001234555' },
+      { id: 'f', code: null, name: 'Трета ДОО', embs: '2222222', bankAccount: '300000001234555' },
+    ];
+    const g = partnerDuplicates(P);
+    const kan = g.find((x) => x.main === 'a')!;
+    expect(kan.members.map((m) => [m.id, m.sameId])).toEqual([['a', true], ['b', true]]);
+    expect(kan.sure).toBe(true);
+    expect(g.some((x) => x.members.some((m) => m.id === 'c' || m.id === 'd'))).toBe(false);
+    expect(g.some((x) => x.members.some((m) => m.id === 'e') && x.members.some((m) => m.id === 'f'))).toBe(false);
+  });
+});

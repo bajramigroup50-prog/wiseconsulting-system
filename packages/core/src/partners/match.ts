@@ -310,7 +310,15 @@ export const partnerSameIds = (a: MatchablePartnerRow, b: MatchablePartnerRow) =
   const x = idsOf(a), y = idsOf(b);
   return (!!x.edb && x.edb === y.edb) || (!!x.embs && x.embs === y.embs);
 };
-const sameIdent = partnerSameIds;
+/**
+ * Own giro accounts of a partner (normalised): the card's account and the learned ones. A Treasury account (100…) is
+ * shared by many institutions and never identifies one.
+ */
+const giroOf = (p: MatchablePartnerRow): string[] =>
+  [...new Set([p.bankAccount, ...partnerAccounts(p).flatMap((a) => [a.acc, a.iban])].map((v) => accountKey(v)).filter((k): k is string => !!k && !treasuryAccount(k)))];
+/** The same giro account: the same legal entity (a statement's name „КАН ИНТЕРНАТИОНАЛ ДООЕЛ СКОПЈЕ“ = „КАН Интернационал дооел - kfc“). */
+const sameGiro = (a: MatchablePartnerRow, b: MatchablePartnerRow) => { const B = giroOf(b); return giroOf(a).some((k) => B.includes(k)); };
+const sameIdent = (a: MatchablePartnerRow, b: MatchablePartnerRow) => partnerSameIds(a, b) || (!partnerIdsDiffer(a, b) && sameGiro(a, b));
 /** Both have an ЕДБ (or both an ЕМБС) and they differ: different legal entities, never one partner. */
 export const partnerIdsDiffer = (a: MatchablePartnerRow, b: MatchablePartnerRow) => {
   const x = idsOf(a), y = idsOf(b);
@@ -375,7 +383,7 @@ export function partnerDuplicates(partners: readonly MatchablePartnerRow[], move
   const join = (i: number, j: number) => { const a = find(i), b = find(j); if (a !== b) parent[b] = a; };
   // the same identifier
   const byId = new Map<string, number>();
-  P.forEach((p, i) => { const x = idsOf(p); for (const k of [x.edb && 'e' + x.edb, x.embs && 'm' + x.embs]) if (k) { const j = byId.get(k); if (j === undefined) byId.set(k, i); else join(j, i); } });
+  P.forEach((p, i) => { const x = idsOf(p); for (const k of [x.edb && 'e' + x.edb, x.embs && 'm' + x.embs, ...giroOf(p).map((g) => 'g' + g)]) if (k) { const j = byId.get(k); if (j === undefined) byId.set(k, i); else if (!diffIdent(P[j]!, p)) join(j, i); } });
   // similar names: compared only within blocks of a shared token start
   const blocks = new Map<string, number[]>();
   P.forEach((_, i) => { for (const k of new Set([...S[i]!, ...SP[i]!].flatMap((g) => g.t.filter((t) => t.length >= 3).map((t) => t.slice(0, 3))))) { const L = blocks.get(k) ?? []; L.push(i); blocks.set(k, L); } });
