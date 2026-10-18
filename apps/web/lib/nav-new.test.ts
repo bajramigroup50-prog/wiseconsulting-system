@@ -42,7 +42,10 @@ describe('classic menu (P40 „класично“) is the legacy NAV, unchanged
 describe('new menu (P40 „ново“)', () => {
   it('before → after: 14 → 13 groups, 197 → 172 entries', () => {
     expect(menuSize(NEW)).toEqual({ groups: 13, items: 175 }); // + 📥 Пристигнати документи (UX P7), Аналитика (akart), 📋 Преглед на внес (vnes)
-    expect(grp(NEW, 'Финансово').find((x) => x[0] !== '-')?.[0]).toBe('akart');
+    // Финансово opens with „Аналитика ▸“: every analytic screen in one submenu, „Аналитика“ (akart) first
+    const first = grp(NEW, 'Финансово').find((x) => x[0] !== '-')!;
+    expect([first[0], first[1], first[2]?.[0]?.[0]]).toEqual(['>', 'Аналитика', 'akart']);
+    expect((first[2] ?? []).map((x) => x[0])).toEqual(expect.arrayContaining(['akart', 'kartici', 'recFree', 'bkAdv', 'kkart', 'analitika', 'poobjekti', 'bilanc']));
     expect(NEW.map(([g]) => g)).not.toContain('Излез');
   });
   it('P13 Архива once: dosie / paket only in Архива', () => {

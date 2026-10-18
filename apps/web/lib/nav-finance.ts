@@ -19,9 +19,15 @@ export function addFinanceNav(nav: readonly NavGroup[]): readonly NavGroup[] {
     let L = [...items];
     for (const [grp, after, add] of ADD) {
       if (grp !== g) continue;
-      const fresh = add.filter((x) => !L.some((y) => y[0] === x[0]));
+      const fresh = add.filter((x) => !L.some((y) => y[0] === x[0] || (y[0] === '>' && (y[2] ?? []).some((z) => z[0] === x[0]))));
       const i = after == null ? -1 : L.findIndex((x) => x[0] === after);
-      L = i < 0 ? [...L, ...fresh] : [...L.slice(0, i + 1), ...fresh, ...L.slice(i + 1)];
+      // the anchor inside a submenu (Аналитика ▸ kartici): inserted there
+      const j = i < 0 && after != null ? L.findIndex((x) => x[0] === '>' && (x[2] ?? []).some((z) => z[0] === after)) : -1;
+      if (j >= 0) {
+        const sub = [...(L[j]![2] ?? [])];
+        const k = sub.findIndex((z) => z[0] === after);
+        L = L.map((x, n) => (n === j ? [x[0], x[1], [...sub.slice(0, k + 1), ...fresh, ...sub.slice(k + 1)]] as NavItem : x));
+      } else L = i < 0 ? [...L, ...fresh] : [...L.slice(0, i + 1), ...fresh, ...L.slice(i + 1)];
     }
     return [g, L] as NavGroup;
   });
