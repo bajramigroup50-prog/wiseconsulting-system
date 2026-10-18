@@ -11,7 +11,7 @@ import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { ActionForm } from '@/components/action-form';
 import { RowAction } from '@/components/row-action';
-import { mergePartnersAction, mergeSurePartnersAction } from './actions';
+import { mergePartnersAction, mergeSurePartnersAction, notDupAction } from './actions';
 
 export async function PartnerDupView({ firmId, canMerge, note }: { firmId: string; canMerge: boolean; note?: React.ReactNode }) {
   const V = await partnerDupGroups(db(), firmId);
@@ -47,6 +47,8 @@ export async function PartnerDupView({ firmId, canMerge, note }: { firmId: strin
           <div className="row" style={{ gap: 8, marginTop: 6, alignItems: 'center' }}>
             {g.sure ? <span className="pill good">сигурно</span> : <span className="pill warn">проверете</span>}
             {canMerge && <button className="btn sm pri">⇢ Спои ги штиклираните во избраниот</button>}
+            {canMerge && <RowAction className="btn sm" label="✕ Не се исти" action={notDupAction.bind(null, g.rows.map((r) => r.id))}
+              confirm="Овие комитенти се РАЗЛИЧНИ (не се спојуваат)? Повеќе нема да се предлагаат како дупликати." />}
           </div>
         </ActionForm>
       )) : <div className="card empty">Нема комитенти што личат на дупликати.</div>}

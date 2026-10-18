@@ -10,7 +10,7 @@
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { addPartnerAccount, partnerAccountPatch, partnerAccounts, type PartnerAccount } from '@wise/core/bank/partner-accounts';
-import { autoMergeIds, mergedPartnerFields, partnerDuplicates, partnerIdsDiffer, type PartnerDupGroup } from '@wise/core/partners/match';
+import { autoMergeIds, dupPairKey, mergedPartnerFields, partnerDuplicates, partnerIdsDiffer, type PartnerDupGroup } from '@wise/core/partners/match';
 import { audit, type Tx } from './audit';
 import { firms, invoices, itemSupplierCodes, journalLines, journals, partners, purchases } from './schema/index';
 
@@ -34,12 +34,35 @@ export async function partnerMoves(tx: Tx, firmId: string): Promise<Map<string, 
 
 export interface PartnerDupView { groups: (PartnerDupGroup & { rows: (Row & { moves: number; score: number; sameId: boolean; distinct: boolean })[] })[] }
 
+/** Pairs marked „✕ Не се исти“ in „Дупликати“ (`firms.settings.dupIgnore`): never proposed or merged again. */
+export const dupIgnoreOf = (settings: unknown): Set<string> =>
+  new Set((((settings ?? {}) as { dupIgnore?: unknown }).dupIgnore as unknown[] | undefined ?? []).filter((x): x is string => typeof x === 'string'));
+
+async function firmDupIgnore(tx: Tx, firmId: string): Promise<Set<string>> {
+  const [f] = await tx.select({ s: firms.settings }).from(firms).where(eq(firms.id, firmId)).limit(1);
+  return dupIgnoreOf(f?.s);
+}
+
+/** „✕ Не се исти“: every pair of the given partners (one group of „Дупликати“) is marked as different partners. */
+export async function ignoreDupGroup(tx: Tx, a: { firmId: string; userId: string | null }, ids: readonly string[]): Promise<number> {
+  const P = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.firmId, a.firmId), inArray(partners.id, [...ids])));
+  const I = P.map((p) => p.id);
+  if (I.length < 2) throw new PartnerMergeError('Изберете барем два комитенти.');
+  const [f] = await tx.select({ s: firms.settings }).from(firms).where(eq(firms.id, a.firmId)).for('update').limit(1);
+  const S = dupIgnoreOf(f?.s);
+  const add: string[] = [];
+  for (let i = 0; i < I.length; i++) for (let j = i + 1; j < I.length; j++) { const k = dupPairKey(I[i]!, I[j]!); if (!S.has(k)) { S.add(k); add.push(k); } }
+  await tx.update(firms).set({ settings: { ...((f?.s ?? {}) as object), dupIgnore: [...S] } }).where(eq(firms.id, a.firmId));
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'partnerNotDup', entityType: 'partner', data: { ids: I, pairs: add.length } });
+  return add.length;
+}
+
 /** The „Дупликати“ view: groups of likely duplicate partners with their movements. */
 export async function partnerDupGroups(tx: Tx, firmId: string): Promise<PartnerDupView> {
-  const [P, M] = await Promise.all([tx.select().from(partners).where(eq(partners.firmId, firmId)), partnerMoves(tx, firmId)]);
+  const [P, M, ign] = await Promise.all([tx.select().from(partners).where(eq(partners.firmId, firmId)), partnerMoves(tx, firmId), firmDupIgnore(tx, firmId)]);
   const by = new Map(P.map((p) => [p.id, p]));
   return {
-    groups: partnerDuplicates(P, M).map((g) => ({
+    groups: partnerDuplicates(P, M, ign).map((g) => ({
       ...g, rows: g.members.map((m) => ({ ...by.get(m.id)!, moves: M.get(m.id) ?? 0, score: m.score, sameId: m.sameId, distinct: !!m.distinct })),
     })),
   };
@@ -163,7 +186,7 @@ export async function autoMergePartnerDups(db: Tx, firmId: string): Promise<Auto
   const [f] = await db.select({ settings: firms.settings }).from(firms).where(eq(firms.id, firmId)).limit(1);
   if (!f || !autoMergeDupOn(f.settings)) return res;
   const [P, M] = await Promise.all([db.select().from(partners).where(eq(partners.firmId, firmId)), partnerMoves(db, firmId)]);
-  for (const g of partnerDuplicates(P, M)) {
+  for (const g of partnerDuplicates(P, M, dupIgnoreOf(f.settings))) {
     const ids = autoMergeIds(g);
     if (!ids.length) continue;
     try {

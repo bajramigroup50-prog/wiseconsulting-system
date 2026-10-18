@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { partnerUsage } from '@/lib/sales-parity';
 import { z } from 'zod';
-import { AUTO_MERGE_DUP_KEY, aiDocuments, audit, fileLinks, firms, journalLines, mergePartners, PartnerAccountError, PartnerMergeError, partnerDupGroups, partners, savePartnerAccounts } from '@wise/db';
+import { AUTO_MERGE_DUP_KEY, aiDocuments, audit, fileLinks, firms, ignoreDupGroup, journalLines, mergePartners, PartnerAccountError, PartnerMergeError, partnerDupGroups, partners, savePartnerAccounts } from '@wise/db';
 import { fsDig, TK_F, tkFromRead, tkMatch } from '@wise/core/firms/resh';
 import { schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
 import { dupMergeSelection } from '@wise/core/partners/match';
@@ -240,6 +240,20 @@ export async function mergePartnersAction(_prev: ActionState, form: FormData): P
     const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, main, ids));
     revalidatePath('/partneri');
     return { ok: `Споени ${r.merged} комитенти (${r.refs} записи префрлени).` };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Неважечки избор.' };
+    return mergeErr(e);
+  }
+}
+
+/** „✕ Не се исти“ in „Дупликати“: the partners of the group are different — never proposed or merged again. */
+export async function notDupAction(ids: string[]): Promise<ActionState> {
+  try {
+    const I = z.array(z.uuid()).min(2).max(50).parse(ids);
+    const { u, firm } = await mergeActor();
+    await db().transaction((tx) => ignoreDupGroup(tx, { firmId: firm.id, userId: u.id }, I));
+    revalidatePath('/partneri');
+    return { ok: 'Означени како различни – повеќе нема да се предлагаат.' };
   } catch (e) {
     if (e instanceof z.ZodError) return { error: 'Неважечки избор.' };
     return mergeErr(e);

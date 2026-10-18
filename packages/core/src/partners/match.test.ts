@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyPartnerId, findPartnerMatch, learnPartnerAlias, nameScore, nameTokens, partnerDuplicates, partnerIdLabel, type MatchablePartnerRow } from './match';
+import { classifyPartnerId, findPartnerMatch, learnPartnerAlias, nameScore, nameTokens, dupPairKey, partnerDuplicates, partnerIdLabel, type MatchablePartnerRow } from './match';
 import { saleDraftFromScan, purchaseDraftFromScan } from '../sales/scan';
 
 const P: MatchablePartnerRow[] = [
@@ -160,5 +160,17 @@ describe('company - object / location', () => {
     expect(G.members.map((m) => m.id).sort()).toEqual(['a', 'b', 'c', 'd']);
     expect(G.sure).toBe(false);
     expect(g.some((x) => x.members.some((m) => m.id === 'e'))).toBe(false);
+  });
+});
+
+describe('one-word name and „Не се исти“', () => {
+  it('„Гулермак“ = „ГУЛЕРМАК АГИР САНАЈИ ИНШААТ ВЕ ТААХХУТ А“ is a candidate (not sure); a pair marked „Не се исти“ is never proposed', () => {
+    const P = [{ id: 'a', code: '0327', name: 'Гулермак', embs: '7606796' }, { id: 'b', code: '0184', name: 'ГУЛЕРМАК АГИР САНАЈИ ИНШААТ ВЕ ТААХХУТ А' }];
+    const g = partnerDuplicates(P);
+    expect(g).toHaveLength(1);
+    expect(g[0]!.sure).toBe(false);
+    expect(partnerDuplicates(P, new Map(), new Set([dupPairKey('b', 'a')]))).toEqual([]);
+    // a short word is not enough
+    expect(partnerDuplicates([{ id: 'x', name: 'Тест' }, { id: 'y', name: 'Тест Градба Инженеринг' }])).toEqual([]);
   });
 });

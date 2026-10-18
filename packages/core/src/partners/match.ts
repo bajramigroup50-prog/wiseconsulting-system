@@ -376,8 +376,12 @@ export function namesDistinct(a: unknown, b: unknown): boolean {
  * and no two members have different ЕДБ / ЕМБС. A parenthetical part of a name („(Звезден Океан Центар)“) counts as
  * another name of the partner, never enough for „сигурно“. `moves` = number of movements per partner (for the main one).
  */
-export function partnerDuplicates(partners: readonly MatchablePartnerRow[], moves: ReadonlyMap<string, number> = new Map()): PartnerDupGroup[] {
+/** Key of a pair the user marked „✕ Не се исти“ (`firms.settings.dupIgnore`): the two ids sorted. */
+export const dupPairKey = (a: string, b: string) => (a < b ? a + '|' + b : b + '|' + a);
+
+export function partnerDuplicates(partners: readonly MatchablePartnerRow[], moves: ReadonlyMap<string, number> = new Map(), ignore: ReadonlySet<string> = new Set()): PartnerDupGroup[] {
   const P = partners.filter((p) => p.name || p.edb || p.embs);
+  const ign = (i: number, j: number) => ignore.size > 0 && ignore.has(dupPairKey(P[i]!.id, P[j]!.id));
   const parts = P.map((p) => nameParts(p.name));
   // signatures: the name without parentheses and the learned aliases; apart: the parenthetical parts
   const S = P.map((p, i) => [nameSig(parts[i]!.main), ...partnerAliases(p).map(nameSig)]);
@@ -387,19 +391,26 @@ export function partnerDuplicates(partners: readonly MatchablePartnerRow[], move
   const join = (i: number, j: number) => { const a = find(i), b = find(j); if (a !== b) parent[b] = a; };
   // the same identifier
   const byId = new Map<string, number>();
-  P.forEach((p, i) => { const x = idsOf(p); for (const k of [x.edb && 'e' + x.edb, x.embs && 'm' + x.embs, ...giroOf(p).map((g) => 'g' + g)]) if (k) { const j = byId.get(k); if (j === undefined) byId.set(k, i); else if (!diffIdent(P[j]!, p)) join(j, i); } });
+  P.forEach((p, i) => { const x = idsOf(p); for (const k of [x.edb && 'e' + x.edb, x.embs && 'm' + x.embs, ...giroOf(p).map((g) => 'g' + g)]) if (k) { const j = byId.get(k); if (j === undefined) byId.set(k, i); else if (!diffIdent(P[j]!, p) && !ign(j, i)) join(j, i); } });
   // similar names: compared only within blocks of a shared token start
   const blocks = new Map<string, number[]>();
   P.forEach((_, i) => { for (const k of new Set([...S[i]!, ...SP[i]!].flatMap((g) => g.t.filter((t) => t.length >= 3).map((t) => t.slice(0, 3))))) { const L = blocks.get(k) ?? []; L.push(i); blocks.set(k, L); } });
   const sc = new Map<string, number>();
   const best = (A: NameSig[], B: NameSig[]) => (A.length && B.length ? Math.max(...A.flatMap((a) => B.map((b) => sigScore(a, b)))) : 0);
+  // „Гулермак“ = „ГУЛЕРМАК АГИР САНАЈИ ИНШААТ ВЕ ТААХХУТ А.Ш.“: a one-word name (a distinctive word of 6+ letters) with
+  // which the other name starts — a candidate to check, never „сигурно“
+  const oneWord = (i: number, j: number) => {
+    const a = S[i]![0]?.t ?? [], b = S[j]![0]?.t ?? [];
+    const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+    return s.length === 1 && l.length > 1 && s[0]!.length >= 6 && !/^\d+$/.test(s[0]!) && tokenSim(s[0]!, l[0]!) >= 0.9 ? DUP_SCORE : 0;
+  };
   const pairScore = (i: number, j: number) => {
     const k = i < j ? i + ':' + j : j + ':' + i;
     let v = sc.get(k);
     if (v === undefined) {
       // a match through a parenthetical part only stays below „сигурно“
       const par = Math.max(best(SP[i]!, S[j]!), best(S[i]!, SP[j]!), best(SP[i]!, SP[j]!));
-      v = diffIdent(P[i]!, P[j]!) ? 0 : Math.max(best(S[i]!, S[j]!), Math.min(SURE_SCORE - 0.01, par));
+      v = diffIdent(P[i]!, P[j]!) || ign(i, j) ? 0 : Math.max(best(S[i]!, S[j]!), Math.min(SURE_SCORE - 0.01, par), Math.min(SURE_SCORE - 0.01, oneWord(i, j)));
       sc.set(k, v);
     }
     return v;
@@ -426,7 +437,7 @@ export function partnerDuplicates(partners: readonly MatchablePartnerRow[], move
       const m = rest[0]!;
       const take = [m];
       for (const i of rest.slice(1)) {
-        if ((sameIdent(P[i]!, P[m]!) || pairScore(i, m) >= DUP_SCORE) && !take.some((k) => diffIdent(P[k]!, P[i]!))) take.push(i);
+        if (!ign(i, m) && (sameIdent(P[i]!, P[m]!) || pairScore(i, m) >= DUP_SCORE) && !take.some((k) => diffIdent(P[k]!, P[i]!) || ign(k, i))) take.push(i);
       }
       rest = rest.filter((i) => !take.includes(i));
       if (take.length < 2) continue;
