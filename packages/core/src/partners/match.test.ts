@@ -174,3 +174,14 @@ describe('one-word name and „Не се исти“', () => {
     expect(partnerDuplicates([{ id: 'x', name: 'Тест' }, { id: 'y', name: 'Тест Градба Инженеринг' }])).toEqual([]);
   });
 });
+
+describe('a public body: the state and the branch are not distinctive', () => {
+  it('„АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РЕПУБЛИКА С.МАКЕДОНИЈА СКОПЈЕ“ = „АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РМ-ГЛАВН“', () => {
+    const P = [{ id: 'a', code: '0355', name: 'АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РЕПУБЛИКА С.МАКЕДОНИЈА СКОПЈЕ', edb: '4030992138158' }, { id: 'b', code: null, name: 'АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РМ-ГЛАВН', bankAccount: '1000000000630095' }];
+    const g = partnerDuplicates(P);
+    expect(g).toHaveLength(1);
+    expect(g[0]!.main).toBe('a');
+    // a different agency stays apart
+    expect(partnerDuplicates([P[0]!, { id: 'c', name: 'АГЕНЦИЈА ЗА КАТАСТАР НА НЕДВИЖНОСТИ НА РСМ' }])).toEqual([]);
+  });
+});
