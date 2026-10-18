@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { customerAccount, invoiceEntries, type PostingContext } from './posting';
 import { ddv04FromResult, ddvFieldDocs, ddvFor } from './vat';
+import { notInvoiceMsg } from './sales/scan';
 import { ART32_NOTE, NO_VAT_DED_NOTE, NO_VAT_NOTE_MSG, purchaseDraftFromScan, saleDraftFromScan, scanNoVatRule, vatNoteOf } from './sales/scan';
 import { JI_EXEMPT_NOTE, jiInvoices, jiRows } from './journal-import';
 import { invoicePrintHtml } from './sales/invoice-print';
@@ -179,5 +180,13 @@ describe('journal import: groups without VAT', () => {
     const X = jiInvoices(rows);
     expect(X.inv.map((v) => [v.no, v.vatExempt, v.vatNote])).toEqual([['A-1', 'ded', JI_EXEMPT_NOTE], ['A-3', 'noded', 'без право на одбивка, чл. 23']]);
     expect(X.refused).toEqual([expect.objectContaining({ no: 'A-2', why: NO_VAT_NOTE_MSG })]);
+  });
+});
+
+describe('„испратница“ with VAT', () => {
+  it('a delivery note with a VAT recapitulation and an amount is an invoice; without VAT it is not', () => {
+    expect(notInvoiceMsg({ docType: 'delivery_note', total: 15826, groups: [{ rate: 18, base: 13411.53, vat: 2414.07 }] })).toBe('');
+    expect(notInvoiceMsg({ docType: 'delivery_note', total: 0, groups: [] })).toBe('испратница – не се книжи');
+    expect(notInvoiceMsg({ docType: 'proforma', total: 100, groups: [{ rate: 18, base: 100, vat: 18 }] })).toBe('профактура – не се книжи');
   });
 });

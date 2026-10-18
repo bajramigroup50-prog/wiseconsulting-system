@@ -645,9 +645,12 @@ export function docTypeFromText(head: string): ScanDocType | '' {
 }
 
 /** „профактура – не се книжи“: why a read document is not booked ('' = an invoice). */
-export function notInvoiceMsg(x: Pick<ScanInvoice, 'docType'>): string {
+export function notInvoiceMsg(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total'>>): string {
   const t = String(x.docType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (!t || t === 'invoice') return '';
+  // „Фактура-испратница“ / a delivery note with a VAT recapitulation and an amount is an invoice (the AI reads the
+  // title „ИСПРАТНИЦА“): never put aside
+  if (t === 'delivery_note' && Number(x.total) > 0 && (x.groups ?? []).some((g) => Number(g.vat) > 0)) return '';
   if (t === 'proforma' || t === 'pro_forma') return 'профактура – не се книжи';
   if (t === 'offer') return 'понуда – не се книжи';
   if (t === 'delivery_note') return 'испратница – не се книжи';

@@ -67,8 +67,9 @@ async function autoPartner(db: Tx, f: Firm, o: DraftOpts, M: { partners: Matchab
  *   2 — attached pages merged, supplier konto memory, electricity konto, previous debt left out of the total
  *   3 — an outgoing invoice without VAT and without a note follows the firm's rule (`scanNoVat`, default чл. 24 → field 08)
  *   4 — an outgoing read without lines and amount (a work order / service confirmation) is not an invoice: archived
+ *   5 — „испратница“ with a VAT recapitulation and an amount is an invoice (not put aside)
  */
-export const SCAN_RULES_V = 4;
+export const SCAN_RULES_V = 5;
 
 /** Each supplier's expense kontos of its most recent saved purchase (by booking date). */
 async function lastSupplierKontos(db: Tx, firmId: string): Promise<Map<string, SupplierKontoMemory>> {
@@ -270,9 +271,11 @@ export async function rebuildScanDrafts(db: Tx, f: Firm, doc: AiDocument, o: Dra
     const old = same ? doc.drafts[i] : undefined;
     if (old?.savedId) return old;
     const y = old?.deleted ? { ...x, deleted: old.deleted } : x;
-    // the user's decisions stay: skipped, „📁 Само за архива“
+    // the user's decisions stay: skipped („Прескокни“), „📁 Само за архива“ — a skip the program made itself
+    // (status `skip`: „испратница – не се книжи“) is decided again by the current rules
     const z = old?.archived ? { ...y, archived: old.archived } : y;
-    return old?.skipped && !z.skipped ? { ...z, skipped: true } : z;
+    const userSkip = !!old?.skipped && (old.status !== 'skip' || !!old.archived);
+    return userSkip && !z.skipped ? { ...z, skipped: true } : z;
   });
   const up = await db.update(aiDocuments).set({ drafts, result: res, options: { ...(doc.options ?? {}), rulesV: SCAN_RULES_V } })
     .where(and(eq(aiDocuments.id, doc.id), eq(aiDocuments.status, 'done'))).returning();
