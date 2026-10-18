@@ -13,7 +13,7 @@ import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { RowAction } from '@/components/row-action';
-import { confirmPastAction, rejectPastAction, setPastHoldAction } from '@/app/(app)/skan/actions';
+import { confirmAllPastAction, confirmPastAction, rejectPastAction, setPastHoldAction } from '@/app/(app)/skan/actions';
 
 export interface PastReviewData { H: HeldDraft[]; decide: boolean; hold: boolean; today: string; cur: string }
 
@@ -40,6 +40,19 @@ export function PastReview({ data: { H, decide, hold, today, cur }, hideEmpty }:
         {decide && <> <RowAction label={hold ? 'Задржувај само затворени периоди' : 'Задржувај ги сите претходни периоди'} action={setPastHoldAction.bind(null, !hold)}
           confirm={hold ? 'Да се задржуваат само документите од затворени (поднесени) ДДВ периоди? Документите од претходни, незатворени периоди ќе се книжат автоматски.' : 'Да се задржуваат сите документи од претходни ДДВ периоди („Задржи ги сите документи од претходни ДДВ периоди“)?'} /></>}
       </p>
+      {decide && (() => {
+        // „✓ Прокнижи ги сите“: every held document whose own period can still be posted (not closed / locked)
+        const ok = H.filter((h) => pastDecisionOptions(h.kind, h.past).own);
+        if (ok.length < 2) return null;
+        const kinds = [...new Set(ok.map((h) => h.kind))];
+        return (
+          <div className="row" style={{ gap: 8, margin: '0 0 8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <RowAction className="btn pri" label={`✓ Прокнижи ги сите во својот период (${ok.length})`} action={confirmAllPastAction.bind(null, kinds.length === 1 ? kinds[0] : undefined)}
+              confirm={`Да се прокнижат сите ${ok.length} задржани документи, секој во својот ДДВ период (по датумот на документот)? ДДВ-04 за тие периоди треба да се коригира. Документите од затворени / заклучени периоди остануваат за проверка.`} />
+            <span className="mini">сите одеднаш – ниту еден не останува заборавен</span>
+          </div>
+        );
+      })()}
       {H.length ? (
         <div className="tw"><table className="dense">
           <thead><tr><th>Документ</th><th>Број</th><th>Датум</th><th>{H.some((h) => h.kind === 'sale') ? 'Купувач / добавувач' : 'Добавувач'}</th><th className="n">Вкупно</th><th>ДДВ период</th><th>ДДВ-04</th><th></th></tr></thead>

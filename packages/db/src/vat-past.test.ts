@@ -17,7 +17,7 @@ import { saveInvoice } from './sales/invoices';
 import { saveReadyScanDrafts } from './sales/scan-save';
 import { importRows } from './retail-items';
 import { closeVatPeriod, reopenVatPeriod } from './vat-service';
-import { confirmPastDraft, heldScanCount, heldScanDrafts, latePostedDocuments, pastCorrections, pastPeriodContext, rejectPastDraft, setPastHold } from './vat-past';
+import { confirmAllPastDrafts, confirmPastDraft, heldScanCount, heldScanDrafts, latePostedDocuments, pastCorrections, pastPeriodContext, rejectPastDraft, setPastHold } from './vat-past';
 
 const db = drizzle(new PGlite(), { schema });
 type DB = typeof db;
@@ -132,6 +132,25 @@ describe('bulk save holds past VAT periods', () => {
     await tx((t) => setPastHold(t, { firmId: firm.id, on: true, userId: null }));
     await reload();
     expect((await ctx()).holdPrevious).toBe(true);
+  });
+});
+
+describe('„✓ Прокнижи ги сите во својот период“', () => {
+  it('posts every held draft of an open past period at once; the ones of a closed period stay held with the reason', async () => {
+    const d = await readDoc('sale', [saleDraft('ИФ-S1', '2026-07-05'), saleDraft('ИФ-S2', '2026-08-06'), saleDraft('ИФ-S3', '2026-09-07')]);
+    const R = await saveReadyScanDrafts(db, { firm, kind: 'sale', where: eq(schema.aiDocuments.id, d.id), actor: office, past: await ctx() });
+    expect(R.held).toHaveLength(3);
+    const r = await tx((t) => confirmAllPastDrafts(t, { firm, actor: office, kind: 'sale', today: TODAY }));
+    expect(r).toEqual({ posted: 3, failed: [] });
+    const I = await db.select().from(schema.invoices).where(eq(schema.invoices.firmId, firm.id));
+    expect(I.filter((i) => /^ИФ-S/.test(i.number)).map((i) => i.date).sort()).toEqual(['2026-07-05', '2026-08-06', '2026-09-07']);
+    // the incoming ones of the closed Q2 stay held, listed with the reason
+    const left = (await heldScanDrafts(db, firm.id)).map((h) => h.number).sort();
+    const r2 = await tx((t) => confirmAllPastDrafts(t, { firm, actor: office, today: TODAY }));
+    expect(r2.posted).toBe(0);
+    expect(r2.failed.map((f) => f.number).sort()).toEqual(left);
+    expect(r2.failed[0]!.why).toMatch(/затворен/);
+    expect((await heldScanDrafts(db, firm.id)).map((h) => h.number).sort()).toEqual(left);
   });
 });
 

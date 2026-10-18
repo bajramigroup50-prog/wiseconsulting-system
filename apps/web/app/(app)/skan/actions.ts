@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { ScanSaleDraft } from '@wise/core/sales';
 import { learnPartnerAlias, partnerIdLabel, type DraftPartnerMatch } from '@wise/core/partners/match';
 import {
-  aiDocuments, audit, bulkSaveMessage, confirmPastDraft, refreshStaleScanDrafts, scanNeedsReread, ensurePartner, fileAlreadyUsed, files, partners, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
+  aiDocuments, audit, bulkSaveMessage, confirmAllPastDrafts, confirmPastDraft, refreshStaleScanDrafts, scanNeedsReread, ensurePartner, fileAlreadyUsed, files, partners, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -482,6 +482,19 @@ export async function confirmPastAction(docId: string, index: number, mode: 'own
     return { ok: mode === 'receipt'
       ? `Прокнижена со датум на прием ${dmy(r.date)} во тековниот ДДВ период (${vatPeriodName(r.period)}).`
       : `Прокнижена во ${r.hit?.text ?? vatPeriodName(r.period)}.${r.correction ? ' ДДВ-04 за тој период треба да се коригира – видете „Корекции на ДДВ-04 потребни“.' : ''}` };
+  } catch (e) { return actionError(e); }
+}
+
+/** „✓ Прокнижи ги сите во својот период“: every held document (of `kind`) at once; the ones that cannot be posted are listed. */
+export async function confirmAllPastAction(kind?: 'purchase' | 'sale'): Promise<ActionState> {
+  try {
+    if (kind !== undefined && kind !== 'purchase' && kind !== 'sale') return { error: 'Неважечко барање.' };
+    const { u, firm } = await pastDecider();
+    const r = await db().transaction((tx) => confirmAllPastDrafts(tx, { firm, kind, actor: actorOf(u) }));
+    revalidatePast();
+    const bad = r.failed.length ? ` Не се прокнижени ${r.failed.length}: ${r.failed.slice(0, 5).map((f) => `${f.number} (${f.why})`).join('; ')}${r.failed.length > 5 ? '…' : ''}` : '';
+    const msg = `Прокнижени ${r.posted} документи во својот период – ДДВ-04 за тие периоди треба да се коригира.${bad}`;
+    return r.posted || !r.failed.length ? { ok: msg } : { error: msg };
   } catch (e) { return actionError(e); }
 }
 
