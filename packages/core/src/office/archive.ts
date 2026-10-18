@@ -29,6 +29,20 @@ export interface ArchRow {
 
 export interface ArchFilter { q?: string; kind?: string; from?: string; to?: string; year?: number }
 
+/**
+ * Keeping periods (law as stored in the program): invoices and the other documents — at least 5 years after the end of
+ * their calendar year (ЗДДВ чл. 56 ст. 1, ЗДП чл. 48 ст. 1 – „другите документи“, дневен готовински промет); business
+ * books and records (дневник, главна книга, налози, евиденции) — 10 years (ЗДП чл. 48 ст. 1). Electronic invoices are
+ * kept in the form they were issued / received, authentic, intact and readable (ЗДДВ чл. 56 ст. 2–3).
+ */
+export const ARCH_DOC_YEARS = 5;
+export const ARCH_BOOKS_YEARS = 10;
+/** „Чувај до“ of a document row (31.12. of its year + 5); null for rows without a date, loose files and personnel files. */
+export function archKeepUntil(r: Pick<ArchRow, 'date' | 'kind' | 'loose'>): string | null {
+  if (!r.date || r.loose || r.kind === 'Вработен' || r.kind === 'Лого / потпис / печат') return null;
+  return `${Number(r.date.slice(0, 4)) + ARCH_DOC_YEARS}-12-31`;
+}
+
 /** Legacy AK — kinds offered when archiving a new document. */
 export const ARCH_KINDS = ['Договор', 'Анекс / одлука', 'Решение', 'Извод', 'Фискална сметка', 'Влезна фактура', 'Излезна фактура', 'Царинска декларација', 'Пописна листа', 'Даночна пријава', 'Друго'] as const;
 

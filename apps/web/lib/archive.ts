@@ -1,6 +1,6 @@
 import 'server-only';
 /** Server side of legacy `archRows`: the firm's files grouped by the document they are attached to (`file_links`). */
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { archSort, type ArchRow } from '@wise/core/office/archive';
 import {
   aiDocuments, bankAccounts, bankStatements, cashVouchers, dossierDocs, employees, fileLinks, files, firms, invoices, journals, mpinAcks, mpinInbox,
@@ -30,7 +30,7 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
     ids(OFFICE_FILE_ENTITY.dossier).length ? db().select().from(dossierDocs).where(and(eq(dossierDocs.firmId, firmId), inArray(dossierDocs.id, ids(OFFICE_FILE_ENTITY.dossier)))) : [],
     ids('employee').length ? db().select({ id: employees.id, no: employees.no, name: employees.name, start: employees.start }).from(employees).where(and(eq(employees.firmId, firmId), inArray(employees.id, ids('employee')))) : [],
     ids('cash_voucher').length ? db().select().from(cashVouchers).where(inArray(cashVouchers.id, ids('cash_voucher'))) : [],
-    db().select({ t: journals.sourceType, s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firmId), inArray(journals.sourceType, ['purchase', 'invoice', 'cash_voucher']))),
+    db().select({ t: journals.sourceType, s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firmId), inArray(journals.sourceType, ['purchase', 'invoice', 'cash_voucher', 'bank_statement']))),
   ]);
   // bank statements keep their file in `bank_statements.file_id` (no `file_links` row): PDF / scan / XML of the import
   const [B, [fr]] = await Promise.all([
@@ -51,7 +51,7 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
   for (const c of C) R.push({ key: `cash_voucher:${c.id}`, date: c.date, kind: 'Фискална сметка', no: c.docNo || c.number, pn: c.merchant ?? '', amt: c.amt, files: filesOf('cash_voucher', c.id), href: '/blagajna', nalog: nal.get(`cash_voucher:${c.id}`) });
   for (const { s: b, an, acc, cur } of B) {
     const f = b.fileId ? byId.get(b.fileId) : undefined;
-    if (f) R.push({ key: `bank_statement:${b.id}`, date: b.date, kind: 'Извод', no: b.number ?? '', pn: [an, acc].filter(Boolean).join(' · '), amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], href: `${cur === 'MKD' ? '/banka' : '/devizni'}?acct=${b.bankAccountId}&m=${b.date.slice(5, 7)}` });
+    if (f) R.push({ key: `bank_statement:${b.id}`, nalog: nal.get(`bank_statement:${b.id}`), date: b.date, kind: 'Извод', no: b.number ?? '', pn: [an, acc].filter(Boolean).join(' · '), amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], href: `${cur === 'MKD' ? '/banka' : '/devizni'}?acct=${b.bankAccountId}&m=${b.date.slice(5, 7)}` });
   }
   for (const f of F) if (img.has(f.id)) R.push({ key: `firm_image:${f.id}`, date: f.at.toISOString().slice(0, 10), kind: 'Лого / потпис / печат', no: '', pn: '', amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], href: `/firmi?edit=${firmId}` });
   // files attached to nothing (or only to screens without a row) — legacy had none of those, the server shows them
@@ -59,6 +59,26 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
   const linked = new Set(L.filter((l) => l.entityType !== 'firm').map((l) => l.fileId));
   for (const f of F) if (!shown.has(f.id) && !linked.has(f.id)) R.push({ key: `file:${f.id}`, date: f.at.toISOString().slice(0, 10), kind: 'Датотека', no: '', pn: '', amt: null, files: [{ id: f.id, name: f.name, mime: f.mime }], loose: true });
   return archSort(R.filter((r) => r.files.length));
+}
+
+/** A document posted in a nalog (for „без датотека“: posted, but no scanned / attached file). */
+export interface NalogDoc { key: string; date: string; label: string; href: string | null }
+const DOC_HREF: Record<string, (id: string) => string> = { purchase: (id) => `/vlez?edit=${id}`, invoice: (id) => `/izlez?edit=${id}`, cash_voucher: () => '/blagajna' };
+/** The nalozi of a year with the documents posted in each (the archive's „по налог“ view). */
+export async function nalogDocs(firmId: string, year: number): Promise<Map<string, { from: string; to: string; desc: string; docs: NalogDoc[] }>> {
+  const J = await db().select({ n: journals.number, d: journals.date, t: journals.sourceType, s: journals.sourceId, desc: journals.description, pf: journals.periodFrom, pt: journals.periodTo })
+    .from(journals).where(and(eq(journals.firmId, firmId), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`, ne(journals.kind, 'ddv')));
+  const M = new Map<string, { from: string; to: string; desc: string; docs: NalogDoc[] }>();
+  for (const j of J) {
+    const g = M.get(j.n) ?? { from: j.pf ?? j.d, to: j.pt ?? j.d, desc: '', docs: [] };
+    if (j.d < g.from) g.from = j.d;
+    if (j.d > g.to) g.to = j.d;
+    if (!g.desc && j.desc) g.desc = j.desc;
+    // only the documents that should have a paper / file behind them
+    if (j.t && j.s && (j.t in DOC_HREF || j.t === 'bank_statement')) g.docs.push({ key: `${j.t}:${j.s}`, date: j.d, label: j.desc ?? j.t, href: DOC_HREF[j.t]?.(j.s) ?? null });
+    M.set(j.n, g);
+  }
+  return M;
 }
 
 /**

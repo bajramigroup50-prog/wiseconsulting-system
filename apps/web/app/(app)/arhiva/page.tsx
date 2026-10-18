@@ -8,9 +8,10 @@
  */
 import Link from 'next/link';
 import { can } from '@wise/core';
-import { archFileLabel, archFilter, archKinds } from '@wise/core/office/archive';
+import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, archFileLabel, archFilter, archKeepUntil, archKinds } from '@wise/core/office/archive';
+import { nalTitlesOf } from '@wise/db';
 import { requireUser } from '@/lib/auth';
-import { archRows } from '@/lib/archive';
+import { archRows, nalogDocs } from '@/lib/archive';
 import { currentFirm, currentYear } from '@/lib/context';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
@@ -21,7 +22,9 @@ import { allowedFirms } from '@/lib/office';
 import { arDel, arFileDel, arFileMove } from './actions';
 import { ArBulk, ArMoveOne } from './file-tools';
 
-type SP = { q?: string; kind?: string; from?: string; to?: string };
+type SP = { q?: string; kind?: string; from?: string; to?: string; v?: string; nal?: string };
+/** Order of the nalozi: by the start of the period, then the number. */
+const nalKey = (no: string, from: string) => `${from}|${no.padStart(12, ' ')}`;
 
 export default async function ArhivaPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -31,7 +34,21 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
   const year = await currentYear();
   const all = await archRows(firm.id);
   const f = { q: (sp.q ?? '').trim(), kind: sp.kind ?? '', from: sp.from ?? '', to: sp.to ?? '', year };
-  const R = archFilter(all, f);
+  // „по налог“ (default): the nalozi of the year, each opened alone; „сите“: the whole list as before
+  const view = sp.v === 'list' || f.q || f.kind || f.from || f.to ? 'list' : 'nalog';
+  const N = await nalogDocs(firm.id, year);
+  const titles = nalTitlesOf(firm.settings, year);
+  const R0 = archFilter(all, f);
+  const R = sp.nal === '-' ? R0.filter((r) => !r.nalog && !r.loose) : sp.nal === '~' ? R0.filter((r) => r.loose) : sp.nal ? R0.filter((r) => r.nalog === sp.nal) : R0;
+  const withFile = new Set(all.filter((r) => r.files.length).map((r) => r.key));
+  const missing = sp.nal && N.get(sp.nal) ? N.get(sp.nal)!.docs.filter((d) => !withFile.has(d.key)) : [];
+  const nalList = [...N.entries()].map(([no, g]) => {
+    const docs = new Set(g.docs.map((d) => d.key));
+    const files = all.filter((r) => r.nalog === no && r.files.length).reduce((a, r) => a + r.files.length, 0);
+    return { no, ...g, title: titles[no] ?? g.desc, n: docs.size, files, without: [...docs].filter((k) => !withFile.has(k)).length };
+  }).sort((a, b) => nalKey(a.no, a.from).localeCompare(nalKey(b.no, b.from)));
+  const yr = all.filter((r) => !r.date || r.date.slice(0, 4) === String(year));
+  const noNal = yr.filter((r) => !r.nalog && !r.loose).length, looseN = yr.filter((r) => r.loose).length;
   const kinds = archKinds(all, year);
   const nf = R.reduce((a, r) => a + r.files.length, 0);
   const del = can(u.principal, 'del', firm.id);
@@ -53,7 +70,43 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
           <Link className="btn" href="/dosie">🗂 Досие на фирмата</Link>
         </div>
       )}
-      <form className="card">
+      <div className="callout info"><b>⚖ Рокови на чување:</b> фактури и другите документи – најмалку <b>{ARCH_DOC_YEARS} години</b> по истекот на календарската година (ЗДДВ чл. 56 ст. 1, ЗДП чл. 48 ст. 1); деловни книги и евиденции (налози, дневник, главна книга) – <b>{ARCH_BOOKS_YEARS} години</b> (ЗДП чл. 48 ст. 1). Електронските фактури се чуваат во формата во која се издадени / примени, автентични, интегрални и читливи (ЗДДВ чл. 56 ст. 2–3). Рокот тече од крајот на годината на последното запишување (ЗДП чл. 48 ст. 2).</div>
+      <div className="row noprint" style={{ gap: 6, margin: '0 0 8px', flexWrap: 'wrap' }}>
+        <Link className={`btn ${view === 'nalog' && !sp.nal ? 'pri' : ''}`} href="/arhiva">По налог</Link>
+        <Link className={`btn ${view === 'list' && !sp.nal ? 'pri' : ''}`} href="/arhiva?v=list">Сите документи</Link>
+        <Link className={`btn ${sp.nal === '-' ? 'pri' : ''}`} href="/arhiva?nal=-">Без налог (досие, вработени…) · {noNal}</Link>
+        <Link className={`btn ${sp.nal === '~' ? 'pri' : ''}`} href="/arhiva?nal=~">Неповрзани датотеки · {looseN}</Link>
+      </div>
+      {view === 'nalog' && !sp.nal && (
+        <div className="tw card">
+          <h2 style={{ marginTop: 0 }}>Налози {year} – документи и датотеки</h2>
+          <table className="dense">
+            <thead><tr><th>Налог</th><th>Назив</th><th>Период</th><th className="n">Документи</th><th className="n">Датотеки</th><th className="n">Без датотека</th><th>Чувај до</th><th /></tr></thead>
+            <tbody>{nalList.map((g) => (
+              <tr key={g.no}>
+                <td><Link href={`/arhiva?nal=${encodeURIComponent(g.no)}`}><b>{g.no}</b></Link></td>
+                <td>{g.title}</td><td className="mini">{dmy(g.from)} – {dmy(g.to)}</td>
+                <td className="n">{g.n}</td><td className="n">{g.files}</td>
+                <td className="n">{g.without ? <span className="pill warn">{g.without}</span> : g.n ? <span className="pill good">✓</span> : ''}</td>
+                <td className="mini">{`31.12.${year + ARCH_BOOKS_YEARS}`}</td>
+                <td><Link className="btn sm" href={`/arhiva?nal=${encodeURIComponent(g.no)}`}>Отвори</Link></td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <p className="note">„Без датотека“ = документи книжени во налогот што немаат прикачен / скениран документ. Налогот (деловна книга) се чува {ARCH_BOOKS_YEARS} години, документите во него – {ARCH_DOC_YEARS}.</p>
+        </div>
+      )}
+      {sp.nal && sp.nal !== '-' && sp.nal !== '~' && (
+        <div className="card">
+          <div className="hd"><h2 style={{ margin: 0 }}>Налог {sp.nal}{titles[sp.nal] || N.get(sp.nal)?.desc ? ' – ' + (titles[sp.nal] ?? N.get(sp.nal)!.desc) : ''}</h2>
+            <span className="row" style={{ gap: 6 }}><Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(sp.nal)}`}>Отвори го налогот</Link><Link className="btn sm" href="/arhiva">← Сите налози</Link></span></div>
+          {missing.length > 0 ? (
+            <div className="callout warn"><b>{missing.length} документи без датотека</b> (книжени, но без скениран документ):
+              <ul style={{ margin: '4px 0 0' }}>{missing.slice(0, 50).map((d) => <li key={d.key}>{dmy(d.date)} · {d.href ? <Link href={d.href}>{d.label}</Link> : d.label}</li>)}</ul></div>
+          ) : <div className="callout good">✓ Сите документи во налогот имаат датотека.</div>}
+        </div>
+      )}
+      {(view === 'list' || sp.nal) && <form className="card">
         <div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
           <input name="q" placeholder="Барај број, комитент, име на датотека…" defaultValue={f.q} style={{ width: 280 }} />
           <label className="mini">Вид <select name="kind" defaultValue={f.kind} style={{ width: 'auto' }}><option value="">сите</option>{kinds.map((k) => <option key={k}>{k}</option>)}</select></label>
@@ -61,12 +114,12 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
           <label className="mini">До <input name="to" type="date" defaultValue={f.to} /></label>
           <button className="btn">Барај</button>
         </div>
-      </form>
-      {R.length ? (
+      </form>}
+      {(view === 'list' || sp.nal) && (R.length ? (
         <div className="tw" id="arList">
           {tools && <ArBulk firms={moveTo} del={del ? arFileDel : undefined} move={moveTo.length ? arFileMove : undefined} />}
           <table>
-            <thead><tr>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th></th></tr></thead>
+            <thead><tr>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
             <tbody>
               {R.map((r) => (
                 <tr key={r.key}>
@@ -75,6 +128,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
                   <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td>
                   <td>{r.nalog && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(r.nalog)}`}>{r.nalog}</Link>}</td>
                   <td><div className="row" style={{ gap: 4 }}>{r.files.map((x) => <FilePreview key={x.id} id={x.id} name={x.name} mime={x.mime} label={<>👁 {archFileLabel(x)}</>} title={`Преглед: ${x.name}`} />)}</div></td>
+                  <td className="mini">{archKeepUntil(r) ? dmy(archKeepUntil(r)!) : ''}</td>
                   <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                     {r.href && <Link className="btn sm" href={r.href}>Отвори</Link>}
                     {r.archId && del && <RowAction action={arDel.bind(null, r.archId)} label="🗑" title="Избриши од архивата" confirm={`Да се избрише документот „${r.kind} ${r.no}“ од архивата?`} />}
@@ -87,7 +141,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
             </tbody>
           </table>
         </div>
-      ) : <div className="card empty">Нема архивирани документи за избраните услови. Секој скениран или прикачен документ (фактура, фискална сметка, увозни документи, изводи) автоматски се чува тука.</div>}
+      ) : <div className="card empty">Нема архивирани документи за избраните услови. Секој скениран или прикачен документ (фактура, фискална сметка, увозни документи, изводи) автоматски се чува тука.</div>)}
       <p className="note">Документите се чуваат трајно во програмот, прикачени на фактурата или изводот. Кликнете на документот за преглед; од прегледот може да се отвори во нов прозорец или да се преземе.</p>
     </>
   );
