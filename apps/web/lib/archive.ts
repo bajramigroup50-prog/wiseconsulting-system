@@ -83,12 +83,13 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
 export interface NalogDoc { key: string; date: string; label: string; href: string | null }
 const DOC_HREF: Record<string, (id: string) => string> = { purchase: (id) => `/vlez?edit=${id}`, invoice: (id) => `/izlez?edit=${id}`, cash_voucher: () => '/blagajna' };
 /** The nalozi of a year with the documents posted in each (the archive's „по налог“ view). */
-export async function nalogDocs(firmId: string, year: number): Promise<Map<string, { from: string; to: string; desc: string; docs: NalogDoc[] }>> {
-  const J = await db().select({ n: journals.number, d: journals.date, t: journals.sourceType, s: journals.sourceId, desc: journals.description, pf: journals.periodFrom, pt: journals.periodTo })
+export async function nalogDocs(firmId: string, year: number): Promise<Map<string, { from: string; to: string; desc: string; docs: NalogDoc[]; journals: { description: string | null; sourceId: string | null; meta: unknown }[] }>> {
+  const J = await db().select({ n: journals.number, d: journals.date, t: journals.sourceType, s: journals.sourceId, desc: journals.description, pf: journals.periodFrom, pt: journals.periodTo, meta: journals.meta })
     .from(journals).where(and(eq(journals.firmId, firmId), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`, ne(journals.kind, 'ddv')));
-  const M = new Map<string, { from: string; to: string; desc: string; docs: NalogDoc[] }>();
+  const M = new Map<string, { from: string; to: string; desc: string; docs: NalogDoc[]; journals: { description: string | null; sourceId: string | null; meta: unknown }[] }>();
   for (const j of J) {
-    const g = M.get(j.n) ?? { from: j.pf ?? j.d, to: j.pt ?? j.d, desc: '', docs: [] };
+    const g = M.get(j.n) ?? { from: j.pf ?? j.d, to: j.pt ?? j.d, desc: '', docs: [], journals: [] };
+    g.journals.push({ description: j.desc, sourceId: j.s, meta: j.meta });
     if (j.d < g.from) g.from = j.d;
     if (j.d > g.to) g.to = j.d;
     if (!g.desc && j.desc) g.desc = j.desc;

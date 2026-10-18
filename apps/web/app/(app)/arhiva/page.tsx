@@ -9,7 +9,11 @@
 import Link from 'next/link';
 import { can } from '@wise/core';
 import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, archFileLabel, archFilter, archKeepUntil, archKinds } from '@wise/core/office/archive';
-import { nalTitlesOf } from '@wise/db';
+import { bankAccounts, firmNalogSettings } from '@wise/db';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { nalogTitler } from '@/lib/nalog-title';
+import { ArSendBar } from './send-bar';
 import { requireUser } from '@/lib/auth';
 import { archRows, nalogDocs } from '@/lib/archive';
 import { currentFirm, currentYear } from '@/lib/context';
@@ -37,7 +41,10 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
   // „по налог“ (default): the nalozi of the year, each opened alone; „сите“: the whole list as before
   const view = sp.v === 'list' || f.q || f.kind || f.from || f.to ? 'list' : 'nalog';
   const N = await nalogDocs(firm.id, year);
-  const titles = nalTitlesOf(firm.settings, year);
+  // the nalog's name as everywhere (✎ Назив, ВЛЕЗНИ ФАКТУРИ / ИЗВОДИ <банка> …), not its first document
+  const banks = await db().select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
+  const TT = nalogTitler({ settings: firm.settings, year, nal: firmNalogSettings(firm), banks });
+  const titles = Object.fromEntries([...N.entries()].map(([no, g]) => [no, TT.title({ no, journals: g.journals })])) as Record<string, string>;
   const R0 = archFilter(all, f);
   const FOLDERS = { arch: 'archived', pend: 'pending', bank: 'bank', ob: 'opening' } as const;
   const fk = sp.nal?.startsWith('@') ? FOLDERS[sp.nal.slice(1) as keyof typeof FOLDERS] : undefined;
@@ -124,14 +131,16 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
           <button className="btn">Барај</button>
         </div>
       </form>}
+      {(view === 'list' || sp.nal) && R.length > 0 && <ArSendBar firm={firm.name} />}
       {(view === 'list' || sp.nal) && (R.length ? (
         <div className="tw" id="arList">
           {tools && <ArBulk firms={moveTo} del={del ? arFileDel : undefined} move={moveTo.length ? arFileMove : undefined} />}
           <table>
-            <thead><tr>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
+            <thead><tr><th title="Избери за преземање / печатење / праќање">✓</th>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
             <tbody>
               {R.map((r) => (
                 <tr key={r.key}>
+                  <td><input type="checkbox" value={r.files.map((x) => x.id).join(',')} data-arsel={[r.kind, r.no, r.pn, r.date ? dmy(r.date) : ''].filter(Boolean).join(' · ')} aria-label="Избери" /></td>
                   {tools && <td>{r.loose && <SelBox id={r.files[0]!.id} group="ar" />}</td>}
                   <td>{r.date ? dmy(r.date) : ''}</td><td>{r.kind}{r.note && <div className="mini">{r.note}</div>}</td><td>{r.no}</td><td>{r.pn}</td>
                   <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td>
