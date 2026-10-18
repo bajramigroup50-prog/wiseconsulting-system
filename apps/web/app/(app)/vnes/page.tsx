@@ -45,6 +45,10 @@ export default async function VnesPage() {
         {issues ? <>⚠ <b>{issues}</b> работи за проверка – видете ја колоната „Проверка“.</> : <>✓ Нема ништо за проверка.</>}
         {' '}За секој период користете <b>само еден</b> извор на фактури: или книжени фактури (скенирани / внесени), или увезен налог од старата програма – не двете.
       </div>
+      {M.some((x) => x.warn.includes('scans')) && <div className="row" style={{ gap: 8, margin: '0 0 8px' }}>
+        <Link className="btn" href="/skan/proverka?k=sale">📋 За физичка проверка – излезни</Link>
+        <Link className="btn" href="/skan/proverka">📋 За физичка проверка – влезни</Link>
+      </div>}
       <div className="tw"><table className="dense">
         <thead>
           <tr>
@@ -69,10 +73,10 @@ export default async function VnesPage() {
               <td><b>{mm(x.m)}</b> {MONTHS[x.m - 1]}</td>
               <td className="n">{x.sales.n ? <Link href={`/izlez?m=${mm(x.m)}`}>{x.sales.n}</Link> : <span className="mut">0</span>}</td>
               <td className="n">{x.sales.vat ? fmt(x.sales.vat) : ''}</td>
-              <td>{scanCell(x.scanSales, '/skan?k=sale')}</td>
+              <td>{scanCell(x.scanSales, '/skan/proverka?k=sale')}</td>
               <td className="n">{x.purchases.n ? <Link href="/vlez">{x.purchases.n}</Link> : <span className="mut">0</span>}</td>
               <td className="n">{x.purchases.vat ? fmt(x.purchases.vat) : ''}</td>
-              <td>{scanCell(x.scanPurchases, '/skan')}</td>
+              <td>{scanCell(x.scanPurchases, '/skan/proverka')}</td>
               <td className="n">{x.imported.n ? <Link href="/nalozi">{x.imported.n}</Link> : <span className="mut">0</span>}</td>
               <td className="n">{x.imported.outVat || x.imported.inVat ? `${fmt(x.imported.outVat)} / ${fmt(x.imported.inVat)}` : ''}</td>
               {O.accounts.map((a) => <td key={a.id} className="n">{x.bank[a.id] ? <Link href="/banka">{x.bank[a.id]}</Link> : <span className="mut">0</span>}</td>)}

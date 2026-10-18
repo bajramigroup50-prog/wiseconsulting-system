@@ -225,6 +225,7 @@ export async function skipScanDraft(docId: string, index: number, skip = true): 
     });
   } catch (e) { return actionError(e); }
   revalidatePath('/skan');
+  revalidatePath('/skan/proverka');
   revalidatePath('/masovno');
   return { ok: skip ? 'Фактурата е прескокната.' : 'Фактурата е вратена.' };
 }

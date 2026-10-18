@@ -97,6 +97,10 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
   const cnt = (k: string) => R.filter((r) => st(r) === k).length;
   const busy = docs.some((d) => d.status === 'queued' || d.status === 'reading');
   const editor = kind === 'sale' ? '/izlez' : '/vlez';
+  // „📋 За физичка проверка“: every unsaved, not skipped read of this kind (all lists, not only the 60 shown)
+  const [openN] = await db().execute<{ n: number }>(sql`select count(*)::int as n from ${aiDocuments}, jsonb_array_elements(${aiDocuments.drafts}) e
+    where ${aiDocuments.firmId} = ${firm.id} and ${aiDocuments.kind} = ${kind} and ${aiDocuments.status} in ('done', 'saved')
+      and e->>'savedId' is null and coalesce((e->>'skipped')::boolean, false) = false`).then((r) => (Array.isArray(r) ? r : (r as { rows: { n: number }[] }).rows));
   const back = mode === 'skan' ? `/skan${kind === 'sale' ? '?k=sale' : ''}`
     : `/${mode}?` + new URLSearchParams({ b: batchId ?? '', wh, ...(sp.cash === '1' ? { cash: '1' } : {}), ...(sp.cost === '1' ? { cost: '1' } : {}) }).toString();
   const newBatch = randomUUID();
@@ -128,6 +132,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         {write && !busy && reread > 0 && <RowAction className="btn sm" action={rereadScans.bind(null, kind, mode === 'skan' ? null : batchId, undefined)} label={`↻ Прочитај повторно · 💲 AI (${reread})`}
           confirm={`${reread} документи немаат доволно податоци во прочитаното (претходен долг, профактура) – да се прочитаат повторно со AI?`} />}
         {busy && write && <RowAction className="btn sm" action={cancelScans.bind(null, kind, mode === 'skan' ? null : batchId ?? null)} label="Откажи читање" />}
+        {Number(openN?.n ?? 0) > 0 && <Link className="btn" href={`/skan/proverka${kind === 'sale' ? '?k=sale' : ''}`} title="Сите незачувани скенирани фактури на една листа – за проверка со документите (печатење)">📋 За физичка проверка ({Number(openN?.n ?? 0)})</Link>}
         {mode === 'skan' && admin && <Link className="btn sm" href="/skan?cmp=1" title="Спореди брз и детален AI модел">🧪 Тест AI</Link>}
         {mode !== 'skan' && batchId && R.length > 0 && write && <RowAction className="btn" action={clearBatch.bind(null, batchId)} label="Исчисти листа" />}
         {mode !== 'skan' && batchId && write && <RowAction className="btn pri" action={saveBatchOk.bind(null, batchId, sch)} label={`Зачувај ги сите што се во ред (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
