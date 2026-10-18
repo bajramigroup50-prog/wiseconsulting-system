@@ -9,7 +9,7 @@ import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
   NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
-  saleDraftFromScan, scanInvoices, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
+  saleDraftFromScan, scanInvoices, scanNoVatRule, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
 import { classifyPartnerId, type DraftPartnerMatch, type MatchablePartnerRow } from '@wise/core/partners/match';
@@ -65,8 +65,9 @@ async function autoPartner(db: Tx, f: Firm, o: DraftOpts, M: { partners: Matchab
  * Version of the deterministic draft rules. Raise it when the rules change: unsaved reads built with an older version
  * are rebuilt from their stored result when their list or draft is opened (`options.rulesV`, {@link refreshStaleScanDrafts}).
  *   2 — attached pages merged, supplier konto memory, electricity konto, previous debt left out of the total
+ *   3 — an outgoing invoice without VAT and without a note follows the firm's rule (`scanNoVat`, default чл. 24 → field 08)
  */
-export const SCAN_RULES_V = 2;
+export const SCAN_RULES_V = 3;
 
 /** Each supplier's expense kontos of its most recent saved purchase (by booking date). */
 async function lastSupplierKontos(db: Tx, firmId: string): Promise<Map<string, SupplierKontoMemory>> {
@@ -192,7 +193,7 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
   const fm =(v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const tracksStock = M.items.some((i) => i.type !== 'service');
   for (const x of scanInvoices(mergeAttachedInvoices(r))) {
-    const d = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)) });
+    const d = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)), noVat: scanNoVatRule(f.settings) });
     const own = ownerCheck('sale', x, f.edb);
     if (!d.partnerId && !own) {
       const a = await autoPartner(db, f, o, M, { name: d.buyer.name, id: d.buyer.edb, address: d.buyer.address, city: d.buyer.city, type: 'customer' }, d.match);

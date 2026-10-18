@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { customerAccount, invoiceEntries, type PostingContext } from './posting';
 import { ddv04FromResult, ddvFieldDocs, ddvFor } from './vat';
-import { ART32_NOTE, NO_VAT_NOTE_MSG, purchaseDraftFromScan, saleDraftFromScan, vatNoteOf } from './sales/scan';
+import { ART32_NOTE, NO_VAT_DED_NOTE, NO_VAT_NOTE_MSG, purchaseDraftFromScan, saleDraftFromScan, scanNoVatRule, vatNoteOf } from './sales/scan';
 import { JI_EXEMPT_NOTE, jiInvoices, jiRows } from './journal-import';
 import { invoicePrintHtml } from './sales/invoice-print';
 import { invoiceFromPdf } from './noai/purchase';
@@ -47,6 +47,16 @@ describe('scan drafts', () => {
   it('sale: lines at 18 % but a recapitulation without VAT and no note → 0 %, flagged', () => {
     const d = saleDraftFromScan({ number: 'B', lines: [{ name: 'Услуга', qty: 1, price: 1000, amount: 1000, rate: 18 }], groups: [{ rate: 18, base: 1000, vat: 0 }], total: 1000 }, o);
     expect([d.items[0]!.rate, d.items[0]!.price, d.vatCheck]).toEqual([0, 1000, true]);
+  });
+  it('sale: the firm rule „0 % = чл. 24“ (default) – a no-VAT read without a note is exempt with the right to deduct, ready', () => {
+    expect([scanNoVatRule({}), scanNoVatRule(null), scanNoVatRule({ scanNoVat: 'check' })]).toEqual(['ded', 'ded', 'check']);
+    const d = saleDraftFromScan({ number: 'E', lines: [{ name: 'Услуга', qty: 1, price: 25000, amount: 25000, rate: 0 }], groups: [{ rate: 0, base: 25000, vat: 0 }], total: 25000 }, { ...o, noVat: 'ded' });
+    expect([d.art32, d.items[0]!.rate, d.vatExempt, d.vatNote, d.vatCheck]).toEqual([false, 0, 'ded', NO_VAT_DED_NOTE, undefined]);
+    // a printed „без право на одбивка“ note still wins over the rule
+    const n = saleDraftFromScan({ number: 'F', lines: [{ name: 'Услуга', qty: 1, price: 100, amount: 100, rate: 0 }], total: 100, vatNote: 'Ослободено од ДДВ без право на одбивка' }, { ...o, noVat: 'ded' });
+    expect(n.vatExempt).toBe('noded');
+    // a 32-а note still wins
+    expect(saleDraftFromScan({ number: 'G', lines: [{ name: 'Услуга', qty: 1, price: 100, amount: 100, rate: 0 }], total: 100, vatNote: 'член 32-а' }, { ...o, noVat: 'ded' }).art32).toBe(true);
   });
   it('sale: a normal 18 % invoice is untouched', () => {
     const d = saleDraftFromScan({ number: 'C', lines: [{ name: 'Услуга', qty: 1, price: 1000, amount: 1000, rate: 18 }], groups: [{ rate: 18, base: 1000, vat: 180 }], total: 1180 }, o);

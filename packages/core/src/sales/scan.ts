@@ -160,7 +160,16 @@ export function fixSaleQty<T extends ScanInvoice>(r: T): T {
 
 /** Printed legal note of a domestic reverse-charge invoice (ЗДДВ чл. 32-а). */
 export const ART32_NOTE = 'Пренесување на даночната обврска – ДДВ пресметува примателот согласно член 32-а од ЗДДВ';
-/** Check message of a read invoice without VAT and without a note: never guessed as exempt or as art. 32-a. */
+/** Legal basis written on a read outgoing invoice without VAT and without a printed note (the firm's rule „0 % = чл. 24“). */
+export const NO_VAT_DED_NOTE = 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ';
+/**
+ * The firm's rule for a read outgoing invoice without VAT and without a printed note (`firms.settings.scanNoVat`):
+ * `ded` (default) = ЗДДВ чл. 24 with the right to deduct → customer konto 1200009, ДДВ-04 field 08, as the journal
+ * import books 1200009; `check` = never guessed, the draft waits for „провери“.
+ */
+export const scanNoVatRule = (settings: unknown): 'ded' | 'check' =>
+  ((settings ?? {}) as { scanNoVat?: unknown }).scanNoVat === 'check' ? 'check' : 'ded';
+/** Check message of a read invoice without VAT and without a note (rule `check`): not guessed as exempt or as art. 32-a. */
 export const NO_VAT_NOTE_MSG = 'провери: нема ДДВ – чл. 32-а или ослободување?';
 
 /** „член 32-а“, „чл. 32 а“, „32-а ЗДДВ“, „пренесување на даночната обврска“, „ДДВ пресметува примателот“, „reverse charge“. */
@@ -476,7 +485,7 @@ export interface ScanSaleDraft {
  * FIX (LEGACY-MAP 3.4 item 16): art. 32-a lines get rate 18 (legacy 0 here, 18 in the editor — masked by `calcLines`);
  * the revenue konto comes from the scheme (`revDefault`) instead of the literal '7400'.
  */
-export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly MatchPartner[]; items: readonly MatchItem[]; revKonto: string; today: string; nextNumber: string }): ScanSaleDraft {
+export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly MatchPartner[]; items: readonly MatchItem[]; revKonto: string; today: string; nextNumber: string; noVat?: 'ded' | 'check' }): ScanSaleDraft {
   // ЗДДВ notes: „член 32-а“ / „пренесување на даночната обврска“ → art. 32-a (rate 18, no VAT charged);
   // „ослободено од ДДВ“ (чл. 23 / 24) → rate 0 with the printed legal basis and its kind
   const vn = vatNoteOf(r0.vatNote);
@@ -514,8 +523,10 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
     buyer: { name: String(r.buyerName ?? ''), edb: String(r.buyerEdb ?? '').replace(/[^\dA-Za-z]/g, ''), address: String(r.buyerAddress ?? ''), city: String(r.buyerCity ?? '') },
     items, total, ...(r.pages ? { pages: String(r.pages) } : {}), match: draftMatchOf(pm),
     ...(exempt ? { vatNote: vn!.note, ...(vn!.exempt ? { vatExempt: vn!.exempt } : {}) } : {}),
-    // no VAT and no note, or an exemption note whose kind (с / без право на одбивка) is unclear: never guessed
-    ...((noVat && !exempt && items.length) || (exempt && !vn!.exempt) ? { vatCheck: true } : {}),
+    // no VAT and no note: the firm's rule — чл. 24 with the right to deduct (default), or „провери“ (`check`)
+    ...(noVat && !exempt && items.length && (o.noVat ?? 'check') === 'ded' ? { vatNote: NO_VAT_DED_NOTE, vatExempt: 'ded' as const } : {}),
+    // an exemption note whose kind (с / без право на одбивка) is unclear, or no VAT and no note under `check`: not guessed
+    ...((noVat && !exempt && items.length && (o.noVat ?? 'check') !== 'ded') || (exempt && !vn!.exempt) ? { vatCheck: true } : {}),
   };
 }
 
