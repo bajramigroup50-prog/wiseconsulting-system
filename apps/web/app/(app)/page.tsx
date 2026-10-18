@@ -59,7 +59,13 @@ const Q: [string, string, string, string, string][] = [
   ['ddv', 'tax', 'ДДВ-04', 'пријава', 't7'], ['bilanc', 'bal', 'Бруто биланс', 'извештај', 't8'], ['zsProc', 'year', 'Завршна сметка', 'по фази', 't8'],
   ['fiskPer', 'fisk', 'Фискални извештаи', 'рачна каса', 't5'], ['dosie', 'doc', 'Документи', 'досие на фирмата', 't3'], ['klInbox', 'inbox', 'Од клиенти', 'пристигнато', 't2'],
   ['ppNal', 'wallet', 'Платни налози', 'ПП30 · ПП50 · ПП10', 't6'],
+  // reviewing without going through the menus: the lists, the approval list, the archive, the nalozi, the overview
+  ['izlez:list', 'inv', 'Излезни фактури', 'преглед на листата', 't1'], ['vlez:list', 'doc', 'Влезни фактури', 'преглед на листата', 't2'],
+  ['skan:proverka', 'scan', 'За физичка проверка', 'одобри скенирани', 't2'], ['arhiva', 'doc', 'Архива', 'документи по налог', 't3'],
+  ['nalozi', 'res', 'Налози', 'за книжење', 't7'], ['vnes', 'year', 'Преглед на внес', 'што фали по месеци', 't8'],
 ];
+/** Where a quick tile opens (a view id, or `<view>:<sub>` for a page of that view). */
+const QHREF: Record<string, string> = { izlez: '/izlez?nov', 'izlez:list': '/izlez', 'vlez:list': '/vlez', 'skan:proverka': '/skan/proverka' };
 const WD = ['недела', 'понеделник', 'вторник', 'среда', 'четврток', 'петок', 'сабота'];
 const MN = ['јануари', 'февруари', 'март', 'април', 'мај', 'јуни', 'јули', 'август', 'септември', 'октомври', 'ноември', 'декември'];
 
@@ -198,7 +204,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const AFn = new Map(AF.map((x) => [x.id, x]));
   const badF = new Set(apBad.filter((x) => x.lvl === 'bad').map((x) => x.f)).size;
   const vis = new Set(filterNavByModules(navFor(u.role), f, false).flatMap(([, it]) => navFlat(it).map(([id]) => id)));
-  const QV = Q.filter(([v]) => vis.has(v));
+  const QV = Q.filter(([v]) => vis.has(v.split(':')[0]!));
   const ainbMine = TS.ainb.filter((x) => x.fid === f.id).length;
 
   const _d = new Date(td + 'T12:00:00Z');
@@ -242,7 +248,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
       </div>
       <div className="quick q2">
         {QV.map(([v, ic, t, s, tn]) => (
-          <Link key={v} href={v === 'izlez' ? '/izlez?nov' : `/${v}`}><i className={`ib ${tn}`}><Ico k={ic} sz={24} /></i><span><b>{t}</b><small>{s}</small></span></Link>
+          <Link key={v} href={QHREF[v] ?? `/${v}`}><i className={`ib ${tn}`}><Ico k={ic} sz={24} /></i><span><b>{t}</b><small>{s}</small></span></Link>
         ))}
       </div>
       <div className="tiles kpi k4">
