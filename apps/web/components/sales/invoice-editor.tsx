@@ -608,7 +608,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
               <fieldset className="fs"><legend>Тип</legend><div className="row">
                 <label className="rb"><input type="radio" checked={!d.export} onChange={() => set({ export: false })} /> Денарска</label>
                 <label className="rb"><input type="radio" checked={d.export} onChange={() => set({ export: true, lines: d.lines.map((l) => ({ ...l, rate: '0' })) })} /> Извозна</label>
-              </div>{d.export && <small className="note">Извоз: ДДВ 0%, оди во поле 07 на ДДВ-04.</small>}</fieldset>
+              </div>{d.export && <small className="note">Извоз: ДДВ 0%, оди во поле 07 на ДДВ-04; купувачот на конто 1210 (купувачи од странство).</small>}</fieldset>
               {I('priceList', 'Ценовник')}
               <div className="fl"><span>Валута / курс</span><div className="row" style={{ flexWrap: 'nowrap' }}>
                 <select value={d.currency} style={{ maxWidth: 90 }} onChange={(e) => { set({ currency: e.target.value, ...(e.target.value === 'MKD' ? { fx: '1' } : {}) }); autoFx(e.target.value, d.pdate || d.date); }}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>

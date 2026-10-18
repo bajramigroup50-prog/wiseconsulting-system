@@ -149,11 +149,11 @@ async function loadDocs(tx: Tx, firmId: string, f: DocFilter): Promise<{ invoice
   // is booked there too (`docKonto`), so it closes the invoice on the konto it was posted on
   // — and the same for invoices exempt with the right to deduct (чл. 24) on `customerExempt` (`exemptReceivable`)
   let konto: (i: (typeof I)[number]) => string | undefined = () => undefined;
-  if (I.some((i) => i.art32 || !num(i.vat))) {
+  if (I.some((i) => i.art32 || i.export || !num(i.vat))) {
     const ctx = await firmPostingContext(tx, await loadFirm(tx, firmId));
     const k0 = customerAccount(ctx, false);
     konto = (i) => {
-      const k = customerAccount(ctx, i.art32, exemptReceivable({ art32: i.art32, export: i.export, vatExempt: (i.data as InvoiceData | null)?.vatExempt, vat: num(i.vat), base: num(i.base) }, ctx));
+      const k = customerAccount(ctx, i.art32, exemptReceivable({ art32: i.art32, export: i.export, vatExempt: (i.data as InvoiceData | null)?.vatExempt, vat: num(i.vat), base: num(i.base) }, ctx), !!i.export);
       return k !== k0 ? k : undefined;
     };
   }

@@ -173,7 +173,13 @@ export const CUSTOMER_EXEMPT_KONTO = '1200009';
  * {@link exemptReceivable}) `customerExempt` — set in the scheme, else 1200009 when the chart has it, else `customer`.
  * `'-'` switches a separate konto off.
  */
-export function customerAccount(ctx: PostingContext, art32?: boolean, exempt?: boolean): string {
+export function customerAccount(ctx: PostingContext, art32?: boolean, exempt?: boolean, exported?: boolean): string {
+  // an export invoice („Извозна“, a buyer abroad): the foreign-customer konto (`customerFx`, 1210), like `supplierFx`
+  // for suppliers; „-“ in the scheme keeps it on `customer`
+  if (exported && !art32) {
+    const v = schemeRaw(ctx, 'customerFx');
+    if (v !== '-') return (typeof v === 'string' && v) || schemeValue(ctx, 'customerFx') || schemeValue(ctx, 'customer');
+  }
   if (art32) {
     const v = schemeRaw(ctx, 'customer32');
     if (typeof v === 'string' && v && v !== '-') return v;
@@ -434,7 +440,7 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
   const opts = { nonVat, defaultKonto: schemeValue(ctx, 'revDefault') };
   const c = calcLines(inv.items, inv.art32, opts);
   // ЗДДВ чл. 32-а: the receivable of a reverse-charge invoice on its own konto (1200009); revenue stays as it is
-  const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx));
+  const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx), !!inv.export);
   const L: IL[] = [{ k: cust, d: toC(c.total), p: 0, partner: inv.partner }];
   const m0: Record<string, string> = {};
   for (const [rev, zero] of [['revGoods', 'revGoods0'], ['revService', 'revService0'], ['revProduct', 'revProduct0']] as const) {

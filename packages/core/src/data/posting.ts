@@ -9,7 +9,7 @@
  * `vbimp18p:'9990018'`, `vbimp10d/p:'99400'/'99900'`, `vbin*` = `vbout*`, `whStock:'660'`.
  */
 export const SCH0 = {
-  supplier: '2200', supplierFx: '2210', cash: '1020', customer: '1200', advance: '2220', stock: '6600', material: '3100', product: '6300',
+  supplier: '2200', supplierFx: '2210', cash: '1020', customer: '1200', customerFx: '1210', advance: '2220', stock: '6600', material: '3100', product: '6300',
   cogs: '7010', cogsP: '7000', revGoods: '7410', revService: '7400', revProduct: '7400', revRetail: '7411', ddvPay: '23008', ddvClaim: '1308',
   vbin18d: '994018', vbin18p: '999018', vbin10d: '994010', vbin10p: '999010', vbin5d: '99405', vbin5p: '99905',
   vbimp18d: '99408', vbimp18p: '9990018', vbimp10d: '99400', vbimp10p: '99900', vbimp5d: '99402', vbimp5p: '99902',

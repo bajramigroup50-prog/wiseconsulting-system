@@ -108,6 +108,13 @@ describe('customer32 / customerExempt receivable', () => {
     expect(L.reduce((s, l) => s + l.debit - l.credit, 0)).toBe(0);
     expect(invoiceEntries(inv, ctx())[0]!.account).toBe('1200');
   });
+  it('„Извозна“ (export) → the foreign-customer konto 1210 (customerFx); a domestic invoice stays on 1200; „-“ keeps 1200', () => {
+    const ex = { date: '2026-08-18', partner: 'p', export: true, items: [{ qty: 246, price: 35, rate: 0, konto: '7410' }] };
+    expect(invoiceEntries(ex, ctx())[0]).toMatchObject({ account: '1210', debit: 8610, partnerId: 'p' });
+    expect(invoiceEntries({ ...ex, export: false, items: [{ qty: 1, price: 100, rate: 18, konto: '7400' }] }, ctx())[0]!.account).toBe('1200');
+    expect(invoiceEntries(ex, ctx({ sch: { customerFx: '-' } }))[0]!.account).toBe('1200');
+    expect(invoiceEntries(ex, ctx({ sch: { customerFx: '1219' } }))[0]!.account).toBe('1219');
+  });
 });
 
 describe('invoice print', () => {

@@ -49,7 +49,8 @@ export const ctxOf = (st: LegacyState): PostingContext => {
   const g = st.gsch as Record<string, any> | null;
   return {
     firm: {
-      ddv: f.ddv, sch: f.sch, vatIn: f.vatIn, vatOut: f.vatOut, vatImp: f.vatImp, vatInKonto: f.vatInKonto, posK: f.posK,
+      // the legacy program has no foreign-customer konto: an export receivable stays on `customer` (WISE: 1210)
+      ddv: f.ddv, sch: { customerFx: '-', ...(f.sch ?? {}) }, vatIn: f.vatIn, vatOut: f.vatOut, vatImp: f.vatImp, vatInKonto: f.vatInKonto, posK: f.posK,
       posPartnerId: f.posP && PARTNERS.some((p) => p.id === f.posP) ? f.posP : undefined,
     },
     global: g ? { sch: g.sch, vatIn: g.vatIn, vatOut: g.vatOut, vatImp: g.vatImp } : null,
