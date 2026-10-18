@@ -18,7 +18,7 @@ import {
   type IncomingKind, type IncomingSource, type IncomingStatus,
 } from '@wise/core/office';
 import { aiDocuments, files, heldScanCount, inboxItems, incomingDocs, mpinInbox, OFFICE_FILE_ENTITY } from '@wise/db';
-import { PastReview, pastReviewData } from '@/components/sales/past-review';
+import { pastReviewData } from '@/components/sales/past-review';
 import { booksPage } from '@/lib/books';
 import { db } from '@/lib/db';
 import { allowedFirms, filesOf } from '@/lib/office';
@@ -143,7 +143,7 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
       </Hd>
       <AutoRefresh active={busy} />
       {heldN > 0 && !(firm && ids.includes(firm.id)) && <div className="callout warn">⏸ За проверка – минат период: <span className="pill warn">{heldN}</span> документи од минат ДДВ период чекаат одлука. Изберете ја фирмата за да ги видите.</div>}
-      {past && <PastReview data={past} hideEmpty />}
+      {past && past.H.length > 0 && <div className="callout warn">⏸ {past.H.length} прочитани фактури чекаат одобрување – <Link href="/skan/proverka">📋 За физичка проверка – влезни</Link> · <Link href="/skan/proverka?k=sale">излезни</Link>.</div>}
       {mayUpload && <InUpload firmId={firm?.id ?? null} office={scope.office} />}
       <p className="note">Тука е сè што пристигнува: прикачено овде, од клиентите (портал, 📷 телефон), скенирано во <Link href="/skan">Скенирање</Link>, МПИН. Пораките од клиентите се и во <Link href="/klInbox">Пристигнато од клиенти</Link>.</p>
       {R.length ? (

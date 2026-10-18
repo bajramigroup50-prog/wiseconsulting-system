@@ -6,14 +6,14 @@
  * 666 / 289 провизија), payments to the Treasury / NBRSM (јавни приходи), bank fees, and the counterparty as a
  * customer / supplier. Every suggestion says why, and a konto missing from the chart is reported, not posted.
  */
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   autoMatch, Bank, BANK_FEE, partnerOpenKonto, type MatchContext, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, ruleSideOk, schemeValue,
   wrongSideWarning, type BankRow, type NoPartnerKind, type PayScheme,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
 import { missingAccounts } from '../posting';
-import { bankLines, bankStatements, partners, type BankLine } from '../schema/index';
+import { bankLines, bankStatements, journalLines, partners, type BankLine } from '../schema/index';
 import { BankError, loadBankEnv, type BankEnv } from './context';
 import { matchContext } from './match';
 import { assertStatementOpen, lineProblem, postStatement, type PostStatementResult } from './posting';
@@ -123,6 +123,30 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
   return { konto: '', why: 'нема предлог – изберете конто', how: '' };
 }
 
+/**
+ * Per partner (`<id>:in` for a customer payment, `<id>:out` for a supplier payment): the one konto of the customer /
+ * supplier group (120… / 220…) its lines are booked on in the ledger, when that is not the default (1200 / 2200) and
+ * the default is not used for it at all — e.g. a customer exempt under чл. 24 kept on 1200009.
+ */
+export async function ledgerPartnerKonto(tx: Tx, firmId: string, env: Pick<BankEnv, 'konta'>): Promise<Map<string, string>> {
+  const R = await tx.select({ p: journalLines.partnerId, a: journalLines.account, n: sql<number>`count(*)::int` }).from(journalLines)
+    .where(and(eq(journalLines.firmId, firmId), sql`${journalLines.partnerId} is not null`, sql`(${journalLines.account} like '12%' or ${journalLines.account} like '22%')`))
+    .groupBy(journalLines.partnerId, journalLines.account);
+  const by = new Map<string, Set<string>>();
+  for (const r of R) {
+    const side = r.a.startsWith('12') ? 'in' : 'out';
+    const k = r.p + ':' + side;
+    (by.get(k) ?? by.set(k, new Set()).get(k)!).add(r.a);
+  }
+  const out = new Map<string, string>();
+  for (const [k, S] of by) {
+    const def = k.endsWith(':in') ? env.konta.customer : env.konta.supplier;
+    const grp = [...S].filter((a) => a.slice(0, 3) === def.slice(0, 3));
+    if (grp.length === 1 && grp[0] !== def) out.set(k, grp[0]!);
+  }
+  return out;
+}
+
 /** Lines that can still be booked: unbooked, or on a customer / supplier konto without a document. */
 export const lineUnbooked = (l: BankLine) => !l.refId && !(l.split && l.split.length) && (!l.konto || (BKPK_RE.test(l.konto) && !l.partnerId));
 
@@ -152,6 +176,9 @@ export async function statementSuggestions(tx: Tx, firmId: string, statementIds:
       });
     }
   }
+  // the konto each partner's receivable / payable is kept on in the books (imported nalozi included) — a payment
+  // without an open document follows it (a customer booked only on 1200009 is paid on 1200009, never split to 1200)
+  const ledgerK = await ledgerPartnerKonto(tx, firmId, env);
   for (const l of open) {
     if (out.has(l.id)) continue;
     const s = suggestByCode({ amount: Math.round(Number(l.amount) * 100), desc: l.description, name: l.name, purpose: l.purpose, osnov: l.osnov, counterAccount: l.counterAccount, acct: l.bankAccountId, date: l.date }, env);
@@ -163,7 +190,9 @@ export async function statementSuggestions(tx: Tx, firmId: string, statementIds:
     } else {
       // a partner whose open items are all on another receivable / payable konto (1200009 …): that konto
       const pk = s.how === 'partner' && s.partnerId ? partnerOpenKonto(ctxOf.get(Number(l.date.slice(0, 4)))!, s.partnerId, amt) : undefined;
-      out.set(l.id, pk && pk !== s.konto ? { ...s, konto: pk, why: `${s.why} · отворените ставки се на ${pk}` } : s);
+      const lk = !pk && s.how === 'partner' && s.partnerId ? ledgerK.get(s.partnerId + (amt > 0 ? ':in' : ':out')) : undefined;
+      out.set(l.id, pk && pk !== s.konto ? { ...s, konto: pk, why: `${s.why} · отворените ставки се на ${pk}` }
+        : lk && lk !== s.konto ? { ...s, konto: lk, why: `${s.why} · комитентот се води на ${lk}` } : s);
     }
   }
   await flagMissing(tx, firmId, out.values());

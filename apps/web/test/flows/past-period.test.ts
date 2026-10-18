@@ -60,12 +60,12 @@ describe('⏸ За проверка – минат период', () => {
 
   it('a colleague without the right sees the held items but cannot decide', async () => {
     as('acc'); useFirm(A);
+    // one way to post: the scan screen only points to the approval list („За физичка проверка“)
     const h = await html(ScanCenter({ mode: 'skan', sp: { k: 'sale' } }));
-    expect(h).toContain('⏸ За проверка – минат период');
-    expect(h).toContain('data-past-count="2"');
-    expect(h).toContain('Одлучува сопственикот');
+    expect(h).toContain('2 фактури од минат ДДВ период чекаат одобрување');
+    expect(h).toContain('/skan/proverka?k=sale');
+    expect(h).not.toContain('Зачувај ги сите спремни');
     expect(h).not.toContain('Прокнижи во својот период');
-    expect(h).not.toContain('датум на прием во тековниот период');
     expect((await confirmPastAction(docId, 0, 'own')).error).toMatch(/Само сопственикот/);
     expect((await rejectPastAction(docId, 1)).error).toMatch(/Само сопственикот/);
     expect((await setPastHoldAction(false)).error).toMatch(/Само сопственикот/);
@@ -75,10 +75,6 @@ describe('⏸ За проверка – минат период', () => {
 
   it('the owner confirms „во својот период“ (no receipt-date option for outgoing) and ДДВ-04 lists the correction', async () => {
     as('owner'); useFirm(A);
-    const h = await html(ScanCenter({ mode: 'skan', sp: { k: 'sale' } }));
-    expect(h).toContain('✓ Прокнижи во својот период');
-    expect(h).not.toContain('Прокнижи со датум на прием во тековниот период');
-    expect(h).toContain('Излезната фактура секогаш припаѓа на периодот на датумот на издавање');
     expect((await confirmPastAction(docId, 0, 'receipt', today)).error).toMatch(/датумот на издавање/);
     const r = await confirmPastAction(docId, 0, 'own');
     expect(r.error).toBeUndefined();
@@ -94,7 +90,7 @@ describe('⏸ За проверка – минат период', () => {
     as('senior'); useFirm(A);
     expect((await rejectPastAction(docId, 1)).ok).toBe('Документот е отфрлен.');
     const h = await html(ScanCenter({ mode: 'skan', sp: { k: 'sale' } }));
-    expect(h).not.toContain('data-past-count');
+    expect(h).not.toContain('чекаат одобрување');
     const A2 = await pg.select().from(schema.auditLog).where(eq(schema.auditLog.firmId, A));
     expect(A2.map((x) => x.action)).toEqual(expect.arrayContaining(['pastHold', 'pastPost', 'pastReject']));
   });

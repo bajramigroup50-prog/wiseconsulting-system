@@ -15,9 +15,9 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import type { DraftPartnerMatch } from '@wise/core/partners/match';
-import { applyScanRules, cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, rereadScans, retryScan, saveBatchOk, savePurchasesOk, saveSalesOk, skipScanDraft } from '@/app/(app)/skan/actions';
+import { applyScanRules, cancelScans, clearBatch, deepScan, ensureScanBuyer, removeScan, rereadScans, retryScan, skipScanDraft } from '@/app/(app)/skan/actions';
 import { AutoRefresh, ScanUpload } from './scan-upload';
-import { PastReview, pastReviewData } from './past-review';
+import { pastReviewData } from './past-review';
 import { SchemeParam } from './scheme-param';
 import { schemeLabel, schemeNoOf, schemeProfilesOf } from '@wise/core/scheme-profiles';
 
@@ -125,20 +125,18 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
         {mode === 'skan' && <Link className={'btn' + (kind === 'purchase' ? ' pri' : '')} href="/skan">Влезни</Link>}
         {mode === 'skan' && <Link className={'btn' + (kind === 'sale' ? ' pri' : '')} href="/skan?k=sale">Излезни (издадени)</Link>}
         {write && cnt('ok') > 0 && <SchemeParam schemes={schOpts} />}
-        {mode === 'skan' && kind === 'sale' && write && <RowAction className="btn pri" action={saveSalesOk.bind(null, sch)} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
-        {mode === 'skan' && kind === 'purchase' && write && cnt('ok') > 0 && <RowAction className="btn pri" action={savePurchasesOk.bind(null, sch)} label={`Зачувај ги сите спремни (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури? Секоја е посебна фактура со свој налог; дупликатите се прескокнуваат.`} />}
         {write && !busy && R.some((r) => r.i != null && !r.doc.drafts[r.i]!.savedId) && <RowAction className="btn sm" action={applyScanRules.bind(null, kind, mode === 'skan' ? null : batchId)} label="↻ Примени ги правилата повторно"
           title="Нацртите што не се зачувани се прават повторно од прочитаното со сегашните правила (конто на добавувачот, струја, претходен долг, профактура, прилози) – без AI, без трошок. Зачуваните не се менуваат." />}
         {write && !busy && reread > 0 && <RowAction className="btn sm" action={rereadScans.bind(null, kind, mode === 'skan' ? null : batchId, undefined)} label={`↻ Прочитај повторно · 💲 AI (${reread})`}
           confirm={`${reread} документи немаат доволно податоци во прочитаното (претходен долг, профактура) – да се прочитаат повторно со AI?`} />}
         {busy && write && <RowAction className="btn sm" action={cancelScans.bind(null, kind, mode === 'skan' ? null : batchId ?? null)} label="Откажи читање" />}
-        {Number(openN?.n ?? 0) > 0 && <Link className="btn" href={`/skan/proverka${kind === 'sale' ? '?k=sale' : ''}`} title="Сите незачувани скенирани фактури на една листа – за проверка со документите (печатење)">📋 За физичка проверка ({Number(openN?.n ?? 0)})</Link>}
+        {/* one way to post read invoices: the approval list („За физичка проверка“) — nothing is saved in bulk from here */}
+        {Number(openN?.n ?? 0) > 0 && <Link className="btn pri" href={`/skan/proverka${kind === 'sale' ? '?k=sale' : ''}`} title="Сите прочитани фактури се одобруваат рачно на една листа: „✓ Книжи“ или „📁 Само за архива“">📋 За физичка проверка – одобри ({Number(openN?.n ?? 0)})</Link>}
         {mode === 'skan' && admin && <Link className="btn sm" href="/skan?cmp=1" title="Спореди брз и детален AI модел">🧪 Тест AI</Link>}
         {mode !== 'skan' && batchId && R.length > 0 && write && <RowAction className="btn" action={clearBatch.bind(null, batchId)} label="Исчисти листа" />}
-        {mode !== 'skan' && batchId && write && <RowAction className="btn pri" action={saveBatchOk.bind(null, batchId, sch)} label={`Зачувај ги сите што се во ред (${cnt('ok')})`} confirm={`Да се зачуваат и прокнижат ${cnt('ok')} фактури?`} />}
         {mode !== 'skan' && batchId && <Link className="btn" href={`/${mode}`}>Нова листа</Link>}
       </Hd>
-      <PastReview data={past} />
+      {past.H.length > 0 && <div className="callout warn">⏸ {past.H.length} фактури од минат ДДВ период чекаат одобрување – <Link href={`/skan/proverka${kind === 'sale' ? '?k=sale' : ''}`}>📋 За физичка проверка</Link> („✓ Книжи“ ги книжи во својот период).</div>}
       {openLists.some((l) => l.open > 0) && <div className="callout info"><b>Отворени листи:</b>{openLists.filter((l) => l.open > 0).map((l) => (
         <span key={l.b} style={{ marginLeft: 10 }}><Link className="btn sm" href={`/${mode}?b=${l.b}`}>{dmy(l.at.slice(0, 10))} · {l.n} документи · {l.open} незачувани →</Link></span>))}</div>}
       {mode !== 'skan' && !batchId ? (
