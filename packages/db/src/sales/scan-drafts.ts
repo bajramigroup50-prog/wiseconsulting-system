@@ -270,7 +270,9 @@ export async function rebuildScanDrafts(db: Tx, f: Firm, doc: AiDocument, o: Dra
     const old = same ? doc.drafts[i] : undefined;
     if (old?.savedId) return old;
     const y = old?.deleted ? { ...x, deleted: old.deleted } : x;
-    return old?.skipped && !y.skipped ? { ...y, skipped: true } : y;
+    // the user's decisions stay: skipped, „📁 Само за архива“
+    const z = old?.archived ? { ...y, archived: old.archived } : y;
+    return old?.skipped && !z.skipped ? { ...z, skipped: true } : z;
   });
   const up = await db.update(aiDocuments).set({ drafts, result: res, options: { ...(doc.options ?? {}), rulesV: SCAN_RULES_V } })
     .where(and(eq(aiDocuments.id, doc.id), eq(aiDocuments.status, 'done'))).returning();
