@@ -9,7 +9,7 @@
  */
 import Link from 'next/link';
 import { and, eq, inArray } from 'drizzle-orm';
-import { aiDocuments, files, journals, partners, refreshStaleScanDrafts, releaseDeletedScanDrafts, type AiDocument } from '@wise/db';
+import { aiDocuments, draftSourceFiles, files, journals, partners, refreshStaleScanDrafts, releaseDeletedScanDrafts, type AiDocument } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -36,11 +36,15 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
   const { docs: D } = write ? await refreshStaleScanDrafts(db(), firm, D0, { userId: u.id }) : { docs: D0 };
   const dateOf = (r: Draft) => String(r.docDate ?? r.date ?? '');
   const all: Row[] = D.flatMap((d) => d.drafts.map((x, i) => ({ d, x, i, r: (x.draft ?? {}) as Draft }))).sort((a, b) => dateOf(a.r).localeCompare(dateOf(b.r)));
-  const open = all.filter(({ x }) => !x.savedId && !x.skipped);
+  // not saved: also the reads the program put aside as „not an invoice“ (испратница / профактура…) — the AI can be
+  // wrong (an invoice read as a delivery note), so they are shown to decide; only the user's archive stays out
+  const open = all.filter(({ x }) => !x.savedId && (!x.skipped || (x.status === 'skip' && !x.archived)));
   const posted = all.filter(({ x }) => x.savedId && x.review && !x.checkedAt);
   const checked = all.filter(({ x }) => x.savedId && x.review && x.checkedAt);
   const archived = all.filter(({ x }) => !x.savedId && x.skipped && x.archived);
-  const fids = [...new Set(all.flatMap(({ d }) => (d.fileId ? [d.fileId] : [])))];
+  // each invoice's own file (several photos read together: the page of that invoice, not the first photo)
+  const fileOf = (d: AiDocument, i: number) => draftSourceFiles(d, i).fileIds[0] ?? d.fileId;
+  const fids = [...new Set(all.flatMap(({ d, i }) => { const f = fileOf(d, i); return f ? [f] : []; }))];
   const names = new Map((fids.length ? await db().select({ id: files.id, n: files.name }).from(files).where(inArray(files.id, fids)) : []).map((f) => [f.id, f.n]));
   const P = new Map((await db().select({ id: partners.id, n: partners.name }).from(partners).where(eq(partners.firmId, firm.id))).map((p) => [p.id, p.n]));
   const sids = posted.map(({ x }) => x.savedId!);
@@ -49,8 +53,8 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
   const editor = kind === 'sale' ? '/izlez' : '/vlez';
   const back = `/skan/proverka${kind === 'sale' ? '?k=sale' : ''}`;
   const party = (r: Draft) => (r.partnerId && P.get(r.partnerId)) || (kind === 'sale' ? r.buyer?.name : r.supplierName) || <i className="mut">непознат</i>;
-  const file = (d: AiDocument) => (d.fileId ? <a href={`/api/files/${d.fileId}`} target="_blank" rel="noreferrer">{(names.get(d.fileId) ?? 'датотека').slice(0, 32)}</a> : '—');
-  const cancelled = (d: AiDocument) => !!d.fileId && /откажан|сторн|поништ|cancel|storno|anulua/i.test(names.get(d.fileId) ?? '');
+  const file = (d: AiDocument, i: number) => { const f = fileOf(d, i); return f ? <a href={`/api/files/${f}`} target="_blank" rel="noreferrer">{(names.get(f) ?? 'датотека').slice(0, 32)}</a> : '—'; };
+  const cancelled = (d: AiDocument, i: number) => { const f = fileOf(d, i); return !!f && /откажан|сторн|поништ|cancel|storno|anulua/i.test(names.get(f) ?? ''); };
   const head = (g: string, extra: string) => (
     <thead><tr><th style={{ width: 22 }}>{write ? <SelAll group={g} /> : '☐'}</th><th>#</th><th>Датум</th><th>Број</th><th>{kind === 'sale' ? 'Купувач' : 'Добавувач'}</th><th className="n">Износ</th><th>{extra}</th><th>Датотека</th><th className="noprint" /></tr></thead>
   );
@@ -84,10 +88,10 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
             <tbody>{open.map((row, k) => (
               <tr key={row.d.id + ':' + row.i}>
                 {cells(row, k, 'pv')}
-                <td className="mini">{row.x.msg || WHY[row.x.status] || row.x.status}
+                <td className="mini">{row.x.status === 'skip' && <b>⚠ програмот ја оставил настрана – </b>}{row.x.msg || WHY[row.x.status] || row.x.status}{row.x.status === 'skip' && <div>Ако е фактура – „✓ Книжи“; ако не е – „📁 Само за архива“.</div>}
                   {!total(row.r) && <div><b>износ 0 – веројатно не е фактура</b></div>}
-                  {cancelled(row.d) && <div><b>⚠ датотеката е означена како ОТКАЖАНА / СТОРНО</b></div>}</td>
-                <td className="mini">{file(row.d)}</td>
+                  {cancelled(row.d, row.i) && <div><b>⚠ датотеката е означена како ОТКАЖАНА / СТОРНО</b></div>}</td>
+                <td className="mini">{file(row.d, row.i)}</td>
                 <td className="noprint">{write && <Link className="btn sm" href={`${editor}?scan=${row.d.id}&i=${row.i}&back=${encodeURIComponent(back)}`}>Провери / поправи</Link>}</td>
               </tr>
             ))}</tbody>
@@ -107,7 +111,7 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
               <tr key={row.d.id + ':' + row.i}>
                 {cells(row, k, 'pp')}
                 <td>{J.get(row.x.savedId!) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(row.x.savedId!)!)}`}>{J.get(row.x.savedId!)}</Link> : '—'}</td>
-                <td className="mini">{file(row.d)}</td>
+                <td className="mini">{file(row.d, row.i)}</td>
                 <td className="noprint"><Link className="btn sm" href={`${editor}?edit=${row.x.savedId}`}>Отвори / поправи</Link></td>
               </tr>
             ))}</tbody>
@@ -123,12 +127,12 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
             {head('pa', 'Одлука')}
             <tbody>
               {archived.map((row, k) => (
-                <tr key={row.d.id + ':' + row.i}>{cells(row, k, 'pa')}<td><span className="pill">📁 архива</span> <span className="mini">{dmy(row.x.archived!.slice(0, 10))}</span></td><td className="mini">{file(row.d)}</td><td /></tr>
+                <tr key={row.d.id + ':' + row.i}>{cells(row, k, 'pa')}<td><span className="pill">📁 архива</span> <span className="mini">{dmy(row.x.archived!.slice(0, 10))}</span></td><td className="mini">{file(row.d, row.i)}</td><td /></tr>
               ))}
               {checked.map((row, k) => (
                 <tr key={row.d.id + ':' + row.i}>
                   <td /><td>{archived.length + k + 1}</td><td>{dateOf(row.r) ? dmy(dateOf(row.r)) : '—'}</td><td>{row.r.number}</td><td>{party(row.r)}</td><td className="n">{fmt(total(row.r))}</td>
-                  <td><span className="pill good">✓ прокнижена, проверена</span> <span className="mini">{dmy(row.x.checkedAt!.slice(0, 10))}</span></td><td className="mini">{file(row.d)}</td>
+                  <td><span className="pill good">✓ прокнижена, проверена</span> <span className="mini">{dmy(row.x.checkedAt!.slice(0, 10))}</span></td><td className="mini">{file(row.d, row.i)}</td>
                   <td><Link className="btn sm ghost" href={`${editor}?edit=${row.x.savedId}`}>Отвори</Link></td>
                 </tr>
               ))}

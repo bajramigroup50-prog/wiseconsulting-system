@@ -83,7 +83,7 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
         const dr = x.draft as unknown as ScanSaleDraft & ScanPurchaseDraft;
         number = String(dr.number ?? '') || key;
         if (x.savedId) throw new Error('веќе е зачувана');
-        if (x.skipped) throw new Error('прескокната');
+        if (x.skipped && (x.archived || x.status !== 'skip')) throw new Error('прескокната / во архива – прво „Врати“');
         if (a.kind === 'sale') {
           if (!dr.items?.length || !Number(dr.total ?? 1)) throw new Error('нема ставки / износ 0 – не е фактура');
           if (saleVatUnclear(dr)) throw new Error('нејасен ДДВ (ослободување / 32-а) – отворете „Провери“');
@@ -93,7 +93,8 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
           }
         }
         // posted from the check list: it stays there („Прокнижени – за физичка проверка“) until checked on paper
-        await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', review: true, checkedAt: undefined }));
+        // a read the program put aside as „not an invoice“ (испратница / профактура) — the user checked it is one
+        await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', skipped: undefined, review: true, checkedAt: undefined }));
         await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor);
         await audit(t, { userId: a.actor.userId, firmId: a.firmId, action: 'scanSaveChecked', entityType: 'ai_document', entityId: d.id, data: { index: i, number } });
       });
