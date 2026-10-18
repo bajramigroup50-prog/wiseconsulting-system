@@ -71,6 +71,10 @@ const WEAK = new Set([
   'makedonija', 'macedonia', 'mk', 'rsm', 'uvoz', 'izvoz', 'uvozizvoz', 'eksport', 'import', 'export', 'eksportimport', 'trgovsko', 'trgovija', 'trgovski',
   'drushtvo', 'proizvodstvo', 'proizvodno', 'proizvoditel', 'uslugi', 'uslugovno', 'promet', 'trejd', 'trade', 'trading', 'kompani', 'kompanija',
   'company', 'grupa', 'group', 'internacional', 'international', 'filijala', 'podruzhnica', 'centrala', 'sektor', 'kompanii',
+  // the country a statement appends to a foreign payer („БЕХТЕЛ ЕНКА УК 2 ЛИМИТЕД Обединето [Кралство]“)
+  'obedineto', 'kralstvo', 'germanija', 'germany', 'deutschland', 'avstrija', 'austria', 'srbija', 'serbia', 'turcija', 'turkey', 'turkiye',
+  'italija', 'italy', 'grcija', 'greece', 'bugarija', 'bulgaria', 'albanija', 'albania', 'shqiperia', 'kosovo', 'hrvatska', 'croatia',
+  'slovenija', 'slovenia', 'holandija', 'netherlands', 'shvajcarija', 'switzerland', 'francija', 'france', 'polska', 'poland',
 ]);
 
 function rawTokens(name: unknown): string[] {

@@ -22,6 +22,7 @@ import { saveTk } from './actions';
 import { TkScan } from './tk-scan';
 import { PartnerDupView } from './dup-view';
 import { AutoMergeNote } from './auto-merge-note';
+import { MergeInto } from './merge-into';
 
 const LIMIT = 500;
 
@@ -94,6 +95,10 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0}
         schemes={schemeProfilesOf(firm.settings).map((s) => ({ no: s.no, label: schemeLabel(s.no, [s]) }))} />}
       {showForm && edit && !(used.get(edit.id) ?? 0) && canDo(u, 'del', firm.id) && <div className="row" style={{ marginTop: -6, marginBottom: 10 }}><RowAction className="btn danger" action={deletePartner.bind(null, edit.id)} label="Избриши" confirm={`Да се избрише „${edit.name}“?`} /></div>}
+      {showForm && edit && (canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)) && (
+        <MergeInto self={{ id: edit.id, code: edit.code, name: edit.name }}
+          partners={(await db().select({ id: partners.id, code: partners.code, name: partners.name }).from(partners).where(eq(partners.firmId, firm.id)).orderBy(asc(partners.name)))} />
+      )}
       {useP && <div className="card"><div className="hd"><h2>🔒 {useP.name} – се користи во {used.get(useP.id) ?? 0} документи</h2><Link className="btn sm" href="/partneri">✕</Link></div>
         <p className="note">Партнер/артикл што е користен не може да се избрише, за да не се расипат книжењата. Ако документите се погрешни, прво избришете ги нив (во нивната листа) – потоа ќе може да се избрише и овој. Инаку означете го како неактивен.</p>
         <div className="tw"><table className="dense"><thead><tr><th>Вид</th><th>Број</th><th>Датум</th><th className="n">Износ</th></tr></thead><tbody>{useL.map((x, k) => <tr key={k}><td>{x.kind}</td><td>{x.number}</td><td>{x.date.split('-').reverse().join('.')}</td><td className="n">{x.total == null ? '' : x.total.toLocaleString('mk-MK', { minimumFractionDigits: 2 })}</td></tr>)}</tbody></table></div></div>}

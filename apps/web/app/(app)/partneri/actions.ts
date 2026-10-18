@@ -247,6 +247,25 @@ export async function mergePartnersAction(_prev: ActionState, form: FormData): P
 }
 
 /**
+ * „⇢ Спои во…“ on a partner's card: this partner (a duplicate the „Дупликати“ view does not group, e.g. „АСУРА ГРОУП
+ * ДООЕЛ СКОПЈЕ“ ↔ „АСУРА ГРОУП - Soravia Center“) is merged into the chosen main partner. `mergePartners` refuses another
+ * ЕДБ / ЕМБС and a locked period.
+ */
+export async function mergeIntoAction(id: string, main: string): Promise<ActionState> {
+  try {
+    const m = z.uuid().parse(main), x = z.uuid().parse(id);
+    if (m === x) return { error: 'Изберете друг комитент.' };
+    const { u, firm } = await mergeActor();
+    const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, m, [x]));
+    revalidatePath('/partneri');
+    return { ok: `Споено (${r.refs} записи префрлени).` };
+  } catch (e) {
+    if (e instanceof z.ZodError) return { error: 'Изберете комитент.' };
+    return mergeErr(e);
+  }
+}
+
+/**
  * „Спои ги сите сигурни“: the groups listed in the confirm (`listed`: main + members), each merged only while it is
  * still a „сигурно“ group with that main partner and those members (re-checked now).
  */

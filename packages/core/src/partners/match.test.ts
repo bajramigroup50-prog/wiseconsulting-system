@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyPartnerId, findPartnerMatch, learnPartnerAlias, nameScore, nameTokens, partnerIdLabel, type MatchablePartnerRow } from './match';
+import { classifyPartnerId, findPartnerMatch, learnPartnerAlias, nameScore, nameTokens, partnerDuplicates, partnerIdLabel, type MatchablePartnerRow } from './match';
 import { saleDraftFromScan, purchaseDraftFromScan } from '../sales/scan';
 
 const P: MatchablePartnerRow[] = [
@@ -115,5 +115,14 @@ describe('YUSCII „X“ = Џ of the old program', () => {
   it('ASURA FASILITI MENAXMENT is АСУРА ФАСИЛИТИ МЕНАЏМЕНТ, not АСУРА ГРОУП', () => {
     const P: MatchablePartnerRow[] = [{ id: 'g', name: 'АСУРА ГРОУП ДООЕЛ СКОПЈЕ' }, { id: 'f', name: 'АСУРА ФАСИЛИТИ МЕНАЏМЕНТ ДООЕЛ' }];
     expect(findPartnerMatch(P, { name: 'ASURA FASILITI MENAXMENT DOOEL' }).partner?.id).toBe('f');
+  });
+});
+
+describe('a country appended by the statement', () => {
+  it('„… Обединето [Кралство]“ is not part of the name: the duplicate is found', () => {
+    const P = [{ id: 'a', code: '0285', name: 'БЕХТЕЛ ЕНКА УК2 ЛИМИТЕД' }, { id: 'b', code: null, name: 'БЕХТЕЛ ЕНКА УК 2 ЛИМИТЕД Обединето' }];
+    const g = partnerDuplicates(P);
+    expect(g).toHaveLength(1);
+    expect(g[0]!.members.map((m) => m.id).sort()).toEqual(['a', 'b']);
   });
 });
