@@ -10,6 +10,7 @@ import { pg, setupDb, signIn, useFirm, useYear } from '../harness';
 vi.mock('@/lib/db', () => import('../harness').then((h) => h.dbModule));
 vi.mock('next/headers', () => import('../harness').then((h) => h.headersModule));
 vi.mock('next/cache', () => import('../harness').then((h) => h.cacheModule));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push() {}, refresh() {}, back() {} }) }));
 vi.mock('@wise/db', async (orig) => ({ ...(await orig<object>()), getDb: () => (globalThis as { __wisePg?: unknown }).__wisePg }));
 
 const VnesPage = (await import('@/app/(app)/vnes/page')).default;

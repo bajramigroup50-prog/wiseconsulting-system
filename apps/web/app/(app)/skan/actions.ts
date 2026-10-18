@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { ScanSaleDraft } from '@wise/core/sales';
 import { learnPartnerAlias, partnerIdLabel, type DraftPartnerMatch } from '@wise/core/partners/match';
 import {
-  aiDocuments, audit, bulkSaveMessage, confirmAllPastDrafts, confirmPastDraft, refreshStaleScanDrafts, scanNeedsReread, ensurePartner, fileAlreadyUsed, files, partners, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
+  aiDocuments, audit, bulkSaveMessage, confirmAllPastDrafts, saveSelectedScanDrafts, archiveScanDrafts, markScanDraftsChecked, confirmPastDraft, refreshStaleScanDrafts, scanNeedsReread, ensurePartner, fileAlreadyUsed, files, partners, pastPeriodContext, rejectPastDraft, saveReadyScanDrafts, setPastHold, skipDraft,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -228,6 +228,43 @@ export async function skipScanDraft(docId: string, index: number, skip = true): 
   revalidatePath('/skan/proverka');
   revalidatePath('/masovno');
   return { ok: skip ? 'Фактурата е прескокната.' : 'Фактурата е вратена.' };
+}
+
+const PICKED = /^[0-9a-f-]{36}:\d{1,4}$/i;
+
+/** „✓ Прокнижи ги избраните“ (За физичка проверка): the ticked reads, checked against the paper, saved each in its own period. */
+export async function saveSelectedScansAction(kind: 'sale' | 'purchase', ids: string[]): Promise<ActionState> {
+  try {
+    if ((kind !== 'sale' && kind !== 'purchase') || !ids.length || ids.length > 2000 || ids.some((x) => !PICKED.test(x))) return { error: 'Изберете фактури (кутичката лево).' };
+    const { u, firm } = await firmAction(kind === 'sale' ? 'saveInv' : 'savePur');
+    const r = await db().transaction((tx) => saveSelectedScanDrafts(tx, { firmId: firm.id, kind, ids, actor: actorOf(u) }));
+    for (const p of ['/skan', '/skan/proverka', '/vnes', '/ddv', '/izlez', '/vlez', '/nalozi']) revalidatePath(p);
+    const bad = r.failed.length ? ` Не се зачувани ${r.failed.length}: ${r.failed.slice(0, 6).map((f) => `${f.number} (${f.why})`).join('; ')}${r.failed.length > 6 ? '…' : ''}` : '';
+    const msg = `Зачувани и прокнижени ${r.saved} фактури.${bad}`;
+    return r.saved || !r.failed.length ? { ok: msg } : { error: msg };
+  } catch (e) { return actionError(e); }
+}
+
+/** „📁 Само за архива“ (`undo` = „Врати“): the ticked reads are checked and not posted — cancelled, not an invoice… */
+export async function archiveScansAction(undo: boolean, ids: string[]): Promise<ActionState> {
+  try {
+    if (!ids.length || ids.length > 2000 || ids.some((x) => !PICKED.test(x))) return { error: 'Изберете фактури (кутичката лево).' };
+    const { u, firm } = await firmAction('scan');
+    const n = await db().transaction((tx) => archiveScanDrafts(tx, { firmId: firm.id, ids, userId: u.id, undo }));
+    for (const p of ['/skan', '/skan/proverka', '/vnes']) revalidatePath(p);
+    return { ok: undo ? `Вратени ${n} фактури во листата за проверка.` : `${n} фактури се оставени само за архива (не се книжат).` };
+  } catch (e) { return actionError(e); }
+}
+
+/** „✓ Проверено“ (`undo` = back to „за физичка проверка“): posted reads checked against the paper documents. */
+export async function markScansCheckedAction(undo: boolean, ids: string[]): Promise<ActionState> {
+  try {
+    if (!ids.length || ids.length > 2000 || ids.some((x) => !PICKED.test(x))) return { error: 'Изберете фактури (кутичката лево).' };
+    const { u, firm } = await firmAction('scan');
+    const n = await db().transaction((tx) => markScanDraftsChecked(tx, { firmId: firm.id, ids, userId: u.id, undo }));
+    for (const p of ['/skan/proverka', '/vnes']) revalidatePath(p);
+    return { ok: undo ? `${n} вратени за физичка проверка.` : `${n} означени како физички проверени.` };
+  } catch (e) { return actionError(e); }
 }
 
 export interface ScanState {

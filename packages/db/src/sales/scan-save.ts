@@ -12,7 +12,7 @@ import { draftVatDate, pastHoldMsg, pastPeriodOf, type PastPeriodCtx } from '@wi
 import { audit, type Tx } from '../audit';
 import { aiDocuments, fileLinks, files, items, type AiDocument, type AiDraft, type Firm } from '../schema/index';
 import type { DocActor } from './context';
-import { draftSourceFiles, markDraftSaved, purchaseInputFromDraft, releaseDeletedScanDrafts } from './ai-docs';
+import { draftSourceFiles, loadAiDocument, markDraftSaved, purchaseInputFromDraft, releaseDeletedScanDrafts } from './ai-docs';
 import { saveInvoice, type InvoiceInput } from './invoices';
 import { ensurePartner } from './partners-auto';
 import { savePurchase } from './purchases';
@@ -59,6 +59,85 @@ export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: nu
   const r = await savePurchase(tx, firmId, pin, actor);
   await markDraftSaved(tx, firmId, d.id, i, r.id);
   return r.id;
+}
+
+/**
+ * „✓ Прокнижи ги избраните“ on the „За физичка проверка“ list: the ticked reads („docId:index“) are saved as they are —
+ * after the user checked them against the paper — each in its own savepoint and in its own period (no past-period
+ * hold: the user decided). A read buyer that is not a partner yet is added. Refused (listed with the reason, the
+ * others go on): no lines / zero total, an unclear VAT treatment, a closed / locked period, a used number.
+ */
+export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 'sale' | 'purchase'; ids: readonly string[]; actor: DocActor }): Promise<{ saved: number; failed: { number: string; why: string }[] }> {
+  let saved = 0;
+  const failed: { number: string; why: string }[] = [];
+  for (const key of a.ids) {
+    const [docId, ix] = key.split(':');
+    const i = Number(ix);
+    let number = key;
+    try {
+      await tx.transaction(async (s) => {
+        const t = s as unknown as Tx;
+        const d = await loadAiDocument(t, a.firmId, docId!);
+        const x = d.drafts[i];
+        if (d.kind !== a.kind || !x) throw new Error('не е во листата');
+        const dr = x.draft as unknown as ScanSaleDraft & ScanPurchaseDraft;
+        number = String(dr.number ?? '') || key;
+        if (x.savedId) throw new Error('веќе е зачувана');
+        if (x.skipped) throw new Error('прескокната');
+        if (a.kind === 'sale') {
+          if (!dr.items?.length || !Number(dr.total ?? 1)) throw new Error('нема ставки / износ 0 – не е фактура');
+          if (saleVatUnclear(dr)) throw new Error('нејасен ДДВ (ослободување / 32-а) – отворете „Провери“');
+          if (!dr.partnerId && dr.buyer?.name) {
+            const r = await ensurePartner(t, a.firmId, { name: dr.buyer.name, edb: dr.buyer.edb, address: dr.buyer.address, city: dr.buyer.city, vatRegistered: /^MK/i.test(dr.buyer.edb || ''), type: 'customer' });
+            await patchDraft(t, d.id, i, (y) => ({ ...y, draft: { ...y.draft, partnerId: r.id } }));
+          }
+        }
+        // posted from the check list: it stays there („Прокнижени – за физичка проверка“) until checked on paper
+        await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', review: true, checkedAt: undefined }));
+        await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor);
+        await audit(t, { userId: a.actor.userId, firmId: a.firmId, action: 'scanSaveChecked', entityType: 'ai_document', entityId: d.id, data: { index: i, number } });
+      });
+      saved++;
+    } catch (e) {
+      failed.push({ number, why: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { saved, failed };
+}
+
+/** „✓ Проверено“: the posted reads („docId:index“) were checked against the paper documents (`checkedAt`); `undo` takes it back. */
+export async function markScanDraftsChecked(tx: Tx, a: { firmId: string; ids: readonly string[]; userId: string | null; undo?: boolean }): Promise<number> {
+  let n = 0;
+  const at = new Date().toISOString();
+  for (const key of a.ids) {
+    const [docId, ix] = key.split(':');
+    const d = await loadAiDocument(tx, a.firmId, docId!);
+    const x = d.drafts[Number(ix)];
+    if (!x?.savedId || !x.review) continue;
+    await patchDraft(tx, d.id, Number(ix), (y) => ({ ...y, checkedAt: a.undo ? undefined : at }));
+    n++;
+  }
+  if (n) await audit(tx, { userId: a.userId, firmId: a.firmId, action: a.undo ? 'scanUncheck' : 'scanChecked', entityType: 'ai_document', data: { n, ids: a.ids.slice(0, 200) } });
+  return n;
+}
+
+/**
+ * „📁 Само за архива“: the reads („docId:index“) are checked and not posted (cancelled, not an invoice, entered elsewhere):
+ * skipped and marked `archived` — the file stays in the archive and on the check list; `undo` („Врати“) puts them back.
+ */
+export async function archiveScanDrafts(tx: Tx, a: { firmId: string; ids: readonly string[]; userId: string | null; undo?: boolean }): Promise<number> {
+  let n = 0;
+  const at = new Date().toISOString();
+  for (const key of a.ids) {
+    const [docId, ix] = key.split(':');
+    const d = await loadAiDocument(tx, a.firmId, docId!);
+    const x = d.drafts[Number(ix)];
+    if (!x || x.savedId) continue;
+    await patchDraft(tx, d.id, Number(ix), (y) => (a.undo ? { ...y, skipped: undefined, archived: undefined } : { ...y, skipped: true, archived: at }));
+    n++;
+  }
+  if (n) await audit(tx, { userId: a.userId, firmId: a.firmId, action: a.undo ? 'scanUnarchive' : 'scanArchive', entityType: 'ai_document', data: { n, ids: a.ids.slice(0, 200) } });
+  return n;
 }
 
 /** Replace draft `i` of a document (read again: an earlier invoice of the same file may have just been saved). */

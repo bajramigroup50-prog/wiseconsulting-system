@@ -66,8 +66,9 @@ async function autoPartner(db: Tx, f: Firm, o: DraftOpts, M: { partners: Matchab
  * are rebuilt from their stored result when their list or draft is opened (`options.rulesV`, {@link refreshStaleScanDrafts}).
  *   2 — attached pages merged, supplier konto memory, electricity konto, previous debt left out of the total
  *   3 — an outgoing invoice without VAT and without a note follows the firm's rule (`scanNoVat`, default чл. 24 → field 08)
+ *   4 — an outgoing read without lines and amount (a work order / service confirmation) is not an invoice: archived
  */
-export const SCAN_RULES_V = 3;
+export const SCAN_RULES_V = 4;
 
 /** Each supplier's expense kontos of its most recent saved purchase (by booking date). */
 async function lastSupplierKontos(db: Tx, firmId: string): Promise<Map<string, SupplierKontoMemory>> {
@@ -220,8 +221,9 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
     if (d.vatCheck) why.push(d.vatNote ? 'провери: ослободено со или без право на одбивка (ДДВ-04 поле 08 / 09)?' : NO_VAT_NOTE_MSG);
     if (own) why.push(own);
     const status = dup ? 'dup' : why.some((m) => !m.startsWith('нов купувач') && !m.startsWith('нов партнер креиран')) ? 'check' : 'ok';
-    const nonInv = notInvoiceMsg(x);
-    if (nonInv) { out.push({ draft: { ...d, calcTotal: c.total } as unknown as Record<string, unknown>, status: 'skip', msg: nonInv, skipped: true }); continue; }
+    // no lines and no amount: a work order / „налог-потврда за извршена услуга“, a delivery page — never an invoice to post
+    const nonInv = notInvoiceMsg(x) || (!c.total && !Number(d.total) ? 'не е фактура (налог / потврда за услуга, без износ) – не се книжи, само архива' : '');
+    if (nonInv) { out.push({ draft: { ...d, calcTotal: c.total } as unknown as Record<string, unknown>, status: 'skip', msg: nonInv, skipped: true, ...(!notInvoiceMsg(x) ? { archived: new Date().toISOString() } : {}) }); continue; }
     out.push({ draft: { ...d, calcTotal: c.total } as unknown as Record<string, unknown>, status, msg: why.join(' · ') });
   }
   return out;

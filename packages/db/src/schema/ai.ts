@@ -67,6 +67,14 @@ export interface AiDraft {
   /** Id of the purchase / invoice saved from this draft. */
   savedId?: string;
   /**
+   * Posted from „📋 За физичка проверка“ (`saveSelectedScanDrafts`): stays on that list under „Прокнижени – за физичка
+   * проверка“ until the paper document is checked (`checkedAt`, ISO time, „✓ Проверено“).
+   */
+  review?: boolean;
+  checkedAt?: string;
+  /** „📁 Само за архива“ (ISO time): checked and NOT posted (cancelled, not an invoice…) — skipped, kept on the check list's archive. */
+  archived?: string;
+  /**
    * When the purchase / invoice saved from this draft was deleted (ISO time): the draft is no longer saved and can be
    * saved again („документот е избришан – може повторно да се зачува“, `releaseScanDrafts`). Cleared when saved again.
    */

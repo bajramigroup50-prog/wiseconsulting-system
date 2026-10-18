@@ -58,6 +58,11 @@ describe('scan drafts', () => {
     // a 32-а note still wins
     expect(saleDraftFromScan({ number: 'G', lines: [{ name: 'Услуга', qty: 1, price: 100, amount: 100, rate: 0 }], total: 100, vatNote: 'член 32-а' }, { ...o, noVat: 'ded' }).art32).toBe(true);
   });
+  it('sale: „ДДВ не е пресметан согласно член 15 … јавен интерес … Коридор 8“ is exempt with the right to deduct (field 08)', () => {
+    const d = saleDraftFromScan({ number: 'H', lines: [{ name: 'Дезинсекција', qty: 1, price: 30000, amount: 30000, rate: 0 }], total: 30000,
+      vatNote: 'ДДВ не е пресметан согласно член 15 од Законот за утврдување на јавен интерес и номинирање на стратешки партнер за проектот Коридор 8 и Коридорот 10Д' }, o);
+    expect([d.vatExempt, d.vatCheck]).toEqual(['ded', undefined]);
+  });
   it('sale: a normal 18 % invoice is untouched', () => {
     const d = saleDraftFromScan({ number: 'C', lines: [{ name: 'Услуга', qty: 1, price: 1000, amount: 1000, rate: 18 }], groups: [{ rate: 18, base: 1000, vat: 180 }], total: 1180 }, o);
     expect([d.art32, d.items[0]!.rate, d.vatCheck, d.vatNote]).toEqual([false, 18, undefined, undefined]);
