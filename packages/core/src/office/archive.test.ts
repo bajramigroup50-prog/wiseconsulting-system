@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { archFileLabel, archPreviewKind, archFilter, archKinds, archXlsxRows, type ArchRow } from './archive';
+import { archFileLabel, archPreviewKind, archFilter, archKinds, archXlsxRows, delovodnik, regBookOf, type ArchRow } from './archive';
 
 const R: ArchRow[] = [
   { key: 'purchase:1', date: '2026-03-01', kind: 'Влезна фактура', no: '12', pn: 'Алфа', amt: '1180.00', files: [{ id: 'a', name: 'f12.pdf', mime: 'application/pdf' }] },
@@ -31,5 +31,21 @@ describe('archive (legacy archRows / arhiva)', () => {
     expect(archPreviewKind('image/jpeg')).toBe('img');
     expect(archPreviewKind('image/tiff')).toBe('none');
     expect(archPreviewKind('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x.xlsx')).toBe('none');
+  });
+});
+
+describe('delovodnik', () => {
+  const row = (key: string, date: string, kind: string, extra: Partial<ArchRow> = {}): ArchRow => ({ key, date, kind, no: '', pn: '', amt: null, files: [], ...extra });
+  it('numbers every document of the year once, per book, in date order', () => {
+    const R = delovodnik([
+      row('invoice:b', '2026-03-02', 'Излезна фактура'), row('purchase:a', '2026-01-05', 'Влезна фактура'),
+      row('invoice:a', '2026-01-10', 'Излезна фактура'), row('dossier_doc:x', '2026-02-01', 'Договор'),
+      row('purchase:b', '2026-01-05', 'Фискална сметка'), row('bank_statement:z', '2025-12-31', 'Извод'),
+      row('file:l', '2026-04-01', 'Датотека', { loose: true }), row('firm_image:i', '2026-01-01', 'Лого / потпис / печат'),
+    ], 2026);
+    expect(R.map((r) => `${r.regNo} ${r.key}`)).toEqual([
+      '01-1/26 purchase:a', '01-2/26 purchase:b', '02-1/26 invoice:a', '03-1/26 dossier_doc:x', '02-2/26 invoice:b',
+    ]);
+    expect(regBookOf({ kind: 'Чека одобрување' })).toBe('in');
   });
 });

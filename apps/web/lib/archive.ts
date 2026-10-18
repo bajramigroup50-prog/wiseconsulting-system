@@ -135,3 +135,22 @@ export async function fileInUse(tx: Tx, f: { id: string; firmId: string | null }
 /** AI reads of a loose file that were never saved (failed or abandoned statement / invoice reads) — they go with the file. */
 export const dropUnsavedReads = (tx: Tx, fileId: string) =>
   tx.delete(aiDocuments).where(and(eq(aiDocuments.fileId, fileId), ne(aiDocuments.status, 'saved')));
+
+/**
+ * Rows of the деловодник (`delovodnik`): the archive's documents plus the invoices and purchases of the year that have
+ * no file attached (they are documents all the same – sent / received – and get their serial number).
+ */
+export async function registerRows(firmId: string, year: number): Promise<ArchRow[]> {
+  const R = await archRows(firmId);
+  const has = new Set(R.map((r) => r.key));
+  const yr = sql`between ${year + '-01-01'} and ${year + '-12-31'}`;
+  const [I, P, J] = await Promise.all([
+    db().select({ i: invoices, pn: partners.name }).from(invoices).leftJoin(partners, eq(partners.id, invoices.partnerId)).where(and(eq(invoices.firmId, firmId), sql`${invoices.date} ${yr}`)),
+    db().select({ p: purchases, pn: partners.name }).from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId)).where(and(eq(purchases.firmId, firmId), sql`${purchases.date} ${yr}`)),
+    db().select({ t: journals.sourceType, s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firmId), inArray(journals.sourceType, ['purchase', 'invoice']))),
+  ]);
+  const nal = new Map(J.map((j) => [`${j.t}:${j.s}`, j.n]));
+  for (const { i, pn } of I) if (!has.has(`invoice:${i.id}`)) R.push({ key: `invoice:${i.id}`, date: i.date, kind: i.kind === 'credit' ? 'Одобрение' : i.kind === 'proforma' ? 'Профактура' : i.kind === 'dispatch' ? 'Испратница' : 'Излезна фактура', no: i.number, pn: pn ?? '', amt: i.total, files: [], href: `${INV_HREF[i.kind] ?? '/izlez'}?edit=${i.id}`, nalog: nal.get(`invoice:${i.id}`) });
+  for (const { p, pn } of P) if (!has.has(`purchase:${p.id}`)) R.push({ key: `purchase:${p.id}`, date: p.date, kind: p.cash ? 'Фискална сметка' : p.imp ? 'Увозна калкулација' : 'Влезна фактура', no: p.number || p.calcNo || '', pn: pn ?? '', amt: p.total, files: [], href: `/vlez?edit=${p.id}`, nalog: nal.get(`purchase:${p.id}`) });
+  return R;
+}

@@ -8,14 +8,15 @@
  */
 import Link from 'next/link';
 import { can } from '@wise/core';
-import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, archFileLabel, archFilter, archKeepUntil, archKinds } from '@wise/core/office/archive';
+import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, REG_BOOKS, archFileLabel, archFilter, archKeepUntil, archKinds, delovodnik, type RegBook } from '@wise/core/office/archive';
+import { PrintBtn } from '../skan/proverka/print-btn';
 import { bankAccounts, firmNalogSettings } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { nalogTitler } from '@/lib/nalog-title';
 import { ArSendBar } from './send-bar';
 import { requireUser } from '@/lib/auth';
-import { archRows, nalogDocs } from '@/lib/archive';
+import { archRows, nalogDocs, registerRows } from '@/lib/archive';
 import { currentFirm, currentYear } from '@/lib/context';
 import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
@@ -26,7 +27,7 @@ import { allowedFirms } from '@/lib/office';
 import { arDel, arFileDel, arFileMove } from './actions';
 import { ArBulk, ArMoveOne } from './file-tools';
 
-type SP = { q?: string; kind?: string; from?: string; to?: string; v?: string; nal?: string };
+type SP = { q?: string; kind?: string; from?: string; to?: string; v?: string; nal?: string; b?: string };
 /** Order of the nalozi: by the start of the period, then the number. */
 const nalKey = (no: string, from: string) => `${from}|${no.padStart(12, ' ')}`;
 
@@ -39,7 +40,11 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
   const all = await archRows(firm.id);
   const f = { q: (sp.q ?? '').trim(), kind: sp.kind ?? '', from: sp.from ?? '', to: sp.to ?? '', year };
   // „по налог“ (default): the nalozi of the year, each opened alone; „сите“: the whole list as before
-  const view = sp.v === 'list' || f.q || f.kind || f.from || f.to ? 'list' : 'nalog';
+  const view = sp.v === 'reg' ? 'reg' : sp.v === 'list' || f.q || f.kind || f.from || f.to ? 'list' : 'nalog';
+  // деловодник: every document of the year under its serial number per book (примени / испратени / други)
+  const REG = view === 'reg' ? delovodnik(await registerRows(firm.id, year), year) : [];
+  const book = (['in', 'out', 'other'] as const).find((b) => b === sp.b) as RegBook | undefined;
+  const regN = (b: RegBook) => REG.filter((r) => r.book === b).length;
   const N = await nalogDocs(firm.id, year);
   // the nalog's name as everywhere (✎ Назив, ВЛЕЗНИ ФАКТУРИ / ИЗВОДИ <банка> …), not its first document
   const banks = await db().select({ id: bankAccounts.id, name: bankAccounts.name }).from(bankAccounts).where(eq(bankAccounts.firmId, firm.id));
@@ -84,6 +89,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
       <div className="row noprint" style={{ gap: 6, margin: '0 0 8px', flexWrap: 'wrap' }}>
         <Link className={`btn ${view === 'nalog' && !sp.nal ? 'pri' : ''}`} href="/arhiva">По налог</Link>
         <Link className={`btn ${view === 'list' && !sp.nal ? 'pri' : ''}`} href="/arhiva?v=list">Сите документи</Link>
+        <Link className={`btn ${view === 'reg' ? 'pri' : ''}`} href="/arhiva?v=reg">📒 Деловодник (реден број)</Link>
         <Link className={`btn ${sp.nal === '-' ? 'pri' : ''}`} href="/arhiva?nal=-">Без налог (досие, вработени…) · {noNal}</Link>
         <Link className={`btn ${sp.nal === '@arch' ? 'pri' : ''}`} href="/arhiva?nal=@arch">📁 Архивирани (не се книжат) · {fn('archived')}</Link>
         {fn('pending') > 0 && <Link className={`btn ${sp.nal === '@pend' ? 'pri' : ''}`} href="/arhiva?nal=@pend">⏳ Чека одобрување · {fn('pending')}</Link>}
@@ -93,6 +99,29 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
       </div>
       {sp.nal === '@arch' && <div className="callout">📁 Документи што сте ги прегледале и <b>не се книжат</b> (откажани, работни налози, празни страници…) – по месеци. Остануваат во архивата.</div>}
       {sp.nal === '@bank' && <div className="callout warn">⚠ Изводи што се прочитани, но <b>не се во книгите</b> (изводот е избришан). Увезете ги повторно во <Link href="/banka">Банка</Link> – истите PDF, читањето се користи повторно без AI; датотеката се поврзува сама.</div>}
+      {view === 'reg' && (
+        <div className="tw card">
+          <div className="hd"><h2 style={{ margin: 0 }}>Деловодник {year} – {firm.name}</h2><PrintBtn /></div>
+          <div className="callout info noprint">📒 Секој документ на фирмата е заведен <b>еднаш, под реден број</b> во својата книга: <b>01</b> – примени (влезни фактури, фискални сметки, изводи, увозни документи), <b>02</b> – испратени (излезни фактури, одобренија, испратници, профактури), <b>03</b> – други / внатрешни (договори, решенија, досие, вработени…). Бројот е <b>книга-реден број/година</b> (пр. 01-15/{String(year).slice(2)}), по датумот на документот, од 1 секоја година (Уредба за канцелариско и архивско работење). Документите се чуваат најмалку {ARCH_DOC_YEARS} години, деловните книги {ARCH_BOOKS_YEARS} (ЗДП чл. 48, ЗДДВ чл. 56).</div>
+          <div className="row noprint" style={{ gap: 6, margin: '0 0 8px', flexWrap: 'wrap' }}>
+            <Link className={`btn sm ${!book ? 'pri' : ''}`} href="/arhiva?v=reg">Сите · {REG.length}</Link>
+            {(['in', 'out', 'other'] as const).map((b) => <Link key={b} className={`btn sm ${book === b ? 'pri' : ''}`} href={`/arhiva?v=reg&b=${b}`}>{REG_BOOKS[b]} · {regN(b)}</Link>)}
+          </div>
+          <table className="dense">
+            <thead><tr><th>Реден бр.</th><th>Датум</th><th>Книга</th><th>Вид</th><th>Број на документот</th><th>Испраќач / примач</th><th className="n">Износ</th><th>Налог</th><th>Датотека</th><th>Чувај до</th></tr></thead>
+            <tbody>{REG.filter((r) => !book || r.book === book).map((r) => (
+              <tr key={r.key}>
+                <td><b>{r.regNo}</b></td><td>{dmy(r.date)}</td><td className="mini">{REG_BOOKS[r.book].slice(5)}</td>
+                <td>{r.href ? <Link href={r.href}>{r.kind}</Link> : r.kind}</td><td>{r.no}</td><td>{r.pn}</td>
+                <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td><td>{r.nalog ?? ''}</td>
+                <td>{r.files.length ? <span className="row" style={{ gap: 4 }}>{r.files.map((x) => <FilePreview key={x.id} id={x.id} name={x.name} mime={x.mime} label="👁" title={`Преглед: ${x.name}`} />)}</span> : <span className="pill warn" title="Нема скениран / прикачен документ">нема</span>}</td>
+                <td className="mini">{archKeepUntil(r) ? dmy(archKeepUntil(r)!) : ''}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {!REG.length && <p className="empty">Нема документи во {year}.</p>}
+        </div>
+      )}
       {view === 'nalog' && !sp.nal && (
         <div className="tw card">
           <h2 style={{ marginTop: 0 }}>Налози {year} – документи и датотеки</h2>

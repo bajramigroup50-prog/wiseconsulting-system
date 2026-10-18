@@ -88,3 +88,27 @@ export const archPreviewKind = (mime: string, name = ''): 'frame' | 'img' | 'non
     : /pdf|^text\/|^application\/(xml|json)$/.test(mime) || /\.(pdf|txt|csv|xml)$/i.test(name) ? 'frame' : 'none';
 
 export const archFileLabel = (f: ArchFile) => `${/pdf/.test(f.mime) ? 'PDF' : /image/.test(f.mime) ? 'Слика' : 'Датотека'} · ${f.name.slice(0, 26)}`;
+
+/**
+ * Деловодник (the archive register, Уредба за канцелариско и архивско работење): every document of the year once, under
+ * a serial number per book – 01 примени (влезни) документи, 02 испратени (излезни), 03 други / внатрешни – as
+ * `<book>-<serial>/<yy>`, in the order of the documents' dates (the same date: by the document's key, so the numbers
+ * do not move between two openings). Loose files and the firm's logo / stamp are not documents and are not entered.
+ */
+export type RegBook = 'in' | 'out' | 'other';
+export const REG_BOOKS: Record<RegBook, string> = { in: '01 · Примени (влезни) документи', out: '02 · Испратени (излезни) документи', other: '03 · Други / внатрешни документи' };
+const REG_PREFIX: Record<RegBook, string> = { in: '01', out: '02', other: '03' };
+const OUT_KINDS = new Set(['Излезна фактура', 'Одобрение', 'Испратница', 'Профактура']);
+const IN_KINDS = new Set(['Влезна фактура', 'Увозна калкулација', 'Фискална сметка', 'Извод', 'Извод – не е увезен', 'Архивирано – не се книжи', 'Чека одобрување']);
+export const regBookOf = (r: Pick<ArchRow, 'kind'>): RegBook => OUT_KINDS.has(r.kind) ? 'out' : IN_KINDS.has(r.kind) ? 'in' : 'other';
+export interface RegRow extends ArchRow { book: RegBook; rb: number; regNo: string }
+export function delovodnik(R: readonly ArchRow[], year: number): RegRow[] {
+  const L = R.filter((r) => !!r.date && r.date.slice(0, 4) === String(year) && !r.loose && r.kind !== 'Лого / потпис / печат')
+    .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+  const n: Record<RegBook, number> = { in: 0, out: 0, other: 0 };
+  return L.map((r) => {
+    const book = regBookOf(r);
+    const rb = ++n[book];
+    return { ...r, book, rb, regNo: `${REG_PREFIX[book]}-${rb}/${String(year).slice(2)}` };
+  });
+}
