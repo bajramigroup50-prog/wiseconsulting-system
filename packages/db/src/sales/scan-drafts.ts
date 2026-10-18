@@ -9,7 +9,7 @@ import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
   NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
-  saleDraftFromScan, scanInvoices, scanNoVatRule, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
+  saleDraftFromScan, scanInvoices, scanNoVatRule, type ScanPurchaseDraft, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
 import { classifyPartnerId, type DraftPartnerMatch, type MatchablePartnerRow } from '@wise/core/partners/match';
@@ -68,8 +68,10 @@ async function autoPartner(db: Tx, f: Firm, o: DraftOpts, M: { partners: Matchab
  *   3 — an outgoing invoice without VAT and without a note follows the firm's rule (`scanNoVat`, default чл. 24 → field 08)
  *   4 — an outgoing read without lines and amount (a work order / service confirmation) is not an invoice: archived
  *   5 — „испратница“ with a VAT recapitulation and an amount is an invoice (not put aside)
+ *   6 — documents paid in cash follow the firm's cash rules (`settings.cashScan`: fuel → 4033, the rest → 4199…), a
+ *       fiscal receipt without a number gets one
  */
-export const SCAN_RULES_V = 5;
+export const SCAN_RULES_V = 6;
 
 /** Each supplier's expense kontos of its most recent saved purchase (by booking date). */
 async function lastSupplierKontos(db: Tx, firmId: string): Promise<Map<string, SupplierKontoMemory>> {
@@ -141,6 +143,9 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
       defMargin: Number(s.defMargin) || 25, mgRound: Number(s.mgRound) || 1,
       vatClosed: (dt) => closed.has(periodOf(dt, f.vatPeriod)),
     });
+    // paid in cash (a cash nalog / „во готово“): the firm's cash rules — e.g. fuel → 4033, everything else → 4199 — as
+    // costs (no stock); a fiscal receipt without an invoice number gets one from its date and amount
+    if (opts.cash) applyCashScanRules(d, cashScanRules(s));
     if (!d.partnerId && !ownerCheck('purchase', x, f.edb)) {
       const a = await autoPartner(db, f, o, M, { name: d.supplierName, id: d.supplierEdb, bankAccount: d.bankAcc, type: 'supplier' }, d.match);
       if (a) { d.partnerId = a.id; d.match = a.match; }
@@ -176,6 +181,29 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     out.push({ draft: d as unknown as Record<string, unknown>, ...st, ...(skipped ? { skipped: true } : {}) });
   }
   return out;
+}
+
+/** The firm's rules for documents paid in cash (`firms.settings.cashScan`): keyword → konto, and the konto of the rest. */
+export interface CashScanRules { other?: string; rules?: { match: string; konto: string }[] }
+export const cashScanRules = (settings: unknown): CashScanRules => {
+  const v = ((settings ?? {}) as { cashScan?: unknown }).cashScan as CashScanRules | undefined;
+  return v && typeof v === 'object' ? { other: typeof v.other === 'string' ? v.other : undefined, rules: Array.isArray(v.rules) ? v.rules.filter((r) => r && typeof r.match === 'string' && typeof r.konto === 'string') : [] } : {};
+};
+
+/** Apply the cash rules to a read purchase: one konto for the whole receipt (by the supplier and the line names), costs only. */
+export function applyCashScanRules(d: ScanPurchaseDraft, R: CashScanRules): void {
+  const text = [d.supplierName, ...(d.stock ?? []).map((x) => x.name)].join(' ');
+  const hit = (R.rules ?? []).find((r) => { try { return new RegExp(r.match, 'iu').test(text); } catch { return false; } });
+  const konto = hit?.konto || R.other;
+  if (konto) {
+    d.groups = d.groups.map((g) => ({ ...g, konto }));
+    d.stock = [];
+    d.ptype = 'cost';
+  }
+  if (!String(d.number ?? '').trim()) {
+    const dt = String(d.docDate || d.date || '').split('-').reverse().join('.');
+    d.number = `БФ ${dt} ${purchaseTotal(d).toFixed(2)}`.trim();
+  }
 }
 
 /** „101-103“ / „101 – 103“: a range of numbers (several invoices read as one), not one invoice number. */

@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { saleDrafts } from './sales/scan-drafts';
+import { purchaseDrafts, saleDrafts } from './sales/scan-drafts';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 
@@ -41,5 +41,21 @@ describe('read outgoing invoices – rules for every firm', () => {
     const [a] = await saleDrafts(db as never, f2, { invoices: [exempt] } as never);
     expect(a!.status).toBe('check');
     expect((a!.draft as { vatCheck?: boolean }).vatCheck).toBe(true);
+  });
+});
+
+describe("documents paid in cash – the firm's cash rules", () => {
+  it('fuel → 4033, everything else → 4199, as costs (no stock); a receipt without a number gets one', async () => {
+    const f2 = { ...firm, settings: { ...(firm.settings as object), cashScan: { other: '4199', rules: [{ match: 'дизел|еуродизел|бензин|лукоил|lukoil', konto: '4033' }] } } } as schema.Firm;
+    const fuel = { supplierName: 'ЛУКОИЛ Македонија ДООЕЛ Скопје', date: '2026-07-03', total: 4570, groups: [{ rate: 18, base: 3873, vat: 697 }],
+      lines: [{ name: 'ЕКТО дизел еуродизел', qty: 40, price: 114.25, amount: 4570, rate: 18 }] };
+    const other = { supplierName: 'Маркет ДОО', number: '', date: '2026-07-04', total: 118, groups: [{ rate: 18, base: 100, vat: 18 }], lines: [{ name: 'Хартија', qty: 1, price: 118, amount: 118, rate: 18 }] };
+    const [a, b] = await purchaseDrafts(db as never, f2, { invoices: [fuel, other] } as never, { cash: true });
+    const A = a!.draft as { groups: { konto: string }[]; stock: unknown[]; ptype: string; number: string };
+    const B = b!.draft as typeof A;
+    expect([A.groups.map((g) => g.konto), A.stock.length, A.ptype]).toEqual([['4033'], 0, 'cost']);
+    expect([B.groups.map((g) => g.konto), B.stock.length]).toEqual([['4199'], 0]);
+    expect(A.number).toMatch(/^БФ 03\.07\.2026 4570\.00$/);
+    expect(a!.msg).not.toMatch(/нема број/);
   });
 });
