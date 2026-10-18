@@ -486,16 +486,23 @@ export async function confirmPastAction(docId: string, index: number, mode: 'own
 }
 
 /** „✓ Прокнижи ги сите во својот период“: every held document (of `kind`) at once; the ones that cannot be posted are listed. */
-export async function confirmAllPastAction(kind?: 'purchase' | 'sale'): Promise<ActionState> {
+export async function confirmAllPastAction(kind?: 'purchase' | 'sale', only?: string[]): Promise<ActionState> {
   try {
     if (kind !== undefined && kind !== 'purchase' && kind !== 'sale') return { error: 'Неважечко барање.' };
+    if (only && (only.length > 2000 || only.some((x) => !/^[0-9a-f-]{36}:\d{1,4}$/i.test(x)))) return { error: 'Неважечки избор.' };
     const { u, firm } = await pastDecider();
-    const r = await db().transaction((tx) => confirmAllPastDrafts(tx, { firm, kind, actor: actorOf(u) }));
+    const r = await db().transaction((tx) => confirmAllPastDrafts(tx, { firm, kind, actor: actorOf(u), only }));
     revalidatePast();
     const bad = r.failed.length ? ` Не се прокнижени ${r.failed.length}: ${r.failed.slice(0, 5).map((f) => `${f.number} (${f.why})`).join('; ')}${r.failed.length > 5 ? '…' : ''}` : '';
     const msg = `Прокнижени ${r.posted} документи во својот период – ДДВ-04 за тие периоди треба да се коригира.${bad}`;
     return r.posted || !r.failed.length ? { ok: msg } : { error: msg };
   } catch (e) { return actionError(e); }
+}
+
+/** „✓ Прокнижи ги избраните“: the ticked held documents („docId:index“), each in its own period. */
+export async function confirmSelectedPastAction(ids: string[]): Promise<ActionState> {
+  if (!ids.length) return { error: 'Изберете документи (кутичката лево).' };
+  return confirmAllPastAction(undefined, ids);
 }
 
 /** „✕ Отфрли“: the held draft is deleted. Audited `pastReject`. */

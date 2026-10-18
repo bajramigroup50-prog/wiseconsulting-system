@@ -13,7 +13,8 @@ import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { isOfficeOwner } from '@/lib/office-owner';
 import { RowAction } from '@/components/row-action';
-import { confirmAllPastAction, confirmPastAction, rejectPastAction, setPastHoldAction } from '@/app/(app)/skan/actions';
+import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
+import { confirmAllPastAction, confirmPastAction, confirmSelectedPastAction, rejectPastAction, setPastHoldAction } from '@/app/(app)/skan/actions';
 
 export interface PastReviewData { H: HeldDraft[]; decide: boolean; hold: boolean; today: string; cur: string }
 
@@ -49,17 +50,20 @@ export function PastReview({ data: { H, decide, hold, today, cur }, hideEmpty }:
           <div className="row" style={{ gap: 8, margin: '0 0 8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <RowAction className="btn pri" label={`✓ Прокнижи ги сите во својот период (${ok.length})`} action={confirmAllPastAction.bind(null, kinds.length === 1 ? kinds[0] : undefined)}
               confirm={`Да се прокнижат сите ${ok.length} задржани документи, секој во својот ДДВ период (по датумот на документот)? ДДВ-04 за тие периоди треба да се коригира. Документите од затворени / заклучени периоди остануваат за проверка.`} />
-            <span className="mini">сите одеднаш – ниту еден не останува заборавен</span>
+            <span className="mini">сите одеднаш – ниту еден не останува заборавен · или штиклирајте ги посакуваните во колоната лево:</span>
+            <BulkBar group="past" label="✓ Прокнижи ги избраните ({n})" btnClass="btn" busy="Се книжи…" action={confirmSelectedPastAction}
+              confirm="Да се прокнижат {n} избрани документи, секој во својот ДДВ период? ДДВ-04 за тие периоди треба да се коригира." />
           </div>
         );
       })()}
       {H.length ? (
         <div className="tw"><table className="dense">
-          <thead><tr><th>Документ</th><th>Број</th><th>Датум</th><th>{H.some((h) => h.kind === 'sale') ? 'Купувач / добавувач' : 'Добавувач'}</th><th className="n">Вкупно</th><th>ДДВ период</th><th>ДДВ-04</th><th></th></tr></thead>
+          <thead><tr>{decide && <th style={{ width: 26 }}><SelAll group="past" /></th>}<th>Документ</th><th>Број</th><th>Датум</th><th>{H.some((h) => h.kind === 'sale') ? 'Купувач / добавувач' : 'Добавувач'}</th><th className="n">Вкупно</th><th>ДДВ период</th><th>ДДВ-04</th><th></th></tr></thead>
           <tbody>{H.map((h) => {
             const o = pastDecisionOptions(h.kind, h.past);
             return (
               <tr key={h.docId + ':' + h.index} data-past={h.past.reason}>
+                {decide && <td>{o.own && <SelBox id={`${h.docId}:${h.index}`} group="past" />}</td>}
                 <td>{h.kind === 'sale' ? 'Излезна' : 'Влезна'}{h.fileId && <> · <a href={`/api/files/${h.fileId}`} target="_blank" rel="noreferrer">датотека</a></>}</td>
                 <td>{h.number}</td><td>{dmy(h.date)}</td><td>{h.party}</td><td className="n">{fmt(h.total)}</td>
                 <td><span className="pill warn">⏸ минат период – за проверка</span><div className="mini">{h.past.text}</div></td>

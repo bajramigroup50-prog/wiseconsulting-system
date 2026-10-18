@@ -19,7 +19,7 @@ export function SelBox({ id, group = 'r' }: { id: string; group?: string }) {
   return <input type="checkbox" value={id} data-sel-g={group} aria-label="Избери" onChange={() => document.dispatchEvent(new Event('wise-sel'))} />;
 }
 
-export function BulkBar({ group = 'r', label, confirm: ask, action, preview, extra }: {
+export function BulkBar({ group = 'r', label, confirm: ask, action, preview, extra, btnClass = 'btn danger', busy = 'Се брише…' }: {
   /** Texts with `{n}` = number of ticked rows (strings: server pages can't pass functions to this client component). */
   group?: string; label?: string; confirm?: string;
   /** Bulk delete; without it the bar shows only the `extra` buttons. */
@@ -29,6 +29,8 @@ export function BulkBar({ group = 'r', label, confirm: ask, action, preview, ext
   /** Extra buttons that receive the selection (e.g. „Опомени →“). */
   /** `href` gets `{ids}` replaced by the comma-separated selection. */
   extra?: { label: string; href: string }[];
+  /** The action button's class and its text while running (default: a delete). */
+  btnClass?: string; busy?: string;
 }) {
   const router = useRouter();
   const [n, setN] = useState(0);
@@ -42,14 +44,14 @@ export function BulkBar({ group = 'r', label, confirm: ask, action, preview, ext
   return (
     <div className="row noprint" style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', padding: '6px 0', gap: 8, alignItems: 'center' }}>
       <span className="mini">Штиклирајте и:</span>
-      {action && <button type="button" className="btn danger" disabled={!n || pending} onClick={async () => {
+      {action && <button type="button" className={btnClass} disabled={!n || pending} onClick={async () => {
         const ids = ticked(group);
         if (!ids.length) { setMsg('Изберете (кутичката лево).'); return; }
         const p = preview ? await preview(ids) : {};
         if (p.block) { window.alert(p.block); return; }
         if (!window.confirm((ask ?? '').replaceAll('{n}', String(ids.length)) + (p.extra ?? ''))) return;
         start(async () => { const r = await action(ids); setMsg(r.error ?? r.ok ?? ''); router.refresh(); });
-      }}>{pending ? 'Се брише…' : (label ?? '').replaceAll('{n}', String(n))}</button>}
+      }}>{pending ? busy : (label ?? '').replaceAll('{n}', String(n))}</button>}
       {extra?.map((x) => <button key={x.label} type="button" className="btn" disabled={!n} onClick={() => { window.location.href = x.href.replaceAll('{ids}', encodeURIComponent(ticked(group).join(','))); }}>{x.label.replaceAll('{n}', String(n))}</button>)}
       {msg && <span className="note">{msg}</span>}
     </div>

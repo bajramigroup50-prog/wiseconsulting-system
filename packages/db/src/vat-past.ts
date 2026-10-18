@@ -134,8 +134,9 @@ export async function confirmPastDraft(tx: Tx, a: PastConfirmInput): Promise<Pas
  * its own savepoint — one that cannot be posted (closed / locked period, a used number…) stays held and is listed with
  * the reason; the others go on. Every posted one is audited `pastPost` like the single decision.
  */
-export async function confirmAllPastDrafts(tx: Tx, a: { firm: FirmLike; actor: DocActor; kind?: 'purchase' | 'sale'; today?: string }): Promise<{ posted: number; failed: { number: string; why: string }[] }> {
-  const H = (await heldScanDrafts(tx, a.firm.id)).filter((h) => !a.kind || h.kind === a.kind);
+export async function confirmAllPastDrafts(tx: Tx, a: { firm: FirmLike; actor: DocActor; kind?: 'purchase' | 'sale'; today?: string; only?: readonly string[] }): Promise<{ posted: number; failed: { number: string; why: string }[] }> {
+  // `only`: the ticked rows („docId:index“) of „✓ Прокнижи ги избраните“
+  const H = (await heldScanDrafts(tx, a.firm.id)).filter((h) => (!a.kind || h.kind === a.kind) && (!a.only || a.only.includes(`${h.docId}:${h.index}`)));
   let posted = 0;
   const failed: { number: string; why: string }[] = [];
   for (const h of H) {
