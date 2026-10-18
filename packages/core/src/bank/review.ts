@@ -16,7 +16,7 @@
  * (`autoSteps`, all OFF by default).
  */
 import {
-  amountOnlyOk, autoMatch, BANK_FEE, isConversion, isPeriodToken, noPartnerLine, bankName, bmEq, bmKey, bmNums, BKPK_RE, fifoPick, isFxAccount, isVatPayment, keywordKonto, linkPayment, matchPartner,
+  amountOnlyOk, autoMatch, BANK_FEE, isConversion, isPeriodToken, noPartnerLine, bankName, bmEq, bmKey, bmNums, BKPK_RE, fifoPick, isFxAccount, isVatPayment, keywordKonto, linkPayment, linePartner, matchPartner,
   openAmount, openDocsFor, ownTransferBy, type BankRow, type DocRefAmt, type DocType, type InvKey, type MatchContext, type MatchHow,
 } from '../bank-match';
 
@@ -70,7 +70,7 @@ export function reviewMatch(ctx: MatchContext, ids?: ReadonlySet<string>): Map<s
   const rows = ctx.rows.slice();
   const out = new Map<string, ReviewChange>();
   const orig = new Map(ctx.rows.map((r) => [r.id, r]));
-  const namePid = (r: BankRow) => r.partner || matchPartner(ctx.partners, bankName(r, ctx.partners), '');
+  const namePid = (r: BankRow) => r.partner || linePartner(ctx.partners, r, bankName(r, ctx.partners));
   const ok = (id: string, partner?: string) => { const o = orig.get(id); const p = o ? namePid(o) : ''; return !!p && p === partner; };
   const put = (i: number, c: Omit<ReviewChange, 'partnerOk'>) => {
     rows[i] = c.row;

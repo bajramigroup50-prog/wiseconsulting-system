@@ -4,7 +4,7 @@
  */
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import {
-  BANK_KONTA, bankTransitDefaults, pickBankKonto, r2, schemeValue,
+  BANK_KONTA, bankTransitDefaults, partnerAccounts, pickBankKonto, r2, schemeValue,
   type BankAccount, type BankChartEntry, type BankKonta, type BankRule, type FxRateRow, type Partner as MatchPartner, type PostingContext,
 } from '@wise/core';
 import type { Tx } from '../audit';
@@ -96,7 +96,7 @@ export async function loadBankEnv(tx: Tx, firmId: string): Promise<BankEnv> {
   const [accountRows, R, P, chart] = await Promise.all([
     loadBankAccounts(tx, firmId),
     tx.select().from(bankRules).where(eq(bankRules.firmId, firmId)).orderBy(asc(bankRules.createdAt)),
-    tx.select({ id: partners.id, name: partners.name, edb: partners.edb, embs: partners.embs, code: partners.code }).from(partners).where(eq(partners.firmId, firmId)),
+    tx.select({ id: partners.id, name: partners.name, edb: partners.edb, embs: partners.embs, code: partners.code, bankAccount: partners.bankAccount, bankName: partners.bankName, data: partners.data }).from(partners).where(eq(partners.firmId, firmId)),
     effectiveChart(tx, firmId),
   ]);
   const s = settingsOf(firm);
@@ -108,7 +108,7 @@ export async function loadBankEnv(tx: Tx, firmId: string): Promise<BankEnv> {
     accounts: accountRows.map(toMatchAccount),
     rules: R.filter((r) => r.kind === 'desc').map((r) => ({ match: r.match, konto: r.konto, learned: r.learned })),
     osnovK: Object.fromEntries(R.filter((r) => r.kind === 'osnov').map((r) => [r.match, r.konto])),
-    partners: P.map((p) => ({ id: p.id, name: p.name, edb: p.edb ?? undefined, embs: p.embs ?? undefined, code: p.code ?? undefined })),
+    partners: P.map((p) => ({ id: p.id, name: p.name, edb: p.edb ?? undefined, embs: p.embs ?? undefined, code: p.code ?? undefined, accs: partnerAccounts({ bankAccount: p.bankAccount, bankName: p.bankName, data: p.data as Record<string, unknown> | null }).map((a) => a.iban || a.acc) })),
     posting,
     konta: bankKontaFor(firm, posting, chart),
     ...(posPartner ? { posPartner } : {}),

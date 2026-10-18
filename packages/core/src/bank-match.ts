@@ -101,7 +101,8 @@ export interface OpenDoc {
   konto?: string;
 }
 
-export interface Partner { id: string; name: string; edb?: string; embs?: string; code?: string; pos?: boolean }
+/** `accs`: the partner's known bank accounts (digits / IBAN, `partners.data.accounts` + `bank_account`). */
+export interface Partner { id: string; name: string; edb?: string; embs?: string; code?: string; pos?: boolean; accs?: string[] }
 export interface BankRule { match: string; konto: string; learned?: boolean }
 export interface PayMatch { month: string; konto: string; split?: SplitLine[] }
 
@@ -275,6 +276,24 @@ export function matchPartner(partners: Partner[], name: unknown, code?: unknown)
     (n.length > 5 ? partners.find((p) => { const q = partnerKey(p.name); return q.length > 5 && (q.startsWith(n) || n.startsWith(q)); }) : undefined);
   return x ? x.id : '';
 }
+
+/**
+ * The partner whose known accounts include the line's counterparty account – one company paying from any of its
+ * accounts is the same partner, whatever its name looks like on the statement. Only when exactly ONE partner has that
+ * account (two partners with the same account are a duplicate to merge, not a guess).
+ */
+export function partnerByAccount(partners: Partner[], counterAccount: unknown): string {
+  const ca = String(counterAccount ?? '').replace(/[\s.-]+/g, '').toUpperCase();
+  const key = (s: string) => (/^[A-Z]{2}\d{2}/.test(s) ? s.slice(4) : s).replace(/\D/g, '').slice(-15);
+  const k = key(ca);
+  if (k.length < 10) return '';
+  const hit = partners.filter((p) => p.accs?.some((a) => key(String(a).replace(/[\s.-]+/g, '').toUpperCase()) === k));
+  return hit.length === 1 ? hit[0]!.id : '';
+}
+
+/** The line's partner: by the counterparty account first, then by the name (`matchPartner`). */
+export const linePartner = (partners: Partner[], b: Pick<BankRow, 'counterAccount'>, name: unknown): string =>
+  partnerByAccount(partners, b.counterAccount) || matchPartner(partners, name, '');
 
 /** Legacy `bankParty` (3548): counterparty name and purpose from a bank row. */
 export function bankParty(x: BankRow, partners: Partner[] = []): { name: string; purpose: string } {
@@ -658,7 +677,7 @@ function layerFx(w: Work): void {
     const docs = inc ? invoicesOf(ctx) : ctx.purchases.filter((p) => !p.cash && !p.pend);
     // FIX: stable date order (legacy comparator returned 1 for equal dates → engine-dependent order)
     const O = byDate(docs.filter((x) => !x.pend).map((x) => ({ x, o: x.total - (x.paidOther || 0) - (PB[type + x.id] ??= bankPaid(w.rows, type, x.id)) - (alloc[x.id] || 0) })).filter((z) => z.o > 0));
-    const pid = b.partner || matchPartner(ctx.partners, bankName(b, ctx.partners), '');
+    const pid = b.partner || linePartner(ctx.partners, b, bankName(b, ctx.partners));
     const P = pid ? O.filter((z) => z.x.partner === pid) : [];
     const Kn = bmNums(b.desc).map(bmKey).filter(Boolean) as InvKey[];
     const ocur = (z: { x: OpenDoc; o: number }) => (z.x.cur === cur && +(z.x.fx || 0) ? toCents(fromCents(z.o) / +z.x.fx!) : null);
@@ -696,7 +715,7 @@ function layerBm(w: Work): void {
     const amt = Math.abs(+b.amount);
     const docs = inc ? invoicesOf(ctx) : ctx.purchases.filter((p) => !p.cash && !p.pend);
     const O = byDate(docs.map((x) => ({ x, o: x.total - (x.paidOther || 0) - (PB[type + x.id] ??= bankPaid(w.rows, type, x.id)) - (alloc[x.id] || 0) })).filter((z) => z.o > 0 && !z.x.pend));
-    const pid = b.partner || matchPartner(ctx.partners, bankName(b, ctx.partners), '');
+    const pid = b.partner || linePartner(ctx.partners, b, bankName(b, ctx.partners));
     const P = pid ? O.filter((z) => z.x.partner === pid) : [];
     // the payer's partner has no open document at all (a partner the statement created, a name read differently —
     // „АГЕНЦИЈА ЗА ВРАБОТУВАЊЕ НА РМ-ГЛАВН“): the documents decide — every open document is searched by its number
@@ -844,7 +863,7 @@ export function openDocsFor(b: BankRow, ctx: MatchContext): { type: DocType; pid
   const inc = +b.amount > 0;
   const type: DocType = inc ? 'invoice' : 'purchase';
   const docs = inc ? invoicesOf(ctx) : ctx.purchases.filter((p) => !p.cash && !p.pend);
-  const pid = b.partner || matchPartner(ctx.partners, bankName(b, ctx.partners), '');
+  const pid = b.partner || linePartner(ctx.partners, b, bankName(b, ctx.partners));
   const O = byDate(docs.filter((x) => !x.pend && (!pid || x.partner === pid)).map((x) => ({ x, o: openAmount(ctx.rows, type, x) })).filter((z) => z.o > 0));
   return { type, pid, O };
 }
@@ -1014,11 +1033,11 @@ export function resolvePartner(b: BankRow, ctx: Pick<MatchContext, 'partners' | 
   if (noPartnerLine(b)) return {};
   const nm = bankName(b, ctx.partners);
   if (b.konto) {
-    if (!nm || nm.length < 3) return {};
-    const pid = matchPartner(ctx.partners, nm, '');
+    if (!nm || nm.length < 3) { const pa = partnerByAccount(ctx.partners, b.counterAccount); return pa ? { partner: pa } : {}; }
+    const pid = linePartner(ctx.partners, b, nm);
     return pid ? { partner: pid } : { newPartner: nm };
   }
-  const pid = matchPartner(ctx.partners, nm, '');
+  const pid = linePartner(ctx.partners, b, nm);
   return pid ? { partner: pid } : {};
 }
 

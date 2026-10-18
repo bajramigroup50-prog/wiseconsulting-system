@@ -117,7 +117,7 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
   if (kw) return { konto: kw.konto, why: kw.cls === 'turnover' ? 'уплата на дневен промет / пазар' : 'подигање готовина', how: kw.cls };
   const nm = bankName({ id: '', date: '', amount: x.amount, desc: x.desc ?? '', ...(x.name ? { name: x.name } : {}), ...(x.purpose ? { purpose: x.purpose } : {}) }, env.partners);
   const konto = out ? env.konta.supplier : env.konta.customer;
-  const pid = Bank.matchPartner(env.partners, nm, '');
+  const pid = Bank.linePartner(env.partners, { counterAccount: x.counterAccount ?? undefined }, nm);
   if (pid) return { konto, partnerId: pid, why: `${out ? 'добавувач' : 'купувач'} ${env.partners.find((p) => p.id === pid)?.name ?? ''} (без фактура – аванс / отворена ставка)`, how: 'partner' };
   if (x.name && x.name.trim().length > 2) return { konto, newPartner: x.name.trim().slice(0, 120), why: `${out ? 'добавувач' : 'купувач'} „${x.name.trim()}“ – нов комитент`, how: 'partner' };
   return { konto: '', why: 'нема предлог – изберете конто', how: '' };

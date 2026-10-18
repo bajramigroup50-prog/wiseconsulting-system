@@ -13,7 +13,7 @@
  * - payment notifications (`pnRun` 13312)
  */
 import {
-  bankEffKonto, bankName, bkCore, BKPK_RE, matchPartner, noPartnerLine,
+  bankEffKonto, bankName, bkCore, BKPK_RE, linePartner, matchPartner, noPartnerLine,
   type BankKonta, type BankRow, type DocType, type OpenDoc, type Partner, BANK_KONTA,
 } from '../bank-match';
 
@@ -180,7 +180,7 @@ export function partnerFixPlan(rows: readonly BankRow[], a: {
     const nm = bankName(b, P);
     const junk = partnerIsJunk(b, P, a.partnerKey);
     if (!((!b.partner && (rp || nm)) || junk)) continue;
-    const pid = rp || matchPartner(P, nm, '');
+    const pid = rp || linePartner(P, b, nm);
     const name = rp ? P.find((p) => p.id === rp)?.name || nm : nm;
     if (!pid && (!name || name.length < 3)) continue;
     out.push({ id: b.id, partner: pid, name, junk });
