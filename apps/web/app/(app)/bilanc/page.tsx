@@ -22,7 +22,7 @@ import { locationNames } from '../poobjekti/data';
 import { saveBbAnKAction } from './actions';
 import { BbTable } from './table';
 
-type SP = { lvl?: string; from?: string; to?: string; q?: string; p?: string; close?: string; exp?: string; wh?: string; pre?: string; suf?: string; kf?: string; kt?: string; nocur?: string };
+type SP = { lvl?: string; from?: string; to?: string; q?: string; p?: string; close?: string; exp?: string; wh?: string; pre?: string; suf?: string; kf?: string; kt?: string; nocur?: string; cel?: string };
 
 export default async function BilancPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -30,7 +30,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
   if (!firm) return <NoFirm t="Бруто биланс" />;
   const tab = bbTab(sp.lvl);
   const from = inYearOr(sp.from, year, `${year}-01-01`), to = inYearOr(sp.to, year, `${year}-12-31`);
-  const withClose = sp.close === '1', noCur = sp.nocur === '1';
+  const withClose = sp.close === '1', noCur = sp.nocur === '1', whole = sp.cel === '1';
   const flt = bbFilterOf(sp);
   const locs = await locationNames(firm.id);
   // legacy `bb_w` 6665: Објект / Орг. ед. filter when the firm has more than the main location
@@ -44,7 +44,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
   const T = V.total;
   const fl = bbFilterLines(lines, flt);
   const withPartners = new Set(fl.filter((l) => l.partnerId).map((l) => l.account));
-  const state = { lvl: tab, from, to, q, p: pf ?? '', close: withClose ? '1' : '', wh, ...flt, nocur: noCur ? '1' : '' };
+  const state = { lvl: tab, from, to, q, p: pf ?? '', close: withClose ? '1' : '', wh, ...flt, nocur: noCur ? '1' : '', cel: whole ? '1' : '' };
   const enc = (o: Record<string, string | undefined>) => new URLSearchParams(Object.entries(o).filter(([, v]) => v) as [string, string][]).toString();
   const qs = (o: Partial<SP>) => '/bilanc?' + enc({ ...state, exp: sp.exp ?? '', ...o });
   const pr = (o: Record<string, string> = {}) => '/print/bilanc?' + enc({ ...state, ...o });
@@ -93,6 +93,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
           </label>
           <label className="chk"><input type="checkbox" name="nocur" value="1" defaultChecked={noCur} /> Без колона „Само од тековна година“</label>
           <label className="chk"><input type="checkbox" name="close" value="1" defaultChecked={withClose} /> со налогот за затворање</label>
+          <label className="chk" title="Износите заокружени на цели денари (завршната сметка / АОП-ите се секогаш во цели денари)"><input type="checkbox" name="cel" value="1" defaultChecked={whole} /> Без децимали</label>
           <button className="btn">Прикажи</button>
           {(flt.pre || flt.suf || flt.kf || flt.kt) && <Link className="btn sm" href={qs({ pre: '', suf: '', kf: '', kt: '', exp: '' })}>✕ параметри</Link>}
           {Math.abs(T.vd - T.vp) < 0.01 ? <span className="pill good">Должи = Побарува</span> : <span className="pill bad">Разлика {fmt(T.vd - T.vp)}</span>}
@@ -109,7 +110,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
       {V.bbimpMixed && <div className="callout warn">Во периодот има и увезен бруто биланс и книжени документи – прометите може да се дуплираат. Проверете ја „Почетна состојба“.</div>}
       {V.classes.length ? (
         <>
-          <div className="tw"><BbTable V={V} tab={tab} from={from} to={to} noCur={noCur} withPartners={withPartners} exp={sp.exp ?? ''} expRows={expRows} pf={pf}
+          <div className="tw"><BbTable V={V} tab={tab} from={from} to={to} noCur={noCur} whole={whole} withPartners={withPartners} exp={sp.exp ?? ''} expRows={expRows} pf={pf}
             expHref={(k) => qs({ exp: k })} bbPartHref={(k) => `/bbPart?k=${k}&from=${from}&to=${to}${withClose ? '&close=1' : ''}${pf ? '&p=' + pf : ''}${wh ? '&wh=' + wh : ''}`} /></div>
           <p className="mini" style={{ marginTop: 6 }}>↑ ↓ избор · Enter / двоен клик = Аналитика на контото · F2 печатење · F3 скратено печатење · F5 збирна аналитичка картица</p>
         </>

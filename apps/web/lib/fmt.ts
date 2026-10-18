@@ -13,6 +13,12 @@ export const fmt = (n: number | string | null | undefined): string => {
   return (v < 0 && (i !== '0' || d !== '00') ? '-' : '') + group(i) + ',' + d;
 };
 
+/** Whole denars (rounded, no decimals) – the „Без децимали“ view of the reports and the final account. */
+export const fmt0 = (n: number | string | null | undefined): string => {
+  const v = Math.round(Number(n) || 0);
+  return (v < 0 ? '-' : '') + group(String(Math.abs(v)));
+};
+
 export const fq = (n: number | string | null | undefined): string => {
   const v = Number(n) || 0;
   const [i, d = ''] = String(Math.round(Math.abs(v) * 1000) / 1000).split('.') as [string, string?];

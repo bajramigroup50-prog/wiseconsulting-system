@@ -6,22 +6,25 @@
 import Link from 'next/link';
 import { Fragment } from 'react';
 import { CLS, type TbRow } from '@wise/core';
-import { fmt } from '@/lib/fmt';
+import { fmt, fmt0 } from '@/lib/fmt';
 import type { BbTab, BbView } from '@/lib/bb-filter';
 
 type Sum = Omit<TbRow, 'k' | 'name'>;
 
 export interface BbTableProps {
   V: BbView; tab: BbTab; from: string; to: string; noCur: boolean;
+  /** „Без децимали“: whole denars */
+  whole?: boolean;
   /** analytics level: kontos that have partner lines (▸ expands them), the expanded konto and its partner rows */
   withPartners?: ReadonlySet<string>; exp?: string; expRows?: readonly TbRow[];
   pf?: string | null; expHref?: (k: string) => string; bbPartHref?: (k: string) => string;
 }
 
-export function BbTable({ V, tab, from, to, noCur, withPartners = new Set(), exp = '', expRows = [], pf, expHref, bbPartHref }: BbTableProps) {
+export function BbTable({ V, tab, from, to, noCur, whole = false, withPartners = new Set(), exp = '', expRows = [], pf, expHref, bbPartHref }: BbTableProps) {
   const F = (noCur ? ['vd', 'vp', 'od', 'op'] : ['vd', 'vp', 'od', 'op', 'td', 'tp']) as (keyof Sum)[];
   const cols = 3 + F.length;
-  const cells = (r: Sum) => <><td className="n"><b>{fmt(r.s)}</b></td>{F.map((f) => <td className="n" key={f}>{fmt(r[f])}</td>)}</>;
+  const fm = whole ? fmt0 : fmt;
+  const cells = (r: Sum) => <><td className="n"><b>{fm(r.s)}</b></td>{F.map((f) => <td className="n" key={f}>{fm(r[f])}</td>)}</>;
   const per = `from=${from}&to=${to}`;
   const ak = (k: string, pid?: string) => `/akart?k=${k}${pid ? '&pid=' + pid : ''}&${per}`;
   return (
