@@ -28,6 +28,7 @@ export const AL_DESC: Record<string, string> = {
   'Залиха': 'Артикли со негативна количина – продадено повеќе од примено.',
   'Документи': 'Документи во досието со „Важи до“ истечено или истекува за 30 дена; документи од клиентот што чекаат одобрување.',
   'Наплата': 'Излезни фактури ненаплатени повеќе од 90 дена по валута.',
+  'Комитенти': 'Ставки на конта на купувачи / добавувачи (12, 22) без комитент – не се гледаат во картиците и ИОС.',
 };
 
 export type FindingLvl = 'bad' | 'warn' | 'info';
@@ -80,18 +81,21 @@ const isCash = (S: FirmSnapshot) => { const K = new Set(S.cashAccounts?.length ?
 
 /** Per-partner balances (debit − credit) on 12x / 22x. */
 function partnerBalances(L: readonly LedgerLine[]) {
-  const by = new Map<string, { p: string; t: '12' | '22'; s: number }>();
+  const by = new Map<string, { p: string; t: '12' | '22'; s: number; k: Set<string> }>();
   for (const l of L) {
     if (!l.partnerId) continue;
     const t = String(l.account).slice(0, 2);
     if (t !== '12' && t !== '22') continue;
     const k = `${l.partnerId}|${t}`;
-    const o = by.get(k) ?? { p: l.partnerId, t, s: 0 };
+    const o = by.get(k) ?? { p: l.partnerId, t, s: 0, k: new Set<string>() };
     o.s = r2(o.s + l.debit - l.credit);
+    o.k.add(String(l.account));
     by.set(k, o);
   }
   return [...by.values()];
 }
+/** „ (конто 2205)“ when the balance is not (only) on the main 2200 / 1200 – honoraria, loans, other obligations. */
+const kontoNote = (K: Set<string>, main: string) => { const o = [...K].filter((k) => k !== main).sort(); return o.length ? ` (конто ${[...K].sort().join(', ')})` : ''; };
 
 /** Daily running cash balance: first negative day and the minimum. */
 export function cashDays(S: FirmSnapshot, year = S.today.slice(0, 4)) {
@@ -154,10 +158,21 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   /* 2. suppliers with a debit balance = paid without an invoice; customers with a credit balance */
   const PB = partnerBalances(L);
   const sup = PB.filter((o) => o.t === '22' && o.s > 1).sort((a, b) => b.s - a.s);
-  for (const o of sup.slice(0, 10)) add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}`, 'vlez');
-  if (sup.length > 10) add('bad', 'Влезни фактури', `Уште ${sup.length - 10} добавувачи со платено без фактура`, 'vlez');
+  // every one (the office picks the firm on /autop and sees its whole list)
+  for (const o of sup) add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}${kontoNote(o.k, '2200')}`, 'vlez');
   const cus = PB.filter((o) => o.t === '12' && o.s < -1).sort((a, b) => a.s - b.s);
-  for (const o of cus.slice(0, 5)) add('warn', 'Излезни фактури', `Примена уплата ${fmtMk(-o.s)} ден. без излезна фактура (аванс?) – ${pn(o.p, 'купувач')}`, 'izlez');
+  for (const o of cus) add('warn', 'Излезни фактури', `Примена уплата ${fmtMk(-o.s)} ден. без излезна фактура (аванс?) – ${pn(o.p, 'купувач')}${kontoNote(o.k, '1200')}`, 'izlez');
+  /* 2a. lines on customer / supplier kontos without a partner (per konto) */
+  const np = new Map<string, { n: number; s: number }>();
+  for (const l of L) {
+    const t = String(l.account).slice(0, 2);
+    if (l.partnerId || (t !== '12' && t !== '22')) continue;
+    const o = np.get(String(l.account)) ?? { n: 0, s: 0 };
+    o.n++; o.s = r2(o.s + l.debit - l.credit);
+    np.set(String(l.account), o);
+  }
+  for (const [k, o] of [...np].sort(([a], [b]) => a.localeCompare(b)))
+    add('warn', 'Комитенти', `Конто ${k}: ${o.n} ${o.n === 1 ? 'ставка' : 'ставки'} без комитент (салдо ${fmtMk(o.s)} ден.)`, `kkart?k=${k}&p=none`);
 
   /* 2б. invoice numbering gaps */
   if (S.invoices) for (const [k, miss] of invoiceGaps(S.invoices, y))

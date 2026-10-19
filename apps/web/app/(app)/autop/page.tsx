@@ -25,7 +25,7 @@ import { ackFinding, runNow, saveAutopilotSettings, sendClientMessage, setAutoTy
 import { CloseTable } from './close-table';
 
 const LV: Record<string, string> = { bad: 'bad', warn: 'warn', info: 'info' };
-type SP = { tab?: string; f?: string; mode?: string; c?: string; go?: string };
+type SP = { tab?: string; f?: string; mode?: string; c?: string; go?: string; firm?: string };
 
 export default async function AutopPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -42,6 +42,9 @@ export default async function AutopPage({ searchParams }: { searchParams: Promis
   ]) : [[], [], []];
   const rows = apFirmRows(F, (f) => find.filter((x) => x.firmId === f.id));
   const K = apKpi(rows);
+  // „Фирма“: one firm with its whole list (no scrolling through the others) – the working firm by default, „сите“ = every firm
+  const pick = sp.firm === 'all' ? '' : sp.firm && F.some((f) => f.id === sp.firm) ? sp.firm : cur?.id ?? '';
+  const shown = pick ? rows.filter((r) => r.f.id === pick) : rows;
   const own = can(u.principal, 'settings');
   const AU = (O.apAuto ?? {}) as Record<string, boolean>;
   const td = today();
@@ -73,9 +76,21 @@ export default async function AutopPage({ searchParams }: { searchParams: Promis
       </div>
 
       {tab === 'firms' && (
+        <form className="row noprint" style={{ gap: 8, alignItems: 'center', margin: '6px 0' }}>
+          <input type="hidden" name="tab" value="firms" />
+          <label className="f" style={{ margin: 0 }}>Фирма
+            <select name="firm" defaultValue={pick || 'all'} style={{ minWidth: 320 }}>
+              <option value="all">— сите фирми ({rows.length}) —</option>
+              {rows.map((r) => <option key={r.f.id} value={r.f.id}>{r.f.name}{r.bad ? ` · ⛔ ${r.bad}` : r.warn ? ` · ⚠ ${r.warn}` : ' · ✓'}</option>)}
+            </select></label>
+          <button className="btn pri">Прикажи</button>
+          {pick && <a className="btn" href="/autop?tab=firms&firm=all">Сите фирми</a>}
+        </form>
+      )}
+      {tab === 'firms' && (
         <div className="card tw"><table className="dense">
           <thead><tr><th>Фирма</th><th>Состојба</th><th>Што треба да се реши</th><th></th></tr></thead>
-          <tbody>{rows.map((r) => (
+          <tbody>{shown.map((r) => (
             <tr key={r.f.id}>
               <td><b>{r.f.name}</b></td>
               <td>{r.bad ? <Pill c="bad">⛔ {r.bad}</Pill> : r.warn ? <Pill c="warn">⚠ {r.warn}</Pill> : <Pill c="good">✓ подготвена</Pill>}</td>
