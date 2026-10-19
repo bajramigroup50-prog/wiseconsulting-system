@@ -383,6 +383,9 @@ export function bmKey(num: unknown): InvKey | null {
   let n = g[0]!;
   let y: number | null = null;
   if (g.length > 1 && g[0]! >= 2000 && g[0]! < 2100) { y = g[0]! % 100; n = g[1]!; }
+  // „CLK-202607-1047“: a year+month block (YYYYMM) before the number – the number is what follows (else every July
+  // invoice of the series had the same key 202607 and a payment „по фра CLK-202607-1088“ matched 1047)
+  else if (g.length > 1 && g[0]! >= 200001 && g[0]! <= 209912 && g[0]! % 100 >= 1 && g[0]! % 100 <= 12) { y = Math.floor(g[0]! / 100) % 100; n = g[1]!; }
   else if (g.length > 1) { const L = g[g.length - 1]!; if (L >= 2000 && L < 2100) y = L % 100; else if (L < 100) y = L; }
   return { n, y, raw: String(num).replace(/\s+/g, '').toLowerCase() };
 }

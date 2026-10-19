@@ -22,3 +22,13 @@ describe('partnerByAccount', () => {
     expect(resolvePartner({ id: 'x', date: '2026-09-01', amount: 100, desc: 'BEHTEL ENKA JV', name: 'BEHTEL ENKA JV', counterAccount: '210000009876543' }, { partners: P, invoices: [], purchases: [] })).toEqual({ partner: 'a' });
   });
 });
+
+describe('bmKey – series with a year+month block', () => {
+  it('CLK-202607-1047 and CLK-202607-1088 are different invoices', async () => {
+    const { bmKey, bmEq } = await import('../bank-match');
+    const a = bmKey('CLK-202607-1047'), b = bmKey('CLK-202607-1088');
+    expect(a).toMatchObject({ n: 1047, y: 26 });
+    expect(bmEq(a, b, true)).toBe(false);
+    expect(bmEq(bmKey('202607-1088'), b, true)).toBe(true);
+  });
+});
