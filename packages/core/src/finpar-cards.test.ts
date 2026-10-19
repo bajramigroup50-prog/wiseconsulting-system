@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardFromRead, compareCardsPeriod, supplierWarnings } from './finpar-cards';
+import { cardFromRead, cardHolder, compareCardsPeriod, supplierWarnings } from './finpar-cards';
 
 describe('card comparison with period mode (legacy rfRun v432/v433)', () => {
   const A = [{ date: '2025-12-20', doc: '1', desc: 'ф-ра 1', debit: 100, credit: 0 }, { date: '2026-01-10', doc: '2', desc: 'ф-ра 2', debit: 200, credit: 0 }, { date: '2026-02-10', doc: '3', desc: 'ф-ра 3', debit: 50, credit: 0 }];
@@ -17,10 +17,18 @@ describe('card comparison with period mode (legacy rfRun v432/v433)', () => {
   });
 });
 
+describe('cardHolder', () => {
+  it('names the card after the side that is not the working firm, else the file', () => {
+    expect(cardHolder(['Метро Холдинг', 'Агна Доо мако-маркет'], 'МЕТРО ХОЛДИНГ ДОО СКОПЈЕ', 'agna 2021.pdf')).toBe('Агна Доо мако-маркет');
+    expect(cardHolder(['АГНА ДОО', 'Метро'], 'МЕТРО ХОЛДИНГ ДОО СКОПЈЕ', 'x.pdf')).toBe('АГНА ДОО');
+    expect(cardHolder(['', 'МЕТРО ХОЛДИНГ ДОО увоз-извоз Скопје'], 'МЕТРО ХОЛДИНГ ДОО СКОПЈЕ', 'agna_2021.pdf')).toBe('agna 2021');
+  });
+});
+
 describe('partner card read (legacy recParse AI branch)', () => {
   it('normalises dates and amounts, drops empty rows', () => {
     const X = cardFromRead({ issuer: ' АГНА ДООЕЛ ', opening: 100, rows: [{ date: '05.03.2026', doc: 'Ф-1', desc: 'фактура', debit: '1180', credit: 0 }, { date: '2026-03-06', debit: 0, credit: 0 }] });
-    expect(X).toEqual({ issuer: 'АГНА ДООЕЛ', opening: 100, rows: [{ date: '2026-03-05', doc: 'Ф-1', desc: 'фактура', debit: 1180, credit: 0 }] });
+    expect(X).toEqual({ issuer: 'АГНА ДООЕЛ', partner: '', opening: 100, rows: [{ date: '2026-03-05', doc: 'Ф-1', desc: 'фактура', debit: 1180, credit: 0 }] });
   });
 });
 

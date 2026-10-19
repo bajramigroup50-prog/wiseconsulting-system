@@ -151,6 +151,8 @@ export function CompareForm({ firmName, firmId, year }: { firmName: string; firm
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [names, setNames] = useState({ a: firmName, b: '' });
+  // a name typed by hand stays; otherwise each comparison names the cards after what was read
+  const [typed, setTyped] = useState({ a: false, b: false });
   const [mode, setMode] = useState('auto');
   const [pending, start] = useTransition();
   const X = res?.X;
@@ -163,15 +165,15 @@ export function CompareForm({ firmName, firmId, year }: { firmName: string; firm
         const r = await compareAction(fd); if ('error' in r) { setErr(r.error ?? ''); setRes(null); } else {
           setRes(r);
           // card 2 carries its own name (АГНА …), not „Картица 2“: the name read from the card unless one is typed
-          setNames((n) => ({ a: n.a || r.ha, b: n.b || r.hb }));
+          setNames((n) => ({ a: typed.a ? n.a : n.a || r.ha, b: typed.b ? n.b : r.hb }));
         }
       })}>
         <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 280 }}><b>Картица 1</b> <span className="mini">(наша / прва страна)</span>
-            <input value={names.a} onChange={(e) => setNames({ ...names, a: e.target.value })} placeholder="Назив" style={{ margin: '4px 0' }} />
+            <input value={names.a} onChange={(e) => { setNames({ ...names, a: e.target.value }); setTyped({ ...typed, a: true }); }} placeholder="Назив" style={{ margin: '4px 0' }} />
             <input type="file" name="a" accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" required />{res && <div className="mini">✓ {res.fa} · {res.na} ставки</div>}</div>
           <div style={{ flex: 1, minWidth: 280 }}><b>Картица 2</b> <span className="mini">(на комитентот / втора страна)</span>
-            <input value={names.b} onChange={(e) => setNames({ ...names, b: e.target.value })} placeholder="Назив на комитентот" style={{ margin: '4px 0' }} />
+            <input value={names.b} onChange={(e) => { setNames({ ...names, b: e.target.value }); setTyped({ ...typed, b: !!e.target.value }); }} placeholder="Назив на комитентот" style={{ margin: '4px 0' }} />
             <input type="file" name="b" accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" required />{res && <div className="mini">✓ {res.fb} · {res.nb} ставки</div>}</div>
         </div>
         <div className="row" style={{ gap: 10, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>

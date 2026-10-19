@@ -7,7 +7,7 @@
 import * as XLSX from 'xlsx';
 import { splitCsv } from '@wise/core';
 import { aggregatePrior, ourRecRows, parseCardTable, recMatch, recSums, type TheirRow } from '@wise/core/finance';
-import { cardFromRead, compareCardsPeriod, type RfMode } from '@wise/core/finpar-cards';
+import { cardFromRead, cardHolder, compareCardsPeriod, type RfMode } from '@wise/core/finpar-cards';
 import { loadAiResult } from '@/lib/ai';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
@@ -16,7 +16,7 @@ import { viewAllowed } from '@/lib/nav';
 
 const MAX = 20 * 1024 * 1024;
 
-async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue | null, firmId?: string): Promise<{ rows: TheirRow[]; opening: number; name: string; holder?: string }> {
+async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue | null, firmId?: string): Promise<{ rows: TheirRow[]; opening: number; name: string; names?: string[] }> {
   // legacy `recParse` 12923: PDF / image cards are read by AI (`REC_PROMPT`, worker kind `rec`) before submitting
   const ai = String(aiId ?? '');
   if (ai && firmId) {
@@ -24,7 +24,7 @@ async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue 
     if (!d) throw new Error('Картицата сè уште не е прочитана.');
     const R = cardFromRead(d.result);
     if (!R.rows.length) throw new Error('Во картицата не се пронајдени ставки.');
-    return { rows: R.rows, opening: R.opening, name: f instanceof File ? f.name : 'картица', holder: R.issuer };
+    return { rows: R.rows, opening: R.opening, name: f instanceof File ? f.name : 'картица', names: [R.issuer, R.partner] };
   }
   if (!(f instanceof File) || !f.size) throw new Error('Изберете датотека.');
   if (f.size > MAX) throw new Error('Датотеката е преголема (најмногу 20 MB).');
@@ -96,7 +96,7 @@ export async function compareAction(form: FormData) {
     });
     if (!X) throw new Error('Во картиците нема ставки со датум.');
     // whose card it is: the read's „issuer“ (AI), else the file name without the extension
-    const holder = (c: { name: string; holder?: string }) => c.holder || c.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
+    const holder = (c: { name: string; names?: string[] }) => cardHolder(c.names ?? [], firm.name, c.name);
     return { ok: true as const, fa: a.name, fb: b.name, ha: holder(a), hb: holder(b), na: a.rows.length, nb: b.rows.length, X };
   } catch (e) { return err(e); }
 }

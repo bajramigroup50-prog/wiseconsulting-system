@@ -87,8 +87,19 @@ export function compareCardsPeriod(a: readonly TheirRow[], b: readonly TheirRow[
 }
 
 /** Legacy `recParse` 12923–12924: a `REC_PROMPT` read (partner card from PDF / image) → card rows + opening balance. */
-export function cardFromRead(res: unknown): { rows: { date: string; doc: string; desc: string; debit: number; credit: number }[]; opening: number; issuer: string } {
-  const r = (Array.isArray(res) ? { rows: res } : (res ?? {})) as { rows?: unknown[]; opening?: unknown; issuer?: unknown };
+/**
+ * Whose card it is, as a name for the comparison: of the names read on the card (issuer, partner) the one that is NOT
+ * the working firm (the read often swaps the two sides), else the file name.
+ */
+export function cardHolder(names: readonly (string | undefined)[], firmName: string, fileName: string): string {
+  const core = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter((w) => w.length >= 3 && !/^(доо|дооел|доел|ад|увоз|извоз|експорт|импорт|скопје|doo|dooel)$/.test(w));
+  const me = core(firmName)[0] ?? '';
+  const other = names.map((n) => String(n ?? '').trim()).find((n) => n && !(me && core(n).includes(me)));
+  return other || fileName.replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim();
+}
+
+export function cardFromRead(res: unknown): { rows: { date: string; doc: string; desc: string; debit: number; credit: number }[]; opening: number; issuer: string; partner: string } {
+  const r = (Array.isArray(res) ? { rows: res } : (res ?? {})) as { rows?: unknown[]; opening?: unknown; issuer?: unknown; partner?: unknown };
   const d = (v: unknown) => {
     const s = String(v ?? '').trim();
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s) ?? /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/.exec(s);
@@ -98,5 +109,5 @@ export function cardFromRead(res: unknown): { rows: { date: string; doc: string;
     const x = (x0 ?? {}) as Record<string, unknown>;
     return { date: d(x.date), doc: String(x.doc ?? ''), desc: String(x.desc ?? ''), debit: r2(+(x.debit as number) || 0), credit: r2(+(x.credit as number) || 0) };
   }).filter((x) => x.debit || x.credit);
-  return { rows, opening: r2(+(r.opening as number) || 0), issuer: String(r.issuer ?? '').trim() };
+  return { rows, opening: r2(+(r.opening as number) || 0), issuer: String(r.issuer ?? '').trim(), partner: String(r.partner ?? '').trim() };
 }
