@@ -96,9 +96,10 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
             await patchDraft(t, d.id, i, (y) => ({ ...y, draft: { ...y.draft, partnerId: r.id } }));
           }
         }
-        // posted from the check list: it stays there („Прокнижени – за физичка проверка“) until checked on paper
-        // a read the program put aside as „not an invoice“ (испратница / профактура) — the user checked it is one
-        await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', skipped: undefined, review: true, checkedAt: undefined }));
+        // posted from the check list: the approval IS the check on paper – it goes straight to „Проверени“ (no second
+        // click); a read the program put aside as „not an invoice“ (испратница / профактура) — the user checked it is one
+        const at = new Date().toISOString();
+        await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', skipped: undefined, review: true, checkedAt: at }));
         await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor);
         await audit(t, { userId: a.actor.userId, firmId: a.firmId, action: 'scanSaveChecked', entityType: 'ai_document', entityId: d.id, data: { index: i, number } });
       });

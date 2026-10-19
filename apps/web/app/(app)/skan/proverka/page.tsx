@@ -99,7 +99,7 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
         ) : <div className="callout good">✓ Нема незачувани скенирани {kind === 'sale' ? 'излезни' : 'влезни'} фактури.</div>}
       </div>
 
-      <div className="card">
+      {posted.length > 0 && <div className="card">
         <h2>2. Прокнижени – за физичка проверка ({posted.length})</h2>
         {posted.length > 0 && write && <div className="noprint">
           <BulkBar group="pp" label="✓ Проверено ({n})" btnClass="btn pri" busy="…" action={markScansCheckedAction.bind(null, false)} confirm="{n} прокнижени фактури се проверени со документите?" />
@@ -116,12 +116,12 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <div className="mini">Нема прокнижени фактури што чекаат физичка проверка.</div>}
-      </div>
+        ) : null}
+      </div>}
 
-      {(checked.length > 0 || archived.length > 0) && (
+      {archived.length > 0 && (
         <div className="card noprint">
-          <h2>3. Само за архива ({archived.length}) · Проверени ({checked.length})</h2>
+          <h2>3. Само за архива ({archived.length})</h2>
           {archived.length > 0 && write && <BulkBar group="pa" label="↺ Врати ги избраните за проверка ({n})" btnClass="btn" busy="…" action={archiveScansAction.bind(null, true)} confirm="{n} фактури да се вратат во листата за проверка?" />}
           <div className="tw"><table className="dense">
             {head('pa', 'Одлука')}
@@ -129,16 +129,27 @@ export default async function ProverkaPage({ searchParams }: { searchParams: Pro
               {archived.map((row, k) => (
                 <tr key={row.d.id + ':' + row.i}>{cells(row, k, 'pa')}<td><span className="pill">📁 архива</span> <span className="mini">{dmy(row.x.archived!.slice(0, 10))}</span></td><td className="mini">{file(row.d, row.i)}</td><td /></tr>
               ))}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+      {/* approved (= checked on paper) and posted: off the working list, kept as a closed history */}
+      {checked.length > 0 && (
+        <details className="card noprint">
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>✓ Одобрени и прокнижени – историја ({checked.length})</summary>
+          <div className="tw"><table className="dense">
+            {head('pc', 'Одлука')}
+            <tbody>
               {checked.map((row, k) => (
                 <tr key={row.d.id + ':' + row.i}>
-                  <td /><td>{archived.length + k + 1}</td><td>{dateOf(row.r) ? dmy(dateOf(row.r)) : '—'}</td><td>{row.r.number}</td><td>{party(row.r)}</td><td className="n">{fmt(total(row.r))}</td>
+                  <td /><td>{k + 1}</td><td>{dateOf(row.r) ? dmy(dateOf(row.r)) : '—'}</td><td>{row.r.number}</td><td>{party(row.r)}</td><td className="n">{fmt(total(row.r))}</td>
                   <td><span className="pill good">✓ прокнижена, проверена</span> <span className="mini">{dmy(row.x.checkedAt!.slice(0, 10))}</span></td><td className="mini">{file(row.d, row.i)}</td>
                   <td><Link className="btn sm ghost" href={`${editor}?edit=${row.x.savedId}`}>Отвори</Link></td>
                 </tr>
               ))}
             </tbody>
           </table></div>
-        </div>
+        </details>
       )}
       <p className="note noprint">Штиклирајте ги проверените и изберете: „✓ Книжи“ (во налогот на својот период) или „📁 Само за архива“ (откажана, не е фактура…). Неизбраните остануваат во листата. Прокнижените стојат под 2. додека не ги проверите физички („✓ Проверено“).</p>
     </>
