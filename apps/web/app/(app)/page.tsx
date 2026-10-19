@@ -29,6 +29,7 @@ import { filterNavByModules } from '@/lib/nav-industry';
 import { today } from '@/lib/office';
 import { apUnsent, firmScope, pickerFirms, recFirmsDue, topStatus } from '@/lib/top-status';
 import { dmy } from '@/components/hd';
+import { DashMissing } from './dash-missing';
 import { AinbHeroChip } from '@/components/ainb';
 import { BarChart, HBars, LineChart, Spark } from '@/components/dash-charts';
 import { FirmGo } from '@/components/firm-go';
@@ -239,8 +240,20 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <p className="note"><span className="hchip">ЕДБ {f.edb || '—'}</span><span className="hchip">Деловна {year}</span><span className="hchip">{f.vatRegistered ? 'ДДВ обврзник · ' + (per === 'month' ? 'месечно' : 'тромесечно') : 'Не е ДДВ обврзник'}</span></p>
           <AinbHeroChip n={TS.ainb.length} mine={ainbMine} />
         </div>
-        <div className="hero-kpi"><span>Резултат · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '' : 'маржа ' + mg.toLocaleString('mk-MK') + '% · '}данок на добивка 10% ≈ {fmt(Math.max(0, A.res * 0.1))}</i></div>
+        {/* the numbers of the period at a glance: приходи, расходи, добивка, ДДВ to pay (with its deadline), данок на добивка, пари */}
+        <div className="hero-grid">
+          <Link href="/izlez" className="hg"><span>Приходи · {rg.lab}</span><b className="num">{fmt(A.rev)}</b><i><DPill d={pct(A.rev, AP.rev)} py={year - 1} /></i></Link>
+          <Link href="/vlez" className="hg"><span>Расходи · {rg.lab}</span><b className="num">{fmt(A.exp)}</b><i><DPill d={pct(A.exp, AP.exp)} inv py={year - 1} /></i></Link>
+          <Link href="/bilanc" className="hg main"><span>Добивка · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '—' : 'маржа ' + mg.toLocaleString('mk-MK') + '%'}</i></Link>
+          {f.vatRegistered ? (est
+            ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
+            : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
+            : <div className="hg"><span>ДДВ</span><b className="num">—</b><i>не е ДДВ обврзник</i></div>}
+          <Link href="/zsProc" className="hg"><span>Данок на добивка 10% ≈</span><b className="num">{fmt(Math.max(0, Math.round(A.res * 10) / 100))}</b><i>проценка · ДБ до 15.03.{year + 1}</i></Link>
+          <Link href="/banka" className="hg"><span>Пари · банки + благајна</span><b className={`num ${cashNow < 0 ? 'neg' : ''}`}>{fmt(cashNow)}</b><i>побарувања {kfmt(recv)} · обврски {kfmt(pay)}</i></Link>
+        </div>
       </section>
+      <DashMissing firm={f} year={year} today={td} />
       <div className="dfilter" role="group" aria-label="Период">
         <span className="mini">Период:</span>
         {DASH_PER.map(([k, t]) => <Link key={k} className={`chip ${P === k ? 'on' : ''}`} href={k === 'year' ? '/' : `/?per=${k}`} aria-pressed={P === k}>{t}</Link>)}
