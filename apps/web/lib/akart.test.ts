@@ -14,14 +14,16 @@ const agg = [
 
 describe('konto list (Избор на конто за аналитика)', () => {
   it('turnover per chart konto from its sub-kontos, analytic kontos outside the chart, „Само конта со книжење“', () => {
-    const all = kontoRows(agg, chart);
+    const all = kontoRows(agg, chart, { sum: true });
     expect(all.map((r) => r.c)).toEqual(['1020', '1200', '220', '2200', '220010', '2209', '4000']);
     expect(all.find((r) => r.c === '220')).toMatchObject({ d: 100, p: 950 });
     expect(all.find((r) => r.c === '220010')!.n).toBe('(аналитика)');
-    expect(kontoRows(agg, chart, { post: true }).map((r) => r.c)).toEqual(['1020', '220', '2200', '220010']);
+    expect(kontoRows(agg, chart, { post: true, sum: true }).map((r) => r.c)).toEqual(['1020', '220', '2200', '220010']);
+    // without „Збирни конта“: the sum-only level 220 is hidden
+    expect(kontoRows(agg, chart, { post: true }).map((r) => r.c)).toEqual(['1020', '2200', '220010']);
   });
   it('search: digits filter by the code prefix and jump to the exact konto; words search the name', () => {
-    const all = kontoRows(agg, chart);
+    const all = kontoRows(agg, chart, { sum: true });
     expect(filterKontos(all, '2200').map((r) => r.c)).toEqual(['2200', '220010']);
     expect(filterKontos(all, '22').map((r) => r.c)).toEqual(['220', '2200', '220010', '2209']);
     expect(all[jumpIndex(all, '2200')]!.c).toBe('2200');

@@ -187,7 +187,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
             return (
               <tr key={p.id}>
                 {del && <td><SelBox id={p.id} /></td>}
-                <td>{dmy(p.date)}</td><td>{p.number}</td><td>{name ?? p.supplierName}</td>
+                <td>{dmy(p.date)}</td><td>{p.number}</td><td>{p.partnerId ? <Link href={`/akart?k=22&pid=${p.partnerId}`} title="Финансиска картица на добавувачот">{name ?? p.supplierName}</Link> : name ?? p.supplierName}</td>
                 <td>{p.status === 'pending' && <span className="pill warn">⏳ чека одобрување </span>}{p.cash && <span className="pill info">готовина </span>}{p.imp && <span className="pill info">увозна </span>}{p.art32 && <span className="pill info">Чл. 32-а </span>}{p.scanned && <span className="pill good">скенирана </span>}{nStock.get(p.id) ? <span className="pill">на залиха </span> : null}
                   {att.filter((a) => a.e === p.id).map((a) => <a key={a.id} className="pill info" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer">📎 {a.name.slice(0, 20)}</a>)}
                   {!att.some((a) => a.e === p.id) && <span className="pill warn">без документ</span>}</td>

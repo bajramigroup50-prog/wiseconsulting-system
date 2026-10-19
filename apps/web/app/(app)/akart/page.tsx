@@ -21,7 +21,7 @@ import { ExportBar } from '@/components/parity-fin/export-bar';
 import { kkData } from '../kkart/data';
 import { CardStep, KontoStep, PartnerStep, akHref, cardRows, type AkState } from './views';
 
-type SP = { at?: string; k?: string; pid?: string; from?: string; to?: string; post?: string; sort?: string; m?: string; f?: string; g?: string };
+type SP = { at?: string; k?: string; pid?: string; from?: string; to?: string; post?: string; sort?: string; m?: string; f?: string; g?: string; sum?: string };
 
 export default async function AkartPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -43,7 +43,7 @@ export default async function AkartPage({ searchParams }: { searchParams: Promis
     return (
       <>
         <Hd t="Аналитика" sub="Избор на конто за аналитика" />
-        <KontoStep s={s} rows={kontoRows(lines, chart, { post: s.post })} />
+        <KontoStep s={s} sum={sp.sum === '1'} rows={kontoRows(lines, chart, { post: s.post, sum: sp.sum === '1' })} />
       </>
     );
   }

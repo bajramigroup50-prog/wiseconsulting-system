@@ -28,7 +28,7 @@ const n0 = (v: number) => (Math.abs(v) > 0.004 ? fmt(v) : '');
 
 /* ================================================================ 1. Избор на конто за аналитика */
 
-export function KontoStep({ s, rows }: { s: AkState; rows: readonly AkKontoRow[] }) {
+export function KontoStep({ s, rows, sum = false }: { s: AkState; rows: readonly AkKontoRow[]; sum?: boolean }) {
   const sel = (m: AkMode) => akHref({ ...s, m }, { k: '{k}', pid: '' }).replace('%7Bk%7D', '{k}');
   return (
     <>
@@ -38,6 +38,7 @@ export function KontoStep({ s, rows }: { s: AkState; rows: readonly AkKontoRow[]
         <label className="mini">до <input name="to" type="date" defaultValue={s.to} /></label>
         <label className="chk" style={{ margin: 0 }}><input type="checkbox" name="post" value="1" defaultChecked={s.post} /> Само конта со книжење</label>
         <input type="hidden" name="post" value="0" />
+        <label className="chk" style={{ margin: 0 }} title="Класа, група и синтетика (12, 120 …) – збир од контата под нив"><input type="checkbox" name="sum" value="1" defaultChecked={sum} /> Збирни конта</label>
         <fieldset className="fs" style={{ margin: 0, padding: '2px 10px' }}><legend>Сортирање по</legend><div className="row">
           <label className="rb"><input type="radio" name="sort" value="nal" defaultChecked={s.sort === 'nal'} /> Налог</label>
           <label className="rb"><input type="radio" name="sort" value="date" defaultChecked={s.sort !== 'nal'} /> Датум</label>

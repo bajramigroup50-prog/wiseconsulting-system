@@ -27,7 +27,7 @@ export const akFilter = (v: unknown): AkFilter => (v === 'p' || v === 's' ? v : 
 export interface AkKontoRow { c: string; n: string; d: number; p: number }
 
 /** Konto list (legacy picker): every chart konto with the turnover of its sub-kontos; analytic kontos not in the chart too. */
-export function kontoRows(lines: readonly { account: string; debit: number; credit: number; kind?: string | null }[], chart: readonly { code: string; name: string }[], o: { post?: boolean } = {}): AkKontoRow[] {
+export function kontoRows(lines: readonly { account: string; debit: number; credit: number; kind?: string | null }[], chart: readonly { code: string; name: string }[], o: { post?: boolean; sum?: boolean } = {}): AkKontoRow[] {
   const B = new Map<string, { d: number; p: number }>();
   for (const l of lines) {
     if (l.kind === 'close') continue;
@@ -43,7 +43,12 @@ export function kontoRows(lines: readonly { account: string; debit: number; cred
   const codes = new Set(chart.map((a) => a.code));
   for (const [x, b] of BK) if (!codes.has(x)) rows.push({ c: x, n: '(аналитика)', d: r2(b.d), p: r2(b.p) });
   rows.sort((a, b) => (a.c < b.c ? -1 : a.c > b.c ? 1 : 0));
-  return o.post ? rows.filter((r) => r.d || r.p) : rows;
+  // a level without postings of its own that only sums others (12, 120, or 12000 next to 1200009) is shown only on
+  // request („Збирни конта“) – the list is the kontos the postings are on
+  const own = (c: string) => B.has(c);
+  const onlySum = (c: string) => !own(c) && BK.some(([x]) => x !== c && x.startsWith(c));
+  const R2 = o.sum ? rows : rows.filter((r) => !onlySum(r.c));
+  return o.post ? R2.filter((r) => r.d || r.p) : R2;
 }
 
 /** Konto list filtered by the search box. */

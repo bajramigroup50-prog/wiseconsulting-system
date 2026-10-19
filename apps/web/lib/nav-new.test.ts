@@ -45,7 +45,9 @@ describe('new menu (P40 „ново“)', () => {
     // Финансово opens with „Аналитика ▸“: every analytic screen in one submenu, „Аналитика“ (akart) first
     const first = grp(NEW, 'Финансово').find((x) => x[0] !== '-')!;
     expect([first[0], first[1], first[2]?.[0]?.[0]]).toEqual(['>', 'Аналитика', 'akart']);
-    expect((first[2] ?? []).map((x) => x[0])).toEqual(expect.arrayContaining(['akart', 'kartici', 'recFree', 'bkAdv', 'kkart', 'analitika', 'poobjekti', 'bilanc']));
+    expect((first[2] ?? []).map((x) => x[0])).toEqual(expect.arrayContaining(['akart', 'kartici', 'recFree', 'bkAdv', 'kkart', 'analitika', 'poobjekti']));
+    // Бруто биланс on Финансово itself, right under „Аналитика ▸“ (not inside it)
+    expect(grp(NEW, 'Финансово').filter((x) => x[0] !== '-').map((x) => x[0]).slice(0, 2)).toEqual(['>', 'bilanc']);
     expect(NEW.map(([g]) => g)).not.toContain('Излез');
   });
   it('P13 Архива once: dosie / paket only in Архива', () => {
