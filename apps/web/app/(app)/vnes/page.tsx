@@ -14,6 +14,7 @@ import { NoFirm } from '@/components/no-firm';
 import { vnesRequest } from '@wise/core/office/vnes-request';
 import { getOfficeProfile } from '@wise/db';
 import { VnesRequestBox } from './request-box';
+import { VnesAutopBox } from './autop-box';
 
 const MONTHS = ['јануари', 'февруари', 'март', 'април', 'мај', 'јуни', 'јули', 'август', 'септември', 'октомври', 'ноември', 'декември'];
 const WARN: Record<EntryMonth['warn'][number], string> = {
@@ -48,6 +49,7 @@ export default async function VnesPage() {
     <>
       <Hd t="Преглед на внес по месеци" sub={`${firm.name} · ${year} – што е внесено секој месец, што фали и што може да е двојно`} />
       {O.readNotImported > 0 && <div className="callout bad">⚠ <b>{O.readNotImported} прочитани изводи не се во книгите</b> (изводот е избришан или увозот не е завршен) – <Link href="/arhiva?nal=@bank">Архива → Изводи – не се увезени</Link>; увезете ги повторно во <Link href="/banka">Банка</Link> (без нов AI).</div>}
+      <VnesAutopBox firmId={firm.id} />
       <VnesRequestBox subject={REQ.subject} body={REQ.body} email={firm.email ?? ''} items={REQ.items.length} />
       <div className={`callout ${issues ? 'warn' : 'good'}`}>
         {issues ? <>⚠ <b>{issues}</b> работи за проверка – видете ја колоната „Проверка“.</> : <>✓ Нема ништо за проверка.</>}
