@@ -16,7 +16,7 @@ import { viewAllowed } from '@/lib/nav';
 
 const MAX = 20 * 1024 * 1024;
 
-async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue | null, firmId?: string): Promise<{ rows: TheirRow[]; opening: number; name: string }> {
+async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue | null, firmId?: string): Promise<{ rows: TheirRow[]; opening: number; name: string; holder?: string }> {
   // legacy `recParse` 12923: PDF / image cards are read by AI (`REC_PROMPT`, worker kind `rec`) before submitting
   const ai = String(aiId ?? '');
   if (ai && firmId) {
@@ -24,7 +24,7 @@ async function readCard(f: FormDataEntryValue | null, aiId?: FormDataEntryValue 
     if (!d) throw new Error('Картицата сè уште не е прочитана.');
     const R = cardFromRead(d.result);
     if (!R.rows.length) throw new Error('Во картицата не се пронајдени ставки.');
-    return { ...R, name: f instanceof File ? f.name : 'картица' };
+    return { rows: R.rows, opening: R.opening, name: f instanceof File ? f.name : 'картица', holder: R.issuer };
   }
   if (!(f instanceof File) || !f.size) throw new Error('Изберете датотека.');
   if (f.size > MAX) throw new Error('Датотеката е преголема (најмногу 20 MB).');
@@ -95,6 +95,8 @@ export async function compareAction(form: FormData) {
       ...(m === 'auto' ? {} : { mirror: m === '1' }),
     });
     if (!X) throw new Error('Во картиците нема ставки со датум.');
-    return { ok: true as const, fa: a.name, fb: b.name, na: a.rows.length, nb: b.rows.length, X };
+    // whose card it is: the read's „issuer“ (AI), else the file name without the extension
+    const holder = (c: { name: string; holder?: string }) => c.holder || c.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
+    return { ok: true as const, fa: a.name, fb: b.name, ha: holder(a), hb: holder(b), na: a.rows.length, nb: b.rows.length, X };
   } catch (e) { return err(e); }
 }

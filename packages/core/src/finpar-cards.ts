@@ -87,8 +87,8 @@ export function compareCardsPeriod(a: readonly TheirRow[], b: readonly TheirRow[
 }
 
 /** Legacy `recParse` 12923–12924: a `REC_PROMPT` read (partner card from PDF / image) → card rows + opening balance. */
-export function cardFromRead(res: unknown): { rows: { date: string; doc: string; desc: string; debit: number; credit: number }[]; opening: number } {
-  const r = (Array.isArray(res) ? { rows: res } : (res ?? {})) as { rows?: unknown[]; opening?: unknown };
+export function cardFromRead(res: unknown): { rows: { date: string; doc: string; desc: string; debit: number; credit: number }[]; opening: number; issuer: string } {
+  const r = (Array.isArray(res) ? { rows: res } : (res ?? {})) as { rows?: unknown[]; opening?: unknown; issuer?: unknown };
   const d = (v: unknown) => {
     const s = String(v ?? '').trim();
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s) ?? /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/.exec(s);
@@ -98,5 +98,5 @@ export function cardFromRead(res: unknown): { rows: { date: string; doc: string;
     const x = (x0 ?? {}) as Record<string, unknown>;
     return { date: d(x.date), doc: String(x.doc ?? ''), desc: String(x.desc ?? ''), debit: r2(+(x.debit as number) || 0), credit: r2(+(x.credit as number) || 0) };
   }).filter((x) => x.debit || x.credit);
-  return { rows, opening: r2(+(r.opening as number) || 0) };
+  return { rows, opening: r2(+(r.opening as number) || 0), issuer: String(r.issuer ?? '').trim() };
 }

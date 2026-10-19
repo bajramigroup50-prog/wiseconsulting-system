@@ -19,8 +19,8 @@ describe('card comparison with period mode (legacy rfRun v432/v433)', () => {
 
 describe('partner card read (legacy recParse AI branch)', () => {
   it('normalises dates and amounts, drops empty rows', () => {
-    const X = cardFromRead({ opening: 100, rows: [{ date: '05.03.2026', doc: 'Ф-1', desc: 'фактура', debit: '1180', credit: 0 }, { date: '2026-03-06', debit: 0, credit: 0 }] });
-    expect(X).toEqual({ opening: 100, rows: [{ date: '2026-03-05', doc: 'Ф-1', desc: 'фактура', debit: 1180, credit: 0 }] });
+    const X = cardFromRead({ issuer: ' АГНА ДООЕЛ ', opening: 100, rows: [{ date: '05.03.2026', doc: 'Ф-1', desc: 'фактура', debit: '1180', credit: 0 }, { date: '2026-03-06', debit: 0, credit: 0 }] });
+    expect(X).toEqual({ issuer: 'АГНА ДООЕЛ', opening: 100, rows: [{ date: '2026-03-05', doc: 'Ф-1', desc: 'фактура', debit: 1180, credit: 0 }] });
   });
 });
 
