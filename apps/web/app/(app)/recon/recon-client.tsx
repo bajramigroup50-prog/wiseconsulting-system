@@ -19,46 +19,57 @@ const Tiles = ({ T }: { T: [string, number][] }) => (
   </div>
 );
 
-/** One line of the parallel view: card 1 on the left, card 2 on the right, the status at the end. */
-type ParRow = { d: string; o?: { date: string; doc: string; label?: string; amt: number }; t?: { date: string; doc: string; desc: string; amt: number }; st: 'ok' | 'diff' | 'o' | 't'; diff: number };
-function parRows(M: RecResult): ParRow[] {
-  const R: ParRow[] = [
-    ...M.pairs.map((x) => ({ d: x.o.date || x.t.date, o: x.o, t: x.t, st: 'ok' as const, diff: 0 })),
-    ...M.adiff.map((x) => ({ d: x.o.date || x.t.date, o: x.o, t: x.t, st: 'diff' as const, diff: x.diff })),
-    ...M.onlyO.map((o) => ({ d: o.date, o, st: 'o' as const, diff: o.amt })),
-    ...M.onlyT.map((t) => ({ d: t.date, t, st: 't' as const, diff: -t.amt })),
-  ];
-  return R.sort((a, b) => String(a.d).localeCompare(String(b.d)));
-}
-const ST: Record<ParRow['st'], [string, string]> = { ok: ['✓ усогласено', 'good'], diff: ['≠ различен износ', 'warn'], o: ['фали во десната', 'bad'], t: ['фали во левата', 'bad'] };
-/** The parallel table (screen and записник): `all` = with the matched lines too. */
-function ParTable({ R, l1, l2, all }: { R: ParRow[]; l1: string; l2: string; all: boolean }) {
-  const L = all ? R : R.filter((r) => r.st !== 'ok');
-  const bg: Record<ParRow['st'], string | undefined> = { ok: undefined, diff: 'rgba(230,160,0,.12)', o: 'rgba(220,50,50,.08)', t: 'rgba(220,50,50,.08)' };
+/**
+ * The two lists next to each other: left „фали кај <2>“ (only in card 1), right „фали кај <1>“ (only in card 2), each in
+ * date order without gaps, with its total; under them the documents both have with a different amount.
+ */
+function SideBySide({ M, n1, n2 }: { M: RecResult; n1: string; n2: string }) {
+  const A = [...M.onlyO].sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  const B = [...M.onlyT].sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  const n = Math.max(A.length, B.length);
+  const sa = A.reduce((s, x) => s + x.amt, 0), sb = B.reduce((s, x) => s + x.amt, 0);
+  const sep = { borderLeft: '3px solid #666' };
+  const nw = { whiteSpace: 'nowrap' as const };
   return (
-    <table className="dense">
-      <thead>
-        <tr><th colSpan={4} style={{ textAlign: 'center' }}>◀ {l1}</th><th colSpan={4} style={{ textAlign: 'center', borderLeft: '3px solid #888' }}>{l2} ▶</th><th colSpan={2} /></tr>
-        <tr><th>Датум</th><th>Документ</th><th>Опис</th><th className="n">Износ</th><th style={{ borderLeft: '3px solid #888' }}>Датум</th><th>Документ</th><th>Опис</th><th className="n">Износ</th><th className="n">Разлика</th><th>Статус</th></tr>
-      </thead>
-      <tbody>{L.map((r, i) => (
-        <tr key={i} style={{ background: bg[r.st] }}>
-          <td>{r.o ? dmy(r.o.date) : ''}</td><td>{r.o?.doc ?? ''}</td><td>{r.o?.label ?? ''}</td><td className="n">{r.o ? fmt(r.o.amt) : ''}</td>
-          <td style={{ borderLeft: '3px solid #888' }}>{r.t ? dmy(r.t.date) : ''}</td><td>{r.t?.doc ?? ''}</td><td>{r.t?.desc ?? ''}</td><td className="n">{r.t ? fmt(r.t.amt) : ''}</td>
-          <td className="n">{r.st === 'ok' ? '' : fmt(r.diff)}</td><td><span className={`pill ${ST[r.st][1]}`}>{ST[r.st][0]}</span></td>
-        </tr>
-      ))}</tbody>
-    </table>
+    <>
+      {n > 0 && <table className="dense">
+        <thead>
+          <tr>
+            <th colSpan={4} style={{ textAlign: 'center', background: 'rgba(220,50,50,.10)' }}>Фали кај {n2} – ги има само {n1} ({A.length})</th>
+            <th colSpan={4} style={{ textAlign: 'center', background: 'rgba(220,50,50,.10)', ...sep }}>Фали кај {n1} – ги има само {n2} ({B.length})</th>
+          </tr>
+          <tr><th>Датум</th><th>Документ</th><th>Опис</th><th className="n">Износ</th><th style={sep}>Датум</th><th>Документ</th><th>Опис</th><th className="n">Износ</th></tr>
+        </thead>
+        <tbody>{Array.from({ length: n }, (_, i) => {
+          const x = A[i], y = B[i];
+          return (
+            <tr key={i}>
+              <td style={nw}>{x ? dmy(x.date) : ''}</td><td style={nw}>{x?.doc ?? ''}</td><td>{x?.label ?? ''}</td><td className="n">{x ? fmt(x.amt) : ''}</td>
+              <td style={{ ...sep, ...nw }}>{y ? dmy(y.date) : ''}</td><td style={nw}>{y?.doc ?? ''}</td><td>{y?.desc ?? ''}</td><td className="n">{y ? fmt(y.amt) : ''}</td>
+            </tr>
+          );
+        })}</tbody>
+        <tfoot><tr><td colSpan={3}><b>Вкупно</b></td><td className="n"><b>{fmt(sa)}</b></td><td colSpan={3} style={sep}><b>Вкупно</b></td><td className="n"><b>{fmt(sb)}</b></td></tr></tfoot>
+      </table>}
+      {M.adiff.length > 0 && <>
+        <h2 style={{ fontSize: 15, margin: '12px 0 4px' }}>Ист документ кај двајцата – различен износ ({M.adiff.length})</h2>
+        <table className="dense" style={{ width: 'auto' }}>
+          <thead><tr><th>Документ кај {n1}</th><th>Документ кај {n2}</th><th className="n">{n1}</th><th className="n">{n2}</th><th className="n">Разлика</th></tr></thead>
+          <tbody>{M.adiff.map((x, i) => <tr key={i}><td style={nw}>{dmy(x.o.date)} · {x.o.doc}</td><td style={nw}>{dmy(x.t.date)} · {x.t.doc}</td><td className="n">{fmt(x.o.amt)}</td><td className="n">{fmt(x.t.amt)}</td><td className="n"><b>{fmt(x.diff)}</b></td></tr>)}</tbody>
+          <tfoot><tr><td colSpan={4}><b>Вкупно</b></td><td className="n"><b>{fmt(M.adiff.reduce((s, x) => s + x.diff, 0))}</b></td></tr></tfoot>
+        </table>
+      </>}
+    </>
   );
 }
 /** „Што фали“: the total difference split into its parts. */
-function ParSum({ M, l1, l2 }: { M: RecResult; l1: string; l2: string }) {
+function ParSum({ M, n1, n2 }: { M: RecResult; n1: string; n2: string }) {
   const so = M.onlyO.reduce((s, x) => s + x.amt, 0), stt = M.onlyT.reduce((s, x) => s + x.amt, 0), sd = M.adiff.reduce((s, x) => s + x.diff, 0);
   return (
     <table className="dense" style={{ width: 'auto' }}><tbody>
-      <tr><td>Ставки што ги има само {l1} (фалат во десната)</td><td className="n">{M.onlyO.length}</td><td className="n"><b>{fmt(so)}</b></td></tr>
-      <tr><td>Ставки што ги има само {l2} (фалат во левата)</td><td className="n">{M.onlyT.length}</td><td className="n"><b>{fmt(-stt)}</b></td></tr>
-      <tr><td>Ист документ – различен износ (разлика во вредност)</td><td className="n">{M.adiff.length}</td><td className="n"><b>{fmt(sd)}</b></td></tr>
+      <tr><td>Ги има само <b>{n1}</b> – фалат кај <b>{n2}</b></td><td className="n">{M.onlyO.length}</td><td className="n"><b>{fmt(so)}</b></td></tr>
+      <tr><td>Ги има само <b>{n2}</b> – фалат кај <b>{n1}</b></td><td className="n">{M.onlyT.length}</td><td className="n"><b>{fmt(-stt)}</b></td></tr>
+      <tr><td>Ист документ кај двајцата – <b>различен износ</b></td><td className="n">{M.adiff.length}</td><td className="n"><b>{fmt(sd)}</b></td></tr>
       <tr><td><b>Вкупна разлика</b></td><td /><td className="n"><b>{fmt(so - stt + sd)}</b></td></tr>
       <tr><td className="muted">Усогласени ставки</td><td className="n muted">{M.pairs.length}</td><td /></tr>
     </tbody></table>
@@ -66,32 +77,22 @@ function ParSum({ M, l1, l2 }: { M: RecResult; l1: string; l2: string }) {
 }
 
 /** The differences (screen) + a hidden `.pdfdoc` записник for the server PDF. */
-function Diffs({ M, l1, l2, title, sub, recon, file, extra }: { M: RecResult; l1: string; l2: string; title: string; sub: string; recon?: boolean; file?: string; extra?: React.ReactNode }) {
+function Diffs({ M, l1, l2, n1 = 'лево', n2 = 'десно', title, sub, recon, file, extra }: { M: RecResult; l1: string; l2: string; n1?: string; n2?: string; title: string; sub: string; recon?: boolean; file?: string; extra?: React.ReactNode }) {
   const sum = (a: { amt: number }[]) => fmt(a.reduce((s, x) => s + x.amt, 0));
   const none = !M.onlyO.length && !M.onlyT.length && !M.adiff.length;
-  const [all, setAll] = useState(false);
-  const R = parRows(M);
   const csv: (string | number)[][] = [['Вид', 'Датум', 'Документ', 'Опис', l1, l2, 'Разлика']];
   for (const o of M.onlyO) csv.push(['Само – ' + l1, dmy(o.date), o.doc, o.label, o.amt, '', o.amt]);
   for (const t of M.onlyT) csv.push(['Само – ' + l2, dmy(t.date), t.doc, t.desc, '', t.amt, -t.amt]);
   for (const x of M.adiff) csv.push(['Различен износ', dmy(x.o.date), x.o.doc + ' / ' + x.t.doc, '', x.o.amt, x.t.amt, x.diff]);
   for (const x of M.pairs) csv.push(['Усогласено', dmy(x.o.date), x.o.doc + ' / ' + x.t.doc, x.how, x.o.amt, x.t.amt, 0]);
-  // legacy recon tables: „only ours“ with the konto, „only theirs“ in their own Должи / Побарува
-  const T1 = <table className="dense"><thead><tr><th>Датум</th><th>Документ</th><th>Опис</th>{recon && <th>Конто</th>}<th className="n">Износ (Д+ / П−)</th></tr></thead><tbody>{M.onlyO.map((o) => <tr key={o.i}><Td v={dmy(o.date)} /><Td v={o.doc} /><Td v={o.label} />{recon && <Td v={o.k} />}<Td v={o.amt} /></tr>)}</tbody></table>;
-  const T2 = <table className="dense"><thead><tr><th>Датум</th><th>Документ</th><th>Опис</th><th className="n">{recon ? 'Нивно должи' : 'Должи'}</th><th className="n">{recon ? 'Нивно побарува' : 'Побарува'}</th></tr></thead><tbody>{M.onlyT.map((t) => <tr key={t.i}><Td v={dmy(t.date)} /><Td v={t.doc} /><Td v={t.desc} /><Td v={t.debit} /><Td v={t.credit} /></tr>)}</tbody></table>;
-  const T3 = <table className="dense"><thead><tr><th>Документ</th><th className="n">{l1}</th><th className="n">{l2}</th><th className="n">Разлика</th></tr></thead><tbody>{M.adiff.map((x, i) => <tr key={i}><Td v={x.o.doc + ' / ' + x.t.doc} /><Td v={x.o.amt} /><Td v={x.t.amt} /><Td v={x.diff} /></tr>)}</tbody></table>;
   return (
     <>
       <div className="row" style={{ gap: 8, margin: '8px 0' }}>
         <DownloadCsv name={`${file ?? 'Usoglasuvanje'}.csv`} label="Excel" rows={csv} />
         <PdfButton selector="#recDoc .pdfdoc" title="Записник за усогласување" />
       </div>
-      <div className="card"><h2 style={{ marginTop: 0 }}>Што фали – од што се состои разликата</h2><ParSum M={M} l1={l1} l2={l2} /></div>
-      <div className="card">
-        <div className="hd"><h2 style={{ margin: 0 }}>Паралелно: лево {l1} · десно {l2}</h2>
-          <label className="chk"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> прикажи ги и усогласените</label></div>
-        <div className="tw">{R.length ? <ParTable R={R} l1={l1} l2={l2} all={all} /> : <p className="muted">Нема ставки.</p>}</div>
-      </div>
+      <div className="card"><h2 style={{ marginTop: 0 }}>Што фали – од што се состои разликата</h2><ParSum M={M} n1={n1} n2={n2} /></div>
+      {!none && <div className="card tw"><SideBySide M={M} n1={n1} n2={n2} /></div>}
       <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 600 }}>✓ Усогласени ставки ({M.pairs.length})</summary>
         <div className="tw"><table className="dense"><thead><tr><th>{recon ? 'Наш датум' : 'Датум 1'}</th><th>{recon ? 'Наш документ' : 'Документ 1'}</th><th>{recon ? 'Нивен датум' : 'Датум 2'}</th><th>{recon ? 'Нивен документ' : 'Документ 2'}</th><th className="n">Износ</th><th>Поврзано по</th></tr></thead>
           <tbody>{M.pairs.map((x, i) => <tr key={i}><Td v={dmy(x.o.date)} /><Td v={x.o.doc} /><Td v={dmy(x.t.date)} /><Td v={x.t.doc} /><Td v={x.o.amt} /><Td v={x.how} /></tr>)}</tbody></table></div>
@@ -100,8 +101,8 @@ function Diffs({ M, l1, l2, title, sub, recon, file, extra }: { M: RecResult; l1
         <div className="pdfdoc">
           <div className="ph"><div><div className="pt">{title}</div><div className="ps">{sub}</div></div><div className="pm">Отпечатено: {dmy(new Date().toISOString())}</div></div>
           {extra}
-          <h2>Што фали – од што се состои разликата</h2><ParSum M={M} l1={l1} l2={l2} />
-          {!none && <><h2>Паралелно – само разликите (лево {l1} · десно {l2})</h2><ParTable R={R} l1={l1} l2={l2} all={false} /></>}
+          <h2>Што фали – од што се состои разликата</h2><ParSum M={M} n1={n1} n2={n2} />
+          {!none && <SideBySide M={M} n1={n1} n2={n2} />}
           {none && <p><b>Нема разлики.</b></p>}
         </div>
       </div>
@@ -138,7 +139,7 @@ export function ReconForm({ pid, k, from, to, years, year, firmId }: { pid: stri
           <Tiles T={[['Салдо кај нас', res.sums.sO], ['Салдо кај комитентот (огледално)', res.sums.sT], ['Разлика', res.sums.dif]]} />
           {res.sums.ok && <div className="callout good">✓ Картиците се усогласени.</div>}
           <RecArchive partner={res.partner} from={res.from} to={res.to} sO={res.sums.sO} dif={res.sums.dif} ok={res.sums.ok} potvrda={`/print/fin/potvrda?pid=${pid}&to=${res.to}&diff=${res.sums.ok ? 0 : res.sums.dif}`} />
-          <Diffs recon file={`Usoglasuvanje_${res.partner.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40)}`} M={res.M} l1="кај нас – ги нема кај комитентот" l2="кај комитентот – ги нема кај нас" title="ЗАПИСНИК ЗА УСОГЛАСУВАЊЕ НА КАРТИЦА" sub={`${res.partner}${res.edb ? ' · ЕДБ ' + res.edb : ''} · ${dmy(res.from)} – ${dmy(res.to)}`} />
+          <Diffs recon n1="нас" n2={res.partner} file={`Usoglasuvanje_${res.partner.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40)}`} M={res.M} l1="кај нас – ги нема кај комитентот" l2="кај комитентот – ги нема кај нас" title="ЗАПИСНИК ЗА УСОГЛАСУВАЊЕ НА КАРТИЦА" sub={`${res.partner}${res.edb ? ' · ЕДБ ' + res.edb : ''} · ${dmy(res.from)} – ${dmy(res.to)}`} />
           {res.M.open.length > 0 && <p className="note">Почетното салдо кај нас: {fmt(res.M.open.reduce((a, o) => a + o.amt, 0))}{res.opening ? ' · кај комитентот: ' + fmt(-res.opening) : ''} – вклучено во салдата.</p>}
         </>
       )}
@@ -205,7 +206,7 @@ export function CompareForm({ firmName, firmId, year }: { firmName: string; firm
           <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}><div className="card" style={{ flex: 1, minWidth: 200 }}><div className="mini">Разлика во периодот {dmy(X.from)} – {dmy(X.to)}</div><div style={{ fontSize: 22, fontWeight: 700, color: Math.abs(X.difPer) > 0.009 ? 'var(--bad)' : undefined }}>{fmt(X.difPer)}</div></div></div>
           {Math.abs(X.difTot) < 0.01 && !X.M.onlyO.length && !X.M.onlyT.length && !X.M.adiff.length && <div className="callout good">✓ Картиците се усогласени.</div>}
           <RecArchive partner={names.b || 'Картица 2'} from={X.from} to={X.to} sO={X.sA} dif={X.difTot} ok={Math.abs(X.difTot) < 0.01 && !X.M.onlyO.length && !X.M.onlyT.length && !X.M.adiff.length} />
-          <Diffs file={`Sporedba_kartici_${(names.b || 'kartici').replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40)}`} M={X.M} l1={'во картица 1' + (names.a ? ` (${names.a})` : '')} l2={'во картица 2' + (names.b ? ` (${names.b})` : '')} title="ЗАПИСНИК ЗА УСОГЛАСУВАЊЕ НА КАРТИЦИ" sub={`${names.a || 'Картица 1'} ↔ ${names.b || 'Картица 2'}`}
+          <Diffs n1={names.a || 'картица 1'} n2={names.b || 'картица 2'} file={`Sporedba_kartici_${(names.b || 'kartici').replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40)}`} M={X.M} l1={'во картица 1' + (names.a ? ` (${names.a})` : '')} l2={'во картица 2' + (names.b ? ` (${names.b})` : '')} title="ЗАПИСНИК ЗА УСОГЛАСУВАЊЕ НА КАРТИЦИ" sub={`${names.a || 'Картица 1'} ↔ ${names.b || 'Картица 2'}`}
             extra={<>
               <p style={{ margin: '3mm 0' }}><b>Споредуван период: {dmy(X.from)} – {dmy(X.to)}</b>{X.cmpPre && Math.abs(X.preDif) > 0.009 ? <><br />Разлика во почетното / пренесеното салдо на {dmy(X.from)}: <b>{fmt(X.preDif)}</b></> : null}</p>
               {(X.M.onlyO.length > 0 || X.M.onlyT.length > 0 || X.M.adiff.length > 0) && <p style={{ marginTop: '3mm' }}><b>Вкупно разлика во периодот: {fmt(X.difPer)}</b></p>}
