@@ -13,7 +13,7 @@ import { can, periodOf } from '@wise/core';
 import { AGE, DASH_PER, EXPG, MON, dashAgg, dashMonthly, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
   autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
-  kontrolaDue, kontroli, vatDueEstimate,
+  journalLines, kontrolaDue, kontroli, vatDueEstimate,
 } from '@wise/db';
 import { isKontrolaAuth, isKontrolaDoc, kontrolaDeadlines } from '@wise/core/compliance';
 import { requireUser } from '@/lib/auth';
@@ -30,6 +30,7 @@ import { today } from '@/lib/office';
 import { apUnsent, firmScope, pickerFirms, recFirmsDue, topStatus } from '@/lib/top-status';
 import { dmy } from '@/components/hd';
 import { DashMissing } from './dash-missing';
+import { DashInteractive, type DashData } from './dash-interactive';
 import { AinbHeroChip } from '@/components/ainb';
 import { BarChart, HBars, LineChart, Spark } from '@/components/dash-charts';
 import { FirmGo } from '@/components/firm-go';
@@ -213,6 +214,42 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const mg = A.rev ? Math.round(A.res / A.rev * 1000) / 10 : null;
   const hl: [number, number] = [rg.m0, rg.m1];
   const Dcur = Math.round(D * 100) / 100;
+  // the interactive card: daily cash (last 60 days, back from today's balance), the next 30 days from the open documents
+  const d60 = new Date(Date.UTC(+td.slice(0, 4), +td.slice(5, 7) - 1, +td.slice(8, 10) - 60)).toISOString().slice(0, 10);
+  const mov = await safe(db().select({ d: journals.date, v: sql<string>`sum(${journalLines.debit} - ${journalLines.credit})` }).from(journalLines)
+    .innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .where(and(eq(journalLines.firmId, f.id), inArray(journalLines.account, [...ck]), ne(journals.kind, 'close'), sql`${journals.date} > ${d60}`))
+    .groupBy(journals.date), [] as { d: string; v: string }[]);
+  const mv = new Map(mov.map((x) => [String(x.d).slice(0, 10), Number(x.v)]));
+  const later = mov.filter((x) => String(x.d).slice(0, 10) > td).reduce((s0, x) => s0 + Number(x.v), 0);
+  const past: { d: string; v: number }[] = [];
+  let bv = cashNow - later;
+  for (let k = 0; k <= 60; k++) {
+    const d = new Date(Date.UTC(+td.slice(0, 4), +td.slice(5, 7) - 1, +td.slice(8, 10) - k)).toISOString().slice(0, 10);
+    past.unshift({ d, v: Math.round(bv * 100) / 100 });
+    bv -= mv.get(d) ?? 0;
+  }
+  const d30 = new Date(Date.UTC(+td.slice(0, 4), +td.slice(5, 7) - 1, +td.slice(8, 10) + 30)).toISOString().slice(0, 10);
+  const dueOf = (x: { due: string | null; date: string }) => String(x.due || x.date).slice(0, 10);
+  const topI = (L2: { p: string | null; v: string }[]) => L2.map((x) => ({ id: x.p, n: pn(x.p) || '—', v: Math.round(Number(x.v) * 100) / 100 })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 10);
+  const myBad = apBad.filter((x) => x.f === f.id);
+  const DX: DashData = {
+    firmId: f.id, year, today: td, label: rg.lab, m0: rg.m0, m1: rg.m1, lastM,
+    R: M.R, E: M.E, rev: A.rev, exp: A.exp, topC: topI(TC), topS: topI(TSu), expG: expRows.slice(0, 10),
+    tasks: [
+      ...dl.filter((x) => daysBetween(td, x.d) <= 14).map((x) => ({ key: 'dl|' + x.t, t: x.t, sub: daysBetween(td, x.d) < 0 ? `рокот помина ${dmy(x.d)}` : `рок ${dmy(x.d)}${'v' in x && x.v != null ? ' · ' + fmt(x.v) : ''}`, go: x.go, lvl: (daysBetween(td, x.d) <= 3 ? 'bad' : 'warn') as 'bad' | 'warn' })),
+      ...chk.map(([n, t, go]) => ({ key: 'ck|' + t, t, sub: `${n}`, go, lvl: 'warn' as const })),
+      ...(myBad.length ? [{ key: 'ap|' + myBad.length, t: `Автопилот: ${myBad.length} за решавање`, sub: 'недостасуваат фактури, ставки без комитент…', go: 'vnes', lvl: (myBad.some((x) => x.lvl === 'bad') ? 'bad' : 'warn') as 'bad' | 'warn' }] : []),
+    ],
+    cash: {
+      past, now: cashNow,
+      ins: inv.filter((x) => dueOf(x) > td && dueOf(x) <= d30).map((x) => ({ d: dueOf(x), v: open(x) })),
+      outs: pur.filter((x) => dueOf(x) > td && dueOf(x) <= d30).map((x) => ({ d: dueOf(x), v: open(x) })),
+      overduePay: pur.filter((x) => dueOf(x) <= td).reduce((s0, x) => s0 + open(x), 0),
+      overdueRecv: inv.filter((x) => dueOf(x) <= td).reduce((s0, x) => s0 + open(x), 0),
+    },
+    vatRate: f.vatRegistered ? 0.18 : 0,
+  };
   return (
     <>
       <LawHome userId={u.id} role={u.role} />
@@ -242,18 +279,19 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         </div>
         {/* the numbers of the period at a glance: приходи, расходи, добивка, ДДВ to pay (with its deadline), данок на добивка, пари */}
         <div className="hero-grid">
-          <Link href="/izlez" className="hg"><span>Приходи · {rg.lab}</span><b className="num">{fmt(A.rev)}</b><i><DPill d={pct(A.rev, AP.rev)} py={year - 1} /></i></Link>
-          <Link href="/vlez" className="hg"><span>Расходи · {rg.lab}</span><b className="num">{fmt(A.exp)}</b><i><DPill d={pct(A.exp, AP.exp)} inv py={year - 1} /></i></Link>
-          <Link href="/bilanc" className="hg main"><span>Добивка · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '—' : 'маржа ' + mg.toLocaleString('mk-MK') + '%'}</i></Link>
+          <a href="#det-rev" className="hg"><span>Приходи · {rg.lab}</span><b className="num">{fmt(A.rev)}</b><i><DPill d={pct(A.rev, AP.rev)} py={year - 1} /></i></a>
+          <a href="#det-exp" className="hg"><span>Расходи · {rg.lab}</span><b className="num">{fmt(A.exp)}</b><i><DPill d={pct(A.exp, AP.exp)} inv py={year - 1} /></i></a>
+          <a href="#det-res" className="hg main"><span>Добивка · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '—' : 'маржа ' + mg.toLocaleString('mk-MK') + '%'}</i></a>
           {f.vatRegistered ? (est
             ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
             : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
             : <div className="hg"><span>ДДВ</span><b className="num">—</b><i>не е ДДВ обврзник</i></div>}
           <Link href="/zsProc" className="hg"><span>Данок на добивка 10% ≈</span><b className="num">{fmt(Math.max(0, Math.round(A.res * 10) / 100))}</b><i>проценка · ДБ до 15.03.{year + 1}</i></Link>
-          <Link href="/banka" className="hg"><span>Пари · банки + благајна</span><b className={`num ${cashNow < 0 ? 'neg' : ''}`}>{fmt(cashNow)}</b><i>побарувања {kfmt(recv)} · обврски {kfmt(pay)}</i></Link>
+          <a href="#cash" className="hg"><span>Пари · банки + благајна</span><b className={`num ${cashNow < 0 ? 'neg' : ''}`}>{fmt(cashNow)}</b><i>побарувања {kfmt(recv)} · обврски {kfmt(pay)}</i></a>
         </div>
       </section>
       <DashMissing firm={f} year={year} today={td} />
+      <DashInteractive D={DX} />
       <div className="dfilter" role="group" aria-label="Период">
         <span className="mini">Период:</span>
         {DASH_PER.map(([k, t]) => <Link key={k} className={`chip ${P === k ? 'on' : ''}`} href={k === 'year' ? '/' : `/?per=${k}`} aria-pressed={P === k}>{t}</Link>)}
