@@ -18,6 +18,8 @@ import { isDemoFirmId } from './demo/filters';
 import { kdOfficeFirm } from '@wise/core/firms/kdog';
 import type { FeeSettings } from '@wise/core/firms/kdfee';
 import { audit, type Tx } from './audit';
+import { entryOverview } from './entry-overview';
+import { vnesMessageKey, vnesRequest } from '@wise/core/office/vnes-request';
 import { firmOpenInSql } from './firm-years';
 import { documentPayments } from './bank/open-items';
 import { effectiveChart, loadLedgerLines } from './ledger-queries';
@@ -273,6 +275,14 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
     if (!S) continue;
     const A: Finding[] = alCompute(S);
     const X = apExtra(S);
+    // „📋 Што фали“ from the entry overview – the same text as /vnes „📨 Побарај од клиентот“ (a savepoint: a failed
+    // overview never stops the pass)
+    try {
+      const yr = Number(today.slice(0, 4));
+      const O = await db.transaction((tx) => entryOverview(tx, f, yr, today));
+      const V = vnesRequest({ firmName: f.name, officeName: off.name, year: yr, today, accounts: O.accounts, months: O.months });
+      if (V.items.length) X.msgs.push({ type: 'vnes', key: vnesMessageKey(f.id, today, V.items), subj: V.subject, body: V.body });
+    } catch { /* keep the other checks */ }
     const all = [...A, ...X.adds];
     rows.push({ id: f.id, m: X.m });
     findings += all.length;

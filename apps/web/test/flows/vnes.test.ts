@@ -42,6 +42,19 @@ describe('Преглед на внес по месеци', () => {
     expect(h).toContain('Нема излезни фактури ниту увезен излезен ДДВ');
   });
 
+  it('„📨 Побарај од клиентот“: the message of what is missing, and „→ Во Автопилот“ proposes it', async () => {
+    const h = await html();
+    expect(h).toContain('Побарај од клиентот');
+    expect(h).toContain('Излезни фактури за февруари');
+    const { queueVnesRequest } = await import('@/app/(app)/vnes/actions');
+    const fd = new FormData();
+    fd.set('subject', 'Документи што недостасуваат – Внес ДООЕЛ (2026)');
+    fd.set('body', 'Почитувани,\n\n1. Излезни фактури за февруари');
+    expect((await queueVnesRequest({}, fd)).ok).toContain('Автопилот');
+    const M = await pg.select().from(schema.autopilotMessages);
+    expect(M.map((m) => [m.type, m.status, m.subject])).toEqual([['vnes', 'proposed', 'Документи што недостасуваат – Внес ДООЕЛ (2026)']]);
+  });
+
   it('„За физичка проверка“ lists the unsaved reads with the reason (skipped ones left out)', async () => {
     const h = await new Response((await prerender(await ProverkaPage({ searchParams: Promise.resolve({ k: 'sale' }) }))).prelude).text();
     expect(h).toContain('За физичка проверка – излезни фактури');

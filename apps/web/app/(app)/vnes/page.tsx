@@ -11,6 +11,9 @@ import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
+import { vnesRequest } from '@wise/core/office/vnes-request';
+import { getOfficeProfile } from '@wise/db';
+import { VnesRequestBox } from './request-box';
 
 const MONTHS = ['јануари', 'февруари', 'март', 'април', 'мај', 'јуни', 'јули', 'август', 'септември', 'октомври', 'ноември', 'декември'];
 const WARN: Record<EntryMonth['warn'][number], string> = {
@@ -38,10 +41,14 @@ export default async function VnesPage() {
   const sum = (f: (x: EntryMonth) => number) => M.reduce((s, x) => s + f(x), 0);
   const issues = M.reduce((s, x) => s + x.warn.length, 0);
   const mm = (m: number) => String(m).padStart(2, '0');
+  // „📨 Побарај од клиентот“: what the client still has to send (the same text the autopilot proposes)
+  const office = await getOfficeProfile(db());
+  const REQ = vnesRequest({ firmName: firm.name, officeName: office.name, year, today: new Date().toISOString().slice(0, 10), accounts: O.accounts, months: M });
   return (
     <>
       <Hd t="Преглед на внес по месеци" sub={`${firm.name} · ${year} – што е внесено секој месец, што фали и што може да е двојно`} />
       {O.readNotImported > 0 && <div className="callout bad">⚠ <b>{O.readNotImported} прочитани изводи не се во книгите</b> (изводот е избришан или увозот не е завршен) – <Link href="/arhiva?nal=@bank">Архива → Изводи – не се увезени</Link>; увезете ги повторно во <Link href="/banka">Банка</Link> (без нов AI).</div>}
+      <VnesRequestBox subject={REQ.subject} body={REQ.body} email={firm.email ?? ''} items={REQ.items.length} />
       <div className={`callout ${issues ? 'warn' : 'good'}`}>
         {issues ? <>⚠ <b>{issues}</b> работи за проверка – видете ја колоната „Проверка“.</> : <>✓ Нема ништо за проверка.</>}
         {' '}За секој период користете <b>само еден</b> извор на фактури: или книжени фактури (скенирани / внесени), или увезен налог од старата програма – не двете.

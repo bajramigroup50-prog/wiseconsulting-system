@@ -8,6 +8,7 @@ export const AP_TYPES = [
   ['cash', '💶 Благајна во минус / фискални', 'Недостасуваат дневни фискални извештаи или уплати во благајна'],
   ['vat', '🧾 ДДВ и даноци – проценка и рок', 'Колку ДДВ/аконтација доаѓа и до кога'],
   ['izv', '🏦 Изводи што недостасуваат', 'Недостасуваат изводи од банката'],
+  ['vnes', '📋 Што фали – преглед на внес', 'Изводи по месец и сметка, излезни / влезни фактури за поминатите месеци (од „Преглед на внес“)'],
 ] as const;
 export const AP_TYPE_KEYS = AP_TYPES.map((t) => t[0]);
 export const apTypeName = (k: string) => AP_TYPES.find((t) => t[0] === k)?.[1] ?? (k === 'insp' ? '🛡 Документи за инспекција' : k);
@@ -15,7 +16,7 @@ export const apTypeName = (k: string) => AP_TYPES.find((t) => t[0] === k)?.[1] ?
 /** Legacy `apWhat`: one line of what a message asks for. */
 export function apWhat(g: { type: string; body: string }): string {
   const t = String(g.body || '');
-  if (g.type === 'inv' || g.type === 'out') {
+  if (g.type === 'inv' || g.type === 'out' || g.type === 'vnes') {
     const L = t.split('\n').filter((x) => /^\d+\. /.test(x));
     return L.slice(0, 4).join(' · ') + (L.length > 4 ? ` · … (${L.length})` : '');
   }

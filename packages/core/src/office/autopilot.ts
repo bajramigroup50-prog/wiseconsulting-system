@@ -32,7 +32,7 @@ export const AL_DESC: Record<string, string> = {
 
 export type FindingLvl = 'bad' | 'warn' | 'info';
 export interface Finding { lvl: FindingLvl; cat: string; txt: string; go: string; key: string }
-export interface ClientMessage { type: 'inv' | 'out' | 'cash' | 'izv' | 'vat'; key: string; subj: string; body: string }
+export interface ClientMessage { type: 'inv' | 'out' | 'cash' | 'izv' | 'vat' | 'vnes'; key: string; subj: string; body: string }
 
 export interface SnapshotInvoice { number: string; date: string; due?: string | null; credit?: boolean; advance?: boolean; total: number; paid: number }
 export interface SnapshotEmployee { name: string; active: boolean }
