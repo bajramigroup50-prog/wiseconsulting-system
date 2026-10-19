@@ -153,6 +153,10 @@ td select.wide{min-width:200px}
 .dash-hero .eyebrow,.dash-hero .note,.hero-kpi span,.hero-kpi i{color:rgba(255,255,255,.78)!important}
 .dash-hero h1{color:#fff}.hero-kpi b{color:#fff!important;font-size:34px}
 .hero-kpi b.neg{color:#ffd0cb!important}
+.hero-asst{margin:12px 0 0;max-width:620px;font-size:13.5px;line-height:1.55;color:rgba(255,255,255,.92);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:10px 12px}
+.hero-asst a{color:#fff;text-decoration:underline dotted rgba(255,255,255,.6);text-underline-offset:3px}
+.hero-asst a.bad{color:#ffd0cb;font-weight:600}.hero-asst a.warn{color:#ffe7a8}.hero-asst a.more{color:rgba(255,255,255,.8)}
+.hero-asst a:hover{text-decoration-style:solid}
 .hero-grid{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:8px;flex:1 1 560px;max-width:780px}
 .hero-grid .hg{display:flex;flex-direction:column;gap:2px;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.14);color:#fff;text-decoration:none;min-width:0}
 a.hg:hover{background:rgba(255,255,255,.16)}

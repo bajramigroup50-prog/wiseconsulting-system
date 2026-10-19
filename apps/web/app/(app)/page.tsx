@@ -233,6 +233,22 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const dueOf = (x: { due: string | null; date: string }) => String(x.due || x.date).slice(0, 10);
   const topI = (L2: { p: string | null; v: string }[]) => L2.map((x) => ({ id: x.p, n: pn(x.p) || '—', v: Math.round(Number(x.v) * 100) / 100 })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 10);
   const myBad = apBad.filter((x) => x.f === f.id);
+  // „Асистент на денот“: today's work in a few sentences, as an accountant would say it; each part opens its screen
+  const dIn = (d: string) => daysBetween(td, d);
+  const when = (n: number) => (n < 0 ? `рокот помина пред ${-n} ${-n === 1 ? 'ден' : 'дена'}` : n === 0 ? 'рокот е денес' : n === 1 ? 'рокот е утре' : `рок за ${n} дена`);
+  const oldest = [...late].sort((a, b) => od(a) - od(b))[0];
+  const hour = +new Date().toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Europe/Skopje' });
+  const hi = (hour < 11 ? 'Добро утро' : hour < 18 ? 'Добар ден' : 'Добра вечер') + ', ' + ((n) => n.charAt(0).toUpperCase() + n.slice(1).toLowerCase())(u.name.split(/\s+/)[0] ?? u.name);
+  const AS: { t: string; go: string; lvl: 'bad' | 'warn' | 'ok' }[] = [
+    ...(est && est.amount > 0 && dIn(est.due) <= 20 ? [{ t: `ДДВ-04 за ${est.period}: ${fmt(est.amount)} за плаќање, ${when(dIn(est.due))}`, go: 'ddv', lvl: (dIn(est.due) <= 5 ? 'bad' : 'warn') as 'bad' | 'warn' }] : []),
+    ...kdl.filter((k) => dIn(k.d) <= 10).map((k) => ({ t: `${k.t} – ${when(dIn(k.d))}`, go: k.go, lvl: 'bad' as const })),
+    ...(payMiss ? [{ t: `платата за ${pm.split('-').reverse().join('.')} не е пресметана (МПИН до ${dmy(PD.due)})`, go: 'plati', lvl: 'bad' as const }] : []),
+    ...((unb[0]?.n ?? 0) > 0 ? [{ t: `${unb[0]!.n} ставки од изводи чекаат конто`, go: 'banka', lvl: 'warn' as const }] : []),
+    ...(late.length ? [{ t: `${late.length} ${late.length === 1 ? 'фактура доцни' : 'фактури доцнат'} со наплата (${fmt(lateSum)})${oldest ? ` – најстара кај ${pn(oldest.partnerId)}` : ''}`, go: 'analitika', lvl: 'warn' as const }] : []),
+    ...(due7 > 0 ? [{ t: `за 7 дена доспеваат обврски кон добавувачи ${fmt(due7)}${cashNow < due7 ? ' – парите не се доволни' : ''}`, go: 'kartici', lvl: (cashNow < due7 ? 'bad' : 'warn') as 'bad' | 'warn' }] : []),
+    ...(myBad.length ? [{ t: `автопилотот има ${myBad.length} ${myBad.length === 1 ? 'наод' : 'наоди'} за решавање`, go: 'vnes', lvl: (myBad.some((x) => x.lvl === 'bad') ? 'bad' : 'warn') as 'bad' | 'warn' }] : []),
+    ...(chk.filter(([, , go]) => go !== 'banka' && go !== 'analitika').map(([n, t, go]) => ({ t: `${t.charAt(0).toLowerCase() + t.slice(1)} (${n})`, go, lvl: 'warn' as const }))),
+  ];
   const DX: DashData = {
     firmId: f.id, year, today: td, label: rg.lab, m0: rg.m0, m1: rg.m1, lastM,
     R: M.R, E: M.E, rev: A.rev, exp: A.exp, topC: topI(TC), topS: topI(TSu), expG: expRows.slice(0, 10),
@@ -276,6 +292,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <h1>{f.name}</h1>
           <p className="note"><span className="hchip">ЕДБ {f.edb || '—'}</span><span className="hchip">Деловна {year}</span><span className="hchip">{f.vatRegistered ? 'ДДВ обврзник · ' + (per === 'month' ? 'месечно' : 'тромесечно') : 'Не е ДДВ обврзник'}</span></p>
           <AinbHeroChip n={TS.ainb.length} mine={ainbMine} />
+          <div className="hero-asst">
+            <b>🤖 {hi}.</b>{' '}
+            {AS.length ? <>Денес:{' '}{AS.slice(0, 6).map((x, i) => (
+              <span key={x.t}><Link href={`/${x.go}`} className={x.lvl}>{x.t}</Link>{i < Math.min(AS.length, 6) - 1 ? '; ' : '.'}</span>
+            ))}{AS.length > 6 && <> <a href="#today" className="more">уште {AS.length - 6} →</a></>}</>
+              : <>Сè е средено – нема рокови ни задоцнети работи. Убав ден! ☀</>}
+          </div>
         </div>
         {/* the numbers of the period at a glance: приходи, расходи, добивка, ДДВ to pay (with its deadline), данок на добивка, пари */}
         <div className="hero-grid">
