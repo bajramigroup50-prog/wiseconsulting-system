@@ -4,8 +4,7 @@
  * dossier with a renewal reminder), ✅ the ISQM 1 checklist (acceptance / continuance with the УФР analysis, the
  * IESBA declarations, the contract and the letter read from the system; the year-end review by a second person),
  * the engagement file and the compiler's report, 📋 the overview of all clients, and office-wide (`./tabs`) 🏛 the ISQM 1
- * system, 👥 the employees (competence, CPD), 🧭 the IESBA declarations (→ ISO „Обуки“), 🏛 the obligations towards ИСОС
- * (`./isos-tab`: insurance, the list by 31.01, the questionnaire by 31.03, the control on the spot) and 🎯 the readiness.
+ * system, 👥 the employees (competence, CPD), 🧭 the IESBA declarations (→ ISO „Обуки“) and 🎯 the readiness.
  */
 import Link from 'next/link';
 import { KD_SVC } from '@wise/core/firms/kdog';
@@ -28,20 +27,19 @@ import { UploadField } from '@/components/upload-field';
 import { firmOf, imgUrl, loadProvider, officeFirm } from '../kdogovori/lib';
 import { letterDelete, letterSave, letterSign, qcSave } from './actions';
 import { Meta, TabEthics, TabReady, TabSqm, TabStaff } from './tabs';
-import { TabIsos } from './isos-tab';
 import { contractFor } from './lib';
 
-type Tab = 'el' | 'qc' | 'all' | 'sqm' | 'staff' | 'et' | 'isos' | 'ready';
+type Tab = 'el' | 'qc' | 'all' | 'sqm' | 'staff' | 'et' | 'ready';
 const TABS: [Tab, string][] = [
   ['el', '✉ Писмо за ангажман (ISRS 4410)'], ['qc', '✅ Ангажман (ISQM 1)'], ['all', '📋 Сите клиенти'],
-  ['sqm', '🏛 Систем (ISQM 1)'], ['staff', '👥 Вработени'], ['et', '🧭 Етика (IESBA)'], ['isos', '🏛 ИСОС'], ['ready', '🎯 Подготвеност'],
+  ['sqm', '🏛 Систем (ISQM 1)'], ['staff', '👥 Вработени'], ['et', '🧭 Етика (IESBA)'], ['ready', '🎯 Подготвеност'],
 ];
 
 const Line = ({ x }: { x: QcLine }) => (
   <li style={{ margin: '3px 0' }}>{x.ok ? <span className="pill good">✓</span> : <span className="pill warn">!</span>} {x.n}{x.auto ? <span className="mini"> · од системот: {x.info}</span> : null}</li>
 );
 
-export default async function IfacPage({ searchParams }: { searchParams: Promise<{ t?: string; c?: string; u?: string; p?: string }> }) {
+export default async function IfacPage({ searchParams }: { searchParams: Promise<{ t?: string; c?: string; u?: string }> }) {
   const sp = await searchParams;
   const { u, firm } = await officePage('ifac', { perm: 'office' });
   const td = today(), year = await currentYear();
@@ -205,8 +203,7 @@ export default async function IfacPage({ searchParams }: { searchParams: Promise
 
       {tab === 'et' && <TabEthics u={u} year={year} office={O.name ?? ''} staff={staff} />}
       {tab === 'sqm' && <TabSqm year={year} comp={sp.c} staff={staff} canEdit={canSet} />}
-      {tab === 'staff' && <TabStaff year={year} uid={sp.u} staff={staff} canEdit={canSet} today={td} />}
-      {tab === 'isos' && <TabIsos year={year} today={td} staff={staff} canEdit={canSet} demo={demo} hasOffice={!!P.off} edit={sp.p} />}
+      {tab === 'staff' && <TabStaff year={year} uid={sp.u} staff={staff} canEdit={canSet} />}
       {tab === 'ready' && <TabReady u={u} year={year} today={td} demo={demo} officeFirmId={P.off?.id ?? null} />}
 
       {tab === 'all' && await (async () => {

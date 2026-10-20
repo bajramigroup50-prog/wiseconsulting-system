@@ -23,7 +23,6 @@ import { addDays, todaySkopje } from '@wise/core/office';
 import { isDemoFirm } from '@wise/core/demo';
 import { audit, type Tx } from './audit';
 import { getOfficeProfile, officeFirmOf, OfficeError } from './office';
-import { isosOfficeRun } from './ifac';
 import { realFirmSql, realUserSql } from './demo/filters';
 import { loadPayScheme } from './payroll';
 import { firmEntity } from './yearend';
@@ -158,9 +157,6 @@ export async function paidFacts(db: Tx, R: readonly Pick<Rok, 'firmId' | 'key' |
  */
 export async function syncRokovi(db: Tx, o: { from: string; to: string; firmIds?: readonly string[]; now?: Date } = { from: '', to: '' }): Promise<RokSyncResult> {
   const now = o.now ?? new Date();
-  // the office's ИСОС deadlines (insurance, the list, the questionnaire, КПУ) as firm deadlines of the office firm – a
-  // savepoint: a failure never stops the calendar
-  try { await db.transaction((tx) => isosOfficeRun(tx, todaySkopje(now), { firmIds: o.firmIds, findings: false })); } catch (e) { console.error('[rokovi] ИСОС', e); }
   const F = await loadRokFirms(db, o);
   const R = F.flatMap((f) => rokGenerate(f, o.from, o.to));
   for (let i = 0; i < R.length; i += 400) {

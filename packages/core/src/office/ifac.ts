@@ -14,7 +14,7 @@
 import { KD_SVC, kdAmt, kdDocFoot, kdDocHead, kdVat, kdWords, type KdFirm, type KdOffice } from '../firms/kdog';
 import { hrDocCode } from '../payroll/hr';
 
-export type IfacKind = 'letter' | 'qc' | 'ethics' | 'staff' | `sqm_${string}` | `isos_${string}`;
+export type IfacKind = 'letter' | 'qc' | 'ethics' | 'staff' | `sqm_${string}`;
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const dmy = (d: string | null | undefined) => (d ? String(d).slice(0, 10).split('-').reverse().join('.') : '');

@@ -89,10 +89,6 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['kanc', 'c', 'tNew ncNew ncTask kdUpSigned kdRepMail kdMail klAddRec klAutoUser klMsg klNotePdf alMail apSendOne amlGo amlRepNew amlTrAdd opLog paSend lrPdf inspAtt inspCodeAdd zzIzjUp'],
   ['kanc', 'u', 'tSave tSt ncSave kdSaveB kdCliSign kdOffSign kdEnd kdToDos kdRecSync klAppr klRej klPwReset klRenameNum ainbDone irGo irArch alAck alUnack apRun apSkip amlSave amlRepSt amlCtl dlSave dlDone fcSave formSaveEmbg inspNa inspOk zzSave zzClose zzSigned zzIzjSign'],
   ['kanc', 'd', 'tDel kdDel fcDel lawDel inspCodeRm'],
-  // IFAC (ISRS 4410 letters, ISQM 1, IESBA, the obligations towards ИСОС) and the ISO register
-  ['kanc', 'c', 'elSave isoNew isosCtlSave'],
-  ['kanc', 'u', 'elSign qcSave ethicsSign sqmSave staffSave isosInsSave isosListSave isosQSave isoSave isoStatus isoSign isoSoa'],
-  ['kanc', 'd', 'elDelete isosInsDelete isoDelete'],
   // AML / УФР, inspections (kontroli), data protection (ROPA, data-subject requests)
   ['kanc', 'c', 'amlUfrNew amlScan kontrolaNew kontrolaFindingNew kontrolaActionNew kontrolaAiApply kontrolaDraft dsrNew ropaSeed'],
   ['kanc', 'u', 'amlDecide amlUfrSave amlUfrSubmit kontrolaEdit kontrolaRecalc kontrolaFindingEdit kontrolaActionEdit kontrolaActionDone ropaSave dsrClose'],
