@@ -41,7 +41,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
   const [rows, setRows] = useState<unknown[][] | null>(null);
   // „Називите во кирилица“: partner name / address / city in Latin are imported in Macedonian Cyrillic
   const [cyr, setCyr] = useState(true);
-  const CYR = new Set(t === 'partners' && cyr ? ['name', 'address', 'city'] : []);
+  const CYR = new Set(!cyr ? [] : t === 'partners' ? ['name', 'address', 'city'] : t === 'items' ? ['name'] : []);
   const [file, setFile] = useState('');
   const [hi, setHi] = useState(0);
   const [map, setMap] = useState<Record<string, number>>({});
@@ -131,7 +131,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
               <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={allowPast} onChange={(e) => setAllowPast(e.target.checked)} style={{ width: 'auto' }} /> Дозволи минати ДДВ периоди (миграција; само сопственик / право „поставки“ – ДДВ-04 на тие периоди треба да се коригира)</label></p>}
             <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label className="mini">Заглавие во ред <input type="number" min={1} value={hi + 1} style={{ width: 60 }} onChange={(e) => { const h = Math.max(0, (Number(e.target.value) || 1) - 1); setHi(h); setMap(impAuto(t, rows[h] ?? [])); }} /></label>
-              {t === 'partners' && <label className="chk" title="Називот, адресата и градот напишани на латиница се увезуваат на кирилица (прегледот подолу ги покажува)"><input type="checkbox" checked={cyr} onChange={(e) => setCyr(e.target.checked)} /> Во кирилица</label>}
+              {(t === 'partners' || t === 'items') && <label className="chk" title="Називите (и адресата / градот кај комитентите) напишани на латиница се увезуваат на кирилица – прегледот подолу ги покажува"><input type="checkbox" checked={cyr} onChange={(e) => setCyr(e.target.checked)} /> Во кирилица</label>}
               <label className="mini">Децимали <select value={decSel} onChange={(e) => setDecSel(e.target.value as DecMode)} style={{ width: 'auto' }}>
                 <option value="">од датотеката</option><option value="comma">1.234,56 – „10.000“ = десет илјади</option><option value="dot">1,234.56 – „10.000“ = десет</option>
               </select></label>

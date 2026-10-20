@@ -9,7 +9,9 @@ import { fmt, fq } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deleteItem, deleteItemsAction, setItemActive } from './actions';
+import { deleteItem, deleteItemsAction, itemsToCyrillicAction, setItemActive } from './actions';
+import { isLatinName, latToCyr } from '@wise/core/text/cyr';
+import { ActionForm, Submit } from '@/components/action-form';
 import { fuelItemsRateAction } from '../izlez/actions';
 import { fuelBannerFor, itemUsage, usedList } from '@/lib/sales-parity';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
@@ -19,13 +21,39 @@ import { ItemForm } from './item-form';
 const TYPES: Record<string, string> = { service: 'Услуга', goods: 'Стока (трговија)', material: 'Суровина / материјал', product: 'Готов производ' };
 const LIMIT = 500;
 
-export default async function ArtikliPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; t?: string }> }) {
+export default async function ArtikliPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; t?: string; cyr?: string }> }) {
   const sp = await searchParams;
   const svc = sp.t === 'service';
   const base = svc ? '/uslugiS' : '/artikli';
   const { u, firm } = await booksPage(svc ? 'uslugiS' : 'artikli');
   const see = await viewSeer();
   if (!firm) return <NoFirm t={svc ? 'Услуги' : 'Артикли и услуги'} />;
+  // „🔤 Латиница → кирилица“: every item / service whose name is in Latin, the proposed Cyrillic name (editable), ticked
+  if (sp.cyr !== undefined) {
+    const L = (await db().select({ id: items.id, name: items.name, code: items.code }).from(items).where(and(eq(items.firmId, firm.id), svc ? eq(items.type, 'service') : undefined)).orderBy(asc(items.name)))
+      .filter((x) => isLatinName(x.name));
+    return (
+      <>
+        <Hd t={`${svc ? 'Услуги' : 'Артикли'} – латиница → кирилица`} sub={`${L.length} со назив на латиница`}><Link className="btn" href={base}>← Назад</Link></Hd>
+        <div className="callout info">Предлогот е буква по буква. Марките и странските називи (Coca-Cola, Nivea…) поправете ги во полето или одштиклирајте ги за да останат на латиница; шифрите и броевите (пр. 0,5L, A4) остануваат исти.</div>
+        {L.length ? (
+          <ActionForm action={itemsToCyrillicAction} reset={false}>
+            <div className="tw"><table className="dense">
+              <thead><tr><th>✓</th><th>Шифра</th><th>Сега (латиница)</th><th>Ќе биде (кирилица) – може да се поправи</th></tr></thead>
+              <tbody>{L.map((x) => (
+                <tr key={x.id}>
+                  <td><input type="checkbox" name="on" value={x.id} defaultChecked aria-label="Претвори" /></td>
+                  <td>{x.code}</td><td>{x.name}</td>
+                  <td><input name={'n_' + x.id} defaultValue={latToCyr(x.name)} style={{ width: '100%', minWidth: 280 }} /></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><Submit>🔤 Примени на штиклираните</Submit></div>
+          </ActionForm>
+        ) : <div className="callout good">✓ Сите називи се на кирилица.</div>}
+      </>
+    );
+  }
   const q = (sp.q ?? '').trim();
   const bcMatch = q ? db().select({ id: itemBarcodes.itemId }).from(itemBarcodes).where(and(eq(itemBarcodes.firmId, firm.id), eq(itemBarcodes.barcode, q))) : undefined;
   const where = and(eq(items.firmId, firm.id), svc ? eq(items.type, 'service') : undefined, q ? or(ilike(items.name, `%${q}%`), ilike(items.code, `%${q}%`), inArray(items.id, bcMatch!)) : undefined);
@@ -68,6 +96,7 @@ export default async function ArtikliPage({ searchParams }: { searchParams: Prom
     <>
       <Hd t={svc ? 'Услуги' : 'Артикли и услуги'} sub={`${total?.n ?? 0} ${svc ? 'услуги' : 'артикли'}`}>
         {write && !showForm && !svc && <Link className="btn" href="/uvoz?t=items&back=artikli">Увоз од Excel</Link>}
+        {write && <Link className="btn" href={`${base}?${svc ? 't=service&' : ''}cyr`} title="Називите напишани на латиница – во кирилица (со преглед и поправка)">🔤 Латиница → кирилица</Link>}
         {write && <Link className="btn pri" href={`${base}?nov`}>+ Додај</Link>}
       </Hd>
       {fuel && <div className={'callout' + (fuel.warn ? ' warn' : '')} id="fuelBan">⛽ <b>Оваа фирма продава гориво.</b> ДДВ за гориво денес: <b>{fuel.rate}%</b>{fuel.inR && fuel.to ? <> – намалената стапка важи до <b>{fuel.to.split('-').reverse().join('.')}</b>{fuel.left != null ? ` (уште ${fuel.left} ден${fuel.left === 1 ? '' : 'а'})` : ''}, потоа {fuel.else}% освен ако Владата не продолжи</> : null}.{fuel.wrong ? <> <b>{fuel.wrong} артикли гориво</b> се со друга стапка.</> : null} Прилагодете ги и <b>фискалните апарати</b>.{' '}
