@@ -38,7 +38,7 @@ export const HR_SCHEDULE_DEFAULT = 'од понеделник до петок, �
 
 /** A policy in force for the statement (`docNo` and `version` from „Политики и документи“). */
 export interface PolicyInForce { docNo: string; version: string; title: string; approvedOn: string | null }
-/** „ПЛ-01 в1.0; ПС-04 в1.1“ – what an employee accepted (kept on the staff row). */
+/** „ПОЛ-01 в1.0; ПОС-04 в1.1“ – what an employee accepted (kept on the staff row). */
 export const ackString = (P: readonly PolicyInForce[]) => P.map((p) => `${p.docNo} в${p.version}`).join('; ');
 /** The policies whose current version is not in the accepted list. */
 export function ackMissing(P: readonly PolicyInForce[], acked: string): PolicyInForce[] {

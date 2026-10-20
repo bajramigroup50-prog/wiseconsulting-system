@@ -8,7 +8,7 @@
  */
 import Link from 'next/link';
 import { can } from '@wise/core';
-import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, REG_BOOKS, archFileLabel, archFilter, archKeepUntil, archKinds, delovodnik, type RegBook } from '@wise/core/office/archive';
+import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, REG_BOOKS, archCategory, archFileLabel, archFilter, archKeepLabel, archKeepUntil, archKinds, delovodnik, type RegBook } from '@wise/core/office/archive';
 import { PrintBtn } from '../skan/proverka/print-btn';
 import { bankAccounts, firmNalogSettings } from '@wise/db';
 import { eq } from 'drizzle-orm';
@@ -102,20 +102,21 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
       {view === 'reg' && (
         <div className="tw card">
           <div className="hd"><h2 style={{ margin: 0 }}>Деловодник {year} – {firm.name}</h2><PrintBtn /></div>
-          <div className="callout info noprint">📒 Секој документ на фирмата е заведен <b>еднаш, под реден број</b> во својата книга: <b>01</b> – примени (влезни фактури, фискални сметки, изводи, увозни документи), <b>02</b> – испратени (излезни фактури, одобренија, испратници, профактури), <b>03</b> – други / внатрешни (договори, решенија, досие, вработени…). Бројот е <b>книга-реден број/година</b> (пр. 01-15/{String(year).slice(2)}), по датумот на документот, од 1 секоја година (Уредба за канцелариско и архивско работење). Документите се чуваат најмалку {ARCH_DOC_YEARS} години, деловните книги {ARCH_BOOKS_YEARS} (ЗДП чл. 48, ЗДДВ чл. 56).</div>
+          <div className="callout info noprint">📒 Секој документ на фирмата е заведен <b>еднаш, под реден број</b> во својата книга: <b>01</b> – примени (влезни фактури, фискални сметки, изводи, увозни документи), <b>02</b> – испратени (излезни фактури, одобренија, испратници, профактури), <b>03</b> – други / внатрешни (договори, решенија, досие, вработени…). Бројот е <b>книга-реден број/година</b> (пр. 01-15/{String(year).slice(2)}), по датумот на документот, од 1 секоја година (Уредба за канцелариско и архивско работење). Секој документ го добива <b>архивскиот знак</b> од Листата на категории (🏅 ISO ▸ Архива) и рокот на чување според категоријата. Документите се чуваат најмалку {ARCH_DOC_YEARS} години, деловните книги {ARCH_BOOKS_YEARS} (ЗДП чл. 48, ЗДДВ чл. 56).</div>
           <div className="row noprint" style={{ gap: 6, margin: '0 0 8px', flexWrap: 'wrap' }}>
             <Link className={`btn sm ${!book ? 'pri' : ''}`} href="/arhiva?v=reg">Сите · {REG.length}</Link>
             {(['in', 'out', 'other'] as const).map((b) => <Link key={b} className={`btn sm ${book === b ? 'pri' : ''}`} href={`/arhiva?v=reg&b=${b}`}>{REG_BOOKS[b]} · {regN(b)}</Link>)}
           </div>
           <table className="dense">
-            <thead><tr><th>Реден бр.</th><th>Датум</th><th>Книга</th><th>Вид</th><th>Број на документот</th><th>Испраќач / примач</th><th className="n">Износ</th><th>Налог</th><th>Датотека</th><th>Чувај до</th></tr></thead>
+            <thead><tr><th>Реден бр.</th><th>Датум</th><th>Книга</th><th>Вид</th><th>Број на документот</th><th>Испраќач / примач</th><th className="n">Износ</th><th>Налог</th><th>Датотека</th><th title="Архивски (класификационен) знак – Листа на категории на документарен материјал">Арх. знак</th><th>Чувај до</th></tr></thead>
             <tbody>{REG.filter((r) => !book || r.book === book).map((r) => (
               <tr key={r.key}>
                 <td><b>{r.regNo}</b></td><td>{dmy(r.date)}</td><td className="mini">{REG_BOOKS[r.book].slice(5)}</td>
                 <td>{r.href ? <Link href={r.href}>{r.kind}</Link> : r.kind}</td><td>{r.no}</td><td>{r.pn}</td>
                 <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td><td>{r.nalog ?? ''}</td>
                 <td>{r.files.length ? <span className="row" style={{ gap: 4 }}>{r.files.map((x) => <FilePreview key={x.id} id={x.id} name={x.name} mime={x.mime} label="👁" title={`Преглед: ${x.name}`} />)}</span> : <span className="pill warn" title="Нема скениран / прикачен документ">нема</span>}</td>
-                <td className="mini">{archKeepUntil(r) ? dmy(archKeepUntil(r)!) : ''}</td>
+                <td className="mini" title={archCategory(r.sign)?.n}>{r.sign}</td>
+                <td className="mini">{r.keepUntil ? dmy(r.keepUntil) : archKeepLabel(archCategory(r.sign) ?? { years: null, from: 'year' })}</td>
               </tr>
             ))}</tbody>
           </table>

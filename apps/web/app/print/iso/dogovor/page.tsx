@@ -19,7 +19,7 @@ import { officeFirm } from '../../../(app)/iso/iso-data';
 export const metadata = { title: 'Договори за вработување' };
 
 /** Footer of every printed page: the employee and the page (CSS paged media; a separate named page per contract). */
-const pageCss = (i: number, name: string) => `@page c${i}{size:A4;margin:16mm 16mm 18mm;@bottom-left{content:${JSON.stringify(`${name} – Договор за вработување`)};font:8pt Arial;color:#555}@bottom-right{content:"страна " counter(page);font:8pt Arial;color:#555}}.ct${i}{page:c${i}}`;
+const pageCss = (i: number, name: string) => `@page c${i}{size:A4;margin:16mm 16mm 18mm;@bottom-left{content:${JSON.stringify(`${name} – Договор за вработување`)};font:8pt Arial;color:#555}@bottom-right{content:"ОБР-09 · в.1.0 · стр. " counter(page);font:8pt Arial;color:#555}}.ct${i}{page:c${i}}`;
 
 export default async function PrintIsoContracts({ searchParams }: { searchParams: Promise<{ e?: string; all?: string }> }) {
   const u = await requireUser();

@@ -7,6 +7,7 @@ import { bcpStatus, breach72, isoStarterDocs, type IsoRow } from './iso';
 import { ISO_DOC } from './iso-docs';
 import type { SoaControl } from './iso-soa';
 import { soaSummary } from './iso-soa';
+import type { RegRow } from './iso-registry';
 import type { StaffStatus } from './iso-staff';
 
 export type ReadyState = 'ok' | 'part' | 'miss';
@@ -23,6 +24,8 @@ export interface ReadyCtx {
   clientContracts: number;
   year: number;
   today: string;
+  /** The master register of mandatory records (`isoRegistry`) – its legal and archive rows become a section. */
+  registry?: readonly RegRow[];
 }
 
 const STARTER = new Map(isoStarterDocs('').map((d) => [d.docNo, d.title]));
@@ -94,7 +97,7 @@ export function isoReadiness(c: ReadyCtx): ReadySection[] {
     doc(ISO_DOC.scope, '§4.3'), doc(ISO_DOC.isPolicy, '§5.2'), doc(ISO_DOC.roles, '§5.3'), doc(ISO_DOC.riskMethod, '§6.1.2'),
     it('8.2', '§8.2', 'Резултати од проценката на ризиците (веројатност × влијание)', tri(scored.length > 0 && scored.length === risks.length, scored.length > 0), `${scored.length} / ${risks.length} ризици оценети`, '/iso?k=risk'),
     it('8.3', '§6.1.3 · §8.3', 'Третман на ризиците и прифаќање од сопственикот', tri(risks.length > 0 && !untreated.length && !unaccepted.length, risks.length > 0), `${untreated.length} без третман, ${unaccepted.length} без прифаќање на преостанатиот ризик`, '/iso?k=risk'),
-    it('soa', '§6.1.3 d', 'Изјава за применливост – сите 93 контроли потврдени', tri(S.confirmed === S.total && soaDoc.state === 'ok', S.confirmed > 0 || soaDoc.state !== 'miss'), `${S.confirmed} / ${S.total} потврдени · применливи ${S.applicable}, спроведени ${S.done}, делумно ${S.partial}, планирани ${S.planned}${soaDoc.state === 'ok' ? '' : ' · документот СУ-06 не е одобрен'}`, '/iso?k=soa'),
+    it('soa', '§6.1.3 d', 'Изјава за применливост – сите 93 контроли потврдени', tri(S.confirmed === S.total && soaDoc.state === 'ok', S.confirmed > 0 || soaDoc.state !== 'miss'), `${S.confirmed} / ${S.total} потврдени · применливи ${S.applicable}, спроведени ${S.done}, делумно ${S.partial}, планирани ${S.planned}${soaDoc.state === 'ok' ? '' : ' · документот ПОЛ-13 не е одобрен'}`, '/iso?k=soa'),
     it('soa-impl', 'Анекс А', 'Спроведување на применливите контроли', tri(S.applicable > 0 && S.done === S.applicable, S.done > 0), `${S.done} / ${S.applicable} спроведени (делумно ${S.partial}, планирано ${S.planned})`, '/iso?k=soa'),
     it('6.2', '§6.2', 'Цели за безбедност на информациите', tri(objOk('27001').length > 0, objY.length > 0), `${objOk('27001').length} целосни цели за безбедност`, '/iso?k=objective'),
     competence, awareness, doc(ISO_DOC.comms, '§7.4'), docCtl,
@@ -145,5 +148,9 @@ export function isoReadiness(c: ReadyCtx): ReadySection[] {
     { std: '27001', n: 'ISO/IEC 27001:2022 – Безбедност на информациите', items: i, pct: pct(i) },
     { std: '27701', n: 'ISO/IEC 27701 · ЗЗЛП – Лични податоци', items: p, pct: pct(p) },
     { std: '22301', n: 'ISO 22301 – Континуитет на работењето', items: b, pct: pct(b) },
+    ...(c.registry ? [((): ReadySection => {
+      const L: ReadyItem[] = c.registry!.filter((r) => r.std === 'law' || r.std === 'arch').map((r) => it(`reg:${r.id}`, r.code, r.n, r.state === 'ok' ? 'ok' : r.state === 'old' ? 'part' : 'miss', r.state === 'ok' ? r.note : r.note || r.todo, r.manual ? `/iso?k=evid#${r.id}` : r.href));
+      return { std: 'law', n: 'Законски евиденции и архива', items: L, pct: pct(L) };
+    })()] : []),
   ];
 }

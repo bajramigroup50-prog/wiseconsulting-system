@@ -11,7 +11,8 @@ import { can } from '@wise/core';
 import { BCP_STATE, ISO_DOC, ISO_STATUS, isoNo, isoReview, type IsoRow, type IsoSign } from '@wise/core/office/iso';
 import { SOA_THEMES, soaSummary, type SoaTheme } from '@wise/core/office/iso-soa';
 import { getOfficeProfile, isoEvidence, isoGdprLinks } from '@wise/db';
-import { loadIsoRows, loadReadiness, loadSoaMerged, loadStaff } from '../../(app)/iso/iso-data';
+import { REG_STATE, REG_STD_ORDER, REG_STDS } from '@wise/core/office/iso-registry';
+import { loadIsoRows, loadReadiness, loadRegistry, loadSoaMerged, loadStaff } from '../../(app)/iso/iso-data';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { today } from '@/lib/office';
@@ -29,7 +30,7 @@ export default async function PrintIso({ searchParams }: { searchParams: Promise
   if (sp.doc === 'soa') return <SoaPrint office={O.name ?? ''} R={R} />;
   const td = today(), asOf = String(year) === td.slice(0, 4) ? td : `${year}-12-31` < td ? `${year}-12-31` : td;
   const staff = await loadStaff(R, asOf);
-  const ready = await loadReadiness(R, staff.lines, year, asOf);
+  const [ready, reg] = await Promise.all([loadReadiness(R, staff.lines, year, asOf), loadRegistry(R, staff.lines, year, asOf)]);
   const plans = R.filter((r) => r.kind === 'auditplan' && (r.year === year || String(r.data.month ?? '').startsWith(String(year))));
   const rec = R.filter((r) => r.kind === 'review' && (r.year === year || String(r.data.date ?? '').startsWith(String(year)))).sort((a, b) => b.created.localeCompare(a.created))[0];
   const sup = R.filter((r) => r.kind === 'supplier');
@@ -109,12 +110,17 @@ export default async function PrintIso({ searchParams }: { searchParams: Promise
         {ready.map((s) => <tr key={s.std}><td>{s.n}</td><td>{s.pct}%</td><td>{s.items.filter((x) => x.state !== 'ok').map((x) => `${x.clause} ${x.n}`).filter((x, i, a) => a.indexOf(x) === i).slice(0, 12).join('; ') || '—'}</td></tr>)}
       </tbody></table>
 
-      <H n={13} t="Документи во сила (§7.5)" />
+      <H n={13} t="Задолжителни евиденции и документи (§7.5, законски обврски, архива)" />
+      <table><thead><tr><th>Област</th><th>✓</th><th>◐</th><th>✗</th><th>Недостасува / застарено</th></tr></thead><tbody>
+        {REG_STD_ORDER.map((s) => { const L = reg.filter((r) => r.std === s); return <tr key={s}><td>{REG_STDS[s]}</td><td>{L.filter((r) => r.state === 'ok').length}</td><td>{L.filter((r) => r.state === 'old').length}</td><td>{L.filter((r) => r.state === 'miss').length}</td><td>{L.filter((r) => r.state !== 'ok').map((r) => `${r.code} ${r.n} (${REG_STATE[r.state][0]})`).join('; ') || '—'}</td></tr>; })}
+      </tbody></table>
+
+      <H n={14} t="Документи во сила (§7.5)" />
       {V.policies.length ? <table><thead><tr><th>Ознака</th><th>Документ</th><th>Верзија</th><th>Одобрил</th><th>Одобрено</th><th>Преглед</th></tr></thead><tbody>
         {[...V.policies].sort((a, b) => String(a.data.docNo ?? '').localeCompare(String(b.data.docNo ?? ''), 'mk')).map((r) => <tr key={r.id}><td>{String(r.data.docNo ?? '')}</td><td>{r.title}</td><td>{String(r.data.version ?? '')}</td><td>{String(r.data.approvedBy ?? '')}</td><td>{r.data.approvedOn && r.status === 'done' ? dmy(String(r.data.approvedOn)) : '⚠ нацрт'}</td><td>{r.data.reviewOn ? dmy(String(r.data.reviewOn)) : ''}</td></tr>)}
       </tbody></table> : <p>⚠ Нема документи.</p>}
 
-      <H n={14} t="Одлуки и мерки за подобрување (§9.3.3)" />
+      <H n={15} t="Одлуки и мерки за подобрување (§9.3.3)" />
       {rec ? <>
         <p>Прегледот е одржан{rec.data.date ? ` на ${dmy(String(rec.data.date))}` : ''}{rec.data.participants ? `; присутни: ${String(rec.data.participants)}` : ''} ({no(rec)}).</p>
         {rec.data.decisions ? <p style={{ whiteSpace: 'pre-line' }}><b>Одлуки:</b> {String(rec.data.decisions)}</p> : null}
@@ -129,7 +135,7 @@ export default async function PrintIso({ searchParams }: { searchParams: Promise
   );
 }
 
-/** ISO/IEC 27001:2022 §6.1.3 d – the Statement of Applicability for print (93 controls), with the approval of СУ-06. */
+/** ISO/IEC 27001:2022 §6.1.3 d – the Statement of Applicability for print (93 controls), with the approval of ПОЛ-13. */
 async function SoaPrint({ office, R }: { office: string; R: readonly IsoRow[] }) {
   const L = await loadSoaMerged();
   const S = soaSummary(L);

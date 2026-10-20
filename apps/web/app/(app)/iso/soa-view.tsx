@@ -18,7 +18,7 @@ export function SoaView({ L, sel }: { L: (SoaControl & { confirmed: boolean })[]
     <div className="card">
       <div className="hd"><h2 style={{ margin: 0 }}>📋 Изјава за применливост – ISO/IEC 27001:2022 Анекс А</h2>
         <a className="btn" href="/print/iso?doc=soa" target="_blank" rel="noreferrer">🖨 Печати SoA</a></div>
-      <p className="note" style={{ marginTop: 4 }}>За секоја од 93-те контроли: дали се применува, оправдување, состојба на спроведување и доказ. Предлогот е подготвен за сметководствена канцеларија што ја развива својата програма; прегледајте го и потврдете го (✎ по контрола или сите одеднаш). Документот <Link href="/iso?k=policy">СУ-06</Link> се одобрува за целата табела.</p>
+      <p className="note" style={{ marginTop: 4 }}>За секоја од 93-те контроли: дали се применува, оправдување, состојба на спроведување и доказ. Предлогот е подготвен за сметководствена канцеларија што ја развива својата програма; прегледајте го и потврдете го (✎ по контрола или сите одеднаш). Документот <Link href="/iso?k=policy">ПОЛ-13</Link> се одобрува за целата табела.</p>
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
         <span className="pill">{S.confirmed} / {S.total} потврдени</span><span className="pill">применливи {S.applicable}</span><span className="pill good">спроведени {S.done}</span>
         <span className="pill warn">делумно {S.partial}</span><span className="pill bad">планирани {S.planned}</span><span className="pill">исклучени {S.excluded}</span>

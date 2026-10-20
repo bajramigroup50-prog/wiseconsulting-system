@@ -13,6 +13,7 @@ import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
 import { viewAllowed } from '@/lib/nav';
 import { loadIsoRows, officeFirm } from '../../../(app)/iso/iso-data';
+import { docPageCss } from '../page-css';
 
 export const metadata = { title: 'Изјава за прифаќање на политиките' };
 
@@ -29,7 +30,7 @@ export default async function PrintIsoPolicies({ searchParams }: { searchParams:
   const name = O.name || office.name;
   return (
     <div className="pdfdoc">
-      <style dangerouslySetInnerHTML={{ __html: '.ackp+.ackp{break-before:page;page-break-before:always}.ackp table{width:100%;font-size:9.5pt;border-collapse:collapse}.ackp td,.ackp th{border:1px solid #999;padding:2px 4px;vertical-align:top}' }} />
+      <style dangerouslySetInnerHTML={{ __html: docPageCss('ОБР-08 · в.1.0', name) + '.ackp+.ackp{break-before:page;page-break-before:always}.ackp table{width:100%;font-size:9.5pt;border-collapse:collapse}.ackp td,.ackp th{border:1px solid #999;padding:2px 4px;vertical-align:top}' }} />
       {E.map((e) => (
         <div key={e.id} className="ackp" style={{ fontFamily: "'Times New Roman',Georgia,serif", fontSize: '11pt', lineHeight: 1.5 }}>
           <div style={{ fontSize: '9pt' }}>{name}{office.address ? `, ${office.address}` : ''}{office.city ? `, ${office.city}` : ''}</div>

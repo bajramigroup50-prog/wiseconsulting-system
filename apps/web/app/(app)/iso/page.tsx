@@ -17,14 +17,15 @@ import { FileChips } from '@/components/file-chips';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { isoDelete, isoSave, isoSign, isoStarter, isoStatus } from './actions';
-import { loadIsoRows, loadReadiness, loadSoaMerged, loadStaff } from './iso-data';
+import { EvidView } from './evid-view';
+import { loadIsoRows, loadReadiness, loadRegistry, loadSoaMerged, loadStaff } from './iso-data';
 import { ReadyView } from './ready-view';
 import { SoaView } from './soa-view';
 import { StaffView } from './staff-view';
 
 type SP = { k?: string; id?: string; new?: string; c?: string };
 const PILL: Record<IsoStatus, string> = { open: 'warn', progress: 'info', done: 'good' };
-const SPECIAL = ['ev', 'ready', 'soa', 'staff'] as const;
+const SPECIAL = ['ev', 'ready', 'soa', 'staff', 'evid'] as const;
 /** Policies: the statuses read as document states. */
 const DOC_STATUS: Record<IsoStatus, string> = { open: 'нацрт', progress: 'во преглед', done: 'во сила' };
 
@@ -53,12 +54,15 @@ export default async function IsoPage({ searchParams }: { searchParams: Promise<
   const title = (id: unknown) => { const r = R.find((x) => x.id === id); return r ? `${isoNo(r.kind, r.no, r.year)} ${r.title}` : ''; };
   // starting records of this register not there yet (by title)
   const missing = def ? isoStarters(def.k, '', year).filter((s) => !R.some((r) => r.kind === def.k && (r.title === s.title || (s.data.docNo && r.data.docNo === s.data.docNo)))).length : 0;
-  const STARTER_LBL: Partial<Record<IsoKind, string>> = { policy: '📘 Додај ги основните документи', processing: '🗂 Додај ги основните обработки', bcp: '🧯 Додај ги основните сценарија', supplier: '🤝 Додај ги основните добавувачи', auditplan: `🗓 Додај ја програмата за ${year}` };
+  const STARTER_LBL: Partial<Record<IsoKind, string>> = { policy: '📘 Додај ги основните документи', processing: '🗂 Додај ги основните обработки', bcp: '🧯 Додај ги основните сценарија', supplier: '🤝 Додај ги основните добавувачи', auditplan: `🗓 Додај ја програмата за ${year}`, legal: '⚖ Додај ги основните закони', asset: '💻 Додај ги основните средства' };
   const B72 = { ok: ['good', '✓ во 72 ч.'], late: ['bad', '✗ задоцнето'], overdue: ['bad', '⏱ рокот помина'], open: ['warn', '⏱ АЗЛП'], na: ['', ''] } as const;
-  const needStaff = tab === 'staff' || tab === 'ready' || !tab;
+  const needStaff = tab === 'staff' || tab === 'ready' || tab === 'evid' || !tab;
   const staff = needStaff ? await loadStaff(R, td) : null;
   const ready = (tab === 'ready' || !tab) && staff ? await loadReadiness(R, staff.lines, year, td) : null;
   const soa = tab === 'soa' ? await loadSoaMerged() : null;
+  const reg = tab === 'evid' && staff ? await loadRegistry(R, staff.lines, year, td) : null;
+  const EV = R.filter((r) => r.kind === 'evid');
+  const evFiles = reg ? await filesOf(OFFICE_FILE_ENTITY.iso, EV.map((r) => r.id)) : new Map<string, { id: string; name: string }[]>();
   const FL = def ? await filesOf(OFFICE_FILE_ENTITY.iso, R.filter((r) => r.kind === def.k).map((r) => r.id)) : new Map<string, { id: string; name: string }[]>();
   const stLbl = (k: IsoKind) => (k === 'policy' ? DOC_STATUS : ISO_STATUS);
 
@@ -100,12 +104,14 @@ export default async function IsoPage({ searchParams }: { searchParams: Promise<
         <Link className={`btn ${tab === 'ready' ? 'pri' : ''}`} href="/iso?k=ready">✅ Подготвеност за сертификација</Link>
         <Link className={`btn ${tab === 'soa' ? 'pri' : ''}`} href="/iso?k=soa">📋 Изјава за применливост (SoA)</Link>
         <Link className={`btn ${tab === 'staff' ? 'pri' : ''}`} href="/iso?k=staff">👥 Вработени (A.6)</Link>
+        <Link className={`btn ${tab === 'evid' ? 'pri' : ''}`} href="/iso?k=evid">🗂 Задолжителни евиденции и документи</Link>
         <Link className={`btn ${tab === 'ev' ? 'pri' : ''}`} href="/iso?k=ev">🧾 Докази од системот (27001)</Link>
       </div>
 
       {tab === 'ready' && ready && <ReadyView S={ready} full />}
       {tab === 'soa' && soa && <SoaView L={soa} sel={sp.c} />}
       {tab === 'staff' && staff && <StaffView office={staff.office} lines={staff.lines} R={R} />}
+      {tab === 'evid' && reg && <EvidView L={reg} users={UA} files={evFiles} owners={new Map(EV.map((r) => [r.title, r.ownerId]))} />}
 
       {def && !def.hidden && (
         <div className="card">
@@ -115,6 +121,7 @@ export default async function IsoPage({ searchParams }: { searchParams: Promise<
           {def.g === 'pims' && (
             <div className="callout info" style={{ margin: '4px 0 8px' }}>🔗 Поврзано: <Link href="/zzlp">🔐 ЗЗЛП</Link> – договори за обработка со {G.dpa} клиенти, изјави за доверливост ({G.statements}), барања ({G.requests.n} во {year}{G.requests.open ? `, ${G.requests.open} отворени` : ''}) и повреди ({G.breaches.n}{G.breaches.open ? `, ${G.breaches.open} отворени` : ''}) по клиент; обработките по клиент ({G.activities}) – во <Link href="/zakon">Законска усогласеност</Link>.{def.k !== 'dpia' && <> Безбедносните инциденти со лични податоци го имаат правилото за <Link href="/iso?k=incident">72 часа</Link>.</>}</div>
           )}
+          {def.k === 'archbook' && <p className="note"><a href="/print/iso/obr?f=ОБР-05" target="_blank" rel="noreferrer">🖨 Печати ја архивската книга (ОБР-05)</a> · знаците и роковите – <Link href="/iso?k=evid">Листа на категории</Link>.</p>}
           {def.k === 'review' && <p className="note">🖨 Влезните елементи (поплаки, неусогласености, проверки, ризици, цели, обуки, инциденти, лични податоци, континуитет, подготвеност) се составуваат сами во <a href={`/print/iso?y=${year}`} target="_blank" rel="noreferrer">Преглед од раководството {year}</a>; тука се запишува одржаниот состанок, одлуките и потписот.</p>}
           {missing > 0 && STARTER_LBL[def.k] && !(def.k === 'policy' && noPolicies) && (
             <div className="row" style={{ margin: '0 0 8px' }}><RowAction action={isoStarter.bind(null, def.k)} label={`${STARTER_LBL[def.k]} (${missing})`} className="btn sm" showOk /></div>
@@ -211,6 +218,9 @@ export default async function IsoPage({ searchParams }: { searchParams: Promise<
                       <td style={{ whiteSpace: 'nowrap' }}>{sign ? <span title={`потврдил ${sign.name} ${dmy(sign.at.slice(0, 10))}`}>✍</span> : <span className="mini" title="не е потврдено">—</span>} {(FL.get(r.id)?.length ?? 0) > 0 ? <span title={FL.get(r.id)!.map((x) => x.name).join(', ')}>📎{FL.get(r.id)!.length}</span> : ''}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <Link className="btn sm" href={`/iso?k=${def.k}&id=${r.id}`}>✎</Link>
+                        {def.k === 'archhand' && <a className="btn sm" href={`/print/iso/obr?f=ОБР-04&id=${r.id}`} target="_blank" rel="noreferrer" title="Записник за предавање (ОБР-04)">🖨</a>}
+                        {def.k === 'archdestroy' && <><a className="btn sm" href={`/print/iso/obr?f=ОБР-06&id=${r.id}`} target="_blank" rel="noreferrer" title="Попис за излачување (ОБР-06)">🖨 ОБР-06</a><a className="btn sm" href={`/print/iso/obr?f=ОБР-07&id=${r.id}`} target="_blank" rel="noreferrer" title="Записник за уништување (ОБР-07)">🖨 ОБР-07</a></>}
+                        {def.k === 'policy' && <a className="btn sm" href={`/print/iso/doc?id=${r.id}`} target="_blank" rel="noreferrer" title="Печати со ознака, верзија и страна">🖨</a>}
                         {r.status !== 'done' ? <RowAction action={isoStatus.bind(null, r.id, 'done')} label={def.k === 'policy' ? '✓ Во сила' : '✓ Затвори'} className="btn sm" />
                           : <RowAction action={isoStatus.bind(null, r.id, 'open')} label="↺" title="Отвори повторно" />}
                         <RowAction action={isoDelete.bind(null, r.id)} label="🗑" title="Избриши" confirm={`Да се избрише „${r.title}“?`} />

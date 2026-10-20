@@ -34,7 +34,7 @@ describe('ISO registers', () => {
     expect(V.risks.list[0]!.sc).toEqual({ s: 10, cls: 'mid' });
   });
   it('starting documents once, the system evidence', async () => {
-    expect(await addIsoStarterDocs(tx, 'WISE CONSULTING', uid, '2026-03-01')).toBe(24);
+    expect(await addIsoStarterDocs(tx, 'WISE CONSULTING', uid, '2026-03-01')).toBe(27);
     expect(await addIsoStarterDocs(tx, 'WISE CONSULTING', uid, '2026-03-01')).toBe(0);
     const ev = await isoEvidence(tx, new Date('2026-01-01'));
     expect(ev.users.length).toBe(1);

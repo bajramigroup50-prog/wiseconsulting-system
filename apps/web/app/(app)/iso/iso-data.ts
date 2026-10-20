@@ -4,12 +4,13 @@
  * /korisnici; the current employment contract; the ЗЗЛП confidentiality statement; attached scans), the Statement of
  * Applicability and the certification readiness.
  */
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { type IsoKind, type IsoRow, type IsoStatus } from '@wise/core/office/iso';
 import { isoReadiness } from '@wise/core/office/iso-ready';
+import { isoRegistry, type RegFacts } from '@wise/core/office/iso-registry';
 import { soaMerge } from '@wise/core/office/iso-soa';
 import { policiesInForce, staffStatus, type StaffStatus } from '@wise/core/office/iso-staff';
-import { employees, firms, getOfficeProfile, hrContracts, isoClientCounts, isoGdprLinks, isoRecords, loadSoa, OFFICE_FILE_ENTITY, users } from '@wise/db';
+import { amlRecords, auditLog, employees, files, firms, getOfficeProfile, hrContracts, isoClientCounts, isoGdprLinks, isoRecords, loadSoa, OFFICE_FILE_ENTITY, users } from '@wise/db';
 import { db } from '@/lib/db';
 import { filesOf } from '@/lib/office';
 
@@ -70,8 +71,37 @@ export async function loadStaff(R: readonly IsoRowX[], today: string): Promise<{
 /** The statement (93 controls, confirmed over the proposal). */
 export const loadSoaMerged = async () => soaMerge(await db().transaction((tx) => loadSoa(tx)));
 
-/** The certification readiness per standard. */
+/** What the master register computes from the program besides the ISO registers. */
+export async function loadRegFacts(year: number, today: string): Promise<RegFacts> {
+  const office = await officeFirm();
+  const [U, E, F, A, FL, AL, G, CC] = await Promise.all([
+    db().select({ n: sql<number>`count(*)::int` }).from(users).where(and(eq(users.active, true), eq(users.demo, false))),
+    office ? db().select({ name: employees.name, lek: employees.lekDate, bzr: employees.bzrDate }).from(employees).where(and(eq(employees.firmId, office.id), eq(employees.active, true))) : Promise.resolve([]),
+    db().select({ id: firms.id, settings: firms.settings }).from(firms).where(eq(firms.active, true)),
+    db().select({ firmId: amlRecords.firmId, next: amlRecords.nextReview }).from(amlRecords),
+    db().select({ total: sql<number>`count(*)::int`, hashed: sql<number>`count(*) filter (where length(${files.sha256}) = 64)::int` }).from(files),
+    db().select({ at: sql<string | null>`max(${auditLog.at})` }).from(auditLog),
+    db().transaction((tx) => isoGdprLinks(tx, year, today)),
+    db().transaction((tx) => isoClientCounts(tx)),
+  ]);
+  const clients = new Set(F.filter((f) => !(f.settings as { officeFirm?: boolean; demo?: boolean } | null)?.officeFirm).map((f) => f.id));
+  const am = A.filter((a) => clients.has(a.firmId));
+  return {
+    users: { active: U[0]?.n ?? 0 }, employees: E,
+    aml: { clients: clients.size, withFile: am.length, overdue: am.filter((a) => a.next && a.next < today).length },
+    clients: CC.clients, clientContracts: CC.withContract, gdpr: G,
+    files: { total: FL[0]?.total ?? 0, hashed: FL[0]?.hashed ?? 0 }, auditLast: AL[0]?.at ? String(AL[0].at).slice(0, 10) : null,
+  };
+}
+
+/** The master register of mandatory records. */
+export async function loadRegistry(R: readonly IsoRowX[], staff: readonly StaffLine[], year: number, today: string) {
+  const [soa, facts] = await Promise.all([loadSoaMerged(), loadRegFacts(year, today)]);
+  return isoRegistry({ R, soa, staff: staff.map((l) => ({ name: l.emp.name, s: l.s })), facts, year, today });
+}
+
+/** The certification readiness per standard (with the legal and archive rows of the master register). */
 export async function loadReadiness(R: readonly IsoRowX[], staff: readonly StaffLine[], year: number, today: string) {
-  const [soa, G, CC] = await Promise.all([loadSoaMerged(), db().transaction((tx) => isoGdprLinks(tx, year, today)), db().transaction((tx) => isoClientCounts(tx))]);
-  return isoReadiness({ R, soa, staff: staff.map((l) => ({ name: l.emp.name, s: l.s })), gdpr: G, clients: CC.clients, clientContracts: CC.withContract, year, today });
+  const [soa, G, CC, registry] = await Promise.all([loadSoaMerged(), db().transaction((tx) => isoGdprLinks(tx, year, today)), db().transaction((tx) => isoClientCounts(tx)), loadRegistry(R, staff, year, today)]);
+  return isoReadiness({ R, soa, staff: staff.map((l) => ({ name: l.emp.name, s: l.s })), gdpr: G, clients: CC.clients, clientContracts: CC.withContract, year, today, registry });
 }

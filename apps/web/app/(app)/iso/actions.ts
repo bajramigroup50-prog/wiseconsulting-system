@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { isoKind, type IsoKind, type IsoStatus } from '@wise/core/office/iso';
 import { ISO_ANNEX_A, SOA_STATUS, type SoaStatus } from '@wise/core/office/iso-soa';
 import { ackString, policiesInForce } from '@wise/core/office/iso-staff';
+import { ISO_REGISTRY } from '@wise/core/office/iso-registry';
 import { addIsoStarters, confirmSoaAll, deleteIsoRecord, employees, getOfficeProfile, IsoError, OFFICE_FILE_ENTITY, saveIsoRecord, saveIsoStaff, saveSoa, setIsoStatus, signIsoRecord } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -151,6 +152,25 @@ export async function staffSave(_p: ActionState, f: FormData): Promise<ActionSta
     } else return { error: 'Непознато дејство.' };
     await db().transaction(async (tx) => {
       const rid = await saveIsoStaff(tx, e, patch, u.id, td);
+      await linkFiles(tx, f.getAll('fileIds'), null, OFFICE_FILE_ENTITY.iso, rid);
+    });
+  } catch (e) { return err(e); }
+  revalidatePath(PATH);
+  return { ok: 'Зачувано.' };
+}
+
+/** „✓ Ажурирано“ on a row of the master register that the program does not keep itself: date, note, owner, file. */
+export async function evidSave(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const u = await officeGlobal('office');
+    const id = fv(f, 'row') ?? '';
+    if (!ISO_REGISTRY.some((r) => r.id === id)) return { error: 'Непозната евиденција.' };
+    const old = (await loadIsoRows()).find((r) => r.kind === 'evid' && r.title === id);
+    await db().transaction(async (tx) => {
+      const rid = await saveIsoRecord(tx, {
+        id: old?.id ?? null, kind: 'evid', title: id, status: 'progress', ownerId: isUuid(fv(f, 'ownerId')) ? fv(f, 'ownerId') : old?.ownerId ?? null,
+        data: { lastOn: fdate(f, 'lastOn') ?? today(), note: fv(f, 'note') },
+      }, u.id, today());
       await linkFiles(tx, f.getAll('fileIds'), null, OFFICE_FILE_ENTITY.iso, rid);
     });
   } catch (e) { return err(e); }
