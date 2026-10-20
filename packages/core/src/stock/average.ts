@@ -41,14 +41,30 @@ function avgOf(qu: number, vc: number): number {
  * Legacy `stock(itemId, wh)` (index.html 3410): current balance over all dates. Skips `pend` moves.
  * `wh` empty/undefined = all locations.
  */
-export function stock(ctx: StockContext, itemId: string, wh?: string): StockBalance {
-  let q = 0;
-  let v = 0;
-  for (const m of ctx.moves) {
-    if (m.item !== itemId || m.pend || (wh && whOf(m) !== wh)) continue;
-    q += qunits(m.qty);
-    v += cents(m.value);
+/**
+ * Balances of every item × location in ONE pass over the moves, cached on the moves array (rebuilt when moves are
+ * added). `stock()` per item scanned all moves each time: a firm with 17.000 items asked for every item and location
+ * (dashboard, item lists) did billions of steps and blocked the server.
+ */
+const BAL = new WeakMap<readonly StockMove[], { len: number; m: Map<string, { q: number; v: number }> }>();
+function balanceIndex(moves: readonly StockMove[]): Map<string, { q: number; v: number }> {
+  const hit = BAL.get(moves);
+  if (hit && hit.len === moves.length) return hit.m;
+  const m = new Map<string, { q: number; v: number }>();
+  const add = (k: string, q: number, v: number) => { const o = m.get(k); if (o) { o.q += q; o.v += v; } else m.set(k, { q, v }); };
+  for (const x of moves) {
+    if (x.pend) continue;
+    const q = qunits(x.qty), v = cents(x.value);
+    add(x.item + '|', q, v);
+    add(x.item + '|' + whOf(x), q, v);
   }
+  BAL.set(moves, { len: moves.length, m });
+  return m;
+}
+
+export function stock(ctx: StockContext, itemId: string, wh?: string): StockBalance {
+  const b = balanceIndex(ctx.moves).get(itemId + '|' + (wh || ''));
+  const q = b?.q ?? 0, v = b?.v ?? 0;
   return { qty: fromQunits(q), value: fromCents(v), avg: q > 0 ? avgOf(q, v) : itemCost(ctx, itemId) };
 }
 
