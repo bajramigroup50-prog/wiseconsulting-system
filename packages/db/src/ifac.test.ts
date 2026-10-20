@@ -101,13 +101,13 @@ describe('ISQM 1 system, staff and the readiness', () => {
   });
   it('staff: assessed by another person, CPD hours; readiness reads it all', async () => {
     await expect(saveStaff(tx, B, 2026, { assessedBy: B, assessedOn: '2026-10-01' }, A)).rejects.toThrow(/друго лице/);
-    await saveStaff(tx, B, 2026, { met: { 0: true, 1: true, 2: true, 3: true }, licensed: true, licence: 'ИСОС-7', cpd: [{ date: '2026-04-01', topic: 'ДДВ измени', provider: 'ИСОС', hours: 24 }], assessedBy: A, assessedOn: '2026-10-01' }, A);
+    await saveStaff(tx, B, 2026, { met: { 0: true, 1: true, 2: true, 3: true }, isos: 'smet', licence: 'ИСОС-7', cpd: [{ date: '2026-04-01', topic: 'ДДВ измени', provider: 'ИСОС', hours: 24 }], assessedBy: A, assessedOn: '2026-10-01' }, A);
     expect((await staffOf(tx, B, 2026))!.cpd[0]!.hours).toBe(24);
     const V = await ifacReadinessFor(tx, 2026, { firms: [{ id: firm, name: 'АЛФА ДООЕЛ' }], today: '2026-10-20' });
     const item = (n: RegExp) => V.sections.flatMap((s) => s.items).find((i) => n.test(i.n))!;
     expect(item(/Годишна изјава за етика/).ok).toBe(true);
     expect(item(/проценета од друго лице/)).toMatchObject({ ok: false, info: '1 / 2' });
-    expect(item(/часа CPD во годината/)).toMatchObject({ ok: true, info: 'Бесник 24 ч.' });
+    expect(item(/КПУ во годината/)).toMatchObject({ ok: true, info: 'Бесник 24 / 24 ч.' }); // сметководител: 24 ч. (ЗВСР чл. 30)
     expect(item(/Писмо за ангажман за 2026/).ok).toBe(true);
     expect(item(/Управување и лидерство – одговорно лице/).ok).toBe(true);
     expect(V.pct).toBeGreaterThan(0);

@@ -116,7 +116,7 @@ export async function TabStaff({ year, uid, staff, canEdit }: { year: number; ui
         <h2 style={{ marginTop: 0 }}>👥 Вработени – {year}</h2>
         <p className="note" style={{ marginTop: 4 }}>ISQM 1 §32 (ресурси): компетентност по улога, проценета од друго лице; овластените сметководители – најмалку {CPD_MIN_YEAR} часа професионален развој годишно и {CPD_MIN_3Y} во три години (IES 7 / ИСОС), со доказ. Анексот кон договорите за вработување (доверливост, безбедност, ЗЗЛП) е во ISO.</p>
         <div className="tw"><table className="dense">
-          <thead><tr><th>Вработен</th><th>Улога</th><th>Изјава IESBA</th><th>Компетентност</th><th>Овластен</th><th className="n">CPD {year}</th><th className="n">3 год.</th><th>Доказ</th><th /></tr></thead>
+          <thead><tr><th>Вработен</th><th>Улога</th><th>Изјава IESBA</th><th>Компетентност</th><th>Регистар ИСОС</th><th className="n">КПУ {year}</th><th className="n">3 год.</th><th>Доказ</th><th /></tr></thead>
           <tbody>{staff.map((x) => {
             const r = rowOf(R, 'staff', x.id), e = rowOf(R, 'ethics', x.id), dd = r ? staffNormalize(r.data) : null;
             const s = staffStatus(x.role, dd, x.id, { y1: prevH(x.id, year - 1), y2: prevH(x.id, year - 2) });
@@ -125,9 +125,9 @@ export async function TabStaff({ year, uid, staff, canEdit }: { year: number; ui
                 <td>{x.name}</td><td className="mini">{ROLES[x.role as Role]?.n ?? x.role}</td>
                 <td>{e ? <span className="pill good">{dmy(String(e.data.at ?? ''))}</span> : ok(false, '', 'не')}</td>
                 <td>{s.assessed ? <span className={`pill ${s.met === s.req.length ? 'good' : 'warn'}`}>{s.met}/{s.req.length} · {dmy(dd?.assessedOn)}</span> : ok(false, '', 'не е проценета')}</td>
-                <td>{dd?.licensed ? `✓ ${dd.licence}` : '—'}</td>
-                <td className="n">{dd?.licensed ? <span className={`pill ${s.cpdOk ? 'good' : 'warn'}`}>{s.hours}</span> : s.hours || ''}</td>
-                <td className="n">{dd?.licensed ? <span className={`pill ${s.three3Ok ? 'good' : 'warn'}`}>{s.three}</span> : ''}</td>
+                <td>{dd?.isos ? `${dd.isos === 'ovl' ? 'Овластен' : 'Сметководител'}${dd.licence ? ' · ' + dd.licence : ''}` : '—'}</td>
+                <td className="n">{s.rule ? <span className={`pill ${s.cpdOk ? 'good' : 'warn'}`}>{s.hours} / {s.rule.year}</span> : s.hours || ''}</td>
+                <td className="n">{s.rule ? <span className={`pill ${s.three3Ok ? 'good' : 'warn'}`}>{s.three} / {s.rule.three}</span> : ''}</td>
                 <td><FileChips files={r ? F.get(r.id) : undefined} /></td>
                 <td><Link className="btn sm" href={`/ifac?t=staff&u=${x.id}`}>✎</Link></td>
               </tr>
@@ -142,8 +142,12 @@ export async function TabStaff({ year, uid, staff, canEdit }: { year: number; ui
           <h3 style={{ margin: '6px 0 2px' }}>Барања за компетентност на улогата</h3>
           {req.map((t, i) => <label key={i} className="chk" style={{ display: 'block' }}><input type="checkbox" name={`met_${i}`} defaultChecked={!!d?.met[String(i)]} /> {t}</label>)}
           <div className="form" style={{ marginTop: 6 }}>
-            <label className="chk"><input type="checkbox" name="licensed" defaultChecked={!!d?.licensed} /> Овластен сметководител / член на ИСОС</label>
-            <label className="f">Број на лиценца / членство<input name="licence" defaultValue={d?.licence ?? ''} /></label>
+            <label className="f">Регистар на ИСОС (КПУ по ЗВСР чл. 30)<select name="isos" defaultValue={d?.isos ?? ''}>
+              <option value="">— не е во регистарот</option>
+              <option value="smet">Сметководител – 24 ч. годишно, 90 ч. во 3 години</option>
+              <option value="ovl">Овластен сметководител – 32 ч. годишно, 120 ч. во 3 години</option>
+            </select></label>
+            <label className="f">Регистарски број во ИСОС<input name="licence" defaultValue={d?.licence ?? ''} /></label>
             <label className="f">Проценил (друго лице)<Who name="assessedBy" v={d?.assessedBy} staff={staff.filter((x) => x.id !== sel.id)} /></label>
             <label className="f" title="За сопственикот на канцеларија со едно лице">или надворешен проценувач<input name="assessedExt" defaultValue={d?.assessedExt ?? ''} placeholder="име, функција" /></label>
             <label className="f">Датум на проценка<input type="date" name="assessedOn" defaultValue={d?.assessedOn ?? ''} /></label>

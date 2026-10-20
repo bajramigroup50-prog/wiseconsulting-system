@@ -153,7 +153,7 @@ export async function staffSave(_p: ActionState, f: FormData): Promise<ActionSta
       hours: String(f.getAll('c_hours')[i] ?? ''), structured: String(f.getAll('c_kind')[i] ?? 's') === 's',
     }));
     await db().transaction(async (tx) => {
-      const id = await saveStaff(tx, subject, year, { met, licensed: f.get('licensed') === 'on', licence: fv(f, 'licence'), cpd, assessedBy: fv(f, 'assessedBy'), assessedExt: fv(f, 'assessedExt'), assessedOn: fdate(f, 'assessedOn'), note: fv(f, 'note') }, u.id);
+      const id = await saveStaff(tx, subject, year, { met, isos: fv(f, 'isos') ?? '', licensed: !!fv(f, 'isos'), licence: fv(f, 'licence'), cpd, assessedBy: fv(f, 'assessedBy'), assessedExt: fv(f, 'assessedExt'), assessedOn: fdate(f, 'assessedOn'), note: fv(f, 'note') }, u.id);
       await linkFiles(tx, f.getAll('fileIds'), null, IFAC_FILE_ENTITY, id);
     });
     revalidatePath('/ifac');

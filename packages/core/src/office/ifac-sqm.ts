@@ -181,15 +181,25 @@ export const ROLE_COMPETENCE: Record<string, readonly string[]> = {
 };
 export const roleCompetence = (role: Role | string) => ROLE_COMPETENCE[role] ?? ROLE_COMPETENCE.view!;
 
-/** IES 7 / ИСОС: hours of continuing professional development of a licensed accountant. */
-export const CPD_MIN_YEAR = 20;
-export const CPD_MIN_3Y = 120;
+/**
+ * Status in the ИСОС registers and the continuing professional development it requires (Закон за вршење на
+ * сметководствени работи, чл. 30): сметководител 90 h in 3 years, at least 24 h a year; овластен сметководител 120 h in
+ * 3 years, at least 32 h a year.
+ */
+export type IsosStatus = '' | 'smet' | 'ovl';
+export const ISOS_STATUS: Record<Exclude<IsosStatus, ''>, string> = { smet: 'Сметководител (регистар на ИСОС)', ovl: 'Овластен сметководител (регистар на ИСОС)' };
+export const CPD_RULES: Record<Exclude<IsosStatus, ''>, { year: number; three: number }> = { smet: { year: 24, three: 90 }, ovl: { year: 32, three: 120 } };
+/** The stricter rule (овластен) – kept for the texts that name one number. */
+export const CPD_MIN_YEAR = CPD_RULES.ovl.year;
+export const CPD_MIN_3Y = CPD_RULES.ovl.three;
 
 export interface CpdEntry { date: string; topic: string; provider: string; hours: number; structured: boolean }
 export interface StaffData extends FormMeta {
   /** Requirement index → met. */
   met: Record<string, boolean>;
+  /** In an ИСОС register (true for сметководител and овластен); `isos` says which. */
   licensed: boolean; licence: string;
+  isos: IsosStatus;
   cpd: CpdEntry[];
   assessedBy?: string | null; assessedOn?: string | null; note: string;
   /** An assessor outside the office (for the owner of a one-person office). */
@@ -203,7 +213,9 @@ export function staffNormalize(v: Record<string, unknown>): StaffData {
   })).filter((e) => e.topic && e.hours > 0 && e.date);
   const met = Object.fromEntries(Object.entries((v.met as Record<string, unknown>) ?? {}).filter(([k, x]) => /^\d+$/.test(k) && x === true).map(([k]) => [k, true]));
   const uid = (x: unknown) => (typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x) ? x : null);
-  return { met, licensed: v.licensed === true, licence: str(v.licence, 100), cpd, assessedBy: uid(v.assessedBy), assessedOn: isDate(v.assessedOn) ? v.assessedOn : null, note: str(v.note, 2000), assessedExt: str(v.assessedExt, 200) };
+  // older records knew only „овластен / член на ИСОС“ (licensed) – that is the овластен rule
+  const isos: IsosStatus = v.isos === 'smet' || v.isos === 'ovl' ? v.isos : v.licensed === true ? 'ovl' : '';
+  return { met, licensed: isos !== '', isos, licence: str(v.licence, 100), cpd, assessedBy: uid(v.assessedBy), assessedOn: isDate(v.assessedOn) ? v.assessedOn : null, note: str(v.note, 2000), assessedExt: str(v.assessedExt, 200) };
 }
 
 export const cpdHours = (L: readonly CpdEntry[] | undefined) => Math.round((L ?? []).reduce((s, e) => s + e.hours, 0) * 10) / 10;
@@ -214,8 +226,9 @@ export function staffStatus(role: string, d: StaffData | null, userId: string, p
   const met = req.filter((_, i) => d?.met[String(i)]).length;
   const assessed = !!d?.assessedOn && ((!!d.assessedBy && d.assessedBy !== userId) || !!d.assessedExt);
   const hours = cpdHours(d?.cpd), three = Math.round((hours + prev.y1 + prev.y2) * 10) / 10;
-  const cpdOk = !d?.licensed || hours >= CPD_MIN_YEAR;
-  return { req, met, assessed, hours, three, cpdOk, three3Ok: !d?.licensed || three >= CPD_MIN_3Y, ok: !!d && assessed && met === req.length && cpdOk };
+  const rule = d?.isos ? CPD_RULES[d.isos] : null;
+  const cpdOk = !rule || hours >= rule.year;
+  return { req, met, assessed, hours, three, rule, cpdOk, three3Ok: !rule || three >= rule.three, ok: !!d && assessed && met === req.length && cpdOk };
 }
 
 /* ================= ISRS 4410 – engagement file and the compiler's report ================= */
@@ -278,8 +291,8 @@ export function ifacReadiness(x: ReadyInput) {
       { n: 'Годишна изјава за етика, независност и доверливост – сите вработени', ok: x.staff.length > 0 && x.staff.every((s) => s.ethicsAt), info: `${x.staff.filter((s) => s.ethicsAt).length} / ${x.staff.length}`, href: '/ifac?t=et' },
       { n: 'Компетентност по улога проценета од друго лице – сите вработени', ok: St.length > 0 && St.every((q) => q.st.assessed), info: `${St.filter((q) => q.st.assessed).length} / ${St.length}`, href: '/ifac?t=staff' },
       { n: 'Барањата за компетентност на улогата исполнети', ok: St.length > 0 && St.every((q) => q.st.met === q.st.req.length), info: St.filter((q) => q.st.met < q.st.req.length).map((q) => q.s.name).join(', ') || undefined, href: '/ifac?t=staff' },
-      { n: `Овластени сметководители: најмалку ${CPD_MIN_YEAR} часа CPD во годината`, ok: lic.every((q) => q.st.cpdOk), info: lic.length ? lic.map((q) => `${q.s.name} ${q.st.hours} ч.`).join(', ') : 'нема означени овластени', href: '/ifac?t=staff' },
-      { n: `Овластени сметководители: ${CPD_MIN_3Y} часа во 3 години`, ok: lic.every((q) => q.st.three3Ok), info: lic.length ? lic.map((q) => `${q.s.name} ${q.st.three} ч.`).join(', ') : undefined, href: '/ifac?t=staff' },
+      { n: 'КПУ во годината (ЗВСР чл. 30): сметководител најмалку 24 ч., овластен сметководител најмалку 32 ч.', ok: lic.every((q) => q.st.cpdOk), info: lic.length ? lic.map((q) => `${q.s.name} ${q.st.hours} / ${q.st.rule?.year} ч.`).join(', ') : 'нема означени сметководители во регистарот на ИСОС', href: '/ifac?t=staff' },
+      { n: 'КПУ во 3 години: сметководител 90 ч., овластен сметководител 120 ч.', ok: lic.every((q) => q.st.three3Ok), info: lic.length ? lic.map((q) => `${q.s.name} ${q.st.three} / ${q.st.rule?.three} ч.`).join(', ') : undefined, href: '/ifac?t=staff' },
       { n: 'Доказ за обуките (сертификати) во прилог', ok: lic.every((q) => q.s.files > 0 || !q.s.d?.cpd.length), href: '/ifac?t=staff' },
     ],
   });
