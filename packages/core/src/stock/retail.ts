@@ -1,8 +1,19 @@
 import type { StockContext, StockItem } from './types';
 import { num, r2, rnd } from './num';
 
-export const itemById = (ctx: Pick<StockContext, 'items'>, id: string): StockItem | undefined =>
-  (ctx.items ?? []).find((i) => i.id === id);
+/** id → item, built once per items array (a linear find per call made item × item loops on 17.000 items). */
+const BY_ID = new WeakMap<readonly StockItem[], { len: number; m: Map<string, StockItem> }>();
+export const itemById = (ctx: Pick<StockContext, 'items'>, id: string): StockItem | undefined => {
+  const L = ctx.items ?? [];
+  let e = BY_ID.get(L);
+  if (!e || e.len !== L.length) {
+    const m = new Map<string, StockItem>();
+    for (const i of L) if (!m.has(i.id)) m.set(i.id, i);
+    e = { len: L.length, m };
+    BY_ID.set(L, e);
+  }
+  return e.m.get(id);
+};
 
 /** Legacy `trk()`: stock-tracked items (typed, not services), in catalogue order. */
 export const trackedItems = (ctx: Pick<StockContext, 'items'>): StockItem[] =>
