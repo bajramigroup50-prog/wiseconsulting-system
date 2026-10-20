@@ -359,6 +359,20 @@ export function bankPaid(rows: BankRow[], type: DocType, id: string): number {
   return s;
 }
 
+/** What one bank row pays, per document (`type|id` → amount), the same rule as {@link bankPaid}. */
+function addPaid(m: Map<string, number>, b: BankRow): void {
+  if (!b.ref) return;
+  if (b.refs && b.refs.length) { for (const r of b.refs) { const k = r.type + '|' + r.id; m.set(k, (m.get(k) ?? 0) + (+r.amt || 0)); } return; }
+  const k = b.ref.type + '|' + b.ref.id;
+  m.set(k, (m.get(k) ?? 0) + (b.settle != null ? +b.settle : Math.abs(+b.amount || 0)));
+}
+/** {@link bankPaid} of every document in one pass over the rows. */
+export function bankPaidIndex(rows: readonly BankRow[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const b of rows) addPaid(m, b);
+  return m;
+}
+
 /**
  * Open amount of a document (cents). FIX #7: always the *real* open amount; legacy `paidFor` also
  * applied virtual FIFO advances (`bkVirt`) unless the hidden flag `S._noVirt` was set, so the base
@@ -368,6 +382,9 @@ export function openAmount(rows: BankRow[], type: DocType, d: OpenDoc): number {
   if (type === 'purchase' && d.cash) return 0;
   return d.total - (d.paidOther || 0) - bankPaid(rows, type, d.id);
 }
+/** {@link openAmount} from a {@link bankPaidIndex} (one pass over the rows for many documents). */
+export const openAmountIx = (paid: ReadonlyMap<string, number>, type: DocType, d: OpenDoc): number =>
+  type === 'purchase' && d.cash ? 0 : d.total - (d.paidOther || 0) - (paid.get(type + '|' + d.id) ?? 0);
 
 /* ================================================================== invoice numbers */
 
@@ -757,9 +774,15 @@ function layerBase(w: Work): void {
   const { ctx, K } = w;
   const used = new Set<string>();
   const rules = ctx.rules || [];
-  const open = (type: DocType, d: OpenDoc) => openAmount(w.rows, type, d);
+  // the paid amount of every document, from the bank rows ONCE (and kept up to date as rows are linked here): asking
+  // `openAmount` per candidate scanned all rows for every document of every unbooked row (rows × docs × rows)
+  const paid = bankPaidIndex(w.rows);
+  const open = (type: DocType, d: OpenDoc) => (type === 'purchase' && d.cash ? 0 : d.total - (d.paidOther || 0) - (paid.get(type + '|' + d.id) ?? 0));
+  const at = new Map(w.rows.map((x, i) => [x.id, i]));
+  const INV = invoicesOf(ctx);
+  const commitP = (nb: BankRow, how: MatchHow, extra?: Partial<MatchChange>) => { commit(w, nb, how, extra); addPaid(paid, nb); };
   for (const b0 of w.rows.filter((b) => !b.ref && !b.konto)) {
-    const b = w.rows.find((x) => x.id === b0.id) || b0;
+    const b = w.rows[at.get(b0.id) ?? -1] ?? b0;
     const desc = low(b.desc);
     const amt = Math.abs(+b.amount);
     if (!amt) continue;
@@ -769,7 +792,7 @@ function layerBase(w: Work): void {
     const kw = keywordKonto(b, ctx.accounts, K);
     if (kw && !ownTransferBy(b, ctx)) {
       const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, +b.amount));
-      commit(w, { ...b, konto: rule ? rule.konto : kw.konto }, rule ? 'rule' : kw.cls);
+      commitP({ ...b, konto: rule ? rule.konto : kw.konto }, rule ? 'rule' : kw.cls);
       continue;
     }
     let hit: { type: DocType; doc: OpenDoc } | null = null;
@@ -777,23 +800,23 @@ function layerBase(w: Work): void {
     if (isFxAccount(ctx.accounts, b.acct)) {
       const near = (o: number) => o > 0 && Math.abs(o - amt) / o < 0.04;
       const src = +b.amount > 0
-        ? invoicesOf(ctx).filter((i) => !i.pend).map((x) => ({ t: 'invoice' as DocType, x, o: open('invoice', x) }))
+        ? INV.filter((i) => !i.pend).map((x) => ({ t: 'invoice' as DocType, x, o: open('invoice', x) }))
         : ctx.purchases.filter((p) => !p.pend).map((x) => ({ t: 'purchase' as DocType, x, o: open('purchase', x) }));
       const c = src.find((c) => !used.has(c.x.id) && near(c.o) && (desc.includes(low(c.x.number || '~~').split('/')[0]!) || desc.includes(nm8(c.x))));
       if (c) {
         used.add(c.x.id);
         const nb: BankRow = { ...b, ref: { type: c.t, id: c.x.id, label: String(c.x.number ?? '') }, partner: c.x.partner, konto: docKonto(c.t, c.x, K), settle: c.o };
         if (!nb.partner) delete nb.partner;
-        commit(w, nb, 'fxnear');
+        commitP(nb, 'fxnear');
         continue;
       }
     } else if (+b.amount > 0) {
-      const cand = invoicesOf(ctx).filter((i) => !i.pend && !used.has(i.id) && open('invoice', i) === amt && amountOnlyOk(text, b, i));
+      const cand = INV.filter((i) => !i.pend && !used.has(i.id) && open('invoice', i) === amt && amountOnlyOk(text, b, i));
       const i = cand.find((i) => desc.includes(String(i.number).split('/')[0]!) || desc.includes(nm8(i))) || cand[0];
       if (i) hit = { type: 'invoice', doc: i };
     } else if (BANK_FEE.test(desc) && !ctx.purchases.some((p) => !used.has(p.id) && p.number && desc.includes(low(p.number)) && open('purchase', p) === amt)) {
       const fk = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, +b.amount));
-      commit(w, { ...b, konto: fk ? fk.konto : K.fee }, 'fee');
+      commitP({ ...b, konto: fk ? fk.konto : K.fee }, 'fee');
       continue;
     } else {
       const cand = ctx.purchases.filter((p) => !p.pend && !used.has(p.id) && open('purchase', p) === amt && amountOnlyOk(text, b, p));
@@ -806,7 +829,7 @@ function layerBase(w: Work): void {
         const nb: BankRow = { ...b, konto: pm.konto, payRef: pm.month };
         if (pm.split) nb.split = pm.split;
         else delete nb.split;
-        commit(w, nb, 'payroll');
+        commitP(nb, 'payroll');
         continue;
       }
     }
@@ -814,11 +837,11 @@ function layerBase(w: Work): void {
       used.add(hit.doc.id);
       const nb: BankRow = { ...b, ref: { type: hit.type, id: hit.doc.id, label: String(hit.doc.number ?? '') }, partner: hit.doc.partner, konto: docKonto(hit.type, hit.doc, K) };
       if (!nb.partner) delete nb.partner;
-      commit(w, nb, hit.type);
+      commitP(nb, hit.type);
       continue;
     }
     const rule = rules.find((r) => r.match && desc.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, +b.amount));
-    if (rule) commit(w, { ...b, konto: rule.konto }, 'rule');
+    if (rule) commitP({ ...b, konto: rule.konto }, 'rule');
   }
 }
 
@@ -867,7 +890,8 @@ export function openDocsFor(b: BankRow, ctx: MatchContext): { type: DocType; pid
   const type: DocType = inc ? 'invoice' : 'purchase';
   const docs = inc ? invoicesOf(ctx) : ctx.purchases.filter((p) => !p.cash && !p.pend);
   const pid = b.partner || linePartner(ctx.partners, b, bankName(b, ctx.partners));
-  const O = byDate(docs.filter((x) => !x.pend && (!pid || x.partner === pid)).map((x) => ({ x, o: openAmount(ctx.rows, type, x) })).filter((z) => z.o > 0));
+  const paid = bankPaidIndex(ctx.rows);
+  const O = byDate(docs.filter((x) => !x.pend && (!pid || x.partner === pid)).map((x) => ({ x, o: openAmountIx(paid, type, x) })).filter((z) => z.o > 0));
   return { type, pid, O };
 }
 
@@ -928,6 +952,7 @@ export interface AdvanceInfo { type: DocType; pid: string; pays: BankRow[]; paid
 export function virtualAdvances(ctx: Pick<MatchContext, 'rows' | 'accounts' | 'invoices' | 'purchases'>): { V: Record<string, number>; ADV: AdvanceInfo[] } {
   const V: Record<string, number> = {};
   const ADV: AdvanceInfo[] = [];
+  const paidIx = bankPaidIndex(ctx.rows);
   for (const type of ['invoice', 'purchase'] as DocType[]) {
     const inc = type === 'invoice';
     const pay: Record<string, BankRow[]> = {};
@@ -941,7 +966,7 @@ export function virtualAdvances(ctx: Pick<MatchContext, 'rows' | 'accounts' | 'i
     for (const [pid, B] of Object.entries(pay)) {
       const paid = B.reduce((s, b) => s + Math.abs(+b.amount), 0);
       let rem = paid;
-      const O = byDate(docs.filter((x) => x.partner === pid && !x.pend).map((x) => ({ x, o: openAmount(ctx.rows, type, x) })).filter((z) => z.o > 0));
+      const O = byDate(docs.filter((x) => x.partner === pid && !x.pend).map((x) => ({ x, o: openAmountIx(paidIx, type, x) })).filter((z) => z.o > 0));
       for (const z of O) { if (rem <= 0) break; const a = Math.min(z.o, rem); V[type + z.x.id] = a; rem -= a; }
       ADV.push({ type, pid, pays: B.slice().sort((a, c) => (a.date < c.date ? -1 : 1)), paid, applied: paid - rem, left: rem });
     }
