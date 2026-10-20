@@ -10,6 +10,8 @@ import { PostingError, StockDocError, loadStockContext, MAIN_LOCATION, type Load
 import { Forbidden } from './auth';
 import { actionError, booksPage, firmAction, type ActionState, type BooksCtx } from './books';
 import { db } from './db';
+// one collator for all comparisons (`localeCompare` with options builds one per call – slow on long lists)
+const MK_NUM = new Intl.Collator('mk', { numeric: true });
 
 export interface StockCtx extends BooksCtx { L: LoadedStock | null }
 
@@ -78,7 +80,7 @@ export function itemOptions(L: LoadedStock, opts: { services?: boolean } = {}): 
       avg: stock(L.ctx, it.id).avg,
       avgBy: Object.fromEntries(locs.map((w) => [w, stock(L.ctx, it.id, w).avg])),
     }))
-    .sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, 'mk', { numeric: true }));
+    .sort((a, b) => MK_NUM.compare(a.code || a.name, b.code || b.name));
 }
 
 /** Number from a form value (`1.234,5` or `1234.5`). */

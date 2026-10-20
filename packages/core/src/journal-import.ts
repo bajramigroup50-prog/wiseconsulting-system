@@ -26,6 +26,8 @@ import { CUSTOMER_EXEMPT_KONTO } from './posting';
 import { kontoParse, partnerSplit } from './tb-rows';
 import { ACCOUNT_CODE_RE, needsPartner } from './ledger';
 import { IMP_T, impAuto, impDate, impNum, impNumFormats, type DecMode } from './retail/import';
+// one collator for all comparisons (`localeCompare` with options builds one per call – slow on long lists)
+const MK_NUM = new Intl.Collator('mk', { numeric: true });
 
 /** One mapped row of the file (field key → value), `r` = row number in the file (1-based). */
 export type JiIn = Readonly<Record<string, string | number | null | undefined>>;
@@ -204,7 +206,7 @@ export function jiGroup(rows: readonly JiRow[]): { journals: JiJournal[]; unbala
     // never closes (cannot happen while the nalog balances): the rest on its last date
     if (run.length) { const d = days[days.length - 1]![0]; journals.push(mk(run, d, jiRunWarn(label, first, d, gap))); }
   }
-  journals.sort((a, b) => byDate(a, b) || a.key.localeCompare(b.key, 'mk', { numeric: true }));
+  journals.sort((a, b) => byDate(a, b) || MK_NUM.compare(a.key, b.key));
   return { journals, unbalanced };
 }
 

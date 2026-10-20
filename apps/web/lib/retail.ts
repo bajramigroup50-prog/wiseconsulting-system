@@ -8,6 +8,8 @@ import { Retail, stock } from '@wise/core';
 import {
   customerOrders, itemBarcodes, items, lastSuppliers, orderDeliveries, stockMoves, supplierOrders, type Firm, type LoadedStock, type Tx,
 } from '@wise/db';
+// one collator for all comparisons (`localeCompare` with options builds one per call – slow on long lists)
+const MK_NUM = new Intl.Collator('mk', { numeric: true });
 
 export type ArtItem = Retail.CleanItem & { price: number; rate: number; rawK: string | null; costPrice: string | null; costPct: string | null; min: number };
 
@@ -56,5 +58,5 @@ export async function orderItemOptions(tx: Tx, L: LoadedStock, reserved: Readonl
       id: i.id, code: i.code ?? '', name: i.name, unit: i.unit ?? 'ком', price: Number(i.price ?? 0), rate: i.vatRate, service: i.type === 'service',
       stock: q, avail: Math.round((q - (reserved.get(i.id) ?? 0) + (mine.get(i.id) ?? 0)) * 1e4) / 1e4, last: last.get(i.id)?.price ?? 0,
     };
-  }).sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, 'mk', { numeric: true }));
+  }).sort((a, b) => MK_NUM.compare(a.code || a.name, b.code || b.name));
 }

@@ -34,6 +34,8 @@ export {
   VAT_IMP_DEFAULT, VAT_IN_DEFAULT, VAT_OUT_DEFAULT, VAT_POSITIVE_RATES, VAT_RATES, VAT_REGISTRATION_LIMIT,
   type VatRate,
 } from './data/vat';
+// one collator for all comparisons (`localeCompare` with options builds one per call – slow on long lists)
+const MK_NUM = new Intl.Collator('mk', { numeric: true });
 
 /* ------------------------------------------------------------------ money helpers (private) */
 
@@ -709,7 +711,7 @@ export function ddvFieldDocs(docs: VatDocuments, period: string, per: VatPeriodK
   return want.map((field) => {
     const L = [...acc.values()].filter((x) => x.field === field);
     const rows = L.map((x) => ({ ...x.row, base: toD(x.c) }))
-      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.number.localeCompare(b.number, 'mk', { numeric: true })));
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : MK_NUM.compare(a.number, b.number)));
     const c = L.reduce((t, x) => t + x.c, 0);
     const value = rh(toD(c));
     return { field, label: DDV04_FIELDS.find(([k]) => k === field)?.[1] ?? field, rows, sum: toD(c), value, rounding: r2(value - toD(c)) };

@@ -32,7 +32,9 @@ export interface StockBookOptions {
 
 const byDate = <T extends { date: string }>(a: T, b: T): number => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 const live = (ctx: StockContext): StockMove[] => ctx.moves.filter((m) => !m.pend);
-const mkCompare = (a: string, b: string) => a.localeCompare(b, 'mk', { numeric: true });
+// one collator for every comparison (`localeCompare` with options builds one per call: sorting 17.000 items took seconds)
+const MK = new Intl.Collator('mk', { numeric: true });
+const mkCompare = (a: string, b: string) => MK.compare(a, b);
 
 /** Legacy `inFirst`: by date, receipts before issues on the same day (stable). */
 export const inFirst = <T extends { date: string; inn?: boolean }>(a: T, b: T): number =>
