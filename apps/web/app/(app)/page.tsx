@@ -313,7 +313,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <a href="#cash" className="hg"><span>Пари · банки + благајна</span><b className={`num ${cashNow < 0 ? 'neg' : ''}`}>{fmt(cashNow)}</b><i>побарувања {kfmt(recv)} · обврски {kfmt(pay)}</i></a>
         </div>
       </section>
-      <DashMissing firm={f} year={year} today={td} />
+      <DashMissing firm={f} />
       <DashInteractive D={DX} />
       <div className="dfilter" role="group" aria-label="Период">
         <span className="mini">Период:</span>
