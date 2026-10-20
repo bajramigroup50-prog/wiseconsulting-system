@@ -1,6 +1,6 @@
 /** Legacy `metgAllPdf` 5073: МЕТГ (quantity card) for every item with moves or an opening balance, one per page. */
 import { Fragment } from 'react';
-import { metgCard, trackedItems } from '@wise/core';
+import { ctxForItem, metgCard, trackedItems } from '@wise/core';
 import { loadStockContext, stockDocResolver } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
@@ -17,7 +17,7 @@ export default async function PrintMetg({ searchParams }: { searchParams: Promis
   const wh = sp.wh && (sp.wh === 'main' || L.locations.some((l) => l.id === sp.wh && l.kind === 'warehouse')) ? sp.wh : '';
   const [from, to] = rangeOf(sp, year);
   const docOf = await stockDocResolver(db(), L);
-  const parts = trackedItems(L.ctx).map((it) => ({ it, D: metgCard(L.ctx, { item: it.id, wh, from, to, docOf }) })).filter((x) => x.D.rows.length || x.D.open);
+  const parts = trackedItems(L.ctx).map((it) => ({ it, D: metgCard(ctxForItem(L.ctx, it.id), { item: it.id, wh, from, to, docOf }) })).filter((x) => x.D.rows.length || x.D.open);
   return (
     <div className="pdfdoc land printarea">
       {!parts.length && <p>Нема движења за печатење.</p>}

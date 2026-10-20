@@ -486,3 +486,20 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
 
 /** COGS account for an item (re-exported convenience for issue callers). */
 export const issueAccount = (ctx: StockContext, item: Pick<StockItem, 'type'>): string => cogsAccount(ctx, item);
+
+/**
+ * The context narrowed to one item's moves (grouped once per moves array): for per-item reports over all items (all
+ * item cards, the quantity record) each card filtered all moves – items × moves.
+ */
+const BY_ITEM = new WeakMap<readonly StockMove[], { len: number; m: Map<string, StockMove[]> }>();
+export function ctxForItem(ctx: StockContext, itemId: string): StockContext {
+  const mv = ctx.moves;
+  let e = BY_ITEM.get(mv);
+  if (!e || e.len !== mv.length) {
+    const m = new Map<string, StockMove[]>();
+    for (const x of mv) { const a = m.get(x.item); if (a) a.push(x); else m.set(x.item, [x]); }
+    e = { len: mv.length, m };
+    BY_ITEM.set(mv, e);
+  }
+  return { ...ctx, moves: e.m.get(itemId) ?? [] };
+}

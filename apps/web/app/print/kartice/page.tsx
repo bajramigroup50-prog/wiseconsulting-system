@@ -4,7 +4,7 @@
  */
 import { notFound } from 'next/navigation';
 import { Fragment } from 'react';
-import { itemCard, trackedItems } from '@wise/core';
+import { ctxForItem, itemCard, trackedItems } from '@wise/core';
 import { loadStockContext } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
@@ -26,7 +26,7 @@ export default async function PrintKartice({ searchParams }: { searchParams: Pro
   const [from, to] = rangeOf(sp, year);
   const its = trackedItems(L.ctx).filter((i) => !sp.i || i.id === sp.i);
   if (sp.i && !its.length) notFound();
-  const cards = its.map((it) => itemCard(L.ctx, { item: it, wh, from, to, retail })).filter((k) => !(k.rows.length < 2 && !(k.rows[0] && k.rows[0].open && k.rows[0].q)));
+  const cards = its.map((it) => itemCard(ctxForItem(L.ctx, it.id), { item: it, wh, from, to, retail })).filter((k) => !(k.rows.length < 2 && !(k.rows[0] && k.rows[0].open && k.rows[0].q)));
   const t = retail ? 'КАРТИЦА НА ПРОИЗВОД' : 'МАТЕРИЈАЛНА КАРТИЦА';
   return (
     <div className="pdfdoc land printarea">
