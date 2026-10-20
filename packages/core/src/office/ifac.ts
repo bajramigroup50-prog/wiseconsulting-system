@@ -363,6 +363,8 @@ export function ethicsTraining(rows: readonly EthicsRow[], office: string, year:
     data: {
       who: signed.map((r) => r.name).join(', '), topic: 'Кодекс на етика за професионални сметководители (IESBA) – годишна изјава',
       provider: office, date: last, hours: '1', evidence: `Потпишани изјави во WISE: ${signed.length} / ${rows.length} (${ETHICS_VERSION})`,
+      // the ISO training record closes only with a competence evaluation: the signed declaration is the confirmation
+      evaluation: signed.length ? `Секој потписник со потписот потврдува дека го прочитал и го разбира кодексот (${signed.length} / ${rows.length})` : null,
     } as Record<string, unknown>,
   };
 }
