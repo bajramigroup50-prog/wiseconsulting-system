@@ -9,6 +9,7 @@
 import type { Role } from '../rbac';
 import { elFileNormalize, elFileStatus, qcReviewed, type ElFile, type ElLetter, type QcData } from './ifac';
 import type { KdFirm, KdOffice } from '../firms/kdog';
+import { isosSection, type IsosState } from './ifac-isos';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const dmy = (d: string | null | undefined) => (d ? String(d).slice(0, 10).split('-').reverse().join('.') : '');
@@ -264,6 +265,14 @@ export interface ReadyInput {
   sqm: Record<string, { d: SqmData | null; files: number }>;
   staff: { id: string; name: string; role: string; d: StaffData | null; prev: { y1: number; y2: number }; ethicsAt: string | null; files: number }[];
   firms: { id: string; name: string; letter: 'signed' | 'draft' | null; qc: QcData | null; qcPrev: QcData | null; docFiles: number }[];
+  /** The obligations towards ИСОС (insurance, the list, the questionnaire, the control); the КПУ part is read from `staff`. */
+  isos?: Omit<IsosState, 'kpu'>;
+}
+
+/** The registered employees' КПУ hours of the last three years against their rule (the 47/25 transitional rule); null = nobody registered. */
+export function isosKpu(staff: ReadyInput['staff']): IsosState['kpu'] {
+  const L = staff.map((s) => ({ s, st: staffStatus(s.role, s.d, s.id, s.prev) })).filter((q) => q.st.rule);
+  return L.length ? L.map((q) => ({ name: q.s.name, three: q.st.three, need: q.st.rule!.three })) : null;
 }
 
 /** The readiness checklist: what an ИСОС reviewer asks for, each item with ok and where to fix it. */
@@ -311,6 +320,7 @@ export function ifacReadiness(x: ReadyInput) {
       { n: `Досие на ангажманот ${x.year - 1} (прашања, проценки, комуникација, потврда на раководството, извештај)`, ok: F.length > 0 && F.every(docOk), info: miss(F.filter((f) => !docOk(f))), href: '/ifac?t=all' },
     ],
   });
+  if (x.isos) S.push(isosSection({ ...x.isos, kpu: isosKpu(x.staff) }, x.year, x.today));
   const all = S.flatMap((s) => s.items);
   return { sections: S, done: all.filter((i) => i.ok).length, total: all.length, pct: all.length ? Math.round((all.filter((i) => i.ok).length / all.length) * 100) : 0 };
 }

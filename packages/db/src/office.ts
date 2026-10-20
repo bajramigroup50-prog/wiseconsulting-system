@@ -320,6 +320,12 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
       }
     });
   }
+  // the office's own obligations towards ИСОС (insurance, the list by 31.01, the questionnaire by 31.03, КПУ) – a
+  // savepoint: never stops the pass; imported lazily (ifac.ts imports this module)
+  try {
+    const { isosOfficeRun } = await import('./ifac');
+    findings += (await db.transaction((tx) => isosOfficeRun(tx, today))) ?? 0;
+  } catch (e) { console.error('[autopilot] ИСОС', e); }
   const R = apRisk(rows);
   for (const r of rows) {
     const k = R.get(r.id)!;

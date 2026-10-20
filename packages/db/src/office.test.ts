@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, like, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
@@ -169,6 +169,8 @@ describe('recurring invoices job', () => {
 
 describe('reminders job', () => {
   it('raises a reminder when a deadline enters its window, once', async () => {
+    // the autopilot runs above added the office firm's ИСОС deadlines (`isosOfficeRun`) – not part of this check
+    await db.delete(schema.firmDeadlines).where(like(schema.firmDeadlines.title, 'ИСОС: %'));
     await db.insert(schema.firmDeadlines).values({ firmId, title: 'Лиценца', due: '2026-10-12', remindDays: 7 });
     const now = new Date('2026-10-08T08:00:00Z');
     expect(await dispatchReminders(db, now)).toEqual({ created: 1, sent: 1, mailIds: [] });
