@@ -4,9 +4,10 @@
  * tab and window, so a page remembers the firm + year it was rendered for and
  * - adds them (`x-wise-firm`, `x-wise-year`) to every same-origin mutation it sends — server actions (React / Next call
  *   `fetch`), uploads and API posts — so the server refuses a post from a page of another firm / year;
- * - shows a banner „Фирмата / Годината е променета во друг прозорец – освежете ја страницата.“ when another tab
- *   announces another firm / year (BroadcastChannel), when the window gets the focus and the session has another
- *   firm / year (`/api/firm-now`), or when the server flagged a post (`x-wise-firm-mismatch`);
+ * - every tab keeps ITS firm: when the window gets the focus and the session has another firm / year (another tab
+ *   switched), the session is switched back to this tab's firm + year (`POST /api/firm-now`), so working in several
+ *   tabs of different firms needs no „освежи“; the banner „Фирмата / Годината е променета во друг прозорец“ stays
+ *   only when that is refused (no access any more) or a post was flagged by the server (`x-wise-firm-mismatch`);
  * - gives the upload / import zones the firm name („Се прикачува во: ФИРМА“, `UploadTarget`).
  */
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -25,12 +26,24 @@ const listeners = new Set<(k: Stale) => void>();
 const flag = (k: Stale) => { for (const l of listeners) l(k); };
 
 declare global { interface Window { __wiseFirmFetch?: boolean } }
+/** The browser's own fetch (no guard headers: the switch back must not be flagged as a post of a stale page). */
+let rawFetch: typeof fetch | null = null;
+
+/** Make the session's firm + year this tab's again (true = done). */
+async function reclaim(): Promise<boolean> {
+  if (!R.firm || !rawFetch) return false;
+  try {
+    const r = await rawFetch('/api/firm-now', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ firm: R.firm, year: R.year }), cache: 'no-store' });
+    return r.ok;
+  } catch { return false; }
+}
 
 /** Same-origin, non-GET request → add the rendered firm / year headers; read the server's mismatch flag. */
 function install() {
   if (typeof window === 'undefined' || window.__wiseFirmFetch) return;
   window.__wiseFirmFetch = true;
   const orig = window.fetch.bind(window);
+  rawFetch = orig;
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     try {
       const req = input instanceof Request ? input : null;
@@ -84,16 +97,20 @@ export function FirmGuard({ firm, year, children }: { firm: GuardFirm | null; ye
     setStale(null);
     const check = (f: string, y: string) => {
       // a page without a firm (firm list, office-wide screens) posts nothing of a firm: only the year matters there
-      if (R.firm && f !== R.firm) setStale('firm');
-      else if (y && y !== R.year) setStale('year');
-      else setStale(null);
+      const k: Stale | null = R.firm && f !== R.firm ? 'firm' : y && y !== R.year ? 'year' : null;
+      if (!k) { setStale(null); return; }
+      // a page with a firm takes the session back to its firm + year; the banner only if that is refused
+      if (R.firm) void reclaim().then((ok) => setStale(ok ? null : k));
+      else setStale(k);
     };
     const onFlag = (k: Stale) => setStale(k);
     listeners.add(onFlag);
     let ch: BroadcastChannel | null = null;
     try {
       ch = new BroadcastChannel(FIRM_CHANNEL);
-      ch.onmessage = (e: MessageEvent<Rendered>) => { if (e.data && typeof e.data.firm === 'string') check(e.data.firm, e.data.year); };
+      // another tab chose a firm: this one takes its firm back when it is used again (focus), not now — two tabs
+      // visible side by side would otherwise switch each other back and forth; a page without a firm compares the year
+      ch.onmessage = (e: MessageEvent<Rendered>) => { if (!R.firm && e.data && typeof e.data.year === 'string' && e.data.year && e.data.year !== R.year) setStale('year'); };
       ch.postMessage({ firm: R.firm, year: R.year } satisfies Rendered);
     } catch { /* old browser: focus check and server flag only */ }
     const onFocus = () => {
