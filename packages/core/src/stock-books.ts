@@ -17,7 +17,7 @@
  * the wholesale quantity card per item (legacy view `g_trg`).
  */
 import type { StockAtBalance, StockContext, StockItem, StockMove } from './stock';
-import { locationKind, stockAt, trackedItems, whOf, priceAt, retailPrice, itemById, calculationRows } from './stock';
+import { locationKind, stockAt, stockAtAll, emptyStockAt, trackedItems, whOf, priceAt, retailPrice, itemById, calculationRows } from './stock';
 import type { PurchaseLike } from './stock';
 import { cents, dmy, fromCents, fromQunits, num, qunits, r2, r4 } from './stock/num';
 
@@ -129,8 +129,9 @@ export function lagerRows(ctx: StockContext, query: LagerQuery): LagerRow[] {
   const its = trackedItems(ctx)
     .filter((i) => (!query.type || i.type === query.type) && (!q || ((i.name ?? '') + ' ' + (i.code || '')).toLowerCase().includes(q)))
     .sort((a, b) => mkCompare(String(a.code || a.name || ''), String(b.code || b.name || '')));
+  const all = stockAtAll(ctx, { date: query.date, wh: query.wh || undefined });
   return its
-    .map((item) => ({ item, s: stockAt(ctx, { item: item.id, date: query.date, wh: query.wh || undefined }) }))
+    .map((item) => ({ item, s: all.get(item.id) ?? emptyStockAt(ctx, item.id) }))
     .filter((r) => query.zero || Math.abs(r.s.qty) > 1e-9);
 }
 

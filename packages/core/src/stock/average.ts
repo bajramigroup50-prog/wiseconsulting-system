@@ -122,6 +122,38 @@ export function stockAt(ctx: StockContext, query: StockAtQuery): StockAtBalance 
   };
 }
 
+/**
+ * {@link stockAt} of EVERY item at one date and location in one pass over the moves (item → balance; an item
+ * without moves is absent). For lists of all items (лагер, popis): one `stockAt` per item scanned all moves for
+ * every item.
+ */
+export function stockAtAll(ctx: StockContext, query: Omit<StockAtQuery, 'item'>): Map<string, StockAtBalance> {
+  const { wh, date } = query;
+  const inclusive = query.inclusive !== false;
+  const acc = new Map<string, { q: number; v: number; iq: number; oq: number; iv: number; ov: number }>();
+  for (const m of ctx.moves) {
+    if (m.pend || (wh && whOf(m) !== wh)) continue;
+    if (inclusive ? m.date > date : m.date >= date) continue;
+    let o = acc.get(m.item);
+    if (!o) { o = { q: 0, v: 0, iq: 0, oq: 0, iv: 0, ov: 0 }; acc.set(m.item, o); }
+    const a = qunits(m.qty);
+    const b = cents(m.value);
+    o.q += a;
+    o.v += b;
+    if (a > 0) { o.iq += a; o.iv += b; } else { o.oq -= a; o.ov -= b; }
+  }
+  const out = new Map<string, StockAtBalance>();
+  for (const [item, o] of acc) {
+    out.set(item, {
+      qty: fromQunits(o.q), value: fromCents(o.v), avg: o.q > 0 ? avgOf(o.q, o.v) : itemCost(ctx, item),
+      inQ: fromQunits(o.iq), outQ: fromQunits(o.oq), inV: fromCents(o.iv), outV: fromCents(o.ov),
+    });
+  }
+  return out;
+}
+/** The balance of an item without moves at a date (what {@link stockAt} returns for it). */
+export const emptyStockAt = (ctx: StockContext, item: string): StockAtBalance => ({ qty: 0, value: 0, avg: itemCost(ctx, item), inQ: 0, outQ: 0, inV: 0, outV: 0 });
+
 export interface PostOutArgs {
   item: StockItem;
   qty: number;

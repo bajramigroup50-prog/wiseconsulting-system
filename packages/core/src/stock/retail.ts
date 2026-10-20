@@ -38,11 +38,29 @@ export function retailPrice(item: StockItem, wh?: string): number {
  * location: the newest `new` price on or before the date, else the `old` price of the first later levelling,
  * else the current `retailPrice`.
  */
+type LvPoint = { date: string; old: number; new: number };
+/** location|item → its levelling points by date, built once per levellings array (was a scan per item and call). */
+const LV = new WeakMap<object, { len: number; m: Map<string, LvPoint[]> }>();
+function levellingIndex(L: NonNullable<StockContext['levellings']>): Map<string, LvPoint[]> {
+  const hit = LV.get(L);
+  if (hit && hit.len === L.length) return hit.m;
+  const m = new Map<string, LvPoint[]>();
+  for (const n of L) {
+    const w = n.wh || 'main';
+    for (const l of n.lines) {
+      const k = w + '|' + l.item;
+      const arr = m.get(k) ?? [];
+      arr.push({ date: n.date, old: num(l.old), new: num(l.new) });
+      m.set(k, arr);
+    }
+  }
+  for (const arr of m.values()) arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  LV.set(L, { len: L.length, m });
+  return m;
+}
+
 export function priceAt(ctx: Pick<StockContext, 'levellings'>, item: StockItem, wh: string | undefined, date: string): number {
-  const N = (ctx.levellings ?? [])
-    .filter((x) => (x.wh || 'main') === wh)
-    .flatMap((n) => n.lines.filter((l) => l.item === item.id).map((l) => ({ date: n.date, old: num(l.old), new: num(l.new) })))
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const N = ctx.levellings?.length ? levellingIndex(ctx.levellings).get(wh + '|' + item.id) ?? [] : [];
   let p: number | null = null;
   for (const n of N) {
     if (n.date <= date) p = n.new;
