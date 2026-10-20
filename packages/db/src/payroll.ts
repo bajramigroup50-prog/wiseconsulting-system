@@ -403,7 +403,7 @@ export async function saveContract(tx: Tx, a: { firmId: string; employeeId: stri
     position: position || e.position, coef: +hours && +hours < 40 ? String(Math.round((+hours / 40) * 100) / 100) : e.coef,
     netBase: +net ? String(+net) : e.netBase, leaveDays: +leave || e.leaveDays,
   }).where(eq(employees.id, e.id));
-  const code = hrDocCode({ t: 'ct', f: a.firmId, e: e.id, n: e.name, m: e.embg, a: e.address, o: { type, no, signDate, start, end, position, duties, gross, net, hours, leave, notice, probation, workPlace, rep, repRole } });
+  const code = hrDocCode({ t: 'ct', f: a.firmId, e: e.id, n: e.name, m: e.embg, a: e.address, o: { type, no, signDate, start, end, position, duties, gross, net, hours, leave, notice, probation, workPlace, rep, repRole, ...(c.iso ? { iso: 1 } : {}), ...(c.schedule ? { schedule: c.schedule } : {}), ...(c.cba ? { cba: c.cba } : {}) } });
   const doc = await registerHrDoc(tx, {
     firmId: a.firmId, employeeId: e.id, contractId: ct!.id, kind: 'contract', no, date: signDate, empName: e.name, ctype: type, start,
     end: fixed ? end : null, position, code, title: 'Договор за вработување ' + hrCtTypeName(type), snap: { c }, userId: a.userId,

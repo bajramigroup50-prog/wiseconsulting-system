@@ -35,7 +35,7 @@ export default async function DogovorPage({ params }: { params: Promise<{ id: st
     reason: ct.reason ?? '', position: ct.position ?? '', duties: ct.duties ?? '', workPlace: ct.workPlace ?? '', hours: Number(ct.hours), probation: ct.probation ?? '',
     gross: Number(ct.gross ?? 0), net: Number(ct.net ?? 0), leave: ct.leave, notice: ct.notice, rep: ct.rep ?? '', repRole: ct.repRole ?? '', firstStart: ct.firstStart ?? ct.start,
   } : null;
-  const c0 = hrCtDefaults({ ...e, netBase: Number(e.netBase), coef: Number(e.coef) }, { ...ctx.firm }, P, today, saved);
+  const c0 = hrCtDefaults({ ...e, netBase: Number(e.netBase), coef: Number(e.coef) }, { ...ctx.firm, officeFirm: !!(firm.settings as { officeFirm?: boolean } | null)?.officeFirm }, P, today, saved);
   const ownW = await hrOwnDocIds(docs);
   const contractDoc = ct ? docs.find((d) => d.contractId === ct.id && d.kind === 'contract') : undefined;
   return (

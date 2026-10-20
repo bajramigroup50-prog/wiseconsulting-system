@@ -27,6 +27,7 @@ const Contract = z.object({
   end: z.string().max(10), reason: z.string().max(500), position: z.string().max(200), duties: z.string().max(4000), workPlace: z.string().max(300),
   hours: z.coerce.number().min(1).max(60), probation: z.union([z.literal(''), z.coerce.number().min(0).max(12)]), gross: z.coerce.number().min(0),
   net: z.coerce.number().min(0), leave: z.coerce.number().min(0).max(60), notice: z.coerce.number().min(0).max(12), rep: z.string().max(200), repRole: z.string().max(100),
+  schedule: z.string().max(300).optional(), cba: z.string().max(400).optional(), iso: z.boolean().optional(),
 }).passthrough();
 
 export async function saveContractAction(employeeId: string, c: HrContract): Promise<HrResult> {

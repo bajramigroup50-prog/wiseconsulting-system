@@ -13,6 +13,7 @@
  */
 import { g4n } from './calc';
 import type { PayParams } from './params';
+import { HR_CBA_DEFAULT, HR_SCHEDULE_DEFAULT } from '../office/iso-staff';
 
 type Num = number | string | null | undefined;
 const n = (v: Num): number => +(v as number) || 0;
@@ -68,6 +69,16 @@ export interface HrContract {
   rep: string;
   repRole: string;
   firstStart?: string;
+  /** Working schedule (ЗРО чл. 28 – распоред на работното време). */
+  schedule?: string;
+  /** Collective agreement the contract refers to (ЗРО чл. 28). */
+  cba?: string;
+  /**
+   * The office's own contract: the ISO/IEC 27001 A.6 and ЗЗЛП articles (confidentiality also after termination,
+   * information security, authorised person, assets, incidents, policies and trainings, ethics, disciplinary) are
+   * part of it (`isoContractArticles`, @wise/core/office/iso-staff); 2 copies.
+   */
+  iso?: boolean;
 }
 
 export interface HrFirm {
@@ -78,6 +89,8 @@ export interface HrFirm {
   embs?: string | null;
   signer?: string | null;
   signerRole?: string | null;
+  /** The office's own firm (`settings.officeFirm`) – its contracts carry the ISO / ЗЗЛП articles. */
+  officeFirm?: boolean;
 }
 
 export interface HrEmployee {
@@ -116,6 +129,9 @@ export function hrCtDefaults(e: HrEmployee, f: HrFirm, P: PayParams, today: stri
     notice: 1,
     rep: f.signer || '',
     repRole: f.signerRole || 'Управител',
+    schedule: HR_SCHEDULE_DEFAULT,
+    cba: HR_CBA_DEFAULT,
+    ...(f.officeFirm ? { iso: true } : {}),
     ...(saved || {}),
   };
 }
@@ -170,7 +186,7 @@ export function hrCtLawCheck(c: Partial<HrContract>, e: Pick<HrEmployee, 'name' 
     { k: 'leave', label: 'Годишен одмор (траење)', ok: n(c.leave) >= HR_LEAVE_DAYS, law: `ЗРО чл. 28; најмалку ${HR_LEAVE_DAYS} работни дена – чл. 137`, verify: true, note: c.leave && n(c.leave) < HR_LEAVE_DAYS ? `под законскиот минимум од ${HR_LEAVE_DAYS} дена` : undefined },
     { k: 'notice', label: 'Отказен рок', ok: n(c.notice) >= 1, law: 'ЗРО чл. 28; отказен рок најмалку 1 месец (до 3 со колективен договор) – чл. 88', verify: true },
     { k: 'probation', label: 'Пробна работа (ако е договорена) – најмногу 6 месеци', ok: n(c.probation) <= 6, law: 'ЗРО чл. 31', verify: true },
-    { k: 'collective', label: 'Упатување на колективен договор и општи акти на работодавачот', ok: true, law: 'ЗРО чл. 28 (во текстот на договорот – завршна одредба)', verify: true },
+    { k: 'collective', label: 'Упатување на колективен договор и општи акти на работодавачот', ok: true, note: c.cba ? undefined : 'препорачливо: наведете го колективниот договор', law: 'ЗРО чл. 28 (во текстот на договорот – завршна одредба)', verify: true },
     { k: 'sign', label: 'Застапник на работодавачот (потписник)', ok: !!c.rep, law: 'писмена форма – ЗРО чл. 15', verify: true },
   ];
   return L;

@@ -1,6 +1,7 @@
 /**
- * Schema — ISO квалитет of the office itself (ISO 9001 / 27001 / 10001 / 10002): one table for the registers
- * (поплаки, неусогласености, ризици, внатрешни проверки, обуки, инциденти, цели, политики), the kind in `kind`,
+ * Schema — ISO квалитет of the office itself (ISO 9001 / 27001 / 10001 / 10002 / 27701 / 22301): one table for the registers
+ * (поплаки, неусогласености, ризици, внатрешни проверки, обуки, инциденти, цели, политики, обработки на лични
+ * податоци, барања од субјекти, DPIA, план за континуитет, тестови на враќање), the kind in `kind`,
  * the register's own fields in `data` (`@wise/core/office/iso` ISO_KINDS). Office-level; a record may name a client
  * firm (a complaint of that client).
  */
@@ -11,7 +12,7 @@ const ts = (name: string) => timestamp(name, { withTimezone: true });
 
 export const isoRecords = pgTable('iso_records', {
   id: uuid('id').primaryKey().defaultRandom(),
-  /** `IsoKind`: complaint | nc | risk | audit | training | incident | objective | policy */
+  /** `IsoKind`: complaint | nc | risk | audit | training | incident | objective | policy | processing | dsr | dpia | bcp | bctest */
   kind: text('kind').notNull(),
   /** Serial per kind and year („ПП-3/26“). */
   no: integer('no').notNull(),

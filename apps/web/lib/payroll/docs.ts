@@ -7,6 +7,7 @@
  * Annual-leave decisions and sick-leave records are new registry kinds (not in legacy).
  */
 import { HR_DI_GR, hrCtTypeName, hrFixedTerm, type HrContract, type HrDiDoc, type HrExtension } from '@wise/core/payroll';
+import { isoContractArticles } from '@wise/core/office/iso-staff';
 import { dmy, fmt, h } from './html';
 
 export interface DocFirm {
@@ -55,11 +56,15 @@ const wrap = (H: string, draft: boolean) => (draft ? `<div style="position:relat
 const sigRow = (left: [string, string], right: [string, string]) =>
   `<div class="sigrow" style="page-break-inside:avoid;break-inside:avoid;display:flex;justify-content:space-between;margin-top:46px;gap:30px">${[left, right].map(([t, n]) => `<div style="text-align:center;min-width:60mm"><b>${t}</b><div style="border-top:1px solid #111;margin-top:40px;padding-top:3px">${n}</div></div>`).join('')}</div>`;
 
-/** Employment contract (legacy `contractHTML`). `draft` adds the НАЦРТ watermark (unsaved changes). */
+/**
+ * Employment contract (legacy `contractHTML`). `draft` adds the НАЦРТ watermark (unsaved changes). `c.schedule` and
+ * `c.cba` add the working schedule and the collective agreement (ЗРО чл. 28); `c.iso` (the office's own contracts)
+ * builds in the ISO/IEC 27001 A.6 and ЗЗЛП articles as articles of the contract, with 2 copies.
+ */
 export function contractHtml(f: DocFirm, e: DocEmployee, c: Partial<HrContract>, opts: { code?: string; draft?: boolean } = {}): string {
   const T = hrCtTypeName(c.type);
   let i = 0;
-  const art = (t: string) => `<p style="text-align:center;margin:10px 0 4px"><b>Член ${++i}</b></p><p style="text-align:justify;margin:0">${t}</p>`;
+  const art = (t: string, title?: string) => `<p style="text-align:center;margin:10px 0 4px;page-break-after:avoid;break-after:avoid"><b>Член ${++i}</b>${title ? `<br><b>${h(title)}</b>` : ''}</p><p style="text-align:justify;margin:0">${t}</p>`;
   const fixed = hrFixedTerm(c.type);
   const H = `<div style="${serif}">`
     + `<p>Врз основа на Законот за работните односи, на ден ${D(c.signDate)} година во ${B(c.place)}, се склучи:</p>`
@@ -70,13 +75,16 @@ export function contractHtml(f: DocFirm, e: DocEmployee, c: Partial<HrContract>,
     + art(`Со овој договор се заснова работен однос ${h(T)}, при што работникот ќе ги извршува работите и работните задачи на работното место <b>${B(c.position)}</b>${c.duties ? `, кои опфаќаат: ${h(c.duties)}` : ''}, во согласност со актот за систематизација на работните места кај работодавачот.`)
     + art(`Работникот започнува со работа на ден <b>${D(c.start)}</b> година.${fixed ? ` Договорот се склучува на определено време до <b>${D(c.end)}</b> година${c.reason ? `, поради: ${h(c.reason)}` : ''}, по кој рок работниот однос престанува без отказ, освен ако не се продолжи или трансформира во согласност со закон.` : ' Договорот се склучува на неопределено време.'}${+(c.probation || 0) ? ` Се договара пробна работа во траење од ${h(c.probation)} ${months(c.probation!)}.` : ''}`)
     + art(`Работникот работата ќе ја извршува во ${B(c.workPlace)}${c.type === 'dom' ? ', односно од дома / на далечина, во согласност со закон' : ''}.`)
-    + art(`Работникот засновува работен однос со ${+(c.hours ?? 40) >= 40 ? 'полно работно време од 40 часа неделно' : `скратено работно време од ${h(c.hours)} часа неделно`}. Распоредот на работното време го утврдува работодавачот.`)
+    + art(`Работникот засновува работен однос со ${+(c.hours ?? 40) >= 40 ? 'полно работно време од 40 часа неделно' : `скратено работно време од ${h(c.hours)} часа неделно`}. ${c.schedule ? `Распоред на работното време: ${h(c.schedule)}; распоредот може да се измени со одлука на работодавачот во согласност со закон.` : 'Распоредот на работното време го утврдува работодавачот.'}`)
     + art(`За извршената работа работникот има право на основна плата во бруто износ од <b>${N(c.gross)}</b> денари месечно${c.net ? ` (нето ${N(c.net)} денари)` : ''}, која не може да биде пониска од минималната плата утврдена со закон. Платата се исплатува најмалку еднаш месечно, најдоцна до 15-ти во тековниот месец за претходниот месец, на трансакциската сметка на работникот. Работникот има право и на додатоци на плата (минат труд, прекувремена работа, ноќна работа и др.) и надоместоци согласно закон и колективен договор.`)
     + art(`Работникот има право на годишен одмор од најмалку <b>${h(c.leave)}</b> работни дена во календарската година, дневен и неделен одмор, отсуство и други права согласно Законот за работните односи и колективниот договор.`)
     + art('Работникот е должен работата да ја извршува совесно и стручно, да ги почитува мерките за безбедност и здравје при работа и да ги чува деловните тајни на работодавачот. Работодавачот е должен да му обезбеди на работникот работа, плата и безбедни услови за работа и да го пријави во задолжително социјално осигурување.')
+    + (c.iso ? isoContractArticles().map((a) => art(h(a.p), a.t)).join('') : '')
     + art(`Договорот може да престане на начините утврдени со закон. Отказниот рок изнесува ${h(c.notice)} ${months(c.notice ?? 1)}, освен ако со закон или колективен договор не е поинаку утврдено.`)
-    + art('За сè што не е уредено со овој договор се применуваат одредбите на Законот за работните односи, колективниот договор и општите акти на работодавачот. Евентуалните спорови страните ќе ги решаваат спогодбено, а доколку тоа не е можно, надлежен е стварно и месно надлежниот суд.')
-    + art('Договорот е составен во 3 (три) еднакви примероци, од кои по 1 (еден) за секоја страна и 1 (еден) за Агенцијата за вработување.')
+    + art(`За сè што не е уредено со овој договор се применуваат одредбите на Законот за работните односи, ${c.cba ? h(c.cba) : 'колективниот договор'} и општите акти на работодавачот.`
+      + ` Евентуалните спорови страните ќе ги решаваат спогодбено, а доколку тоа не е можно, надлежен е стварно и месно надлежниот суд.`)
+    + art(c.iso ? 'Договорот е составен во 2 (два) еднакви примероци, од кои по 1 (еден) за секоја договорна страна. Работникот со потписот потврдува дека договорот го прочитал, го разбрал и дека му е врачен еден примерок.' : 'Договорот е составен во 3 (три) еднакви примероци, од кои по 1 (еден) за секоја страна и 1 (еден) за Агенцијата за вработување.')
+    + (c.iso ? `<p style="margin:26px 0 0">Место: ${B(c.place)}&nbsp;&nbsp;&nbsp; Датум: ${D(c.signDate)} година</p>` : '')
     + sigRow(['РАБОТНИК', h(e.name)], ['РАБОТОДАВАЧ', `${h(c.rep || '')}, ${h(c.repRole || '')}<br>М.П.`]) + '</div>';
   const code = opts.code ?? '';
   return wrap(docHead(f, code) + H + (code ? docFoot(code, 'Договор за вработување – ' + e.name + '.') : ''), !!opts.draft);
