@@ -7,8 +7,9 @@ import { isoKind, type IsoKind, type IsoStatus } from '@wise/core/office/iso';
 import { ISO_ANNEX_A, SOA_STATUS, type SoaStatus } from '@wise/core/office/iso-soa';
 import { ackString, policiesInForce } from '@wise/core/office/iso-staff';
 import { ISO_REGISTRY } from '@wise/core/office/iso-registry';
-import { addIsoStarters, confirmSoaAll, deleteIsoRecord, employees, getOfficeProfile, IsoError, OFFICE_FILE_ENTITY, saveIsoRecord, saveIsoStaff, saveSoa, setIsoStatus, signIsoRecord } from '@wise/db';
+import { addIsoStarters, confirmSoaAll, deleteIsoRecord, employees, getOfficeProfile, IsoError, isoRecords, OFFICE_FILE_ENTITY, saveIsoRecord, saveIsoStaff, saveSoa, setIsoStatus, signIsoRecord } from '@wise/db';
 import type { ActionState } from '@/lib/books';
+import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { fdate, fv, isUuid, linkFiles, officeError, officeGlobal, today } from '@/lib/office';
 import { loadIsoRows, officeFirm } from './iso-data';
@@ -29,10 +30,17 @@ export async function isoSave(_p: ActionState, f: FormData): Promise<ActionState
       const v = fv(f, 'd_' + x.k);
       return [x.k, x.t === 'date' ? fdate(f, 'd_' + x.k) : x.t === 'dt' ? (v && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? v : null) : x.t === 'ref' ? (isUuid(v) ? v : null) : v];
     }));
+    // the client of a complaint / incident: only the firm being worked in (or the one the record already has)
+    const fid = isUuid(fv(f, 'firmId')) ? fv(f, 'firmId')! : null;
+    if (fid) {
+      const cur = await currentFirm(u);
+      const [old] = id ? await db().select({ firmId: isoRecords.firmId }).from(isoRecords).where(eq(isoRecords.id, id)).limit(1) : [];
+      if (fid !== cur?.id && fid !== old?.firmId) return { error: 'Може да се избере само фирмата во која работите.' };
+    }
     await db().transaction(async (tx) => {
       const rid = await saveIsoRecord(tx, {
         id, kind, title: fv(f, 'title') ?? '', status: fv(f, 'status'), due: fdate(f, 'due'),
-        firmId: isUuid(fv(f, 'firmId')) ? fv(f, 'firmId') : null, ownerId: isUuid(fv(f, 'ownerId')) ? fv(f, 'ownerId') : null, data,
+        firmId: fid, ownerId: isUuid(fv(f, 'ownerId')) ? fv(f, 'ownerId') : null, data,
       }, u.id, today());
       // the evidence (scan, certificate, list…) – office-wide files
       await linkFiles(tx, f.getAll('fileIds'), null, OFFICE_FILE_ENTITY.iso, rid);

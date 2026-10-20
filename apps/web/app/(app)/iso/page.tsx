@@ -31,7 +31,7 @@ const DOC_STATUS: Record<IsoStatus, string> = { open: 'нацрт', progress: '�
 
 export default async function IsoPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
-  const { u } = await officePage('iso', { perm: 'office' });
+  const { u, firm } = await officePage('iso', { perm: 'office' });
   const td = today(), year = Number(td.slice(0, 4));
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Skopje' }).replace(' ', 'T').slice(0, 16);
   const [R, U, F, G] = await Promise.all([
@@ -139,7 +139,7 @@ export default async function IsoPage({ searchParams }: { searchParams: Promise<
                 <div className="row" style={{ gap: '8px 14px', flexWrap: 'wrap', alignItems: 'end' }}>
                   <label className="f" style={{ flex: '2 1 320px' }}>Наслов<input name="title" required defaultValue={edit?.title ?? ''} /></label>
                   {(def.k === 'complaint' || def.k === 'nc' || def.k === 'incident' || def.k === 'dsr') && (
-                    <label className="f" style={{ flex: '1 1 220px' }}>Клиент (фирма)<select name="firmId" defaultValue={edit?.firmId ?? ''}><option value="">—</option>{F.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+                    <label className="f" style={{ flex: '1 1 220px' }}>Клиент (фирма)<select name="firmId" defaultValue={edit?.firmId ?? ''}><option value="">—</option>{/* only the firm being worked in (and the one already on the record) – never a list of all clients */}{F.filter((x) => x.id === firm?.id || x.id === edit?.firmId).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
                   )}
                   <label className="f">{def.k === 'risk' ? 'Сопственик на ризикот' : 'Одговорно лице'}<select name="ownerId" defaultValue={edit?.ownerId ?? u.id}><option value="">—</option>{UA.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
                   <label className="f">Рок<input type="date" name="due" defaultValue={edit?.due ?? ''} /></label>

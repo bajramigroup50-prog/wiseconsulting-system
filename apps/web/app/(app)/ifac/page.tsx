@@ -20,7 +20,6 @@ import { db } from '@/lib/db';
 import { isDemoUser } from '@/lib/demo';
 import { allowedFirms, filesOf, officePage, today } from '@/lib/office';
 import { ActionForm, Submit } from '@/components/action-form';
-import { FirmGo } from '@/components/firm-go';
 import { Hd, dmy } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
@@ -223,7 +222,8 @@ export default async function IfacPage({ searchParams }: { searchParams: Promise
                     <td>{l ? <span className={`pill ${l.status === 'signed' ? 'good' : 'warn'}`}>{String(l.data.number ?? '')} · {l.status === 'signed' ? 'потпишано' : 'чека потпис'}</span> : <span className="pill bad">нема</span>}</td>
                     <td>{q?.decision === 'decline' ? <span className="pill bad">одбиен</span> : qr && qr.status !== 'open' ? <span className="pill good">{dmy(q?.decidedOn)}</span> : <span className="pill warn">отворено</span>}</td>
                     <td>{qr?.status === 'reviewed' ? <span className="pill good">{uName(q?.reviewedBy)} · {dmy(q?.reviewedOn)}</span> : <span className="pill warn">не</span>}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}><FirmGo fid={f.id} current={firm?.id} to="/ifac?t=el" className="btn sm">✉</FirmGo> <FirmGo fid={f.id} current={firm?.id} to="/ifac?t=qc" className="btn sm">✅</FirmGo></td>
+                    {/* the letter / check open only for the firm being worked in – another client is chosen in the top bar */}
+                    <td style={{ whiteSpace: 'nowrap' }}>{f.id === firm?.id && <><Link className="btn sm" href="/ifac?t=el">✉</Link> <Link className="btn sm" href="/ifac?t=qc">✅</Link></>}</td>
                   </tr>
                 );
               })}</tbody>
