@@ -5,6 +5,7 @@
  */
 import Link from 'next/link';
 import { ethicsText } from '@wise/core/office/ifac';
+import { KPU_TRANSITION_END, KPU_TRANSITION_TEXT } from '@wise/core/office/ifac-isos';
 import {
   CPD_MIN_3Y, CPD_MIN_YEAR, formMeta, IFAC_FILE_ENTITY, roleCompetence, SQM_COMPONENTS, sqmComp, sqmStatus, staffNormalize, staffStatus, type SqmData,
 } from '@wise/core/office/ifac-sqm';
@@ -100,7 +101,7 @@ export async function TabSqm({ year, comp, staff, canEdit }: { year: number; com
 
 /* ---------------- 👥 employees ---------------- */
 
-export async function TabStaff({ year, uid, staff, canEdit }: { year: number; uid?: string; staff: Staff; canEdit: boolean }) {
+export async function TabStaff({ year, uid, staff, canEdit, today }: { year: number; uid?: string; staff: Staff; canEdit: boolean; today: string }) {
   const [R, Rp] = await Promise.all([db().transaction((tx) => ifacYear(tx, year)), db().transaction(async (tx) => [...await ifacYear(tx, year - 1), ...await ifacYear(tx, year - 2)])]);
   const rowOf = (L: typeof R, k: string, s: string) => L.find((r) => r.kind === k && r.subject === s);
   const F = await filesOf(IFAC_FILE_ENTITY, R.filter((r) => r.kind === 'staff' || r.kind === 'ethics').map((r) => r.id));
@@ -114,7 +115,8 @@ export async function TabStaff({ year, uid, staff, canEdit }: { year: number; ui
     <>
       <div className="card">
         <h2 style={{ marginTop: 0 }}>👥 Вработени – {year}</h2>
-        <p className="note" style={{ marginTop: 4 }}>ISQM 1 §32 (ресурси): компетентност по улога, проценета од друго лице; овластените сметководители – најмалку {CPD_MIN_YEAR} часа професионален развој годишно и {CPD_MIN_3Y} во три години (IES 7 / ИСОС), со доказ. Анексот кон договорите за вработување (доверливост, безбедност, ЗЗЛП) е во ISO.</p>
+        <p className="note" style={{ marginTop: 4 }}>ISQM 1 §32 (ресурси): компетентност по улога, проценета од друго лице; КПУ според ЗВСР чл. 30 – сметководител најмалку 24 часа годишно и 90 во три години, овластен сметководител најмалку {CPD_MIN_YEAR} годишно и {CPD_MIN_3Y} во три години, со доказ. Анексот кон договорите за вработување (доверливост, безбедност, ЗЗЛП) е во ISO. Звањето и регистарскиот број одат во <Link href="/ifac?t=isos">списокот до ИСОС до 31 јануари</Link>.</p>
+        {today <= KPU_TRANSITION_END && <div className="callout warn">⏳ {KPU_TRANSITION_TEXT} Колоната „3 год.“ ги покажува часовите од {year - 2} до {year}.</div>}
         <div className="tw"><table className="dense">
           <thead><tr><th>Вработен</th><th>Улога</th><th>Изјава IESBA</th><th>Компетентност</th><th>Регистар ИСОС</th><th className="n">КПУ {year}</th><th className="n">3 год.</th><th>Доказ</th><th /></tr></thead>
           <tbody>{staff.map((x) => {

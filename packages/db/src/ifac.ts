@@ -3,18 +3,21 @@
  * per year, its copy in the dossier with the year's validity and a renewal deadline), the ISQM 1 checklist and the
  * IESBA declarations of the employees (synced into the ISO „Обуки“ register). Every change audited.
  */
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, ne, notInArray, sql } from 'drizzle-orm';
 import {
-  cpdHours, IFAC_FILE_ENTITY, ifacReadiness, OFFICE_SUBJECT, SQM_COMPONENTS, sqmComp, sqmKind, sqmNormalize, sqmStarter, staffNormalize, type SqmData, type StaffData,
+  cpdHours, IFAC_FILE_ENTITY, ifacReadiness, isosKpu, OFFICE_SUBJECT, SQM_COMPONENTS, sqmComp, sqmKind, sqmNormalize, sqmStarter, staffNormalize, type SqmData, type StaffData,
 } from '@wise/core/office/ifac-sqm';
 import {
   EL_DOS_CAT, EL_RENEW_DAYS, elNormalize, elNumber, elRenewTitle, elValidTo, ETHICS_VERSION, ethicsTraining, ethicsTrainingTitle, qcNormalize, qcReviewed, qcValidate,
   type ElLetter, type ElSig, type IfacKind, type QcAuto, type QcData,
 } from '@wise/core/office/ifac';
+import {
+  insNormalize, insValidate, isosCtlNormalize, isosDeadlines, isosFindings, isosListNormalize, isosQNormalize, ISOS_DL, ISOS_KINDS, type IsosListRow, type IsosState,
+} from '@wise/core/office/ifac-isos';
 import { audit, type Tx } from './audit';
 import { saveIsoRecord } from './iso';
-import { nextOfficeNumber } from './office';
-import { amlRecords, dossierDocs, fileLinks, files, firmDeadlines, ifacRecords, isoRecords, OFFICE_FILE_ENTITY, serviceContracts, users } from './schema/index';
+import { getOfficeProfile, nextOfficeNumber, officeFirmOf } from './office';
+import { amlRecords, autopilotFindings, dossierDocs, fileLinks, files, firmDeadlines, firms, ifacRecords, isoRecords, OFFICE_FILE_ENTITY, serviceContracts, users } from './schema/index';
 
 export class IfacError extends Error { constructor(m: string) { super(m); this.name = 'IfacError'; } }
 
@@ -251,8 +254,9 @@ export async function ifacReadinessFor(tx: Tx, year: number, o: { firms: { id: s
   const F = await ifacFilesCount(tx, [...[...S.values()].map((r) => r.id), ...R.map((r) => r.id), ...Rp.map((r) => r.id)]);
   const of = (L: typeof R, k: string, s: string, y: number) => L.find((r) => r.kind === k && r.subject === s && r.year === y);
   const hoursIn = (y: number, uid: string) => { const r = of(Rp, 'staff', uid, y); return r ? cpdHours(staffNormalize(r.data).cpd) : 0; };
+  const isos = await isosStateOf(tx, await isosRows(tx), o.today);
   return ifacReadiness({
-    year, today: o.today,
+    year, today: o.today, isos,
     sqm: Object.fromEntries(SQM_COMPONENTS.map((c) => { const r = S.get(c.k); return [c.k, { d: r ? (r.data as SqmData) : null, files: r ? F.get(r.id) ?? 0 : 0 }]; })),
     staff: staff.map((u) => {
       const st = of(R, 'staff', u.id, year), et = of(R, 'ethics', u.id, year);
@@ -263,4 +267,134 @@ export async function ifacReadinessFor(tx: Tx, year: number, o: { firms: { id: s
       return { id: f.id, name: f.name, letter: l ? (l.status === 'signed' ? 'signed' : 'draft') : null, qc: q ? qcNormalize(q.data as never) : null, qcPrev: qp ? qcNormalize(qp.data as never) : null, docFiles: qp ? F.get(qp.id) ?? 0 : 0 };
     }),
   });
+}
+
+/* ---------------- obligations towards ИСОС (ЗВСР чл. 32, 46; 47/25 чл. 8) ---------------- */
+
+/** Every office row of the ИСОС obligations (all years). */
+export async function isosRows(tx: Tx) {
+  return tx.select().from(ifacRecords).where(and(eq(ifacRecords.subject, OFFICE_SUBJECT), like(ifacRecords.kind, 'isos_%')));
+}
+type IsosRow = Awaited<ReturnType<typeof isosRows>>[number];
+
+/** The state without the КПУ part (that comes from the staff records). */
+export async function isosStateOf(tx: Tx, R: readonly IsosRow[], today: string): Promise<Omit<IsosState, 'kpu'>> {
+  const P = R.filter((r) => r.kind === ISOS_KINDS.ins).map((r) => ({ id: r.id, p: insNormalize(r.data) }));
+  const cur = P.filter((x) => x.p.validFrom <= today && x.p.validTo >= today).sort((a, b) => b.p.validTo.localeCompare(a.p.validTo))[0];
+  const F = cur ? await ifacFilesCount(tx, [cur.id]) : new Map<string, number>();
+  const by = (k: string, f: (d: Record<string, unknown>) => string | null) => Object.fromEntries(R.filter((r) => r.kind === k).map((r) => [r.year, f(r.data)]));
+  const ctl = R.filter((r) => r.kind === ISOS_KINDS.ctl).map((r) => isosCtlNormalize(r.data)).filter((c) => c.date).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] ?? null;
+  const last = [...P].sort((a, b) => b.p.validTo.localeCompare(a.p.validTo))[0];
+  return {
+    ins: P.map((x) => x.p), insFiles: cur ? F.get(cur.id) ?? 0 : 0, form: (cur ?? last)?.p.form ?? null,
+    list: by(ISOS_KINDS.list, (d) => isosListNormalize(d).submittedOn), q: by(ISOS_KINDS.q, (d) => isosQNormalize(d).submittedOn), ctl,
+  };
+}
+
+/** The full state for the deadlines and the autopilot (КПУ from this year's and the two previous years' staff records). */
+export async function isosState(tx: Tx, today: string, demo = false): Promise<IsosState> {
+  const year = Number(today.slice(0, 4));
+  const [R, staff, S] = await Promise.all([isosRows(tx), ethicsStaff(tx, demo), tx.select().from(ifacRecords).where(and(eq(ifacRecords.kind, 'staff'), inArray(ifacRecords.year, [year, year - 1, year - 2])))]);
+  const of = (u: string, y: number) => S.find((r) => r.subject === u && r.year === y);
+  const h = (u: string, y: number) => { const r = of(u, y); return r ? cpdHours(staffNormalize(r.data).cpd) : 0; };
+  const kpu = isosKpu(staff.map((u) => { const r = of(u.id, year); return { id: u.id, name: u.name, role: u.role, d: r ? staffNormalize(r.data) : null, prev: { y1: h(u.id, year - 1), y2: h(u.id, year - 2) }, ethicsAt: null, files: 0 }; }));
+  return { ...(await isosStateOf(tx, R, today)), kpu };
+}
+
+/**
+ * The ИСОС deadlines as the office firm's deadlines (→ Рокови and its reminders): created when missing, the date and
+ * the note kept current, done when the program sees the obligation met (a manual ✓ stays). The deadline of a policy
+ * that no longer exists is removed while still open.
+ */
+export async function syncIsosDeadlines(tx: Tx, officeFirmId: string, today: string, a: { userId?: string | null; demo?: boolean } = {}): Promise<number> {
+  const want = isosDeadlines(await isosState(tx, today, a.demo), today);
+  const cur = await tx.select().from(firmDeadlines).where(and(eq(firmDeadlines.firmId, officeFirmId), like(firmDeadlines.title, 'ИСОС: %')));
+  let n = 0;
+  for (const d of want) {
+    const c = cur.find((x) => x.title === d.title);
+    if (!c) { await tx.insert(firmDeadlines).values({ firmId: officeFirmId, title: d.title, due: d.due, remindDays: d.remindDays, done: d.done, note: d.note, createdBy: a.userId ?? null }); n++; continue; }
+    const done = c.done || d.done;
+    if (c.due !== d.due || c.done !== done || c.note !== d.note || c.remindDays !== d.remindDays) await tx.update(firmDeadlines).set({ due: d.due, done, note: d.note, remindDays: d.remindDays }).where(eq(firmDeadlines.id, c.id));
+  }
+  const insPrefix = ISOS_DL.ins({ policyNo: '' });
+  const stale = cur.filter((x) => x.title.startsWith(insPrefix) && !x.done && !want.some((d) => d.title === x.title)).map((x) => x.id);
+  if (stale.length) await tx.delete(firmDeadlines).where(inArray(firmDeadlines.id, stale));
+  return n;
+}
+
+/** Save a policy (new, or the given row): one row per policy start year. */
+export async function saveIsosIns(tx: Tx, id: string | null, input: Record<string, unknown>, userId: string | null): Promise<string> {
+  const p = insNormalize(input);
+  const e = insValidate(p);
+  if (e) throw new IfacError(e);
+  const year = Number(p.validFrom.slice(0, 4));
+  const same = await ifacGet(tx, ISOS_KINDS.ins, year, OFFICE_SUBJECT);
+  if (same && same.id !== id) throw new IfacError(`За ${year} веќе има внесена полиса (${String(same.data.policyNo ?? '')}) – изменете ја неа.`);
+  let rid: string;
+  if (id) {
+    const [r] = await tx.select().from(ifacRecords).where(and(eq(ifacRecords.id, id), eq(ifacRecords.kind, ISOS_KINDS.ins))).limit(1);
+    if (!r) throw new IfacError('Полисата не е пронајдена.');
+    await tx.update(ifacRecords).set({ year, status: 'ok', data: { ...p, _v: (Number(r.data._v) || 0) + 1, _by: userId, _at: new Date().toISOString() } }).where(eq(ifacRecords.id, id));
+    rid = id;
+  } else rid = await upsert(tx, ISOS_KINDS.ins, year, OFFICE_SUBJECT, { status: 'ok', data: { ...p } }, userId);
+  await audit(tx, { userId, action: 'isosInsSave', entityType: 'ifac_record', entityId: rid, data: { policyNo: p.policyNo, amountEur: p.amountEur, validTo: p.validTo } });
+  return rid;
+}
+
+export async function deleteIsosIns(tx: Tx, id: string, userId: string | null): Promise<void> {
+  const [r] = await tx.delete(ifacRecords).where(and(eq(ifacRecords.id, id), eq(ifacRecords.kind, ISOS_KINDS.ins))).returning({ id: ifacRecords.id, data: ifacRecords.data });
+  if (r) await audit(tx, { userId, action: 'isosInsDelete', entityType: 'ifac_record', entityId: id, data: { policyNo: r.data.policyNo } });
+}
+
+/** The list sent to ИСОС for the year: when and how, with the list as it was sent. */
+export async function saveIsosList(tx: Tx, year: number, input: Record<string, unknown>, staff: IsosListRow[], userId: string | null): Promise<string> {
+  const d = isosListNormalize(input);
+  const id = await upsert(tx, ISOS_KINDS.list, year, OFFICE_SUBJECT, { status: d.submittedOn ? 'submitted' : 'draft', data: { submittedOn: d.submittedOn, how: d.how, note: d.note, ...(d.submittedOn ? { staff } : {}) } }, userId);
+  await audit(tx, { userId, action: 'isosListSave', entityType: 'ifac_record', entityId: id, data: { year, submittedOn: d.submittedOn, staff: staff.length } });
+  return id;
+}
+
+/** The yearly quality-control questionnaire for the year covered: received, returned. */
+export async function saveIsosQ(tx: Tx, year: number, input: Record<string, unknown>, userId: string | null): Promise<string> {
+  const d = isosQNormalize(input);
+  if (d.receivedOn && d.submittedOn && d.submittedOn < d.receivedOn) throw new IfacError('Прашалникот не може да е доставен пред да е примен.');
+  const id = await upsert(tx, ISOS_KINDS.q, year, OFFICE_SUBJECT, { status: d.submittedOn ? 'submitted' : 'draft', data: { ...d } }, userId);
+  await audit(tx, { userId, action: 'isosQSave', entityType: 'ifac_record', entityId: id, data: { year, submittedOn: d.submittedOn } });
+  return id;
+}
+
+/** A control on the spot by ИСОС (date, controller, findings, measures) – one per year. */
+export async function saveIsosCtl(tx: Tx, input: Record<string, unknown>, userId: string | null): Promise<string> {
+  const d = isosCtlNormalize(input);
+  if (!d.date) throw new IfacError('Внесете го датумот на контролата.');
+  const id = await upsert(tx, ISOS_KINDS.ctl, Number(d.date.slice(0, 4)), OFFICE_SUBJECT, { status: d.findings && !d.measures ? 'open' : 'closed', data: { ...d } }, userId);
+  await audit(tx, { userId, action: 'isosCtlSave', entityType: 'ifac_record', entityId: id, data: { date: d.date, findings: !!d.findings } });
+  return id;
+}
+
+/** The real office firm (never a demo firm), or null when the office has not set it. */
+export async function isosOfficeFirm(tx: Tx): Promise<string | null> {
+  const [F, O] = await Promise.all([tx.select({ id: firms.id, name: firms.name, edb: firms.edb, settings: firms.settings }).from(firms).where(eq(firms.active, true)), getOfficeProfile(tx)]);
+  return officeFirmOf(F, O)?.id ?? null;
+}
+
+/**
+ * The office's ИСОС obligations in the daily runs: the deadlines of the office firm (Рокови) and the autopilot findings
+ * of the office firm (category „ИСОС“; the autopilot does not check the office firm otherwise). Only for the given
+ * firms when `firmIds` is passed. Returns the number of findings, or null when there is no office firm.
+ */
+export async function isosOfficeRun(tx: Tx, today: string, o: { firmIds?: readonly string[]; findings?: boolean } = {}): Promise<number | null> {
+  const fid = await isosOfficeFirm(tx);
+  if (!fid || (o.firmIds && !o.firmIds.includes(fid))) return null;
+  await syncIsosDeadlines(tx, fid, today);
+  if (o.findings === false) return 0;
+  const A = isosFindings(await isosState(tx, today), today);
+  const now = new Date();
+  for (const a of A) {
+    await tx.insert(autopilotFindings).values({ firmId: fid, key: a.key, lvl: a.lvl, cat: a.cat, txt: a.txt, go: a.go })
+      .onConflictDoUpdate({ target: [autopilotFindings.firmId, autopilotFindings.key], set: { lvl: a.lvl, txt: a.txt, go: a.go, lastSeen: now, resolvedAt: null } });
+  }
+  await tx.update(autopilotFindings).set({ resolvedAt: now }).where(and(eq(autopilotFindings.firmId, fid), isNull(autopilotFindings.resolvedAt), like(autopilotFindings.key, 'isos|%'),
+    A.length ? notInArray(autopilotFindings.key, A.map((a) => a.key)) : undefined));
+  return A.length;
 }

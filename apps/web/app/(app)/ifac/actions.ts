@@ -8,14 +8,17 @@ import { revalidatePath } from 'next/cache';
 import { KD_SVC } from '@wise/core/firms/kdog';
 import { QC_ACCEPT, QC_REVIEW } from '@wise/core/office/ifac';
 import { IFAC_FILE_ENTITY, sqmComp } from '@wise/core/office/ifac-sqm';
-import { addSqmStarter, deleteLetter, IfacError, OFFICE_FILE_ENTITY, saveLetter, saveQc, saveSqm, saveStaff, signEthics, signLetter } from '@wise/db';
+import {
+  addSqmStarter, deleteIsosIns, deleteLetter, IfacError, OFFICE_FILE_ENTITY, saveIsosCtl, saveIsosIns, saveIsosList, saveIsosQ, saveLetter, saveQc, saveSqm, saveStaff, signEthics, signLetter,
+  syncIsosDeadlines, type Tx,
+} from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { isDemoUser } from '@/lib/demo';
 import { allowedFirms, fdate, fv, isUuid, linkFiles, officeAction, officeError, officeGlobal, today } from '@/lib/office';
 import { requireUser } from '@/lib/auth';
-import { letterHtml } from './lib';
+import { isosListRows, letterHtml } from './lib';
 import { loadProvider, pdfTo } from '../kdogovori/lib';
 
 const err = (e: unknown): ActionState => (e instanceof IfacError ? { error: e.message } : officeError(e));
@@ -158,5 +161,71 @@ export async function staffSave(_p: ActionState, f: FormData): Promise<ActionSta
     });
     revalidatePath('/ifac');
     return { ok: 'Зачувано.' };
+  } catch (e) { return err(e); }
+}
+
+/* ---------------- obligations towards ИСОС (ЗВСР чл. 32, 46) ---------------- */
+
+/** Save an ИСОС record with its evidence, then bring the office firm's deadlines (Рокови) up to date. */
+async function isosSave(f: FormData, save: (tx: Tx, userId: string, year: number) => Promise<string>): Promise<{ ok: true; warn: string } | ActionState> {
+  const u = await officeGlobal('settings');
+  const year = await yearOf(f);
+  const P = await loadProvider(u);
+  await db().transaction(async (tx) => {
+    const id = await save(tx, u.id, year);
+    await linkFiles(tx, f.getAll('fileIds'), null, IFAC_FILE_ENTITY, id);
+    if (P.off) await syncIsosDeadlines(tx, P.off.id, today(), { userId: u.id, demo: isDemoUser(u) });
+  });
+  revalidatePath('/ifac'); revalidatePath('/rokovi');
+  return { ok: true, warn: P.off ? '' : ' ⚠ Роковите не се додадени во „Рокови“ – одредете ја фирмата на канцеларијата во „Договор за сметководствени услуги“.' };
+}
+const isosDone = (r: { ok: true; warn: string } | ActionState, msg: string): ActionState => ('warn' in r ? { ok: msg + r.warn } : r);
+
+/** The professional liability insurance policy (new or `id`), the scan as evidence. */
+export async function insSave(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const id = fv(f, 'id');
+    const input = { form: fv(f, 'form'), insurer: fv(f, 'insurer'), policyNo: fv(f, 'policyNo'), amountEur: fv(f, 'amountEur'), validFrom: fdate(f, 'validFrom'), validTo: fdate(f, 'validTo'), note: fv(f, 'note') };
+    return isosDone(await isosSave(f, (tx, uid) => saveIsosIns(tx, isUuid(id) ? id : null, input, uid)), 'Полисата е зачувана; потсетник 30 дена пред истекот е во „Рокови“.');
+  } catch (e) { return err(e); }
+}
+
+export async function insDelete(id: string): Promise<ActionState> {
+  try {
+    const u = await officeGlobal('settings');
+    const P = await loadProvider(u);
+    await db().transaction(async (tx) => {
+      await deleteIsosIns(tx, id, u.id);
+      if (P.off) await syncIsosDeadlines(tx, P.off.id, today(), { userId: u.id, demo: isDemoUser(u) });
+    });
+    revalidatePath('/ifac'); revalidatePath('/rokovi');
+    return { ok: 'Избришано.' };
+  } catch (e) { return err(e); }
+}
+
+/** The list of employees and the proof of insurance sent to ИСОС for the year (the list kept as sent). */
+export async function isosListSave(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const u = await requireUser();
+    const year = await yearOf(f);
+    const rows = await isosListRows(year, isDemoUser(u));
+    const input = { submittedOn: fdate(f, 'submittedOn'), how: fv(f, 'how'), note: fv(f, 'note') };
+    return isosDone(await isosSave(f, (tx, uid, y) => saveIsosList(tx, y, input, rows, uid)), input.submittedOn ? `✅ Списокот за ${year} е означен како доставен до ИСОС.` : 'Зачувано.');
+  } catch (e) { return err(e); }
+}
+
+/** The yearly quality-control questionnaire for the year covered (`year` in the form). */
+export async function isosQSave(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const input = { receivedOn: fdate(f, 'receivedOn'), submittedOn: fdate(f, 'submittedOn'), note: fv(f, 'note') };
+    return isosDone(await isosSave(f, (tx, uid, y) => saveIsosQ(tx, y, input, uid)), input.submittedOn ? '✅ Прашалникот е означен како доставен.' : 'Зачувано.');
+  } catch (e) { return err(e); }
+}
+
+/** A quality control on the spot by ИСОС: date, controller, findings, measures, the report as evidence. */
+export async function isosCtlSave(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const input = { date: fdate(f, 'date'), by: fv(f, 'by'), findings: fv(f, 'findings'), measures: fv(f, 'measures'), note: fv(f, 'note') };
+    return isosDone(await isosSave(f, (tx, uid) => saveIsosCtl(tx, input, uid)), 'Контролата е зачувана.');
   } catch (e) { return err(e); }
 }
