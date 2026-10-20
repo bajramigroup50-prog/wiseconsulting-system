@@ -28,6 +28,7 @@ import { bankKontaAll } from './bank-konta-all';
 import { AUTOMATION_JOBS } from './automations2';
 import { autoRepost } from './auto-repost';
 import { incomingDetect } from './incoming-detect';
+import { socialPost } from './social';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -47,6 +48,7 @@ export const JOBS: JobDef<any>[] = [
   lawAsk,
   lawTexts,
   lawCase,
+  socialPost,
   legacyImport,
   firmResh,
   kontrolaAi,

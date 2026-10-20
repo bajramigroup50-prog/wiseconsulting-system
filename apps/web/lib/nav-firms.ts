@@ -29,6 +29,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Систем', 'produktivnost', [['aiTrosok', '💲 AI трошок']]],
   // owner-only (UX Phase 3): the scheduled automations' switches, schedules, last runs and waiting drafts
   ['Систем', 'aiTrosok', [['avtomatizacii', '⚙ Автоматизации']]],
+  // owner-only: the robot's public law news posted to the office's Facebook page / Instagram
+  ['Систем', 'avtomatizacii', [['drustveni', '📣 Објави на мрежи']]],
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
   // the AI reading card (also in „Податоци и резервна копија“) on its own page, with the credit check
   ['Систем', 'konvertor', [['aiCitanje', '🤖 AI читање']]],

@@ -26,6 +26,7 @@ export * from './parity-retail';
 export * from './parity-firms';
 export * from './compliance';
 export * from './iso';
+export * from './social';
 export * from './ifac';
 export * from './devices';
 export * from './automations';

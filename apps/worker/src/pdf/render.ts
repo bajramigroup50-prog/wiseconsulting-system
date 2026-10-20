@@ -63,3 +63,17 @@ export async function htmlToPdf(p: PdfInput): Promise<Uint8Array> {
     await ctx.close();
   }
 }
+
+/** Render a self-contained HTML page (social card) to PNG bytes at an exact size. Same hardening as `htmlToPdf`. */
+export async function htmlToPng(html: string, size: { width: number; height: number }): Promise<Uint8Array> {
+  const b = await getBrowser();
+  const ctx = await b.newContext({ javaScriptEnabled: false, viewport: size, deviceScaleFactor: 1 });
+  try {
+    await ctx.route('**/*', (route) => (route.request().url().startsWith('data:') ? route.continue() : route.abort()));
+    const page = await ctx.newPage();
+    await page.setContent(html, { waitUntil: 'load', timeout: 30_000 });
+    return new Uint8Array(await page.screenshot({ type: 'png', clip: { x: 0, y: 0, ...size } }));
+  } finally {
+    await ctx.close();
+  }
+}

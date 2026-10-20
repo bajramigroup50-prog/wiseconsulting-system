@@ -132,7 +132,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
 
 /** Not work: sign-in, settings / configuration, downloads and renders, system jobs, user administration. */
 const NOISE = new Set((
-  'login logout loginFail loginLocked loginUnlock uMyPass uMenuStyle uNew uSave uDel ownerSet bookOnlySet userViewsSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip kontrolaPkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
+  'login logout loginFail loginLocked loginUnlock uMyPass uMenuStyle uNew uSave uDel ownerSet bookOnlySet userViewsSet aiBudgetSet deviceNew deviceRevoke deviceInstaller miClaim klPrevOn klPrevOff pdfRender ublDl pkgZip kontrolaPkgZip pnLivePos lawSeenAll lawRobotRun lawTextsSync socialConnect socialPrefs socialPostNow socialDelete socialDisconnect rokSync rokSettings feeSettings feeDeliver recOff carryStatPrefixes cascade '
   + 'backupJson bkNow bkRestoreGo errFix errDelFixed legacyImportSettings legacyImportUser legacyImportJournal '
   + 'invStyle crMode svcOnly dtSaveCols opSet apCfg bankFmt msSave msReset industryCfgSave modSave autoCfgSave klImgUp klImgRm '
   + 'kdOffSave zzSaveOff hrPrefix pddTypesSave ppCal schSaveAll schReset schSave custDel schProfileSave schProfileDel schProfileCopy carryByDoc defMargin saveNalCodes '

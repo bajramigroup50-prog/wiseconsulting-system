@@ -45,3 +45,18 @@ export async function storeFile(
   }).returning({ id: files.id });
   return row!.id;
 }
+
+/**
+ * A GET link on the public storage host (`S3_PUBLIC_URL`, files.DOMAIN) that Meta's servers can fetch (an Instagram
+ * post is made from an image URL). Valid `seconds` (default 1 h).
+ */
+export async function publicGetUrl(key: string, seconds = 3600): Promise<string> {
+  const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+  const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+  const pub = new S3Client({
+    endpoint: process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT, region: process.env.S3_REGION ?? 'us-east-1', forcePathStyle: true,
+    requestChecksumCalculation: 'WHEN_REQUIRED', responseChecksumValidation: 'WHEN_REQUIRED',
+    credentials: { accessKeyId: process.env.S3_ACCESS_KEY ?? '', secretAccessKey: process.env.S3_SECRET_KEY ?? '' },
+  });
+  return getSignedUrl(pub, new GetObjectCommand({ Bucket: BUCKET, Key: key, ResponseContentType: 'image/png' }), { expiresIn: seconds });
+}

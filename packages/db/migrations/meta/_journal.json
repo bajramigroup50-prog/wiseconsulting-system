@@ -260,6 +260,13 @@
       "when": 1792489292363,
       "tag": "0036_ifac_records",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792523324588,
+      "tag": "0037_social_posts",
+      "breakpoints": true
     }
   ]
 }
