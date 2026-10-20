@@ -128,6 +128,9 @@ export async function serverPdf(o: { selector: string; title: string; landscape?
       await new Promise((ok) => setTimeout(ok, i < 5 ? 1000 : 2000));
       const x = await fetch(url, { cache: 'no-store' });
       if (x.ok) {
+        // desktop app: the PDF in its OWN window (its ✕ closes only the PDF) – a download there showed the PDF in the
+        // program's window, and its ✕ closed the whole program
+        if ('wiseFiscal' in window && window.open(url, '_blank')) return null;
         const blob = await x.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
