@@ -356,7 +356,22 @@ export async function importAction(_p: ActionState, f: FormData): Promise<Action
   const u = await getUser();
   const r = u?.role ?? 'view';
   let fid = '';
-  const st = await stockAction('impRun', ['/uvoz', '/artikli', '/partneri', '/vlez', '/izlez', '/nalozi', '/g_lager', '/m_lager', '/m_izlez', '/nivel'],
+  const PATHS = ['/uvoz', '/artikli', '/partneri', '/vlez', '/izlez', '/nalozi', '/g_lager', '/m_lager', '/m_izlez', '/nivel'];
+  // a large list of partners / items / employees (one row = one record) goes in parts of CHUNK rows, each saved on its
+  // own: one huge transaction with a savepoint per row slowed Postgres down until it failed and nothing was kept
+  const CHUNK = 500;
+  if ((v.t === 'partners' || v.t === 'items' || v.t === 'employees') && v.rows.length > CHUNK) {
+    const T: { add: number; upd: number; newP: number; skip: string[] } = { add: 0, upd: 0, newP: 0, skip: [] };
+    for (let i = 0; i < v.rows.length; i += CHUNK) {
+      const part = v.rows.slice(i, i + CHUNK);
+      const sc = await stockAction('impRun', PATHS, async (tx, a) => { fid = a.firmId; return importRows(tx, { ...a, role: r }, v.t, part, { date: v.date, wh: v.wh || null, today: todayIso(), scheme: null, past: null }); });
+      if (sc.error) return { error: `Увезени редови 1–${i} од ${v.rows.length} (${T.add} додадени, ${T.upd} ажурирани) – запрено кај редовите ${i + 1}–${i + part.length}: ${sc.error}. Пуштете го увозот повторно: веќе увезените се ажурираат, не се дуплираат.` };
+      T.add += sc.data!.add; T.upd += sc.data!.upd; T.newP += sc.data!.newP; T.skip.push(...sc.data!.skip);
+    }
+    const am = fid && (T.newP || v.t === 'partners') ? await autoMergeAfter(fid) : '';
+    return { ok: `Готово: ${T.add} додадени, ${T.upd} ажурирани${T.newP ? `, ${T.newP} нови комитенти` : ''}${T.skip.length ? `, ${T.skip.length} прескокнати: ` + T.skip.slice(0, 12).join(' · ') + (T.skip.length > 12 ? ' …' : '') : '.'}${am}` };
+  }
+  const st = await stockAction('impRun', PATHS,
     async (tx, a) => {
       fid = a.firmId;
       // „⏸ минат период – за проверка“: documents of past VAT periods are not imported automatically

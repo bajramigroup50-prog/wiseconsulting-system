@@ -225,6 +225,10 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
     return c!.id;
   };
   const nextPartnerCode = async () => nextNumericCode((await tx.select({ c: partners.code }).from(partners).where(eq(partners.firmId, a.firmId))).map((x) => x.c));
+  // the next free item code: read once, then counted up (the max over the firm's items for every new item made a large
+  // import quadratic)
+  let codeN: number | null = null;
+  const nextCode = async () => { if (codeN == null) codeN = Number(await nextItemCode(tx, a.firmId)) - 1; return String(++codeN); };
   const row = async (label: string, f: () => Promise<void>) => {
     try { await tx.transaction(async () => { await f(); }); } catch (e) { R.skip.push(label + ': ' + (e instanceof Error ? e.message : String(e))); }
   };
@@ -272,7 +276,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         let id: string;
         if (ex) { await tx.update(items).set(v).where(eq(items.id, ex.id)); id = ex.id; R.upd++; }
         else {
-          const [c] = await tx.insert(items).values({ vatRate: 18, price: '0', ...v, name, firmId: a.firmId, code: code || await nextItemCode(tx, a.firmId) }).returning({ id: items.id });
+          const [c] = await tx.insert(items).values({ vatRate: 18, price: '0', ...v, name, firmId: a.firmId, code: code || await nextCode() }).returning({ id: items.id });
           id = c!.id; R.add++;
         }
         if (bc && !owner) {
@@ -405,7 +409,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         const nm = name || code || bc;
         const mpc = gn(r, 'mpc');
         const [c] = await tx.insert(items).values({
-          firmId: a.firmId, code: code || await nextItemCode(tx, a.firmId), name: nm, type: 'goods', unit: gs(r, 'unit') || 'ком', vatRate: [0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18,
+          firmId: a.firmId, code: code || await nextCode(), name: nm, type: 'goods', unit: gs(r, 'unit') || 'ком', vatRate: [0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18,
           // retail stock import (m_lager): the new item gets the store's retail price, the rate from the row
           price: mpc ? String(r2(mpc / (1 + ([0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18) / 100))) : '0', data: { cost: gn(r, 'cost') || 0, ...(mpc && isStore && W0 ? { sp: { [whId(W0)]: r2(mpc) } } : {}) },
         }).returning();
