@@ -17,3 +17,11 @@ describe('error register helpers', () => {
     expect(errorsCopyText([e])).toBe('Грешки во WISE CONSULTING:\n\n1. 2026-10-10 09:30 · Ана (acc) · фирма: Фирма · екран: /nalozi · render · 3×\n   Пукна\n   Error: Пукна\n    at a\n    at b');
   });
 });
+
+describe('not errors', () => {
+  it('the firm changed in another tab, an old page after a deploy', () => {
+    expect(ignoredError('Фирмата е променета во друг прозорец – освежете ја страницата.')).toBe(true);
+    expect(ignoredError('Server Action "603e24b156800d0bc628d7f3641eeae8bec311944d" was not found on the server. Read more: …')).toBe(true);
+    expect(ignoredError('Failed query: select …')).toBe(false);
+  });
+});

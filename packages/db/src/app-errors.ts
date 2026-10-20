@@ -13,7 +13,9 @@ export interface ErrorReport {
 }
 
 /** Legacy filter: browser noise that is not a program error. */
-export const ignoredError = (msg: string) => /ResizeObserver loop|Script error\.?$|NEXT_REDIRECT|NEXT_NOT_FOUND|NEXT_HTTP_ERROR_FALLBACK/i.test(msg);
+// also not errors: the firm-guard message when the firm was changed in another tab (the user refreshes), and a page
+// left open over a deploy calling a server action / a response of the old build („Server Action … was not found“)
+export const ignoredError = (msg: string) => /ResizeObserver loop|Script error\.?$|NEXT_REDIRECT|NEXT_NOT_FOUND|NEXT_HTTP_ERROR_FALLBACK|Фирмата е променета во друг прозорец|Server Action "?[0-9a-f]+"? was not found on the server|An unexpected response was received from the server/i.test(msg);
 
 export async function recordError(tx: Tx, e: ErrorReport): Promise<string | null> {
   const msg = String(e.msg || 'Непозната грешка').slice(0, 400);
