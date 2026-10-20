@@ -5,7 +5,7 @@
  */
 import { revalidatePath } from 'next/cache';
 import { GRAPH, type SocialSettings } from '@wise/core/social/post';
-import { audit, getSocialSettings, markSocialDeleted, openSecret, patchSocialSettings, sealSecret, socialPosts } from '@wise/db';
+import { audit, getSocialSettings, lawChanges, markSocialDeleted, openSecret, patchSocialSettings, sealSecret, socialPosts } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import type { RowResult } from '@/components/row-action';
 import { requireUser } from '@/lib/auth';
@@ -92,8 +92,15 @@ export async function socialPostNow(lawId: string): Promise<RowResult> {
   const u = await owner();
   if (isErr(u)) return u;
   if (!isUuid(lawId)) return { error: 'Непозната новост.' };
+  const [n] = await db().select({ verified: lawChanges.verified, urls: lawChanges.urls }).from(lawChanges).where(eq(lawChanges.id, lawId)).limit(1);
+  if (!n) return { error: 'Непозната новост.' };
+  if (!n.urls[0]) return { error: 'Веста нема официјален извор – не се објавува.' };
+  await db().transaction(async (tx) => {
+    // the owner checked it on the official source: „⚠ да се потврди“ → confirmed (also in ⚖ Законски промени)
+    if (!n.verified) await tx.update(lawChanges).set({ verified: true }).where(eq(lawChanges.id, lawId));
+    await audit(tx, { userId: u.id, action: 'socialPostNow', entityType: 'law_changes', entityId: lawId, data: { confirmed: !n.verified } });
+  });
   await enqueue('social.post', { lawId });
-  await audit(db(), { userId: u.id, action: 'socialPostNow', entityType: 'law_changes', entityId: lawId });
   return { ok: 'Се објавува – за минута освежете ја страницата.' };
 }
 

@@ -31,8 +31,8 @@ export default async function DrustveniPage() {
   const [s, P, recent] = await Promise.all([
     getSocialSettings(db()),
     socialPostList(db(), 30),
-    db().select({ id: lawChanges.id, inst: lawChanges.inst, title: lawChanges.title, what: lawChanges.what, who: lawChanges.who, impact: lawChanges.impact, date: lawChanges.date, from: lawChanges.from, urls: lawChanges.urls })
-      .from(lawChanges).where(eq(lawChanges.verified, true)).orderBy(desc(lawChanges.createdAt)).limit(10),
+    db().select({ id: lawChanges.id, verified: lawChanges.verified, inst: lawChanges.inst, title: lawChanges.title, what: lawChanges.what, who: lawChanges.who, impact: lawChanges.impact, date: lawChanges.date, from: lawChanges.from, urls: lawChanges.urls })
+      .from(lawChanges).orderBy(desc(lawChanges.createdAt)).limit(10),
   ]);
   const page = socialPage(s);
   const next = s.auto ? await nextSocialNews(db(), s.since) : recent[0] ?? null;
@@ -91,8 +91,10 @@ export default async function DrustveniPage() {
         <div className="tw"><table className="dense">
           <thead><tr><th>Датум</th><th>Институција</th><th>Наслов</th><th /></tr></thead>
           <tbody>{recent.map((n) => (
-            <tr key={n.id}><td>{n.date ?? ''}</td><td>{LAW_INST[n.inst] ?? n.inst}</td><td>{n.title}</td>
-              <td>{posted.has(n.id) ? <span className="pill good">објавено</span> : page ? <RowAction action={socialPostNow.bind(null, n.id)} label="📣 Објави сега" confirm={`Да се објави „${n.title.slice(0, 80)}“ на ${page.name}${page.igName ? ' и Instagram' : ''}?`} showOk /> : null}</td></tr>
+            <tr key={n.id}><td>{n.date ?? ''}</td><td>{LAW_INST[n.inst] ?? n.inst}</td>
+              <td>{n.title}{n.urls[0] && <> · <a href={n.urls[0]} target="_blank" rel="noreferrer">извор</a></>}{!n.verified && <> <span className="pill warn" title="Проверете го изворот пред објавување">⚠ да се потврди</span></>}</td>
+              <td>{posted.has(n.id) ? <span className="pill good">објавено</span> : page && n.urls[0] ? <RowAction action={socialPostNow.bind(null, n.id)} label={n.verified ? '📣 Објави сега' : '✔ Потврди и објави'}
+                confirm={`${n.verified ? '' : 'Ја проверивте веста на официјалниот извор? Ќе се означи како потврдена. '}Да се објави „${n.title.slice(0, 80)}“ на ${page.name}${page.igName ? ' и Instagram' : ''}?`} showOk /> : null}</td></tr>
           ))}</tbody>
         </table></div>
       </div>
