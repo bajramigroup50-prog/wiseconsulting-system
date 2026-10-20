@@ -55,6 +55,19 @@ describe('result accounts (one mapping)', () => {
     expect(C.lines).toContainEqual({ account: '2330', debit: 0, credit: 60 });
     expect(C.lines).toContainEqual({ account: '951', debit: 0, credit: 540.25 });
   });
+  it('the VAT bases 994 / 999 close against each other; a difference is left alone', () => {
+    const B = yeBalanceSet([
+      { account: '994018', debit: 1000, credit: 0 }, { account: '999018', debit: 0, credit: 1000 },
+      { account: '7400', debit: 0, credit: 100 }, { account: '1000', debit: 100, credit: 0 },
+    ]).pre;
+    const C = closeYearLines(B, 0);
+    expect(C.lines).toContainEqual({ account: '994018', debit: 0, credit: 1000 });
+    expect(C.lines).toContainEqual({ account: '999018', debit: 1000, credit: 0 });
+    const d = C.lines.reduce((s, l) => s + l.debit, 0), p = C.lines.reduce((s, l) => s + l.credit, 0);
+    expect(Math.round(d * 100)).toBe(Math.round(p * 100));
+    const U = yeBalanceSet([{ account: '994018', debit: 1000, credit: 0 }, { account: '999018', debit: 0, credit: 900 }, { account: '1000', debit: 0, credit: 100 }]).pre;
+    expect(closeYearLines(U, 0).lines.some((l) => l.account.startsWith('99'))).toBe(false);
+  });
 });
 
 describe('zsCompute', () => {
@@ -70,6 +83,14 @@ describe('zsCompute', () => {
     const r = zsCompute({ year: 2025, ...B, manual });
     expect(r.V.bu202).toBe(10.4);
     expect(r.V.bs060).toBe(0.4);
+  });
+  it('off-balance АОП 064 / 112 without the VAT bases 994 / 999', () => {
+    const B = yeBalanceSet([
+      { account: '994018', debit: 7000, credit: 0 }, { account: '999018', debit: 0, credit: 7000 },
+      { account: '990', debit: 300, credit: 0 }, { account: '995', debit: 0, credit: 300 },
+    ]);
+    const r = zsCompute({ year: 2026, ...B });
+    expect([r.V.bs064, r.V.bs112]).toEqual([300, 300]);
   });
   it('months worked from the registration date and from the first posting', () => {
     const B = yeBalanceSet([]);

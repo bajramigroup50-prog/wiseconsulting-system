@@ -61,10 +61,22 @@ export interface CloseYearResult {
  * `dbAdj[year]` had entries and otherwise `r2(max(0, profit + nd) * 10%)`; the rebuild always takes the ДБ value
  * so the close, bu252 and the ДБ return can never disagree (LEGACY-MAP §8.4 item 8).
  */
-export function closeYearLines(pre: YeBalances, tax: number): CloseYearResult {
+/**
+ * The statistical VAT-base accounts of class 9 (994x „Основица за ДДВ“ against 999x): period figures, not off-balance
+ * items – they are closed against each other in the closing journal and stay out of the balance sheet (АОП 064 / 112).
+ */
+export const VAT_BASE_PREFIXES: readonly string[] = ['994', '999'];
+export const isVatBaseAccount = (k: string, prefixes: readonly string[] = VAT_BASE_PREFIXES) => prefixes.some((p) => k.startsWith(p));
+
+export function closeYearLines(pre: YeBalances, tax: number, o: { statPrefixes?: readonly string[] } = {}): CloseYearResult {
   const A = YEAR_RESULT_ACCOUNTS;
   const lines: YeLine[] = [];
   const L = (account: string, debit: number, credit: number) => lines.push({ account, debit, credit });
+  // 994 / 999 close against each other (only when they balance – a difference is a finding, not a guess)
+  const stat = Object.entries(pre).filter(([k, v]) => isVatBaseAccount(k, o.statPrefixes ?? VAT_BASE_PREFIXES) && Math.abs(v.s) >= 0.005);
+  if (stat.length && Math.abs(r2(stat.reduce((t, [, v]) => t + v.s, 0))) < 0.005) {
+    for (const [k, v] of stat.sort(([a], [b]) => a.localeCompare(b))) { if (v.s > 0) L(k, 0, r2(v.s)); else L(k, r2(-v.s), 0); }
+  }
   let res = 0;
   for (const [k, v] of Object.entries(pre)) {
     if (!(k.startsWith('4') || k.startsWith('7')) || Math.abs(v.s) < 0.005) continue;

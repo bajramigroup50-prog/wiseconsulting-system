@@ -19,6 +19,7 @@ import { r2 } from '../money';
 import zsData from '../data/yearend-zs-def.json';
 import miscData from '../data/yearend-misc.json';
 import { yeSplitKonta, yeSumPref, type YeBalances } from './balances';
+import { VAT_BASE_PREFIXES } from './close';
 
 export type ZsReport = 'bu' | 'bs';
 export interface ZsRule {
@@ -211,7 +212,9 @@ function zsBase(inp: ZsInput, R: readonly ZsRule[], profit: number, kontaPart: R
     for (const x of R) {
       const B = x.r === 'bs' && cl ? inp.all : inp.pre;
       let v = 0;
-      if (x.k) v = yeSumPref(B, x.r === 'bu' && !x.custom && skip.length ? [...yeSplitKonta(x.k), ...skip] : yeSplitKonta(x.k), +x.s || 1);
+      // off-balance (АОП 064 / 112): the statistical VAT-base accounts 994 / 999 are not off-balance items
+      const stat = !inp.legacy && x.r === 'bs' && (x.aop === '064' || x.aop === '112') && !x.custom ? VAT_BASE_PREFIXES.map((p) => '!' + p) : [];
+      if (x.k) v = yeSumPref(B, x.r === 'bu' && !x.custom && skip.length ? [...yeSplitKonta(x.k), ...skip] : [...yeSplitKonta(x.k), ...stat], +x.s || 1);
       if (x.r === 'bu' && ['214', '215', '216'].includes(x.aop) && !x.custom) {
         const split = yeSumPref(B, ['4201', '4202', '4211', '4212'], 1);
         if (!split && P.length) {
