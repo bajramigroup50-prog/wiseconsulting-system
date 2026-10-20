@@ -11,7 +11,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
 import {
   bomCycle, cogsAccount, dailySalesTotals, fiskEntries, levellingEntries, levellingLines, levellingReversal, nextYearNumber, postIn,
-  postOut, postTransfer, priceAt, productionNeeds, reaverage, runProduction, salesVatBases, schemeValue, stockAt, transferShortages, vbLines,
+  postOut, postTransfer, priceAt, productionNeeds, reaverage, runProduction, salesVatBases, schemeValue, stockAt, stockAtAll, transferShortages, vbLines,
   type FiscalSchemeKey, type JournalLine, type LevellingDoc, type ProductionRecord, type SalesDoc, type StockContext, type StockItem,
   type StockMove,
 } from '@wise/core';
@@ -302,10 +302,12 @@ export async function saveStockCount(tx: Tx, a: Actor, input: StockCountInput): 
   let docLines: StockCountLine[];
   if (kind === 'count') {
     docLines = [];
+    // the book balance of every item at that date in ONE pass (a popis has hundreds of lines; stockAt per line scanned all moves each)
+    const bal = stockAtAll(L.ctx, { wh: W, date: input.date });
     for (const l of input.lines) {
       if (!l.itemId || l.cnt == null || !Number.isFinite(l.cnt)) continue;
       const it = requireTracked(L, l.itemId);
-      const sys = stockAt(L.ctx, { item: it.id, wh: W, date: input.date }).qty;
+      const sys = bal.get(it.id)?.qty ?? 0;
       const diff = r4(l.cnt - sys);
       if (Math.abs(diff) > 1e-9) docLines.push({ itemId: it.id, sys, cnt: r4(l.cnt), diff, sp: priceAt(L.ctx, it, W, input.date) });
     }

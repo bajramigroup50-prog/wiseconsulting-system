@@ -172,8 +172,12 @@ export async function loadStockContext(tx: Tx, firmId: string, opts: { excludeSo
 }
 
 /** Item id → tracked core item, or a user error. */
+const ITEM_BY_ID = new WeakMap<readonly StockItem[], { len: number; m: Map<string, StockItem> }>();
 export function requireTracked(L: LoadedStock, itemId: string): StockItem {
-  const it = L.ctx.items?.find((i) => i.id === itemId);
+  const its = L.ctx.items ?? [];
+  let e = ITEM_BY_ID.get(its);
+  if (!e || e.len !== its.length) { e = { len: its.length, m: new Map(its.map((i) => [i.id, i])) }; ITEM_BY_ID.set(its, e); }
+  const it = e.m.get(itemId);
   if (!it) throw new StockDocError('Артиклот не постои во оваа фирма.');
   if (!it.type || it.type === 'service') throw new StockDocError(`„${it.name}“ е услуга – нема залиха.`);
   return it;

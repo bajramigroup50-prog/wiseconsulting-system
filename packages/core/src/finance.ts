@@ -69,9 +69,21 @@ function runCard(L: readonly CardLine[], from: string, to: string, sort: CardSor
   return { o, rows: R, td, tp, end: r2(o + td - tp) };
 }
 
+const BY_PARTNER = new WeakMap<readonly CardLine[], { len: number; m: Map<string, CardLine[]> }>();
+/** Lines of one partner, from a partner → lines map built once per lines array (all cards of all partners: one pass). */
+function linesOfPartner(lines: readonly CardLine[], partnerId: string): CardLine[] {
+  let e = BY_PARTNER.get(lines);
+  if (!e || e.len !== lines.length) {
+    const m = new Map<string, CardLine[]>();
+    for (const l of lines) { if (!l.partnerId) continue; const a = m.get(l.partnerId); if (a) a.push(l); else m.set(l.partnerId, [l]); }
+    e = { len: lines.length, m }; BY_PARTNER.set(lines, e);
+  }
+  return e.m.get(partnerId) ?? [];
+}
+
 /** Legacy `kcCard` 6430: one card per konto of the partner (lines of the year up to `to`). */
 export function partnerKontoCards(lines: readonly CardLine[], partnerId: string, o: { from: string; to: string; sort?: CardSort }): KontoCard[] {
-  const my = lines.filter((l) => l.partnerId === partnerId);
+  const my = linesOfPartner(lines, partnerId);
   const ks = [...new Set(my.map((l) => String(l.account)))].sort();
   return ks.map((k) => ({ k, ...runCard(my.filter((l) => String(l.account) === k), o.from, o.to, o.sort ?? 'date') }));
 }

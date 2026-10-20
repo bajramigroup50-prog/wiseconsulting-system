@@ -397,6 +397,19 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
   const changed = new Set<string>();
   const changedP: string[] = [];
   const live: StockContext = { ...ctx, moves };
+  // indexes over the copied moves, built once (the copies are changed in place, so they stay valid): a filter per
+  // item and a find per transfer scanned every move for every item (17.000 items → minutes)
+  const byItem = new Map<string, StockMove[]>();
+  const tinOf = new Map<string, StockMove>();
+  const outsOf = new Map<string, StockMove[]>();
+  const byId = new Map<string, StockMove>();
+  for (const m of moves) {
+    if (!byId.has(m.id)) byId.set(m.id, m);
+    if (m.pend) continue;
+    const a = byItem.get(m.item); if (a) a.push(m); else byItem.set(m.item, [m]);
+    if (m.type === 'transfer-in' && !tinOf.has(m.src + '|' + m.item)) tinOf.set(m.src + '|' + m.item, m);
+    if (m.type === 'prod-out') { const o = outsOf.get(String(m.src)); if (o) o.push(m); else outsOf.set(String(m.src), [m]); }
+  }
 
   const setValue = (m: StockMove, nv: number, marginAcc?: string) => {
     const old = Math.abs(num(m.value));
@@ -407,7 +420,7 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
 
   const pass = (types: string[]) => {
     for (const it of trackedItems(ctx).filter((i) => types.includes(String(i.type)))) {
-      const mine = moves.filter((m) => m.item === it.id && !m.pend);
+      const mine = byItem.get(it.id) ?? [];
       const whs = [...new Set(mine.map(whOf))];
       for (let guard = 0, dirty = true; dirty && guard < 10; guard++) {
         dirty = false;
@@ -432,7 +445,7 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
             q += qunits(m.qty);
             v += cents(nv);
             if (m.type === 'transfer') {
-              const tin = moves.find((x) => x.src === m.src && x.type === 'transfer-in' && x.item === m.item && !x.pend);
+              const tin = tinOf.get(m.src + '|' + m.item);
               if (tin && Math.abs(num(tin.value) + nv) > 0.009) {
                 setValue(tin, -nv, retailAccount(live, tin.wh, 'Marg'));
                 dirty = true;
@@ -447,11 +460,11 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
   pass(['goods', 'material']);
   const sch = stockScheme(ctx);
   for (const p of prods) {
-    const outs = moves.filter((m) => m.src === p.id && m.type === 'prod-out' && !m.pend);
+    const outs = outsOf.get(p.id) ?? [];
     const mat = fromCents(-outs.reduce((s, m) => s + cents(m.value), 0));
     if (Math.abs(mat - num(p.mat)) < 0.009) continue;
     const tot = r2(mat + num(p.lab));
-    const pin = moves.find((m) => m.id === p.id + '-in');
+    const pin = byId.get(p.id + '-in');
     if (pin) {
       pin.value = tot;
       pin.lines = productionLines(sch, tot, num(p.lab));

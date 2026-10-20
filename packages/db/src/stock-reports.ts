@@ -95,12 +95,17 @@ export async function stockDocResolver(tx: Tx, L: LoadedStock): Promise<MoveDocR
       tx.select().from(purchaseStockLines).where(inArray(purchaseStockLines.purchaseId, ids)),
       tx.select().from(purchaseCosts).where(inArray(purchaseCosts.purchaseId, ids)),
     ]);
+    // lines and costs grouped by purchase once (a filter per purchase scanned all of them for every purchase)
+    const stBy = new Map<string, typeof st>();
+    for (const x of st) { const a = stBy.get(x.purchaseId); if (a) a.push(x); else stBy.set(x.purchaseId, [x]); }
+    const csBy = new Map<string, typeof cs>();
+    for (const c of cs) { const a = csBy.get(c.purchaseId); if (a) a.push(c); else csBy.set(c.purchaseId, [c]); }
     for (const p of pu) {
       const bp: BookPurchase = {
         id: p.id, calcNo: p.calcNo ?? undefined, number: p.number, date: p.date, docDate: p.docDate ?? undefined, art32: p.art32, imp: p.imp, fx: Number(p.fx),
         wh: whId(p.warehouseId), cnames: p.cnames, distMode: p.distMode,
-        costs: Object.fromEntries(cs.filter((c) => c.purchaseId === p.id).map((c) => [c.slot, { amt: Number(c.amount), fx: c.fx ?? undefined, byQty: c.byQty, lines: c.lines }])),
-        stock: st.filter((x) => x.purchaseId === p.id).map((x) => ({ item: x.itemId, qty: Number(x.qty), price: Number(x.price), rab: Number(x.rab), cn: x.cn ?? '', dep: x.dep ?? '', sp: x.sp ?? '' })),
+        costs: Object.fromEntries((csBy.get(p.id) ?? []).map((c) => [c.slot, { amt: Number(c.amount), fx: c.fx ?? undefined, byQty: c.byQty, lines: c.lines }])),
+        stock: (stBy.get(p.id) ?? []).map((x) => ({ item: x.itemId, qty: Number(x.qty), price: Number(x.price), rab: Number(x.rab), cn: x.cn ?? '', dep: x.dep ?? '', sp: x.sp ?? '' })),
       };
       purTotals.set(p.id, purchaseBookTotals(L.ctx, bp));
       purItems.set(p.id, purchaseBookItems(L.ctx, bp));
