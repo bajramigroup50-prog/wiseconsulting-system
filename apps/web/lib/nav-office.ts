@@ -7,7 +7,7 @@ import type { NavGroup, NavItem } from './nav-data';
 
 /** [group, anchor id (insert after; null = first), items] */
 const ADD: [string, string | null, NavItem[]][] = [
-  ['Канцеларија', null, [['autop', '🤖 Автопилот'], ['iso', '🏅 ISO – Квалитет']]],
+  ['Канцеларија', null, [['autop', '🤖 Автопилот'], ['iso', '🏅 ISO – Квалитет'], ['ifac', '🤝 IFAC – Ангажмани и етика']]],
   ['Канцеларија', 'osnovanje', [['tpl', '📄 Шаблони'], ['aml', '🛡 Спречување перење пари (УФР)'], ['zzlp', '🔐 Заштита на лични податоци (ЗЗЛП)']]],
   ['Фирми', 'zatvoranje', [['insp', '🕵 Подготвеност за инспекција'], ['zakon', '⚖ Законска усогласеност'], ['kontroli', '📑 Контроли и решенија (анализа)']]],
 ];

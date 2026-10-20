@@ -14,7 +14,10 @@ import { NotClosedNote, ZsHead } from '@/components/yearend/ph-bar';
 import { RowAction } from '@/components/row-action';
 import { ActionForm } from '@/components/yearend/action-form';
 import { YearGo } from '@/components/yearend/year-go';
-import { carryState } from '@wise/db';
+import { qcStatus } from '@wise/core/office/ifac';
+import { carryState, qcAuto, qcOf } from '@wise/db';
+import { isDemoUser } from '@/lib/demo';
+import { today } from '@/lib/office';
 import { db } from '@/lib/db';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
 import { archiveNotesAction, openYearAction, setCrmPeriodAction } from './actions';
@@ -44,6 +47,9 @@ export default async function ZsProcPage() {
   const zsArch = ((firm.settings ?? {}) as { zsArch?: Record<string, { at: string }> }).zsArch ?? {};
   const prevA = zsArch[String(year - 1)];
   const hasPrev = Object.values(L.prev.V).some((v) => Math.round(v || 0) !== 0) || (!!L.prevStatement && Object.keys(L.prevStatement.zsMan).length > 0);
+  // ISQM 1: the engagement's acceptance and the review of the final accounts by a second person (🤝 IFAC)
+  const [q, qx] = await Promise.all([db().transaction((tx) => qcOf(tx, firm.id, year)), db().transaction((tx) => qcAuto(tx, firm.id, year, isDemoUser(u)))]);
+  const QS = q ? qcStatus(q, qx, today()) : null;
   const EUR = 61.5;
   const fi = (v: number) => Math.round(v).toLocaleString('de-DE');
   const sz = { emp: Math.round(V.bu257 || 0), inc: Math.round((V.bu201 || 0) + (V.bu223 || 0) + (V.bu244 || 0) + (V.bu248 || 0)), ast: Math.round(V.bs063 || 0) };
@@ -52,6 +58,7 @@ export default async function ZsProcPage() {
     ...(ent === 'co' ? [[!!L.statement && Object.keys(L.statement.dbAdj).length > 0, `Даночен биланс: данок ${fmt(L.Y.co.db.tax)} ден.`, '/zs_db'] as [boolean, React.ReactNode, string]] : []),
     [!!L.closeJournal, L.closeJournal ? `Затворена (налог ${L.closeJournal.number}${cl?.imported ? ', од увезен бруто биланс' : ''})` : 'Годината не е затворена', '/mbyllja'],
     [!!L.statement && Object.keys(L.statement.notes).length > 0, 'Објаснувачки белешки', '/zsBel'],
+    [!!QS?.review.ok, QS?.review.ok ? `Прегледано од второ лице (ISQM 1) на ${dmy(QS.review.on)}` : 'Преглед од второ лице (ISQM 1) – не е направен', '/ifac?t=qc'],
     [!!L.statement && ['submitted', 'accepted'].includes(L.statement.status), `Годишна сметка: ${ST[L.statement?.status ?? 'draft']}`, '/zsXml'],
     [!!L.openJournal, L.openJournal ? `Пренесено во ${year + 1} (налог ${L.openJournal.number})` : `Почетна состојба ${year + 1} не е пренесена`, '/prenos'],
     [L.locked, L.locked ? `Заклучена (до ${dmy(firm.lockDate)})` : 'Не е заклучена', '/prenos'],
@@ -118,6 +125,13 @@ export default async function ZsProcPage() {
           <p className="mini" style={{ margin: '6px 0 0' }}>Вработени {sz.emp} · приход {fmt(sz.inc)} ден. (≈ {fi(sz.inc / EUR)} €) · актива {fmt(sz.ast)} ден. (≈ {fi(sz.ast / EUR)} €). Ред: 1. ДБ во УЈП → 2. годишна сметка + белешки во ЦРМ.</p>
         </Card>
       )}
+      <Card t="✅ Контрола на квалитет (ISQM 1)" ok={QS ? QS.ok : false} href="/ifac?t=qc">
+        <p className="mini" style={{ margin: 0 }}>
+          Прифаќање / продолжување: {QS ? `${QS.accept.done}/${QS.accept.total}${QS.accept.declined ? ' · ⚠ одбиен' : QS.accept.decided ? ' · одлучено' : ' · без одлука'}` : 'не е пополнето'} ·
+          {' '}Преглед од второ лице: {QS?.review.ok ? <b>✓ {dmy(QS.review.on)}</b> : QS?.review.by && !QS.review.second ? '⚠ прегледувачот е ист со изготвувачот' : `${QS?.review.done ?? 0}/${QS?.review.total ?? 6} – пред поднесување`} ·
+          {' '}Писмо за ангажман: {qx.letter === 'signed' ? '✓ потпишано' : qx.letter ? 'чека потпис' : 'нема'}.
+        </p>
+      </Card>
       <Card t="7. Досие на годината" ok={null} href="/zsDos"><p className="mini" style={{ margin: 0 }}>Сите датотеки на годината (XML, биланси, белешки, ДБ) и потврдите од ЦРМ и УЈП – „💾 Зачувај ги датотеките за {year}“.</p></Card>
       <Card t="8. Нова година" ok={!!L.openJournal} href="/prenos">
         {!L.closeJournal
