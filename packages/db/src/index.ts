@@ -82,6 +82,7 @@ export * from './ai-budget';
 export * from './ai-reuse';
 export * from './compliance';
 export * from './iso';
+export * from './ifac';
 export * from './kontrola-prep';
 export * from './law-search';
 export * from './client-report';
