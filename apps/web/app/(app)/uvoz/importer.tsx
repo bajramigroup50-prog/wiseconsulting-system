@@ -6,6 +6,7 @@
  */
 import { startTransition, useActionState, useRef, useState } from 'react';
 import { latToCyr } from '@wise/core/text/cyr';
+import { foreignReason, partnerToCyr } from '@wise/core/text/partner-cyr';
 import { IMP_EXAMPLE, IMP_T, impAuto, impDate, impHeaderRow, impMissing, impNum, impNumFormats, type DecMode, type ImpType } from '@wise/core/retail/import';
 import type { ActionState } from '@/lib/books';
 import { importAction } from '../_retail/actions';
@@ -75,6 +76,10 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
     ? { dev: H.some((x) => /девиз|eur|usd|валута|foreign/i.test(x)) } : null;
   const data = (rows ?? []).slice(hi + 1).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
   const cell = (v: unknown) => (v instanceof Date ? impDate(v) : String(v ?? ''));
+  // „Во кирилица“: partners – keyboard Latin („MA[INA“) key by key, other Latin letter by letter, YUSCII leftovers repaired;
+  // a row that looks like a real foreign company (tax number not a 13-digit ЕДБ, Ltd / GmbH / Microsoft…) stays in Latin
+  const toCyr = (r: unknown[], txt: string) => t !== 'partners' ? latToCyr(txt)
+    : foreignReason({ name: map.name != null ? cell(r[map.name]) : '', edb: map.edb != null ? cell(r[map.edb]) : '' }) ? txt : partnerToCyr(txt);
   // number format per column (`numfmt.ts`): ambiguous columns („10.000“ only) block the import until „Децимали“ is chosen
   const NF = impNumFormats(data, T.f.filter(([k]) => NUM.has(k)).map(([k, n]) => ({ key: k, label: n.replace('*', ''), idx: map[k] })));
   const decOf = (k: string): DecMode => decSel || NF.dec[k] || '';
@@ -90,7 +95,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
     const out = data.map((r) => Object.fromEntries(Object.entries(map).map(([k, i]) => {
       const v = r[i];
       const txt = String(v instanceof Date ? impDate(v) : v ?? '').trim();
-      return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : CYR.has(k) ? latToCyr(txt) : txt];
+      return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : CYR.has(k) ? toCyr(r, txt) : txt];
     })));
     const fd = new FormData();
     fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, ...(withScheme && scheme ? { scheme: Number(scheme) } : {}), rows: out, ...(pastT && allowPast ? { allowPast: true } : {}) }));
@@ -131,7 +136,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
               <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={allowPast} onChange={(e) => setAllowPast(e.target.checked)} style={{ width: 'auto' }} /> Дозволи минати ДДВ периоди (миграција; само сопственик / право „поставки“ – ДДВ-04 на тие периоди треба да се коригира)</label></p>}
             <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label className="mini">Заглавие во ред <input type="number" min={1} value={hi + 1} style={{ width: 60 }} onChange={(e) => { const h = Math.max(0, (Number(e.target.value) || 1) - 1); setHi(h); setMap(impAuto(t, rows[h] ?? [])); }} /></label>
-              {(t === 'partners' || t === 'items') && <label className="chk" title="Називите (и адресата / градот кај комитентите) напишани на латиница се увезуваат на кирилица – прегледот подолу ги покажува"><input type="checkbox" checked={cyr} onChange={(e) => setCyr(e.target.checked)} /> Во кирилица</label>}
+              {(t === 'partners' || t === 'items') && <label className="chk" title="Називите (и адресата / градот кај комитентите) напишани на латиница се увезуваат на кирилица – прегледот подолу ги покажува. Кај комитентите: латиница од македонска тастатура („MA[INA“) и остатоци од YUSCII се поправаат; странските фирми (даночен број што не е ЕДБ, Ltd / GmbH…) остануваат на латиница."><input type="checkbox" checked={cyr} onChange={(e) => setCyr(e.target.checked)} /> Во кирилица</label>}
               <label className="mini">Децимали <select value={decSel} onChange={(e) => setDecSel(e.target.value as DecMode)} style={{ width: 'auto' }}>
                 <option value="">од датотеката</option><option value="comma">1.234,56 – „10.000“ = десет илјади</option><option value="dot">1,234.56 – „10.000“ = десет</option>
               </select></label>
@@ -150,7 +155,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
             <div className="hd"><h2>Преглед (првите 8 редови{nErr ? ' и редовите со грешка' : ''})</h2>{nErr ? <span className="pill bad">{nErr} редови со грешка – ќе се прескокнат</span> : <span className="pill good">сите редови се во ред</span>}</div>
             <div className="tw"><table className="dense">
               <thead><tr><th>Ред</th>{T.f.filter(([k]) => map[k] != null).map(([k, n]) => <th key={k}>{n.replace('*', '')}</th>)}<th>Проверка</th></tr></thead>
-              <tbody>{data.map((r, i) => ({ r, i })).filter(({ i }) => i < 8 || errs[i]).slice(0, 60).map(({ r, i }) => <tr key={i}><td className="mini">{hi + 2 + i}</td>{T.f.filter(([k]) => map[k] != null).map(([k]) => <td key={k}>{CYR.has(k) ? latToCyr(cell(r[map[k]!])) : cell(r[map[k]!])}</td>)}
+              <tbody>{data.map((r, i) => ({ r, i })).filter(({ i }) => i < 8 || errs[i]).slice(0, 60).map(({ r, i }) => <tr key={i}><td className="mini">{hi + 2 + i}</td>{T.f.filter(([k]) => map[k] != null).map(([k]) => <td key={k}>{CYR.has(k) ? toCyr(r, cell(r[map[k]!])) : cell(r[map[k]!])}</td>)}
                 <td>{errs[i] ? <span className="mini" style={{ color: 'var(--bad)' }}>{errs[i]}</span> : '✓'}</td></tr>)}</tbody>
             </table></div>
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10, gap: 8 }}>

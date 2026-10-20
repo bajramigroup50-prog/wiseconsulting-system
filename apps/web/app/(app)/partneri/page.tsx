@@ -1,5 +1,6 @@
 /** Legacy `VIEWS.partneri` 6818 → `partneri0` 6819 (`simpleList`), Шифрарник › Комитенти. */
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { partners, recurringInvoices } from '@wise/db';
 import { REC_EVERY_LBL, type RecEvery } from '@wise/core/office';
@@ -19,9 +20,7 @@ import { loadAiResult } from '@/lib/ai';
 import { filesOf } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { FileChips } from '@/components/file-chips';
-import { saveTk, toCyrillicAction } from './actions';
-import { isLatinName, latToCyr } from '@wise/core/text/cyr';
-import { Submit } from '@/components/action-form';
+import { saveTk } from './actions';
 import { TkScan } from './tk-scan';
 import { PartnerDupView } from './dup-view';
 import { AutoMergeNote } from './auto-merge-note';
@@ -37,32 +36,8 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
     return <PartnerDupView firmId={firm.id} canMerge={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)}
       note={<AutoMergeNote firm={firm} admin={u.role === 'admin'} log={canDo(u, 'users', firm.id)} />} />;
   }
-  // „🔤 Латиница → кирилица“: every partner whose name is in Latin, the proposed Cyrillic name (editable), ticked
-  if (sp.cyr !== undefined) {
-    const L = (await db().select({ id: partners.id, name: partners.name, code: partners.code, edb: partners.edb }).from(partners).where(eq(partners.firmId, firm.id)).orderBy(asc(partners.name)))
-      .filter((p) => isLatinName(p.name));
-    return (
-      <>
-        <Hd t="Партнери – латиница → кирилица" sub={`${L.length} комитенти со назив на латиница`}><Link className="btn" href="/partneri">← Партнери</Link></Hd>
-        <div className="callout info">Предлогот е буква по буква (Bajrami → Бајрами, DOOEL → ДООЕЛ, Xhemaili → Џемаили). Странски имиња и марки поправете ги во полето пред „Примени“; одштиклирајте ги оние што треба да останат на латиница (пр. KFC). Се претвораат и адресата и градот ако се на латиница.</div>
-        {L.length ? (
-          <ActionForm action={toCyrillicAction} reset={false}>
-            <div className="tw"><table className="dense">
-              <thead><tr><th>✓</th><th>Шифра</th><th>ЕДБ</th><th>Сега (латиница)</th><th>Ќе биде (кирилица) – може да се поправи</th></tr></thead>
-              <tbody>{L.map((p) => (
-                <tr key={p.id}>
-                  <td><input type="checkbox" name="on" value={p.id} defaultChecked aria-label="Претвори" /></td>
-                  <td>{p.code}</td><td className="mini">{p.edb}</td><td>{p.name}</td>
-                  <td><input name={'n_' + p.id} defaultValue={latToCyr(p.name)} style={{ width: '100%', minWidth: 280 }} /></td>
-                </tr>
-              ))}</tbody>
-            </table></div>
-            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><Submit>🔤 Примени на штиклираните</Submit></div>
-          </ActionForm>
-        ) : <div className="callout good">✓ Сите комитенти се на кирилица.</div>}
-      </>
-    );
-  }
+  // the old „🔤 Латиница → кирилица“ list is now the „Поправка на кирилица“ screen
+  if (sp.cyr !== undefined) redirect('/partneri/kirilica');
   const q = (sp.q ?? '').trim();
   const where = and(eq(partners.firmId, firm.id), q
     ? or(ilike(partners.name, `%${q}%`), ilike(partners.edb, `%${q}%`), ilike(partners.code, `%${q}%`), ilike(partners.city, `%${q}%`))
@@ -97,7 +72,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       <Hd t="Партнери" sub={`${total?.n ?? 0} комитенти`}>
         {write && !showForm && <Link className="btn" href="/uvoz?t=partners&back=partneri">Увоз од Excel</Link>}
         {write && noCode && <RowAction className="btn" action={autoCodesAction} label="Додели шифри" title="Автоматски шифри за сите без шифра" />}
-        {write && <Link className="btn" href="/partneri?cyr" title="Називите напишани на латиница – во кирилица (со преглед и поправка)">🔤 Латиница → кирилица</Link>}
+        {write && <Link className="btn" href="/partneri/kirilica" title="Називи, адреси и градови на латиница (или со остатоци од YUSCII) – во кирилица, со преглед и поправка">🔤 Поправка на кирилица</Link>}
         <Link className="btn" href="/partneri?dup" title="Комитенти со ист ЕДБ / ЕМБС или слично име – спојување">Дупликати</Link>
         {write && <Link className="btn pri" href="/partneri?nov">+ Додај</Link>}
       </Hd>
