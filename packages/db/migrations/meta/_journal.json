@@ -246,6 +246,13 @@
       "when": 1792238829326,
       "tag": "0034_invoice_line_vat_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792487361344,
+      "tag": "0035_iso_records",
+      "breakpoints": true
     }
   ]
 }

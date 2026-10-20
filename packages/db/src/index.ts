@@ -81,6 +81,7 @@ export * from './ai-settings';
 export * from './ai-budget';
 export * from './ai-reuse';
 export * from './compliance';
+export * from './iso';
 export * from './kontrola-prep';
 export * from './law-search';
 export * from './client-report';
