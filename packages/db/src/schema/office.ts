@@ -23,7 +23,7 @@ const firmFk = (name = 'firm_id') => uuid(name).references(() => firms.id, { onD
 /** Entity types used in `file_links.entity_type` by this module. */
 export const OFFICE_FILE_ENTITY = {
   dossier: 'dossier_doc', task: 'office_task', inbox: 'inbox_item', clientEntry: 'client_entry',
-  template: 'word_template', gdpr: 'gdpr_record', formation: 'formation_case', contract: 'service_contract', package: 'doc_package',
+  template: 'word_template', gdpr: 'gdpr_record', formation: 'formation_case', contract: 'service_contract', package: 'doc_package', iso: 'iso_record',
 } as const;
 
 /* ---------------- Dossier ---------------- */

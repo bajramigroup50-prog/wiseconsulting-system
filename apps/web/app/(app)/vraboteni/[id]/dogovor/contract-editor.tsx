@@ -54,6 +54,10 @@ export function ContractEditor({ employee, firm, c0, saved, params, taken, canWr
             {F('notice', 'Отказен рок (месеци)', 'number')}
             {F('rep', 'Застапник на работодавачот')}
             {F('repRole', 'Функција')}
+            <label className="f wide">Распоред на работното време<input value={c.schedule ?? ''} disabled={!canWrite} onChange={(ev) => set('schedule', ev.target.value)} /></label>
+            <label className="f wide">Колективен договор<input value={c.cba ?? ''} disabled={!canWrite} onChange={(ev) => set('cba', ev.target.value)} /></label>
+            <label className="chk wide" title="ISO/IEC 27001 A.6 и ЗЗЛП: доверливост и по престанокот, безбедност на информациите, овластено лице, средства, инциденти, политики и обуки, етика, дисциплински мерки – како членови на договорот (2 примероци)">
+              <input type="checkbox" checked={!!c.iso} disabled={!canWrite} onChange={(ev) => set('iso', ev.target.checked)} /> Одредби за доверливост, безбедност на информациите и лични податоци (ISO 27001 · ЗЗЛП)</label>
           </div>
           <div className="row" style={{ gap: 6, marginTop: 6 }}>
             <button className="btn sm" type="button" disabled={!canWrite || !c.net} onClick={() => set('gross', g4n(+c.net * (+c.hours < 40 ? +c.hours / 40 : 1), params, +params.exempt))}>Бруто од нето ({fmt(g4n(+c.net || 0, params, +params.exempt))})</button>

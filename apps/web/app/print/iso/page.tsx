@@ -2,12 +2,16 @@
  * „Преглед од раководството“ (ISO 9001 §9.3) of the office for one year, composed from the ISO registers: complaints
  * (ISO 10002), nonconformities and corrective actions, internal audits, risks, objectives, trainings, information
  * security incidents (ISO 27001), personal data (ISO 27701 / ЗЗЛП – with the ЗЗЛП screen's register), business
- * continuity (ISO 22301), the documents in force, the system evidence; the decisions are written by hand.
+ * continuity (ISO 22301), the audit programme, the employees (A.6), suppliers, the certification readiness, the
+ * documents in force, the system evidence; the decisions of the recorded review (register „Прегледи од раководството“)
+ * or lines to write them by hand. `?doc=soa` prints the Statement of Applicability (ISO/IEC 27001 §6.1.3 d).
  */
 import { notFound } from 'next/navigation';
 import { can } from '@wise/core';
-import { BCP_STATE, ISO_STATUS, isoNo, isoReview, type IsoKind, type IsoRow, type IsoStatus } from '@wise/core/office/iso';
-import { getOfficeProfile, isoEvidence, isoGdprLinks, isoRecords } from '@wise/db';
+import { BCP_STATE, ISO_DOC, ISO_STATUS, isoNo, isoReview, type IsoRow, type IsoSign } from '@wise/core/office/iso';
+import { SOA_THEMES, soaSummary, type SoaTheme } from '@wise/core/office/iso-soa';
+import { getOfficeProfile, isoEvidence, isoGdprLinks } from '@wise/db';
+import { loadIsoRows, loadReadiness, loadSoaMerged, loadStaff } from '../../(app)/iso/iso-data';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { today } from '@/lib/office';
@@ -16,14 +20,19 @@ import { viewAllowed } from '@/lib/nav';
 
 export const metadata = { title: 'Преглед од раководството' };
 
-export default async function PrintIso({ searchParams }: { searchParams: Promise<{ y?: string }> }) {
+export default async function PrintIso({ searchParams }: { searchParams: Promise<{ y?: string; doc?: string }> }) {
   const u = await requireUser();
   if (!viewAllowed(u.role, 'iso') || !can(u.principal, 'office', null)) notFound();
   const sp = await searchParams;
   const year = /^\d{4}$/.test(sp.y ?? '') ? Number(sp.y) : new Date().getFullYear();
-  const [R0, O] = await Promise.all([db().select().from(isoRecords), getOfficeProfile(db())]);
-  const R: IsoRow[] = R0.map((r) => ({ id: r.id, kind: r.kind as IsoKind, no: r.no, year: r.year, title: r.title, status: r.status as IsoStatus, due: r.due, created: r.createdAt.toISOString(), closed: r.closedAt?.toISOString() ?? null, data: r.data ?? {} }));
+  const [R, O] = await Promise.all([loadIsoRows(), getOfficeProfile(db())]);
+  if (sp.doc === 'soa') return <SoaPrint office={O.name ?? ''} R={R} />;
   const td = today(), asOf = String(year) === td.slice(0, 4) ? td : `${year}-12-31` < td ? `${year}-12-31` : td;
+  const staff = await loadStaff(R, asOf);
+  const ready = await loadReadiness(R, staff.lines, year, asOf);
+  const plans = R.filter((r) => r.kind === 'auditplan' && (r.year === year || String(r.data.month ?? '').startsWith(String(year))));
+  const rec = R.filter((r) => r.kind === 'review' && (r.year === year || String(r.data.date ?? '').startsWith(String(year)))).sort((a, b) => b.created.localeCompare(a.created))[0];
+  const sup = R.filter((r) => r.kind === 'supplier');
   const V = isoReview(R, year, asOf);
   const [ev, G] = await Promise.all([db().transaction((tx) => isoEvidence(tx, new Date(`${year}-01-01T00:00:00Z`))), db().transaction((tx) => isoGdprLinks(tx, year, asOf))]);
   const P = V.privacy, C = V.continuity;
@@ -46,6 +55,9 @@ export default async function PrintIso({ searchParams }: { searchParams: Promise
       <p>Вкупно <b>{V.nc.n}</b>, отворени <b>{V.nc.open}</b>.{V.nc.bySource.length ? <> По извор: {V.nc.bySource.map(([k, n]) => `${k} ${n}`).join(', ')}.</> : null}</p>
 
       <H n={3} t="Резултати од внатрешните проверки (§9.2)" />
+      {plans.length > 0 ? <table style={{ marginBottom: '2mm' }}><thead><tr><th>Програма {year}</th><th>Планирано</th><th>Проверувач</th><th>Извршено</th></tr></thead><tbody>
+        {plans.map((p) => { const a = V.audits.find((x) => x.data.plan === p.id && x.status === 'done'); return <tr key={p.id}><td>{p.title}</td><td>{p.data.month ? dmy(String(p.data.month)) : ''}</td><td>{String(p.data.auditor ?? '')}</td><td>{a ? `${no(a)}${a.data.date ? ' · ' + dmy(String(a.data.date)) : ''}` : String(p.data.month ?? '') < asOf ? '⚠ не е извршена' : 'претстои'}</td></tr>; })}
+      </tbody></table> : <p>⚠ Нема програма за внатрешни проверки за {year}.</p>}
       {V.audits.length ? <table><thead><tr><th>Бр.</th><th>Проверка</th><th>Датум</th><th>Заклучок</th></tr></thead><tbody>
         {V.audits.map((r) => <tr key={r.id}><td>{no(r)}</td><td>{r.title}</td><td>{r.data.date ? dmy(String(r.data.date)) : ''}</td><td>{String(r.data.conclusion ?? '')}</td></tr>)}
       </tbody></table> : <p>⚠ Во {year} нема евидентирана внатрешна проверка.</p>}
@@ -83,16 +95,61 @@ export default async function PrintIso({ searchParams }: { searchParams: Promise
       </tbody></table> : <p>⚠ Нема план за континуитет.</p>}
       <p>Тестови на враќање од резервна копија и вежби во {year}: <b>{C.tests.length}</b>{C.tests.length ? <> (успешни {C.tests.filter((r) => r.data.result === 'успешно').length})</> : null}{C.tests.filter((r) => r.data.type === 'тест на враќање од резервна копија').length < 2 ? <> – ⚠ препорачано најмалку 2 теста на враќање годишно.</> : '.'}</p>
 
-      <H n={10} t="Документи во сила (§7.5)" />
-      {V.policies.length ? <table><thead><tr><th>Документ</th><th>Верзија</th><th>Одобрил</th><th>Одобрено</th></tr></thead><tbody>
-        {V.policies.map((r) => <tr key={r.id}><td>{r.title}</td><td>{String(r.data.version ?? '')}</td><td>{String(r.data.approvedBy ?? '')}</td><td>{r.data.approvedOn ? dmy(String(r.data.approvedOn)) : '⚠ неодобрено'}</td></tr>)}
+      <H n={10} t="Вработени – безбедност на човечките ресурси (ISO/IEC 27001 A.6)" />
+      {staff.lines.length ? <table><thead><tr><th>Вработен</th><th>Договор (одредби за безбедност, потпишан)</th><th>Политики</th><th>Обука</th><th>Пристап</th></tr></thead><tbody>
+        {staff.lines.map((l) => <tr key={l.emp.id}><td>{l.emp.name}</td><td>{l.s.contract === 'ok' ? '✓' : l.s.contract === 'part' ? '◐' : '✗'} {l.contract ? `бр. ${l.contract.no}` : 'не е заведен'}{l.row?.data.contractOn ? ` · потпишан ${dmy(String(l.row.data.contractOn))}` : ''}</td>
+          <td>{l.s.policies === 'ok' ? '✓' : l.s.policies === 'na' ? '–' : l.s.policies === 'part' ? '◐ нова верзија' : '✗'}</td><td>{l.s.trainedOn ? dmy(l.s.trainedOn) : '✗'}</td><td>{l.s.access === 'ok' || l.s.access === 'na' ? '✓' : '⚠'}</td></tr>)}
+      </tbody></table> : <p>Нема вработени во фирмата на канцеларијата.</p>}
+
+      <H n={11} t="Надворешни добавувачи (§8.4 · A.5.19–5.22)" />
+      <p>Добавувачи <b>{sup.length}</b>, оценети <b>{sup.filter((r) => r.data.evaluation).length}</b>, со лични податоци без договор за обработка <b>{sup.filter((r) => r.data.personal === 'да' && r.data.dpa !== 'потпишан / прифатен').length}</b>.</p>
+
+      <H n={12} t="Подготвеност за сертификација" />
+      <table><thead><tr><th>Стандард</th><th>Подготвено</th><th>Отворено</th></tr></thead><tbody>
+        {ready.map((s) => <tr key={s.std}><td>{s.n}</td><td>{s.pct}%</td><td>{s.items.filter((x) => x.state !== 'ok').map((x) => `${x.clause} ${x.n}`).filter((x, i, a) => a.indexOf(x) === i).slice(0, 12).join('; ') || '—'}</td></tr>)}
+      </tbody></table>
+
+      <H n={13} t="Документи во сила (§7.5)" />
+      {V.policies.length ? <table><thead><tr><th>Ознака</th><th>Документ</th><th>Верзија</th><th>Одобрил</th><th>Одобрено</th><th>Преглед</th></tr></thead><tbody>
+        {[...V.policies].sort((a, b) => String(a.data.docNo ?? '').localeCompare(String(b.data.docNo ?? ''), 'mk')).map((r) => <tr key={r.id}><td>{String(r.data.docNo ?? '')}</td><td>{r.title}</td><td>{String(r.data.version ?? '')}</td><td>{String(r.data.approvedBy ?? '')}</td><td>{r.data.approvedOn && r.status === 'done' ? dmy(String(r.data.approvedOn)) : '⚠ нацрт'}</td><td>{r.data.reviewOn ? dmy(String(r.data.reviewOn)) : ''}</td></tr>)}
       </tbody></table> : <p>⚠ Нема документи.</p>}
 
-      <H n={11} t="Одлуки и мерки за подобрување (§9.3.3)" />
-      <div className="lines">{Array.from({ length: 6 }, (_, i) => <div key={i} />)}</div>
+      <H n={14} t="Одлуки и мерки за подобрување (§9.3.3)" />
+      {rec ? <>
+        <p>Прегледот е одржан{rec.data.date ? ` на ${dmy(String(rec.data.date))}` : ''}{rec.data.participants ? `; присутни: ${String(rec.data.participants)}` : ''} ({no(rec)}).</p>
+        {rec.data.decisions ? <p style={{ whiteSpace: 'pre-line' }}><b>Одлуки:</b> {String(rec.data.decisions)}</p> : null}
+        {rec.data.resources ? <p style={{ whiteSpace: 'pre-line' }}><b>Ресурси / промени:</b> {String(rec.data.resources)}</p> : null}
+        {rec.data.nextOn ? <p>Следен преглед: {dmy(String(rec.data.nextOn))}.</p> : null}
+        {(rec.data._sign as IsoSign | undefined) ? <p className="mini">✍ Потврдил {(rec.data._sign as IsoSign).name}, {dmy((rec.data._sign as IsoSign).at)}</p> : null}
+      </> : <div className="lines">{Array.from({ length: 6 }, (_, i) => <div key={i} />)}</div>}
       <table style={{ marginTop: '10mm' }}><tbody><tr>
         <td style={{ width: '50%' }}>Изработил: ______________________</td><td>Управител: ______________________</td>
       </tr></tbody></table>
+    </div>
+  );
+}
+
+/** ISO/IEC 27001:2022 §6.1.3 d – the Statement of Applicability for print (93 controls), with the approval of СУ-06. */
+async function SoaPrint({ office, R }: { office: string; R: readonly IsoRow[] }) {
+  const L = await loadSoaMerged();
+  const S = soaSummary(L);
+  const d = R.find((r) => r.kind === 'policy' && r.data.docNo === ISO_DOC.soa);
+  return (
+    <div className="pdfdoc">
+      <style dangerouslySetInnerHTML={{ __html: '@page{size:A4 landscape}.pdfdoc table{font-size:8pt;width:100%;border-collapse:collapse}.pdfdoc td,.pdfdoc th{border:1px solid #bbb;padding:1px 3px;vertical-align:top}' }} />
+      <div style={{ textAlign: 'center', marginBottom: '3mm' }}>
+        <div style={{ fontSize: '9pt' }}>{office}</div>
+        <div style={{ fontSize: '14pt', fontWeight: 700 }}>ИЗЈАВА ЗА ПРИМЕНЛИВОСТ (SoA)</div>
+        <div style={{ fontSize: '9pt' }}>ISO/IEC 27001:2022 §6.1.3 d) · Анекс А · {ISO_DOC.soa}{d ? ` · верзија ${String(d.data.version ?? '')}${d.data.approvedOn ? ` · одобрено ${dmy(String(d.data.approvedOn))} (${String(d.data.approvedBy ?? '')})` : ' · ⚠ неодобрено'}` : ' · ⚠ документот не постои'} · изработено {dmy(new Date().toISOString())}</div>
+        <div style={{ fontSize: '9pt' }}>Контроли {S.total}: применливи {S.applicable} (спроведени {S.done}, делумно {S.partial}, планирани {S.planned}), исклучени {S.excluded}; потврдени {S.confirmed}</div>
+      </div>
+      {(Object.keys(SOA_THEMES) as SoaTheme[]).map((t) => (
+        <table key={t} style={{ marginBottom: '3mm' }}><thead><tr><th colSpan={5} style={{ textAlign: 'left', background: '#eee' }}>{SOA_THEMES[t]}</th></tr>
+          <tr><th style={{ width: '20%' }}>Контрола</th><th style={{ width: '6%' }}>Се применува</th><th>Оправдување</th><th style={{ width: '9%' }}>Состојба</th><th>Доказ / спроведување</th></tr></thead>
+          <tbody>{L.filter((c) => c.theme === t).map((c) => <tr key={c.id}><td><b>{c.id}</b> {c.n}</td><td>{c.applicable ? 'да' : 'не'}</td><td>{c.justification}</td><td>{c.status}{c.confirmed ? '' : ' *'}</td><td>{c.evidence}</td></tr>)}</tbody></table>
+      ))}
+      <p style={{ fontSize: '8pt' }}>* предлог, сè уште непотврден од канцеларијата.</p>
+      <table style={{ marginTop: '8mm', border: 0 }}><tbody><tr><td style={{ border: 0, width: '50%' }}>Изработил: ______________________</td><td style={{ border: 0 }}>Одобрил (управител): ______________________</td></tr></tbody></table>
     </div>
   );
 }

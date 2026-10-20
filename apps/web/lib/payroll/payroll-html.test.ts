@@ -63,6 +63,16 @@ describe('HR documents', () => {
     expect(s).not.toContain('НАЦРТ');
     expect(contractHtml(firm, { name: 'Ана' }, c, { draft: true })).toContain('НАЦРТ');
   });
+  it('the office contract: ISO / ЗЗЛП articles of the contract, schedule, collective agreement, 2 copies; others unchanged', () => {
+    const plain = contractHtml(firm, { name: 'Ана' }, c);
+    expect(plain).toContain('3 (три) еднакви примероци');
+    expect(plain).not.toContain('Доверливост');
+    const s = contractHtml(firm, { name: 'Ана' }, { ...c, iso: true, schedule: 'од 08:00 до 16:00', cba: 'Општиот колективен договор' });
+    for (const w of ['Доверливост', 'Овластено лице за обработка на лични податоци', 'Пријавување безбедносни настани', 'Етика и независност', 'Дисциплински мерки', 'од 08:00 до 16:00', 'Општиот колективен договор', '2 (два) еднакви примероци', 'Место:']) expect(s).toContain(w);
+    // the articles are numbered after the salary / leave articles and before termination
+    expect(s.indexOf('Доверливост')).toBeGreaterThan(s.indexOf('годишен одмор'));
+    expect(s.indexOf('Дисциплински мерки')).toBeLessThan(s.indexOf('Отказниот рок'));
+  });
   it('annex, decision, disciplinary and leave documents', () => {
     expect(extHtml(firm, { name: 'Ана' }, c, { kind: 'ext', doc: 'annex', date: '2026-08-20', end: '2027-02-28', no: '9/2026' })).toContain('до 28.02.2027');
     expect(extHtml(firm, { name: 'Ана' }, c, { kind: 'transform', doc: 'odluka', date: '2026-08-20' })).toContain('О Д Л У К А');
