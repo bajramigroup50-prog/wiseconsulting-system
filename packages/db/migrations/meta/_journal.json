@@ -267,6 +267,13 @@
       "when": 1792523324588,
       "tag": "0037_social_posts",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792526914569,
+      "tag": "0038_doc_receipts",
+      "breakpoints": true
     }
   ]
 }

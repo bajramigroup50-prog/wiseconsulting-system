@@ -79,6 +79,7 @@ export * from './auto-repost';
 export * from './firm-years';
 export * from './ai-settings';
 export * from './social';
+export * from './priem';
 export * from './ai-budget';
 export * from './ai-reuse';
 export * from './compliance';
