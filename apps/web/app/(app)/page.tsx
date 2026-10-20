@@ -30,6 +30,7 @@ import { today } from '@/lib/office';
 import { apUnsent, firmScope, pickerFirms, recFirmsDue, topStatus } from '@/lib/top-status';
 import { dmy } from '@/components/hd';
 import { DashMissing } from './dash-missing';
+import { LinkPending } from '@/components/link-pending';
 import { DashInteractive, type DashData } from './dash-interactive';
 import { AinbHeroChip } from '@/components/ainb';
 import { BarChart, HBars, LineChart, Spark } from '@/components/dash-charts';
@@ -317,7 +318,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
       <DashInteractive D={DX} />
       <div className="dfilter" role="group" aria-label="Период">
         <span className="mini">Период:</span>
-        {DASH_PER.map(([k, t]) => <Link key={k} className={`chip ${P === k ? 'on' : ''}`} href={k === 'year' ? '/' : `/?per=${k}`} aria-pressed={P === k}>{t}</Link>)}
+        {DASH_PER.map(([k, t]) => <Link key={k} className={`chip ${P === k ? 'on' : ''}`} href={k === 'year' ? '/' : `/?per=${k}`} aria-pressed={P === k}>{t}<LinkPending /></Link>)}
         <span className="mini" style={{ marginLeft: 'auto' }}>Споредба со ист период {year - 1}</span>
       </div>
       <div className="quick q2">
