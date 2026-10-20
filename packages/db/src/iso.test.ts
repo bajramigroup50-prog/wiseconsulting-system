@@ -1,11 +1,12 @@
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { isoNo, isoReview, type IsoKind, type IsoRow, type IsoStatus } from '@wise/core/office/iso';
+import { bcpStatus, isoNo, isoReview, type IsoKind, type IsoRow, type IsoStatus } from '@wise/core/office/iso';
 import type { Tx } from './audit';
-import { addIsoStarterDocs, isoEvidence, saveIsoRecord, setIsoStatus } from './iso';
+import { addIsoStarterDocs, addIsoStarters, isoEvidence, isoGdprLinks, saveIsoRecord, setIsoStatus } from './iso';
 import * as schema from './schema/index';
 
 const db = drizzle(new PGlite(), { schema });
@@ -33,10 +34,38 @@ describe('ISO registers', () => {
     expect(V.risks.list[0]!.sc).toEqual({ s: 10, cls: 'mid' });
   });
   it('starting documents once, the system evidence', async () => {
-    expect(await addIsoStarterDocs(tx, 'WISE CONSULTING', uid, '2026-03-01')).toBe(6);
+    expect(await addIsoStarterDocs(tx, 'WISE CONSULTING', uid, '2026-03-01')).toBe(10);
     expect(await addIsoStarterDocs(tx, 'WISE CONSULTING', uid, '2026-03-01')).toBe(0);
     const ev = await isoEvidence(tx, new Date('2026-01-01'));
     expect(ev.users.length).toBe(1);
     expect(ev.changes).toBeGreaterThan(5);
+  });
+  it('ISO 27701: processing activities once, a request due in a month, a breach due in 72 h, the ЗЗЛП register linked', async () => {
+    expect(await addIsoStarters(tx, 'processing', 'WISE', uid, '2026-03-01')).toBe(5);
+    expect(await addIsoStarters(tx, 'processing', 'WISE', uid, '2026-03-01')).toBe(0);
+    const d = await saveIsoRecord(tx, { kind: 'dsr', title: 'Пристап – вработен', data: { type: 'пристап до податоците', received: '2026-03-10' } }, uid, '2026-03-11');
+    const i = await saveIsoRecord(tx, { kind: 'incident', title: 'Погрешно испратена платна листа', data: { personal: 'да', found: '2026-03-11T15:30' } }, uid, '2026-03-11');
+    const own = await saveIsoRecord(tx, { kind: 'dsr', title: 'Со рок', due: '2026-03-20', data: {} }, uid, '2026-03-11');
+    const R = await db.select().from(schema.isoRecords);
+    expect(R.find((r) => r.id === d)!.due).toBe('2026-04-10');
+    expect(R.find((r) => r.id === i)!.due).toBe('2026-03-14');
+    expect(R.find((r) => r.id === own)!.due).toBe('2026-03-20');
+    const [f] = await db.insert(schema.firms).values({ name: 'Клиент ДООЕЛ', edb: '4030000000001' } as typeof schema.firms.$inferInsert).returning();
+    await db.insert(schema.gdprRecords).values([
+      { kind: 'dpa', firmId: f!.id, subject: 'Договор', date: '2026-01-05', status: 'signed' },
+      { kind: 'activity', firmId: f!.id, subject: 'Плати', date: '2026-01-05', status: 'signed' },
+      { kind: 'request', firmId: f!.id, subject: 'Бришење', date: '2026-02-01', due: '2026-03-03', status: 'open' },
+    ]);
+    expect(await isoGdprLinks(tx, 2026, '2026-03-11')).toMatchObject({ dpa: 1, activities: 1, activityFirms: 1, requests: { n: 1, open: 1, late: 1 }, breaches: { n: 0 } });
+  });
+  it('ISO 22301: the starting scenarios keep RTO / RPO, a restore test refers to its scenario', async () => {
+    expect(await addIsoStarters(tx, 'bcp', 'WISE', uid, '2026-03-01')).toBe(6);
+    const [p] = await db.select().from(schema.isoRecords).where(eq(schema.isoRecords.title, 'Серверот / програмата не работи'));
+    expect(p!.data).toMatchObject({ rto: 4, rpo: 24, every: 6 });
+    const t = await saveIsoRecord(tx, { kind: 'bctest', title: 'Враќање на копија од 01.03', data: { plan: p!.id, type: 'тест на враќање од резервна копија', date: '2026-03-02', took: '2', lost: '20', result: 'успешно' } }, uid, '2026-03-02');
+    const R = (await db.select().from(schema.isoRecords)).map((r): IsoRow => ({ id: r.id, kind: r.kind as IsoKind, no: r.no, year: r.year, title: r.title, status: r.status as IsoStatus, due: r.due, created: r.createdAt.toISOString(), closed: r.closedAt?.toISOString() ?? null, data: r.data }));
+    expect(isoNo('bctest', R.find((r) => r.id === t)!.no, 2026)).toBe('ТВ-1/26');
+    const b = bcpStatus(R, '2026-03-05').find((x) => x.r.id === p!.id)!;
+    expect(b).toMatchObject({ lastTest: '2026-03-02', next: '2026-09-02', rtoMet: true, rpoMet: true, state: 'ok' });
   });
 });

@@ -1,11 +1,12 @@
 /**
  * ISO квалитет of the office (`iso_records`): save / status / delete with the audit, the starting documents, and the
- * evidence the system already holds (users and roles, the change log, system errors) for ISO 27001 / 9001.
+ * evidence the system already holds (users and roles, the change log, system errors) for ISO 27001 / 9001, and the
+ * personal-data records of the ЗЗЛП screen (`gdpr_records`) the ISO 27701 part links to.
  */
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
-import { isoKind, isoStarterDocs, type IsoKind, type IsoStatus } from '@wise/core/office/iso';
+import { isoAutoDue, isoKind, isoStarters, type IsoKind, type IsoStatus } from '@wise/core/office/iso';
 import { audit, type Tx } from './audit';
-import { appErrors, auditLog, isoRecords, users } from './schema/index';
+import { appErrors, auditLog, gdprRecords, isoRecords, users } from './schema/index';
 
 export class IsoError extends Error { constructor(m: string) { super(m); this.name = 'IsoError'; } }
 
@@ -21,7 +22,7 @@ export async function saveIsoRecord(tx: Tx, a: IsoInput, userId: string | null, 
   const status = (STATUSES as readonly string[]).includes(a.status ?? '') ? (a.status as IsoStatus) : 'open';
   // only the register's own fields are kept
   const data = Object.fromEntries(def.fields.map((f) => [f.k, a.data[f.k]]).filter(([, v]) => v != null && v !== ''));
-  const base = { title, status, due: a.due || null, firmId: a.firmId || null, ownerId: a.ownerId || null, data, closedAt: status === 'done' ? new Date() : null };
+  const base = { title, status, due: a.due || isoAutoDue(def.k, data, today), firmId: a.firmId || null, ownerId: a.ownerId || null, data, closedAt: status === 'done' ? new Date() : null };
   if (a.id) {
     const [old] = await tx.select().from(isoRecords).where(eq(isoRecords.id, a.id)).limit(1);
     if (!old) throw new IsoError('Записот не постои.');
@@ -47,16 +48,38 @@ export async function deleteIsoRecord(tx: Tx, id: string, userId: string | null)
   if (r) await audit(tx, { userId, action: 'isoDelete', entityType: 'iso_record', entityId: id, data: r });
 }
 
-/** „📘 Креирај ги основните документи“: the starting policies / procedures not there yet (by title). */
-export async function addIsoStarterDocs(tx: Tx, office: string, userId: string | null, today: string): Promise<number> {
-  const have = new Set((await tx.select({ t: isoRecords.title }).from(isoRecords).where(eq(isoRecords.kind, 'policy' satisfies IsoKind))).map((r) => r.t));
+/**
+ * „📘 Креирај ги основните документи“ / „🗂 … обработки“ / „🧯 … сценарија“: the starting records of a register not
+ * there yet (by title).
+ */
+export async function addIsoStarters(tx: Tx, kind: IsoKind, office: string, userId: string | null, today: string): Promise<number> {
+  const have = new Set((await tx.select({ t: isoRecords.title }).from(isoRecords).where(eq(isoRecords.kind, kind))).map((r) => r.t));
   let n = 0;
-  for (const d of isoStarterDocs(office)) {
+  for (const d of isoStarters(kind, office)) {
     if (have.has(d.title)) continue;
-    await saveIsoRecord(tx, { kind: 'policy', title: d.title, status: 'progress', data: { version: '1.0', text: d.text } }, userId, today);
+    await saveIsoRecord(tx, { kind, title: d.title, status: d.status, data: d.data }, userId, today);
     n++;
   }
   return n;
+}
+export const addIsoStarterDocs = (tx: Tx, office: string, userId: string | null, today: string) => addIsoStarters(tx, 'policy', office, userId, today);
+
+/**
+ * The ЗЗЛП screen's register (`gdpr_records`) in the ISO 27701 part: processing agreements with clients, staff
+ * confidentiality statements, processing activities per client, and the requests / breaches recorded there in `year`
+ * (open ones past their deadline count as late).
+ */
+export async function isoGdprLinks(tx: Tx, year: number, today: string) {
+  const G = await tx.select({ kind: gdprRecords.kind, firmId: gdprRecords.firmId, date: gdprRecords.date, due: gdprRecords.due, status: gdprRecords.status }).from(gdprRecords);
+  const inY = (d: string | null) => !!d && d.startsWith(String(year));
+  const of = (k: string) => G.filter((g) => g.kind === k);
+  const ev = (k: string) => { const L = of(k).filter((g) => inY(g.date)); return { n: L.length, open: L.filter((g) => g.status === 'open').length, late: of(k).filter((g) => g.status === 'open' && g.due && g.due < today).length }; };
+  return {
+    dpa: new Set(of('dpa').map((g) => g.firmId).filter(Boolean)).size,
+    statements: of('izjava').length,
+    activities: of('activity').length, activityFirms: new Set(of('activity').map((g) => g.firmId).filter(Boolean)).size,
+    requests: ev('request'), breaches: ev('breach'),
+  };
 }
 
 /** Evidence from the system (ISO 27001 A.5.15–5.18 access, A.8.15 logging, A.8.13 backup; 9001 §7.5 records). */
