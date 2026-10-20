@@ -303,3 +303,31 @@ export async function mergeSurePartnersAction(listed: { main: string; ids: strin
     return errs.length ? { error: `Споени ${g} групи (${n} комитенти); не се споени ${errs.length}: ${errs.slice(0, 3).join('; ')}` } : { ok: `Споени ${g} групи (${n} комитенти).` };
   } catch (e) { return mergeErr(e); }
 }
+
+/**
+ * „🔤 Латиница → кирилица“: the ticked partners get the (checked / corrected) Cyrillic name; their address and city in
+ * Latin are converted too. Guarded by `write`, audited with the old names.
+ */
+export async function toCyrillicAction(_p: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const { latToCyr, isLatinName } = await import('@wise/core/text/cyr');
+    const ids = form.getAll('on').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    if (!ids.length) return { error: 'Не е избран ниту еден комитент.' };
+    const n = await db().transaction(async (tx) => {
+      const L = await tx.select({ id: partners.id, name: partners.name, address: partners.address, city: partners.city }).from(partners)
+        .where(and(eq(partners.firmId, firm.id), inArray(partners.id, ids)));
+      const old: { id: string; name: string }[] = [];
+      for (const p of L) {
+        const name = String(form.get('n_' + p.id) ?? '').trim().slice(0, 300) || latToCyr(p.name);
+        const patch = { name, ...(isLatinName(p.address) ? { address: latToCyr(p.address) } : {}), ...(isLatinName(p.city) ? { city: latToCyr(p.city) } : {}) };
+        await tx.update(partners).set(patch).where(eq(partners.id, p.id));
+        old.push({ id: p.id, name: p.name });
+      }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'partnersToCyrillic', entityType: 'partner', data: { count: old.length, old } });
+      return old.length;
+    });
+    revalidatePath('/partneri');
+    return { ok: `Претворени во кирилица: ${n} комитенти.` };
+  } catch (e) { return actionError(e); }
+}

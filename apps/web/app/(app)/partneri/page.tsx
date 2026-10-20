@@ -18,7 +18,9 @@ import { loadAiResult } from '@/lib/ai';
 import { filesOf } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
 import { FileChips } from '@/components/file-chips';
-import { saveTk } from './actions';
+import { saveTk, toCyrillicAction } from './actions';
+import { isLatinName, latToCyr } from '@wise/core/text/cyr';
+import { Submit } from '@/components/action-form';
 import { TkScan } from './tk-scan';
 import { PartnerDupView } from './dup-view';
 import { AutoMergeNote } from './auto-merge-note';
@@ -26,13 +28,39 @@ import { MergeInto } from './merge-into';
 
 const LIMIT = 500;
 
-export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string; dup?: string }> }) {
+export default async function PartneriPage({ searchParams }: { searchParams: Promise<{ q?: string; edit?: string; nov?: string; use?: string; tk?: string; ok?: string; dup?: string; cyr?: string }> }) {
   const sp = await searchParams;
   const { u, firm } = await booksPage('partneri');
   if (!firm) return <NoFirm t="Партнери" />;
   if (sp.dup !== undefined) {
     return <PartnerDupView firmId={firm.id} canMerge={canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)}
       note={<AutoMergeNote firm={firm} admin={u.role === 'admin'} log={canDo(u, 'users', firm.id)} />} />;
+  }
+  // „🔤 Латиница → кирилица“: every partner whose name is in Latin, the proposed Cyrillic name (editable), ticked
+  if (sp.cyr !== undefined) {
+    const L = (await db().select({ id: partners.id, name: partners.name, code: partners.code, edb: partners.edb }).from(partners).where(eq(partners.firmId, firm.id)).orderBy(asc(partners.name)))
+      .filter((p) => isLatinName(p.name));
+    return (
+      <>
+        <Hd t="Партнери – латиница → кирилица" sub={`${L.length} комитенти со назив на латиница`}><Link className="btn" href="/partneri">← Партнери</Link></Hd>
+        <div className="callout info">Предлогот е буква по буква (Bajrami → Бајрами, DOOEL → ДООЕЛ, Xhemaili → Џемаили). Странски имиња и марки поправете ги во полето пред „Примени“; одштиклирајте ги оние што треба да останат на латиница (пр. KFC). Се претвораат и адресата и градот ако се на латиница.</div>
+        {L.length ? (
+          <ActionForm action={toCyrillicAction} reset={false}>
+            <div className="tw"><table className="dense">
+              <thead><tr><th>✓</th><th>Шифра</th><th>ЕДБ</th><th>Сега (латиница)</th><th>Ќе биде (кирилица) – може да се поправи</th></tr></thead>
+              <tbody>{L.map((p) => (
+                <tr key={p.id}>
+                  <td><input type="checkbox" name="on" value={p.id} defaultChecked aria-label="Претвори" /></td>
+                  <td>{p.code}</td><td className="mini">{p.edb}</td><td>{p.name}</td>
+                  <td><input name={'n_' + p.id} defaultValue={latToCyr(p.name)} style={{ width: '100%', minWidth: 280 }} /></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><Submit>🔤 Примени на штиклираните</Submit></div>
+          </ActionForm>
+        ) : <div className="callout good">✓ Сите комитенти се на кирилица.</div>}
+      </>
+    );
   }
   const q = (sp.q ?? '').trim();
   const where = and(eq(partners.firmId, firm.id), q
@@ -67,6 +95,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       <Hd t="Партнери" sub={`${total?.n ?? 0} комитенти`}>
         {write && !showForm && <Link className="btn" href="/uvoz?t=partners&back=partneri">Увоз од Excel</Link>}
         {write && noCode && <RowAction className="btn" action={autoCodesAction} label="Додели шифри" title="Автоматски шифри за сите без шифра" />}
+        {write && <Link className="btn" href="/partneri?cyr" title="Називите напишани на латиница – во кирилица (со преглед и поправка)">🔤 Латиница → кирилица</Link>}
         <Link className="btn" href="/partneri?dup" title="Комитенти со ист ЕДБ / ЕМБС или слично име – спојување">Дупликати</Link>
         {write && <Link className="btn pri" href="/partneri?nov">+ Додај</Link>}
       </Hd>

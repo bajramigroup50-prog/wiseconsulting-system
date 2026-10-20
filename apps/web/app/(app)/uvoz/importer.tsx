@@ -5,6 +5,7 @@
  * dates are parsed here with the detected decimal separator; the server receives field → value rows.
  */
 import { startTransition, useActionState, useRef, useState } from 'react';
+import { latToCyr } from '@wise/core/text/cyr';
 import { IMP_EXAMPLE, IMP_T, impAuto, impDate, impHeaderRow, impMissing, impNum, impNumFormats, type DecMode, type ImpType } from '@wise/core/retail/import';
 import type { ActionState } from '@/lib/books';
 import { importAction } from '../_retail/actions';
@@ -38,6 +39,9 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
   const T = IMP_T[t];
   const [st, run, pending] = useActionState<ActionState, FormData>(importAction, {});
   const [rows, setRows] = useState<unknown[][] | null>(null);
+  // „Називите во кирилица“: partner name / address / city in Latin are imported in Macedonian Cyrillic
+  const [cyr, setCyr] = useState(true);
+  const CYR = new Set(t === 'partners' && cyr ? ['name', 'address', 'city'] : []);
   const [file, setFile] = useState('');
   const [hi, setHi] = useState(0);
   const [map, setMap] = useState<Record<string, number>>({});
@@ -85,7 +89,8 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
     if (!window.confirm(`Да се увезат ${data.length} редови?`)) return;
     const out = data.map((r) => Object.fromEntries(Object.entries(map).map(([k, i]) => {
       const v = r[i];
-      return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : String(v instanceof Date ? impDate(v) : v ?? '').trim()];
+      const txt = String(v instanceof Date ? impDate(v) : v ?? '').trim();
+      return [k, NUM.has(k) ? (String(v ?? '').trim() === '' ? null : impNum(v, decOf(k))) : DATE.has(k) ? impDate(v) : CYR.has(k) ? latToCyr(txt) : txt];
     })));
     const fd = new FormData();
     fd.set('payload', JSON.stringify({ t, date, wh: NEEDS_WH.includes(t) ? wh : null, ...(withScheme && scheme ? { scheme: Number(scheme) } : {}), rows: out, ...(pastT && allowPast ? { allowPast: true } : {}) }));
@@ -126,6 +131,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
               <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={allowPast} onChange={(e) => setAllowPast(e.target.checked)} style={{ width: 'auto' }} /> Дозволи минати ДДВ периоди (миграција; само сопственик / право „поставки“ – ДДВ-04 на тие периоди треба да се коригира)</label></p>}
             <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <label className="mini">Заглавие во ред <input type="number" min={1} value={hi + 1} style={{ width: 60 }} onChange={(e) => { const h = Math.max(0, (Number(e.target.value) || 1) - 1); setHi(h); setMap(impAuto(t, rows[h] ?? [])); }} /></label>
+              {t === 'partners' && <label className="chk" title="Називот, адресата и градот напишани на латиница се увезуваат на кирилица (прегледот подолу ги покажува)"><input type="checkbox" checked={cyr} onChange={(e) => setCyr(e.target.checked)} /> Во кирилица</label>}
               <label className="mini">Децимали <select value={decSel} onChange={(e) => setDecSel(e.target.value as DecMode)} style={{ width: 'auto' }}>
                 <option value="">од датотеката</option><option value="comma">1.234,56 – „10.000“ = десет илјади</option><option value="dot">1,234.56 – „10.000“ = десет</option>
               </select></label>
@@ -144,7 +150,7 @@ export function Importer({ t, locs, date0, wh0, tpl, schemes = [] }: {
             <div className="hd"><h2>Преглед (првите 8 редови{nErr ? ' и редовите со грешка' : ''})</h2>{nErr ? <span className="pill bad">{nErr} редови со грешка – ќе се прескокнат</span> : <span className="pill good">сите редови се во ред</span>}</div>
             <div className="tw"><table className="dense">
               <thead><tr><th>Ред</th>{T.f.filter(([k]) => map[k] != null).map(([k, n]) => <th key={k}>{n.replace('*', '')}</th>)}<th>Проверка</th></tr></thead>
-              <tbody>{data.map((r, i) => ({ r, i })).filter(({ i }) => i < 8 || errs[i]).slice(0, 60).map(({ r, i }) => <tr key={i}><td className="mini">{hi + 2 + i}</td>{T.f.filter(([k]) => map[k] != null).map(([k]) => <td key={k}>{cell(r[map[k]!])}</td>)}
+              <tbody>{data.map((r, i) => ({ r, i })).filter(({ i }) => i < 8 || errs[i]).slice(0, 60).map(({ r, i }) => <tr key={i}><td className="mini">{hi + 2 + i}</td>{T.f.filter(([k]) => map[k] != null).map(([k]) => <td key={k}>{CYR.has(k) ? latToCyr(cell(r[map[k]!])) : cell(r[map[k]!])}</td>)}
                 <td>{errs[i] ? <span className="mini" style={{ color: 'var(--bad)' }}>{errs[i]}</span> : '✓'}</td></tr>)}</tbody>
             </table></div>
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10, gap: 8 }}>
