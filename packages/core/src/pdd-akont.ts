@@ -23,9 +23,11 @@ export function parseAkontativna(items: readonly PdfItem[]): Akont | null {
   const edbItem = hdr ? E.find((e) => near(e, hdr) && E.filter((x) => x !== e).every((x) => !near(x, hdr))) : undefined;
   const R = E.filter((e) => e !== edbItem);
   if (!R.length) return null;
-  // band axis: the coordinate on which the recipients differ
+  // the table's header labels („ЕМБГ“ … „Име и Презиме“) lie on one line: the rows run across that line's axis (also
+  // with a single recipient); without the labels, the axis on which the recipients differ
+  const h1 = I.find((i) => /^ЕМБГ$/.test(i.s)), h2 = I.find((i) => /^Име и Презиме$/i.test(i.s));
   const spread = (k: 'x' | 'y') => Math.max(...R.map((r) => r[k])) - Math.min(...R.map((r) => r[k]));
-  const band: 'x' | 'y' = R.length < 2 ? 'y' : spread('x') >= spread('y') ? 'x' : 'y';
+  const band: 'x' | 'y' = h1 && h2 ? (Math.abs(h1.x - h2.x) < Math.abs(h1.y - h2.y) ? 'x' : 'y') : R.length < 2 ? 'y' : spread('x') >= spread('y') ? 'x' : 'y';
   const col: 'x' | 'y' = band === 'x' ? 'y' : 'x';
   const rows: AkontRow[] = [];
   for (const e of R) {
