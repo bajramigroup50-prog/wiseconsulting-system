@@ -167,7 +167,8 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   // (аконтативна пресметка / ППД) – say what is really missing
   const calcOnly = (K: Set<string>) => [...K].every((k) => k.startsWith('2205'));
   for (const o of sup) {
-    if (calcOnly(o.k)) add('bad', 'Пресметки', `Недостасува пресметка (обврска): платено ${fmtMk(o.s)} ден. повеќе од пресметаното – ${pn(o.p, 'лице')}${kontoNote(o.k, '')} – книжете ја аконтативната пресметка`, card(o));
+    // the link opens a new calculation (Закупнина, бонуси и услуги) for that person and the net amount paid
+    if (calcOnly(o.k)) add('bad', 'Пресметки', `Недостасува пресметка (обврска): платено ${fmtMk(o.s)} ден. повеќе од пресметаното – ${pn(o.p, 'лице')}${kontoNote(o.k, '')} – книжете ја аконтативната пресметка`, `pdd?ed=new&pid=${o.p}&amt=${o.s}&k=${[...o.k].sort()[0]}`);
     else add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}${kontoNote(o.k, '2200')}`, card(o));
   }
   const cus = PB.filter((o) => o.t === '12' && o.s < -1).sort((a, b) => a.s - b.s);

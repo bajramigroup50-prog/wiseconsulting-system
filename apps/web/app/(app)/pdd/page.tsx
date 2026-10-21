@@ -18,7 +18,7 @@ import { RowAction } from '@/components/row-action';
 import { deletePddAction, savePddTypesAction } from './actions';
 import { PddEditor, type Person } from './editor';
 
-export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string; ok?: string }> }) {
+export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string; ok?: string; pid?: string; amt?: string; k?: string }> }) {
   const sp = await searchParams;
   const { u, firm, year } = await booksPage('pdd');
   if (!firm) return <NoFirm t="Закупнина, бонуси и услуги" />;
@@ -41,6 +41,15 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
     for (const d of L) for (const r of d.rows) if (r.embg && !people.some((x) => x.embg === r.embg)) people.push({ name: r.name, embg: r.embg, acct: r.acct, pid: r.pid ?? '' });
     const edit = sp.ed !== 'new' && sp.ed !== 'last' && src;
     const rows: PddRow[] = (src?.rows ?? []).map((r) => ({ tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid: r.pid }));
+    // from the autopilot („Недостасува пресметка“): the person and the net amount paid without a calculation, the type
+    // whose obligation konto is the one paid from
+    if (sp.ed === 'new' && sp.pid && /^[0-9a-f-]{36}$/i.test(sp.pid)) {
+      const p = P.find((x) => x.id === sp.pid);
+      const pe = people.find((x) => x.pid === sp.pid);
+      const t = T.find((x) => sp.k && x.kLiab === sp.k) ?? T.find((x) => x.id === 's1_15') ?? T[0]!;
+      const amt = Math.max(0, Math.round(Number(sp.amt) * 100) / 100 || 0);
+      if (p) rows.push({ tid: t.id, mode: 'n', amt, name: p.name, embg: pe?.embg ?? '', acct: pe?.acct ?? p.acct ?? '', pid: p.id });
+    }
     return (
       <>
         <Hd t={edit ? 'Книжење: закупнина / бонус / услуга' : 'Ново книжење: закупнина / бонус / услуга'}><Link className="btn" href="/pdd">← Листа</Link></Hd>
