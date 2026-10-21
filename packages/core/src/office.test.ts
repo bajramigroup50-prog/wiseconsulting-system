@@ -118,8 +118,12 @@ describe('autopilot checks (alCompute / apExtra)', () => {
     const L = Array.from({ length: 12 }, (_, i) => ln('2026-03-01', '2200', 100 + i, 0, `s${i}`));
     const S = snap({ ledger: [...L, ln('2026-03-02', '22055', 9000, 0, 'h1'), ln('2026-03-03', '2200', 0, 500), ln('2026-03-03', '2200', 0, 250)] });
     const A = alCompute(S);
-    expect(A.filter((a) => a.cat === 'Влезни фактури').length).toBe(13);
-    expect(A.find((a) => a.txt.includes('9.000'))!.txt).toContain('(конто 22055)');
+    expect(A.filter((a) => a.cat === 'Влезни фактури').length).toBe(12);
+    // 2205x (honoraria / bonuses): no invoice – the calculation is missing
+    const h = A.find((a) => a.txt.includes('9.000'))!;
+    expect(h.cat).toBe('Пресметки');
+    expect(h.txt).toContain('Недостасува пресметка');
+    expect(h.txt).toContain('(конто 22055)');
     expect(A.find((a) => a.cat === 'Комитенти')!.txt).toBe('Конто 2200: 2 ставки без комитент (салдо -750,00 ден.)');
   });
   it('VAT threshold for non-VAT firms', () => {

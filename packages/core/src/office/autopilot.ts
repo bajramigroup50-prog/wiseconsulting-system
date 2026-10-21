@@ -16,11 +16,12 @@ export const AL_DDV_LIMIT = 2_000_000;
 /** Legacy `AP_CASH_LIMIT` ≈ 1.000 € (FIX(#18): derived from the office EUR rate, default 61.5). */
 export const apCashLimit = (eurRate = 61.5) => Math.round(1000 * eurRate);
 
-export const AL_CATS = ['Изводи', 'Влезни фактури', 'Излезни фактури', 'ДДВ', 'Плати', 'Благајна', 'Залиха', 'Документи', 'Наплата', 'Фискални'] as const;
+export const AL_CATS = ['Изводи', 'Влезни фактури', 'Пресметки', 'Излезни фактури', 'ДДВ', 'Плати', 'Благајна', 'Залиха', 'Документи', 'Наплата', 'Фискални'] as const;
 
 export const AL_DESC: Record<string, string> = {
   'Изводи': 'Броевите на изводите одат по ред; месец без извод; последниот извод постар од 35 дена.',
   'Влезни фактури': 'На добавувачот му е платено повеќе отколку што има внесени фактури → недостасува фактура.',
+  'Пресметки': 'Хонорари, бонуси, закупнини на физички лица (конто 2205…): платено, а аконтативната пресметка / обврската не е книжена – нема фактура, треба пресметка (Плата → Закупнина, бонуси и услуги).',
   'Излезни фактури': 'Прескокнати броеви на излезни фактури. Купувачот уплатил, а нема излезна фактура (аванс или незаведена фактура).',
   'ДДВ': 'ДДВ-04 некнижена по рокот; фирма без ДДВ со промет над 2.000.000 ден. (или над 80%).',
   'Плати': 'По 15-ти во месецот, а платата за претходниот месец не е пресметана (ако има вработени).',
@@ -162,7 +163,13 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   // every one (the office picks the firm on /autop and sees its whole list)
   // the link opens the partner's card on those kontos – every booking (statement / nalog) is one click away
   const card = (o: { p: string; k: Set<string> }) => `kartici?k=${[...o.k].sort().join(',')}&pid=${o.p}`;
-  for (const o of sup) add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}${kontoNote(o.k, '2200')}`, card(o));
+  // 2205x (honoraria, bonuses, natural persons – S1.15, rent…): no invoice exists, the obligation is the calculation
+  // (аконтативна пресметка / ППД) – say what is really missing
+  const calcOnly = (K: Set<string>) => [...K].every((k) => k.startsWith('2205'));
+  for (const o of sup) {
+    if (calcOnly(o.k)) add('bad', 'Пресметки', `Недостасува пресметка (обврска): платено ${fmtMk(o.s)} ден. повеќе од пресметаното – ${pn(o.p, 'лице')}${kontoNote(o.k, '')} – книжете ја аконтативната пресметка`, card(o));
+    else add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}${kontoNote(o.k, '2200')}`, card(o));
+  }
   const cus = PB.filter((o) => o.t === '12' && o.s < -1).sort((a, b) => a.s - b.s);
   for (const o of cus) add('warn', 'Излезни фактури', `Примена уплата ${fmtMk(-o.s)} ден. без излезна фактура (аванс?) – ${pn(o.p, 'купувач')}${kontoNote(o.k, '1200')}`, card(o));
   /* 2a. lines on customer / supplier kontos without a partner (per konto) */
