@@ -15,7 +15,7 @@ import { ActionForm, Submit } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deletePddAction, importAkontAction, savePddTypesAction } from './actions';
+import { deletePddAction, importAkontAction, relinkPddAction, savePddTypesAction } from './actions';
 import { PddEditor, type Person } from './editor';
 
 export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string; ok?: string; pid?: string; amt?: string; k?: string; imp?: string }> }) {
@@ -76,6 +76,14 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
             <label className="f" style={{ margin: 0 }}>Вид (контирање)<select name="tid" defaultValue=""><option value="">Автоматски – според кодот во PDF</option>{T.map((t) => <option key={t.id} value={t.id}>{t.sh || t.pod} ({t.kExp} / {t.kLiab} / {t.kTax})</option>)}</select></label>
             <Submit>Увези и прокнижи</Submit>
             <span className="mini">Изберете една или повеќе (Ctrl+A во папката). Програмата ги чита примачите и ја книжи секоја пресметка: трошок / обврска по лице / ПДД – бонуси, закупнина… Веќе увезените се прескокнуваат.</span>
+          </div>
+        </ActionForm>
+      )}
+      {write && L.some((d) => d.rows.some((r) => !r.pid)) && (
+        <ActionForm action={relinkPddAction} className="card" reset={false}>
+          <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>⚠ {L.reduce((a, d) => a + d.rows.filter((r) => !r.pid).length, 0)} примачи без комитент – обврската (22055…) не се затвора со плаќањето од изводот.</span>
+            <Submit className="btn">🔗 Поврзи ги примачите</Submit>
           </div>
         </ActionForm>
       )}

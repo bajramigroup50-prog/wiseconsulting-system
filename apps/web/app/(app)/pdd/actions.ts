@@ -5,11 +5,12 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { pddCalc, pddEntries, pddKontaOfGroup, pddTotal, pddTypes, type PddRow, type PddType } from '@wise/core/finance';
 import { audit, firms, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
 import { parseAkontativna, type AkontRow } from '@wise/core/pdd-akont';
 import { pdfTextItems } from '@/lib/pdf-text';
+import { latToCyr } from '@wise/core/text/cyr';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { isDate } from '@/lib/finance';
@@ -66,6 +67,48 @@ async function persistPdd(v: PddInput): Promise<{ id: string } | { error: string
 }
 
 /**
+ * The firm's partner of a recipient: by ЕМБГ (partner data / ЕДБ field), else by the name – Latin and Cyrillic alike
+ * (BLAŽE MANEVSKI = БЛАЖЕ МАНЕВСКИ, the statements often carry the Latin one).
+ */
+async function partnerMatcher(firmId: string): Promise<(embg: string | null | undefined, name: string) => string | null> {
+  const P = await db().select({ id: partners.id, name: partners.name, edb: partners.edb, data: partners.data }).from(partners).where(eq(partners.firmId, firmId));
+  const norm = (x: string) => latToCyr(x).toUpperCase().replace(/[^\p{L}\d ]/gu, ' ').replace(/\s+/g, ' ').trim();
+  const byEmbg = new Map<string, string>(), byName = new Map<string, string>();
+  for (const p of P) {
+    const e = String(((p.data ?? {}) as { embg?: string }).embg ?? p.edb ?? '').replace(/\D/g, '');
+    if (e.length === 13) byEmbg.set(e, p.id);
+    if (!byName.has(norm(p.name))) byName.set(norm(p.name), p.id);
+  }
+  return (embg, name) => (embg && byEmbg.get(embg.replace(/\D/g, ''))) || byName.get(norm(name)) || null;
+}
+
+/** „🔗 Поврзи ги примачите“: recipients of the year's payments without a partner → matched again (ЕМБГ / name), re-booked. */
+export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<ActionState> {
+  let n = 0, left = 0;
+  try {
+    const { firm, year } = await firmAction('pddSave');
+    const pidOf = await partnerMatcher(firm.id);
+    const L = await db().select().from(pddPayments).where(and(eq(pddPayments.firmId, firm.id), sql`${pddPayments.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
+    for (const d of L) {
+      if (!d.rows.some((r) => !r.pid)) continue;
+      let changed = false;
+      const rows: PddRow[] = d.rows.map((r) => {
+        if (r.pid) return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid: r.pid };
+        const pid = pidOf(r.embg, r.name);
+        if (pid) changed = true; else left++;
+        return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid };
+      });
+      if (!changed) continue;
+      const res = await persistPdd({ id: d.id, date: d.date, note: d.note ?? '', rows });
+      if ('error' in res) return res;
+      n++;
+    }
+  } catch (e) { return actionError(e); }
+  revalidatePath('/pdd');
+  return { ok: `Поврзани и прекнижени ${n} пресметки.${left ? ` ${left} примачи и понатаму без комитент – отворете ја пресметката и изберете го комитентот (друго име во изводот).` : ''}` };
+}
+
+/**
  * „📄 Увези аконтативна пресметка“: one or MANY УЈП е-ПДД PDFs at once → one booked payment each (gross mode, the
  * type of the income code – added to the firm's types when new, konta by its group –, the recipients matched to
  * partners by ЕМБГ or name). A calculation already imported (its number in the note) is skipped, never booked twice.
@@ -79,10 +122,7 @@ export async function importAkontAction(_p: ActionState, f: FormData): Promise<A
     // „Вид“ chosen on the form (bonus, rent…) – else by the income code in each PDF
     const forced = String(f.get('tid') ?? '');
     if (!files.length) return { error: 'Изберете еден или повеќе PDF „Аконтативна пресметка“ од е-ПДД.' };
-    const P = await db().select({ id: partners.id, name: partners.name, edb: partners.edb, data: partners.data }).from(partners).where(eq(partners.firmId, firm.id));
-    const norm = (x: string) => x.toUpperCase().replace(/\s+/g, ' ').trim();
-    const pidOf = (r: AkontRow) => (P.find((p) => String(((p.data ?? {}) as { embg?: string }).embg ?? p.edb ?? '').replace(/\D/g, '') === r.embg)
-      ?? P.find((p) => norm(p.name) === norm(r.name)))?.id ?? null;
+    const pidOf = await partnerMatcher(firm.id);
     const prev = await db().select({ note: pddPayments.note }).from(pddPayments).where(eq(pddPayments.firmId, firm.id));
     const seen = new Set(prev.map((x) => /Аконтативна пресметка бр\. (\d+)/.exec(x.note ?? '')?.[1]).filter(Boolean));
     for (const file of files.sort((x, y) => x.name.localeCompare(y.name))) {
@@ -115,7 +155,7 @@ export async function importAkontAction(_p: ActionState, f: FormData): Promise<A
       }
       const rows: PddRow[] = A.rows.map((r) => ({
         tid: (T.find((t) => forced && t.id === forced) ?? T.find((t) => r.code && t.pod.startsWith(r.code + '.')) ?? T.find((t) => t.id === 's1_15') ?? T[0]!).id,
-        mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: pidOf(r),
+        mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: pidOf(r.embg, r.name),
       }));
       const res = await persistPdd({ date: A.date || A.payDate, note: `Аконтативна пресметка бр. ${A.number}${A.payDate ? ' · плаќање до ' + A.payDate.split('-').reverse().join('.') : ''}`, rows });
       if ('error' in res) { bad.push(`${file.name}: ${res.error}`); continue; }
