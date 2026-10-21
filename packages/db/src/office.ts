@@ -258,14 +258,16 @@ export interface AutopilotResult { runId: string; firms: number; findings: numbe
  * like `office_apsent`), optional auto-send to the portal / e-mail and optional tasks for new `bad` findings.
  * Returns the queued `mail_log` ids of auto-sent messages for the caller to dispatch.
  */
-export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; today?: string; sources?: OfficeDataSources; userId?: string | null } = {}): Promise<AutopilotResult> {
+export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; today?: string; sources?: OfficeDataSources; userId?: string | null; firmIds?: readonly string[] } = {}): Promise<AutopilotResult> {
   const today = o.today ?? todaySkopje();
   const off = await getOfficeProfile(db);
   const [run] = await db.insert(autopilotRuns).values({ trigger: o.trigger ?? 'cron' }).returning({ id: autopilotRuns.id });
   const runId = run!.id;
   // only the firms working this year (`firm-years.ts`): a closed firm (`toYear`) is no longer checked
   const F = (await db.select().from(firms).where(and(eq(firms.active, true), firmOpenInSql(Number(today.slice(0, 4))))).orderBy(asc(firms.name)))
-    .filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm && !isDemoFirm(f)); // 🎭 the autopilot never checks / mails a demo firm
+    .filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm && !isDemoFirm(f)) // 🎭 the autopilot never checks / mails a demo firm
+    // „↻ Провери пак“ / after a fix: only those firms (their findings are replaced, the others stay)
+    .filter((f) => !o.firmIds || o.firmIds.includes(f.id));
   const rows: { id: string; m: Record<string, number | string | null> }[] = [];
   let findings = 0, newBad = 0, messages = 0, autoSent = 0;
   const mailIds: string[] = [];
@@ -320,8 +322,9 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
       }
     });
   }
-  const R = apRisk(rows);
-  for (const r of rows) {
+  // peer risk compares the firms with each other: only from a full run, never from one re-checked firm
+  const R = o.firmIds ? new Map<string, { score: number; why: string[] }>() : apRisk(rows);
+  for (const r of o.firmIds ? [] : rows) {
     const k = R.get(r.id)!;
     await db.insert(autopilotMetrics).values({ firmId: r.id, runId, metrics: r.m, risk: k.score, riskWhy: k.why })
       .onConflictDoUpdate({ target: autopilotMetrics.firmId, set: { runId, metrics: r.m, risk: k.score, riskWhy: k.why } });

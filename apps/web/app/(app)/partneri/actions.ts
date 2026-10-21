@@ -1,4 +1,5 @@
 'use server';
+import { recheckFirmLater } from '@/lib/jobs';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
@@ -238,6 +239,7 @@ export async function mergePartnersAction(_prev: ActionState, form: FormData): P
     const ids = sel.ids;
     const { u, firm } = await mergeActor();
     const r = await db().transaction((tx) => mergePartners(tx, { firmId: firm.id, userId: u.id }, main, ids));
+    await recheckFirmLater(firm.id);
     revalidatePath('/partneri');
     return { ok: `Споени ${r.merged} комитенти (${r.refs} записи префрлени).` };
   } catch (e) {

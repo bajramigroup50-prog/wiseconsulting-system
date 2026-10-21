@@ -10,6 +10,7 @@ import { pddCalc, pddEntries, pddKontaOfGroup, pddTotal, pddTypes, type PddRow, 
 import { audit, firms, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
 import { parseAkontativna, type AkontRow } from '@wise/core/pdd-akont';
 import { pdfTextItems } from '@/lib/pdf-text';
+import { recheckFirmLater } from '@/lib/jobs';
 import { latToCyr } from '@wise/core/text/cyr';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -59,6 +60,7 @@ async function persistPdd(v: PddInput): Promise<{ id: string } | { error: string
       });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'pddSave', entityType: 'pdd_payment', entityId: id, data: { date: v.date, rows: rows.length, ...tot } });
     });
+    await recheckFirmLater(firm.id);
   } catch (e) {
     if (e instanceof Error && e.message === 'Книжењето не постои.') return { error: e.message };
     return { error: actionError(e).error ?? 'Грешка при книжење.' };

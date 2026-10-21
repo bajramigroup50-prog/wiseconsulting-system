@@ -9,11 +9,11 @@ import { sendQueuedMail } from './reminders';
  * and, if enabled, office tasks for new `bad` findings. Module data (invoices with paid amounts, payroll, VAT
  * closes and the VAT due estimate, Z reports) comes from `defaultSources` in `@wise/db` office.
  */
-export const autopilot = defineJob<{ today?: string }>({
+export const autopilot = defineJob<{ today?: string; firmIds?: string[] }>({
   name: 'autopilot',
   cron: '0 */6 * * *',
   async run(data, ctx) {
-    const r = await runAutopilot(ctx.db, { trigger: 'cron', today: data?.today });
+    const r = await runAutopilot(ctx.db, { trigger: data?.firmIds ? 'manual' : 'cron', today: data?.today, firmIds: data?.firmIds });
     await sendQueuedMail(ctx, r.mailIds);
     ctx.log(`firms ${r.firms}, findings ${r.findings} (new bad ${r.newBad}), messages ${r.messages}, auto-sent ${r.autoSent}, e-mails ${r.mailIds.length}`);
   },

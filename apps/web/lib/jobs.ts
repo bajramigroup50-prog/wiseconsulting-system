@@ -40,3 +40,8 @@ export async function renderPdf(p: { html: string; css?: string; title?: string;
   await enqueue('pdf.render', { ...p, fileId });
   return fileId;
 }
+
+/** After a fix (partners merged, calculations booked…): the autopilot re-checks that firm in the background – the list of findings follows without waiting for the 6-hourly run. Never fails the action. */
+export async function recheckFirmLater(firmId: string): Promise<void> {
+  try { await enqueue('autopilot', { firmIds: [firmId] }); } catch { /* the 6-hourly run catches up */ }
+}

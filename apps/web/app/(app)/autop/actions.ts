@@ -7,7 +7,8 @@ import { apClPeriodFor } from '@wise/core/office/ap-close';
 import { todaySkopje } from '@wise/core/office';
 import { audit, autopilotFindings, autopilotMessages, closeVatPeriod, firms, firmVatPeriodKind, getOfficeProfile, patchOfficeProfile, runAutopilot, sendAutopilotMessage, type OfficeProfile } from '@wise/db';
 import { vatSource } from '@/lib/vat-source';
-import { requireCan } from '@/lib/auth';
+import { requireCan, requireUser } from '@/lib/auth';
+import { currentFirm } from '@/lib/context';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dispatchMail } from '@/lib/mail';
@@ -27,6 +28,20 @@ export async function runNow(): Promise<ActionState> {
     await dispatchMail(r.mailIds); // messages sent automatically (`apAuto`) by e-mail
     revalidatePath('/autop');
     return { ok: `Проверени ${r.firms} фирми: ${r.findings} наоди (${r.newBad} нови проблеми), ${r.messages} нови пораки.${r.mailIds.length ? ` 🤖 Автопилот: автоматски испратени ${r.mailIds.length} пораки до клиенти.` : ""}` };
+  } catch (e) { return officeError(e); }
+}
+
+/** „↻ Провери пак“: the checks of the working firm only, now (a few seconds) – the list shows what is still open. */
+export async function recheckFirm(): Promise<ActionState> {
+  try {
+    const u0 = await requireUser();
+    const firm = await currentFirm(u0);
+    if (!firm) return { error: 'Изберете фирма.' };
+    const u = await requireCan('office', firm.id);
+    const r = await runAutopilot(db(), { trigger: 'manual', userId: u.id, firmIds: [firm.id] });
+    await dispatchMail(r.mailIds);
+    revalidatePath('/', 'layout');
+    return { ok: r.findings ? `Проверено: ${r.findings} наоди.` : 'Проверено: нема ништо за решавање.' };
   } catch (e) { return officeError(e); }
 }
 
