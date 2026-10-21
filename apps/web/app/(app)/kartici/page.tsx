@@ -82,8 +82,10 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
     return undefined;
   };
   // from the autopilot (`auto=1`) with ONE booking on the card: straight to it – the statement, else its nalog
+  // the bookings that CAUSE the finding: on a supplier konto with a debit balance the payments (debit), on a customer
+  // konto with a credit balance the received payments (credit) – never the opening balance
   if (sp.auto === '1') {
-    const R = C.flatMap((c) => c.rows);
+    const R = C.flatMap((c) => c.rows.filter((r) => r.line.kind !== 'open' && (c.end > 0 ? r.line.debit > 0 : r.line.credit > 0)));
     if (R.length === 1) redirect(srcOf(R[0]!.line)?.href ?? `/nalozi?n=${encodeURIComponent(R[0]!.line.number ?? '')}`);
   }
   const tot = Math.round(C.reduce((a, c) => a + c.end, 0) * 100) / 100;
