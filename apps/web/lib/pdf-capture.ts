@@ -113,7 +113,8 @@ export async function openPdf(b: PdfBody): Promise<void> {
   try {
     const id = await requestPdf(b);
     if (!(await waitForFile(id))) { fail('PDF не е подготвен (серверот за PDF не одговара). Обидете се повторно или користете „Печати“.'); return; }
-    if (w) w.location.href = '/api/files/' + id; else window.location.href = '/api/files/' + id;
+    // no pop-up: a new window still, never over the program (the desktop app's ✕ would close it)
+    if (w) w.location.href = '/api/files/' + id; else window.open('/api/files/' + id, '_blank');
   } catch (e) {
     fail('PDF не може да се подготви: ' + ((e as Error)?.message || e));
   }
