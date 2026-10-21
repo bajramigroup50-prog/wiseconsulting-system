@@ -6,7 +6,7 @@ import { inYearOr } from '@/lib/books';
 import { db } from '@/lib/db';
 import { finLines, partnerMap, srchMatch } from '@/lib/finance';
 
-export type KcSP = { k?: string; from?: string; to?: string; sort?: string; pid?: string; open?: string; q?: string; syn?: string; nop?: string; kq?: string; post?: string };
+export type KcSP = { k?: string; from?: string; to?: string; sort?: string; pid?: string; open?: string; q?: string; syn?: string; nop?: string; kq?: string; post?: string; auto?: string };
 
 /** Legacy `kcState` 6426, from the query string. */
 export function kcState(sp: KcSP, year: number) {

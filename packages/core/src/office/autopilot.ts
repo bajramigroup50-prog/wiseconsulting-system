@@ -162,7 +162,7 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   const sup = PB.filter((o) => o.t === '22' && o.s > 1).sort((a, b) => b.s - a.s);
   // every one (the office picks the firm on /autop and sees its whole list)
   // the link opens the partner's card on those kontos – every booking (statement / nalog) is one click away
-  const card = (o: { p: string; k: Set<string> }) => `kartici?k=${[...o.k].sort().join(',')}&pid=${o.p}`;
+  const card = (o: { p: string; k: Set<string> }) => `kartici?k=${[...o.k].sort().join(',')}&pid=${o.p}&auto=1`;
   // 2205x (honoraria, bonuses, natural persons – S1.15, rent…): no invoice exists, the obligation is the calculation
   // (аконтативна пресметка / ППД) – say what is really missing
   const calcOnly = (K: Set<string>) => [...K].every((k) => k.startsWith('2205'));

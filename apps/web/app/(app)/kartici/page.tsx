@@ -69,6 +69,11 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
     const id = l.journalId ? bankOf.get(`${l.journalId}|${Math.abs(l.debit || l.credit).toFixed(2)}`) : undefined;
     return id ? `/banka?line=${id}#bk-line` : undefined;
   };
+  // from the autopilot (`auto=1`) with ONE booking on the card: straight to it – the statement, else its nalog
+  if (sp.auto === '1') {
+    const R = C.flatMap((c) => c.rows);
+    if (R.length === 1) redirect(bankHref(R[0]!.line) ?? `/nalozi?n=${encodeURIComponent(R[0]!.line.number ?? '')}`);
+  }
   const tot = Math.round(C.reduce((a, c) => a + c.end, 0) * 100) / 100;
   const csv: (string | number)[][] = [['Комитент', 'ЕДБ', 'Конто', 'Датум', 'Налог', 'Документ', 'Валута', 'Должи', 'Побарува', 'Салдо']];
   for (const x of sel ? [{ id: sel.id }] : D.sums) {
