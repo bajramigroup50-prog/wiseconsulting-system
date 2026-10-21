@@ -39,9 +39,11 @@ const CSS = `
 .pr .half{border:1px dashed #99a;padding:12px 14px;min-height:124mm}
 .pr .half h2{margin:8px 0 2px;font-size:16px}
 .pr .cut{text-align:center;font-size:10px;color:#889;margin:5px 0}
-.pr .spine{width:58mm;height:245mm;border:2px solid #0C3F34;display:flex;flex-direction:column;align-items:center;padding:9mm 4mm;text-align:center;float:left;margin-right:10mm}
-.pr .spine .v{writing-mode:vertical-rl;transform:rotate(180deg);font-size:26px;font-weight:700;letter-spacing:1px;margin:10mm 0;color:#0C3F34;max-height:150mm;overflow:hidden}
-.pr .spine .s{font-size:13px;font-weight:700}
+.pr .spine{width:38mm;height:190mm;border:1.5px solid #0C3F34;display:flex;flex-direction:column;align-items:center;padding:6mm 2mm;text-align:center;float:left;margin-right:8mm}
+.pr .spine.w{width:58mm}
+.pr .spine .v{writing-mode:vertical-rl;transform:rotate(180deg);font-size:18px;font-weight:700;margin:6mm 0;color:#0C3F34;max-height:120mm;overflow:hidden;line-height:1.15}
+.pr .spine.w .v{font-size:22px}
+.pr .spine .s{font-size:11px;font-weight:700}
 .pr .note{font-size:11px;color:#556}
 `;
 
@@ -107,9 +109,14 @@ function Half({ r, o, who }: { r: R; o: Office; who: string }) {
   );
 }
 
-function Spine({ r }: { r: R }) {
-  const s = <div className="spine"><div className="s">WISE CONSULTING</div><div className="v">{r.firmName}</div><div className="s">{r.period.slice(5)} / {r.period.slice(0, 4)}</div><div className="s" style={{ marginTop: '8mm' }}>{priemShort(r.no)}</div><div className="note" style={{ marginTop: 'auto' }}>до {dmy(r.keepUntil)}</div></div>;
-  return <div className="pgx">{s}{s}<p className="note" style={{ clear: 'both', paddingTop: '5mm' }}>Етикета за 'рбетот на фасциклата – се сече и се лепи.</p></div>;
+/** Spine label for the binder's label pocket: 4 × 19 cm (5 cm binders), `wide` 6 × 19 cm (8 cm binders). */
+function Spine({ r, wide }: { r: R; wide: boolean }) {
+  return (
+    <div className="pgx">
+      <div className={`spine ${wide ? 'w' : ''}`}><div className="s">{priemShort(r.no)}</div><div className="v">{r.firmName}</div><div className="s">{r.period.slice(5)}/{r.period.slice(0, 4)}</div><div className="note" style={{ marginTop: 'auto', fontSize: 9 }}>до {dmy(r.keepUntil)}</div></div>
+      <p className="note" style={{ clear: 'both', paddingTop: '4mm' }}>Етикета за 'рбетот ({wide ? '6' : '4'} × 19 cm) – се сече по рабовите.</p>
+    </div>
+  );
 }
 
 export default async function PrintPriem({ searchParams }: { searchParams: Promise<{ id?: string; p?: string }> }) {
@@ -131,7 +138,7 @@ export default async function PrintPriem({ searchParams }: { searchParams: Promi
       {(p === 'site' || p === 'potvrda') && (
         <div className="pgx"><Half r={r} o={o} who="ПРИМЕРОК ЗА КЛИЕНТОТ" /><div className="cut">✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ✂</div><Half r={r} o={o} who="ПРИМЕРОК ЗА КАНЦЕЛАРИЈАТА" /></div>
       )}
-      {(p === 'site' || p === 'etiketa') && <Spine r={r} />}
+      {(p === 'site' || p === 'etiketa' || p === 'etiketa6') && <Spine r={r} wide={p === 'etiketa6'} />}
     </div>
   );
 }
