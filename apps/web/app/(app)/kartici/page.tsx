@@ -23,6 +23,7 @@ import { NoFirm } from '@/components/no-firm';
 import { DownloadCsv } from '@/components/download-csv';
 import { kcData, kcQs, kcState, type KcSP } from './data';
 import { KcTable, SynTable } from './tables';
+import { KcListFilter } from './list-filter';
 
 export default async function KarticiPage({ searchParams }: { searchParams: Promise<KcSP> }) {
   const sp = await searchParams;
@@ -174,10 +175,11 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
       <div className="kcgrid">
         {/* PDF / print of the chosen partner: only its card (the list stays on screen) */}
         <div className={`card kclist ${sel ? 'noprint' : ''}`}>
+          <KcListFilter />
           <div className="tw" style={{ maxHeight: 560 }}><table>
             <thead><tr><th>Комитент</th><th className="n">Салдо</th></tr></thead>
             <tbody>{D.sums.length ? D.sums.map((x) => (
-              <tr key={x.id} className={x.id === s.pid ? 'sel' : ''}>
+              <tr key={x.id} className={x.id === s.pid ? 'sel' : ''} data-k={`${D.P.get(x.id)?.edb ?? ''} ${D.P.get(x.id)?.code ?? ''}`}>
                 <td><Link href={q({ pid: x.id })}>{x.name}</Link><br /><small className="note">{x.n} ставки</small></td>
                 <td className="n" style={{ color: x.s > 0.009 ? 'var(--ink)' : x.s < -0.009 ? 'var(--bad)' : 'var(--muted)' }}>{fmt(x.s)}</td>
               </tr>
