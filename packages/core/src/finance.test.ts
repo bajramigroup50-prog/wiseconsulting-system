@@ -87,11 +87,11 @@ describe('ПДД (legacy pddCalc / pddEntries)', () => {
   it('entries balance and merge', () => {
     const rows = [{ tid: 's6_1', mode: 'n' as const, amt: 9100, name: 'Петар' }, { tid: 's6_1', mode: 'n' as const, amt: 9100, name: 'Петар' }];
     const E = pddEntries(rows, T);
-    expect(E.map((e) => [e.account, e.debit, e.credit])).toEqual([['4143', 20000, 0], ['22052', 0, 18200], ['23502', 0, 1800]]);
+    expect(E.map((e) => [e.account, e.debit, e.credit])).toEqual([['4140', 20000, 0], ['22052', 0, 18200], ['23502', 0, 1800]]);
     expect(pddTotal(rows, T)).toEqual({ G: 20000, ded: 2000, tax: 1800, net: 18200 });
   });
   it('firm types override defaults', () => {
-    expect(pddTypes([{ id: 's6_1', tax: 15 }])[0]).toMatchObject({ id: 's6_1', tax: 15, kExp: '4143' });
+    expect(pddTypes([{ id: 's6_1', tax: 15 }])[0]).toMatchObject({ id: 's6_1', tax: 15, kExp: '4140' });
   });
 });
 
