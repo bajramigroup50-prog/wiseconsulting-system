@@ -30,7 +30,13 @@ main() {
 		printf '%s\n' "$TOKEN" | docker login ghcr.io -u "$USER_" --password-stdin >/dev/null
 		ok=1
 		for s in web worker; do
-			docker pull -q "$REG/wise-$s:$SHA" >/dev/null && docker tag "$REG/wise-$s:$SHA" "wise-$s:latest" || ok=0
+			# a short network drop to the registry (connection reset) must not stop the deploy: 3 tries
+			got=0
+			for try in 1 2 3; do
+				if docker pull -q "$REG/wise-$s:$SHA" >/dev/null; then got=1; break; fi
+				echo "pull wise-$s failed (try $try)"; sleep 15
+			done
+			[ "$got" = 1 ] && docker tag "$REG/wise-$s:$SHA" "wise-$s:latest" || ok=0
 		done
 		docker logout ghcr.io >/dev/null 2>&1 || true
 		[ "$ok" = 1 ] || { echo "pull failed – nothing changed"; exit 1; }
