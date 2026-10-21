@@ -259,6 +259,9 @@ td.mini,th.mini{display:table-cell}
 .vatl{display:flex;flex-direction:column;gap:4px}
 @media (max-width:980px){.devgrid{grid-template-columns:1fr}}
 .kcgrid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+/* PDF / print of one partner: the list is left out (noprint) – the card takes the whole width */
+.kcgrid:not(:has(.kclist)){grid-template-columns:1fr}
+@media print{.kcgrid:has(.kclist.noprint){grid-template-columns:1fr}}
 .kclist{padding:0;overflow:hidden}.kclist tr.sel td{background:var(--accent-soft);font-weight:600}
 @media (max-width:900px){.kcgrid{grid-template-columns:1fr}}
 .ctgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;align-items:start}

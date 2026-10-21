@@ -161,7 +161,7 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
           </table></div>
         </div>
       )}
-      <form className="card"><div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
+      <form className={`card ${sel ? 'noprint' : ''}`}><div className="row" style={{ gap: '10px 16px', alignItems: 'end' }}>
         <input type="hidden" name="k" value={s.kontos.join(',')} />
         {s.pid && <input type="hidden" name="pid" value={s.pid} />}
         <label className="mini">Сортирање <select name="sort" defaultValue={s.sort} style={{ width: 'auto' }}><option value="date">по датум</option><option value="nal">по налог</option></select></label>
@@ -172,7 +172,8 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
         <button className="btn">Прикажи</button>
       </div></form>
       <div className="kcgrid">
-        <div className="card kclist">
+        {/* PDF / print of the chosen partner: only its card (the list stays on screen) */}
+        <div className={`card kclist ${sel ? 'noprint' : ''}`}>
           <div className="tw" style={{ maxHeight: 560 }}><table>
             <thead><tr><th>Комитент</th><th className="n">Салдо</th></tr></thead>
             <tbody>{D.sums.length ? D.sums.map((x) => (
