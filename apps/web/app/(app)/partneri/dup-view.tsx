@@ -5,16 +5,21 @@
  * groups in the confirm). Everyone who sees the partners sees the list; merging needs `settings` or `fix`.
  */
 import Link from 'next/link';
-import { partnerDupGroups } from '@wise/db';
+import { asc, eq } from 'drizzle-orm';
+import { partnerDupGroups, partners } from '@wise/db';
 import { DUP_SCORE } from '@wise/core/partners/match';
 import { db } from '@/lib/db';
 import { Hd } from '@/components/hd';
 import { ActionForm } from '@/components/action-form';
 import { RowAction } from '@/components/row-action';
 import { mergePartnersAction, mergeSurePartnersAction, notDupAction } from './actions';
+import { ManualMerge } from './manual-merge';
 
 export async function PartnerDupView({ firmId, canMerge, note }: { firmId: string; canMerge: boolean; note?: React.ReactNode }) {
-  const V = await partnerDupGroups(db(), firmId);
+  const [V, PL] = await Promise.all([
+    partnerDupGroups(db(), firmId),
+    canMerge ? db().select({ id: partners.id, code: partners.code, name: partners.name, edb: partners.edb, city: partners.city }).from(partners).where(eq(partners.firmId, firmId)).orderBy(asc(partners.name)) : Promise.resolve([]),
+  ]);
   const S = V.groups.filter((g) => g.sure);
   const label = (r: { code: string | null; name: string }) => `${r.code ?? ''} ${r.name}`.trim();
   const sureList = S.map((g) => { const m = g.rows.find((r) => r.id === g.main)!; return `• ${label(m)} ← ${g.rows.filter((r) => r.id !== g.main).map(label).join('; ')}`; });
@@ -25,6 +30,7 @@ export async function PartnerDupView({ firmId, canMerge, note }: { firmId: strin
       <Hd t="Комитенти – дупликати" sub={`${V.groups.length} групи`}><Link className="btn" href="/partneri">← Комитенти</Link></Hd>
       <div className="callout">Комитенти со ист ЕДБ / ЕМБС или многу слично име (кратенки, латиница/кирилица, правна форма) со главниот комитент на групата; комитенти со различен ЕДБ / ЕМБС никогаш не се во иста група. Се спојуваат само штиклираните „спои“. При спојување фактурите, налозите (и почетната состојба), изводите, касата, налозите за плаќање, опомените и сите други записи се префрлаат на главниот; празните ЕДБ, ЕМБС, адреса и сметки се дополнуваат, а другите имиња остануваат за препознавање при скенирање. Салдата по конта не се менуваат; во заклучен период спојувањето се одбива.</div>
       {note}
+      {canMerge && <ManualMerge partners={PL} action={mergePartnersAction} />}
       {canMerge && S.length > 0 && <div className="row" style={{ margin: '0 0 10px' }}><RowAction className="btn sm" action={sureAction} label={`⇢ Спои ги сите сигурни (${S.length})`} confirm={ask} showOk /></div>}
       {!canMerge && V.groups.length > 0 && <p className="note">Спојувањето бара право „поставки“ или „корекција“.</p>}
       {V.groups.length ? V.groups.map((g) => (
