@@ -10,7 +10,7 @@ import { and, eq, inArray, isNull, like, sql } from 'drizzle-orm';
 import { openAmount, virtualAdvances } from '@wise/core';
 import { syntheticCard } from '@wise/core/finance';
 import { supplierWarnings } from '@wise/core/finpar-cards';
-import { bankLines, effectiveChart, journalLines, journals, loadBankEnv, matchContext, purchases } from "@wise/db";
+import { bankLines, effectiveChart, invoices, journalLines, loadBankEnv, matchContext, purchases } from "@wise/db";
 import { booksPage, canDo } from '@/lib/books';
 import { RowAction } from '@/components/row-action';
 import { bkpFixAction } from '../banka/actions';
@@ -54,25 +54,37 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
 
   const sel = s.pid ? D.P.get(s.pid) : undefined;
   const C = sel ? D.cardsOf(sel.id) : [];
-  // lines booked from a bank statement → that statement line (/banka?line=…), matched by the statement, partner and amount
+  // where each line was born: a bank statement line (matched by the statement, partner and amount), an invoice
+  type Src = { journalId?: string | null; debit: number; credit: number; sourceType?: string | null; sourceId?: string | null };
   const bankOf = new Map<string, string>();
-  const jIds = [...new Set(C.flatMap((c) => c.rows.map((r) => r.line.journalId)).filter((x): x is string => !!x))];
-  if (sel && jIds.length) {
-    const J = await db().select({ id: journals.id, src: journals.sourceId }).from(journals)
-      .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'bank_statement'), inArray(journals.id, jIds)));
-    const stIds = [...new Set(J.map((j) => j.src).filter((x): x is string => !!x))];
-    const BL = stIds.length ? await db().select({ id: bankLines.id, st: bankLines.statementId, amount: bankLines.amount }).from(bankLines)
-      .where(and(eq(bankLines.firmId, firm.id), eq(bankLines.partnerId, sel.id), inArray(bankLines.statementId, stIds))) : [];
-    for (const j of J) for (const b of BL) if (b.st === j.src) bankOf.set(`${j.id}|${Math.abs(Number(b.amount)).toFixed(2)}`, b.id);
+  const invKind = new Map<string, string>();
+  const rowsAll = C.flatMap((c) => c.rows.map((r) => r.line as Src));
+  if (sel && rowsAll.length) {
+    const stIds = [...new Set(rowsAll.filter((l) => l.sourceType === 'bank_statement' && l.sourceId).map((l) => l.sourceId!))];
+    const invIds = [...new Set(rowsAll.filter((l) => l.sourceType === 'invoice' && l.sourceId).map((l) => l.sourceId!))].filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    const [BL, IK] = await Promise.all([
+      stIds.length ? db().select({ id: bankLines.id, st: bankLines.statementId, amount: bankLines.amount }).from(bankLines)
+        .where(and(eq(bankLines.firmId, firm.id), eq(bankLines.partnerId, sel.id), inArray(bankLines.statementId, stIds))) : Promise.resolve([]),
+      invIds.length ? db().select({ id: invoices.id, kind: invoices.kind }).from(invoices).where(and(eq(invoices.firmId, firm.id), inArray(invoices.id, invIds))) : Promise.resolve([]),
+    ]);
+    for (const b of BL) bankOf.set(`${b.st}|${Math.abs(Number(b.amount)).toFixed(2)}`, b.id);
+    for (const i of IK) invKind.set(i.id, i.kind);
   }
-  const bankHref = (l: { journalId?: string | null; debit: number; credit: number }) => {
-    const id = l.journalId ? bankOf.get(`${l.journalId}|${Math.abs(l.debit || l.credit).toFixed(2)}`) : undefined;
-    return id ? `/banka?line=${id}#bk-line` : undefined;
+  const INV: Record<string, [string, string]> = { invoice: ['/izlez', 'излезната фактура'], credit: ['/odobrenija', 'одобрението'], proforma: ['/profakturi', 'профактурата'], dispatch: ['/ispratnici', 'испратницата'] };
+  const srcOf = (l0: { debit: number; credit: number }) => {
+    const l = l0 as Src;
+    if (l.sourceType === 'bank_statement' && l.sourceId) {
+      const id = bankOf.get(`${l.sourceId}|${Math.abs(l.debit || l.credit).toFixed(2)}`);
+      return id ? { href: `/banka?line=${id}#bk-line`, icon: '🏦', title: 'Отвори го изводот' } : undefined;
+    }
+    if (l.sourceType === 'purchase' && l.sourceId) return { href: `/vlez?edit=${l.sourceId}`, icon: '📥', title: 'Отвори ја влезната фактура' };
+    if (l.sourceType === 'invoice' && l.sourceId && invKind.has(l.sourceId)) { const [h, t] = INV[invKind.get(l.sourceId)!] ?? INV.invoice!; return { href: `${h}?edit=${l.sourceId}`, icon: '🧾', title: 'Отвори ја ' + t }; }
+    return undefined;
   };
   // from the autopilot (`auto=1`) with ONE booking on the card: straight to it – the statement, else its nalog
   if (sp.auto === '1') {
     const R = C.flatMap((c) => c.rows);
-    if (R.length === 1) redirect(bankHref(R[0]!.line) ?? `/nalozi?n=${encodeURIComponent(R[0]!.line.number ?? '')}`);
+    if (R.length === 1) redirect(srcOf(R[0]!.line)?.href ?? `/nalozi?n=${encodeURIComponent(R[0]!.line.number ?? '')}`);
   }
   const tot = Math.round(C.reduce((a, c) => a + c.end, 0) * 100) / 100;
   const csv: (string | number)[][] = [['Комитент', 'ЕДБ', 'Конто', 'Датум', 'Налог', 'Документ', 'Валута', 'Должи', 'Побарува', 'Салдо']];
@@ -180,7 +192,7 @@ export default async function KarticiPage({ searchParams }: { searchParams: Prom
             {C.length ? C.map((c) => (
               <div key={c.k}>
                 <h3 className="fh">{c.k} {D.kName(c.k)}</h3>
-                <div className="tw"><KcTable c={c} links bankHref={bankHref} /></div>
+                <div className="tw"><KcTable c={c} links srcOf={srcOf} /></div>
               </div>
             )) : <div className="empty">Нема ставки во периодот.</div>}
           </div>
