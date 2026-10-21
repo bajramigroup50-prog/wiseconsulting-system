@@ -82,6 +82,17 @@ export async function recordSocialPost(tx: Q, p: { lawId: string; status: 'poste
   await tx.insert(socialPosts).values({ lawId: p.lawId, ...v }).onConflictDoUpdate({ target: socialPosts.lawId, set: v });
 }
 
+/**
+ * Claim one news item for posting (`pending`) – exactly once: a second click / job while it is pending or after it was
+ * posted gets false. A failed (or deleted) one may be posted again.
+ */
+export async function claimSocialPost(tx: Q, lawId: string): Promise<boolean> {
+  const r = await tx.insert(socialPosts).values({ lawId, status: 'pending' })
+    .onConflictDoUpdate({ target: socialPosts.lawId, set: { status: 'pending', error: null }, setWhere: sql`${socialPosts.status} in ('failed', 'deleted')` })
+    .returning({ id: socialPosts.id });
+  return r.length > 0;
+}
+
 /** Posts sent today (Skopje), for the per-day limit. */
 export async function socialPostsToday(tx: Q): Promise<number> {
   const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(socialPosts)

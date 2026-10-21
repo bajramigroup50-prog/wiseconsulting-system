@@ -19,7 +19,7 @@ import { OWNER_ONLY_MSG } from '@/lib/office-owner';
 import { socialConnect, socialDelete, socialDisconnect, socialPostNow, socialPrefs } from './actions';
 
 const T = '📣 Објави на мрежи';
-const ST: Record<string, [string, string]> = { posted: ['објавено', 'good'], partial: ['делумно', 'warn'], failed: ['неуспешно', 'bad'], deleted: ['избришано', ''] };
+const ST: Record<string, [string, string]> = { pending: ['се објавува…', 'warn'], posted: ['објавено', 'good'], partial: ['делумно', 'warn'], failed: ['неуспешно', 'bad'], deleted: ['избришано', ''] };
 const dt = (d: Date | null) => (d ? d.toLocaleString('mk-MK', { timeZone: 'Europe/Skopje', dateStyle: 'short', timeStyle: 'short' }) : '');
 
 export default async function DrustveniPage() {
@@ -36,7 +36,7 @@ export default async function DrustveniPage() {
   ]);
   const page = socialPage(s);
   const next = s.auto ? await nextSocialNews(db(), s.since) : recent[0] ?? null;
-  const posted = new Set(P.filter((x) => x.status !== 'failed').map((x) => x.lawId));
+  const posted = new Set(P.filter((x) => x.status !== 'failed' && x.status !== 'deleted').map((x) => x.lawId));
   return (
     <>
       <Hd t={T} sub="Новостите на роботот (само јавни законски промени) – автоматски на Facebook и Instagram" exp={false} />

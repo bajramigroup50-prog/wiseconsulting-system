@@ -11,7 +11,7 @@ const createdAt = () => ts('created_at').notNull().defaultNow();
 export const socialPosts = pgTable('social_posts', {
   id: uuid('id').primaryKey().defaultRandom(),
   lawId: uuid('law_id').notNull().references(() => lawChanges.id, { onDelete: 'cascade' }),
-  status: text('status').$type<'posted' | 'partial' | 'failed' | 'deleted'>().notNull(),
+  status: text('status').$type<'pending' | 'posted' | 'partial' | 'failed' | 'deleted'>().notNull(),
   fbPostId: text('fb_post_id'),
   igMediaId: text('ig_media_id'),
   igLink: text('ig_link'),

@@ -95,6 +95,8 @@ export async function socialPostNow(lawId: string): Promise<RowResult> {
   const [n] = await db().select({ verified: lawChanges.verified, urls: lawChanges.urls }).from(lawChanges).where(eq(lawChanges.id, lawId)).limit(1);
   if (!n) return { error: 'Непозната новост.' };
   if (!n.urls[0]) return { error: 'Веста нема официјален извор – не се објавува.' };
+  const [already] = await db().select({ st: socialPosts.status }).from(socialPosts).where(eq(socialPosts.lawId, lawId)).limit(1);
+  if (already && (already.st === 'pending' || already.st === 'posted' || already.st === 'partial')) return { error: already.st === 'pending' ? 'Веќе се објавува – почекајте минута и освежете.' : 'Оваа вест е веќе објавена.' };
   await db().transaction(async (tx) => {
     // the owner checked it on the official source: „⚠ да се потврди“ → confirmed (also in ⚖ Законски промени)
     if (!n.verified) await tx.update(lawChanges).set({ verified: true }).where(eq(lawChanges.id, lawId));

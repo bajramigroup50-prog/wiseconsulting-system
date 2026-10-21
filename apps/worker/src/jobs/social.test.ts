@@ -72,4 +72,13 @@ describe('social.post', () => {
     expect(p).toMatchObject({ status: 'partial', fbPostId: 'PAGE_2', title: 'Втора новост' });
     expect(p!.error).toContain('Instagram: Invalid image');
   });
+
+  it('one news item is posted once, however many times „Објави сега“ is clicked', async () => {
+    const [n] = await pg.insert(schema.lawChanges).values({ key: 'twice', inst: 'UJP', title: 'Двапати кликнато', urls: ['https://www.ujp.gov.mk/t'], date: '2026-10-21' }).returning({ id: schema.lawChanges.id });
+    const m = meta();
+    const [a, b] = await Promise.all([runSocialPost(db, { lawId: n!.id }, () => {}, deps(m.f)), runSocialPost(db, { lawId: n!.id }, () => {}, deps(m.f))]);
+    expect([a, b].sort()).toEqual(['already posted', 'posted']);
+    expect(m.calls.filter((c) => c.includes('/photos')).length).toBe(1);
+    expect(await runSocialPost(db, { lawId: n!.id }, () => {}, deps(m.f))).toBe('already posted');
+  });
 });

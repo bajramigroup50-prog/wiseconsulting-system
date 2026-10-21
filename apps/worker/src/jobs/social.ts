@@ -5,7 +5,7 @@
  */
 import { todaySkopje } from '@wise/core/office';
 import { CARD_H, CARD_W, caption, cardHtml, socialPage } from '@wise/core/social/post';
-import { getSocialSettings, nextSocialNews, openSecret, recordSocialPost, socialNewsById, socialPostsToday, type DB } from '@wise/db';
+import { claimSocialPost, getSocialSettings, nextSocialNews, openSecret, recordSocialPost, socialNewsById, socialPostsToday, type DB } from '@wise/db';
 import { defineJob } from '../job';
 import { htmlToPng } from '../pdf/render';
 import { objectKey, publicGetUrl, s3Store } from '../storage';
@@ -37,6 +37,8 @@ export async function runSocialPost(db: DB, data: { lawId?: string } | null, log
   }
   const n = manual ? await socialNewsById(db, data!.lawId!) : await nextSocialNews(db, s.since);
   if (!n) return 'nothing new';
+  // never twice: a second „Објави сега“ click (or the cron meeting a click) finds it claimed / posted
+  if (!(await claimSocialPost(db, n.id))) return 'already posted';
   const today = todaySkopje();
   const text = caption(n);
   let fbId: string | null = null, ig: { id: string; link: string | null } | null = null;
