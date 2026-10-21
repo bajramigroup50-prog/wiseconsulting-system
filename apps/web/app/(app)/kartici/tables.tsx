@@ -7,7 +7,7 @@ import { lineText } from '@/lib/finance';
 type Card = KontoCard;
 
 /** Legacy `kcTable` 6435. */
-export function KcTable({ c, links }: { c: Card; links?: boolean }) {
+export function KcTable({ c, links, bankHref }: { c: Card; links?: boolean; bankHref?: (l: Card['rows'][number]['line']) => string | undefined }) {
   const td = todayIso();
   // on screen (`links`) the table fits the card next to the partner list: compact, wrapping text, „Валута“ only when some line has one
   const due = !links || c.rows.some((r) => r.line.due);
@@ -19,7 +19,11 @@ export function KcTable({ c, links }: { c: Card; links?: boolean }) {
         {c.rows.map((r, i) => (
           <tr key={i}>
             <td style={{ whiteSpace: 'nowrap' }}>{dmy(r.line.date)}</td>
-            <td style={{ whiteSpace: 'nowrap' }}>{links ? <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(r.line.number ?? '')}`}>{r.line.number}</Link> : r.line.number}</td>
+            <td style={{ whiteSpace: 'nowrap' }}>{links ? (() => {
+              // a statement line opens the statement itself (🏦), everything else its nalog
+              const b = bankHref?.(r.line);
+              return b ? <Link className="btn sm ghost" href={b} title="Отвори го изводот">🏦 {r.line.number}</Link> : <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(r.line.number ?? '')}`} title="Отвори го налогот">{r.line.number}</Link>;
+            })() : r.line.number}</td>
             <td className="w">{lineText(r.line)}</td>
             {due && <td style={{ whiteSpace: 'nowrap' }}>{r.line.due ? dmy(r.line.due) : ''}{links && r.line.due && r.line.due < td && r.line.debit ? <span className="pill bad" style={{ display: 'table', marginTop: 2 }}>доспеано</span> : null}</td>}
             <td className="n">{r.line.debit ? fmt(r.line.debit) : ''}</td><td className="n">{r.line.credit ? fmt(r.line.credit) : ''}</td><td className="n">{fmt(r.s)}</td>
