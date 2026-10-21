@@ -79,10 +79,10 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
           </div>
         </ActionForm>
       )}
-      {write && L.some((d) => d.rows.some((r) => !r.pid)) && (
+      {write && L.length > 0 && (
         <ActionForm action={relinkPddAction} className="card" reset={false}>
           <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span>⚠ {L.reduce((a, d) => a + d.rows.filter((r) => !r.pid).length, 0)} примачи без комитент – обврската (22055…) не се затвора со плаќањето од изводот.</span>
+            {L.some((d) => d.rows.some((r) => !r.pid)) ? <span>⚠ {L.reduce((a, d) => a + d.rows.filter((r) => !r.pid).length, 0)} примачи без комитент – обврската (22055…) не се затвора со плаќањето од изводот.</span> : <span className="mini">Сите примачи се поврзани со комитент.</span>}
             <Submit className="btn">🔗 Поврзи ги примачите</Submit>
           </div>
         </ActionForm>

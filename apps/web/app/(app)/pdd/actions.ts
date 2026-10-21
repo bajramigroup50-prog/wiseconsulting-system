@@ -81,7 +81,18 @@ async function partnerMatcher(firmId: string): Promise<(embg: string | null | un
     if (e.length === 13) byEmbg.set(e, p.id);
     if (!byName.has(norm(p.name))) byName.set(norm(p.name), p.id);
   }
-  return (embg, name) => (embg && byEmbg.get(embg.replace(/\D/g, ''))) || byName.get(norm(name)) || null;
+  // the same person written otherwise in the statements: words in another order („Цана Деа“), a middle name
+  // („АРЈАН СЕЛИМ ЦАНА“) or a shortened surname („РИГОН ХАЈДАР АД“ = РИГОН АДЕМИ) – every word of the recipient
+  // matches a word of exactly ONE partner (equal, or one starts with the other, 2+ letters)
+  const words = (x: string) => norm(x).split(' ').filter((w) => w.length > 1);
+  const PW = P.map((p) => ({ id: p.id, w: words(p.name) }));
+  const fuzzy = (name: string) => {
+    const R = words(name);
+    if (R.length < 2) return null;
+    const hit = PW.filter((p) => R.every((r) => p.w.some((w) => w === r || (Math.min(w.length, r.length) >= 2 && (w.startsWith(r) || r.startsWith(w))))));
+    return hit.length === 1 ? hit[0]!.id : null;
+  };
+  return (embg, name) => (embg && byEmbg.get(embg.replace(/\D/g, ''))) || byName.get(norm(name)) || fuzzy(name) || null;
 }
 
 /** „🔗 Поврзи ги примачите“: recipients of the year's payments without a partner → matched again (ЕМБГ / name), re-booked. */
@@ -92,7 +103,6 @@ export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<Ac
     const pidOf = await partnerMatcher(firm.id);
     const L = await db().select().from(pddPayments).where(and(eq(pddPayments.firmId, firm.id), sql`${pddPayments.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
     for (const d of L) {
-      if (!d.rows.some((r) => !r.pid)) continue;
       let changed = false;
       const rows: PddRow[] = d.rows.map((r) => {
         if (r.pid) return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid: r.pid };
@@ -100,14 +110,15 @@ export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<Ac
         if (pid) changed = true; else left++;
         return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid };
       });
-      if (!changed) continue;
+      // also re-booked when nothing new was linked: the ПДД lines get the person as partner too (older bookings had none)
+      if (!changed && !rows.some((r) => r.pid)) continue;
       const res = await persistPdd({ id: d.id, date: d.date, note: d.note ?? '', rows });
       if ('error' in res) return res;
       n++;
     }
   } catch (e) { return actionError(e); }
   revalidatePath('/pdd');
-  return { ok: `Поврзани и прекнижени ${n} пресметки.${left ? ` ${left} примачи и понатаму без комитент – отворете ја пресметката и изберете го комитентот (друго име во изводот).` : ''}` };
+  return { ok: `Прекнижени ${n} пресметки (комитент и на обврската и на ПДД).${left ? ` ${left} примачи и понатаму без комитент – отворете ја пресметката и изберете го комитентот (друго име во изводот).` : ''}` };
 }
 
 /**

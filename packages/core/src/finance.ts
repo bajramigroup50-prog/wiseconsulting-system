@@ -248,7 +248,8 @@ export function pddEntries(rows: readonly PddRow[], T: readonly PddType[]): PddL
     if (!c.G) continue;
     const nt = (t.sh || t.pod) + ' – ' + (r.name || '');
     L.push({ account: t.kExp, debit: c.G, credit: 0, note: nt }, { account: t.kLiab, debit: 0, credit: c.net, note: nt, partnerId: r.pid || null });
-    if (c.tax) L.push({ account: t.kTax, debit: 0, credit: c.tax, note: 'ПДД ' + nt });
+    // the tax too carries the person (owner's rule: bonus 22055 + 235003 with the recipient as partner)
+    if (c.tax) L.push({ account: t.kTax, debit: 0, credit: c.tax, note: 'ПДД ' + nt, partnerId: r.pid || null });
   }
   const M: PddLine[] = [];
   for (const l of L) {
