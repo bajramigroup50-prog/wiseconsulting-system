@@ -197,10 +197,19 @@ export function interestLines(amount: number, partnerId: string | null, o: { cus
 export interface PddType { id: string; sh: string; vid: string; pod: string; ded: number; tax: number; kExp: string; kLiab: string; kTax: string }
 /** Legacy `PDD_T0` 8314. */
 export const PDD_T0: readonly PddType[] = [
-  { id: 's6_1', vid: 'T6. Доход од закуп и подзакуп', pod: 'S6.1. Доход од закуп, освен од издавање на опремени станбени и деловни', ded: 10, tax: 10, kExp: '4143', kLiab: '22052', kTax: '23502', sh: 'Закупнина' },
+  { id: 's6_1', vid: 'T6. Доход од закуп и подзакуп', pod: 'S6.1. Доход од закуп, освен од издавање на опремени станбени и деловни', ded: 10, tax: 10, kExp: '4140', kLiab: '22052', kTax: '23502', sh: 'Закупнина' },
   // owner's rule (2026-10-21): bonuses Д 4490 / П 22055 net per person / П 235003 ПДД – the konta bank statements pay from
   { id: 's1_15', vid: 'T1. Доход од работа', pod: 'S1.15. Примања по основ на извршени интелектуални услуги', ded: 0, tax: 10, kExp: '4490', kLiab: '22055', kTax: '235003', sh: 'Интелектуални услуги / бонус' },
 ];
+/**
+ * Konta of an income type the PDF brings and the firm has no type for, by its group (owner's rules): T1 work income
+ * (bonuses, honoraria) 4490 / 22055 / 235003, T6 rent 4140 / 22052 / 23502; any other group → none (asked).
+ */
+export function pddKontaOfGroup(vid: string): Pick<PddType, 'kExp' | 'kLiab' | 'kTax'> | null {
+  if (/^T1\./.test(vid)) return { kExp: '4490', kLiab: '22055', kTax: '235003' };
+  if (/^T6\./.test(vid)) return { kExp: '4140', kLiab: '22052', kTax: '23502' };
+  return null;
+}
 /** Legacy `pddTypes` 8317: defaults overridden / extended by the firm's types. */
 export function pddTypes(user: readonly Partial<PddType>[] | null | undefined): PddType[] {
   const M = new Map(PDD_T0.map((t) => [t.id, { ...t }]));

@@ -72,9 +72,10 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
       {write && (
         <ActionForm action={importAkontAction} className="card" reset={false}>
           <div className="row" style={{ gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
-            <label className="f" style={{ margin: 0 }}>📄 Аконтативна пресметка од е-ПДД (PDF)<input type="file" name="pdf" accept="application/pdf,.pdf" required /></label>
+            <label className="f" style={{ margin: 0 }}>📄 Аконтативни пресметки од е-ПДД (PDF – една или повеќе)<input type="file" name="pdf" accept="application/pdf,.pdf" multiple required /></label>
+            <label className="f" style={{ margin: 0 }}>Вид (контирање)<select name="tid" defaultValue=""><option value="">Автоматски – според кодот во PDF</option>{T.map((t) => <option key={t.id} value={t.id}>{t.sh || t.pod} ({t.kExp} / {t.kLiab} / {t.kTax})</option>)}</select></label>
             <Submit>Увези и прокнижи</Submit>
-            <span className="mini">Програмата ги чита примачите (ЕМБГ, бруто, ПДД, нето) и ја книжи пресметката: трошок / обврска по лице / ПДД.</span>
+            <span className="mini">Изберете една или повеќе (Ctrl+A во папката). Програмата ги чита примачите и ја книжи секоја пресметка: трошок / обврска по лице / ПДД – бонуси, закупнина… Веќе увезените се прескокнуваат.</span>
           </div>
         </ActionForm>
       )}

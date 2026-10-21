@@ -6,7 +6,7 @@
  */
 import type { PdfItem } from './noai/pdf-lines';
 
-export interface AkontRow { embg: string; name: string; acct: string; code: string; gross: number; ded: number; tax: number; net: number }
+export interface AkontRow { embg: string; name: string; acct: string; code: string; vid: string; pod: string; gross: number; ded: number; tax: number; net: number }
 export interface Akont { number: string; date: string; payDate: string; edb: string; rows: AkontRow[] }
 
 const MONEY = /^-?\d{1,3}(\.\d{3})*,\d{2}$/;
@@ -35,12 +35,16 @@ export function parseAkontativna(items: readonly PdfItem[]): Akont | null {
     const after = own.filter((i) => i[col] > e[col]);
     const name = after.find((i) => /\p{L}/u.test(i.s) && !/^T\d|^S\d|Доход|Примања|извршени|Трансак/i.test(i.s))?.s ?? '';
     const acct = after.find((i) => /^\d{15}$/.test(i.s))?.s ?? '';
-    const code = /S\d+\.\d+/.exec(after.find((i) => /^S\d+\.\d+/.test(i.s))?.s ?? '')?.[0] ?? '';
+    const sIdx = after.findIndex((i) => /^S\d+\.\d+/.test(i.s));
+    const code = /S\d+\.\d+/.exec(after[sIdx]?.s ?? '')?.[0] ?? '';
+    // income type („T1. Доход од работа“) and subtype – the subtype text may run over two lines
+    const vid = after.find((i) => /^T\d+\./.test(i.s))?.s ?? '';
+    const pod = sIdx < 0 ? '' : [after[sIdx]!.s, ...after.slice(sIdx + 1).filter((i) => Math.abs(i[col] - after[sIdx]![col]) < 3).map((i) => i.s)].join(' ').replace(/\s+/g, ' ').trim();
     const M = after.filter((i) => MONEY.test(i.s)).map((i) => money(i.s));
     // gross, deductions, ПДД, net – in this order along the row
     if (M.length < 4) continue;
     const [gross, ded, tax, net] = M as [number, number, number, number];
-    rows.push({ embg: e.s, name, acct, code, gross, ded, tax, net });
+    rows.push({ embg: e.s, name, acct, code, vid, pod, gross, ded, tax, net });
   }
   if (!rows.length) return null;
   const valueAfter = (label: RegExp, re: RegExp) => {
