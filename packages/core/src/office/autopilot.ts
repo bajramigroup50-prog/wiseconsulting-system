@@ -183,7 +183,7 @@ export function alCompute(S: FirmSnapshot): Finding[] {
     np.set(String(l.account), o);
   }
   for (const [k, o] of [...np].sort(([a], [b]) => a.localeCompare(b)))
-    add('warn', 'Комитенти', `Конто ${k}: ${o.n} ${o.n === 1 ? 'ставка' : 'ставки'} без комитент (салдо ${fmtMk(o.s)} ден.)`, `kkart?k=${k}&p=none`);
+    add('warn', 'Комитенти', `Конто ${k}: ${o.n} ${o.n === 1 ? 'ставка' : 'ставки'} без комитент (салдо ${fmtMk(o.s)} ден.)`, 'kontrolaKom');
 
   /* 2б. invoice numbering gaps */
   if (S.invoices) for (const [k, miss] of invoiceGaps(S.invoices, y))

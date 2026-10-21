@@ -18,6 +18,14 @@ import { dmy } from '@/lib/fmt';
 
 type SP = { q?: string; k?: string; bal?: string };
 
+/** The balance on the wrong side: a customer (12…) in credit = paid more than invoiced; a supplier (22…) in debit = paid
+ *  without a purchase invoice. Either an invoice is missing, the payment is double / an advance, or booked on another partner. */
+function wrongSide(k: string, s: number): string | null {
+  if (k.startsWith('12') && s < -0.005) return 'платено, нема фактура';
+  if (k.startsWith('22') && s > 0.005) return 'платено, нема влезна фактура';
+  return null;
+}
+
 export default async function AnalitikaPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const { firm, year } = await booksPage('analitika');
@@ -32,6 +40,7 @@ export default async function AnalitikaPage({ searchParams }: { searchParams: Pr
   const pn = (id: string) => P.get(id)?.name ?? '';
   rows.sort((a, b) => pn(a.p).localeCompare(pn(b.p), 'mk') || a.k.localeCompare(b.k));
   const tot = rows.reduce((a, r) => ({ d: a.d + r.d, c: a.c + r.c }), { d: 0, c: 0 });
+  const nWrong = rows.filter((r) => wrongSide(r.k, r.d - r.c)).length;
   const np = new Set(rows.map((r) => r.p)).size;
   const fq = new URLSearchParams(Object.entries({ q: F.q, k: F.k, bal: F.bal ? '1' : '' }).filter(([, v]) => v) as [string, string][]).toString();
   const pr = (doc: string, extra = '') => `/print/fin/${doc}?${fq}${fq && extra ? '&' : ''}${extra}`;
@@ -59,23 +68,26 @@ export default async function AnalitikaPage({ searchParams }: { searchParams: Pr
         <span className="mini">Прикажани: <b>{rows.length}</b> ставки · <b>{np}</b> партнери · салдо <b>{fmt(tot.d - tot.c)}</b></span>
         {(F.q || F.k || F.bal) && <Link className="btn sm" href="/analitika">✕ Исчисти</Link>}
       </div></form>
-      {rows.length ? (
+      {rows.length ? (<>
+        {nWrong > 0 && <div className="callout bad">⚠ {nWrong} {nWrong === 1 ? 'партнер има' : 'партнери имаат'} салдо на погрешна страна (црвено): купувач што платил повеќе отколку што е фактурирано, или добавувач платен без влезна фактура. Отворете ја картицата – недостасува фактура, плаќањето е двојно / аванс, или е книжено на друг комитент.</div>}
         <div className="tw"><table>
           <thead><tr><th>Партнер</th><th>Конто</th><th className="n">Должи</th><th className="n">Побарува</th><th className="n">Салдо</th><th /></tr></thead>
-          <tbody>{rows.map((r) => (
-            <tr key={r.p + r.k}>
+          <tbody>{rows.map((r) => { const w = wrongSide(r.k, r.d - r.c); return (
+            <tr key={r.p + r.k} style={w ? { background: 'color-mix(in srgb, var(--bad) 10%, transparent)' } : undefined}>
               <td>{pn(r.p)}{P.get(r.p)?.edb && <><br /><small className="mut">ЕДБ {P.get(r.p)!.edb}</small></>}</td>
-              <td>{r.k} {kName(r.k)}</td><td className="n">{fmt(r.d)}</td><td className="n">{fmt(r.c)}</td><td className="n">{fmt(r.d - r.c)}</td>
+              <td>{r.k} {kName(r.k)}</td><td className="n">{fmt(r.d)}</td><td className="n">{fmt(r.c)}</td>
+              <td className="n" style={w ? { color: 'var(--bad)', fontWeight: 700 } : Math.abs(r.d - r.c) < 0.005 ? { color: 'var(--good)' } : undefined}>
+                {fmt(r.d - r.c)}{w && <><br /><small>⚠ {w}</small></>}</td>
               <td className="row" style={{ flexWrap: 'nowrap' }}>
                 <Link className="btn sm" href={`/kartici?k=12,22&pid=${r.p}`}>Картица</Link>
                 <a className="btn sm" href={`/print/fin/pkartica?pid=${r.p}`} target="_blank" rel="noopener">Картица PDF</a>
                 <a className="btn sm" href={`/print/fin/ios?pid=${r.p}`} target="_blank" rel="noopener">ИОС PDF</a>
               </td>
             </tr>
-          ))}</tbody>
+          ); })}</tbody>
           <tfoot><tr><td colSpan={2}>Вкупно</td><td className="n">{fmt(tot.d)}</td><td className="n">{fmt(tot.c)}</td><td className="n">{fmt(tot.d - tot.c)}</td><td /></tr></tfoot>
         </table></div>
-      ) : <div className="card empty">{all.length ? 'Нема партнер што одговара на пребарувањето.' : 'Сè уште нема промет со партнери.'}</div>}
+      </>) : <div className="card empty">{all.length ? 'Нема партнер што одговара на пребарувањето.' : 'Сè уште нема промет со партнери.'}</div>}
     </>
   );
 }

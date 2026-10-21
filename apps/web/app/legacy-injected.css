@@ -2,6 +2,8 @@
 
 /* --- legacy line 3204 (PDF_CSS) --- */
 .kart{border:1.5px solid #111;margin-top:8px}.kart th{background:#fff!important;color:#111!important;border:1px solid #111!important;font-size:11px;letter-spacing:.04em}.kart td{border:0!important;border-left:1px solid #111!important;padding:3px 5px}.kart tfoot td{border-top:1.5px solid #111!important;font-weight:700;border-left:0!important}
+/* a thin line under every row of the card (screen and PDF) – the rows read apart */
+.kart tbody td{border-bottom:1px solid #9a9a9a!important}
 .pdfdoc{width:190mm;background:#fff;color:#111;font-family:"IBM Plex Sans",Arial,sans-serif;font-size:10.5px;line-height:1.35}
 .pdfdoc.land{width:277mm}
 .pdfdoc h1{font-size:18px;margin:0 0 2px;font-family:Arial,"IBM Plex Sans",sans-serif;font-weight:400;color:#111}

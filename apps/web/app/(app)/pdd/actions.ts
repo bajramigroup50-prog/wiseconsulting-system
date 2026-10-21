@@ -56,7 +56,8 @@ async function persistPdd(v: PddInput): Promise<{ id: string } | { error: string
         firmId: firm.id, date: v.date, kind: 'pdd', description: v.note?.trim() || 'Закупнина / бонуси ' + v.date.split('-').reverse().join('.'),
         sourceType: 'pdd', sourceId: id, userId: u.id, auditAction: 'pddPost',
         lines: pddEntries(rows, T).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, note: l.note, partnerId: l.partnerId ?? null })),
-        requirePartner: false,
+        // the obligation per person (22…) needs its partner – recipientPartner finds or creates it
+        requirePartner: true,
       });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'pddSave', entityType: 'pdd_payment', entityId: id, data: { date: v.date, rows: rows.length, ...tot } });
     });
