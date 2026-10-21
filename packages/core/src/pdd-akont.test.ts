@@ -1,10 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseAkontativna } from './pdd-akont';
-import type { PdfItem } from './noai/pdf-lines';
+import { AKONT_ITEMS } from './pdd-akont.fixture';
 
-// the text layer of a real „Аконтативна пресметка“ with invented persons, accounts and payer (УЈП е-ПДД, landscape: its text runs along y)
-const ITEMS = JSON.parse(readFileSync(new URL('./pdd-akont.fixture.json', import.meta.url), 'utf8')) as PdfItem[];
+const ITEMS = AKONT_ITEMS;
 
 describe('аконтативна пресметка (PDF)', () => {
   it('reads the header and every recipient', () => {
