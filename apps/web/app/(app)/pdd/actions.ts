@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, sql } from 'drizzle-orm';
 import { pddCalc, pddEntries, pddKontaOfGroup, pddTotal, pddTypes, type PddRow, type PddType } from '@wise/core/finance';
-import { audit, firms, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
+import { audit, ensurePartner, firms, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
 import { parseAkontativna, type AkontRow } from '@wise/core/pdd-akont';
 import { pdfTextItems } from '@/lib/pdf-text';
 import { recheckFirmLater } from '@/lib/jobs';
@@ -95,6 +95,24 @@ async function partnerMatcher(firmId: string): Promise<(embg: string | null | un
   return (embg, name) => (embg && byEmbg.get(embg.replace(/\D/g, ''))) || byName.get(norm(name)) || fuzzy(name) || null;
 }
 
+/**
+ * The recipient's partner, created when there is none yet (the calculation came before the statement): a natural
+ * person with the Cyrillic name, ЕМБГ (partner data) and the account from the PDF – the statement's payment then finds
+ * it by that account. A partner with the same account is reused.
+ */
+async function recipientPartner(firmId: string, find: (embg: string | null | undefined, name: string) => string | null, r: { embg?: string | null; name: string; acct?: string | null }): Promise<string | null> {
+  const hit = find(r.embg, r.name);
+  if (hit || !r.name.trim()) return hit;
+  return db().transaction(async (tx) => {
+    const p = await ensurePartner(tx, firmId, { name: latToCyr(r.name).toUpperCase(), bankAccount: r.acct || null, vatRegistered: false });
+    if (p.created && r.embg) {
+      const [x] = await tx.select({ data: partners.data }).from(partners).where(eq(partners.id, p.id));
+      await tx.update(partners).set({ data: { ...((x?.data ?? {}) as object), embg: r.embg, person: true } }).where(eq(partners.id, p.id));
+    }
+    return p.id;
+  });
+}
+
 /** „🔗 Поврзи ги примачите“: recipients of the year's payments without a partner → matched again (ЕМБГ / name), re-booked. */
 export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<ActionState> {
   let n = 0, left = 0;
@@ -104,12 +122,13 @@ export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<Ac
     const L = await db().select().from(pddPayments).where(and(eq(pddPayments.firmId, firm.id), sql`${pddPayments.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
     for (const d of L) {
       let changed = false;
-      const rows: PddRow[] = d.rows.map((r) => {
+      const rows: PddRow[] = [];
+      for (const r of d.rows) rows.push(await (async (): Promise<PddRow> => {
         if (r.pid) return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid: r.pid };
-        const pid = pidOf(r.embg, r.name);
+        const pid = await recipientPartner(firm.id, pidOf, r);
         if (pid) changed = true; else left++;
         return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid };
-      });
+      })());
       // also re-booked when nothing new was linked: the ПДД lines get the person as partner too (older bookings had none)
       if (!changed && !rows.some((r) => r.pid)) continue;
       const res = await persistPdd({ id: d.id, date: d.date, note: d.note ?? '', rows });
@@ -166,10 +185,11 @@ export async function importAkontAction(_p: ActionState, f: FormData): Promise<A
         });
         T = [...T, ...add];
       }
-      const rows: PddRow[] = A.rows.map((r) => ({
+      const rows: PddRow[] = [];
+      for (const r of A.rows) rows.push({
         tid: (T.find((t) => forced && t.id === forced) ?? T.find((t) => r.code && t.pod.startsWith(r.code + '.')) ?? T.find((t) => t.id === 's1_15') ?? T[0]!).id,
-        mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: pidOf(r.embg, r.name),
-      }));
+        mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: await recipientPartner(firm.id, pidOf, r),
+      });
       const res = await persistPdd({ date: A.date || A.payDate, note: `Аконтативна пресметка бр. ${A.number}${A.payDate ? ' · плаќање до ' + A.payDate.split('-').reverse().join('.') : ''}`, rows });
       if ('error' in res) { bad.push(`${file.name}: ${res.error}`); continue; }
       lastId = res.id;
