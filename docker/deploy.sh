@@ -30,9 +30,10 @@ main() {
 		printf '%s\n' "$TOKEN" | docker login ghcr.io -u "$USER_" --password-stdin >/dev/null
 		ok=1
 		for s in web worker; do
-			# a short network drop to the registry (connection reset) must not stop the deploy: 3 tries
+			# a network drop to the registry (connection reset) must not stop the deploy: layers already pulled are kept, so
+			# every try gets further – 8 tries
 			got=0
-			for try in 1 2 3; do
+			for try in 1 2 3 4 5 6 7 8; do
 				if docker pull -q "$REG/wise-$s:$SHA" >/dev/null; then got=1; break; fi
 				echo "pull wise-$s failed (try $try)"; sleep 15
 			done
