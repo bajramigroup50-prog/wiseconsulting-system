@@ -95,7 +95,7 @@ export default async function AutopPage({ searchParams }: { searchParams: Promis
               <td><b>{r.f.name}</b></td>
               <td>{r.bad ? <Pill c="bad">⛔ {r.bad}</Pill> : r.warn ? <Pill c="warn">⚠ {r.warn}</Pill> : <Pill c="good">✓ подготвена</Pill>}</td>
               <td style={{ fontSize: 12.5 }}>{r.I.length ? find.filter((x) => x.firmId === r.f.id && x.lvl !== 'info').map((x) => (
-                <div key={x.id} title={AL_DESC[x.cat]}><Pill c={LV[x.lvl]}>{x.cat}</Pill> {x.txt} <RowAction action={ackFinding.bind(null, x.id)} label="✓" title="Видено – не прикажувај" /></div>
+                <div key={x.id} title={AL_DESC[x.cat]}><Pill c={LV[x.lvl]}>{x.cat}</Pill> {x.go ? <FirmGo fid={r.f.id} current={cur?.id} to={hrefFor(x.go)} inline title="Отвори каде е книжено" style={{ textDecoration: 'underline', color: 'var(--link, #0b57d0)' }}>{x.txt}</FirmGo> : x.txt} <RowAction action={ackFinding.bind(null, x.id)} label="✓" title="Видено – не прикажувај" /></div>
               )) : <span className="muted">—</span>}</td>
               <td style={{ whiteSpace: 'nowrap' }}><FirmGo fid={r.f.id} current={cur?.id} to={hrefFor(find.find((x) => x.firmId === r.f.id && x.go)?.go ?? 'home')} className="btn sm">Отвори →</FirmGo></td>
             </tr>

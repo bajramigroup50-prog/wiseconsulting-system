@@ -160,9 +160,11 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   const PB = partnerBalances(L);
   const sup = PB.filter((o) => o.t === '22' && o.s > 1).sort((a, b) => b.s - a.s);
   // every one (the office picks the firm on /autop and sees its whole list)
-  for (const o of sup) add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}${kontoNote(o.k, '2200')}`, 'vlez');
+  // the link opens the partner's card on those kontos – every booking (statement / nalog) is one click away
+  const card = (o: { p: string; k: Set<string> }) => `kartici?k=${[...o.k].sort().join(',')}&pid=${o.p}`;
+  for (const o of sup) add('bad', 'Влезни фактури', `Недостасува влезна фактура: платено ${fmtMk(o.s)} ден. повеќе од фактурираното – ${pn(o.p, 'добавувач')}${kontoNote(o.k, '2200')}`, card(o));
   const cus = PB.filter((o) => o.t === '12' && o.s < -1).sort((a, b) => a.s - b.s);
-  for (const o of cus) add('warn', 'Излезни фактури', `Примена уплата ${fmtMk(-o.s)} ден. без излезна фактура (аванс?) – ${pn(o.p, 'купувач')}${kontoNote(o.k, '1200')}`, 'izlez');
+  for (const o of cus) add('warn', 'Излезни фактури', `Примена уплата ${fmtMk(-o.s)} ден. без излезна фактура (аванс?) – ${pn(o.p, 'купувач')}${kontoNote(o.k, '1200')}`, card(o));
   /* 2a. lines on customer / supplier kontos without a partner (per konto) */
   const np = new Map<string, { n: number; s: number }>();
   for (const l of L) {
