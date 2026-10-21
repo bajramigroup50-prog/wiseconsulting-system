@@ -80,7 +80,8 @@ export interface FirmSnapshot {
 const isCash = (S: FirmSnapshot) => { const K = new Set(S.cashAccounts?.length ? S.cashAccounts : ['1020']); return (l: LedgerLine) => K.has(String(l.account)); };
 
 /** Per-partner balances (debit − credit) on 12x / 22x. */
-function partnerBalances(L: readonly LedgerLine[]) {
+/** Partner balances on customer (12…) / supplier (22…) kontos – also the client portal's „❗ Што фали“. */
+export function partnerBalances(L: readonly LedgerLine[]) {
   const by = new Map<string, { p: string; t: '12' | '22'; s: number; k: Set<string> }>();
   for (const l of L) {
     if (!l.partnerId) continue;

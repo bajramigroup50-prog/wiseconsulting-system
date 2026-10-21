@@ -6,16 +6,18 @@
  * Server addition: messages from the office. (The accounting-service contract is no longer in the portal — owner-only.)
  */
 import Link from 'next/link';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { balances, periodOf, sumPref } from '@wise/core';
 import { klSections, type KlConfig } from '@wise/core/office';
-import { clientEntries, computeVatPeriod, dossierDocs, inboxItems, loadLedgerLines } from '@wise/db';
+import { partnerBalances } from '@wise/core/office/autopilot';
+import { clientEntries, computeVatPeriod, dossierDocs, inboxItems, loadLedgerLines, partners } from '@wise/db';
 import { db } from '@/lib/db';
 import { officePage, today } from '@/lib/office';
 import { Hd, dmy, dmyHm } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { hrefFor } from '@/lib/nav';
 import { fmt } from '@/lib/fmt';
+import { KlDashCards } from './kl-dash-cards';
 
 const KIND: Record<string, string> = { purchase: 'Влезна фактура', invoice: 'Излезна фактура', sale: 'Промет', dossier: 'Документ' };
 
@@ -36,6 +38,9 @@ export default async function KlHomePage() {
   const rec = sumPref(B, ['12']), pay = -sumPref(B, ['22']), stk = sumPref(B, ['66']) + sumPref(B, ['31']) + sumPref(B, ['63']);
   const S = klSections((firm.settings as { kl?: KlConfig }).kl, firm.mods);
   const showSt = S.some((s) => s[0] === 'stanje');
+  // ❗ Што фали (option of the office): suppliers paid more than invoiced, customers who paid without an invoice
+  const fali = S.some((s) => s[0] === 'fali') ? partnerBalances(L).filter((o) => (o.t === '22' && o.s > 1) || (o.t === '12' && o.s < -1)).sort((a, b) => Math.abs(b.s) - Math.abs(a.s)) : [];
+  const PN = fali.length ? new Map((await db().select({ id: partners.id, name: partners.name }).from(partners).where(and(eq(partners.firmId, firm.id), inArray(partners.id, fali.map((o) => o.p))))).map((p) => [p.id, p.name])) : new Map<string, string>();
   const days = (d: string) => Math.round((Date.parse(d) - Date.parse(td)) / 864e5);
   const exp = docs.filter((d) => d.validTo && days(d.validTo) <= 30).sort((a, b) => (a.validTo! < b.validTo! ? -1 : 1));
   const tile = (lab: string, v: string, sub?: string, c?: string) => <div className="tile" key={lab}><span>{lab}</span><b style={c ? { color: c } : undefined}>{v}</b>{sub && <i>{sub}</i>}</div>;
@@ -54,6 +59,7 @@ export default async function KlHomePage() {
           {vat != null ? tile('ДДВ за тековниот период', fmt(vat), vat > 0 ? 'за плаќање' : vat < 0 ? 'за поврат' : 'нема обврска') : null}
         </div>
       )}
+      <KlDashCards firm={firm} year={Number(y)} td={td} vat={vat} show={{ kpi: S.some((s) => s[0] === 'kpi'), top: S.some((s) => s[0] === 'top'), otv: S.some((s) => s[0] === 'otv') }} />
       <div className="klgrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12, margin: '14px 0' }}>
         {S.filter((s) => s[3] !== 'klHome').map((s) => (
           <Link key={s[0]} className="card" href={hrefFor(s[3])} style={{ textAlign: 'left', cursor: 'pointer', padding: 16, margin: 0, border: '1px solid var(--line)', color: 'inherit', textDecoration: 'none' }}>
@@ -63,6 +69,18 @@ export default async function KlHomePage() {
           </Link>
         ))}
       </div>
+      {S.some((s) => s[0] === 'fali') && (
+        <div className="card" style={{ borderLeft: `4px solid ${fali.length ? 'var(--bad)' : 'var(--good, #1a7f37)'}` }}>
+          <b>❗ Што фали – фактури ({y})</b>
+          {fali.length ? <>
+            <p className="mini" style={{ margin: '4px 0 6px' }}>Според книгите – донесете ги или испратете ги фактурите (📷 Испрати документ):</p>
+            {fali.map((o) => <div key={o.p + o.t} className="mini" style={{ marginTop: 3 }}>
+              {o.t === '22' ? <>🔴 Платено <b>{fmt(o.s)}</b> ден. на <b>{PN.get(o.p) ?? 'добавувач'}</b> – недостасува <b>влезна фактура</b></>
+                : <>🟠 Примено <b>{fmt(-o.s)}</b> ден. од <b>{PN.get(o.p) ?? 'купувач'}</b> – нема <b>излезна фактура</b> (аванс?)</>}
+            </div>)}
+          </> : <p className="mini" style={{ margin: '4px 0 0' }}>✅ Нема фактури што фалат.</p>}
+        </div>
+      )}
       {exp.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #e08a00' }}><b>Документи што истекуваат</b>
           {exp.map((d) => <div key={d.id} className="mini" style={{ marginTop: 4 }}>{days(d.validTo!) < 0 ? '🔴 истечен' : '🟠 истекува'} {dmy(d.validTo)} – {d.title || d.category}</div>)}
