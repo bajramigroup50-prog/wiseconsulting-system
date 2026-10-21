@@ -198,7 +198,8 @@ export interface PddType { id: string; sh: string; vid: string; pod: string; ded
 /** Legacy `PDD_T0` 8314. */
 export const PDD_T0: readonly PddType[] = [
   { id: 's6_1', vid: 'T6. Доход од закуп и подзакуп', pod: 'S6.1. Доход од закуп, освен од издавање на опремени станбени и деловни', ded: 10, tax: 10, kExp: '4143', kLiab: '22052', kTax: '23502', sh: 'Закупнина' },
-  { id: 's1_15', vid: 'T1. Доход од работа', pod: 'S1.15. Примања по основ на извршени интелектуални услуги', ded: 0, tax: 10, kExp: '4490', kLiab: '22053', kTax: '2350', sh: 'Интелектуални услуги / бонус' },
+  // owner's rule (2026-10-21): bonuses Д 4490 / П 22055 net per person / П 235003 ПДД – the konta bank statements pay from
+  { id: 's1_15', vid: 'T1. Доход од работа', pod: 'S1.15. Примања по основ на извршени интелектуални услуги', ded: 0, tax: 10, kExp: '4490', kLiab: '22055', kTax: '235003', sh: 'Интелектуални услуги / бонус' },
 ];
 /** Legacy `pddTypes` 8317: defaults overridden / extended by the firm's types. */
 export function pddTypes(user: readonly Partial<PddType>[] | null | undefined): PddType[] {
