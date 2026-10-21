@@ -11,14 +11,14 @@ import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { today } from '@/lib/finance';
-import { ActionForm } from '@/components/action-form';
+import { ActionForm, Submit } from '@/components/action-form';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { deletePddAction, savePddTypesAction } from './actions';
+import { deletePddAction, importAkontAction, savePddTypesAction } from './actions';
 import { PddEditor, type Person } from './editor';
 
-export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string; ok?: string; pid?: string; amt?: string; k?: string }> }) {
+export default async function PddPage({ searchParams }: { searchParams: Promise<{ ed?: string; types?: string; ok?: string; pid?: string; amt?: string; k?: string; imp?: string }> }) {
   const sp = await searchParams;
   const { u, firm, year } = await booksPage('pdd');
   if (!firm) return <NoFirm t="Закупнина, бонуси и услуги" />;
@@ -53,6 +53,7 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
     return (
       <>
         <Hd t={edit ? 'Книжење: закупнина / бонус / услуга' : 'Ново книжење: закупнина / бонус / услуга'}><Link className="btn" href="/pdd">← Листа</Link></Hd>
+        {sp.imp && edit && <div className="callout good" role="status">✓ Аконтативната пресметка е прочитана и прокнижена ({src.rows.length} примачи). Проверете ги примачите и контата – ако нешто менувате, „Зачувај“ го книжи повторно.{src.rows.some((r) => !r.pid) ? ' ⚠ Некои примачи не се поврзани со комитент – изберете го комитентот, за обврската да се затвори со изводот.' : ''}</div>}
         {sp.ed === 'last' && src && <div className="callout">Копирани се примачите и износите од {dmy(src.date)} – сменете го датумот ако треба.</div>}
         <PddEditor id={edit ? src.id : undefined} date={edit ? src.date : today()} note={src?.note ?? ''} rows={rows} types={T} people={people} />
       </>
@@ -68,6 +69,15 @@ export default async function PddPage({ searchParams }: { searchParams: Promise<
         {write && L.length > 0 && <Link className="btn" href="/pdd?ed=last">Нова од последната (иста закупнина)</Link>}
         {write && <Link className="btn pri" href="/pdd?ed=new">+ Ново книжење</Link>}
       </Hd>
+      {write && (
+        <ActionForm action={importAkontAction} className="card" reset={false}>
+          <div className="row" style={{ gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
+            <label className="f" style={{ margin: 0 }}>📄 Аконтативна пресметка од е-ПДД (PDF)<input type="file" name="pdf" accept="application/pdf,.pdf" required /></label>
+            <Submit>Увези и прокнижи</Submit>
+            <span className="mini">Програмата ги чита примачите (ЕМБГ, бруто, ПДД, нето) и ја книжи пресметката: трошок / обврска по лице / ПДД.</span>
+          </div>
+        </ActionForm>
+      )}
       {sp.types && (
         <ActionForm action={savePddTypesAction} reset={false}>
           <div className="hd"><h2 style={{ fontSize: 15 }}>Видови и конта за книжење</h2><Link className="btn sm" href="/pdd">✕</Link></div>

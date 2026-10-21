@@ -7,7 +7,9 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { pddCalc, pddEntries, pddTotal, pddTypes, type PddRow, type PddType } from '@wise/core/finance';
-import { audit, firms, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
+import { audit, firms, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
+import { parseAkontativna, type AkontRow } from '@wise/core/pdd-akont';
+import { pdfTextItems } from '@/lib/pdf-text';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { isDate } from '@/lib/finance';
@@ -17,6 +19,14 @@ const typesOf = (settings: unknown) => pddTypes(((settings ?? {}) as { pddTypes?
 export interface PddInput { id?: string; date: string; note: string; rows: PddRow[] }
 
 export async function savePddAction(v: PddInput): Promise<ActionState> {
+  const r = await persistPdd(v);
+  if ('error' in r) return r;
+  revalidatePath('/pdd');
+  redirect('/pdd?ok=1');
+}
+
+/** Save + book one payment (shared by the editor and the PDF import). */
+async function persistPdd(v: PddInput): Promise<{ id: string } | { error: string }> {
   let id = v.id ?? '';
   try {
     const { u, firm } = await firmAction('pddSave');
@@ -50,10 +60,40 @@ export async function savePddAction(v: PddInput): Promise<ActionState> {
     });
   } catch (e) {
     if (e instanceof Error && e.message === 'Книжењето не постои.') return { error: e.message };
-    return actionError(e);
+    return { error: actionError(e).error ?? 'Грешка при книжење.' };
   }
+  return { id };
+}
+
+/**
+ * „📄 Увези аконтативна пресметка“: the УЈП е-ПДД PDF → one booked payment (gross mode, the type of the income code,
+ * the recipients matched to partners by ЕМБГ or name), then its editor to check it.
+ */
+export async function importAkontAction(_p: ActionState, f: FormData): Promise<ActionState> {
+  let id = '';
+  try {
+    const { firm } = await firmAction('pddSave');
+    const file = f.get('pdf');
+    if (!(file instanceof File) || !file.size) return { error: 'Изберете го PDF-от „Аконтативна пресметка“ од е-ПДД.' };
+    if (file.size > 10_000_000) return { error: 'PDF-от е преголем.' };
+    const A = parseAkontativna(await pdfTextItems(new Uint8Array(await file.arrayBuffer())));
+    if (!A) return { error: 'Ова не е „Аконтативна пресметка“ од УЈП (или е скенирана слика без текст).' };
+    if (A.edb && firm.edb && A.edb !== firm.edb.replace(/\D/g, '')) return { error: `Пресметката е за ЕДБ ${A.edb}, а избраната фирма е ${firm.name} (ЕДБ ${firm.edb}).` };
+    const T = typesOf(firm.settings);
+    const P = await db().select({ id: partners.id, name: partners.name, edb: partners.edb, data: partners.data }).from(partners).where(eq(partners.firmId, firm.id));
+    const norm = (x: string) => x.toUpperCase().replace(/\s+/g, ' ').trim();
+    const pidOf = (r: AkontRow) => (P.find((p) => String(((p.data ?? {}) as { embg?: string }).embg ?? p.edb ?? '').replace(/\D/g, '') === r.embg)
+      ?? P.find((p) => norm(p.name) === norm(r.name)))?.id ?? null;
+    const rows: PddRow[] = A.rows.map((r) => ({
+      tid: (T.find((t) => r.code && t.pod.startsWith(r.code + '.')) ?? T.find((t) => t.id === 's1_15') ?? T[0]!).id,
+      mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: pidOf(r),
+    }));
+    const res = await persistPdd({ date: A.date || A.payDate, note: `Аконтативна пресметка бр. ${A.number}${A.payDate ? ' · плаќање до ' + A.payDate.split('-').reverse().join('.') : ''}`, rows });
+    if ('error' in res) return res;
+    id = res.id;
+  } catch (e) { return actionError(e); }
   revalidatePath('/pdd');
-  redirect('/pdd?ok=1');
+  redirect(`/pdd?ed=${id}&imp=1`);
 }
 
 export async function deletePddAction(id: string): Promise<ActionState> {
