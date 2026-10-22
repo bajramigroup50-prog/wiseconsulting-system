@@ -8,7 +8,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
-  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
+  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, isOwnParty, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
   saleDraftFromScan, scanInvoices, scanNoVatRule, type ScanPurchaseDraft, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
@@ -146,7 +146,9 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     // paid in cash (a cash nalog / „во готово“): the firm's cash rules — e.g. fuel → 4033, everything else → 4199 — as
     // costs (no stock); a fiscal receipt without an invoice number gets one from its date and amount
     if (opts.cash) applyCashScanRules(d, cashScanRules(s));
-    if (!d.partnerId && !ownerCheck('purchase', x, f.edb)) {
+    // the supplier read is this firm itself (its own sales invoice): never a partner of its own purchase
+    if (isOwnParty(d.supplierName, d.supplierEdb, f.edb, f.name)) { d.partnerId = ''; d.match = undefined; }
+    else if (!d.partnerId && !ownerCheck('purchase', x, f.edb, f.name)) {
       const a = await autoPartner(db, f, o, M, { name: d.supplierName, id: d.supplierEdb, bankAccount: d.bankAcc, type: 'supplier' }, d.match);
       if (a) { d.partnerId = a.id; d.match = a.match; }
     }
@@ -154,7 +156,7 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     // the same invoice printed twice in this file (original + copy)
     const me = { partnerId: d.partnerId || null, partnerEdb: d.supplierEdb, number: d.number, total: purchaseTotal(d), date: d.docDate || null };
     const dup = findDuplicate(me, cand);
-    let st: { status: AiDraft['status']; msg: string } = batchStatus(d, x, dup, ownerCheck('purchase', x, f.edb));
+    let st: { status: AiDraft['status']; msg: string } = batchStatus(d, x, dup, ownerCheck('purchase', x, f.edb, f.name) ?? (isOwnParty(d.supplierName, d.supplierEdb, f.edb, f.name) ? 'Добавувачот на документот е оваа фирма – ова е излезна, не влезна фактура.' : null));
     if (dup?.inRead != null) st = { status: 'dup', msg: `истата фактура е веќе прочитана погоре во овој документ (фактура ${dup.inRead + 1} од ${I.length})` };
     else if (dup) st = { status: 'dup', msg: `веќе е заведена: ${d.number}${dup.date ? ' од ' + dup.date.split('-').reverse().join('.') : ''} – прескокната` };
     // one invoice read with a range of numbers („101-103“): several invoices merged by the read — never saved as one
@@ -224,7 +226,9 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
   const tracksStock = M.items.some((i) => i.type !== 'service');
   for (const x of scanInvoices(mergeAttachedInvoices(r))) {
     const d = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)), noVat: scanNoVatRule(f.settings) });
-    const own = ownerCheck('sale', x, f.edb);
+    const own = ownerCheck('sale', x, f.edb, f.name);
+    // the buyer read is this firm itself: never the partner of its own sales invoice (also when a partner card of it exists)
+    if (own) { d.partnerId = ''; d.match = undefined; }
     if (!d.partnerId && !own) {
       const a = await autoPartner(db, f, o, M, { name: d.buyer.name, id: d.buyer.edb, address: d.buyer.address, city: d.buyer.city, type: 'customer' }, d.match);
       if (a) { d.partnerId = a.id; d.match = a.match; }
@@ -249,6 +253,8 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
     // no VAT and no note (чл. 32-а / ослободување) on the document: never guessed, the accountant decides
     if (d.vatCheck) why.push(d.vatNote ? 'провери: ослободено со или без право на одбивка (ДДВ-04 поле 08 / 09)?' : NO_VAT_NOTE_MSG);
     if (own) why.push(own);
+    // the invoice says the firm is not a VAT payer while its card says it is: the card decides the posting (1200 / 1200009, ДДВ-04)
+    if (d.issuerNoVat && f.vatRegistered) why.push('на фактурата пишува „не е ДДВ обврзник“, а во картичката фирмата е ДДВ обврзник – исправете ја картичката на фирмата');
     const status = dup ? 'dup' : why.some((m) => !m.startsWith('нов купувач') && !m.startsWith('нов партнер креиран')) ? 'check' : 'ok';
     // no lines and no amount: a work order / „налог-потврда за извршена услуга“, a delivery page — never an invoice to post
     const nonInv = notInvoiceMsg(x) || (!c.total && !Number(d.total) ? 'не е фактура (налог / потврда за услуга, без износ) – не се книжи, само архива' : '');

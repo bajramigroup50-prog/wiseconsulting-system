@@ -37,7 +37,7 @@ export async function saleInputFromDraft(tx: Tx, firmId: string, d: ScanSaleDraf
  * (reads made before the VAT-note rule, or „провери: нема ДДВ – чл. 32-а или ослободување?“). Never saved in bulk.
  */
 export const saleVatUnclear = (dr: Partial<ScanSaleDraft>): boolean =>
-  !!dr.vatCheck || (!dr.art32 && !dr.vatExempt && !!dr.items?.length && dr.items.every((l) => !Number(l.rate)));
+  !!dr.vatCheck || (!dr.art32 && !dr.vatExempt && !dr.issuerNoVat && !!dr.items?.length && dr.items.every((l) => !Number(l.rate)));
 
 /** Save draft `i` of a read document as a purchase / an invoice and mark it saved (in the caller's transaction). */
 export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: number, actor: DocActor, over?: { date?: string; docDate?: string | null }, scheme?: number): Promise<string> {

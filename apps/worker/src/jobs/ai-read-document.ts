@@ -27,7 +27,7 @@
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql, TransactionRollbackError } from 'drizzle-orm';
-import { boughtByOwnFirm, fixRates, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
+import { boughtByOwnFirm, fixRates, isOwnParty, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
@@ -57,7 +57,7 @@ const hasRows = (r: unknown) => !!r && (((r as { rows?: unknown[] }).rows?.lengt
 
 const own7 = (e: unknown) => String(e ?? '').replace(/\D/g, '').slice(-7);
 /** Some invoice of the read names this firm (ЕДБ) as the buyer. */
-const ownAsBuyer = (r: ScanResult | null, edb: string | null | undefined) => !!r && own7(edb).length === 7 && scanInvoices(r).some((x) => own7(x.buyerEdb) === own7(edb));
+const ownAsBuyer = (r: ScanResult | null, f: { edb: string | null; name: string }) => !!r && scanInvoices(r).some((x) => isOwnParty(x.buyerName, x.buyerEdb, f.edb, f.name));
 const has = (r: ScanResult | null) => !!r && scanInvoices(r).some((x) => (x.lines ?? []).length || (x.groups ?? []).length);
 
 /** The work of the job, separated for tests. */
@@ -224,6 +224,8 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       const r = await fallback(noAi);
       result = r.result as ScanResult; model = r.model;
     }
+    // the kind the document turned out to be when read again (a supplier's invoice uploaded in „Излезни“)
+    let readAs: 'sale' | 'purchase' | null = null;
     if (!result) {
       const content = fileContent(file, bytes);
       // several photos / scans uploaded together (`extraFileIds`): the pages of one or several invoices, read in one
@@ -260,14 +262,22 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       model = R.model;
       // a sales invoice read with OUR firm as the buyer (the issuer at the bottom / right was taken for the customer):
       // read once more, deeper, saying so – the customer is the other party
-      if (doc.kind === 'sale' && ownAsBuyer(result, f.edb)) {
+      if (doc.kind === 'sale' && ownAsBuyer(result, f)) {
         log(`${docId}: the buyer read is this firm – read again`);
         const again = await viaAi(async () => {
           const r = await readContent<ScanResult>({ ...base, tier: 'default', prompt: prompt + `
 WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the buyer – that is wrong. Find the OTHER party (the customer) and return it as buyer.` }, content);
           return { result: fx(r.data), model: r.model };
         }).catch(() => null);
-        if (again?.result && scanInvoices(again.result as ScanResult).length && !ownAsBuyer(again.result as ScanResult, f.edb)) { result = again.result as ScanResult; model = again.model; }
+        if (again?.result && scanInvoices(again.result as ScanResult).length && !ownAsBuyer(again.result as ScanResult, f)) { result = again.result as ScanResult; model = again.model; }
+        // still our firm as the buyer: it IS a supplier's invoice to us – read it as a purchase (supplier = the issuer)
+        else {
+          const pur = await viaAi(async () => {
+            const r = await readContent<ScanResult>({ ...base, tier: 'default', purpose: 'purchase', prompt: PUR_PROMPT + PUR_BANK_ADD + PUR_DEBT_ADD + VAT_NOTE_ADD + DOC_TYPE_ADD + INV_MULTI_ADD }, content);
+            return { result: fx(r.data), model: r.model };
+          }).catch(() => null);
+          if (pur?.result && scanInvoices(pur.result as ScanResult).length) { result = pur.result as ScanResult; model = pur.model; readAs = 'purchase'; log(`${docId}: a supplier's invoice to this firm – read as a purchase`); }
+        }
       }
     }
     if (!result || !scanInvoices(result).length) throw new Error('Документот не е прочитан јасно. Пробајте појасна слика.');
@@ -280,7 +290,7 @@ WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the b
     const opts = doc.options as { cash?: boolean; warehouseId?: string | null; costOnly?: boolean };
     // this firm's own sales invoices uploaded in „Влезни“: they become sales drafts (izlez), not a purchase from itself
     // and a supplier's invoice to this firm uploaded in „Излезни“ becomes a purchase draft
-    const kind = doc.kind === 'purchase' && issuedByOwnFirm(result, f.edb) ? 'sale' : doc.kind === 'sale' && boughtByOwnFirm(result, f.edb) ? 'purchase' : doc.kind;
+    const kind = readAs ?? (doc.kind === 'purchase' && issuedByOwnFirm(result, f.edb, f.name) ? 'sale' : doc.kind === 'sale' && boughtByOwnFirm(result, f.edb, f.name) ? 'purchase' : doc.kind);
     if (kind !== doc.kind) log(`${docId}: read as a ${kind} (the firm's own ЕДБ on the other side)`);
     // drafts (with the partners created from the document) and the result in one transaction: a read cancelled
     // meanwhile leaves no new partners behind

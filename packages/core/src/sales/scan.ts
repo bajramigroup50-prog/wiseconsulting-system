@@ -4,6 +4,7 @@
  * (index.html 4643–4705, 5354, 8392–8401, 11252, 12876–12896). Pure: the caller passes partners and items.
  */
 import { r2 } from '../money';
+import { latToCyr } from '../text/cyr';
 import { calcLines } from '../vat';
 import { normDocNo } from './docs';
 import { accountKey } from '../bank/mk-banks';
@@ -13,6 +14,8 @@ export interface ScanLine { code?: string; barcode?: string; name?: string; unit
 export interface ScanGroup { rate?: number | string; base?: number | string; vat?: number | string; kind?: string }
 /** One invoice as returned by `PUR_PROMPT` / `SALE_PROMPT` / `ublToScan`. */
 export interface ScanInvoice {
+  /** The sales invoice says the issuer is not a VAT payer („Фирмата не е ДДВ обврзник“). */
+  issuerNoVat?: boolean;
   supplierName?: string; supplierEdb?: string; buyerName?: string; buyerEdb?: string; buyerAddress?: string; buyerCity?: string;
   number?: string; date?: string; dueDate?: string; art32?: boolean;
   /** The seller's bank account printed on the invoice („жиро / трансакциска сметка“, IBAN). */
@@ -277,30 +280,47 @@ export function matchPartner(partners: readonly MatchPartner[], name?: string, e
  * document kind and runs on every invoice of a result: a purchase must name our firm as the buyer (when a buyer ЕДБ
  * was read); a sales invoice must not.
  */
-export function ownerCheck(kind: 'purchase' | 'sale', r: ScanInvoice, ownEdb: string | null | undefined): string | null {
+export function ownerCheck(kind: 'purchase' | 'sale', r: ScanInvoice, ownEdb: string | null | undefined, ownName?: string | null): string | null {
+  if (kind === 'sale') return isOwnParty(r.buyerName, r.buyerEdb, ownEdb, ownName) ? 'Купувачот на документот е оваа фирма – ова е влезна, не излезна фактура.' : null;
   const own = edbDigits(ownEdb), buyer = edbDigits(r.buyerEdb);
   if (own.length < 7 || buyer.length < 7) return null;
-  const same = buyer.slice(-7) === own.slice(-7);
-  if (kind === 'purchase' && !same) return `Купувачот на документот (ЕДБ ${buyer}) не е оваа фирма – можеби документот е за друга фирма.`;
-  if (kind === 'sale' && same) return 'Купувачот на документот е оваа фирма – ова е влезна, не излезна фактура.';
+  if (buyer.slice(-7) !== own.slice(-7) && !isOwnParty(r.buyerName, null, null, ownName)) return `Купувачот на документот (ЕДБ ${buyer}) не е оваа фирма – можеби документот е за друга фирма.`;
   return null;
 }
 
-/**
- * A document uploaded as a purchase that this firm itself issued (the seller's ЕДБ is ours on every invoice): the
- * firm's own sales invoices sent to „Влезни“ by mistake – read as sales, never as purchases from itself.
- */
-export function issuedByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined): boolean {
-  const own = edbDigits(ownEdb);
-  const L = scanInvoices(r);
-  return own.length >= 7 && L.length > 0 && L.every((x) => { const s = edbDigits(x.supplierEdb); return s.length >= 7 && s.slice(-7) === own.slice(-7); });
+// legal forms and words that are not part of the name („ДООЕЛ“, „увоз-извоз“, „Скопје“…)
+const LEGAL_WORDS = new Set(['ДООЕЛ', 'ДОО', 'АД', 'ТП', 'ДПТУ', 'ДППУ', 'ДТУ', 'ДПУ', 'ЈТД', 'КД', 'УВОЗ-ИЗВОЗ', 'УВОЗ', 'ИЗВОЗ', 'ЕКСПОРТ-ИМПОРТ', 'ЕКСПОРТ', 'ИМПОРТ', 'СКОПЈЕ', 'С', 'Д']);
+/** A firm's name reduced to its words (Latin → Cyrillic, no quotes, no legal form): „„Media Power Group“ DOOEL“ = „МЕДИА ПОВЕР ГРОУП“. */
+export function firmNameKey(s: string | null | undefined): string {
+  return latToCyr(String(s ?? '')).toUpperCase().replace(/[„“"'”‘’«»().,:;]/g, ' ').split(/\s+/).filter((w) => w && !LEGAL_WORDS.has(w)).join(' ');
 }
 
-/** The other way round: a document uploaded as a sale whose buyer is this firm on every invoice – a purchase. */
-export function boughtByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined): boolean {
-  const own = edbDigits(ownEdb);
+/**
+ * The party read on a document is THIS firm: the same ЕДБ (last 7 digits), or the same name (without the legal form) –
+ * the name decides too, because the ЕДБ is often not printed for one side or the firm card has a wrong one. The firm
+ * itself is never a customer or supplier of its own invoices.
+ */
+export function isOwnParty(name: string | null | undefined, edb: string | null | undefined, ownEdb: string | null | undefined, ownName?: string | null): boolean {
+  const e = edbDigits(edb), o = edbDigits(ownEdb);
+  if (e.length >= 7 && o.length >= 7 && e.slice(-7) === o.slice(-7)) return true;
+  const a = firmNameKey(name), b = firmNameKey(ownName);
+  return a.length >= 4 && a === b;
+}
+
+/**
+ * A document uploaded as a purchase that this firm itself issued (the seller is ours on every invoice – ЕДБ or name):
+ * the firm's own sales invoices sent to „Влезни“ by mistake – read as sales, never as purchases from itself.
+ */
+export function issuedByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined, ownName?: string | null): boolean {
   const L = scanInvoices(r);
-  return own.length >= 7 && L.length > 0 && L.every((x) => { const b = edbDigits(x.buyerEdb), s = edbDigits(x.supplierEdb); return b.length >= 7 && b.slice(-7) === own.slice(-7) && s.length >= 7 && s.slice(-7) !== own.slice(-7); });
+  return L.length > 0 && L.every((x) => isOwnParty(x.supplierName, x.supplierEdb, ownEdb, ownName));
+}
+
+/** The other way round: a document uploaded as a sale whose buyer is this firm and whose seller is another one – a purchase. */
+export function boughtByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined, ownName?: string | null): boolean {
+  const L = scanInvoices(r);
+  return L.length > 0 && L.every((x) => isOwnParty(x.buyerName, x.buyerEdb, ownEdb, ownName)
+    && !!(edbDigits(x.supplierEdb).length >= 7 || firmNameKey(x.supplierName)) && !isOwnParty(x.supplierName, x.supplierEdb, ownEdb, ownName));
 }
 
 /* ------------------------------------------------------------------ duplicates */
@@ -495,6 +515,8 @@ export interface ScanSaleDraft {
   vatExempt?: 'ded' | 'noded';
   /** No VAT and no (clear) note: art. 32-a or the kind of exemption is not guessed — the draft is not „спремна“. */
   vatCheck?: boolean;
+  /** The issuer is not a VAT payer (printed on the invoice): no VAT, nothing to decide about an exemption. */
+  issuerNoVat?: boolean;
   /** How the buyer was recognised (candidates when uncertain; `created` = added automatically). */
   match?: DraftPartnerMatch;
 }
@@ -543,9 +565,10 @@ export function saleDraftFromScan(r0: ScanInvoice, o: { partners: readonly Match
     items, total, ...(r.pages ? { pages: String(r.pages) } : {}), match: draftMatchOf(pm),
     ...(exempt ? { vatNote: vn!.note, ...(vn!.exempt ? { vatExempt: vn!.exempt } : {}) } : {}),
     // no VAT and no note: the firm's rule — чл. 24 with the right to deduct (default), or „провери“ (`check`)
-    ...(noVat && !exempt && items.length && (o.noVat ?? 'check') === 'ded' ? { vatNote: NO_VAT_DED_NOTE, vatExempt: 'ded' as const } : {}),
+    ...(r0.issuerNoVat ? { issuerNoVat: true } : {}),
+    ...(!r0.issuerNoVat && noVat && !exempt && items.length && (o.noVat ?? 'check') === 'ded' ? { vatNote: NO_VAT_DED_NOTE, vatExempt: 'ded' as const } : {}),
     // an exemption note whose kind (с / без право на одбивка) is unclear, or no VAT and no note under `check`: not guessed
-    ...((noVat && !exempt && items.length && (o.noVat ?? 'check') !== 'ded') || (exempt && !vn!.exempt) ? { vatCheck: true } : {}),
+    ...(!r0.issuerNoVat && ((noVat && !exempt && items.length && (o.noVat ?? 'check') !== 'ded') || (exempt && !vn!.exempt)) ? { vatCheck: true } : {}),
   };
 }
 

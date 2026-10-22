@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { FIRM_VAT_RATES, firmSettingsFrom, unlockTo } from '@wise/core/firms/firmform';
 import { fyOnDeactivate, fyOnRestore } from '@wise/core/firms/years';
 import { todaySkopje } from '@wise/core/office';
-import { audit, createDemoFirm, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
+import { audit, requestRepost, createDemoFirm, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
 import { hasDemoPrefix, isDemoFirm } from '@wise/core/demo';
@@ -16,6 +16,7 @@ import { isDemoUser } from '@/lib/demo';
 import { FIRM_COOKIE } from '@/lib/context';
 import { db } from '@/lib/db';
 import { selectFirm } from '../actions';
+import { sendRepostRuns } from '@/lib/auto-repost';
 
 const opt = z.string().trim().max(300).transform((s) => s || null);
 const FirmInput = z.object({
@@ -110,6 +111,13 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
     await selectFirm(res.id);
     if (res.cred) return { ok: 'Фирмата е креирана.', cred: { username: res.cred.username, password: res.cred.password, firm: parsed.data.name } };
     redirect('/');
+  }
+  // „ДДВ обврзник“ changed: the posted invoices / purchases of the open periods are re-posted in the background at once
+  // (1200 ↔ 1200009, VAT lines) – the books never keep a mix of the two settings
+  if (before && before.vatRegistered !== parsed.data.vatRegistered) {
+    const year = Number(todaySkopje().slice(0, 4));
+    const runId = await db().transaction((tx) => requestRepost(tx, { firmId: id!, userId: u.id, year })).catch(() => null);
+    if (runId && (await sendRepostRuns({ queue: [{ firmId: id!, runId }], due: 0 }))) return { ok: 'Фирмата е зачувана. Книжените фактури се прекнижуваат во позадина според новото „ДДВ обврзник“ (само отворени периоди).' };
   }
   return { ok: 'Фирмата е зачувана.' };
 }
