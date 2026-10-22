@@ -118,7 +118,8 @@ export async function assertInvoiceNalog(tx: Tx, f: Pick<Firm, 'id' | 'lockDate'
   // already booked in it and alone there (the header was removed): re-posting keeps it in its nalog
   if (!L.length && all.length) return;
   if (!L.length) throw new DocumentError(`Налогот за книжење бр. ${number} не постои во ${y}. Изберете „Нов налог“ или креирајте го налогот.`);
-  if (!L.every((j) => (INVOICE_NALOG_KINDS as readonly string[]).includes(j.kind))) throw new DocumentError(`Налогот бр. ${number} не е налог за излезни фактури – во него не може да се книжи фактура.`);
+  // any nalog of the year takes invoices, as it takes purchases: one nalog „Фактури 1-6“ can hold the sales and the
+  // purchases (before only a sales nalog – a nalog opened by hand for the invoices refused them)
   if (L.some((j) => j.locked)) throw new DocumentError(`Налогот бр. ${number} е заклучен.`);
   if (f.lockDate && L.some((j) => j.date <= f.lockDate!)) throw new DocumentError(`Налогот бр. ${number} е во заклучениот период (до ${dmy(f.lockDate)}).`);
   const head = L.find(isHead);
