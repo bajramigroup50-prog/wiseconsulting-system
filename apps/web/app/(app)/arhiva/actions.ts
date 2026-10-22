@@ -2,12 +2,13 @@
 import { revalidatePath } from 'next/cache';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { can, firmAllowed } from '@wise/core';
-import { audit, files, firms, OfficeError } from '@wise/db';
+import { aiDocuments, audit, files, firms, OfficeError } from '@wise/db';
 import { dropUnsavedReads, fileInUse } from '@/lib/archive';
 import { db } from '@/lib/db';
 import { officeAction, officeError } from '@/lib/office';
 import { deleteObject } from '@/lib/storage';
 import { deleteDossierDoc } from '../dosie/actions';
+import { saveSelectedScansAction } from '../skan/actions';
 
 type Res = { ok?: string; error?: string };
 
@@ -61,6 +62,32 @@ export async function arFileDel(ids: string[]): Promise<Res> {
     revalidatePath('/arhiva');
     if (!gone.length) return nd ? { ok: `Избришани ${nd} документи од архивата.${skipped(bad)}` } : { error: `Ништо не е избришано.${skipped(bad)}` };
     return { ok: `Избришани ${gone.length} ${gone.length === 1 ? 'датотека' : 'датотеки'}${nd ? ` и ${nd} документи` : ''}.${skipped(bad)}` };
+  } catch (e) { return officeError(e); }
+}
+
+/**
+ * „✓ Книжи ги избраните“ in „Чека одобрување“: the unsaved reads of the ticked files are saved and posted, as
+ * „📋 За физичка проверка“ does (the same checks – a duplicate or a closed ДДВ period stays on the list).
+ */
+export async function arBookPending(ids: string[]): Promise<Res> {
+  try {
+    const { firm } = await officeAction('write');
+    const L = [...new Set(uuids(ids.filter((x) => !String(x).startsWith('d:'))))];
+    if (!L.length) return { error: 'Изберете документи што чекаат одобрување.' };
+    const D = await db().select({ id: aiDocuments.id, kind: aiDocuments.kind, drafts: aiDocuments.drafts }).from(aiDocuments)
+      .where(and(eq(aiDocuments.firmId, firm.id), inArray(aiDocuments.fileId, L), eq(aiDocuments.status, 'done')));
+    const by: Record<'sale' | 'purchase', string[]> = { sale: [], purchase: [] };
+    for (const d of D) if (d.kind === 'sale' || d.kind === 'purchase') d.drafts.forEach((x, i) => { if (!x.savedId && !x.skipped) by[d.kind as 'sale' | 'purchase'].push(`${d.id}:${i}`); });
+    if (!by.sale.length && !by.purchase.length) return { error: 'Избраните немаат фактури што чекаат книжење.' };
+    const out: string[] = [];
+    let err = false;
+    for (const k of ['sale', 'purchase'] as const) if (by[k].length) {
+      const r = await saveSelectedScansAction(k, by[k]);
+      out.push(`${k === 'sale' ? 'Излезни' : 'Влезни'}: ${r.ok ?? r.error}`);
+      if (r.error) err = true;
+    }
+    revalidatePath('/arhiva');
+    return err ? { error: out.join(' ') } : { ok: out.join(' ') };
   } catch (e) { return officeError(e); }
 }
 

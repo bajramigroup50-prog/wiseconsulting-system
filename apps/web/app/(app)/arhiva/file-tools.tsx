@@ -41,7 +41,7 @@ export function ArMoveOne({ id, name, firms, move }: { id: string; name: string;
 }
 
 /** Bulk bar for the ticked loose files (group `ar`). */
-export function ArBulk({ firms, del, move, group = 'ar' }: { firms: FirmOpt[]; del?: (ids: string[]) => Promise<Res>; move?: Move; group?: string }) {
+export function ArBulk({ firms, del, move, book, group = 'ar' }: { firms: FirmOpt[]; del?: (ids: string[]) => Promise<Res>; move?: Move; book?: (ids: string[]) => Promise<Res>; group?: string }) {
   const router = useRouter();
   const [n, setN] = useState(0);
   const [to, setTo] = useState('');
@@ -68,6 +68,7 @@ export function ArBulk({ firms, del, move, group = 'ar' }: { firms: FirmOpt[]; d
   return (
     <div className="row noprint" style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', padding: '6px 0', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <span className="mini">Штиклирајте (☑ горе = сите) и:</span>
+      {book && <button type="button" className="btn pri" disabled={!n || pending} onClick={() => run('Да се прокнижат избраните ({n}) во налогот на нивниот период?', book)}>✓ Книжи ги избраните ({n})</button>}
       {del && <button type="button" className="btn danger" disabled={!n || pending} onClick={() => run('Да се избришат {n} датотеки? Ова не може да се врати.', del)}>🗑 Избриши избраните ({n})</button>}
       {move && firms.length > 0 && <>
         <FirmSelect firms={firms} value={to} onChange={setTo} />
