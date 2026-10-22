@@ -305,8 +305,14 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: cashNal, nalogNo: g.no }}
                   label={<><b>📷 Скенирај документи во овој налог</b> — {cashNal ? 'сметки / фискални платени во готово (трошок + ДДВ / благајна)' : 'влезни фактури'}; се читаат, ги одобрувате на листата и се книжат во налог бр. {g.no}</>} />
-                <Link className="btn" href="/skan/proverka">📋 За физичка проверка – одобри</Link>
+                <Link className="btn" href="/skan/proverka">📋 За физичка проверка – влезни</Link>
               </div>
+              {/* the firm's own sales invoices into this nalog (a nalog „Излезни фактури 1-6“) – read as sales, posted here */}
+              {!cashNal && <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                <ScanUpload firmId={firm.id} small opts={{ kind: 'sale', batchId: null, nalogNo: g.no }}
+                  label={<><b>🧾 Скенирај излезни фактури во овој налог</b> — фактурите што фирмата ги издала; се читаат, ги одобрувате и се книжат во налог бр. {g.no}</>} />
+                <Link className="btn" href="/skan/proverka?k=sale">📋 За физичка проверка – излезни</Link>
+              </div>}
             </div>
           );
         })()}
