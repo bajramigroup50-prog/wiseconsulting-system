@@ -296,6 +296,13 @@ export function issuedByOwnFirm(r: ScanResult | null | undefined, ownEdb: string
   return own.length >= 7 && L.length > 0 && L.every((x) => { const s = edbDigits(x.supplierEdb); return s.length >= 7 && s.slice(-7) === own.slice(-7); });
 }
 
+/** The other way round: a document uploaded as a sale whose buyer is this firm on every invoice – a purchase. */
+export function boughtByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined): boolean {
+  const own = edbDigits(ownEdb);
+  const L = scanInvoices(r);
+  return own.length >= 7 && L.length > 0 && L.every((x) => { const b = edbDigits(x.buyerEdb), s = edbDigits(x.supplierEdb); return b.length >= 7 && b.slice(-7) === own.slice(-7) && s.slice(-7) !== own.slice(-7); });
+}
+
 /* ------------------------------------------------------------------ duplicates */
 
 export interface DupCandidate { id?: string; partnerId?: string | null; partnerEdb?: string | null; number?: string | null; total: number; date?: string | null }

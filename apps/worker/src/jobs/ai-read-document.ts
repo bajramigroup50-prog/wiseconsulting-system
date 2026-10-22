@@ -27,7 +27,7 @@
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql, TransactionRollbackError } from 'drizzle-orm';
-import { fixRates, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
+import { boughtByOwnFirm, fixRates, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
@@ -265,8 +265,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     if (srcPages && scanInvoices(result).length === 1) scanInvoices(result)[0]!.pages ??= srcPages;
     const opts = doc.options as { cash?: boolean; warehouseId?: string | null; costOnly?: boolean };
     // this firm's own sales invoices uploaded in „Влезни“: they become sales drafts (izlez), not a purchase from itself
-    const kind = doc.kind === 'purchase' && issuedByOwnFirm(result, f.edb) ? 'sale' : doc.kind;
-    if (kind !== doc.kind) log(`${docId}: issued by this firm – read as a sale`);
+    // and a supplier's invoice to this firm uploaded in „Излезни“ becomes a purchase draft
+    const kind = doc.kind === 'purchase' && issuedByOwnFirm(result, f.edb) ? 'sale' : doc.kind === 'sale' && boughtByOwnFirm(result, f.edb) ? 'purchase' : doc.kind;
+    if (kind !== doc.kind) log(`${docId}: read as a ${kind} (the firm's own ЕДБ on the other side)`);
     // drafts (with the partners created from the document) and the result in one transaction: a read cancelled
     // meanwhile leaves no new partners behind
     const res = result;
