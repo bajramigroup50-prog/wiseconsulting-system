@@ -37,8 +37,13 @@ const skipped = (bad: string[]) => (bad.length ? ` Прескокнати (${bad
 export async function arFileDel(ids: string[]): Promise<Res> {
   try {
     const { u, firm } = await officeAction('del');
-    const F = await ownFiles(firm.id, ids);
-    if (!F.length) return { error: 'Датотеката не е пронајдена во оваа фирма.' };
+    // dossier documents ticked together with the files („d:<id>“)
+    const D = (Array.isArray(ids) ? ids : []).map(String).filter((x) => x.startsWith('d:')).map((x) => x.slice(2));
+    let nd = 0;
+    for (const id of D) if (!(await deleteDossierDoc(id)).error) nd++;
+    const fids = (Array.isArray(ids) ? ids : []).map(String).filter((x) => !x.startsWith('d:'));
+    const F = fids.length ? await ownFiles(firm.id, fids) : [];
+    if (!F.length) { revalidatePath('/arhiva'); return nd ? { ok: `Избришани ${nd} документи од архивата.` } : { error: 'Датотеката не е пронајдена во оваа фирма.' }; }
     const bad: string[] = [];
     const gone = await db().transaction(async (tx) => {
       const G: typeof F = [];
@@ -54,8 +59,8 @@ export async function arFileDel(ids: string[]): Promise<Res> {
     });
     for (const f of gone) await deleteObject(f.bucketKey);
     revalidatePath('/arhiva');
-    if (!gone.length) return { error: `Ништо не е избришано.${skipped(bad)}` };
-    return { ok: `Избришани ${gone.length} ${gone.length === 1 ? 'датотека' : 'датотеки'}.${skipped(bad)}` };
+    if (!gone.length) return nd ? { ok: `Избришани ${nd} документи од архивата.${skipped(bad)}` } : { error: `Ништо не е избришано.${skipped(bad)}` };
+    return { ok: `Избришани ${gone.length} ${gone.length === 1 ? 'датотека' : 'датотеки'}${nd ? ` и ${nd} документи` : ''}.${skipped(bad)}` };
   } catch (e) { return officeError(e); }
 }
 
