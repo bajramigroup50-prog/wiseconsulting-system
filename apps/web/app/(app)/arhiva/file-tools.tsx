@@ -67,7 +67,7 @@ export function ArBulk({ firms, del, move, group = 'ar' }: { firms: FirmOpt[]; d
   const t = firms.find((f) => f.id === to);
   return (
     <div className="row noprint" style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', padding: '6px 0', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <span className="mini">Датотеки без документ – штиклирајте и:</span>
+      <span className="mini">Датотеки без документ или што чекаат одобрување – штиклирајте (☑ горе = сите) и:</span>
       {del && <button type="button" className="btn danger" disabled={!n || pending} onClick={() => run('Да се избришат {n} датотеки? Ова не може да се врати.', del)}>🗑 Избриши избраните ({n})</button>}
       {move && firms.length > 0 && <>
         <FirmSelect firms={firms} value={to} onChange={setTo} />

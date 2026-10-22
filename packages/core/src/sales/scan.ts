@@ -286,6 +286,16 @@ export function ownerCheck(kind: 'purchase' | 'sale', r: ScanInvoice, ownEdb: st
   return null;
 }
 
+/**
+ * A document uploaded as a purchase that this firm itself issued (the seller's ЕДБ is ours on every invoice): the
+ * firm's own sales invoices sent to „Влезни“ by mistake – read as sales, never as purchases from itself.
+ */
+export function issuedByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined): boolean {
+  const own = edbDigits(ownEdb);
+  const L = scanInvoices(r);
+  return own.length >= 7 && L.length > 0 && L.every((x) => { const s = edbDigits(x.supplierEdb); return s.length >= 7 && s.slice(-7) === own.slice(-7); });
+}
+
 /* ------------------------------------------------------------------ duplicates */
 
 export interface DupCandidate { id?: string; partnerId?: string | null; partnerEdb?: string | null; number?: string | null; total: number; date?: string | null }

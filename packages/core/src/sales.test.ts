@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   amountInWords, checkCredit, creditGrossLines, findDuplicate, fixLines, fixRates, invoiceTotals, isServiceInvoice, mkWords,
-  nextDocNumber, ownerCheck, parseXml, purchaseDraftFromScan, saleDraftFromScan, scanConsistent, ublCheck, ublToScan, ublXml, unitCode,
+  issuedByOwnFirm, nextDocNumber, ownerCheck, parseXml, purchaseDraftFromScan, saleDraftFromScan, scanConsistent, ublCheck, ublToScan, ublXml, unitCode,
   batchStatus, scanInvoices,
 } from './sales';
 import { purchaseEntries, SCH0 } from './posting';
@@ -159,6 +159,11 @@ describe('scan post-processing', () => {
       { partners: [{ id: 'B', name: 'купувач' }], items: [], revKonto: '7400', today: '2026-05-01', nextNumber: '009/2026' });
     expect(d).toMatchObject({ number: '009/2026', partnerId: 'B', date: '2026-05-01' });
     expect(d.items[0]).toMatchObject({ rate: 18, konto: '7400', qty: 2, price: 50 });
+  });
+  it('issuedByOwnFirm: own sales invoices uploaded as purchases', () => {
+    expect(issuedByOwnFirm({ invoices: [{ supplierEdb: 'MK 4085025502990', buyerEdb: '35020240003057' }] } as never, '4085025502990')).toBe(true);
+    expect(issuedByOwnFirm({ invoices: [{ supplierEdb: '4030000000001' }] } as never, '4085025502990')).toBe(false);
+    expect(issuedByOwnFirm({ invoices: [{}] } as never, '4085025502990')).toBe(false);
   });
   it('ownerCheck is explicit per kind (FIX 9)', () => {
     expect(ownerCheck('purchase', { buyerEdb: '4030000000001' }, 'MK4030000000001')).toBeNull();

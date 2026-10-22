@@ -80,7 +80,7 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
     if (a?.kind === 'bank') R.push({ ...base, date: f.at.toISOString().slice(0, 10), kind: 'Извод – не е увезен', folder: 'bank', note: 'прочитан, но изводот не е во книгите – увезете го повторно во Банка (без нов AI)', href: '/banka' });
     else if (a?.kind === 'ob') R.push({ ...base, date: f.at.toISOString().slice(0, 10), kind: 'Почетна состојба – документ', folder: 'opening', href: '/pocetna' });
     else if (dr.length && dr.every((y) => y.savedId || y.skipped) && dr.some((y) => y.archived || y.skipped)) R.push({ ...base, kind: 'Архивирано – не се книжи', folder: 'archived', note: x?.msg ?? '' });
-    else if (dr.length && dr.some((y) => !y.savedId && !y.skipped)) R.push({ ...base, kind: 'Чека одобрување', folder: 'pending', note: x?.msg ?? '', href: a?.kind === 'sale' ? '/skan/proverka?k=sale' : '/skan/proverka' });
+    else if (dr.length && dr.some((y) => !y.savedId && !y.skipped)) R.push({ ...base, kind: 'Чека одобрување', folder: 'pending', pend: true, note: x?.msg ?? '', href: a?.kind === 'sale' ? '/skan/proverka?k=sale' : '/skan/proverka' });
     else R.push({ ...base, kind: 'Датотека', loose: true });
   }
   return archSort(R.filter((r) => r.files.length));

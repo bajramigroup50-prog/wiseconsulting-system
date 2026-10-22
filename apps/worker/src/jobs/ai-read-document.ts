@@ -27,7 +27,7 @@
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql, TransactionRollbackError } from 'drizzle-orm';
-import { fixRates, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
+import { fixRates, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
@@ -264,12 +264,15 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
     const srcPages = (doc.options as { pages?: string }).pages;
     if (srcPages && scanInvoices(result).length === 1) scanInvoices(result)[0]!.pages ??= srcPages;
     const opts = doc.options as { cash?: boolean; warehouseId?: string | null; costOnly?: boolean };
+    // this firm's own sales invoices uploaded in „Влезни“: they become sales drafts (izlez), not a purchase from itself
+    const kind = doc.kind === 'purchase' && issuedByOwnFirm(result, f.edb) ? 'sale' : doc.kind;
+    if (kind !== doc.kind) log(`${docId}: issued by this firm – read as a sale`);
     // drafts (with the partners created from the document) and the result in one transaction: a read cancelled
     // meanwhile leaves no new partners behind
     const res = result;
     const n = await db.transaction(async (tx) => {
-      const drafts = doc.kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
-      const up = await tx.update(aiDocuments).set({ status: 'done', result: res, drafts, model, options: sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
+      const drafts = kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
+      const up = await tx.update(aiDocuments).set({ status: 'done', kind, result: res, drafts, model, options: sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
       if (!up.length) tx.rollback();
       return drafts.length;
     }).catch((e: unknown) => { if (e instanceof TransactionRollbackError) return -1; throw e; });

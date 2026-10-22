@@ -69,7 +69,8 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
   const del = can(u.principal, 'del', firm.id);
   const write = can(u.principal, 'write', firm.id);
   const moveTo = write ? (await allowedFirms(u, { year: 'all' })).filter((x) => x.id !== firm.id && can(u.principal, 'write', x.id)).map((x) => ({ id: x.id, name: x.name })) : [];
-  const loose = R.filter((r) => r.loose);
+  // loose files and reads waiting for approval („Чека одобрување“ – deleted to upload them again) can be ticked
+  const loose = R.filter((r) => r.loose || r.pend);
   const tools = loose.length > 0 && (del || moveTo.length > 0);
   const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, String(v)])).toString();
   return (
@@ -171,7 +172,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
               {R.map((r) => (
                 <tr key={r.key}>
                   <td><input type="checkbox" value={r.files.map((x) => x.id).join(',')} data-arsel={[r.kind, r.no, r.pn, r.date ? dmy(r.date) : ''].filter(Boolean).join(' · ')} aria-label="Избери" /></td>
-                  {tools && <td>{r.loose && <SelBox id={r.files[0]!.id} group="ar" />}</td>}
+                  {tools && <td>{(r.loose || r.pend) && <SelBox id={r.files[0]!.id} group="ar" />}</td>}
                   <td>{r.date ? dmy(r.date) : ''}</td><td>{r.kind}{r.note && <div className="mini">{r.note}</div>}</td><td>{r.no}</td><td>{r.pn}</td>
                   <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td>
                   <td>{r.nalog && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(r.nalog)}`}>{r.nalog}</Link>}</td>
@@ -182,7 +183,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
                     {r.archId && del && <RowAction action={arDel.bind(null, r.archId)} label="🗑" title="Избриши од архивата" confirm={`Да се избрише документот „${r.kind} ${r.no}“ од архивата?`} />}
                     {r.files.length === 1 && <a className="btn sm ghost" href={`/api/files/${r.files[0]!.id}?dl=1`} title="Преземи">⬇</a>}
                     {r.loose && moveTo.length > 0 && <ArMoveOne id={r.files[0]!.id} name={r.files[0]!.name} firms={moveTo} move={arFileMove} />}
-                    {r.loose && del && <RowAction action={arFileDel.bind(null, [r.files[0]!.id])} label="🗑" title="Избриши ја датотеката" confirm={`Да се избрише датотеката „${r.files[0]!.name}“? Ова не може да се врати.`} />}
+                    {(r.loose || r.pend) && del && <RowAction action={arFileDel.bind(null, [r.files[0]!.id])} label="🗑" title="Избриши ја датотеката" confirm={`Да се избрише датотеката „${r.files[0]!.name}“? Ова не може да се врати.`} />}
                   </td>
                 </tr>
               ))}
