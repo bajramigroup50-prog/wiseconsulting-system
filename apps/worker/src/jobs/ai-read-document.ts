@@ -55,6 +55,9 @@ const BLOCK_MS = 15 * 60_000;
 
 const hasRows = (r: unknown) => !!r && (((r as { rows?: unknown[] }).rows?.length ?? 0) > 0 || ((r as { items?: unknown[] }).items?.length ?? 0) > 0);
 
+const own7 = (e: unknown) => String(e ?? '').replace(/\D/g, '').slice(-7);
+/** Some invoice of the read names this firm (ЕДБ) as the buyer. */
+const ownAsBuyer = (r: ScanResult | null, edb: string | null | undefined) => !!r && own7(edb).length === 7 && scanInvoices(r).some((x) => own7(x.buyerEdb) === own7(edb));
 const has = (r: ScanResult | null) => !!r && scanInvoices(r).some((x) => (x.lines ?? []).length || (x.groups ?? []).length);
 
 /** The work of the job, separated for tests. */
@@ -255,6 +258,17 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       });
       result = R.result as ScanResult | null;
       model = R.model;
+      // a sales invoice read with OUR firm as the buyer (the issuer at the bottom / right was taken for the customer):
+      // read once more, deeper, saying so – the customer is the other party
+      if (doc.kind === 'sale' && ownAsBuyer(result, f.edb)) {
+        log(`${docId}: the buyer read is this firm – read again`);
+        const again = await viaAi(async () => {
+          const r = await readContent<ScanResult>({ ...base, tier: 'default', prompt: prompt + `
+WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the buyer – that is wrong. Find the OTHER party (the customer) and return it as buyer.` }, content);
+          return { result: fx(r.data), model: r.model };
+        }).catch(() => null);
+        if (again?.result && scanInvoices(again.result as ScanResult).length && !ownAsBuyer(again.result as ScanResult, f.edb)) { result = again.result as ScanResult; model = again.model; }
+      }
     }
     if (!result || !scanInvoices(result).length) throw new Error('Документот не е прочитан јасно. Пробајте појасна слика.');
     // attached pages (an EVN bill's „спецификација на потрошувачка“, a „прилог“, the same number on the next page) are

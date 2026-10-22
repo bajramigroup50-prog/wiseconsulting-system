@@ -69,7 +69,9 @@ describe('prompts are verbatim legacy', () => {
   });
   it('firm-dependent prompts', () => {
     const f = { name: 'X', edb: '1' };
-    expect(SALE_PROMPT(f)).toBe(tpl('SALE_PROMPT').replace("${(firm()||{}).name||''}", 'X').replace("${(firm()||{}).edb||''}", '1'));
+    // the legacy prompt + the rule that the issuer is never the buyer (an issuer printed bottom-right was read as the customer)
+    expect(SALE_PROMPT(f)).toContain('ISSUED BY the company "X" (ЕДБ 1)');
+    expect(SALE_PROMPT(f)).toContain('Never return "X" or ЕДБ 1 as the buyer');
     expect(SCR_PROMPT(f)).toBe(tpl('SCR_PROMPT').replace("${f.name||''}", 'X').replace("${f.edb||'?'}", '1'));
   });
 });

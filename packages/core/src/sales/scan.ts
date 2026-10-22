@@ -300,7 +300,7 @@ export function issuedByOwnFirm(r: ScanResult | null | undefined, ownEdb: string
 export function boughtByOwnFirm(r: ScanResult | null | undefined, ownEdb: string | null | undefined): boolean {
   const own = edbDigits(ownEdb);
   const L = scanInvoices(r);
-  return own.length >= 7 && L.length > 0 && L.every((x) => { const b = edbDigits(x.buyerEdb), s = edbDigits(x.supplierEdb); return b.length >= 7 && b.slice(-7) === own.slice(-7) && s.slice(-7) !== own.slice(-7); });
+  return own.length >= 7 && L.length > 0 && L.every((x) => { const b = edbDigits(x.buyerEdb), s = edbDigits(x.supplierEdb); return b.length >= 7 && b.slice(-7) === own.slice(-7) && s.length >= 7 && s.slice(-7) !== own.slice(-7); });
 }
 
 /* ------------------------------------------------------------------ duplicates */

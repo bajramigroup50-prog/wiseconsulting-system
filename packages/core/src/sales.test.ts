@@ -163,6 +163,8 @@ describe('scan post-processing', () => {
   it('boughtByOwnFirm: a supplier invoice uploaded as a sale', () => {
     expect(boughtByOwnFirm({ invoices: [{ supplierEdb: '4030000000001', buyerEdb: 'MK4085025502990' }] } as never, '4085025502990')).toBe(true);
     expect(boughtByOwnFirm({ invoices: [{ supplierEdb: '4085025502990', buyerEdb: '35020240003057' }] } as never, '4085025502990')).toBe(false);
+    // a sales read has no supplier: the buyer = our firm is a misread, not a purchase
+    expect(boughtByOwnFirm({ invoices: [{ buyerEdb: '4085025502990' }] } as never, '4085025502990')).toBe(false);
   });
   it('issuedByOwnFirm: own sales invoices uploaded as purchases', () => {
     expect(issuedByOwnFirm({ invoices: [{ supplierEdb: 'MK 4085025502990', buyerEdb: '35020240003057' }] } as never, '4085025502990')).toBe(true);
