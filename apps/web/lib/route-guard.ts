@@ -115,7 +115,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // archive
   'arhiva', 'arNewNav',
   // goods / production
-  'skan', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
+  'skan', 'skanIzlez', 'skanFisk', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
   'normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi', 'kalkG', 'prenosi', 'zaliha', 'profakturi', 'ispratnici', 'g_trg', 'kalkCalc',
   'g_trgv', 'uprosek',
   // retail
@@ -239,7 +239,7 @@ const BOOK_ONLY_LIST: readonly string[] = [
   // payroll (the МПИН of the selected firm is `plati/[month]/mpin`; the all-firms `mpinIn` / `payBatch` stay hidden), travel orders
   'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pnalozi', 'pnGorivo',
   // outgoing / incoming documents and stock (Материјално)
-  'skan', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
+  'skan', 'skanIzlez', 'skanFisk', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
   'normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi', 'kalkG', 'prenosi', 'zaliha', 'profakturi', 'ispratnici', 'g_trg', 'kalkCalc',
   'g_trgv', 'uprosek', 'porachki', 'nabavki', 'dopolnuvanje',
   // Малопродажба

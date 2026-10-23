@@ -31,6 +31,9 @@ const ADD: [string, string, NavItem[]][] = [
   ['Систем', 'aiTrosok', [['avtomatizacii', '⚙ Автоматизации']]],
   // every line on a partner konto without a partner, Latin names, duplicates – checked by the office itself
   ['Финансово', 'recFree', [['kontrolaKom', '🔎 Контрола на комитенти']]],
+  // one entry per kind of document to scan – incoming invoices („Скенирање документ“), outgoing invoices, fiscal receipts
+  // paid in cash – so they are never mixed
+  ['Материјално', 'skan', [['skanIzlez', '🧾 Скенирај излезни фактури'], ['skanFisk', '💶 Скенирај фискални сметки (благајна)']]],
   // the office's деловодник book 01: what a client brought (number, dossier cover, receipt, spine label)
   ['Архива', 'arhiva', [['priem', '📥 Прием на документи']]],
   // owner-only: the robot's public law news posted to the office's Facebook page / Instagram
