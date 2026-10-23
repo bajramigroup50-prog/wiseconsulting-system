@@ -24,7 +24,7 @@ import { FilePreview } from '@/components/file-preview';
 import { RowAction } from '@/components/row-action';
 import { SelAll, SelBox } from '@/components/sales/bulk-select';
 import { allowedFirms } from '@/lib/office';
-import { arBookPending, arDel, arFileDel, arFileMove } from './actions';
+import { arBookPending, arDel, arFileDel, arFileMove, arReadFiles } from './actions';
 import { ArBulk, ArMoveOne } from './file-tools';
 
 type SP = { q?: string; kind?: string; from?: string; to?: string; v?: string; nal?: string; b?: string };
@@ -169,7 +169,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
       {(view === 'list' || sp.nal) && R.length > 0 && <ArSendBar firm={firm.name} />}
       {(view === 'list' || sp.nal) && (R.length ? (
         <div className="tw" id="arList">
-          {tools && <ArBulk firms={moveTo} book={write && R.some((r) => r.pend) ? arBookPending : undefined} del={del ? arFileDel : undefined} move={moveTo.length ? arFileMove : undefined} />}
+          {tools && <ArBulk firms={moveTo} book={write && R.some((r) => r.pend) ? arBookPending : undefined} read={write && R.some((r) => r.loose) ? arReadFiles : undefined} del={del ? arFileDel : undefined} move={moveTo.length ? arFileMove : undefined} />}
           <table>
             <thead><tr><th title="Избери за преземање / печатење / праќање">✓</th>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
             <tbody>

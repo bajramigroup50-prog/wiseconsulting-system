@@ -41,7 +41,9 @@ export function ArMoveOne({ id, name, firms, move }: { id: string; name: string;
 }
 
 /** Bulk bar for the ticked loose files (group `ar`). */
-export function ArBulk({ firms, del, move, book, group = 'ar' }: { firms: FirmOpt[]; del?: (ids: string[]) => Promise<Res>; move?: Move; book?: (ids: string[]) => Promise<Res>; group?: string }) {
+export function ArBulk({ firms, del, move, book, read, group = 'ar' }: { firms: FirmOpt[]; del?: (ids: string[]) => Promise<Res>; move?: Move; book?: (ids: string[]) => Promise<Res>; read?: (ids: string[], kind: 'purchase' | 'cash' | 'sale', nalogNo: string) => Promise<Res>; group?: string }) {
+  const [rk, setRk] = useState<'purchase' | 'cash' | 'sale'>('purchase');
+  const [nal, setNal] = useState('');
   const router = useRouter();
   const [n, setN] = useState(0);
   const [to, setTo] = useState('');
@@ -69,6 +71,13 @@ export function ArBulk({ firms, del, move, book, group = 'ar' }: { firms: FirmOp
     <div className="row noprint" style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', padding: '6px 0', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <span className="mini">Штиклирајте (☑ горе = сите) и:</span>
       {book && <button type="button" className="btn pri" disabled={!n || pending} onClick={() => run('Да се прокнижат избраните ({n}) во налогот на нивниот период?', book)}>✓ Книжи ги избраните ({n})</button>}
+      {read && <span className="row" style={{ gap: 6, alignItems: 'center' }}>
+        <select value={rk} onChange={(e) => setRk(e.target.value as 'purchase' | 'cash' | 'sale')} style={{ width: 'auto' }} aria-label="Читај како">
+          <option value="purchase">влезни фактури</option><option value="cash">сметки платени во готово (благајна)</option><option value="sale">излезни фактури</option>
+        </select>
+        <input value={nal} onChange={(e) => setNal(e.target.value)} placeholder="налог бр. (празно = по датум)" style={{ width: 190 }} aria-label="Налог" />
+        <button type="button" className="btn pri" disabled={!n || pending} onClick={() => run('Да се прочитаат избраните ({n})?', (ids) => read(ids, rk, nal))}>📷 Прочитај ги избраните ({n})</button>
+      </span>}
       {del && <button type="button" className="btn danger" disabled={!n || pending} onClick={() => run('Да се избришат {n} датотеки? Ова не може да се врати.', del)}>🗑 Избриши избраните ({n})</button>}
       {move && firms.length > 0 && <>
         <FirmSelect firms={firms} value={to} onChange={setTo} />

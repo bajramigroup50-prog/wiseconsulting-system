@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { officeAction, officeError } from '@/lib/office';
 import { deleteObject } from '@/lib/storage';
 import { deleteDossierDoc } from '../dosie/actions';
-import { saveSelectedScansAction } from '../skan/actions';
+import { saveSelectedScansAction, startScans } from '../skan/actions';
 
 type Res = { ok?: string; error?: string };
 
@@ -88,6 +88,28 @@ export async function arBookPending(ids: string[]): Promise<Res> {
     }
     revalidatePath('/arhiva');
     return err ? { error: out.join(' ') } : { ok: out.join(' ') };
+  } catch (e) { return officeError(e); }
+}
+
+/**
+ * „📷 Прочитај ги избраните“: files uploaded but never read (e.g. more than 100 at once before the fix) are read now –
+ * as purchases, receipts paid in cash or the firm's own sales invoices, optionally into a nalog – in parts of 100. They
+ * then wait in „Чека одобрување“ / „За физичка проверка“ as every scan.
+ */
+export async function arReadFiles(ids: string[], kind: 'purchase' | 'cash' | 'sale', nalogNo: string): Promise<Res> {
+  try {
+    const L = [...new Set(uuids(ids.filter((x) => !String(x).startsWith('d:'))))];
+    if (!L.length) return { error: 'Изберете датотеки.' };
+    let n = 0;
+    const out: string[] = [];
+    for (let k = 0; k < L.length; k += 100) {
+      const r = await startScans({ fileIds: L.slice(k, k + 100), kind: kind === 'sale' ? 'sale' : 'purchase', cash: kind === 'cash', batchId: null, nalogNo: nalogNo.trim().slice(0, 40) });
+      if (r.error) out.push(r.error);
+      n += r.ids?.length ?? 0;
+      if (r.skipped?.length) out.push(...r.skipped.slice(0, 5));
+    }
+    revalidatePath('/arhiva');
+    return n ? { ok: `Се читаат ${n} документи – по читањето се во „Чека одобрување“ (☑ → ✓ Книжи ги избраните).${out.length ? ' ' + out.join('; ') : ''}` } : { error: out.join('; ') || 'Ништо не е пуштено за читање.' };
   } catch (e) { return officeError(e); }
 }
 
