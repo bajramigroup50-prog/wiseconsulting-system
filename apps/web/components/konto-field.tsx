@@ -26,6 +26,39 @@ export function KontoHintNote({ chart, value, onPick }: { chart: { code: string;
   return null;
 }
 
+/**
+ * „📋 Контен план“: the whole chart to browse – by class (0–9), sorted by code, a search by code (from the start) or by
+ * name; a click picks the konto. The browser's suggestion list only shows what contains the typed text.
+ */
+export function ChartBrowser({ chart, onPick, onClose }: { chart: { code: string; name: string }[]; onPick: (code: string) => void; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [cls, setCls] = useState('');
+  const L = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return [...chart].sort((a, b) => a.code.localeCompare(b.code))
+      .filter((k) => (!cls || k.code.startsWith(cls)) && (!t || k.code.startsWith(t) || k.name.toLowerCase().includes(t)));
+  }, [chart, q, cls]);
+  return (
+    <div className="card" style={{ marginTop: 6, padding: 8, border: '1px solid var(--line)' }}>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 шифра или назив…" style={{ flex: 1, minWidth: 160 }} aria-label="Барај конто" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }} />
+        {['', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map((c) => (
+          <button key={c || 'all'} type="button" className={'btn sm' + (cls === c ? ' pri' : ' ghost')} onClick={() => setCls(c)}>{c === '' ? 'сите' : 'кл. ' + c}</button>
+        ))}
+        <button type="button" className="btn sm ghost" onClick={onClose} aria-label="Затвори">✕</button>
+      </div>
+      <div style={{ maxHeight: 320, overflowY: 'auto', marginTop: 6 }}>
+        <table className="dense"><tbody>{L.slice(0, 1500).map((k) => (
+          <tr key={k.code} style={{ cursor: 'pointer' }} onClick={() => { onPick(k.code); onClose(); }}>
+            <td className="num" style={{ fontWeight: k.code.length <= 3 ? 700 : 400, paddingLeft: Math.max(0, k.code.length - 3) * 6 }}>{k.code}</td><td>{k.name}</td>
+          </tr>
+        ))}</tbody></table>
+        {!L.length && <p className="note">Нема конто за „{q}“.</p>}
+      </div>
+    </div>
+  );
+}
+
 /** „+ Ново конто“ choice of a controlled konto input (`mk` = create it, `name` = its name). */
 export interface NewKonto { mk: boolean; name: string }
 
@@ -39,9 +72,14 @@ export function KontoInput({ chart, value, onChange, nk, onNk, list, inputRef, i
 }) {
   const code = value.trim().split(/\s/)[0] ?? '';
   const h = useMemo(() => kontoHint(chart, code), [chart, code]);
+  const [browse, setBrowse] = useState(false);
   return (
     <>
-      <input id={id} ref={inputRef} list={list} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Конто" autoComplete="off" data-fe="konto" onKeyDown={onKeyDown} />
+      <span className="row" style={{ gap: 4, alignItems: 'center' }}>
+        <input id={id} ref={inputRef} list={list} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Конто" autoComplete="off" data-fe="konto" onKeyDown={onKeyDown} />
+        <button type="button" className="btn sm ghost" title="Целиот контен план" onClick={() => setBrowse((x) => !x)}>📋 Контен план</button>
+      </span>
+      {browse && <ChartBrowser chart={chart} onPick={onChange} onClose={() => setBrowse(false)} />}
       {h.kind === 'new' ? (
         <span style={{ display: 'block', marginTop: 4 }}>
           <label className="chk"><input type="checkbox" checked={nk.mk} onChange={(e) => onNk({ mk: e.target.checked, name: nk.name || h.parent.name })} /> + Ново конто {code}</label>
