@@ -398,7 +398,7 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
           fx={dev || !!feRow?.cur} fxLocked={feJ.mode === 'override'} dateLocked showStNo={feJ.bank}
           saldo={jSaldo(fe.jid, fe.idx)} no={fe.idx != null ? fe.idx + 1 : R.length + 1}
           prevContent={[...R].reverse().find((r) => r.jid === fe.jid && r.note)?.note ?? feJ.description}
-          onSave={applyLine} onClose={() => setFe(null)} />
+          onSave={applyLine} onClose={() => setFe(null)} onDelete={fe.idx != null ? () => { const i = fe.idx!; setFe(null); void del(i); } : undefined} />
       )}
       {bankNew && bank && (
         <BankManualEntry chart={chart} partners={partners} accounts={bank.accounts} statements={bank.statements} onClose={() => setBankNew(false)}

@@ -179,7 +179,7 @@ export async function runFirmRepost(db: Tx, firmId: string, runId: string): Prom
 export async function queueNonVatRepairs(tx: Tx, year: number, firmIds?: readonly string[]): Promise<{ firmId: string; runId: string }[]> {
   const R = await tx.execute(sql`select distinct j.firm_id as id from ${journalLines} jl join ${journals} j on j.id = jl.journal_id join ${firms} f on f.id = j.firm_id
     where f.vat_registered = false and f.active and j.date between ${year + '-01-01'} and ${year + '-12-31'}
-      and ((j.source_type = 'invoice' and (jl.account like '23%' or jl.account = '1200009')) or (j.source_type = 'purchase' and jl.account like '13%'))
+      and ((j.source_type = 'invoice' and (jl.account like '23%' or jl.account = '1200009')) or (j.source_type = 'purchase' and jl.account like '13%') or (j.source_type in ('invoice', 'purchase') and (jl.account like '994%' or jl.account like '999%')))
       ${firmIds?.length ? sql`and j.firm_id in (${sql.join(firmIds.map((x) => sql`${x}::uuid`), sql`, `)})` : sql``}`);
   const out: { firmId: string; runId: string }[] = [];
   for (const r of ((R as unknown as { rows?: { id: string }[] }).rows ?? (R as unknown as { id: string }[]))) {

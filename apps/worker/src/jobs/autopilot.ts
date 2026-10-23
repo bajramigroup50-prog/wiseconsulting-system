@@ -45,6 +45,10 @@ export const autopilotRecent = defineJob<Record<string, never>>({
     const rows = ((R as unknown as { rows?: { id: string; at: string | Date }[] }).rows ?? (R as unknown as { id: string; at: string | Date }[]));
     const ids = rows.filter((r) => new Date(r.at).getTime() > (lastCheck.get(r.id) ?? 0)).map((r) => r.id);
     if (!ids.length) return;
+    try {
+      const runs = await ctx.db.transaction((tx) => queueNonVatRepairs(tx, new Date().getFullYear(), ids));
+      for (const q of runs) await ctx.send?.(REPOST_JOB, q);
+    } catch (e) { ctx.log(`non-VAT repair: ${(e as Error).message}`); }
     const r = await runAutopilot(ctx.db, { trigger: 'manual', firmIds: ids });
     // after the run: what the run itself writes is not a new change
     const now = Date.now();

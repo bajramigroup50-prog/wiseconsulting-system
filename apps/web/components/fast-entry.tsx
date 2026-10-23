@@ -103,6 +103,8 @@ export interface FastEntryProps {
   /** Saves the line; returns an error text (dialog stays as is) or nothing. */
   onSave: (l: FastLine) => Promise<string | null | void> | string | null | void;
   onClose: () => void;
+  /** „🗑 Избриши ставка“ in „Промена на ставка“ (the same as Del on the row). */
+  onDelete?: () => void;
   title?: string;
 }
 
@@ -273,6 +275,7 @@ export function FastEntry(p: FastEntryProps) {
           </span>
           <span className="row" style={{ gap: 6 }}>
             <button type="button" className="btn pri" disabled={busy} onClick={() => void save()}>Во ред (F9)</button>
+            {p.onDelete && mode !== 'new' && <button type="button" className="btn danger" disabled={busy} onClick={p.onDelete}>🗑 Избриши ставка</button>}
             <button type="button" className="btn" onClick={p.onClose}>Излез (Esc)</button>
           </span>
         </div>

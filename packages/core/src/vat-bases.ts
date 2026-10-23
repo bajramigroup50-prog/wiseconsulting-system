@@ -67,6 +67,8 @@ export function salesVatBases(groups: readonly { rate: number; base: number }[])
  */
 export function vbLines(bases: readonly VatBase[], ctx: PostingContext, storno = false): JournalLine[] {
   const out: JournalLine[] = [];
+  // a firm that is not a VAT payer keeps no VAT-base evidence (994 / 999)
+  if (ctx.firm.ddv === false) return out;
   for (const x of bases) {
     if (!x.r || !x.b) continue;
     const kd = schemeValue(ctx, `vb${x.t}${x.r}d`), kp = schemeValue(ctx, `vb${x.t}${x.r}p`);
