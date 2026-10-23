@@ -165,6 +165,35 @@ export function fixSaleQty<T extends ScanInvoice>(r: T): T {
 export const ART32_NOTE = 'Пренесување на даночната обврска – ДДВ пресметува примателот согласно член 32-а од ЗДДВ';
 /** Legal basis written on a read outgoing invoice without VAT and without a printed note (the firm's rule „0 % = чл. 24“). */
 export const NO_VAT_DED_NOTE = 'Ослободено од ДДВ со право на одбивка согласно член 24 од ЗДДВ';
+export const NO_VAT_NODED_NOTE = 'Ослободено од ДДВ без право на одбивка согласно член 23 од ЗДДВ';
+
+/** The VAT article chosen before scanning outgoing invoices (all of them are such): 'auto' = as read from each invoice. */
+export type SaleVatRule = 'auto' | 'vat' | 'art32' | 'ded' | 'noded' | 'novat';
+export const SALE_VAT_RULES: readonly [SaleVatRule, string][] = [
+  ['auto', 'Автоматски – од фактурата'],
+  ['vat', 'Со ДДВ (редовно 18 / 10 / 5 %)'],
+  ['art32', 'Чл. 32-а – пренесување на даночната обврска'],
+  ['ded', 'Ослободено чл. 24 – со право на одбивка (ДДВ-04 поле 08)'],
+  ['noded', 'Ослободено чл. 23 – без право на одбивка (поле 09)'],
+  ['novat', 'Фирмата не е ДДВ обврзник (без ДДВ)'],
+];
+
+/** The chosen article over what the read found: rates, art. 32-a, exemption kind and note – nothing left to decide. */
+export function applySaleVatRule(d: ScanSaleDraft, rule: SaleVatRule | null | undefined): ScanSaleDraft {
+  if (!rule || rule === 'auto') return d;
+  const o: ScanSaleDraft = { ...d, items: d.items.map((l) => ({ ...l })) };
+  delete o.vatCheck; delete o.vatExempt; delete o.vatNote; delete o.issuerNoVat;
+  o.art32 = rule === 'art32';
+  if (rule === 'art32') for (const l of o.items) l.rate = 18;
+  else if (rule === 'vat') { for (const l of o.items) if (!Number(l.rate)) l.rate = 18; }
+  else {
+    for (const l of o.items) l.rate = 0;
+    if (rule === 'ded') { o.vatExempt = 'ded'; o.vatNote = NO_VAT_DED_NOTE; }
+    else if (rule === 'noded') { o.vatExempt = 'noded'; o.vatNote = NO_VAT_NODED_NOTE; }
+    else o.issuerNoVat = true;
+  }
+  return o;
+}
 /**
  * The firm's rule for a read outgoing invoice without VAT and without a printed note (`firms.settings.scanNoVat`):
  * `ded` (default) = ЗДДВ чл. 24 with the right to deduct → customer konto 1200009, ДДВ-04 field 08, as the journal

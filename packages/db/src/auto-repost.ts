@@ -169,3 +169,22 @@ export async function runFirmRepost(db: Tx, firmId: string, runId: string): Prom
   }
   return true;
 }
+
+/**
+ * Firms that are NOT VAT payers but whose posted invoices / purchases of `year` still carry VAT or the чл. 24 receivable
+ * (output VAT 23…, 1200009 on invoices; input VAT 13… on purchases) – posted while the card said „ДДВ обврзник“, or
+ * before the card was corrected. Each gets a re-posting run (open periods only) with the current setting; the runs
+ * are returned for the caller to enqueue. Called by the autopilot, so the books never keep a mix of the two.
+ */
+export async function queueNonVatRepairs(tx: Tx, year: number, firmIds?: readonly string[]): Promise<{ firmId: string; runId: string }[]> {
+  const R = await tx.execute(sql`select distinct j.firm_id as id from ${journalLines} jl join ${journals} j on j.id = jl.journal_id join ${firms} f on f.id = j.firm_id
+    where f.vat_registered = false and f.active and j.date between ${year + '-01-01'} and ${year + '-12-31'}
+      and ((j.source_type = 'invoice' and (jl.account like '23%' or jl.account = '1200009')) or (j.source_type = 'purchase' and jl.account like '13%'))
+      ${firmIds?.length ? sql`and j.firm_id in (${sql.join(firmIds.map((x) => sql`${x}::uuid`), sql`, `)})` : sql``}`);
+  const out: { firmId: string; runId: string }[] = [];
+  for (const r of ((R as unknown as { rows?: { id: string }[] }).rows ?? (R as unknown as { id: string }[]))) {
+    const runId = await requestRepost(tx, { firmId: r.id, userId: null, year });
+    if (runId) out.push({ firmId: r.id, runId });
+  }
+  return out;
+}

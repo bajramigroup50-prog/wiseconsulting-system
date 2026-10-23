@@ -1,4 +1,4 @@
-import { runAutopilot } from '@wise/db';
+import { queueNonVatRepairs, REPOST_JOB, runAutopilot } from '@wise/db';
 import { defineJob } from '../job';
 import { sendQueuedMail } from './reminders';
 
@@ -13,6 +13,13 @@ export const autopilot = defineJob<{ today?: string; firmIds?: string[] }>({
   name: 'autopilot',
   cron: '0 */6 * * *',
   async run(data, ctx) {
+    // a firm that is not a VAT payer with VAT / 1200009 still in its posted documents: re-posted (never left mixed)
+    try {
+      const year = Number((data?.today ?? new Date().toISOString()).slice(0, 4));
+      const runs = await ctx.db.transaction((tx) => queueNonVatRepairs(tx, year, data?.firmIds));
+      for (const q of runs) await ctx.send?.(REPOST_JOB, q);
+      if (runs.length) ctx.log(`non-VAT firms re-posted: ${runs.length}`);
+    } catch (e) { ctx.log(`non-VAT repair: ${(e as Error).message}`); }
     const r = await runAutopilot(ctx.db, { trigger: data?.firmIds ? 'manual' : 'cron', today: data?.today, firmIds: data?.firmIds });
     await sendQueuedMail(ctx, r.mailIds);
     ctx.log(`firms ${r.firms}, findings ${r.findings} (new bad ${r.newBad}), messages ${r.messages}, auto-sent ${r.autoSent}, e-mails ${r.mailIds.length}`);

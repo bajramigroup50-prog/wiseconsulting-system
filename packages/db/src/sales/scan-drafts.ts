@@ -8,7 +8,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
-  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, isOwnParty, ownerCheck, prevDebtFix, purchaseDraftFromScan, purchaseTotal,
+  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, applySaleVatRule, isOwnParty, ownerCheck, prevDebtFix, type SaleVatRule, purchaseDraftFromScan, purchaseTotal,
   saleDraftFromScan, scanInvoices, scanNoVatRule, type ScanPurchaseDraft, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
@@ -40,7 +40,7 @@ export async function matchData(db: Tx, firmId: string) {
 }
 
 /** Who started the read (audit of automatically created partners). */
-export interface DraftOpts { userId?: string | null }
+export interface DraftOpts { userId?: string | null; /** the VAT article chosen for the scanned outgoing invoices */ vatRule?: SaleVatRule | null }
 
 /**
  * No partner matched and no similar candidate: the partner is created from the document (name, ЕДБ or ЕМБС in its own
@@ -225,7 +225,9 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
   const fm =(v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const tracksStock = M.items.some((i) => i.type !== 'service');
   for (const x of scanInvoices(mergeAttachedInvoices(r))) {
-    const d = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)), noVat: scanNoVatRule(f.settings) });
+    const d0 = saleDraftFromScan(x, { ...M, revKonto: schemeValue(ctx, 'revDefault'), today, nextNumber: nextDocNumber(used, today.slice(0, 4)), noVat: scanNoVatRule(f.settings) });
+    // a firm that is not a VAT payer: every outgoing invoice without VAT (no 18 / 10 %, no VAT question); else the chosen article
+    const d = applySaleVatRule(d0, f.vatRegistered === false ? 'novat' : o.vatRule);
     const own = ownerCheck('sale', x, f.edb, f.name);
     // the buyer read is this firm itself: never the partner of its own sales invoice (also when a partner card of it exists)
     if (own) { d.partnerId = ''; d.match = undefined; }

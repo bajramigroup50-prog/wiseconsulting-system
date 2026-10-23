@@ -7,6 +7,7 @@
  * one or two files are read and the first invoice opens in the editor automatically (`autoOpen`), the rest wait in the
  * queue and open after saving.
  */
+import type { SaleVatRule } from '@wise/core/sales';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { uploadFile } from '@/lib/upload';
@@ -14,7 +15,7 @@ import { UploadTarget } from '@/components/firm-guard';
 import { Uvoz } from '@/components/uvoz';
 import { scanStatus, startScans } from '@/app/(app)/skan/actions';
 
-export interface ScanOpts { kind: 'purchase' | 'sale'; batchId: string | null; cash?: boolean; warehouseId?: string; costOnly?: boolean; /** posted into this nalog when approved */ nalogNo?: string }
+export interface ScanOpts { kind: 'purchase' | 'sale'; batchId: string | null; cash?: boolean; warehouseId?: string; costOnly?: boolean; /** posted into this nalog when approved */ nalogNo?: string; /** outgoing invoices: the VAT article chosen for all of them */ vatRule?: SaleVatRule }
 
 /** Legacy `scanErr` (4687) for the stored worker errors. */
 export const scanErrText = (e: string | null | undefined) => e || 'Читањето не успеа. Обидете се повторно.';

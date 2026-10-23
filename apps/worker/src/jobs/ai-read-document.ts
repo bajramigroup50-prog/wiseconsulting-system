@@ -27,7 +27,7 @@
  * while the free readers continue (../ai/free-first.ts, ../ai/budget.ts, docs/AI-TROSHOK.md).
  */
 import { and, eq, sql, TransactionRollbackError } from 'drizzle-orm';
-import { boughtByOwnFirm, fixRates, isOwnParty, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
+import { boughtByOwnFirm, fixRates, isOwnParty, type SaleVatRule, issuedByOwnFirm, mergeAttachedInvoices, scanResultConsistent, scanInvoices, ublToScanAll, type ScanResult } from '@wise/core/sales';
 import { aiDocuments, firms, type DB, type Tx } from '@wise/db';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 import { splitInvoicePdf } from '../ai/split';
@@ -296,7 +296,7 @@ WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the b
     // meanwhile leaves no new partners behind
     const res = result;
     const n = await db.transaction(async (tx) => {
-      const drafts = kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
+      const drafts = kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy, vatRule: (doc.options as { vatRule?: SaleVatRule }).vatRule ?? null }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
       const up = await tx.update(aiDocuments).set({ status: 'done', kind, result: res, drafts, model, options: sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
       if (!up.length) tx.rollback();
       return drafts.length;
