@@ -27,7 +27,7 @@ import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { scanEditorHref, scanQueue } from '@/lib/scan-queue';
 import { fuelRuleNow } from '@/lib/sales-parity';
 
-type SP = { merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string };
+type SP = { merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string; kand?: string };
 
 export default async function VlezPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -128,7 +128,11 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const q = (sp.q ?? '').toLowerCase().trim();
   const rows = await db().select({ p: purchases, name: partners.name, edb: partners.edb }).from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
     .where(and(eq(purchases.firmId, firm.id), sql`${purchases.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(purchases.date));
-  const list = rows.filter(({ p, name }) => !q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q));
+  // „🔎 Можни фискални сметки на 2200“: scanned small purchases booked against the supplier – receipts paid in cash
+  // read as invoices (fuel, parking, tolls, a restaurant); tick them and „💶 Платено во готово – 1020“
+  const isKand = (p: (typeof rows)[number]['p']) => p.scanned && !p.cash && !p.imp && p.status === 'posted' && Number(p.total) < 10000;
+  const nKand = rows.filter(({ p }) => isKand(p)).length;
+  const list = rows.filter(({ p, name }) => (!q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && (sp.kand !== '1' || isKand(p)));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
   const ids = list.map((r) => r.p.id);
   const att = ids.length ? await db().select({ e: fileLinks.entityId, id: files.id, name: files.name }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
@@ -179,6 +183,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} фактури се внесени двапати ({[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
         <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px' }}><input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
+      {nKand > 0 && write && <div className="callout info row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>{sp.kand === '1' ? <>Прикажани се само скенираните сметки до 10.000 ден. книжени на добавувач (2200). Штиклирајте ги (☑ горе = сите) и „💶 Платено во готово – 1020“.</> : <>🔎 <b>{nKand}</b> скенирани документи до 10.000 ден. се книжени на добавувач (2200) – можеби се фискални сметки платени во готово.</>}</span>
+        <Link className="btn sm" href={sp.kand === '1' ? '/vlez' : '/vlez?kand=1'}>{sp.kand === '1' ? '← Сите' : 'Прикажи ги'}</Link>
+      </div>}
       {list.length ? (<>
         {write && <BulkBar label="💶 Платено во готово – 1020 ({n})" btnClass="btn" busy="Се прекнижува…" confirm="Избраните {n} се фискални сметки платени во готово? Се прекнижуваат: Г 1020 наместо 2200." action={setPurchasesCashAction} />}
         {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesCascadeAction} preview={purchaseDeletePreviewAction} />}
