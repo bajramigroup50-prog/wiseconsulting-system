@@ -8,7 +8,7 @@
  */
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { ScanPurchaseDraft, ScanSaleDraft } from '@wise/core/sales';
-import { periodOf } from '@wise/core';
+import { periodOf, perRange } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import { draftVatDate, pastHoldMsg, pastPeriodOf, type PastPeriodCtx } from '@wise/core/vat/past-period';
 import { audit, type Tx } from '../audit';
@@ -123,7 +123,11 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
           const c = await cashOf();
           const own = String(((d.options ?? {}) as { nalogNo?: string }).nalogNo ?? '').trim();
           const dt = String(dr.date ?? '');
-          const late = !!dt && c.closed.has(periodOf(dt, c.vatKind));
+          // late: its VAT period is filed in WISE, or its ДДВ-04 deadline (the 25th after the period) has passed – a
+          // receipt found now is reported in the current return, never „книжена подоцна“ into an old period
+          const per = dt ? periodOf(dt, c.vatKind) : '';
+          const due = per ? (() => { const end = perRange(per)[1]; const m = new Date(end + 'T00:00:00Z'); m.setUTCDate(m.getUTCDate() + 25); return m.toISOString().slice(0, 10); })() : '';
+          const late = !!dt && (c.closed.has(per) || due < todaySkopje()) && (!c.from || dt < c.from);
           const to = c.from && c.from > todaySkopje() ? todaySkopje() : c.from ?? todaySkopje();
           over = { nalogNo: own || c.nalogNo || undefined, ...(late ? { date: to, docDate: String(dr.docDate || dt) } : {}) };
         }
