@@ -44,16 +44,16 @@ export default async function BbPartPage({ searchParams }: { searchParams: Promi
         <span className="mini">{all.length} комитенти · кликнете на комитент за аналитичка картица</span>
       </form>
       <div className="tw"><table className="dense">
-        <thead><tr><th>Комитент</th><th className="n">Поч. Д</th><th className="n">Поч. П</th><th className="n">Промет Д</th><th className="n">Промет П</th><th className="n">Вкупно Д</th><th className="n">Вкупно П</th><th className="n">Салдо Д</th><th className="n">Салдо П</th></tr></thead>
+        <thead><tr><th>Комитент</th><th className="n">Поч. Д</th><th className="n">Поч. П</th><th className="n">Промет Д</th><th className="n">Промет П</th><th className="n">Вкупно Д</th><th className="n">Вкупно П</th><th className="n" title="Должи − Побарува: плус = платено / побарано повеќе, минус = должиме / ни должат помалку">Салдо (+ / −)</th></tr></thead>
         <tbody>{L.length ? L.map((p) => (
           <tr key={p.k || '-'}>
             <td><Link href={`/kkart?k=${k}&from=${from}&to=${to}&p=${p.k || "none"}&back=bbPart`}><b>{p.name}</b></Link></td>
             {F.map((f) => <td key={f} className="n">{p[f] ? fmt(p[f]) : ''}</td>)}
-            <td className="n">{p.s > 0 ? fmt(p.s) : ''}</td><td className="n">{p.s < 0 ? fmt(-p.s) : ''}</td>
+            <td className="n" style={p.s < 0 ? { color: 'var(--bad)' } : undefined}>{Math.abs(p.s) >= 0.005 ? (p.s < 0 ? '−' : '') + fmt(Math.abs(p.s)) : ''}</td>
           </tr>
-        )) : <tr><td colSpan={9} className="note">Нема.</td></tr>}</tbody>
+        )) : <tr><td colSpan={8} className="note">Нема.</td></tr>}</tbody>
         <tfoot><tr><td><b>Вкупно {k}</b></td>{F.map((f) => <td key={f} className="n"><b>{fmt(sum(f))}</b></td>)}
-          <td className="n"><b>{fmt(all.reduce((s, r) => s + Math.max(0, r.s), 0))}</b></td><td className="n"><b>{fmt(all.reduce((s, r) => s + Math.max(0, -r.s), 0))}</b></td></tr></tfoot>
+          <td className="n"><b>{(() => { const t = all.reduce((s, r) => s + r.s, 0); return (t < 0 ? '−' : '') + fmt(Math.abs(t)); })()}</b></td></tr></tfoot>
       </table></div>
     </>
   );
