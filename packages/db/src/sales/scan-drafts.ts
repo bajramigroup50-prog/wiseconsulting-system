@@ -147,7 +147,7 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     });
     // paid in cash (a cash nalog / „во готово“): the firm's cash rules — e.g. fuel → 4033, everything else → 4199 — as
     // costs (no stock); a fiscal receipt without an invoice number gets one from its date and amount
-    if (cash) applyCashScanRules(d, cashScanRules(s));
+    if (cash) applyCashScanRules(d, cashScanRules(s), schemeValue(ctx, 'purDefault'));
     // the supplier read is this firm itself (its own sales invoice): never a partner of its own purchase
     if (isOwnParty(d.supplierName, d.supplierEdb, f.edb, f.name)) { d.partnerId = ''; d.match = undefined; }
     else if (!d.partnerId && !ownerCheck('purchase', x, f.edb, f.name)) {
@@ -194,16 +194,19 @@ export const cashScanRules = (settings: unknown): CashScanRules => {
   return v && typeof v === 'object' ? { other: typeof v.other === 'string' ? v.other : undefined, rules: Array.isArray(v.rules) ? v.rules.filter((r) => r && typeof r.match === 'string' && typeof r.konto === 'string') : [] } : {};
 };
 
-/** Apply the cash rules to a read purchase: one konto for the whole receipt (by the supplier and the line names), costs only. */
-export function applyCashScanRules(d: ScanPurchaseDraft, R: CashScanRules): void {
-  const text = [d.supplierName, ...(d.stock ?? []).map((x) => x.name)].join(' ');
+/** The konto of a cash receipt by the firm's rules (keyword → konto, else the rest's konto); '' when none applies. */
+export function cashKontoOf(text: string, R: CashScanRules): string {
   const hit = (R.rules ?? []).find((r) => { try { return new RegExp(r.match, 'iu').test(text); } catch { return false; } });
-  const konto = hit?.konto || R.other;
-  if (konto) {
-    d.groups = d.groups.map((g) => ({ ...g, konto }));
-    d.stock = [];
-    d.ptype = 'cost';
-  }
+  return hit?.konto || R.other || '';
+}
+
+/** Apply the cash rules to a read purchase: one konto for the whole receipt (by the supplier and the line names), costs only. */
+export function applyCashScanRules(d: ScanPurchaseDraft, R: CashScanRules, fallback?: string): void {
+  const konto = cashKontoOf([d.supplierName, ...(d.stock ?? []).map((x) => x.name)].join(' '), R) || fallback;
+  // a receipt paid in cash is an expense – never goods on stock (no items, no ПЛТ / ЕТ), whatever the firm's rules say
+  if (konto) d.groups = d.groups.map((g) => ({ ...g, konto }));
+  d.stock = [];
+  d.ptype = 'cost';
   if (!String(d.number ?? '').trim()) {
     const dt = String(d.docDate || d.date || '').split('-').reverse().join('.');
     d.number = `БФ ${dt} ${purchaseTotal(d).toFixed(2)}`.trim();

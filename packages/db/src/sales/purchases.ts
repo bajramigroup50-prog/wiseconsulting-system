@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, retailPrice, roundPurchase, stockAt,
+  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, retailPrice, roundPurchase, schemeValue, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
@@ -15,7 +15,7 @@ import { docKontoRemap, PURCHASE_KONTO_KEYS } from '@wise/core/scheme-profiles';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource } from '../posting';
 import {
-  fileLinks, files, itemBarcodes, journals, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
+  fileLinks, files, firms, itemBarcodes, journals, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
   supplierCredits, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
@@ -27,6 +27,7 @@ import { dependentLabel, dependentTransfers } from '../transfer-links';
 import { ensurePartner } from './partners-auto';
 import { releaseScanDrafts } from './ai-docs';
 import { assertTargetNalog } from './invoice-nalog';
+import { cashKontoOf, cashScanRules } from './scan-drafts';
 import { learnPartnerAccount } from '../partner-accounts';
 
 import { todaySkopje } from '@wise/core/office/dates';
@@ -459,7 +460,13 @@ export async function setPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingC
     const [j] = await tx.select({ n: journals.number }).from(journals)
       .where(and(eq(journals.firmId, f.id), sql`${journals.number} like '1020/%'`, sql`${journals.periodFrom} <= ${p.date}`, sql`${journals.periodTo} >= ${p.date}`)).limit(1);
     const data = { ...((p.data ?? {}) as Record<string, unknown>), ...(j ? { nalogNo: j.n } : {}) };
-    await tx.update(purchases).set({ cash: true, data }).where(eq(purchases.id, id));
+    // an expense, not goods: the stock lines go (no stock, ПЛТ or ЕТ), the VAT groups on the cash konto of the firm's rules
+    const [fs] = await tx.select({ s: firms.settings }).from(firms).where(eq(firms.id, f.id)).limit(1);
+    const L = await tx.select({ name: purchaseStockLines.name }).from(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
+    const konto = cashKontoOf([p.supplierName ?? '', ...L.map((x) => x.name ?? '')].join(' '), cashScanRules(fs?.s)) || schemeValue(await firmPostingContext(tx, f), 'purDefault');
+    await tx.delete(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
+    if (konto) await tx.update(purchaseVatGroups).set({ account: konto }).where(eq(purchaseVatGroups.purchaseId, id));
+    await tx.update(purchases).set({ cash: true, ptype: 'cost', data }).where(eq(purchases.id, id));
     await repostPurchase(tx, f, id, userId);
     await audit(tx, { userId, firmId: f.id, action: 'purToCash', entityType: 'purchase', entityId: id, data: { number: p.number, nalog: j?.n ?? null } });
     n++;

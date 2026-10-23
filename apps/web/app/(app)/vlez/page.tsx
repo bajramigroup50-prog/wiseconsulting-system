@@ -5,7 +5,7 @@
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
-import type { ScanPurchaseDraft } from '@wise/core/sales';
+import { isReceiptDoc, scanInvoices, type ScanInvoice, type ScanPurchaseDraft, type ScanResult } from '@wise/core/sales';
 import {
   aiDocuments, codes, draftSourceFiles, refreshStaleScanDrafts, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
 } from '@wise/db';
@@ -130,7 +130,16 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
     .where(and(eq(purchases.firmId, firm.id), sql`${purchases.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(purchases.date));
   // „🔎 Можни фискални сметки на 2200“: scanned small purchases booked against the supplier – receipts paid in cash
   // read as invoices (fuel, parking, tolls, a restaurant); tick them and „💶 Платено во готово – 1020“
-  const isKand = (p: (typeof rows)[number]['p']) => p.scanned && !p.cash && !p.imp && p.status === 'posted' && Number(p.total) < 10000;
+  // a receipt by its read: the read says receipt / „other“, or names no buyer (a fiscal receipt does not; an invoice –
+  // water, electricity, a supplier – names this firm as the buyer)
+  const scanRead = new Map<string, ScanInvoice>();
+  if (rows.some(({ p }) => p.scanned && !p.cash)) {
+    const AD = await db().select({ result: aiDocuments.result, drafts: aiDocuments.drafts }).from(aiDocuments)
+      .where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), inArray(aiDocuments.status, ['done', 'saved'])));
+    for (const d of AD) { const I = scanInvoices(d.result as ScanResult | null); d.drafts.forEach((x, i) => { if (x.savedId && I[i]) scanRead.set(x.savedId, I[i]!); }); }
+  }
+  const receiptRead = (id: string) => { const x = scanRead.get(id); return !!x && (isReceiptDoc(x) || !(String(x.buyerEdb ?? '').trim() || String(x.buyerName ?? '').trim())); };
+  const isKand = (p: (typeof rows)[number]['p']) => p.scanned && !p.cash && !p.imp && p.status === 'posted' && Number(p.total) < 10000 && receiptRead(p.id);
   const nKand = rows.filter(({ p }) => isKand(p)).length;
   const list = rows.filter(({ p, name }) => (!q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && (sp.kand !== '1' || isKand(p)));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
