@@ -244,7 +244,7 @@ export async function saveSelectedScansAction(kind: 'sale' | 'purchase', ids: st
     const r = await db().transaction((tx) => saveSelectedScanDrafts(tx, { firmId: firm.id, kind, ids, actor: actorOf(u) }));
     for (const p of ['/skan', '/skan/proverka', '/vnes', '/ddv', '/izlez', '/vlez', '/nalozi']) revalidatePath(p);
     const bad = r.failed.length ? ` Не се зачувани ${r.failed.length}: ${r.failed.slice(0, 6).map((f) => `${f.number} (${f.why})`).join('; ')}${r.failed.length > 6 ? '…' : ''}` : '';
-    const msg = `Зачувани и прокнижени ${r.saved} фактури.${bad}`;
+    const msg = `Зачувани и прокнижени ${r.saved} документи (фактури / сметки).${bad}`;
     return r.saved || !r.failed.length ? { ok: msg } : { error: msg };
   } catch (e) { return actionError(e); }
 }

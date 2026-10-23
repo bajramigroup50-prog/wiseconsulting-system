@@ -8,6 +8,8 @@ export interface JobDef<T = unknown> {
   run(data: T, ctx: JobCtx): Promise<void>;
   /** pg-boss queue options (retries, expiry), applied on every start. */
   queue?: { retryLimit?: number; expireInSeconds?: number };
+  /** Jobs of this queue run side by side in this worker (default 1). */
+  concurrency?: number;
 }
 
 export interface JobCtx {

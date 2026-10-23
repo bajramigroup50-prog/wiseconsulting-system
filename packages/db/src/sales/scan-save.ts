@@ -12,7 +12,7 @@ import { periodOf } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import { draftVatDate, pastHoldMsg, pastPeriodOf, type PastPeriodCtx } from '@wise/core/vat/past-period';
 import { audit, type Tx } from '../audit';
-import { aiDocuments, fileLinks, files, items, type AiDocument, type AiDraft, type Firm } from '../schema/index';
+import { aiDocuments, fileLinks, files, firms, items, journals, type AiDocument, type AiDraft, type Firm } from '../schema/index';
 import type { DocActor } from './context';
 import { draftSourceFiles, loadAiDocument, markDraftSaved, purchaseInputFromDraft, releaseDeletedScanDrafts } from './ai-docs';
 import { saveInvoice, type InvoiceInput } from './invoices';
@@ -79,6 +79,19 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
   cash?: { nalogNo: string; from: string | null; closed: ReadonlySet<string>; vatKind: string } }): Promise<{ saved: number; failed: { number: string; why: string }[] }> {
   let saved = 0;
   const failed: { number: string; why: string }[] = [];
+  // receipts paid in cash, from any screen (Благајна, the archive, „За физичка проверка“): the same rule – the cash
+  // register's nalog, and the first day of its period for a receipt dated in a closed (filed) VAT period
+  let cashCtx = a.cash ?? null;
+  const cashOf = async (): Promise<NonNullable<typeof a.cash>> => {
+    if (cashCtx) return cashCtx;
+    const [f] = await tx.select({ vat: firms.vatRegistered, per: firms.vatPeriod }).from(firms).where(eq(firms.id, a.firmId)).limit(1);
+    const closed = new Set(f?.vat ? (await tx.select({ d: journals.date }).from(journals).where(and(eq(journals.firmId, a.firmId), eq(journals.kind, 'ddv')))).map((j) => periodOf(String(j.d), f.per)) : []);
+    const y = todaySkopje().slice(0, 4);
+    const [j] = await tx.select({ n: journals.number, from: journals.periodFrom }).from(journals)
+      .where(and(eq(journals.firmId, a.firmId), sql`${journals.number} like '1020/%'`, sql`${journals.date} between ${y + '-01-01'} and ${y + '-12-31'}`)).orderBy(sql`${journals.date} desc`).limit(1);
+    cashCtx = { nalogNo: j?.n ?? '', from: j?.from ? String(j.from) : null, closed, vatKind: f?.per ?? 'quarter' };
+    return cashCtx;
+  };
   for (const key of a.ids) {
     const [docId, ix] = key.split(':');
     const i = Number(ix);
@@ -106,11 +119,13 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
         const at = new Date().toISOString();
         await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', skipped: undefined, review: true, checkedAt: at }));
         let over: { date?: string; docDate?: string | null; nalogNo?: string } | undefined;
-        if (a.cash && a.kind === 'purchase') {
+        if (a.kind === 'purchase' && (a.cash || dr.cash)) {
+          const c = await cashOf();
+          const own = String(((d.options ?? {}) as { nalogNo?: string }).nalogNo ?? '').trim();
           const dt = String(dr.date ?? '');
-          const late = !!dt && a.cash.closed.has(periodOf(dt, a.cash.vatKind));
-          const to = a.cash.from && a.cash.from > todaySkopje() ? todaySkopje() : a.cash.from ?? todaySkopje();
-          over = { nalogNo: a.cash.nalogNo || undefined, ...(late ? { date: to, docDate: String(dr.docDate || dt) } : {}) };
+          const late = !!dt && c.closed.has(periodOf(dt, c.vatKind));
+          const to = c.from && c.from > todaySkopje() ? todaySkopje() : c.from ?? todaySkopje();
+          over = { nalogNo: own || c.nalogNo || undefined, ...(late ? { date: to, docDate: String(dr.docDate || dt) } : {}) };
         }
         await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor, over);
         await audit(t, { userId: a.actor.userId, firmId: a.firmId, action: 'scanSaveChecked', entityType: 'ai_document', entityId: d.id, data: { index: i, number } });

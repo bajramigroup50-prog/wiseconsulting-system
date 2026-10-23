@@ -329,6 +329,8 @@ export const aiReadDocument = defineJob<{ docId: string }>({
   // pg-boss — a repeated read pays for the same tokens again. Reads lost in a restart are queued again by
   // `requeueStaleReads` on worker startup.
   queue: { retryLimit: 0, expireInSeconds: 30 * 60 },
+  // a pile of receipts / invoices is read 4 at a time (one by one took ~20 s each)
+  concurrency: 4,
   async run(data, { db, log }) {
     if (data?.docId) await runReadDocument(db, data.docId, log);
   },

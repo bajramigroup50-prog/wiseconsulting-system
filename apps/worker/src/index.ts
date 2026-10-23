@@ -23,7 +23,7 @@ for (const j of JOBS) {
   // createQueue leaves an existing queue as it was: the options are applied again
   if (j.queue) await boss.updateQueue(j.name, j.queue);
   if (j.cron) await boss.schedule(j.name, j.cron, null, { tz: 'Europe/Skopje' });
-  await boss.work(j.name, async (jobs) => {
+  await boss.work(j.name, { localConcurrency: j.concurrency ?? 1 }, async (jobs) => {
     for (const job of jobs) await j.run(job.data, { db, log, send });
   });
 }
