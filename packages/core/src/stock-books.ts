@@ -332,7 +332,7 @@ export function tradeBook(ctx: StockContext, a: TradeBookArgs): TradeBook {
       continue;
     }
     if (m.date > to) continue;
-    if (retail && num(m.qty) < 0 && m.type === 'sale' && String(m.src).startsWith('pos-')) continue; // раздолжување преку дневниот промет
+    if (retail && num(m.qty) < 0 && m.type === 'sale' && /^(pos|pr)-/.test(String(m.src))) continue; // раздолжување преку дневниот промет (и ПР)
     rows.push({
       date: m.date,
       doc: m.label || String(m.type),
@@ -656,7 +656,7 @@ export function etBook(ctx: StockContext, a: EtBookArgs): EtBook {
     if (!it) continue;
     const D = docOf(m);
     const k = D.key + '|' + w;
-    if (num(m.qty) < 0 && m.type === 'sale' && /^(pos|mo)-/.test(String(m.src))) continue;
+    if (num(m.qty) < 0 && m.type === 'sale' && /^(pos|mo|pr)-/.test(String(m.src))) continue;
     if (D.inTotals && num(m.qty) > 0) {
       if (done.has(k)) continue;
       done.add(k);

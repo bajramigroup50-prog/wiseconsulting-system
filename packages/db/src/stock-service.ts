@@ -37,7 +37,8 @@ export const dbLoc = (wh: string | null | undefined): string | null => (!wh || w
 
 /** `src` prefixes the core books use to recognise documents (legacy `move.src`). */
 const SRC_PREFIX: Record<string, string> = {
-  sales_daily: 'pos', transfer: 'prn', stock_count: 'mo', production: 'prod', purchase: 'pur', invoice: 'inv', dispatch: 'isp',
+  // store_out: a store's ПР (парагон) – its turnover is the day's sales_daily row (ЕТ col. 7), so its goods issue is not counted again
+  sales_daily: 'pos', store_out: 'pr', transfer: 'prn', stock_count: 'mo', production: 'prod', purchase: 'pur', invoice: 'inv', dispatch: 'isp',
 };
 export const moveSrc = (sourceType: string, sourceId: string): string => `${SRC_PREFIX[sourceType] ?? sourceType}-${sourceId}`;
 /** Inverse of {@link moveSrc} for the prefixes above. */

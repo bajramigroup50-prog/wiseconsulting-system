@@ -4,7 +4,7 @@
  */
 import type { StockContext } from './types';
 import { cents, num, r0, r2 } from './num';
-import { itemById, retailBreakdown, retailPrice } from './retail';
+import { itemById, postingRate, retailBreakdown, retailPrice } from './retail';
 
 /** Landed-cost slots: customs, cost 1, cost 2, forwarding, transport, other, foreign-currency cost. */
 export const LANDED_COST_SLOTS = [
@@ -284,7 +284,7 @@ export interface CalculationRow {
  * cost, retail value incl. VAT, its VAT and the price difference. Retail price = line `sp`, else the item's retail
  * price at the purchase location.
  */
-export function calculationRows(ctx: Pick<StockContext, 'items'>, p: PurchaseLike): CalculationRow[] {
+export function calculationRows(ctx: Pick<StockContext, 'items'> & Partial<Pick<StockContext, 'vatRegistered'>>, p: PurchaseLike): CalculationRow[] {
   const AL = allocCosts(p);
   const all = p.stock ?? [];
   return all
@@ -292,7 +292,8 @@ export function calculationRows(ctx: Pick<StockContext, 'items'>, p: PurchaseLik
     .map((s) => {
       const i = all.indexOf(s);
       const it = itemById(ctx, String(s.item ?? '')) ?? { id: String(s.item ?? '') };
-      const rate = num(it.rate ?? 18);
+      // a firm that is not a VAT payer has no VAT embedded in its retail prices (as its sales, transfers and levellings)
+      const rate = postingRate(ctx, it);
       const gross = r2(num(s.qty) * num(s.price) * (p.imp ? num(p.fx) : 1));
       const v = stockLineValue(p, s);
       const dep = AL.by[i] || 0;

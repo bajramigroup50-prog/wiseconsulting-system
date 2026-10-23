@@ -104,7 +104,7 @@ export function FiskReadPost(p: {
       </div>
       <div className="card">
         <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>2. Излез на стока{p.sc === 'trg' && p.hasGoods ? ` од „${p.locs.find((l) => l.id === p.wh)?.name}“ до вредноста на прометот` : ''}</h2></div>
-        {p.sc !== 'trg' ? <p className="note" style={{ margin: '6px 0 0' }}>{p.sc === 'usl' ? 'Фирма за услуги – нема излез на стока.' : <>Залихата во продавницата се раздолжува во истиот налог: <b>Д 6690 / П 6630</b> за вкупниот промет.</>}</p>
+        {p.sc !== 'trg' ? <p className="note" style={{ margin: '6px 0 0' }}>{p.sc === 'usl' ? 'Фирма за услуги – нема излез на стока.' : <>Залихата во продавницата се раздолжува во истиот налог: <b>Д 6694 / П 6630</b> за вкупниот промет.</>}</p>
           : !p.hasGoods ? <p className="mini" style={{ margin: 0 }}>Во „{p.locs.find((l) => l.id === p.wh)?.name}“ нема залиха на стока – излез не е потребен (или прво внесете ја почетната залиха / приемниците).</p>
             : <>
               <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>

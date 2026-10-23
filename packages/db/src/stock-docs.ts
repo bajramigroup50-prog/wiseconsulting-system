@@ -673,6 +673,7 @@ export async function repostSalesDay(tx: Tx, a: Actor, id: string): Promise<void
   await postJournal(tx, {
     firmId: a.firmId, date: d.date, kind: 'kasa', sourceType: 'sales_daily', sourceId: id, userId: a.userId, auditAction: 'schRepost',
     description: `${zLabel} ${d.date.split('-').reverse().join('.')} · ${L.locName(d.locationId)}`,
-    lines: fiskEntries(doc, posting).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: d.locationId })),
+    // with the off-balance VAT bases, as when it was saved (a re-post kept only the turnover)
+    lines: [...fiskEntries(doc, posting), ...vbLines(salesVatBases(d.groups), posting)].map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: d.locationId })),
   });
 }

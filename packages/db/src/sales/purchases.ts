@@ -147,7 +147,7 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   let retail: PurchaseDoc['retail'];
   const sch = { ...(ctx.global?.sch ?? {}), ...(ctx.firm.sch ?? {}) } as Record<string, unknown>;
   if (stock.length && loc && (loc.kind === 'store' ? sch.retailMethod : sch.whSaleMethod)) {
-    const rows = calculationRows({ items: [...IT.values()].map((i) => toStockItem(i)) as StockItem[] }, {
+    const rows = calculationRows({ items: [...IT.values()].map((i) => toStockItem(i)) as StockItem[], vatRegistered: (f as { vatRegistered?: boolean }).vatRegistered }, {
       imp: pur.imp, fx: n(pur.fx), wh: pur.warehouseId ?? undefined, costs: costs as PurchaseLike['costs'], cnames: pur.cnames, distMode: pur.distMode,
       stock: ST.map((s) => ({ item: s.itemId, qty: n(s.qty), price: n(s.price), rab: n(s.rab), cn: s.cn ?? '', dep: s.dep ?? '', sp: s.sp ?? '' })),
     });
@@ -358,7 +358,8 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   const level: { item: string; qty: number; old: number; sp: number }[] = [];
   for (const s of stock) {
     if (partnerId && s.code) await tx.insert(itemSupplierCodes).values({ firmId, itemId: s.itemId!, partnerId, code: String(s.code), name: s.name ?? null }).onConflictDoNothing();
-    if (!empty(s.sp) && n(s.sp) > 0) {
+    // a purchase waiting for approval (client portal) changes no price yet – only a posted one does (with its levelling)
+    if (status === 'posted' && !empty(s.sp) && n(s.sp) > 0) {
       const it = IT.get(s.itemId!)!;
       if (store) {
         const ci = storeCtx?.items?.find((x) => x.id === it.id);

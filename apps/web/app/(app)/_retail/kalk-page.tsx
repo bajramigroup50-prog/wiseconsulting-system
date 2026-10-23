@@ -54,7 +54,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
   ]);
   const NM = new Map(J.map((j) => [j.s, j.n]));
   const noName = (await db().select({ code: items.code, name: items.name }).from(items).where(and(eq(items.firmId, firm.id), like(items.name, 'Артикл %')))).filter((i) => Retail.isNoNameItem(i)).length;
-  const ctxItems = { items: L.ctx.items ?? [] };
+  const ctxItems = { items: L.ctx.items ?? [], vatRegistered: firm.vatRegistered };
   const rows = P.map(({ p, pn }) => {
     const P1: PurchaseLike = {
       imp: p.imp, fx: Number(p.fx), wh: p.warehouseId ?? 'main', cnames: p.cnames, distMode: p.distMode, art32: p.art32,

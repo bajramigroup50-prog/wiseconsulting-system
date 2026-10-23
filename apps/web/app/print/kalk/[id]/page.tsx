@@ -36,7 +36,7 @@ export default async function PrintKalk({ params, searchParams }: { params: Prom
     imp: p.imp, fx: Number(p.fx), wh: p.warehouseId ?? 'main', costs, cnames: p.cnames, distMode: p.distMode, art32: p.art32,
     stock: ST.map((s) => ({ item: s.itemId, name: s.name ?? '', qty: Number(s.qty), price: Number(s.price), rab: Number(s.rab), cn: s.cn ?? '', dep: s.dep ?? '', sp: s.sp ?? '' })),
   };
-  const R = calculationRows({ items: I.map((i) => toStockItem(i)) }, P);
+  const R = calculationRows({ items: I.map((i) => toStockItem(i)), vatRegistered: (f as { vatRegistered?: boolean }).vatRegistered }, P);
   const T = (k: keyof (typeof R)[number]) => r2(R.reduce((a, r) => a + Number(r[k]), 0));
   const locName = loc[0]?.name ?? 'Главен магацин';
   const head = (t: string) => <>
