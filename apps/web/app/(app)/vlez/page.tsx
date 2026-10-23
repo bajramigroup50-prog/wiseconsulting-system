@@ -144,7 +144,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   // turned into cash by „💶 Платено во готово“ but read as an invoice with this firm as the buyer: to go back to 2200
   const toCash = new Set((await db().select({ id: auditLog.entityId }).from(auditLog).where(and(eq(auditLog.firmId, firm.id), eq(auditLog.action, 'purToCash')))).map((x) => x.id));
   const wrongCash = rows.filter(({ p }) => p.cash && toCash.has(p.id) && scanRead.has(p.id) && !receiptRead(p.id)).map(({ p }) => p.id);
-  const list = rows.filter(({ p, name }) => (!q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && (sp.kand !== '1' || isKand(p)) && (sp.vid !== 'f' || !p.cash) && (sp.vid !== 'k' || p.cash));
+  // invoices and fiscal receipts apart: the invoices by default, the receipts on their own tab, „Сите“ on request
+  const vid = sp.vid === 'k' || sp.vid === 'all' ? sp.vid : 'f';
+  const list = rows.filter(({ p, name }) => (!q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && (sp.kand !== '1' || isKand(p)) && (vid !== 'f' || !p.cash) && (vid !== 'k' || p.cash));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
   const ids = list.map((r) => r.p.id);
   const att = ids.length ? await db().select({ e: fileLinks.entityId, id: files.id, name: files.name }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
@@ -196,11 +198,11 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       {/* incoming invoices (supplier 2200) and fiscal receipts paid in cash (1020) apart */}
       <div className="row noprint" style={{ gap: 6, margin: '0 0 8px', flexWrap: 'wrap' }}>
-        <Link className={`btn ${!sp.vid ? 'pri' : ''}`} href="/vlez">Сите · {rows.length}</Link>
-        <Link className={`btn ${sp.vid === 'f' ? 'pri' : ''}`} href="/vlez?vid=f">📄 Фактури (добавувачи) · {rows.filter(({ p }) => !p.cash).length}</Link>
-        <Link className={`btn ${sp.vid === 'k' ? 'pri' : ''}`} href="/vlez?vid=k">💶 Фискални сметки – готовина 1020 · {rows.filter(({ p }) => p.cash).length}</Link>
+        <Link className={`btn ${vid === 'f' ? 'pri' : ''}`} href="/vlez">📄 Фактури (добавувачи) · {rows.filter(({ p }) => !p.cash).length}</Link>
+        <Link className={`btn ${vid === 'k' ? 'pri' : ''}`} href="/vlez?vid=k">💶 Фискални сметки – готовина 1020 · {rows.filter(({ p }) => p.cash).length}</Link>
+        <Link className={`btn ${vid === 'all' ? 'pri' : ''}`} href="/vlez?vid=all">Сите · {rows.length}</Link>
       </div>
-      <form className="row" style={{ gap: 8, margin: '0 0 8px' }}>{sp.vid && <input type="hidden" name="vid" value={sp.vid} />}<input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
+      <form className="row" style={{ gap: 8, margin: '0 0 8px' }}>{vid !== 'f' && <input type="hidden" name="vid" value={vid} />}<input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {wrongCash.length > 0 && write && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <span>↩ <b>{wrongCash.length}</b> фактури (со вашата фирма како купувач – вода, струја, добавувачи) се префрлени во готово (1020) по грешка.</span>
         <RowAction className="btn pri" action={unsetPurchasesCashAction.bind(null, wrongCash)} label={`↩ Врати ги на добавувач – 2200 (${wrongCash.length})`} confirm={`Да се вратат ${wrongCash.length} фактури на добавувач (2200)? Фискалните сметки остануваат во готово.`} showOk />
