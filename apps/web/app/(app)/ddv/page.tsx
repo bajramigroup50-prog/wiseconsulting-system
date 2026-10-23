@@ -29,7 +29,7 @@ import { Ddv04Form, fi } from './ddv04-form';
 import { CorrectionsForm, VatAccountsForm } from './forms';
 import { DownloadXlsx } from './download-xlsx';
 import { annexSheet, DdvAnnex } from './ddv-annex';
-import { closeVatPeriodAction, reopenVatPeriodAction, saveDtColsAction, setVatPeriodKindAction } from './actions';
+import { closeVatPeriodAction, moveLatePurchasesAction, reopenVatPeriodAction, saveDtColsAction, setVatPeriodKindAction } from './actions';
 import { inspCols, inspTables, inspYears } from '@/lib/vat-insp';
 import { PeriodKind } from './period-kind';
 import { TarifiView } from './tarifi-view';
@@ -70,6 +70,8 @@ function LateDocs({ id, sel, late, corr, after, closed }: { id: string; sel: str
           <button className="btn sm">Провери</button>
         </form>
       </div>
+      {late.some((d) => d.entityType === 'purchase') && <div className="row" style={{ margin: '0 0 6px' }}><RowAction className="btn pri" action={moveLatePurchasesAction.bind(null, late.filter((d) => d.entityType === 'purchase').map((d) => d.id))}
+        label={`⇢ Премести ги влезните / сметките (${late.filter((d) => d.entityType === 'purchase').length}) во тековниот ДДВ период`} confirm="Документите добиваат датум на книжење = првиот ден од отворениот ДДВ период (датумот на документот останува), и се прекнижуваат таму. Да продолжам?" showOk /></div>}
       {late.length > 0 && <div className="callout warn">⚠ {late.length} документи се книжени во овој период {after ? `по ${dmy(after)}` : closed ? 'по поднесувањето на ДДВ-04' : 'по рокот за пријава'} – ДДВ-04 за тој период треба да се коригира (исправка на пријавата).</div>}
       {late.length > 0 && (
         <div className="tw"><table className="dense">
@@ -196,14 +198,14 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
               <td className="n">{fi(p.fields['20'])}</td><td className="n">{fi(p.fields['29'])}</td>
               <td className="n" style={{ color: (p.fields['31'] ?? 0) > 0 ? 'var(--bad)' : (p.fields['31'] ?? 0) < 0 ? 'var(--good)' : 'inherit' }}>{fi(p.fields['31'])}</td>
               <td>{dmy(p.due)}</td><td>{statusPill(p)}{lateBy(p).length > 0 && <> <span className="pill bad" title="Документи книжени по затворањето / рокот – ДДВ-04 треба да се коригира">⚠ {lateBy(p).length} книжени подоцна</span></>}</td>
-              <td><Link className="btn sm" href={qs({ p: p.period })}>Отвори</Link></td>
+              <td><Link className="btn sm" href={qs({ p: p.period }) + '#period'}>Отвори</Link></td>
             </tr>
           ))}
         </tbody>
         <tfoot><tr><td>Вкупно {year}</td><td className="n">{fi(tot('20'))}</td><td className="n">{fi(tot('29'))}</td><td className="n">{fi(tot('31'))}</td><td colSpan={3} /></tr></tfoot>
       </table></div>
 
-      <h2>Период {vatPeriodLabel(sel)}</h2>
+      <h2 id="period">Период {vatPeriodLabel(sel)}</h2>
       <div className="tiles">
         <div className="tile"><span>Вкупен ДДВ · поле 20</span><b>{fi(F['20'])}</b></div>
         <div className="tile"><span>Претходен данок · поле 29</span><b>{fi(F['29'])}</b></div>

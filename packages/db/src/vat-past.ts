@@ -24,6 +24,7 @@ import { aiDocuments, auditLog, firms, invoices, partners, purchases, vatPeriods
 import { DocumentError, type DocActor } from './sales/context';
 import { patchDraft, saveScanDraft } from './sales/scan-save';
 import { loadAiDocument } from './sales/ai-docs';
+import { repostPurchase } from './sales/purchases';
 
 type FirmLike = Pick<Firm, 'id' | 'vatPeriod' | 'lockDate' | 'settings'>;
 
@@ -231,4 +232,38 @@ export async function latePostedDocuments(tx: Pick<Tx, 'select'>, firm: FirmLike
   for (const r of P) check('purchase', r);
   for (const r of I) check('invoice', r);
   return out.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : x.createdAt.getTime() - y.createdAt.getTime()));
+}
+
+/**
+ * The first day of the VAT period a late document goes into now: the previous period while its ДДВ-04 is still due
+ * (not filed in WISE, deadline not passed), else the current one.
+ */
+export async function openVatPeriodStart(tx: Pick<Tx, 'select'>, firm: FirmLike, today = todaySkopje()): Promise<string> {
+  const kind = firm.vatPeriod === 'month' ? 'month' : 'quarter';
+  const [curFrom] = perRange(periodOf(today, kind));
+  const d = new Date(curFrom + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1);
+  const prev = periodOf(d.toISOString().slice(0, 10), kind);
+  const [pFrom, pTo] = perRange(prev);
+  const due = new Date(pTo + 'T00:00:00Z'); due.setUTCDate(due.getUTCDate() + 25);
+  const [filed] = await tx.select({ x: vatPeriods.period }).from(vatPeriods).where(and(eq(vatPeriods.firmId, firm.id), eq(vatPeriods.period, prev), isNotNull(vatPeriods.submittedAt))).limit(1);
+  return !filed && due.toISOString().slice(0, 10) >= today ? pFrom : curFrom;
+}
+
+/**
+ * „⇢ Премести ги во тековниот ДДВ период“: incoming invoices / receipts booked late into a past period (filed, or its
+ * deadline passed) get the first day of the open period as their booking date – the invoice date stays as the document
+ * date – and are re-posted there; the past period's ДДВ-04 no longer changes. Outgoing invoices keep their issue date.
+ */
+export async function moveLatePurchases(tx: Tx, firm: FirmLike & Parameters<typeof repostPurchase>[1], ids: readonly string[], userId: string | null): Promise<{ moved: number; to: string }> {
+  const to = await openVatPeriodStart(tx, firm);
+  let moved = 0;
+  for (const id of ids) {
+    const [p] = await tx.select({ id: purchases.id, date: purchases.date, docDate: purchases.docDate, status: purchases.status }).from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firm.id))).limit(1);
+    if (!p || p.status !== 'posted' || String(p.date) >= to) continue;
+    await tx.update(purchases).set({ date: to, docDate: p.docDate ?? p.date }).where(eq(purchases.id, id));
+    await repostPurchase(tx, firm, id, userId);
+    await audit(tx, { userId, firmId: firm.id, action: 'vatLateMove', entityType: 'purchase', entityId: id, data: { from: p.date, to } });
+    moved++;
+  }
+  return { moved, to };
 }

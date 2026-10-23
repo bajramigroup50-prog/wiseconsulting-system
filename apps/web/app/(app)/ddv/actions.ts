@@ -11,6 +11,7 @@ import {
   appSettings, audit, closeVatPeriod, firms, missingAccounts, normalizeVatPeriod, reopenVatPeriod, saveVatCorrections, SCHEMES_SETTINGS_KEY,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
+import { moveLatePurchases } from '@wise/db';
 import { db } from '@/lib/db';
 import { vatSource } from '@/lib/vat-source';
 
@@ -136,4 +137,14 @@ export async function saveDtColsAction(cols: string[]): Promise<{ ok?: string; e
   });
   revalidatePath('/ddv');
   return { ok: 'Колоните се запомнети.' };
+}
+
+/** „⇢ Премести ги во тековниот ДДВ период“: the late incoming invoices / receipts get the open period's first day. */
+export async function moveLatePurchasesAction(ids: string[]): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('editPur');
+    const r = await db().transaction((tx) => moveLatePurchases(tx, firm, ids, u.id));
+    for (const p of ['/ddv', '/vlez', '/nalozi', '/blagajna']) revalidatePath(p);
+    return r.moved ? { ok: `Преместени ${r.moved} документи во ДДВ периодот од ${r.to.split('-').reverse().join('.')} (датумот на документот е зачуван).` } : { error: 'Нема што да се премести.' };
+  } catch (e) { return actionError(e); }
 }

@@ -18,6 +18,7 @@ import { draftSourceFiles, loadAiDocument, markDraftSaved, purchaseInputFromDraf
 import { saveInvoice, type InvoiceInput } from './invoices';
 import { ensurePartner } from './partners-auto';
 import { savePurchase } from './purchases';
+import { openVatPeriodStart } from '../vat-past';
 
 /** A read sales invoice as service input; the buyer is found or created (legacy `outEnsurePartner` 8408). */
 /** (The source files are linked by the caller, `saveScanDraft`.) */
@@ -81,15 +82,17 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
   const failed: { number: string; why: string }[] = [];
   // receipts paid in cash, from any screen (Благајна, the archive, „За физичка проверка“): the same rule – the cash
   // register's nalog, and the first day of its period for a receipt dated in a closed (filed) VAT period
-  let cashCtx = a.cash ?? null;
-  const cashOf = async (): Promise<NonNullable<typeof a.cash>> => {
+  // computed here (the firm's VAT status, its filed periods, the cash nalog); `a.cash` only marks every draft as a receipt
+  let cashCtx: (NonNullable<typeof a.cash> & { vat?: boolean }) | null = null;
+  let openFrom: string | undefined;
+  const cashOf = async (): Promise<NonNullable<typeof a.cash> & { vat?: boolean }> => {
     if (cashCtx) return cashCtx;
     const [f] = await tx.select({ vat: firms.vatRegistered, per: firms.vatPeriod }).from(firms).where(eq(firms.id, a.firmId)).limit(1);
     const closed = new Set(f?.vat ? (await tx.select({ d: journals.date }).from(journals).where(and(eq(journals.firmId, a.firmId), eq(journals.kind, 'ddv')))).map((j) => periodOf(String(j.d), f.per)) : []);
     const y = todaySkopje().slice(0, 4);
     const [j] = await tx.select({ n: journals.number, from: journals.periodFrom }).from(journals)
       .where(and(eq(journals.firmId, a.firmId), sql`${journals.number} like '1020/%'`, sql`${journals.date} between ${y + '-01-01'} and ${y + '-12-31'}`)).orderBy(sql`${journals.date} desc`).limit(1);
-    cashCtx = { nalogNo: j?.n ?? '', from: j?.from ? String(j.from) : null, closed, vatKind: f?.per ?? 'quarter' };
+    cashCtx = { nalogNo: j?.n ?? '', from: j?.from ? String(j.from) : null, closed, vatKind: f?.per ?? 'quarter', vat: !!f?.vat };
     return cashCtx;
   };
   for (const key of a.ids) {
@@ -119,17 +122,19 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
         const at = new Date().toISOString();
         await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', skipped: undefined, review: true, checkedAt: at }));
         let over: { date?: string; docDate?: string | null; nalogNo?: string } | undefined;
-        if (a.kind === 'purchase' && (a.cash || dr.cash)) {
+        if (a.kind === 'purchase') {
           const c = await cashOf();
+          const isCash = !!(a.cash || dr.cash);
           const own = String(((d.options ?? {}) as { nalogNo?: string }).nalogNo ?? '').trim();
           const dt = String(dr.date ?? '');
-          // late: its VAT period is filed in WISE, or its ДДВ-04 deadline (the 25th after the period) has passed – a
-          // receipt found now is reported in the current return, never „книжена подоцна“ into an old period
+          // late (a VAT payer only): its VAT period is filed in WISE, or its ДДВ-04 deadline (the 25th after the period)
+          // has passed – a document found now is reported in the open return, never „книжен подоцна“ into an old period
           const per = dt ? periodOf(dt, c.vatKind) : '';
           const due = per ? (() => { const end = perRange(per)[1]; const m = new Date(end + 'T00:00:00Z'); m.setUTCDate(m.getUTCDate() + 25); return m.toISOString().slice(0, 10); })() : '';
-          const late = !!dt && (c.closed.has(per) || due < todaySkopje()) && (!c.from || dt < c.from);
-          const to = c.from && c.from > todaySkopje() ? todaySkopje() : c.from ?? todaySkopje();
-          over = { nalogNo: own || c.nalogNo || undefined, ...(late ? { date: to, docDate: String(dr.docDate || dt) } : {}) };
+          const late = c.vat && !!dt && (c.closed.has(per) || due < todaySkopje()) && (!isCash || !c.from || dt < c.from);
+          // receipts: the first day of the cash nalog's period; an invoice: the first day of the open VAT period
+          const to = isCash ? (c.from && c.from <= todaySkopje() ? c.from : todaySkopje()) : (openFrom ??= await openVatPeriodStart(t, { id: a.firmId, vatPeriod: c.vatKind } as never));
+          over = { ...(isCash ? { nalogNo: own || c.nalogNo || undefined } : {}), ...(late && dt < to ? { date: to, docDate: String(dr.docDate || dt) } : {}) };
         }
         await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor, over);
         await audit(t, { userId: a.actor.userId, firmId: a.firmId, action: 'scanSaveChecked', entityType: 'ai_document', entityId: d.id, data: { index: i, number } });
