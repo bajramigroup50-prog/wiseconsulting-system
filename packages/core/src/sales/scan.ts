@@ -714,9 +714,21 @@ export function docTypeFromText(head: string): ScanDocType | '' {
 }
 
 /** „профактура – не се книжи“: why a read document is not booked ('' = an invoice). */
+/**
+ * A fiscal / cash-register receipt („Фискална сметка“, „Касова сметка“): `docType` receipt, or an „other“ document
+ * with an amount and a VAT recapitulation (the AI reads the receipt title as „other“) – booked as paid in cash.
+ */
+export function isReceiptDoc(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total'>>): boolean {
+  const t = String(x.docType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (t === 'receipt' || t === 'fiscal_receipt' || t === 'cash_receipt') return true;
+  return t === 'other' && Number(x.total) > 0 && (x.groups ?? []).some((g) => Number(g.base) > 0 || Number(g.vat) > 0);
+}
+
 export function notInvoiceMsg(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total'>>): string {
   const t = String(x.docType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (!t || t === 'invoice') return '';
+  // a fiscal / cash-register receipt is a document to book (an expense paid in cash), never put aside
+  if (isReceiptDoc(x)) return '';
   // „Фактура-испратница“ / a delivery note with a VAT recapitulation and an amount is an invoice (the AI reads the
   // title „ИСПРАТНИЦА“): never put aside
   if (t === 'delivery_note' && Number(x.total) > 0 && (x.groups ?? []).some((g) => Number(g.vat) > 0)) return '';

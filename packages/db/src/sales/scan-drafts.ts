@@ -8,7 +8,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { calcLines, periodOf, schemeValue } from '@wise/core';
 import { todaySkopje } from '@wise/core/office/dates';
 import {
-  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, applySaleVatRule, isOwnParty, ownerCheck, prevDebtFix, type SaleVatRule, purchaseDraftFromScan, purchaseTotal,
+  NO_VAT_NOTE_MSG, batchStatus, energyKontoFromChart, findDuplicate, mergeAttachedInvoices, normDocNo, notInvoiceMsg, scanContentSig, nextDocNumber, applySaleVatRule, isOwnParty, isReceiptDoc, ownerCheck, prevDebtFix, type SaleVatRule, purchaseDraftFromScan, purchaseTotal,
   saleDraftFromScan, scanInvoices, scanNoVatRule, type ScanPurchaseDraft, supplierKontoMemory, type MatchItem, type ScanResult, type SupplierKontoMemory,
 } from '@wise/core/sales';
 import { accountKey } from '@wise/core/bank/mk-banks';
@@ -71,7 +71,7 @@ async function autoPartner(db: Tx, f: Firm, o: DraftOpts, M: { partners: Matchab
  *   6 — documents paid in cash follow the firm's cash rules (`settings.cashScan`: fuel → 4033, the rest → 4199…), a
  *       fiscal receipt without a number gets one
  */
-export const SCAN_RULES_V = 6;
+export const SCAN_RULES_V = 7;
 
 /** Each supplier's expense kontos of its most recent saved purchase (by booking date). */
 async function lastSupplierKontos(db: Tx, firmId: string): Promise<Map<string, SupplierKontoMemory>> {
@@ -136,8 +136,10 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     // a utility bill's previous debt is never booked: total = this invoice's own amount
     const { inv: x0, debt } = prevDebtFix(x1);
     const x = x0.supplierBankAccount && own.has(accountKey(x0.supplierBankAccount)) ? { ...x0, supplierBankAccount: '' } : x0;
+    // a fiscal receipt is paid in cash whatever box it came through („влезни“ or the cash nalog)
+    const cash = !!opts.cash || isReceiptDoc(x);
     const d = purchaseDraftFromScan(x, {
-      ...M, today, cash: opts.cash, warehouseId: opts.warehouseId ?? null, costOnly: opts.costOnly,
+      ...M, today, cash, warehouseId: opts.warehouseId ?? null, costOnly: opts.costOnly,
       accounts: { goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), other: schemeValue(ctx, 'purDefault'), energy },
       supplierKontos: (pid) => mem.get(pid),
       defMargin: Number(s.defMargin) || 25, mgRound: Number(s.mgRound) || 1,
@@ -145,7 +147,7 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
     });
     // paid in cash (a cash nalog / „во готово“): the firm's cash rules — e.g. fuel → 4033, everything else → 4199 — as
     // costs (no stock); a fiscal receipt without an invoice number gets one from its date and amount
-    if (opts.cash) applyCashScanRules(d, cashScanRules(s));
+    if (cash) applyCashScanRules(d, cashScanRules(s));
     // the supplier read is this firm itself (its own sales invoice): never a partner of its own purchase
     if (isOwnParty(d.supplierName, d.supplierEdb, f.edb, f.name)) { d.partnerId = ''; d.match = undefined; }
     else if (!d.partnerId && !ownerCheck('purchase', x, f.edb, f.name)) {

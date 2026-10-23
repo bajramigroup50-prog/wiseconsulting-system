@@ -31,7 +31,7 @@ PREVIOUS DEBT: utility bills (electricity EVN, Телеком / phone, water, he
 
 /** Every read invoice says what the document is by its title: a pro-forma / offer / delivery note is never booked. */
 export const DOC_TYPE_ADD = `
-DOCUMENT TYPE: in every invoice object also return "docType": "invoice" | "proforma" | "offer" | "delivery_note" | "statement" | "other" by the document's TITLE: „Профактура“, „Про-фактура“, „Предрачун“, „Proforma“, „Pro forma“ → "proforma"; „Понуда“ / „Offer“ → "offer"; „Испратница“ / „Отпремница“ → "delivery_note"; „Извод“ / „Изјава за состојба“ / „ИОС“ → "statement"; „Фактура“ / „Сметка“ (also a bill for electricity, phone, water) → "invoice". A note like „по профактура бр.“ on an invoice does NOT make it a pro-forma.`;
+DOCUMENT TYPE: in every invoice object also return "docType": "invoice" | "receipt" | "proforma" | "offer" | "delivery_note" | "statement" | "other" by the document's TITLE: „Фискална сметка“ / „Касова сметка“ / a cash-register (fiscal) slip with ДДВ / ЕДБ and a total → "receipt"; „Профактура“, „Про-фактура“, „Предрачун“, „Proforma“, „Pro forma“ → "proforma"; „Понуда“ / „Offer“ → "offer"; „Испратница“ / „Отпремница“ → "delivery_note"; „Извод“ / „Изјава за состојба“ / „ИОС“ → "statement"; „Фактура“ / „Сметка“ (also a bill for electricity, phone, water) → "invoice". A note like „по профактура бр.“ on an invoice does NOT make it a pro-forma.`;
 
 /**
  * Added to `PUR_PROMPT` / `SALE_PROMPT` (not in legacy, which stays verbatim): the rule of the bank import — every
