@@ -19,6 +19,7 @@ import { RowAction } from '@/components/row-action';
 import { createDefaultRegistersAction, deleteVoucherAction, removeRegisterAction, saveRegisterAction } from './actions';
 import { VoucherForm, type VoucherInit } from './voucher-form';
 import { ReceiptScan } from './receipt-scan';
+import { CashScans } from './cash-scans';
 
 type SP = { reg?: string; nov?: string; edit?: string; set?: string; from?: string; to?: string; saldo?: string };
 
@@ -153,7 +154,8 @@ export default async function BlagajnaPage({ searchParams }: { searchParams: Pro
         </div>
       )}
 
-      {scan}
+      {!init && <CashScans firm={firm} year={year} userId={u.id} write={write} />}
+      {scan && <details className="card"><summary>Исплатници од скенирани сметки (по благајна / девизи)</summary>{scan}</details>}
       {editor}
 
       <div className="tiles">

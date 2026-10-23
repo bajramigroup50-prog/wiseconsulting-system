@@ -1,6 +1,13 @@
 'use server';
 /** Legacy ACT `blgReg … blgXlsx` (7937–7952) and `blgSetSave`: cash registers and vouchers, posted via `blgEntries`. */
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
+import { and, eq, inArray } from 'drizzle-orm';
+import { aiDocuments, draftSourceFiles } from '@wise/db';
+import { db } from '@/lib/db';
+import { actionError, firmAction } from '@/lib/books';
+import { saveSelectedScansAction } from '../skan/actions';
+import { arFileDel } from '../arhiva/actions';
 import { createDefaultRegisters, deleteVoucher, loadRegisters, removeRegister, saveRegister, saveVoucher } from '@wise/db';
 import { markAiReadsSaved } from '@/lib/ai';
 import { bankRun, isDate, num, str } from '@/lib/bank';
@@ -91,4 +98,24 @@ export async function saveReceiptBatchAction(reg: string, rows: ScannedReceipt[]
     const name = (await loadRegisters(tx, firm.id)).find((x) => x.id === reg)?.name ?? '';
     return `${L.length} сметки се зачувани и прокнижени во ${name}.${dup ? ` Внимание: ${dup} веќе постоеја со ист број, датум и износ.` : ''}`;
   });
+}
+
+/** „✓ Книжи ги сите спремни“ in „📷 Сметки платени во готово“: every ready receipt (`ok`) of the given reads is booked. */
+export async function bookReadyCashScansAction(ids: string[]): Promise<{ ok?: string; error?: string }> {
+  if (!ids.length) return { error: 'Нема спремни сметки.' };
+  return saveSelectedScansAction('purchase', ids);
+}
+
+/** „🗑 Избриши ги избраните“: the ticked receipts (`docId:index`) are deleted with their files (never a booked one). */
+export async function deleteCashScansAction(ids: string[]): Promise<{ ok?: string; error?: string }> {
+  try {
+    const { firm } = await firmAction('del');
+    const docIds = [...new Set(ids.map((x) => String(x).split(':')[0]!).filter((x) => /^[0-9a-f-]{36}$/i.test(x)))];
+    if (!docIds.length) return { error: 'Изберете сметки.' };
+    const D = await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), inArray(aiDocuments.id, docIds)));
+    const fileIds = [...new Set(D.flatMap((d) => { const ix = ids.filter((x) => x.startsWith(d.id + ':')).map((x) => Number(x.split(':')[1])); return ix.flatMap((i) => draftSourceFiles(d, i).fileIds.length ? draftSourceFiles(d, i).fileIds : d.fileId ? [d.fileId] : []); }))];
+    const r = await arFileDel(fileIds);
+    revalidatePath('/blagajna');
+    return r;
+  } catch (e) { return actionError(e); }
 }
