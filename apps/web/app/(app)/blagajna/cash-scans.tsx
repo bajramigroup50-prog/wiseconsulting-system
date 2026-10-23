@@ -7,14 +7,15 @@
  */
 import Link from 'next/link';
 import { and, eq, gte, inArray } from 'drizzle-orm';
-import { aiDocuments, draftSourceFiles, files, partners, refreshStaleScanDrafts, type AiDocument } from '@wise/db';
+import { aiDocuments, draftSourceFiles, files, partners, purchases, refreshStaleScanDrafts, type AiDocument } from '@wise/db';
+import { isReceiptDoc, scanInvoices, type ScanResult } from '@wise/core/sales';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { AutoRefresh } from '@/components/auto-refresh';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { ScanUpload } from '@/components/sales/scan-upload';
 import { RowAction } from '@/components/row-action';
-import { bookCashScansAction, cashNalogOf, deleteCashScansAction } from './actions';
+import { bookCashScansAction, cashNalogOf, deleteCashScansAction, restartCashScansAction } from './actions';
 import type { Firm } from '@wise/db';
 
 type Draft = { cash?: boolean; partnerId?: string; supplierName?: string; number?: string; date?: string; docDate?: string; groups?: { base?: number; vat?: number; konto?: string }[] };
@@ -22,7 +23,7 @@ type Row = { d: AiDocument; i: number; r: Draft; status: string; msg: string };
 
 export async function CashScans({ firm, year, userId, write }: { firm: Firm; year: number; userId: string; write: boolean }) {
   const D0 = await db().select().from(aiDocuments)
-    .where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), inArray(aiDocuments.status, ['queued', 'reading', 'done']), gte(aiDocuments.createdAt, new Date(`${year - 1}-12-01`))));
+    .where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), inArray(aiDocuments.status, ['queued', 'reading', 'done', 'saved']), gte(aiDocuments.createdAt, new Date(`${year - 1}-12-01`))));
   const reading = D0.filter((d) => (d.status === 'queued' || d.status === 'reading') && (d.options as { cash?: boolean } | null)?.cash).length;
   // reads made with older rules (a receipt put aside as „не е фактура“) are rebuilt first – no new AI
   const { docs } = write ? await refreshStaleScanDrafts(db(), firm, D0.filter((d) => d.status === 'done'), { userId }) : { docs: D0.filter((d) => d.status === 'done') };
@@ -30,6 +31,11 @@ export async function CashScans({ firm, year, userId, write }: { firm: Firm; yea
     .filter(({ r, x }) => r.cash && !x.savedId && !x.skipped)
     .sort((a, b) => String(a.r.docDate || a.r.date).localeCompare(String(b.r.docDate || b.r.date)));
   const ready = rows.filter((r) => r.status === 'ok');
+  // receipts already booked from scans (also the ones read before as „влезни“): can be deleted and booked again
+  const booked = D0.flatMap((d) => { const I = scanInvoices(d.result as ScanResult | null); return d.drafts.map((x, i) => ({ d, x, r: (x.draft ?? {}) as Draft, inv: I[i] })); })
+    .filter(({ x, r, inv }) => x.savedId && /^[0-9a-f-]{36}$/i.test(x.savedId) && (r.cash || (inv && isReceiptDoc(inv))));
+  const live = booked.length ? new Set((await db().select({ id: purchases.id }).from(purchases).where(and(eq(purchases.firmId, firm.id), inArray(purchases.id, booked.map((b) => b.x.savedId!))))).map((p) => p.id)) : new Set<string>();
+  const B = booked.filter((b) => live.has(b.x.savedId!));
   const fileOf = (d: AiDocument, i: number) => draftSourceFiles(d, i).fileIds[0] ?? d.fileId;
   const fids = [...new Set(rows.map(({ d, i }) => fileOf(d, i)).filter((x): x is string => !!x))];
   const names = new Map((fids.length ? await db().select({ id: files.id, n: files.name }).from(files).where(inArray(files.id, fids)) : []).map((f) => [f.id, f.n]));
@@ -43,6 +49,10 @@ export async function CashScans({ firm, year, userId, write }: { firm: Firm; yea
       <h3 style={{ marginTop: 0 }}>📷 Сметки платени во готово</h3>
       {write && <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: true }}
         label={<><b>Повлечете ги сметките тука</b> (JPG / PDF, колку сакате одеднаш) – се читаат сами, се појавуваат подолу и се книжат со едно копче (трошок / готовина 1020, во налогот на периодот).</>} />}
+      {write && B.length > 0 && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span>Прокнижени од скенирање: <b>{B.length}</b> сметки. За да ги книжите одново (налог {nal.nalogNo || 'на периодот'}, датум на отворен ДДВ период) – избришете ги; се враќаат во табелата без ново читање.</span>
+        <RowAction className="btn danger" action={restartCashScansAction.bind(null, [...new Set(B.map((b) => b.x.savedId!))], [...new Set(B.map((b) => b.d.id))])} label={`↺ Избриши ги прокнижените (${B.length}) и книжи пак`} confirm={`Да се избришат ${B.length} прокнижени сметки (со налозите) и да се вратат во табелата за повторно книжење?`} showOk />
+      </div>}
       {reading > 0 && <div className="callout info">⏳ Се читаат <b>{reading}</b> сметки – табелата се освежува сама.<AutoRefresh seconds={15} /></div>}
       {rows.length > 0 ? (<>
         {write && <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>

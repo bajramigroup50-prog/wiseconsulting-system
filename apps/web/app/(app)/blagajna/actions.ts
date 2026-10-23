@@ -3,7 +3,8 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { and, desc, eq, inArray, like, sql } from 'drizzle-orm';
-import { aiDocuments, draftSourceFiles, journals, saveSelectedScanDrafts } from '@wise/db';
+import { aiDocuments, draftSourceFiles, journals, refreshStaleScanDrafts, releaseDeletedScanDrafts, saveSelectedScanDrafts } from '@wise/db';
+import { deletePurchasesAction } from '../vlez/actions';
 import { periodOf } from '@wise/core';
 import { actorOf } from '@/lib/sales';
 import { db } from '@/lib/db';
@@ -125,6 +126,23 @@ export async function bookCashScansAction(ids: string[]): Promise<{ ok?: string;
     const bad = r.failed.length ? ` Не се прокнижени ${r.failed.length}: ${r.failed.slice(0, 6).map((f) => `${f.number} (${f.why})`).join('; ')}${r.failed.length > 6 ? '…' : ''}` : '';
     const msg = `Прокнижени ${r.saved} сметки${nal.nalogNo ? ` во налог ${nal.nalogNo}` : ''}.${bad}`;
     return r.saved || !r.failed.length ? { ok: msg } : { error: msg };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * „↺ Избриши ги прокнижените и книжи пак“: the receipts already booked from scans are deleted (the purchases and their
+ * postings) and their reads become unbooked again – rebuilt with the current rules (cash, 1020/7-9, the date of a closed
+ * VAT period) and back in the table, ready to book again. No new reading.
+ */
+export async function restartCashScansAction(purchaseIds: string[], docIds: string[]): Promise<{ ok?: string; error?: string }> {
+  try {
+    const { u, firm } = await firmAction('del');
+    const r = await deletePurchasesAction(purchaseIds);
+    await releaseDeletedScanDrafts(db(), firm.id, ['purchase']);
+    const D = docIds.length ? await db().select().from(aiDocuments).where(and(eq(aiDocuments.firmId, firm.id), inArray(aiDocuments.id, docIds))) : [];
+    if (D.length) await refreshStaleScanDrafts(db(), firm, D, { force: true, userId: u.id });
+    revalidatePath('/blagajna');
+    return r.error ? { error: r.error } : { ok: `${r.ok ?? ''} Сметките се повторно во табелата – „✓ Книжи ги сите спремни“.` };
   } catch (e) { return actionError(e); }
 }
 
