@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { eq, inArray } from 'drizzle-orm';
 import {
+  setPurchasesCash,
   approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, draftSourceFiles, ensurePartner, firms,
   loadAiDocument, markDraftSaved, partners, savePurchase, transfers, type PurchaseInput,
 } from '@wise/db';
@@ -197,4 +198,15 @@ export async function saveMarginDefaults(v: number, rd: string): Promise<void> {
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'defMargin', entityType: 'firm', entityId: firm.id, data: { defMargin: v, mgRound: rd } });
     });
   } catch { /* the margins were applied in the editor; remembering them is best-effort */ }
+}
+
+/** „💶 Платено во готово (1020)“ on the purchases list: the ticked receipts booked against the supplier become cash purchases. */
+export async function setPurchasesCashAction(ids: string[]): Promise<ActionState> {
+  try {
+    const L = z.array(z.uuid()).max(2000).parse(ids);
+    const { u, firm } = await firmAction('editPur');
+    const n = await db().transaction((tx) => setPurchasesCash(tx, firm, L, u.id));
+    revalidatePath('/', 'layout');
+    return n ? { ok: `${n} документи се прекнижани како фискални сметки платени во готово (1020).` } : { error: 'Нема што да се промени (веќе во готово, увозни или не се книжени).' };
+  } catch (e) { return actionError(e); }
 }

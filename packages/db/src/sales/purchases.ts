@@ -15,7 +15,7 @@ import { docKontoRemap, PURCHASE_KONTO_KEYS } from '@wise/core/scheme-profiles';
 import { audit, type Tx } from '../audit';
 import { postJournal, unpostSource } from '../posting';
 import {
-  fileLinks, files, itemBarcodes, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
+  fileLinks, files, itemBarcodes, journals, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
   supplierCredits, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
@@ -444,4 +444,25 @@ export async function repostPurchase(tx: Tx, f: Parameters<typeof firmPostingCon
   const [pur] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
   if (!pur || pur.status !== 'posted') return;
   await postPurchase(tx, f, pur, userId);
+}
+
+/**
+ * „💶 Платено во готово (1020)“: purchases booked against the supplier (2200) that were receipts paid in cash – they
+ * are turned into cash purchases (Г cash konto, „Фискална сметка …“), moved into the cash register's nalog of their
+ * period when there is one (1020/7-9…), and re-posted. Returns how many changed.
+ */
+export async function setPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingContext>[1], ids: readonly string[], userId: string | null): Promise<number> {
+  let n = 0;
+  for (const id of ids) {
+    const [p] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
+    if (!p || p.cash || p.status !== 'posted' || p.imp) continue;
+    const [j] = await tx.select({ n: journals.number }).from(journals)
+      .where(and(eq(journals.firmId, f.id), sql`${journals.number} like '1020/%'`, sql`${journals.periodFrom} <= ${p.date}`, sql`${journals.periodTo} >= ${p.date}`)).limit(1);
+    const data = { ...((p.data ?? {}) as Record<string, unknown>), ...(j ? { nalogNo: j.n } : {}) };
+    await tx.update(purchases).set({ cash: true, data }).where(eq(purchases.id, id));
+    await repostPurchase(tx, f, id, userId);
+    await audit(tx, { userId, firmId: f.id, action: 'purToCash', entityType: 'purchase', entityId: id, data: { number: p.number, nalog: j?.n ?? null } });
+    n++;
+  }
+  return n;
 }

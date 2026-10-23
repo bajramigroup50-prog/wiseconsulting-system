@@ -20,7 +20,7 @@ import { DownloadCsv } from '@/components/download-csv';
 import { PurchaseEditor, type PurItemOpt, type ScanQueueProp } from '@/components/sales/purchase-editor';
 import { PayPill } from '@/components/sales/invoices-view';
 import { blankCost, COSTS, newPurchase, s, type EdPurchase } from '@/components/sales/model';
-import { approvePurchaseAction, deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePreviewAction } from './actions';
+import { approvePurchaseAction, deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePreviewAction, setPurchasesCashAction } from './actions';
 import { ScanUpload } from '@/components/sales/scan-upload';
 import { PxImport } from '@/components/sales/px-import';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
@@ -180,6 +180,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px' }}><input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {list.length ? (<>
+        {write && <BulkBar label="💶 Платено во готово – 1020 ({n})" btnClass="btn" busy="Се прекнижува…" confirm="Избраните {n} се фискални сметки платени во готово? Се прекнижуваат: Г 1020 наместо 2200." action={setPurchasesCashAction} />}
         {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesCascadeAction} preview={purchaseDeletePreviewAction} />}
         <div className="tw"><table><thead><tr>{del && <th style={{ width: 30 }}><SelAll /></th>}<th>Датум</th><th>Бр.</th><th>Добавувач</th><th>Вид</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th className="n">Девизен износ</th><th className="n">Платено</th><th className="n">Останува</th><th>Плаќање</th><th></th></tr></thead>
           <tbody>{list.map(({ p, name }) => {
