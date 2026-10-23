@@ -8,6 +8,8 @@
  */
 import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { ScanPurchaseDraft, ScanSaleDraft } from '@wise/core/sales';
+import { periodOf } from '@wise/core';
+import { todaySkopje } from '@wise/core/office/dates';
 import { draftVatDate, pastHoldMsg, pastPeriodOf, type PastPeriodCtx } from '@wise/core/vat/past-period';
 import { audit, type Tx } from '../audit';
 import { aiDocuments, fileLinks, files, items, type AiDocument, type AiDraft, type Firm } from '../schema/index';
@@ -40,10 +42,10 @@ export const saleVatUnclear = (dr: Partial<ScanSaleDraft>): boolean =>
   !!dr.vatCheck || (!dr.art32 && !dr.vatExempt && !dr.issuerNoVat && !!dr.items?.length && dr.items.every((l) => !Number(l.rate)));
 
 /** Save draft `i` of a read document as a purchase / an invoice and mark it saved (in the caller's transaction). */
-export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: number, actor: DocActor, over?: { date?: string; docDate?: string | null }, scheme?: number): Promise<string> {
+export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: number, actor: DocActor, over?: { date?: string; docDate?: string | null; nalogNo?: string }, scheme?: number): Promise<string> {
   const x = d.drafts[i]!;
-  // scanned inside an opened nalog: the document is posted into that nalog
-  const nalogNo = String(((d.options ?? {}) as { nalogNo?: string }).nalogNo ?? '').trim();
+  // scanned inside an opened nalog (or booked from „Сметки платени во готово“ into the cash nalog): posted into that nalog
+  const nalogNo = String(over?.nalogNo || ((d.options ?? {}) as { nalogNo?: string }).nalogNo || '').trim();
   if (d.kind === 'sale') {
     const src = draftSourceFiles(d, i).fileIds;
     const dr = { ...(x.draft as unknown as ScanSaleDraft), ...(over?.date ? { date: over.date } : {}) };
@@ -71,7 +73,10 @@ export async function saveScanDraft(tx: Tx, firmId: string, d: AiDocument, i: nu
  * hold: the user decided). A read buyer that is not a partner yet is added. Refused (listed with the reason, the
  * others go on): no lines / zero total, an unclear VAT treatment, a closed / locked period, a used number.
  */
-export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 'sale' | 'purchase'; ids: readonly string[]; actor: DocActor }): Promise<{ saved: number; failed: { number: string; why: string }[] }> {
+export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 'sale' | 'purchase'; ids: readonly string[]; actor: DocActor;
+  /** Receipts paid in cash: into this nalog (the cash register's, e.g. 1020/7-9); one dated in a closed VAT period is
+   *  booked on the first day of the nalog's period (today without one), its own date kept as the document date. */
+  cash?: { nalogNo: string; from: string | null; closed: ReadonlySet<string>; vatKind: string } }): Promise<{ saved: number; failed: { number: string; why: string }[] }> {
   let saved = 0;
   const failed: { number: string; why: string }[] = [];
   for (const key of a.ids) {
@@ -100,7 +105,14 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
         // click); a read the program put aside as „not an invoice“ (испратница / профактура) — the user checked it is one
         const at = new Date().toISOString();
         await patchDraft(t, d.id, i, (y) => ({ ...y, status: 'ok', skipped: undefined, review: true, checkedAt: at }));
-        await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor);
+        let over: { date?: string; docDate?: string | null; nalogNo?: string } | undefined;
+        if (a.cash && a.kind === 'purchase') {
+          const dt = String(dr.date ?? '');
+          const late = !!dt && a.cash.closed.has(periodOf(dt, a.cash.vatKind));
+          const to = a.cash.from && a.cash.from > todaySkopje() ? todaySkopje() : a.cash.from ?? todaySkopje();
+          over = { nalogNo: a.cash.nalogNo || undefined, ...(late ? { date: to, docDate: String(dr.docDate || dt) } : {}) };
+        }
+        await saveScanDraft(t, a.firmId, await loadAiDocument(t, a.firmId, d.id), i, a.actor, over);
         await audit(t, { userId: a.actor.userId, firmId: a.firmId, action: 'scanSaveChecked', entityType: 'ai_document', entityId: d.id, data: { index: i, number } });
       });
       saved++;

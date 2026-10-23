@@ -2,11 +2,12 @@
 /** Legacy ACT `blgReg … blgXlsx` (7937–7952) and `blgSetSave`: cash registers and vouchers, posted via `blgEntries`. */
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { and, eq, inArray } from 'drizzle-orm';
-import { aiDocuments, draftSourceFiles } from '@wise/db';
+import { and, desc, eq, inArray, like, sql } from 'drizzle-orm';
+import { aiDocuments, draftSourceFiles, journals, saveSelectedScanDrafts } from '@wise/db';
+import { periodOf } from '@wise/core';
+import { actorOf } from '@/lib/sales';
 import { db } from '@/lib/db';
 import { actionError, firmAction } from '@/lib/books';
-import { saveSelectedScansAction } from '../skan/actions';
 import { arFileDel } from '../arhiva/actions';
 import { createDefaultRegisters, deleteVoucher, loadRegisters, removeRegister, saveRegister, saveVoucher } from '@wise/db';
 import { markAiReadsSaved } from '@/lib/ai';
@@ -100,10 +101,31 @@ export async function saveReceiptBatchAction(reg: string, rows: ScannedReceipt[]
   });
 }
 
-/** „✓ Книжи ги сите спремни“ in „📷 Сметки платени во готово“: every ready receipt (`ok`) of the given reads is booked. */
-export async function bookReadyCashScansAction(ids: string[]): Promise<{ ok?: string; error?: string }> {
-  if (!ids.length) return { error: 'Нема спремни сметки.' };
-  return saveSelectedScansAction('purchase', ids);
+/** The cash register's nalog the receipts go into: the latest „1020/…“ nalog of the year (e.g. 1020/7-9) and its period start. */
+export async function cashNalogOf(firmId: string, year: number): Promise<{ nalogNo: string; from: string | null }> {
+  const [j] = await db().select({ n: journals.number, from: journals.periodFrom, d: journals.date }).from(journals)
+    .where(and(eq(journals.firmId, firmId), like(journals.number, '1020/%'), sql`${journals.date} between ${year + '-01-01'} and ${year + '-12-31'}`))
+    .orderBy(desc(journals.date)).limit(1);
+  return { nalogNo: j?.n ?? '', from: j?.from ? String(j.from) : null };
+}
+
+/**
+ * „✓ Книжи“ in „📷 Сметки платени во готово“: the receipts (`docId:index`) are booked into the cash register's nalog
+ * (1020/7-9…); one dated in a closed (filed) VAT period gets the first day of that nalog's period as its booking date –
+ * never a late entry into a filed ДДВ-04 – its own date kept as the document date.
+ */
+export async function bookCashScansAction(ids: string[]): Promise<{ ok?: string; error?: string }> {
+  try {
+    if (!ids.length) return { error: 'Изберете сметки.' };
+    const { u, firm, year } = await firmAction('savePur');
+    const nal = await cashNalogOf(firm.id, year);
+    const closed = new Set(firm.vatRegistered ? (await db().select({ d: journals.date }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.kind, 'ddv')))).map((j) => periodOf(String(j.d), firm.vatPeriod)) : []);
+    const r = await db().transaction((tx) => saveSelectedScanDrafts(tx, { firmId: firm.id, kind: 'purchase', ids, actor: actorOf(u), cash: { ...nal, closed, vatKind: firm.vatPeriod } }));
+    for (const p of ['/blagajna', '/vlez', '/nalozi', '/ddv', '/arhiva']) revalidatePath(p);
+    const bad = r.failed.length ? ` Не се прокнижени ${r.failed.length}: ${r.failed.slice(0, 6).map((f) => `${f.number} (${f.why})`).join('; ')}${r.failed.length > 6 ? '…' : ''}` : '';
+    const msg = `Прокнижени ${r.saved} сметки${nal.nalogNo ? ` во налог ${nal.nalogNo}` : ''}.${bad}`;
+    return r.saved || !r.failed.length ? { ok: msg } : { error: msg };
+  } catch (e) { return actionError(e); }
 }
 
 /** „🗑 Избриши ги избраните“: the ticked receipts (`docId:index`) are deleted with their files (never a booked one). */

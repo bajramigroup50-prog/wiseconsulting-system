@@ -13,9 +13,8 @@ import { dmy, fmt } from '@/lib/fmt';
 import { AutoRefresh } from '@/components/auto-refresh';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { ScanUpload } from '@/components/sales/scan-upload';
-import { saveSelectedScansAction } from '../skan/actions';
 import { RowAction } from '@/components/row-action';
-import { bookReadyCashScansAction, deleteCashScansAction } from './actions';
+import { bookCashScansAction, cashNalogOf, deleteCashScansAction } from './actions';
 import type { Firm } from '@wise/db';
 
 type Draft = { cash?: boolean; partnerId?: string; supplierName?: string; number?: string; date?: string; docDate?: string; groups?: { base?: number; vat?: number; konto?: string }[] };
@@ -38,6 +37,7 @@ export async function CashScans({ firm, year, userId, write }: { firm: Firm; yea
   const P = new Map((pids.length ? await db().select({ id: partners.id, n: partners.name }).from(partners).where(inArray(partners.id, pids)) : []).map((p) => [p.id, p.n]));
   const total = (r: Draft) => (r.groups ?? []).reduce((s, g) => s + Number(g.base ?? 0) + Number(g.vat ?? 0), 0);
   const back = '/blagajna';
+  const nal = await cashNalogOf(firm.id, year);
   return (
     <div className="card" id="cash-scans">
       <h3 style={{ marginTop: 0 }}>📷 Сметки платени во готово</h3>
@@ -46,8 +46,8 @@ export async function CashScans({ firm, year, userId, write }: { firm: Firm; yea
       {reading > 0 && <div className="callout info">⏳ Се читаат <b>{reading}</b> сметки – табелата се освежува сама.<AutoRefresh seconds={15} /></div>}
       {rows.length > 0 ? (<>
         {write && <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
-          {ready.length > 0 && <RowAction className="btn pri" action={bookReadyCashScansAction.bind(null, ready.map(({ d, i }) => `${d.id}:${i}`))} label={`✓ Книжи ги сите спремни (${ready.length})`} confirm={`Да се прокнижат сите ${ready.length} спремни сметки?`} showOk />}
-          <BulkBar group="cs" label="✓ Книжи ги избраните ({n})" btnClass="btn" busy="Се книжи…" action={saveSelectedScansAction.bind(null, 'purchase')} confirm="Да се прокнижат {n} избрани сметки?" />
+          {ready.length > 0 && <RowAction className="btn pri" action={bookCashScansAction.bind(null, ready.map(({ d, i }) => `${d.id}:${i}`))} label={`✓ Книжи ги сите спремни (${ready.length})`} confirm={`Да се прокнижат сите ${ready.length} спремни сметки?`} showOk />}
+          <BulkBar group="cs" label="✓ Книжи ги избраните ({n})" btnClass="btn" busy="Се книжи…" action={bookCashScansAction} confirm="Да се прокнижат {n} избрани сметки?" />
           <BulkBar group="cs" label="🗑 Избриши ги избраните ({n})" action={deleteCashScansAction} confirm="Да се избришат {n} избрани сметки (непрокнижени, со датотеката)?" />
         </div>}
         <div className="tw"><table className="dense">
@@ -68,7 +68,7 @@ export async function CashScans({ firm, year, userId, write }: { firm: Firm; yea
             );
           })}</tbody>
         </table></div>
-        <p className="note">✓ спремна = се книжи со „Книжи ги сите спремни“. Црвените: „Отвори“, поправете и зачувајте – или избришете ги.</p>
+        <p className="note">Се книжат во налог <b>{nal.nalogNo || 'на својот период'}</b>; сметка од затворен ДДВ период се книжи со датум {nal.from ? dmy(nal.from) : 'денес'} (датумот на сметката останува како датум на документот). ✓ спремна = се книжи со „Книжи ги сите спремни“. Црвените: „Отвори“, поправете и зачувајте – или избришете ги.</p>
       </>) : reading ? null : <p className="note">Нема непрокнижени сметки.</p>}
     </div>
   );

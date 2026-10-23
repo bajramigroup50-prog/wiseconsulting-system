@@ -127,11 +127,16 @@ describe('archive rows', () => {
     const logo = await file(B, 'logo-b.png');
     await pg.update(schema.firms).set({ settings: { logo: logo.id } }).where(eq(schema.firms.id, B));
     const loose = await file(B, 'nepoznato.pdf');
+    // an upload is audited („fileUpload“); a PDF the program made (a card, an analytics) is not – archived, never loose
+    await pg.insert(schema.auditLog).values({ firmId: B, action: 'fileUpload', entityType: 'file', entityId: loose.id });
+    const made = await file(B, 'Аналитика.pdf');
     const R = await archRows(B);
     const row = (id: string) => R.find((r) => r.files.some((x) => x.id === id));
     expect(row(st.id)).toMatchObject({ kind: 'Извод', no: '5', pn: 'Халк · 270000000000001', href: `/banka?acct=${acct!.id}&m=04` });
     expect(row(st.id)!.loose).toBeUndefined();
     expect(row(logo.id)).toMatchObject({ kind: 'Лого / потпис / печат' });
     expect(row(loose.id)).toMatchObject({ kind: 'Датотека', loose: true, key: `file:${loose.id}` });
+    expect(row(made.id)).toMatchObject({ kind: 'Документ од програмот (PDF)', folder: 'archived' });
+    expect(row(made.id)!.loose).toBeUndefined();
   });
 });
