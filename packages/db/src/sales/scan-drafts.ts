@@ -71,7 +71,7 @@ async function autoPartner(db: Tx, f: Firm, o: DraftOpts, M: { partners: Matchab
  *   6 — documents paid in cash follow the firm's cash rules (`settings.cashScan`: fuel → 4033, the rest → 4199…), a
  *       fiscal receipt without a number gets one
  */
-export const SCAN_RULES_V = 7;
+export const SCAN_RULES_V = 8;
 
 /** Each supplier's expense kontos of its most recent saved purchase (by booking date). */
 async function lastSupplierKontos(db: Tx, firmId: string): Promise<Map<string, SupplierKontoMemory>> {
