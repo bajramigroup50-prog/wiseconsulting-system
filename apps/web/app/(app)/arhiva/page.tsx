@@ -6,6 +6,7 @@
  * files attached to nothing („Датотека“) can be deleted (🗑, `del`) or moved to another firm (⇄, `write` on both),
  * one by one or ticked in bulk.
  */
+import { AutoRefresh } from '@/components/auto-refresh';
 import Link from 'next/link';
 import { can } from '@wise/core';
 import { ARCH_BOOKS_YEARS, ARCH_DOC_YEARS, REG_BOOKS, archCategory, archFileLabel, archFilter, archKeepLabel, archKeepUntil, archKinds, delovodnik, type RegBook } from '@wise/core/office/archive';
@@ -64,6 +65,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
   const yr = all.filter((r) => !r.date || r.date.slice(0, 4) === String(year));
   const noNal = yr.filter((r) => !r.nalog && !r.loose && !r.folder).length, looseN = yr.filter((r) => r.loose).length;
   const fn = (k: string) => yr.filter((r) => r.folder === k).length;
+  const nReading = all.filter((r) => r.reading).length;
   const kinds = archKinds(all, year);
   const nf = R.reduce((a, r) => a + r.files.length, 0);
   const del = can(u.principal, 'del', firm.id);
@@ -97,6 +99,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
         <Link className={`btn ${view === 'reg' ? 'pri' : ''}`} href="/arhiva?v=reg">📒 Деловодник (реден број)</Link>
         <Link className={`btn ${sp.nal === '-' ? 'pri' : ''}`} href="/arhiva?nal=-">Без налог (досие, вработени…) · {noNal}</Link>
         <Link className={`btn ${sp.nal === '@arch' ? 'pri' : ''}`} href="/arhiva?nal=@arch">📁 Архивирани (не се книжат) · {fn('archived')}</Link>
+        {nReading > 0 && <div className="callout info" style={{ width: '100%' }}>⏳ Се читаат <b>{nReading}</b> документи – страницата се освежува сама; прочитаните се во „Чека одобрување“ (☑ → ✓ Книжи ги избраните).<AutoRefresh seconds={15} /></div>}
         {fn('pending') > 0 && <Link className={`btn ${sp.nal === '@pend' ? 'pri' : ''}`} href="/arhiva?nal=@pend">⏳ Чека одобрување · {fn('pending')}</Link>}
         {fn('bank') > 0 && <Link className={`btn ${sp.nal === '@bank' ? 'pri' : ''}`} href="/arhiva?nal=@bank">⚠ Изводи – не се увезени · {fn('bank')}</Link>}
         {fn('opening') > 0 && <Link className={`btn ${sp.nal === '@ob' ? 'pri' : ''}`} href="/arhiva?nal=@ob">Почетна состојба · {fn('opening')}</Link>}

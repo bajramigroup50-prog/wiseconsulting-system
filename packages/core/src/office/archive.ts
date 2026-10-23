@@ -27,6 +27,8 @@ export interface ArchRow {
   loose?: boolean;
   /** A read waiting for approval: its file can be deleted (with the unsaved read) to upload it again. */
   pend?: boolean;
+  /** The file is being read right now (queued / reading). */
+  reading?: boolean;
   /**
    * A file attached to no document but known from its read: `archived` — the user chose „📁 Само за архива“ (not
    * posted: cancelled, a work order, a blank page…); `pending` — read, waiting for approval („За физичка проверка“);

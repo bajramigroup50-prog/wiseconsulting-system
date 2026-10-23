@@ -66,6 +66,18 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   if (!doc || !['queued', 'error', 'reading'].includes(doc.status)) return;
   // legacy „Откажи читање“ (`outCancel`): a cancelled read is not started, and a running one does not overwrite it
   if ((doc.options as { cancelled?: boolean }).cancelled) return;
+  // the same file sent to reading twice (a double click, the same upload again): only the first read runs – no second
+  // AI cost, no duplicate drafts
+  if (doc.fileId && !(doc.options as { retry?: boolean }).retry) {
+    const [first] = await db.select({ id: aiDocuments.id }).from(aiDocuments)
+      .where(and(eq(aiDocuments.firmId, doc.firmId), eq(aiDocuments.fileId, doc.fileId), eq(aiDocuments.kind, doc.kind), sql`${aiDocuments.status} <> 'error'`, sql`coalesce((${aiDocuments.options}->>'cancelled')::boolean, false) = false`))
+      .orderBy(aiDocuments.createdAt, aiDocuments.id).limit(1);
+    if (first && first.id !== doc.id) {
+      await db.update(aiDocuments).set({ status: 'error', error: 'Истиот документ веќе се чита – двојното праќање е прескокнато.', options: sql`${aiDocuments.options} || '{"cancelled":true}'::jsonb` }).where(eq(aiDocuments.id, docId));
+      log(`${docId}: the same file is already read (${first.id}) – skipped`);
+      return;
+    }
+  }
   const [f] = await db.select().from(firms).where(eq(firms.id, doc.firmId)).limit(1);
   if (!f) return;
   await db.update(aiDocuments).set({ status: 'reading', error: null, options: sql`${aiDocuments.options} - 'progress'` }).where(eq(aiDocuments.id, docId));
