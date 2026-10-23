@@ -169,7 +169,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
       {(view === 'list' || sp.nal) && R.length > 0 && <ArSendBar firm={firm.name} />}
       {(view === 'list' || sp.nal) && (R.length ? (
         <div className="tw" id="arList">
-          {tools && <ArBulk firms={moveTo} book={write && R.some((r) => r.pend) ? arBookPending : undefined} read={write && R.some((r) => r.loose) ? arReadFiles : undefined} del={del ? arFileDel : undefined} move={moveTo.length ? arFileMove : undefined} />}
+          {tools && <ArBulk firms={moveTo} book={write && R.some((r) => r.pend) ? arBookPending : undefined} read={write && R.some((r) => r.loose) ? arReadFiles : undefined} del={del ? arFileDel : undefined} />}
           <table>
             <thead><tr><th title="Избери за преземање / печатење / праќање">✓</th>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
             <tbody>
@@ -186,7 +186,6 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
                     {r.href && <Link className="btn sm" href={r.href}>Отвори</Link>}
                     {r.archId && del && <RowAction action={arDel.bind(null, r.archId)} label="🗑" title="Избриши од архивата" confirm={`Да се избрише документот „${r.kind} ${r.no}“ од архивата?`} />}
                     {r.files.length === 1 && <a className="btn sm ghost" href={`/api/files/${r.files[0]!.id}?dl=1`} title="Преземи">⬇</a>}
-                    {r.loose && moveTo.length > 0 && <ArMoveOne id={r.files[0]!.id} name={r.files[0]!.name} firms={moveTo} move={arFileMove} />}
                     {r.key.startsWith('file:') && del && <RowAction action={arFileDel.bind(null, [r.files[0]!.id])} label="🗑" title="Избриши ја датотеката" confirm={`Да се избрише датотеката „${r.files[0]!.name}“? Ова не може да се врати.`} />}
                   </td>
                 </tr>
