@@ -141,7 +141,7 @@ export async function purchaseDrafts(db: Tx, f: Firm, r: ScanResult, opts: { cas
       accounts: { goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), other: schemeValue(ctx, 'purDefault'), energy },
       supplierKontos: (pid) => mem.get(pid),
       defMargin: Number(s.defMargin) || 25, mgRound: Number(s.mgRound) || 1,
-      vatClosed: (dt) => closed.has(periodOf(dt, f.vatPeriod)),
+      vatClosed: (dt) => f.vatRegistered && closed.has(periodOf(dt, f.vatPeriod)),
     });
     // paid in cash (a cash nalog / „во готово“): the firm's cash rules — e.g. fuel → 4033, everything else → 4199 — as
     // costs (no stock); a fiscal receipt without an invoice number gets one from its date and amount

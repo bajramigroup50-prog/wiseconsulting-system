@@ -120,7 +120,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
     const items: PurItemOpt[] = I.map((i) => ({ ...i, lastCost: lastCost.get(i.id) }));
     return <PurchaseEditor initial={init} title={title} partners={P} scanMatch={scanMatch} items={items} locations={Lc} accounts={accts} nonVat={!firm.vatRegistered}
       defMargin={Number(S.defMargin) || 25} mgRound={Number(S.mgRound) || 1} back={back} scanInfo={scanInfo} pxInfo={sp.px || undefined} files={F} nalogNo={nalogNo} queue={queue} prevSaved={!!sp.prevSaved} warn={sp.prevSaved ? sp.w : undefined}
-      firmId={firm.id} canDel={del} fuelRule={fuelRule} closed={closedP.map((x) => [String(x.a), String(x.b)] as [string, string])}
+      firmId={firm.id} canDel={del} fuelRule={fuelRule} closed={firm.vatRegistered ? closedP.map((x) => [String(x.a), String(x.b)] as [string, string]) : []}
       typeKonto={{ goods: schemeValue(ctx, 'stock'), material: schemeValue(ctx, 'material'), product: schemeValue(ctx, 'product') }} {...await schemeChoice(firm)} />;
   }
 
