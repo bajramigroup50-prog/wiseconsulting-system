@@ -100,6 +100,13 @@ export async function arReadFiles(ids: string[], kind: 'purchase' | 'cash' | 'sa
   try {
     const L = [...new Set(uuids(ids.filter((x) => !String(x).startsWith('d:'))))];
     if (!L.length) return { error: 'Изберете датотеки.' };
+    // files already sent to reading (a second click) are not sent again
+    const { firm } = await officeAction('write');
+    const busy = new Set((await db().select({ f: aiDocuments.fileId }).from(aiDocuments)
+      .where(and(eq(aiDocuments.firmId, firm.id), inArray(aiDocuments.fileId, L), ne(aiDocuments.status, 'error')))).map((x) => x.f));
+    const L2 = L.filter((id) => !busy.has(id));
+    if (!L2.length) return { ok: `Избраните (${L.length}) веќе се читаат или се прочитани – почекајте, се во „Чека одобрување“.` };
+    L.splice(0, L.length, ...L2);
     let n = 0;
     const out: string[] = [];
     for (let k = 0; k < L.length; k += 100) {
