@@ -99,8 +99,16 @@ export function ScanUpload({ firmId, opts, label, small, autoOpen, batchView }: 
       if (r.ok) ids.push(r.id); else out.push(`${f.name}: ${r.error}`);
     }
     if (ids.length) {
-      const r = await startScans({ fileIds: ids, ...opts, batchId, group });
-      if (r.error) out.push(r.error);
+      // more than 100 files at once: registered in parts of 100 (the server takes 100 per call) – none is left unread
+      const r: Awaited<ReturnType<typeof startScans>> = { ids: [], skipped: [] };
+      for (let k = 0; k < ids.length; k += 100) {
+        if (ids.length > 100) setMsg([`Се регистрираат за читање ${Math.min(k + 100, ids.length)}/${ids.length}…`]);
+        const x = await startScans({ fileIds: ids.slice(k, k + 100), ...opts, batchId, group });
+        if (x.error) out.push(x.error);
+        if (x.ok) r.ok = r.ok ? `${r.ok} ${x.ok}` : x.ok;
+        r.ids = [...(r.ids ?? []), ...(x.ids ?? [])];
+        r.skipped = [...(r.skipped ?? []), ...(x.skipped ?? [])];
+      }
       if (r.ok) out.unshift(r.ok);
       out.push(...(r.skipped ?? []));
       if (toBatch && r.ids?.length) {
