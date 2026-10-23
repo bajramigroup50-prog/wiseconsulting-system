@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { archSort, type ArchRow } from '@wise/core/office/archive';
 import {
-  aiDocuments, bankAccounts, bankStatements, cashVouchers, dossierDocs, employees, fileLinks, files, firms, invoices, journals, mpinAcks, mpinInbox,
+  aiDocuments, auditLog, bankAccounts, bankStatements, cashVouchers, dossierDocs, employees, fileLinks, files, firms, invoices, journals, mpinAcks, mpinInbox,
   partners, purchases, wordTemplates, OFFICE_FILE_ENTITY, type Tx,
 } from '@wise/db';
 import { db } from './db';
@@ -69,6 +69,11 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
     .from(aiDocuments).where(eq(aiDocuments.firmId, firmId));
   const readOf = new Map<string, (typeof A)[number]>();
   for (const a of A) for (const id of [a.fileId, ...(((a.options ?? {}) as { extraFileIds?: string[] }).extraFileIds ?? [])]) if (id && !readOf.has(id)) readOf.set(id, a);
+  // files the user uploaded (audit „fileUpload“); a loose file without it was made by the program (a PDF of a card, an
+  // analytics, IFAC / ISO…): kept in „Архивирани (не се книжат)“, never among the documents to read and post
+  const cand = F.filter((f) => !shown.has(f.id) && !linked.has(f.id) && !readOf.has(f.id)).map((f) => f.id);
+  const uploaded = new Set(cand.length ? (await db().select({ id: auditLog.entityId }).from(auditLog)
+    .where(and(eq(auditLog.firmId, firmId), eq(auditLog.action, 'fileUpload'), inArray(auditLog.entityId, cand)))).map((x) => x.id) : []);
   for (const f of F) {
     if (shown.has(f.id) || linked.has(f.id)) continue;
     const a = readOf.get(f.id);
@@ -81,6 +86,7 @@ export async function archRows(firmId: string): Promise<ArchRow[]> {
     else if (a?.kind === 'ob') R.push({ ...base, date: f.at.toISOString().slice(0, 10), kind: 'Почетна состојба – документ', folder: 'opening', href: '/pocetna' });
     else if (dr.length && dr.every((y) => y.savedId || y.skipped) && dr.some((y) => y.archived || y.skipped)) R.push({ ...base, kind: 'Архивирано – не се книжи', folder: 'archived', note: x?.msg ?? '' });
     else if (dr.length && dr.some((y) => !y.savedId && !y.skipped)) R.push({ ...base, kind: 'Чека одобрување', folder: 'pending', pend: true, note: x?.msg ?? '', href: a?.kind === 'sale' ? '/skan/proverka?k=sale' : '/skan/proverka' });
+    else if (!a && !uploaded.has(f.id) && /pdf/i.test(f.mime)) R.push({ ...base, kind: 'Документ од програмот (PDF)', folder: 'archived', note: 'креиран во програмот – не се книжи' });
     else R.push({ ...base, kind: 'Датотека', loose: true });
   }
   return archSort(R.filter((r) => r.files.length));
