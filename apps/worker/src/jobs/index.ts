@@ -3,7 +3,7 @@ import { maintenance } from './maintenance';
 import { mailFlush, mailSend } from './mail';
 import { aiReadDocument } from './ai-read-document';
 import { aiPing } from './ai-ping';
-import { autopilot } from './autopilot';
+import { autopilot, autopilotRecent } from './autopilot';
 import { recurring } from './recurring';
 import { remindersJob } from './reminders';
 import { pdfRender } from './pdf';
