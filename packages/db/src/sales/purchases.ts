@@ -164,7 +164,7 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   if (nalogNo) await assertTargetNalog(tx, f, nalogNo, { sourceType: 'purchase', id: pur.id, date: pur.date });
   await postJournal(tx, {
     firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId, number: nalogNo,
-    description: 'Влезна ф-ра ' + (pur.number || '') + (pur.supplierName ? ' · ' + pur.supplierName : ''),
+    description: (pur.cash ? 'Фискална сметка ' : 'Влезна ф-ра ') + (pur.number || '') + (pur.supplierName ? ' · ' + pur.supplierName : ''),
     lines: lines.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId || null, note: l.note ?? null, doc: pur.number || null, currency: l.cur ?? null, amountCur: l.amtCur ?? null })),
     auditAction: 'postPurchase',
     ...(SP.no > 1 ? { meta: { scheme: SP.no } } : {}),

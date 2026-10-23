@@ -15,14 +15,15 @@ export type KkSP = { k?: string; sub?: string; p?: string; from?: string; to?: s
 const U = (x: unknown) => String(x ?? '').toUpperCase();
 
 /** Legacy `kkSod` 12816: the content column by source document. */
-export function kkSod(l: { sourceType: string | null; kind: string; description: string | null; doc: string | null; statementNo?: string | null }): string {
+export function kkSod(l: { sourceType: string | null; kind: string; description: string | null; doc: string | null; statementNo?: string | null; note?: string | null }): string {
   const d = String(l.doc ?? '').trim();
   if (l.sourceType === 'bank_statement' || l.kind === 'bank') {
     const n = l.statementNo || /бр\.\s*(\S+)/i.exec(l.description ?? '')?.[1] || '';
     return 'ИЗВОД БР ' + n + (d && d !== String(n) ? ' · Ф-РА ' + U(d) : '');
   }
   if (l.sourceType === 'invoice') return (/^Одобрение/.test(l.description ?? '') ? 'ОДОБРЕНИЕ БР ' : 'ФАКТУРА БР ') + U(d);
-  if (l.sourceType === 'purchase') return 'ВЛЕЗНА Ф-РА БР ' + U(d);
+  // a receipt paid in cash (posted Г 1020 „Готовина – фиск. сметка …“) is a fiscal receipt, not an incoming invoice
+  if (l.sourceType === 'purchase') return (/^Фискална/i.test(l.description ?? '') || /^Готовина/i.test(l.note ?? '') ? 'ФИСКАЛНА СМЕТКА БР ' : 'ВЛЕЗНА Ф-РА БР ') + U(d);
   return U(l.description).replace(/\s+ОД\s+\d{2}\.\d{2}\.\d{4}.*$/, '').replace(/БР\.\s*/, 'БР ');
 }
 
