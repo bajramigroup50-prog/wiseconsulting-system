@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { auditLog, queueNonVatRepairs, REPOST_JOB, runAutopilot } from '@wise/db';
+import { auditLog, queueNonVatRepairs, repairCashPurchaseNalogs, REPOST_JOB, runAutopilot } from '@wise/db';
 import { defineJob } from '../job';
 import { sendQueuedMail } from './reminders';
 
@@ -21,6 +21,7 @@ export const autopilot = defineJob<{ today?: string; firmIds?: string[] }>({
       for (const q of runs) await ctx.send?.(REPOST_JOB, q);
       if (runs.length) ctx.log(`non-VAT firms re-posted: ${runs.length}`);
     } catch (e) { ctx.log(`non-VAT repair: ${(e as Error).message}`); }
+    try { const m = await ctx.db.transaction((tx) => repairCashPurchaseNalogs(tx, data?.firmIds)); if (m) ctx.log(`cash receipts moved to the cash nalog: ${m}`); } catch (e) { ctx.log(`cash nalog repair: ${(e as Error).message}`); }
     const r = await runAutopilot(ctx.db, { trigger: data?.firmIds ? 'manual' : 'cron', today: data?.today, firmIds: data?.firmIds });
     await sendQueuedMail(ctx, r.mailIds);
     ctx.log(`firms ${r.firms}, findings ${r.findings} (new bad ${r.newBad}), messages ${r.messages}, auto-sent ${r.autoSent}, e-mails ${r.mailIds.length}`);
@@ -49,6 +50,8 @@ export const autopilotRecent = defineJob<Record<string, never>>({
       const runs = await ctx.db.transaction((tx) => queueNonVatRepairs(tx, new Date().getFullYear(), ids));
       for (const q of runs) await ctx.send?.(REPOST_JOB, q);
     } catch (e) { ctx.log(`non-VAT repair: ${(e as Error).message}`); }
+    // receipts paid in cash outside the cash register's nalog of their period: moved there
+    try { const m = await ctx.db.transaction((tx) => repairCashPurchaseNalogs(tx, ids)); if (m) ctx.log(`cash receipts moved to the cash nalog: ${m}`); } catch (e) { ctx.log(`cash nalog repair: ${(e as Error).message}`); }
     const r = await runAutopilot(ctx.db, { trigger: 'manual', firmIds: ids });
     // after the run: what the run itself writes is not a new change
     const now = Date.now();

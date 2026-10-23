@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, retailPrice, roundPurchase, schemeValue, stockAt,
+  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, nalPer, retailPrice, roundPurchase, schemeValue, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
@@ -160,9 +160,11 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   }
   // legacy `vbLines` 3451: the off-balance VAT bases of every Влез document (Д 994… / П 999…)
   lines = [...lines, ...vbLines(purchaseVatBases({ groups: G.map((g) => ({ konto: gk(g.account), rate: g.rate, base: n(g.base), vat: n(g.vat) })), costs, imp: pur.imp, art32: pur.art32 }), ctx)];
-  // scanned inside an opened nalog (the cash nalog 1020/7-9…): posted into it
-  const nalogNo = String(((pur.data ?? {}) as PurchaseData).nalogNo ?? '').trim() || null;
-  if (nalogNo) await assertTargetNalog(tx, f, nalogNo, { sourceType: 'purchase', id: pur.id, date: pur.date });
+  // a receipt paid in cash: always the cash register's nalog of its period (1020/7-9, 1020/10-12…), whatever was
+  // chosen before – never the purchases nalog; an invoice scanned inside an opened nalog: posted into it
+  const cashNo = pur.cash ? `${schemeValue(ctx, 'cash') || '1020'}/${nalPer(pur.date).join('-')}` : null;
+  const nalogNo = cashNo ?? (String(((pur.data ?? {}) as PurchaseData).nalogNo ?? '').trim() || null);
+  if (nalogNo && !cashNo) await assertTargetNalog(tx, f, nalogNo, { sourceType: 'purchase', id: pur.id, date: pur.date });
   await postJournal(tx, {
     firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId, number: nalogNo,
     description: (pur.cash ? 'Фискална сметка ' : 'Влезна ф-ра ') + (pur.number || '') + (pur.supplierName ? ' · ' + pur.supplierName : ''),
@@ -486,6 +488,29 @@ export async function unsetPurchasesCash(tx: Tx, f: Parameters<typeof firmPostin
     await repostPurchase(tx, f, id, userId);
     await audit(tx, { userId, firmId: f.id, action: 'purFromCash', entityType: 'purchase', entityId: id, data: { number: p.number } });
     n++;
+  }
+  return n;
+}
+
+/**
+ * Scanned receipts paid in cash (this year) posted in another nalog than the cash register's of their period (before
+ * the rule above, or after their date was moved): re-posted there – never imported history. Run by the autopilot.
+ */
+export async function repairCashPurchaseNalogs(tx: Tx, firmIds?: readonly string[]): Promise<number> {
+  const R = await tx.select({ id: purchases.id, firmId: purchases.firmId, date: purchases.date, number: journals.number }).from(purchases)
+    .innerJoin(journals, and(eq(journals.sourceType, 'purchase'), eq(journals.sourceId, sql`${purchases.id}::text`)))
+    .where(and(eq(purchases.cash, true), eq(purchases.status, 'posted'), eq(purchases.scanned, true), sql`${purchases.date} >= ${String(new Date().getFullYear()) + '-01-01'}`, firmIds?.length ? inArray(purchases.firmId, [...firmIds]) : undefined));
+  let n = 0;
+  const byFirm = new Map<string, typeof R>();
+  for (const r of R) byFirm.set(r.firmId, [...(byFirm.get(r.firmId) ?? []), r]);
+  for (const [firmId, L] of byFirm) {
+    const [f] = await tx.select().from(firms).where(eq(firms.id, firmId)).limit(1);
+    if (!f) continue;
+    const cash = schemeValue(await firmPostingContext(tx, f), 'cash') || '1020';
+    for (const r of L) {
+      if (r.number === `${cash}/${nalPer(String(r.date)).join('-')}`) continue;
+      try { await tx.transaction(async (sp) => { await repostPurchase(sp as unknown as Tx, f, r.id, null); }); n++; } catch { /* a locked period stays */ }
+    }
   }
   return n;
 }
