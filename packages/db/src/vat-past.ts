@@ -12,7 +12,7 @@
  *   filing deadline (the 25th of the next month), or after a chosen date. Their ДДВ-04 must be corrected.
  * VAT books and amounts stay computed from the documents; locked / closed periods stay refused by the posting service.
  */
-import { and, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { todaySkopje } from '@wise/core/office/dates';
 import { perRange, periodDue, periodOf } from '@wise/core';
 import {
@@ -245,7 +245,7 @@ export async function openVatPeriodStart(tx: Pick<Tx, 'select'>, firm: FirmLike,
   const prev = periodOf(d.toISOString().slice(0, 10), kind);
   const [pFrom, pTo] = perRange(prev);
   const due = new Date(pTo + 'T00:00:00Z'); due.setUTCDate(due.getUTCDate() + 25);
-  const [filed] = await tx.select({ x: vatPeriods.period }).from(vatPeriods).where(and(eq(vatPeriods.firmId, firm.id), eq(vatPeriods.period, prev), isNotNull(vatPeriods.submittedAt))).limit(1);
+  const [filed] = await tx.select({ x: vatPeriods.period }).from(vatPeriods).where(and(eq(vatPeriods.firmId, firm.id), eq(vatPeriods.period, prev), or(eq(vatPeriods.status, 'closed'), isNotNull(vatPeriods.submittedAt)))).limit(1);
   return !filed && due.toISOString().slice(0, 10) >= today ? pFrom : curFrom;
 }
 
