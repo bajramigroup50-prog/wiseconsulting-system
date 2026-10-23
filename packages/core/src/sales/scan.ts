@@ -718,13 +718,14 @@ export function docTypeFromText(head: string): ScanDocType | '' {
  * A fiscal / cash-register receipt („Фискална сметка“, „Касова сметка“): `docType` receipt, or an „other“ document
  * with an amount (the AI reads the receipt title as „other“) – booked as paid in cash.
  */
-export function isReceiptDoc(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total'>>): boolean {
+export function isReceiptDoc(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total' | 'buyerName' | 'buyerEdb'>>): boolean {
   const t = String(x.docType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (t === 'receipt' || t === 'fiscal_receipt' || t === 'cash_receipt') return true;
-  return t === 'other' && Number(x.total) > 0;
+  // „other“ with an amount and no buyer printed: a fiscal slip names no buyer (a contract, a statement, a bill does)
+  return t === 'other' && Number(x.total) > 0 && !String(x.buyerName ?? '').trim() && !String(x.buyerEdb ?? '').trim();
 }
 
-export function notInvoiceMsg(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total'>>): string {
+export function notInvoiceMsg(x: Pick<ScanInvoice, 'docType'> & Partial<Pick<ScanInvoice, 'groups' | 'total' | 'buyerName' | 'buyerEdb'>>): string {
   const t = String(x.docType ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (!t || t === 'invoice') return '';
   // a fiscal / cash-register receipt is a document to book (an expense paid in cash), never put aside

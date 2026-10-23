@@ -7,16 +7,16 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, nalPer, retailPrice, roundPurchase, schemeValue, stockAt,
+  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, nalogNumber, retailPrice, roundPurchase, schemeValue, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
 import { docKontoRemap, PURCHASE_KONTO_KEYS } from '@wise/core/scheme-profiles';
 import { audit, type Tx } from '../audit';
-import { postJournal, unpostSource } from '../posting';
+import { firmNalogSettings, postJournal, unpostSource } from '../posting';
 import {
   fileLinks, files, firms, itemBarcodes, journals, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
-  supplierCredits, type Purchase, type PurchaseData,
+  supplierCredits, type Firm, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
   assertLocation, docSchemeData, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, pickScheme, stockLocations, type DocActor,
@@ -119,9 +119,16 @@ export async function createMissingItems(tx: Tx, firmId: string, lines: Purchase
   return made;
 }
 
+/** The cash register's nalog of a date by the firm's nalog settings (period month / quarter; null when numbered per document). */
+function cashNalogNo(f: unknown, cashKonto: string, date: string): string | null {
+  const st = firmNalogSettings(f as Pick<Firm, 'settings'>);
+  return nalogNumber({ kind: 'kasa', date, settings: { ...st, nalCodes: { ...(st.nalCodes ?? {}), kasa: cashKonto || '1020' } } }).no;
+}
+
 async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1], pur: Purchase, userId: string | null): Promise<void> {
   // „Шема за книжење“ of the document (Шема 1 = the firm's scheme; Шема N = its overrides over Шема 1)
-  const SP = pickScheme(await firmPostingContext(tx, f), ((pur.data ?? {}) as PurchaseData).scheme);
+  const base = await firmPostingContext(tx, f);
+  const SP = pickScheme(base, ((pur.data ?? {}) as PurchaseData).scheme);
   const ctx = SP.ctx;
   /** group kontos stored with Шема 1's default / stock kontos move to the profile's (only the overridden keys) */
   const gk = docKontoRemap(SP.base, ctx, PURCHASE_KONTO_KEYS);
@@ -162,8 +169,12 @@ async function postPurchase(tx: Tx, f: Parameters<typeof firmPostingContext>[1],
   lines = [...lines, ...vbLines(purchaseVatBases({ groups: G.map((g) => ({ konto: gk(g.account), rate: g.rate, base: n(g.base), vat: n(g.vat) })), costs, imp: pur.imp, art32: pur.art32 }), ctx)];
   // a receipt paid in cash: always the cash register's nalog of its period (1020/7-9, 1020/10-12…), whatever was
   // chosen before – never the purchases nalog; an invoice scanned inside an opened nalog: posted into it
-  const cashNo = pur.cash ? `${schemeValue(ctx, 'cash') || '1020'}/${nalPer(pur.date).join('-')}` : null;
-  const nalogNo = cashNo ?? (String(((pur.data ?? {}) as PurchaseData).nalogNo ?? '').trim() || null);
+  // (scanned ones; an old / imported cash purchase keeps the nalog it has; never an import)
+  const own = String(((pur.data ?? {}) as PurchaseData).nalogNo ?? '').trim() || null;
+  const cashNo = pur.cash && !pur.imp && (pur.scanned || !own) ? cashNalogNo(f, schemeValue(base, 'cash'), pur.date) : null;
+  // an invoice (2200) never in the cash register's nalog (a nalog kept from when it was marked „во готово“)
+  const kasaOwn = !pur.cash && own && own.startsWith((schemeValue(ctx, 'cash') || '1020') + '/');
+  const nalogNo = cashNo ?? (kasaOwn ? null : own);
   if (nalogNo && !cashNo) await assertTargetNalog(tx, f, nalogNo, { sourceType: 'purchase', id: pur.id, date: pur.date });
   await postJournal(tx, {
     firmId: f.id, date: pur.date, kind: pur.imp ? 'vlezDev' : 'vlez', sourceType: 'purchase', sourceId: pur.id, userId, number: nalogNo,
@@ -454,42 +465,66 @@ export async function repostPurchase(tx: Tx, f: Parameters<typeof firmPostingCon
  * are turned into cash purchases (Г cash konto, „Фискална сметка …“), moved into the cash register's nalog of their
  * period when there is one (1020/7-9…), and re-posted. Returns how many changed.
  */
-export async function setPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingContext>[1], ids: readonly string[], userId: string | null): Promise<number> {
+export async function setPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingContext>[1], ids: readonly string[], userId: string | null): Promise<{ n: number; skipped: string[] }> {
   let n = 0;
+  const skipped: string[] = [];
+  const [fs] = await tx.select({ s: firms.settings }).from(firms).where(eq(firms.id, f.id)).limit(1);
+  const def = schemeValue(await firmPostingContext(tx, f), 'purDefault');
   for (const id of ids) {
     const [p] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
     if (!p || p.cash || p.status !== 'posted' || p.imp) continue;
-    const [j] = await tx.select({ n: journals.number }).from(journals)
-      .where(and(eq(journals.firmId, f.id), sql`${journals.number} like '1020/%'`, sql`${journals.periodFrom} <= ${p.date}`, sql`${journals.periodTo} >= ${p.date}`)).limit(1);
-    const data = { ...((p.data ?? {}) as Record<string, unknown>), ...(j ? { nalogNo: j.n } : {}) };
-    // an expense, not goods: the stock lines go (no stock, ПЛТ or ЕТ), the VAT groups on the cash konto of the firm's rules
-    const [fs] = await tx.select({ s: firms.settings }).from(firms).where(eq(firms.id, f.id)).limit(1);
-    const L = await tx.select({ name: purchaseStockLines.name }).from(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
-    const konto = cashKontoOf([p.supplierName ?? '', ...L.map((x) => x.name ?? '')].join(' '), cashScanRules(fs?.s)) || schemeValue(await firmPostingContext(tx, f), 'purDefault');
-    await tx.delete(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
-    if (konto) await tx.update(purchaseVatGroups).set({ account: konto }).where(eq(purchaseVatGroups.purchaseId, id));
-    await tx.update(purchases).set({ cash: true, ptype: 'cost', data }).where(eq(purchases.id, id));
-    await repostPurchase(tx, f, id, userId);
-    await audit(tx, { userId, firmId: f.id, action: 'purToCash', entityType: 'purchase', entityId: id, data: { number: p.number, nalog: j?.n ?? null } });
-    n++;
+    const L = await tx.select().from(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
+    // goods already moved on (a transfer from its calculation) are not turned into an expense
+    if (L.length && (await dependentTransfers(tx, f.id, [id])).length) { skipped.push(`${p.number} (стоката е префрлена – прво избришете ја преносницата)`); continue; }
+    try {
+      await tx.transaction(async (sp) => {
+        const t = sp as unknown as Tx;
+        const G = await t.select().from(purchaseVatGroups).where(eq(purchaseVatGroups.purchaseId, id));
+        // what it was, for „↩ Врати на добавувач“
+        const preCash = { ptype: p.ptype, calcNo: p.calcNo, nalogNo: ((p.data ?? {}) as { nalogNo?: string }).nalogNo ?? null,
+          groups: G.map((g) => ({ lineNo: g.lineNo, account: g.account })), stock: L.map(({ id: _i, purchaseId: _p, ...rest }) => rest) };
+        const data: Record<string, unknown> = { ...((p.data ?? {}) as Record<string, unknown>), preCash };
+        delete data.nalogNo;
+        // an expense, not goods: the stock lines go (no stock, ПЛТ or ЕТ), the VAT groups on the cash konto of the firm's rules
+        const konto = cashKontoOf([p.supplierName ?? '', ...L.map((x) => x.name ?? '')].join(' '), cashScanRules(fs?.s)) || def;
+        await t.delete(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
+        if (konto) await t.update(purchaseVatGroups).set({ account: konto }).where(eq(purchaseVatGroups.purchaseId, id));
+        await t.update(purchases).set({ cash: true, ptype: 'cost', calcNo: null, data }).where(eq(purchases.id, id));
+        await repostPurchase(t, f, id, userId);
+        await audit(t, { userId, firmId: f.id, action: 'purToCash', entityType: 'purchase', entityId: id, data: { number: p.number } });
+      });
+      n++;
+    } catch (e) { skipped.push(`${p.number} (${e instanceof Error ? e.message : 'не може'})`); }
   }
-  return n;
+  return { n, skipped };
 }
 
-/** Undo of „💶 Платено во готово“: real invoices turned into cash by mistake go back to the supplier (2200), out of the cash nalog. */
-export async function unsetPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingContext>[1], ids: readonly string[], userId: string | null): Promise<number> {
+/** Undo of „💶 Платено во готово“: invoices turned into cash by mistake go back to the supplier (2200) as they were. */
+export async function unsetPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingContext>[1], ids: readonly string[], userId: string | null): Promise<{ n: number; skipped: string[] }> {
   let n = 0;
+  const skipped: string[] = [];
   for (const id of ids) {
     const [p] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
     if (!p || !p.cash || p.status !== 'posted') continue;
-    const d = { ...((p.data ?? {}) as Record<string, unknown>) };
-    if (/^1020\//.test(String(d.nalogNo ?? ''))) delete d.nalogNo;
-    await tx.update(purchases).set({ cash: false, data: d }).where(eq(purchases.id, id));
-    await repostPurchase(tx, f, id, userId);
-    await audit(tx, { userId, firmId: f.id, action: 'purFromCash', entityType: 'purchase', entityId: id, data: { number: p.number } });
-    n++;
+    try {
+      await tx.transaction(async (sp) => {
+        const t = sp as unknown as Tx;
+        const d = { ...((p.data ?? {}) as Record<string, unknown>) };
+        const pre = d.preCash as { ptype?: string; calcNo?: string | null; nalogNo?: string | null; groups?: { lineNo: number; account: string }[]; stock?: Record<string, unknown>[] } | undefined;
+        delete d.preCash;
+        delete d.nalogNo;
+        if (pre?.nalogNo) d.nalogNo = pre.nalogNo;
+        // the goods konto and the stock lines as they were before
+        for (const g of pre?.groups ?? []) await t.update(purchaseVatGroups).set({ account: g.account }).where(and(eq(purchaseVatGroups.purchaseId, id), eq(purchaseVatGroups.lineNo, g.lineNo)));
+        if (pre?.stock?.length) await t.insert(purchaseStockLines).values(pre.stock.map((x) => ({ ...(x as object), purchaseId: id })) as never);
+        await t.update(purchases).set({ cash: false, data: d, ...(pre?.ptype ? { ptype: pre.ptype as 'stock' | 'cost' } : {}), ...(pre && 'calcNo' in pre ? { calcNo: pre.calcNo ?? null } : {}) }).where(eq(purchases.id, id));
+        await repostPurchase(t, f, id, userId);
+        await audit(t, { userId, firmId: f.id, action: 'purFromCash', entityType: 'purchase', entityId: id, data: { number: p.number } });
+      });
+      n++;
+    } catch (e) { skipped.push(`${p.number} (${e instanceof Error ? e.message : 'не може'})`); }
   }
-  return n;
+  return { n, skipped };
 }
 
 /**
@@ -499,7 +534,7 @@ export async function unsetPurchasesCash(tx: Tx, f: Parameters<typeof firmPostin
 export async function repairCashPurchaseNalogs(tx: Tx, firmIds?: readonly string[]): Promise<number> {
   const R = await tx.select({ id: purchases.id, firmId: purchases.firmId, date: purchases.date, number: journals.number }).from(purchases)
     .innerJoin(journals, and(eq(journals.sourceType, 'purchase'), eq(journals.sourceId, sql`${purchases.id}::text`)))
-    .where(and(eq(purchases.cash, true), eq(purchases.status, 'posted'), eq(purchases.scanned, true), sql`${purchases.date} >= ${String(new Date().getFullYear()) + '-01-01'}`, firmIds?.length ? inArray(purchases.firmId, [...firmIds]) : undefined));
+    .where(and(eq(purchases.cash, true), eq(purchases.imp, false), eq(purchases.status, 'posted'), eq(purchases.scanned, true), sql`${purchases.date} >= ${String(new Date().getFullYear()) + '-01-01'}`, firmIds?.length ? inArray(purchases.firmId, [...firmIds]) : undefined));
   let n = 0;
   const byFirm = new Map<string, typeof R>();
   for (const r of R) byFirm.set(r.firmId, [...(byFirm.get(r.firmId) ?? []), r]);
@@ -508,7 +543,8 @@ export async function repairCashPurchaseNalogs(tx: Tx, firmIds?: readonly string
     if (!f) continue;
     const cash = schemeValue(await firmPostingContext(tx, f), 'cash') || '1020';
     for (const r of L) {
-      if (r.number === `${cash}/${nalPer(String(r.date)).join('-')}`) continue;
+      const want = cashNalogNo(f, cash, String(r.date));
+      if (!want || r.number === want) continue;
       try { await tx.transaction(async (sp) => { await repostPurchase(sp as unknown as Tx, f, r.id, null); }); n++; } catch { /* a locked period stays */ }
     }
   }

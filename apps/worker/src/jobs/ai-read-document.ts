@@ -68,9 +68,9 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
   if ((doc.options as { cancelled?: boolean }).cancelled) return;
   // the same file sent to reading twice (a double click, the same upload again): only the first read runs – no second
   // AI cost, no duplicate drafts
-  if (doc.fileId && !(doc.options as { retry?: boolean }).retry) {
+  if (doc.fileId && (doc.kind === 'purchase' || doc.kind === 'sale') && !(doc.options as { retry?: boolean; reread?: boolean }).retry) {
     const [first] = await db.select({ id: aiDocuments.id }).from(aiDocuments)
-      .where(and(eq(aiDocuments.firmId, doc.firmId), eq(aiDocuments.fileId, doc.fileId), eq(aiDocuments.kind, doc.kind), sql`${aiDocuments.status} <> 'error'`, sql`coalesce((${aiDocuments.options}->>'cancelled')::boolean, false) = false`))
+      .where(and(eq(aiDocuments.firmId, doc.firmId), eq(aiDocuments.fileId, doc.fileId), eq(aiDocuments.kind, doc.kind), sql`${aiDocuments.status} in ('queued', 'reading')`, sql`coalesce((${aiDocuments.options}->>'cancelled')::boolean, false) = false`))
       .orderBy(aiDocuments.createdAt, aiDocuments.id).limit(1);
     if (first && first.id !== doc.id) {
       await db.update(aiDocuments).set({ status: 'error', error: 'Истиот документ веќе се чита – двојното праќање е прескокнато.', options: sql`${aiDocuments.options} || '{"cancelled":true}'::jsonb` }).where(eq(aiDocuments.id, docId));
@@ -309,7 +309,10 @@ WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the b
     const res = result;
     const n = await db.transaction(async (tx) => {
       const drafts = kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy, vatRule: (doc.options as { vatRule?: SaleVatRule }).vatRule ?? null }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
-      const up = await tx.update(aiDocuments).set({ status: 'done', kind, result: res, drafts, model, options: sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
+      const up = await tx.update(aiDocuments).set({ status: 'done', kind, result: res, drafts, model, options: kind !== doc.kind
+        // the other kind: the box's nalog and „во готово“ belong to the kind it was dropped as
+        ? sql`(${aiDocuments.options} - 'nalogNo' - 'cash') || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb`
+        : sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
       if (!up.length) tx.rollback();
       return drafts.length;
     }).catch((e: unknown) => { if (e instanceof TransactionRollbackError) return -1; throw e; });

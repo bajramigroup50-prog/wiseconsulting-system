@@ -145,6 +145,7 @@ export async function moveLatePurchasesAction(ids: string[]): Promise<ActionStat
     const { u, firm } = await firmAction('editPur');
     const r = await db().transaction((tx) => moveLatePurchases(tx, firm, ids, u.id));
     for (const p of ['/ddv', '/vlez', '/nalozi', '/blagajna']) revalidatePath(p);
-    return r.moved ? { ok: `Преместени ${r.moved} документи во ДДВ периодот од ${r.to.split('-').reverse().join('.')} (датумот на документот е зачуван).` } : { error: 'Нема што да се премести.' };
+    const sk = r.skipped.length ? ` Не се преместени: ${r.skipped.slice(0, 6).join('; ')}${r.skipped.length > 6 ? '…' : ''}.` : '';
+    return r.moved ? { ok: `Преместени ${r.moved} документи во ДДВ периодот од ${r.to.split('-').reverse().join('.')} (датумот на документот е зачуван).${sk}` } : { error: `Нема што да се премести.${sk}` };
   } catch (e) { return actionError(e); }
 }

@@ -57,7 +57,7 @@ const BASIS: Record<LatePostedDoc['basis'], string> = { closed: 'по подне
  * ⚠ the selected period: documents posted after its ДДВ-04 was filed (or after the filing deadline / a chosen date),
  * and the held documents confirmed „во својот период“ — the cases where ДДВ-04 of the period must be corrected.
  */
-function LateDocs({ id, sel, late, corr, after, closed }: { id: string; sel: string; late: LatePostedDoc[]; corr: PastCorrection[]; after: string | null; closed: boolean }) {
+function LateDocs({ id, sel, late, corr, after, closed, vat }: { id: string; sel: string; late: LatePostedDoc[]; corr: PastCorrection[]; after: string | null; closed: boolean; vat: boolean }) {
   const href = (d: { entityType: string; id: string }) => (d.entityType === 'purchase' ? `/vlez?edit=${d.id}` : `/izlez?edit=${d.id}`);
   return (
     <div className="card" id={id}>
@@ -70,7 +70,7 @@ function LateDocs({ id, sel, late, corr, after, closed }: { id: string; sel: str
           <button className="btn sm">Провери</button>
         </form>
       </div>
-      {late.some((d) => d.entityType === 'purchase') && <div className="row" style={{ margin: '0 0 6px' }}><RowAction className="btn pri" action={moveLatePurchasesAction.bind(null, late.filter((d) => d.entityType === 'purchase').map((d) => d.id))}
+      {vat && late.some((d) => d.entityType === 'purchase') && <div className="row" style={{ margin: '0 0 6px' }}><RowAction className="btn pri" action={moveLatePurchasesAction.bind(null, late.filter((d) => d.entityType === 'purchase').map((d) => d.id))}
         label={`⇢ Премести ги влезните / сметките (${late.filter((d) => d.entityType === 'purchase').length}) во тековниот ДДВ период`} confirm="Документите добиваат датум на книжење = првиот ден од отворениот ДДВ период (датумот на документот останува), и се прекнижуваат таму. Да продолжам?" showOk /></div>}
       {late.length > 0 && <div className="callout warn">⚠ {late.length} документи се книжени во овој период {after ? `по ${dmy(after)}` : closed ? 'по поднесувањето на ДДВ-04' : 'по рокот за пријава'} – ДДВ-04 за тој период треба да се коригира (исправка на пријавата).</div>}
       {late.length > 0 && (
@@ -219,7 +219,7 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
         <div className="callout warn">Документите за периодот се променети по поднесувањето: сега пресметаниот ДДВ-04 дава поле 31 = {fi(live['31'])} ден. (поднесено {fi(F['31'])}). Прикажана е поднесената пријава.</div>
       )}
 
-      <LateDocs id="late" sel={sel} late={lateSel} corr={corr} after={lateAfter} closed={closed} />
+      {firm.vatRegistered && <LateDocs id="late" sel={sel} late={lateSel} corr={corr} after={lateAfter} closed={closed} vat={firm.vatRegistered} />}
 
       {vbc && firm.vatRegistered && (
         <div className="card"><div className="hd" style={{ margin: '0 0 6px' }}><b>Контрола: ДДВ-04 ↔ основици во налозите (994/999)</b><span className={`pill ${vbc.ok ? 'good' : 'bad'}`}>{vbc.ok ? 'се совпаѓа' : 'разлика'}</span></div>

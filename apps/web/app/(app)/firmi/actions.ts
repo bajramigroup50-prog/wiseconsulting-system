@@ -2,12 +2,12 @@
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { eq } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, lte, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { FIRM_VAT_RATES, firmSettingsFrom, unlockTo } from '@wise/core/firms/firmform';
 import { fyOnDeactivate, fyOnRestore } from '@wise/core/firms/years';
 import { todaySkopje } from '@wise/core/office';
-import { audit, requestRepost, createDemoFirm, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
+import { audit, requestRepost, vatPeriods, createDemoFirm, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
 import { hasDemoPrefix, isDemoFirm } from '@wise/core/demo';
@@ -16,7 +16,7 @@ import { isDemoUser } from '@/lib/demo';
 import { FIRM_COOKIE } from '@/lib/context';
 import { db } from '@/lib/db';
 import { selectFirm } from '../actions';
-import { sendRepostRuns } from '@/lib/auto-repost';
+import { queueRepostChange, sendRepostRuns } from '@/lib/auto-repost';
 
 const opt = z.string().trim().max(300).transform((s) => s || null);
 const FirmInput = z.object({
@@ -116,7 +116,12 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
   // (1200 ↔ 1200009, VAT lines) – the books never keep a mix of the two settings
   if (before && before.vatRegistered !== parsed.data.vatRegistered) {
     const year = Number(todaySkopje().slice(0, 4));
-    const runId = await db().transaction((tx) => requestRepost(tx, { firmId: id!, userId: u.id, year })).catch(() => null);
+    // a status change during the year (a VAT period of the year already closed / filed, or the books locked): the
+    // documents before it stay as they were – only the „Прекнижи“ suggestion, the user decides
+    const settled = (await db().select({ x: vatPeriods.id }).from(vatPeriods).where(and(eq(vatPeriods.firmId, id!), lte(vatPeriods.dateFrom, `${year}-12-31`), gte(vatPeriods.dateTo, `${year}-01-01`), or(eq(vatPeriods.status, 'closed'), isNotNull(vatPeriods.submittedAt)))).limit(1)).length > 0
+      || (!!parsed.data.lockDate && parsed.data.lockDate >= `${year}-01-01`);
+    if (settled) return { ok: 'Фирмата е зачувана.' + await queueRepostChange({ firmIds: [id!], reason: 'manual', year, userId: u.id }) };
+    const runId = await db().transaction((tx) => requestRepost(tx, { firmId: id!, userId: u.id, year, forceYear: true })).catch(() => null);
     if (runId && (await sendRepostRuns({ queue: [{ firmId: id!, runId }], due: 0 }))) return { ok: 'Фирмата е зачувана. Книжените фактури се прекнижуваат во позадина според новото „ДДВ обврзник“ (само отворени периоди).' };
   }
   return { ok: 'Фирмата е зачувана.' };

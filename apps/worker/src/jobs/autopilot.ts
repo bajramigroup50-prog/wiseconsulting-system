@@ -41,15 +41,11 @@ export const autopilotRecent = defineJob<Record<string, never>>({
   cron: '*/5 * * * *',
   async run(_data, ctx) {
     const R = await ctx.db.execute(sql`select ${auditLog.firmId} as id, max(${auditLog.at}) as at from ${auditLog}
-      where ${auditLog.at} > now() - interval '30 minutes' and ${auditLog.firmId} is not null and ${auditLog.action} not in ('login', 'logout', 'autoRepost', 'autoRepostRequest')
+      where ${auditLog.at} > now() - interval '30 minutes' and ${auditLog.firmId} is not null and ${auditLog.userId} is not null and ${auditLog.action} not in ('login', 'logout', 'autoRepost', 'autoRepostRequest')
       group by ${auditLog.firmId}`);
     const rows = ((R as unknown as { rows?: { id: string; at: string | Date }[] }).rows ?? (R as unknown as { id: string; at: string | Date }[]));
     const ids = rows.filter((r) => new Date(r.at).getTime() > (lastCheck.get(r.id) ?? 0)).map((r) => r.id);
     if (!ids.length) return;
-    try {
-      const runs = await ctx.db.transaction((tx) => queueNonVatRepairs(tx, new Date().getFullYear(), ids));
-      for (const q of runs) await ctx.send?.(REPOST_JOB, q);
-    } catch (e) { ctx.log(`non-VAT repair: ${(e as Error).message}`); }
     // receipts paid in cash outside the cash register's nalog of their period: moved there
     try { const m = await ctx.db.transaction((tx) => repairCashPurchaseNalogs(tx, ids)); if (m) ctx.log(`cash receipts moved to the cash nalog: ${m}`); } catch (e) { ctx.log(`cash nalog repair: ${(e as Error).message}`); }
     const r = await runAutopilot(ctx.db, { trigger: 'manual', firmIds: ids });

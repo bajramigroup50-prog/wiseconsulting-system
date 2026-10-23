@@ -18,6 +18,8 @@ import { draftSourceFiles, loadAiDocument, markDraftSaved, purchaseInputFromDraf
 import { saveInvoice, type InvoiceInput } from './invoices';
 import { ensurePartner } from './partners-auto';
 import { savePurchase } from './purchases';
+import { refreshStaleScanDrafts } from './scan-drafts';
+import { isOwnParty } from '@wise/core/sales';
 import { openVatPeriodStart } from '../vat-past';
 
 /** A read sales invoice as service input; the buyer is found or created (legacy `outEnsurePartner` 8408). */
@@ -99,6 +101,14 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
     cashCtx = { nalogNo: j?.n ?? '', from: j?.from ? String(j.from) : null, to: j?.to ? String(j.to) : null, closed, vatKind: f?.per ?? 'quarter', vat: !!f?.vat };
     return cashCtx;
   };
+  // reads made with older rules are rebuilt first (a receipt put aside, kept as an invoice…) – the same drafts every
+  // screen shows; no new AI
+  const [fm] = await tx.select().from(firms).where(eq(firms.id, a.firmId)).limit(1);
+  if (fm) {
+    const docIds = [...new Set(a.ids.map((k) => k.split(':')[0]!).filter((x) => /^[0-9a-f-]{36}$/i.test(x)))];
+    const D0 = docIds.length ? await tx.select().from(aiDocuments).where(and(eq(aiDocuments.firmId, a.firmId), inArray(aiDocuments.id, docIds), eq(aiDocuments.status, 'done'))) : [];
+    if (D0.length) await refreshStaleScanDrafts(tx, fm, D0, { userId: a.actor.userId });
+  }
   for (const key of a.ids) {
     const [docId, ix] = key.split(':');
     const i = Number(ix);
@@ -112,6 +122,9 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
         const dr = x.draft as unknown as ScanSaleDraft & ScanPurchaseDraft;
         number = String(dr.number ?? '') || key;
         if (x.savedId) throw new Error('веќе е зачувана');
+        // the firm itself is never the partner of its own document (a mixed file, a sale read without a supplier)
+        if (fm && (a.kind === 'sale' ? !dr.partnerId && isOwnParty(dr.buyer?.name, dr.buyer?.edb, fm.edb, fm.name) : !dr.partnerId && isOwnParty(dr.supplierName, dr.supplierEdb, fm.edb, fm.name)))
+          throw new Error(a.kind === 'sale' ? 'купувачот е оваа фирма – ова е влезна фактура' : 'добавувачот е оваа фирма – ова е излезна фактура');
         if (x.skipped && (x.archived || x.status !== 'skip')) throw new Error('прескокната / во архива – прво „Врати“');
         if (a.kind === 'sale') {
           if (!dr.items?.length || !Number(dr.total ?? 1)) throw new Error('нема ставки / износ 0 – не е фактура');
@@ -128,7 +141,8 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
         let over: { date?: string; docDate?: string | null; nalogNo?: string } | undefined;
         if (a.kind === 'purchase') {
           const c = await cashOf();
-          const isCash = !!(a.cash || dr.cash);
+          // the draft decides (a Благајна click on a read rebuilt as an invoice never books it into the cash nalog)
+          const isCash = !!dr.cash;
           const own = String(((d.options ?? {}) as { nalogNo?: string }).nalogNo ?? '').trim();
           const dt = String(dr.date ?? '');
           // late (a VAT payer only): its VAT period is filed in WISE, or its ДДВ-04 deadline (the 25th after the period)

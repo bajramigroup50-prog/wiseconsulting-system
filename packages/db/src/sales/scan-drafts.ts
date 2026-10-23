@@ -264,7 +264,7 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
     if (d.issuerNoVat && f.vatRegistered) why.push('на фактурата пишува „не е ДДВ обврзник“, а во картичката фирмата е ДДВ обврзник – исправете ја картичката на фирмата');
     const status = dup ? 'dup' : why.some((m) => !m.startsWith('нов купувач') && !m.startsWith('нов партнер креиран')) ? 'check' : 'ok';
     // no lines and no amount: a work order / „налог-потврда за извршена услуга“, a delivery page — never an invoice to post
-    const nonInv = notInvoiceMsg(x) || (!c.total && !Number(d.total) ? 'не е фактура (налог / потврда за услуга, без износ) – не се книжи, само архива' : '');
+    const nonInv = (isReceiptDoc(x) ? 'фискална сметка од добавувач – не е излезна фактура (скенирајте ја во „Фискални сметки“)' : '') || notInvoiceMsg(x) || (!c.total && !Number(d.total) ? 'не е фактура (налог / потврда за услуга, без износ) – не се книжи, само архива' : '');
     if (nonInv) { out.push({ draft: { ...d, calcTotal: c.total } as unknown as Record<string, unknown>, status: 'skip', msg: nonInv, skipped: true, ...(!notInvoiceMsg(x) ? { archived: new Date().toISOString() } : {}) }); continue; }
     out.push({ draft: { ...d, calcTotal: c.total } as unknown as Record<string, unknown>, status, msg: why.join(' · ') });
   }
@@ -306,7 +306,7 @@ export async function rebuildScanDrafts(db: Tx, f: Firm, doc: AiDocument, o: Dra
   const same = scanInvoices(res).length === doc.drafts.length;
   if (!same && doc.drafts.some((x) => x.savedId)) return null;
   const opts = (doc.options ?? {}) as ReadOpts;
-  const D = doc.kind === 'sale' ? await saleDrafts(db, f, res, o)
+  const D = doc.kind === 'sale' ? await saleDrafts(db, f, res, { ...o, vatRule: (opts as { vatRule?: SaleVatRule }).vatRule ?? o.vatRule })
     : await purchaseDrafts(db, f, res, { cash: opts.cash, warehouseId: opts.warehouseId ?? null, costOnly: opts.costOnly, docId: doc.id }, o);
   const drafts = D.map((x, i) => {
     const old = same ? doc.drafts[i] : undefined;

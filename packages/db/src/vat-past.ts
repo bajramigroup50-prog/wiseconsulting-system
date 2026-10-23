@@ -254,16 +254,27 @@ export async function openVatPeriodStart(tx: Pick<Tx, 'select'>, firm: FirmLike,
  * deadline passed) get the first day of the open period as their booking date – the invoice date stays as the document
  * date – and are re-posted there; the past period's ДДВ-04 no longer changes. Outgoing invoices keep their issue date.
  */
-export async function moveLatePurchases(tx: Tx, firm: FirmLike & Parameters<typeof repostPurchase>[1], ids: readonly string[], userId: string | null): Promise<{ moved: number; to: string }> {
+export async function moveLatePurchases(tx: Tx, firm: FirmLike & Parameters<typeof repostPurchase>[1], ids: readonly string[], userId: string | null): Promise<{ moved: number; to: string; skipped: string[] }> {
+  const [fv] = await tx.select({ vat: firms.vatRegistered }).from(firms).where(eq(firms.id, firm.id)).limit(1);
+  if (!fv?.vat) return { moved: 0, to: '', skipped: ['фирмата не е ДДВ обврзник – документите го задржуваат својот датум'] };
   const to = await openVatPeriodStart(tx, firm);
   let moved = 0;
+  const skipped: string[] = [];
   for (const id of ids) {
-    const [p] = await tx.select({ id: purchases.id, date: purchases.date, docDate: purchases.docDate, status: purchases.status }).from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firm.id))).limit(1);
+    const [p] = await tx.select({ id: purchases.id, number: purchases.number, date: purchases.date, docDate: purchases.docDate, status: purchases.status, imp: purchases.imp, ptype: purchases.ptype }).from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, firm.id))).limit(1);
     if (!p || p.status !== 'posted' || String(p.date) >= to) continue;
-    await tx.update(purchases).set({ date: to, docDate: p.docDate ?? p.date }).where(eq(purchases.id, id));
-    await repostPurchase(tx, firm, id, userId);
-    await audit(tx, { userId, firmId: firm.id, action: 'vatLateMove', entityType: 'purchase', entityId: id, data: { from: p.date, to } });
-    moved++;
+    // goods on stock (a later sale would see the stock arrive after it) and imports keep their date
+    if (p.imp || p.ptype === 'stock') { skipped.push(`${p.number} (${p.imp ? 'увоз' : 'стока на залиха'})`); continue; }
+    try {
+      // each document on its own: one in a closed / locked period does not stop the others
+      await tx.transaction(async (sp) => {
+        const t = sp as unknown as Tx;
+        await t.update(purchases).set({ date: to, docDate: p.docDate ?? p.date }).where(eq(purchases.id, id));
+        await repostPurchase(t, firm, id, userId);
+        await audit(t, { userId, firmId: firm.id, action: 'vatLateMove', entityType: 'purchase', entityId: id, data: { from: p.date, to } });
+      });
+      moved++;
+    } catch (e) { skipped.push(`${p.number} (${e instanceof Error ? e.message : 'не може'})`); }
   }
-  return { moved, to };
+  return { moved, to, skipped };
 }
