@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  setPurchasesCash,
+  setPurchasesCash, unsetPurchasesCash,
   approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, draftSourceFiles, ensurePartner, firms,
   loadAiDocument, markDraftSaved, partners, savePurchase, transfers, type PurchaseInput,
 } from '@wise/db';
@@ -208,5 +208,16 @@ export async function setPurchasesCashAction(ids: string[]): Promise<ActionState
     const n = await db().transaction((tx) => setPurchasesCash(tx, firm, L, u.id));
     revalidatePath('/', 'layout');
     return n ? { ok: `${n} документи се прекнижани како фискални сметки платени во готово (1020).` } : { error: 'Нема што да се промени (веќе во готово, увозни или не се книжени).' };
+  } catch (e) { return actionError(e); }
+}
+
+/** „↩ Врати ги фактурите на добавувач“: invoices turned into cash by mistake go back to 2200. */
+export async function unsetPurchasesCashAction(ids: string[]): Promise<ActionState> {
+  try {
+    const L = z.array(z.uuid()).max(2000).parse(ids);
+    const { u, firm } = await firmAction('editPur');
+    const n = await db().transaction((tx) => unsetPurchasesCash(tx, firm, L, u.id));
+    revalidatePath('/', 'layout');
+    return n ? { ok: `${n} фактури се вратени на добавувач (2200).` } : { error: 'Нема што да се врати.' };
   } catch (e) { return actionError(e); }
 }

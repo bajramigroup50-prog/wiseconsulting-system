@@ -7,7 +7,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
 import { isReceiptDoc, scanInvoices, type ScanInvoice, type ScanPurchaseDraft, type ScanResult } from '@wise/core/sales';
 import {
-  aiDocuments, codes, draftSourceFiles, refreshStaleScanDrafts, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
+  aiDocuments, auditLog, codes, draftSourceFiles, refreshStaleScanDrafts, items, vatPeriods, fileLinks, files, firmPostingContext, journals, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups, stockMoves,
 } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -20,7 +20,7 @@ import { DownloadCsv } from '@/components/download-csv';
 import { PurchaseEditor, type PurItemOpt, type ScanQueueProp } from '@/components/sales/purchase-editor';
 import { PayPill } from '@/components/sales/invoices-view';
 import { blankCost, COSTS, newPurchase, s, type EdPurchase } from '@/components/sales/model';
-import { approvePurchaseAction, deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePreviewAction, setPurchasesCashAction } from './actions';
+import { approvePurchaseAction, deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePreviewAction, setPurchasesCashAction, unsetPurchasesCashAction } from './actions';
 import { ScanUpload } from '@/components/sales/scan-upload';
 import { PxImport } from '@/components/sales/px-import';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
@@ -141,6 +141,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const receiptRead = (id: string) => { const x = scanRead.get(id); return !!x && (isReceiptDoc(x) || !(String(x.buyerEdb ?? '').trim() || String(x.buyerName ?? '').trim())); };
   const isKand = (p: (typeof rows)[number]['p']) => p.scanned && !p.cash && !p.imp && p.status === 'posted' && Number(p.total) < 10000 && receiptRead(p.id);
   const nKand = rows.filter(({ p }) => isKand(p)).length;
+  // turned into cash by „💶 Платено во готово“ but read as an invoice with this firm as the buyer: to go back to 2200
+  const toCash = new Set((await db().select({ id: auditLog.entityId }).from(auditLog).where(and(eq(auditLog.firmId, firm.id), eq(auditLog.action, 'purToCash')))).map((x) => x.id));
+  const wrongCash = rows.filter(({ p }) => p.cash && toCash.has(p.id) && scanRead.has(p.id) && !receiptRead(p.id)).map(({ p }) => p.id);
   const list = rows.filter(({ p, name }) => (!q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && (sp.kand !== '1' || isKand(p)));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
   const ids = list.map((r) => r.p.id);
@@ -192,6 +195,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} фактури се внесени двапати ({[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
         <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
       <form className="row" style={{ gap: 8, margin: '0 0 8px' }}><input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
+      {wrongCash.length > 0 && write && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>↩ <b>{wrongCash.length}</b> фактури (со вашата фирма како купувач – вода, струја, добавувачи) се префрлени во готово (1020) по грешка.</span>
+        <RowAction className="btn pri" action={unsetPurchasesCashAction.bind(null, wrongCash)} label={`↩ Врати ги на добавувач – 2200 (${wrongCash.length})`} confirm={`Да се вратат ${wrongCash.length} фактури на добавувач (2200)? Фискалните сметки остануваат во готово.`} showOk />
+      </div>}
       {nKand > 0 && write && <div className="callout info row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <span>{sp.kand === '1' ? <>Прикажани се само скенираните сметки до 10.000 ден. книжени на добавувач (2200). Штиклирајте ги (☑ горе = сите) и „💶 Платено во готово – 1020“.</> : <>🔎 <b>{nKand}</b> скенирани документи до 10.000 ден. се книжени на добавувач (2200) – можеби се фискални сметки платени во готово.</>}</span>
         <Link className="btn sm" href={sp.kand === '1' ? '/vlez' : '/vlez?kand=1'}>{sp.kand === '1' ? '← Сите' : 'Прикажи ги'}</Link>

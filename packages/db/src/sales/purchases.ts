@@ -473,3 +473,19 @@ export async function setPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingC
   }
   return n;
 }
+
+/** Undo of „💶 Платено во готово“: real invoices turned into cash by mistake go back to the supplier (2200), out of the cash nalog. */
+export async function unsetPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingContext>[1], ids: readonly string[], userId: string | null): Promise<number> {
+  let n = 0;
+  for (const id of ids) {
+    const [p] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
+    if (!p || !p.cash || p.status !== 'posted') continue;
+    const d = { ...((p.data ?? {}) as Record<string, unknown>) };
+    if (/^1020\//.test(String(d.nalogNo ?? ''))) delete d.nalogNo;
+    await tx.update(purchases).set({ cash: false, data: d }).where(eq(purchases.id, id));
+    await repostPurchase(tx, f, id, userId);
+    await audit(tx, { userId, firmId: f.id, action: 'purFromCash', entityType: 'purchase', entityId: id, data: { number: p.number } });
+    n++;
+  }
+  return n;
+}
