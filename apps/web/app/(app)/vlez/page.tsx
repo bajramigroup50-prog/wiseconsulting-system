@@ -133,7 +133,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   // a receipt by its read: the read says receipt / „other“, or names no buyer (a fiscal receipt does not; an invoice –
   // water, electricity, a supplier – names this firm as the buyer)
   const scanRead = new Map<string, ScanInvoice>();
-  if (rows.some(({ p }) => p.scanned && !p.cash)) {
+  if (rows.some(({ p }) => p.scanned)) {
     const AD = await db().select({ result: aiDocuments.result, drafts: aiDocuments.drafts }).from(aiDocuments)
       .where(and(eq(aiDocuments.firmId, firm.id), eq(aiDocuments.kind, 'purchase'), inArray(aiDocuments.status, ['done', 'saved'])));
     for (const d of AD) { const I = scanInvoices(d.result as ScanResult | null); d.drafts.forEach((x, i) => { if (x.savedId && I[i]) scanRead.set(x.savedId, I[i]!); }); }
