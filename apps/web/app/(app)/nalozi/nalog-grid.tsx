@@ -163,6 +163,10 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
     const patch = (g: GridRow): GridRow => ({
       ...g, account: l.konto, partnerId: l.partnerId, pcode: pById.get(l.partnerId)?.code ?? '', pname: pById.get(l.partnerId)?.name ?? '',
       debit: Number(l.debit.replace(',', '.')) || 0, credit: Number(l.credit.replace(',', '.')) || 0, doc: l.doc,
+      // „Во девизи“: the foreign amount and its currency are kept with the line (EUR on 2210…)
+      ...(l.cur && l.cur !== 'MKD' && (Number(l.debitCur.replace(',', '.')) || Number(l.creditCur.replace(',', '.')))
+        ? { cur: l.cur, devD: Number(l.debitCur.replace(',', '.')) || 0, devP: Number(l.creditCur.replace(',', '.')) || 0, amountCur: Number(l.debitCur.replace(',', '.')) || Number(l.creditCur.replace(',', '.')) || 0 }
+        : {}),
       note: content === g.jdesc && !g.note ? '' : content,
     });
     let G = R.slice();

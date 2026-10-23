@@ -109,7 +109,7 @@ export interface FastEntryProps {
 }
 
 export function FastEntry(p: FastEntryProps) {
-  const { mode, chart, partners, fx, bank } = p;
+  const { mode, chart, partners, bank } = p;
   const C = useMemo(() => chart.map(([code, name]) => ({ code, name })), [chart]);
   const codes = useMemo(() => new Set(chart.map(([c]) => c)), [chart]);
   const names = useMemo(() => new Map(chart), [chart]);
@@ -122,6 +122,9 @@ export function FastEntry(p: FastEntryProps) {
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  // „💱 Во девизи“ in any nalog (an incoming invoice in EUR on 2210…): on by itself for the foreign supplier / customer kontos
+  const [fxOn, setFxOn] = useState(!!p.initial?.cur && p.initial.cur !== 'MKD');
+  const fx = !!p.fx || fxOn || (!bank && /^(221|121)/.test(l.konto));
   const box = useRef<HTMLDivElement>(null);
   const kontoRef = useRef<HTMLInputElement>(null);
   const set = (x: Partial<FastLine>) => setL((o) => ({ ...o, ...x }));
@@ -256,6 +259,7 @@ export function FastEntry(p: FastEntryProps) {
           {p.showStNo && <label className="f">Извод број<input value={l.stNo} onChange={(e) => set({ stNo: e.target.value })} style={{ width: 90 }} aria-label="Извод број" /></label>}
           <label className="f">Во денари – Должи<input inputMode="decimal" value={l.debit} onChange={(e) => set({ debit: e.target.value })} style={{ textAlign: 'right' }} aria-label="Должи" /></label>
           <label className="f">Побарува<input inputMode="decimal" value={l.credit} onChange={(e) => set({ credit: e.target.value })} style={{ textAlign: 'right' }} aria-label="Побарува" /></label>
+          {!p.fx && !bank && !fx && <button type="button" className="btn sm ghost" style={{ alignSelf: 'end' }} onClick={() => setFxOn(true)}>💱 Во девизи</button>}
           {fx && (
             <>
               <label className="f">Во девизи – Должи<input inputMode="decimal" value={l.debitCur} disabled={p.fxLocked} onChange={(e) => set({ debitCur: e.target.value })} style={{ textAlign: 'right' }} aria-label="Девизи должи" /></label>
