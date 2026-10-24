@@ -187,6 +187,12 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
           const k = G.filter((x) => x.jid === j.id && x.added).indexOf(g);
           const adds = rowsOv.map((o, i) => (o.i == null ? i : -1)).filter((i) => i >= 0);
           if (adds[k] != null) rowsOv[adds[k]!] = { ...rowsOv[adds[k]!]!, account: g.account, debit: g.debit, credit: g.credit, partnerId: g.partnerId || null, note: g.note, doc: g.doc };
+        } else if (g0.head) {
+          // the bank konto of the statement is the sum of several lines: they are replaced by the corrected one
+          const ix = map.get(g0.key) ?? [];
+          if (!ix.length) return 'Банкарското конто не може да се поврзе со корекцијата – користете „✎ Корекција“.';
+          for (const k of ix) rowsOv[k] = { ...rowsOv[k]!, del: true };
+          rowsOv.push({ i: null, account: g.account, debit: g.debit, credit: g.credit, partnerId: g.partnerId || null, note: g.note, doc: g.doc, del: false });
         } else {
           const ix = map.get(g0.key) ?? [];
           if (ix.length !== 1) return 'Ставката не може да се поврзе со корекцијата на документот – користете „✎ Корекција“.';
@@ -216,7 +222,9 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
     if (!g) return;
     setSel(i);
     const j = J.get(g.jid)!;
-    if (g.head) { setMsg({ error: `Конто ${g.account} е банкарското конто на изводот – се книжи автоматски (Σ приливи / Σ одливи). Променете ја ставката на изводот.` }); return; }
+    // the statement's bank konto (Σ приливи / Σ одливи) opens too: a manual correction of the nalog when the read was wrong
+    if (g.head && j.mode !== 'override') { setMsg({ error: `Конто ${g.account} е банкарското конто на изводот – се книжи автоматски (Σ приливи / Σ одливи). Променете ја ставката на изводот.` }); return; }
+    if (g.head) setMsg({ ok: `Рачна корекција на банкарското конто ${g.account} (збир на изводот) – налогот мора да остане изедначен (Д = П).` });
     if (j.mode === 'none') { setMsg({ error: j.why || 'Налогот не може да се менува.' }); return; }
     setMsg(null);
     setFe({ mode: 'edit', jid: g.jid, idx: i });
