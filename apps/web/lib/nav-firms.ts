@@ -19,7 +19,7 @@ const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'kdogovori', [['kdfakturi', '🧾 Месечна фактура за сметководствени услуги']]],
   // new, owner-only: everything about one firm in one report (any firm, not the selected one)
   ['Фирми', 'kdfakturi', [['firmIzv', '🗂 Целосен извештај за фирма']]],
-  ['Материјално', 'uslugi', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
+  ['Материјално', 'efaktura', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // owner-only: „Конта за изводи“ applied to every firm at once (in the „ново“ menu: a tab of Изводи → ⚙ Поставки)
   ['Финансово', 'bankFmt', [['bankSite', '🏦 Конта за изводи – за сите фирми']]],

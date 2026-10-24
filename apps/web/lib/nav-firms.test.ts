@@ -5,9 +5,9 @@ import { routeVerdict } from './route-guard';
 const ids = (g: string) => navFlat(NAV.find(([n]) => n === g)![1]).map(([id]) => id);
 
 describe('firm / office menu items (legacy runtime NAV patches)', () => {
-  it('inserts opomeni and mailhist after uslugi (Влез, Излез, Услуги together), payBatch after plati, firmiResh after firmiImp', () => {
+  it('inserts opomeni and mailhist after the documents (Влез, Излез, Услуги, Профактури, Одобренија, Е-Фактура together), payBatch after plati, firmiResh after firmiImp', () => {
     const m = ids('Материјално');
-    expect(m.slice(m.indexOf('izlez'), m.indexOf('izlez') + 4)).toEqual(['izlez', 'uslugi', 'opomeni', 'mailhist']);
+    expect(m.slice(m.indexOf('izlez'), m.indexOf('izlez') + 8)).toEqual(['izlez', 'uslugi', 'profakturi', 'odobrenija', 'povratDob', 'efaktura', 'opomeni', 'mailhist']);
     const f = ids('Финансово');
     expect(f[f.indexOf('plati') + 1]).toBe('payBatch');
     const fi = ids('Фирми');
