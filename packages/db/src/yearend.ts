@@ -544,8 +544,15 @@ export async function depreciationFor(tx: Tx, firmId: string, year: number): Pro
   return { assets, ...r };
 }
 
+/** The close was built from the year's balances: depreciation can change only after the close is undone. */
+async function assertNotClosed(tx: Tx, firmId: string, year: number): Promise<void> {
+  const c = await closeJournalOf(tx, firmId, year);
+  if (c) throw new PostingError('locked', `Годината ${year} е затворена (налог за затворање ${c.number}) – прво поништете го затворањето.`);
+}
+
 /** Post the depreciation of the year (legacy `runDep` 7239 → journal `dep-YYYY`), one journal per year, re-postable. */
 export async function runDepreciation(tx: Tx, a: Omit<YeActionInput, 'today'>) {
+  await assertNotClosed(tx, a.firmId, a.year);
   const { rows, total } = await depreciationFor(tx, a.firmId, a.year);
   const lines = depEntries(rows);
   if (!total || !lines.length) throw new PostingError('empty', `Нема амортизација за ${a.year} (нема средства или се целосно амортизирани).`);
@@ -560,6 +567,7 @@ export async function runDepreciation(tx: Tx, a: Omit<YeActionInput, 'today'>) {
 }
 
 export async function undoDepreciation(tx: Tx, a: Omit<YeActionInput, 'today'>) {
+  await assertNotClosed(tx, a.firmId, a.year);
   const n = await unpostSource(tx, { firmId: a.firmId, sourceType: YE_SOURCE.dep.type, sourceId: YE_SOURCE.dep.id(a.year), userId: a.userId });
   await tx.delete(depreciationRuns).where(and(eq(depreciationRuns.firmId, a.firmId), eq(depreciationRuns.year, a.year)));
   return n;

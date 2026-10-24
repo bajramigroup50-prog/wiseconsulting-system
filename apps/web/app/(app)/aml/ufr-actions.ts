@@ -19,6 +19,7 @@ import { amlRecords, amlReports, audit, firms } from '@wise/db';
 import { amlGuard, amlScanFirm } from '@/lib/aml';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { isOfficeOwner } from '@/lib/office-owner';
 import { allowedFirms, fdate, fv, isUuid, today } from '@/lib/office';
 
 const err = (e: unknown): ActionState => ({ error: e instanceof Error ? e.message : 'Грешка.' });
@@ -147,7 +148,8 @@ export async function amlUfrSubmit(_p: ActionState, f: FormData): Promise<Action
 export async function amlPurge(id: string, what: 'report' | 'client'): Promise<ActionState> {
   try {
     const u = await amlGuard();
-    if (u.role !== 'admin') return { error: 'Бришење по истекот на рокот може само сопственикот.' };
+    // the office owner, not any admin (FIX: `role === 'admin'` let every administrator delete AML records)
+    if (!(await isOfficeOwner(u))) return { error: 'Бришење по истекот на рокот може само сопственикот.' };
     if (!isUuid(id)) return { error: 'Непознат запис.' };
     const td = today();
     await db().transaction(async (tx) => {

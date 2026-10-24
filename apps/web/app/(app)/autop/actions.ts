@@ -11,23 +11,26 @@ import { requireCan, requireUser } from '@/lib/auth';
 import { currentFirm } from '@/lib/context';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { enqueue } from '@/lib/jobs';
 import { dispatchMail } from '@/lib/mail';
 import { fv, isUuid, officeError } from '@/lib/office';
 import { selectFirm } from '../actions';
 
 /**
  * Legacy `apGo`: run the checks now (the worker also runs them every 6 hours).
- * Runs in-process — every check reads the database only. Office-wide, so `office` without a firm;
- * the run covers all active firms like the scheduled job (legacy limited it to `firmAllowed`, the screen
- * still only shows the user's firms).
+ * FIX: the full run over every active firm (and the client messages it sends) ran inside the web request for any
+ * `office` user: it is an office-wide setting-level action (`office` + `settings`) and is handed to the worker as the
+ * same `autopilot` job as the scheduled run (legacy limited it to `firmAllowed`, the screen still only shows the
+ * user's firms). The list follows when the job has run.
  */
 export async function runNow(): Promise<ActionState> {
   try {
     const u = await requireCan('office');
-    const r = await runAutopilot(db(), { trigger: 'manual', userId: u.id });
-    await dispatchMail(r.mailIds); // messages sent automatically (`apAuto`) by e-mail
+    await requireCan('settings');
+    await enqueue('autopilot', {});
+    await audit(db(), { userId: u.id, firmId: null, action: 'apGo', entityType: 'office', data: { queued: true } });
     revalidatePath('/autop');
-    return { ok: `Проверени ${r.firms} фирми: ${r.findings} наоди (${r.newBad} нови проблеми), ${r.messages} нови пораки.${r.mailIds.length ? ` 🤖 Автопилот: автоматски испратени ${r.mailIds.length} пораки до клиенти.` : ""}` };
+    return { ok: 'Проверката на сите фирми е пуштена во позадина – наодите се освежуваат за неколку минути.' };
   } catch (e) { return officeError(e); }
 }
 

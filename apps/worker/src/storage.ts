@@ -3,7 +3,7 @@
  * objects are written directly with the internal endpoint; rows go into `files` as `ready`.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { files, type DB } from '@wise/db';
 
 export const BUCKET = process.env.S3_BUCKET ?? 'wise-docs';
@@ -30,6 +30,14 @@ export const s3Store: ObjectStore = {
     await s3().send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: mime, ContentLength: body.byteLength }));
   },
 };
+
+/** Delete one object (an S3 delete of a key that was never written is no error). */
+export type ObjectRemover = (key: string) => Promise<void>;
+const defaultRemover: ObjectRemover = async (key) => { await s3().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })); };
+let remover: ObjectRemover = defaultRemover;
+/** Tests: replace the object remover (pass null to reset). */
+export function setObjectRemover(r: ObjectRemover | null): void { remover = r ?? defaultRemover; }
+export const removeObject: ObjectRemover = (key) => remover(key);
 
 /** Upload bytes and register them in `files` (status `ready`). Returns the file id. */
 export async function storeFile(

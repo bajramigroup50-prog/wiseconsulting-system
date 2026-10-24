@@ -3,7 +3,7 @@
  * 8408). Matching: ЕДБ / ЕМБС / bank account, a learned or the same name; new partners get the next
  * numeric code (legacy `save('partners')` auto-code, `nextCode` 3293).
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Tx } from '../audit';
 import { partners } from '../schema/index';
 import { addPartnerAccount, partnerAccountPatch } from '@wise/core/bank/partner-accounts';
@@ -35,6 +35,8 @@ export interface AutoPartnerInput {
  */
 export async function ensurePartner(tx: Tx, firmId: string, p: AutoPartnerInput): Promise<{ id: string; created: boolean; code: string | null }> {
   const name = p.name.trim();
+  // one partner create per firm at a time: concurrent reads never collide on the next code (or a twin card)
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'partner:' + firmId}))`);
   const all = await tx.select({ id: partners.id, name: partners.name, edb: partners.edb, embs: partners.embs, code: partners.code, bankAccount: partners.bankAccount, bankName: partners.bankName, data: partners.data })
     .from(partners).where(eq(partners.firmId, firmId));
   const id = classifyPartnerId(p.edb);

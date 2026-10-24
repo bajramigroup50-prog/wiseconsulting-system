@@ -7,8 +7,8 @@
  *   runs after its commit); otherwise the firm gets a „Прекнижи“ suggestion (`due`), nothing is re-posted.
  * - {@link requestRepost}: „Прекнижи“ on the suggestion (a person confirmed) → a queued run.
  * - {@link runFirmRepost}: the job. ONE transaction per firm: the konto totals of the year before, the existing
- *   re-posting (`repostYear`: invoices, purchases, daily turnover, payroll; each document in its savepoint, a locked
- *   period / closed VAT period / locked payroll is skipped) and the bank statements of the year (`postStatement`,
+ *   re-posting (`repostYear`: invoices, purchases, daily turnover, cash vouchers, supplier credits, payroll; each document in its savepoint, a locked
+ *   period / closed VAT period / locked payroll is skipped) and the bank statements of the year (`postStatement`, each in its savepoint,
  *   a locked period / nalog skipped), the totals after → the differences per konto. Audited `autoRepost`.
  * State per firm in `app_settings` (`repost:<firmId>`): the pending suggestion and the last run with its report.
  */
@@ -20,7 +20,7 @@ import { audit, type Tx } from './audit';
 import { bankKontaAllFirms, statementLockTest } from './bank/konta-all';
 import { loadBankEnv } from './bank/context';
 import { postStatement } from './bank/posting';
-import { repostYear } from './repost';
+import { isRepostLock as isLock, repostYear } from './repost';
 import { appSettings, bankStatements, firms, journalLines, journals } from './schema/index';
 
 export const REPOST_JOB = 'books.repost';
@@ -133,18 +133,22 @@ export async function repostFirmYear(tx: Tx, a: { firmId: string; userId: string
   const before = await kontoTotals(tx, a.firmId, a.year);
   const R = await repostYear(tx, { firmId: a.firmId, userId: a.userId }, a.year);
   const S = await tx.select().from(bankStatements).where(and(eq(bankStatements.firmId, a.firmId), sql`${bankStatements.date} between ${a.year + '-01-01'} and ${a.year + '-12-31'}`)).orderBy(asc(bankStatements.date));
-  let statements = 0, locked = R.locked;
+  let statements = 0, locked = R.locked, failed = R.failed;
+  const errors = [...R.errors];
   if (S.length) {
     const env = await loadBankEnv(tx, a.firmId);
     const lockOf = await statementLockTest(tx, a.firmId);
     for (const st of S) {
       if (lockOf(st)) { locked++; continue; }
-      await postStatement(tx, st.id, a.userId, env);
-      statements++;
+      // each statement in its own savepoint: one failing statement never aborts the firm's run
+      try { await tx.transaction(async (sp) => { await postStatement(sp as unknown as Tx, st.id, a.userId, env); }); statements++; } catch (e) {
+        if (isLock(e)) locked++;
+        else { failed++; if (errors.length < 5) errors.push(`Извод ${st.number ?? ''} (${st.date}): ${e instanceof Error ? e.message : String(e)}`); }
+      }
     }
   }
   const diffs = repostDiffs(before, await kontoTotals(tx, a.firmId, a.year));
-  return { docs: R.n, statements, locked, failed: R.failed, errors: R.errors, diffs };
+  return { docs: R.n, statements, locked, failed, errors, diffs };
 }
 
 /** The worker job: runs the queued run `runId` of the firm (a newer request or a finished run → nothing). */

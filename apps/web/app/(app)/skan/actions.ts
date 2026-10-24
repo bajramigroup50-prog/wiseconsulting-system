@@ -111,10 +111,16 @@ export async function cancelScans(kind: 'sale' | 'purchase', batchId: string | n
 export async function retryScan(id: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('scan');
-    await db().transaction(async (tx) => {
+    const err = await db().transaction(async (tx) => {
+      const [d] = await tx.select({ drafts: aiDocuments.drafts }).from(aiDocuments).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id))).for('update').limit(1);
+      if (!d) return 'Документот не постои.';
+      // a new read replaces the drafts: the links to the saved invoices would be lost
+      if (d.drafts.some((x) => x.savedId)) return 'Дел од фактурите се веќе зачувани.';
       await tx.update(aiDocuments).set({ status: 'queued', error: null, options: sql`(${aiDocuments.options} - 'cancelled' - 'errCode' - 'errDetail') || '{"retry":true}'::jsonb` }).where(and(eq(aiDocuments.id, id), eq(aiDocuments.firmId, firm.id)));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'scanRetry', entityType: 'ai_document', entityId: id });
+      return null;
     });
+    if (err) return { error: err };
     await enqueue(AI_READ_DOCUMENT, { docId: id });
   } catch (e) { return actionError(e); }
   revalidatePath('/skan');

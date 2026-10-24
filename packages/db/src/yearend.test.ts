@@ -11,7 +11,7 @@ import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import {
   afterImportedTbDeleted, clearCrmXml, closeYear, depreciationFor, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear,
-  openNextYear, registerYearEndInputs, runDepreciation, undoClose, undoOpen, unlockYear, upsertStatement, yearEndFindingInputs, yearFindings, YE_SOURCE,
+  openNextYear, registerYearEndInputs, runDepreciation, undoClose, undoDepreciation, undoOpen, unlockYear, upsertStatement, yearEndFindingInputs, yearFindings, YE_SOURCE,
 } from './yearend';
 
 const db = drizzle(new PGlite(), { schema });
@@ -84,6 +84,12 @@ describe('phase gate, close, open, lock', () => {
     expect((after.closing!.db as { taxSource: string }).taxSource).toBe('db');
     const audit = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.firmId, firmId), eq(schema.auditLog.action, 'closeYear')));
     expect(audit).toHaveLength(1);
+  });
+
+  it('depreciation cannot be re-run or undone while the close exists', async () => {
+    expect((await err(db.transaction((tx) => runDepreciation(tx, { firmId, year: 2026, userId: null })))).message).toMatch(/Годината 2026 е затворена.*поништете го затворањето/);
+    expect((await err(db.transaction((tx) => undoDepreciation(tx, { firmId, year: 2026, userId: null })))).code).toBe('locked');
+    expect(await db.select().from(schema.depreciationRuns).where(eq(schema.depreciationRuns.firmId, firmId))).toHaveLength(1);
   });
 
   it('re-computing the close replaces the journal; ДБ non-deductibles change the tax', async () => {

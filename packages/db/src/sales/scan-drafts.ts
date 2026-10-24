@@ -223,10 +223,15 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
   const ctx = await firmPostingContext(db, f);
   const M = await matchData(db, f.id);
   const today = todaySkopje();
-  const used = (await db.select({ n: invoices.number }).from(invoices).where(and(eq(invoices.firmId, f.id), eq(invoices.kind, 'invoice'),
-    sql`extract(year from ${invoices.date}) = ${Number(today.slice(0, 4))}`))).map((x) => x.n);
+  // the firm's invoice numbers per year: a read invoice is a duplicate only in its own year (the series restarts yearly)
+  const byYear = new Map<string, Set<string>>();
+  for (const x of await db.select({ n: invoices.number, d: invoices.date }).from(invoices).where(and(eq(invoices.firmId, f.id), eq(invoices.kind, 'invoice')))) {
+    const y = String(x.d).slice(0, 4);
+    byYear.set(y, (byYear.get(y) ?? new Set()).add(String(x.n).trim()));
+  }
+  const used = [...(byYear.get(today.slice(0, 4)) ?? [])];
+  const seen = new Set<string>();
   const out: AiDraft[] = [];
-  const baseUsed = used.length;
   const fm =(v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const tracksStock = M.items.some((i) => i.type !== 'service');
   for (const x of scanInvoices(mergeAttachedInvoices(r))) {
@@ -242,8 +247,10 @@ export async function saleDrafts(db: Tx, f: Firm, r: ScanResult, o: DraftOpts = 
     }
     // legacy `outCheck` (8402): existing number → „веќе внесена“; a new buyer alone does not block „спремна“
     const why: string[] = [];
-    const dup = used.some((u) => String(u).trim() === d.number.trim());
-    const before = used.slice(0, baseUsed).some((u) => String(u).trim() === d.number.trim());
+    const yr = /^\d{4}-/.test(String(d.date ?? '')) ? d.date.slice(0, 4) : today.slice(0, 4);
+    const before = !!byYear.get(yr)?.has(d.number.trim());
+    const dup = before || seen.has(yr + '|' + d.number.trim());
+    seen.add(yr + '|' + d.number.trim());
     if (dup) why.push(before ? 'бројот ' + d.number + ' веќе постои – прескокната' : 'бројот ' + d.number + ' се појавува двапати во документот – прескокната');
     // several invoices read as one with a range of numbers („101-103“): never ready to save as one document
     if (numberRange(d.number)) why.push(`бројот „${d.number}“ е опсег – можеби се повеќе фактури; прочитајте подетално или поделете го документот`);

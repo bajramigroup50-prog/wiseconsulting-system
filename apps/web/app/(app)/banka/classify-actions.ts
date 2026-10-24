@@ -4,7 +4,8 @@
  * classified by AI — an open document they settle or a counter konto, with a short reason („автоматски – провери“).
  * The read is the worker job (kind `bankcls`, prompt verbatim); the proposals are reviewed and applied here.
  */
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { BKPK_RE } from '@wise/core';
 import { bankClassifyLists } from '@wise/core/bank/parity';
 import { aiBudgetStatus, audit, bankLines, linkLine, setLineKonto } from '@wise/db';
 import { bankClassifyProposals, classifyInput } from './classify';
@@ -54,7 +55,11 @@ export async function applyBankClassifyAction(_p: FormState, form: FormData): Pr
     let n = 0;
     for (const r of L) {
       if (r.ref) await linkLine(tx, { firmId: firm.id, userId: u.id, year, lineId: r.id, docIds: [r.ref.id] });
-      else if (r.konto) await setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId: r.id, konto: r.konto, learn: false });
+      else if (r.konto) {
+        // FIX: the line's partner is kept on a partner konto (12x / 22x) — the AI proposes only the konto
+        const [cur] = BKPK_RE.test(r.konto) ? await tx.select({ partnerId: bankLines.partnerId }).from(bankLines).where(and(eq(bankLines.id, r.id), eq(bankLines.firmId, firm.id))).limit(1) : [];
+        await setLineKonto(tx, { firmId: firm.id, userId: u.id, lineId: r.id, konto: r.konto, partnerId: cur?.partnerId ?? null, learn: false });
+      }
       else continue;
       await tx.update(bankLines).set({ auto: 'ai', data: sql`${bankLines.data} || ${JSON.stringify({ ai: r.reason })}::jsonb` }).where(eq(bankLines.id, r.id));
       n++;

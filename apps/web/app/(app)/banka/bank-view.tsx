@@ -5,11 +5,11 @@
  */
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { BKPK_RE, bankEffKonto, bankName, feeFix, BANKS_MK, bankCodeOf, noPartnerLine, openDocsFor, unlinkedPayments, wrongSideWarning } from '@wise/core';
+import { BKPK_RE, bankEffKonto, bankName, BANKS_MK, bankCodeOf, noPartnerLine, openDocsFor, unlinkedPayments, wrongSideWarning } from '@wise/core';
 import { sameRefKey, transitOpen, transitResidueLabel } from '@wise/core/bank/parity';
 import { findPartnerMatch } from '@wise/core/partners/match';
 import {
-  bankLines, bankPartnerFixPlan, bankRules, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
+  bankLines, bankPartnerFixPlan, bankRules, feeFixPlan, lockedStatements, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
   loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
   statementSuggestions, type LineSuggestion, bankReadsNotImported,
 } from '@wise/db';
@@ -125,9 +125,11 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   const byStatement = new Map<string, BankLine[]>();
   for (const l of L) (byStatement.get(l.statementId) ?? byStatement.set(l.statementId, []).get(l.statementId)!).push(l);
   const acctOf = new Map(all.map((a) => [a.id, a]));
-  // legacy 12407: the count is over the whole year (the action fixes the whole year)
-  const fees = write ? feeFix(ctx.rows.filter((r) => BK.some((b) => b.id === r.acct)), year).length : 0;
-  const unnumbered = S.some((s) => !s.number);
+  // legacy 12407: the count is over the whole year (the action fixes the whole year); statements in a locked period are
+  // skipped by the year-wide buttons, so they are not counted (nor offer „Нумерирај изводи“)
+  const fees = write ? (await db().transaction((tx) => feeFixPlan(tx, firm.id, year))).fix.filter((r) => BK.some((b) => b.id === r.acct)).length : 0;
+  const noNo = S.filter((s) => !s.number && s.date.startsWith(String(year)));
+  const unnumbered = write && noNo.length > 0 && (await db().transaction((tx) => lockedStatements(tx, firm.id, noNo))).size < noNo.length;
   const nOpen = L.filter((l) => lineProblem(l, fx)).length;
   // counter-konto suggestions of the unbooked lines (payment code, rules, invoices, partners) — one click posts them
   const openSt = [...new Set(L.filter((l) => lineProblem(l, fx)).map((l) => l.statementId))];

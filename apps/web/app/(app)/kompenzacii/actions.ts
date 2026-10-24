@@ -2,7 +2,7 @@
 /** Legacy ACT `kompSave` / `kompDel` (8964–8970). */
 import { redirect } from 'next/navigation';
 import { deleteCompensation, saveCompensation } from '@wise/db';
-import { bankRun, isDate, num, str } from '@/lib/bank';
+import { amt, badAmt, bankRun, isDate, str } from '@/lib/bank';
 import type { FormState } from '@/components/bank-form';
 
 const P = ['/kompenzacii', '/nalozi'];
@@ -11,7 +11,10 @@ export async function saveKompAction(_p: FormState, form: FormData): Promise<For
   const date = str(form.get('date'));
   if (!isDate(date)) return { error: 'Внесете датум.' };
   const amounts: Record<string, number> = {};
-  for (const [k, v] of form.entries()) if (k.startsWith('amt:')) { const n = num(v); if (n) amounts[k.slice(4)] = n; }
+  const bad: string[] = [];
+  for (const [k, v] of form.entries()) if (k.startsWith('amt:')) { if (badAmt(v)) { bad.push(String(form.get('doc:' + k.slice(4)) || v)); continue; } const n = amt(v); if (n) amounts[k.slice(4)] = n; }
+  // FIX: an amount that cannot be read is an error (it was skipped silently)
+  if (bad.length) return { error: 'Неважечки износ: ' + bad.join(', ') };
   // legacy `kompSave` 8964–8967 checks (the service checks them again against the open items)
   if (!Object.keys(amounts).length) return { error: 'Внесете износи за компензирање.' };
   const side = (k: string) => String(form.get('side:' + k) ?? '');

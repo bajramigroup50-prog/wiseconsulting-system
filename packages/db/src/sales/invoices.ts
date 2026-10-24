@@ -15,7 +15,7 @@ import {
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
 import { invoiceLineKonto } from '@wise/core/scheme-profiles';
-import { checkCredit, invoiceTotals, isDraftNo, nextDocNumber, nextDraftNo, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
+import { checkCredit, invoiceTotals, isDraftNo, isOwnParty, nextDocNumber, nextDraftNo, VALID_LINE_RATES, type DocKind } from '@wise/core/sales';
 import { assertInvoiceNalog } from './invoice-nalog';
 import { releaseScanDrafts } from './ai-docs';
 import { blockingIssues, deletionVerdict, invoiceLegalIssues, isLastInSeries, numberGapWarning } from '@wise/core/compliance';
@@ -262,7 +262,7 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
       ...(SP.no > 1 ? { meta: { scheme: SP.no } } : {}),
     });
   } else await unpostSource(tx, { firmId: f.id, sourceType: 'invoice', sourceId: inv.id, userId });
-  const fromDispatch = inv.fromDocId ? (await tx.select({ k: invoices.kind }).from(invoices).where(eq(invoices.id, inv.fromDocId)).limit(1))[0]?.k === 'dispatch' : false;
+  const fromDispatch = inv.fromDocId ? (await tx.select({ k: invoices.kind }).from(invoices).where(and(eq(invoices.id, inv.fromDocId), eq(invoices.firmId, f.id))).limit(1))[0]?.k === 'dispatch' : false;
   const S = inv.kind === 'proforma' || fromDispatch ? { moves: [], warnings: [] } : await stockFor(tx, inv, L, ref, SP.profile?.sch);
   await replaceSourceMoves(tx, {
     firmId: f.id, sourceType: stockSource(inv.kind), sourceId: inv.id, moves: S.moves, date: inv.date, userId, partnerId: inv.partnerId,
@@ -292,8 +292,21 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   if (!input.partnerId) throw new DocumentError('Изберете купувач.');
   const [p] = await tx.select().from(partners).where(and(eq(partners.id, input.partnerId), eq(partners.firmId, firmId))).limit(1);
   if (!p) throw new DocumentError('Купувачот не постои во оваа фирма.');
+  // the firm is never its own buyer (a partner card made for the firm itself)
+  if (isOwnParty(p.name, p.edb, f.edb, f.name)) throw new DocumentError('Купувачот е оваа фирма – фирмата не продава на себе (ова е влезна фактура).');
   await assertLocation(tx, firmId, input.warehouseId ?? null);
   const warnings: string[] = [];
+  // the dispatch note / proforma it is made from (a new link): of this firm, and not invoiced already by another invoice
+  const fromDocId = input.fromDocId || existing?.fromDocId || null;
+  if (fromDocId && fromDocId !== existing?.fromDocId) {
+    const [src] = await tx.select({ kind: invoices.kind, number: invoices.number, invoicedId: invoices.invoicedId }).from(invoices)
+      .where(and(eq(invoices.id, fromDocId), eq(invoices.firmId, firmId))).limit(1);
+    if (!src || (src.kind !== 'dispatch' && src.kind !== 'proforma')) throw new DocumentError('Испратницата / профактурата не е најдена.');
+    if (kind === 'invoice' && src.invoicedId && src.invoicedId !== existing?.id) {
+      const [o] = await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.id, src.invoicedId)).limit(1);
+      throw new DocumentError(`${src.kind === 'dispatch' ? 'Испратницата' : 'Профактурата'} ${src.number} е веќе фактурирана${o ? ' со фактура ' + o.n : ''}.`);
+    }
+  }
 
   const status = kind === 'proforma' || (kind === 'invoice' && input.draft) ? 'draft' : pendingFor(actor) ? 'pending' : 'posted';
   /** An unissued draft invoice (header first, lines later): no lines required, provisional number. */
@@ -390,7 +403,7 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
     partnerId: input.partnerId, warehouseId: input.warehouseId || null, art32, advance: kind === 'invoice' && !!input.advance, export: isExport,
     svc: !!input.svc, currency, fx: String(fx), refInvoiceId: kind === 'credit' ? input.refInvoiceId! : null,
     creditKind: kind === 'credit' ? input.creditKind ?? 'price' : null, creditGross: kind === 'credit' && input.creditGross ? r2(n(input.creditGross)).toFixed(2) : null,
-    fromDocId: input.fromDocId || existing?.fromDocId || null, note: input.note?.trim() || null, scanned: !!input.scanned || !!existing?.scanned,
+    fromDocId, note: input.note?.trim() || null, scanned: !!input.scanned || !!existing?.scanned,
     base: T.base.toFixed(2), vat: T.vat.toFixed(2), total: T.total.toFixed(2), data: await docSchemeData(tx, firmId, input.partnerId, input.data, ctx), updatedBy: actor.userId,
   } satisfies Partial<typeof invoices.$inferInsert>;
 
@@ -432,7 +445,8 @@ export async function saveInvoice(tx: Tx, firmId: string, input: InvoiceInput, a
   if (blk.length) warnings.push(`⚖ Фактурата не ги содржи сите задолжителни елементи (ЗДДВ чл. 53) – не може да се испрати додека не се дополни: ${blk.map((i) => i.text).join(' ')}`);
 
   if (inv.fromDocId && kind === 'invoice') {
-    await tx.update(invoices).set({ invoicedId: inv.id }).where(and(eq(invoices.id, inv.fromDocId), eq(invoices.firmId, firmId)));
+    // never taken over from another invoice
+    await tx.update(invoices).set({ invoicedId: inv.id }).where(and(eq(invoices.id, inv.fromDocId), eq(invoices.firmId, firmId), or(sql`${invoices.invoicedId} is null`, eq(invoices.invoicedId, inv.id))));
   }
   await audit(tx, {
     userId: actor.userId, firmId, action: existing ? 'editInv' : 'saveInv', entityType: 'invoice', entityId: inv.id,
@@ -554,6 +568,8 @@ export const EXEMPT_NOTE_DEFAULT: Record<'ded' | 'noded', string> = {
 export async function markInvoicesVat(tx: Tx, firmId: string, ids: readonly string[], mode: VatMarkMode, actor: DocActor, opts: { note?: string } = {}): Promise<VatMarkResult> {
   if (pendingFor(actor)) throw new DocumentError('Немате право да ги менувате издадените фактури.');
   const f = await loadFirmForUpdate(tx, firmId);
+  // art. 32-a / exempt supplies are VAT marks: never on the invoices of a firm that is not a VAT payer
+  if (!f.vatRegistered) throw new DocumentError('Фирмата не е ДДВ обврзник – фактурите не се означуваат за ДДВ.');
   const out: VatMarkResult = { changed: [], skipped: [] };
   const I = ids.length ? await tx.select().from(invoices).where(and(eq(invoices.firmId, firmId), inArray(invoices.id, [...ids]))).orderBy(asc(invoices.date), asc(invoices.number)) : [];
   const note = mode === 'art32' ? '' : String(opts.note ?? '').trim().slice(0, 500) || EXEMPT_NOTE_DEFAULT[mode];

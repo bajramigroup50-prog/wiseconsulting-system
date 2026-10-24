@@ -18,6 +18,7 @@ import { effectiveChart, loadLedgerLines } from '../ledger-queries';
 import { bankAccounts, bankLines, bankRules, bankStatements, partners, type BankLine, type BankStatement } from '../schema/index';
 import { autoBankKonto, BankError, cents, dec, den, loadBankAccounts, loadBankEnv, loadFirm, loadFxSources, markKontoManual, syncFirmBanks } from './context';
 
+import { lockedStatements, type LockedStatement } from './konta-all';
 import { BANK_SOURCE_TYPE } from './open-items';
 import { assertStatementOpen, postStatement, postStatements, repostAccountStatements, type AccountRepost } from './posting';
 import { toBankRow, UNBOOKED } from './rows';
@@ -275,14 +276,22 @@ export async function addManualLine(tx: Tx, a: {
   return l!.id;
 }
 
-/** Legacy `numIzv`: give every statement of the year without a number the next free number of its account. */
-export async function numberStatements(tx: Tx, a: { firmId: string; userId: string | null; year: number }): Promise<number> {
+/**
+ * Legacy `numIzv`: give every statement of the year without a number the next free number of its account.
+ * FIX: a statement in a locked period / with a locked nalog is skipped (listed in `a.report.skipped`) instead of the
+ * whole button failing.
+ */
+export async function numberStatements(tx: Tx, a: { firmId: string; userId: string | null; year: number; report?: { skipped?: LockedStatement[] } }): Promise<number> {
   const A = await loadBankAccounts(tx, a.firmId);
   let n = 0;
+  const skipped: LockedStatement[] = [];
   for (const acct of A) {
     const S = await tx.select().from(bankStatements).where(eq(bankStatements.bankAccountId, acct.id)).orderBy(asc(bankStatements.date));
     const cur = Object.fromEntries(S.filter((s) => s.number).map((s) => [statementKey(acct.id, s.date), s.number!]));
-    for (const s of S.filter((s) => !s.number && s.date.startsWith(String(a.year)))) {
+    const todo = S.filter((s) => !s.number && s.date.startsWith(String(a.year)));
+    const locked = await lockedStatements(tx, a.firmId, todo);
+    skipped.push(...locked.values());
+    for (const s of todo.filter((x) => !locked.has(x.id))) {
       const add = assignStatementNumbers(cur, acct.id, [s.date]);
       Object.assign(cur, add);
       await tx.update(bankStatements).set({ number: Object.values(add)[0] }).where(eq(bankStatements.id, s.id));
@@ -290,7 +299,8 @@ export async function numberStatements(tx: Tx, a: { firmId: string; userId: stri
       n++;
     }
   }
-  if (n) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'numIzv', entityType: 'bank_statement', data: { year: a.year, numbered: n } });
+  if (a.report) a.report.skipped = skipped;
+  if (n) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'numIzv', entityType: 'bank_statement', data: { year: a.year, numbered: n, ...(skipped.length ? { skipped: skipped.length } : {}) } });
   return n;
 }
 
@@ -319,21 +329,37 @@ export async function removeRule(tx: Tx, a: { firmId: string; userId: string | n
   if (r) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'rmRule', entityType: 'bank_rule', entityId: r.id, data: { match: r.match, konto: r.konto, kind: r.kind } });
 }
 
-/** Legacy ACT `feeFix` (FIX 4.4 #2): bank fees booked on 2200 / 4400 without a document → fee konto (4460). */
-export async function applyFeeFix(tx: Tx, a: { firmId: string; userId: string | null; year: number }): Promise<number> {
-  const env = await loadBankEnv(tx, a.firmId);
-  const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, a.firmId), sql`${bankLines.date} between ${a.year + '-01-01'} and ${a.year + '-12-31'}`));
-  const fix = feeFix(L.map(toBankRow), a.year, env.konta);
+/**
+ * Lines `feeFix` would move to the fee konto, without the statements in a locked period / with a locked nalog
+ * (listed in `o.skipped`) — the count on „Прекнижи на 4460“.
+ */
+export async function feeFixPlan(tx: Tx, firmId: string, year: number, o: { skipped?: LockedStatement[] } = {}) {
+  const env = await loadBankEnv(tx, firmId);
+  const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
+  const fix = feeFix(L.map(toBankRow), year, env.konta);
+  const stOf = new Map(L.map((l) => [l.id, l.statementId]));
+  const ids = [...new Set(fix.map((r) => stOf.get(r.id)!))];
+  const S = ids.length ? await tx.select({ id: bankStatements.id, date: bankStatements.date, number: bankStatements.number }).from(bankStatements).where(inArray(bankStatements.id, ids)) : [];
+  const locked = await lockedStatements(tx, firmId, S);
+  if (o.skipped) o.skipped.push(...locked.values());
+  return { env, fix: fix.filter((r) => !locked.has(stOf.get(r.id)!)).map((r) => ({ ...r, statementId: stOf.get(r.id)! })) };
+}
+
+/**
+ * Legacy ACT `feeFix` (FIX 4.4 #2): bank fees booked on 2200 / 4400 without a document → fee konto (4460).
+ * FIX: statements in a locked period are skipped (listed in `a.report.skipped`) instead of the whole year failing.
+ */
+export async function applyFeeFix(tx: Tx, a: { firmId: string; userId: string | null; year: number; report?: { skipped?: LockedStatement[] } }): Promise<number> {
+  const skipped: LockedStatement[] = [];
+  const { env, fix } = await feeFixPlan(tx, a.firmId, a.year, { skipped });
+  if (a.report) a.report.skipped = skipped;
   const st = new Set<string>();
   for (const r of fix) {
-    const l = L.find((x) => x.id === r.id)!;
-    const [s] = await tx.select().from(bankStatements).where(eq(bankStatements.id, l.statementId)).limit(1);
-    await assertStatementOpen(tx, s!);
     await tx.update(bankLines).set({ konto: r.konto!, partnerId: null, auto: 'fee' }).where(eq(bankLines.id, r.id));
-    st.add(l.statementId);
+    st.add(r.statementId);
   }
   await postStatements(tx, st, a.userId, env);
-  if (fix.length) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'feeFix', entityType: 'bank_lines', data: { lines: fix.length } });
+  if (fix.length) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'feeFix', entityType: 'bank_lines', data: { lines: fix.length, ...(skipped.length ? { skipped: skipped.length } : {}) } });
   return fix.length;
 }
 

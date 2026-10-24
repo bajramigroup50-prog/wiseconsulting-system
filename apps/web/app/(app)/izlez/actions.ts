@@ -242,6 +242,8 @@ export async function markInvoicesVatAction(ids: string[], mode: 'art32' | 'ded'
     const m = mode === 'art32' || mode === 'ded' || mode === 'noded' ? mode : null;
     if (!m) return { error: 'Непознат вид.' };
     const { u, firm } = await firmAction(m === 'art32' ? 'vatMark32' : 'vatMarkExempt');
+    // art. 32-a / exempt supplies are VAT marks: a firm that is not a VAT payer has none
+    if (!firm.vatRegistered) return { error: 'Фирмата не е ДДВ обврзник – фактурите не се означуваат за ДДВ.' };
     const L = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 2000);
     if (!L.length) return { error: 'Изберете фактури (кутичката лево).' };
     const r = await db().transaction((tx) => markInvoicesVat(tx, firm.id, L, m, actorOf(u), { note: String(note ?? '').slice(0, 500) }));

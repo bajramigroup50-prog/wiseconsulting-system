@@ -5,10 +5,11 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { pddCalc, pddEntries, pddKontaOfGroup, pddTotal, pddTypes, type PddRow, type PddType } from '@wise/core/finance';
-import { audit, ensurePartner, firms, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
+import { audit, ensurePartner, firms, journalLines, journals, partners, pddPayments, postJournal, unpostSource, type PddPaymentRow } from '@wise/db';
 import { parseAkontativna, type AkontRow } from '@wise/core/pdd-akont';
+import { akontMismatch } from './akont-check';
 import { pdfTextItems } from '@/lib/pdf-text';
 import { recheckFirmLater } from '@/lib/jobs';
 import { latToCyr } from '@wise/core/text/cyr';
@@ -114,13 +115,25 @@ async function recipientPartner(firmId: string, find: (embg: string | null | und
   });
 }
 
-/** „🔗 Поврзи ги примачите“: recipients of the year's payments without a partner → matched again (ЕМБГ / name), re-booked. */
+/**
+ * „🔗 Поврзи ги примачите“: recipients of the year's payments without a partner → matched again (ЕМБГ / name), re-booked
+ * when a partner was linked or the booking lacks a person's partner on its lines (older bookings had none). Every
+ * payment on its own: an error is collected and the next one goes on.
+ */
 export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<ActionState> {
   let n = 0, left = 0;
+  const errors: string[] = [];
   try {
     const { firm, year } = await firmAction('pddSave');
+    const T = typesOf(firm.settings);
     const pidOf = await partnerMatcher(firm.id);
     const L = await db().select().from(pddPayments).where(and(eq(pddPayments.firmId, firm.id), sql`${pddPayments.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
+    // konto|partner of the booked lines that carry a partner, per payment
+    const J = L.length ? await db().select({ id: journals.sourceId, k: journalLines.account, pid: journalLines.partnerId }).from(journalLines)
+      .innerJoin(journals, eq(journals.id, journalLines.journalId))
+      .where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'pdd'), inArray(journals.sourceId, L.map((d) => d.id)))) : [];
+    const booked = new Map<string, Set<string>>();
+    for (const j of J) if (j.id && j.pid) (booked.get(j.id) ?? booked.set(j.id, new Set()).get(j.id)!).add(`${j.k}|${j.pid}`);
     for (const d of L) {
       let changed = false;
       const rows: PddRow[] = [];
@@ -130,15 +143,18 @@ export async function relinkPddAction(_p: ActionState, _f: FormData): Promise<Ac
         if (pid) changed = true; else left++;
         return { tid: r.tid, mode: r.mode, amt: r.amt, name: r.name, embg: r.embg, acct: r.acct, pid };
       })());
-      // also re-booked when nothing new was linked: the ПДД lines get the person as partner too (older bookings had none)
-      if (!changed && !rows.some((r) => r.pid)) continue;
+      // also re-booked when nothing new was linked but a line of the booking still lacks the person's partner
+      const has = booked.get(d.id) ?? new Set<string>();
+      const missing = pddEntries(rows, T).some((l) => l.partnerId && !has.has(`${l.account}|${l.partnerId}`));
+      if (!changed && !missing) continue;
       const res = await persistPdd({ id: d.id, date: d.date, note: d.note ?? '', rows });
-      if ('error' in res) return res;
+      if ('error' in res) { errors.push(`${d.date.split('-').reverse().join('.')}${d.note ? ' ' + d.note : ''}: ${res.error}`); continue; }
       n++;
     }
   } catch (e) { return actionError(e); }
   revalidatePath('/pdd');
-  return { ok: `Прекнижени ${n} пресметки (комитент и на обврската и на ПДД).${left ? ` ${left} примачи и понатаму без комитент – отворете ја пресметката и изберете го комитентот (друго име во изводот).` : ''}` };
+  const msg = `Прекнижени ${n} пресметки (комитент и на обврската и на ПДД).${left ? ` ${left} примачи и понатаму без комитент – отворете ја пресметката и изберете го комитентот (друго име во изводот).` : ''}`;
+  return errors.length ? { error: `${msg} Не се прекнижани ${errors.length}: ${errors.join('; ')}.` } : { ok: msg };
 }
 
 /**
@@ -166,7 +182,7 @@ export async function importAkontAction(_p: ActionState, f: FormData): Promise<A
       if (A.number && seen.has(A.number)) { skip.push(file.name); continue; }
       // the types: the firm's, plus one for every new income code of this PDF (its name, rates and group konta)
       const [fr] = await db().select({ settings: firms.settings }).from(firms).where(eq(firms.id, firm.id));
-      let T = typesOf(fr?.settings);
+      const T = typesOf(fr?.settings);
       const add: PddType[] = [];
       for (const r of A.rows) {
         if (forced && T.some((t) => t.id === forced)) break;
@@ -178,18 +194,21 @@ export async function importAkontAction(_p: ActionState, f: FormData): Promise<A
           ded: r.gross ? Math.round((r.ded / r.gross) * 100) : 0, tax: base ? Math.round((r.tax / base) * 100) : 10, ...k });
       }
       if (bad.some((b) => b.startsWith(file.name + ':'))) continue;
+      const TT = [...T, ...add];
+      const tids = A.rows.map((r) => (TT.find((t) => forced && t.id === forced) ?? TT.find((t) => r.code && t.pod.startsWith(r.code + '.')) ?? TT.find((t) => t.id === 's1_15') ?? TT[0]!).id);
+      // the amounts by the type's rates must be the PDF's (else a wrong „Вид“ would book other tax / net)
+      const off = akontMismatch(A.rows, tids, TT);
+      if (off.length) { bad.push(`${file.name}: износите не се совпаѓаат со PDF-от (${off.join('; ')}) – изберете го точниот „Вид“`); continue; }
       if (add.length) {
         await db().transaction(async (tx) => {
           const [x] = await tx.select({ settings: firms.settings }).from(firms).where(eq(firms.id, firm.id)).for('update');
           const S = (x?.settings ?? {}) as { pddTypes?: Partial<PddType>[] };
           await tx.update(firms).set({ settings: { ...S, pddTypes: [...(S.pddTypes ?? []), ...add] } }).where(eq(firms.id, firm.id));
         });
-        T = [...T, ...add];
       }
       const rows: PddRow[] = [];
-      for (const r of A.rows) rows.push({
-        tid: (T.find((t) => forced && t.id === forced) ?? T.find((t) => r.code && t.pod.startsWith(r.code + '.')) ?? T.find((t) => t.id === 's1_15') ?? T[0]!).id,
-        mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: await recipientPartner(firm.id, pidOf, r),
+      for (const [i, r] of A.rows.entries()) rows.push({
+        tid: tids[i]!, mode: 'g', amt: r.gross, name: r.name, embg: r.embg, acct: r.acct, pid: await recipientPartner(firm.id, pidOf, r),
       });
       const res = await persistPdd({ date: A.date || A.payDate, note: `Аконтативна пресметка бр. ${A.number}${A.payDate ? ' · плаќање до ' + A.payDate.split('-').reverse().join('.') : ''}`, rows });
       if ('error' in res) { bad.push(`${file.name}: ${res.error}`); continue; }

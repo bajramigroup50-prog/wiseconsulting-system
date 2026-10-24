@@ -33,6 +33,7 @@ export async function bankRun(action: string, paths: string[], fn: (c: BankCtx) 
   return { ok: msg || 'Зачувано.' };
 }
 
+/** A number typed in a form (rates, quantities: „61.495“ stays 61.495; „1.234,56“ / „12,5“ / „1,234.56“). Amounts: `amt`. */
 export const num = (v: FormDataEntryValue | null): number | null => {
   const s = String(v ?? '').trim().replace(/\s/g, '');
   if (!s) return null;
@@ -40,6 +41,17 @@ export const num = (v: FormDataEntryValue | null): number | null => {
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 };
+/**
+ * An amount in denars / currency typed in a form. FIX: dots grouping thousands („12.000“ = 12000, „1.234.567“,
+ * „1.234.567,5“ — `num` read 12 / nothing) are thousands separators; „12.5“ / „12,5“ / „1,234.56“ stay as `num`.
+ * Not a number → null (`badAmt` tells a typed but unreadable value from an empty one).
+ */
+export const amt = (v: FormDataEntryValue | null): number | null => {
+  const s = String(v ?? '').trim().replace(/\s/g, '');
+  return /^[-+]?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s) ? Number(s.replace(/\./g, '').replace(',', '.')) : num(s);
+};
+/** A value was typed but it is not an amount (the caller returns an error instead of skipping it). */
+export const badAmt = (v: FormDataEntryValue | null): boolean => String(v ?? '').trim() !== '' && amt(v) == null;
 export const str = (v: FormDataEntryValue | null): string => String(v ?? '').trim();
 export const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 

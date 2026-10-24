@@ -10,18 +10,19 @@ import {
   calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, nalogNumber, priceAt, retailOn, retailPrice, roundPurchase, schemeValue, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
-import { findDuplicate, purchaseTotal } from '@wise/core/sales';
+import { findDuplicate, isOwnParty, purchaseTotal } from '@wise/core/sales';
 import { docKontoRemap, PURCHASE_KONTO_KEYS } from '@wise/core/scheme-profiles';
 import { audit, type Tx } from '../audit';
 import { firmNalogSettings, postJournal, unpostSource } from '../posting';
 import {
   fileLinks, files, firms, itemBarcodes, journals, items, itemSupplierCodes, partners, purchaseCosts, purchases, purchaseStockLines, purchaseVatGroups,
-  supplierCredits, type Firm, type Purchase, type PurchaseData,
+  stockMoves, supplierCredits, type Firm, type Purchase, type PurchaseData,
 } from '../schema/index';
 import {
   assertLocation, docSchemeData, DocumentError, firmItems, firmPostingContext, loadFirmForUpdate, pendingFor, pickScheme, stockLocations, type DocActor,
 } from './context';
-import { loadStockContext, removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
+import { loadStockContext, locationWhere, removeSourceMoves, replaceSourceMoves, toStockItem } from '../stock-service';
+import { documentPayments } from '../bank/open-items';
 import { deleteTransfer, saveLevelling } from '../stock-docs';
 import { dependentLabel, dependentTransfers } from '../transfer-links';
 import { ensurePartner } from './partners-auto';
@@ -219,6 +220,55 @@ export async function fileAlreadyUsed(tx: Tx, firmId: string, fileIds: readonly 
   return hit ?? null;
 }
 
+const OWN_SUPPLIER_MSG = 'Добавувачот е оваа фирма – фирмата не купува од себе (ова е излезна фактура).';
+
+/**
+ * New sale prices of a posted purchase (legacy `applySalePrices` 4398 / `salePriceUpdates` 4393): a store's retail
+ * price per item (with a levelling for the earlier stock when it changed), else the item's sale price. Called after
+ * the purchase is posted – at save, or at the approval of a pending one.
+ */
+async function applyPurchasePrices(tx: Tx, firmId: string, pur: Pick<Purchase, 'date' | 'warehouseId' | 'calcNo' | 'number'>,
+  stock: readonly { itemId?: string | null; qty: number | string; sp?: number | string | null }[], userId: string | null): Promise<void> {
+  const S = stock.filter((s) => s.itemId && !empty(s.sp) && n(s.sp) > 0);
+  if (!S.length) return;
+  const W = pur.warehouseId || null;
+  const store = !!W && (await stockLocations(tx, firmId)).find((l) => l.id === W)?.kind === 'store';
+  const IT = await firmItems(tx, firmId, S.map((s) => s.itemId!));
+  // store retail prices and stock before this purchase changes the prices
+  const storeCtx = store ? (await loadStockContext(tx, firmId)).ctx : null;
+  const level: { item: string; qty: number; old: number; sp: number }[] = [];
+  for (const s of S) {
+    const it = IT.get(s.itemId!);
+    if (!it) continue;
+    if (store) {
+      const ci = storeCtx?.items?.find((x) => x.id === it.id);
+      if (storeCtx && ci && !level.some((l) => l.item === it.id)) {
+        const old = retailPrice(ci, W!);
+        // the stock that was in the store before this receipt is re-priced: stock at the date − received qty
+        if (Math.abs(old - n(s.sp)) >= 0.005) {
+          const recv = stock.filter((x) => x.itemId === it.id).reduce((a, x) => a + n(x.qty), 0);
+          level.push({ item: it.id, qty: r2(stockAt(storeCtx, { item: it.id, wh: W!, date: pur.date }).qty - recv), old, sp: n(s.sp) });
+        }
+      }
+      const [cur] = await tx.select({ data: items.data }).from(items).where(eq(items.id, it.id)).limit(1);
+      const d = (cur?.data ?? it.data ?? {}) as Record<string, unknown>;
+      await tx.update(items).set({ data: { ...d, sp: { ...((d.sp as Record<string, unknown>) ?? {}), [W!]: n(s.sp) } } }).where(eq(items.id, it.id));
+    } else {
+      await tx.update(items).set({ price: n4(n(s.sp) / (1 + it.vatRate / 100)) }).where(eq(items.id, it.id));
+    }
+  }
+  // a changed retail price in a store creates a levelling (нивелација) for the earlier stock
+  // (lines with no earlier stock are skipped, as in legacy)
+  const lv = level.filter((l) => l.qty > 0);
+  if (lv.length) {
+    await saveLevelling(tx, { firmId, userId }, {
+      date: pur.date, wh: W, today: todaySkopje(), note: 'од калкулација ' + (pur.calcNo || pur.number || ''),
+      prices: Object.fromEntries(lv.map((l) => [l.item, l.sp])), qty: Object.fromEntries(lv.map((l) => [l.item, l.qty])),
+      old: Object.fromEntries(lv.map((l) => [l.item, l.old])),
+    });
+  }
+}
+
 /** Save a purchase and book it (pending for klient users). */
 export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput, actor: DocActor): Promise<PurchaseSaveResult> {
   const f = await loadFirmForUpdate(tx, firmId);
@@ -232,9 +282,12 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
 
   let partnerId = input.partnerId || null;
   if (partnerId) {
-    const [p] = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.id, partnerId), eq(partners.firmId, firmId))).limit(1);
+    const [p] = await tx.select({ id: partners.id, name: partners.name, edb: partners.edb }).from(partners).where(and(eq(partners.id, partnerId), eq(partners.firmId, firmId))).limit(1);
     if (!p) throw new DocumentError('Добавувачот не постои во оваа фирма.');
+    if (isOwnParty(p.name, p.edb, f.edb, f.name)) throw new DocumentError(OWN_SUPPLIER_MSG);
   } else if (String(input.supplierName ?? '').trim()) {
+    // the firm is never its own supplier (no partner card for itself)
+    if (isOwnParty(input.supplierName, input.supplierEdb, f.edb, f.name)) throw new DocumentError(OWN_SUPPLIER_MSG);
     // legacy `ensureSupplier`: create the supplier from the read document
     const r = await ensurePartner(tx, firmId, { name: String(input.supplierName), edb: input.supplierEdb, foreign: imp, type: 'supplier' });
     partnerId = r.id;
@@ -367,44 +420,12 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   if (status === 'posted') await postPurchase(tx, f, pur, actor.userId);
   else await unpostPurchase(tx, firmId, pur.id, actor.userId);
 
-  // legacy `learnItemCodes`: remember the supplier's article code; `applySalePrices` (4398): new sale prices.
-  const store = !!W && (await stockLocations(tx, firmId)).find((l) => l.id === W)?.kind === 'store';
-  // Store retail prices and stock before this purchase changes the prices (legacy `salePriceUpdates` 4393).
-  const storeCtx = store && status === 'posted' && stock.some((s) => !empty(s.sp) && n(s.sp) > 0) ? (await loadStockContext(tx, firmId)).ctx : null;
-  const level: { item: string; qty: number; old: number; sp: number }[] = [];
+  // legacy `learnItemCodes`: remember the supplier's article code
   for (const s of stock) {
     if (partnerId && s.code) await tx.insert(itemSupplierCodes).values({ firmId, itemId: s.itemId!, partnerId, code: String(s.code), name: s.name ?? null }).onConflictDoNothing();
-    // a purchase waiting for approval (client portal) changes no price yet – only a posted one does (with its levelling)
-    if (status === 'posted' && !empty(s.sp) && n(s.sp) > 0) {
-      const it = IT.get(s.itemId!)!;
-      if (store) {
-        const ci = storeCtx?.items?.find((x) => x.id === it.id);
-        if (storeCtx && ci && !level.some((l) => l.item === it.id)) {
-          const old = retailPrice(ci, W!);
-          // the stock that was in the store before this receipt is re-priced: stock at the date − received qty
-          if (Math.abs(old - n(s.sp)) >= 0.005) {
-            const recv = stock.filter((x) => x.itemId === it.id).reduce((a, x) => a + n(x.qty), 0);
-            level.push({ item: it.id, qty: r2(stockAt(storeCtx, { item: it.id, wh: W!, date: input.date }).qty - recv), old, sp: n(s.sp) });
-          }
-        }
-        const [cur] = await tx.select({ data: items.data }).from(items).where(eq(items.id, it.id)).limit(1);
-        const d = (cur?.data ?? it.data ?? {}) as Record<string, unknown>;
-        await tx.update(items).set({ data: { ...d, sp: { ...((d.sp as Record<string, unknown>) ?? {}), [W!]: n(s.sp) } } }).where(eq(items.id, it.id));
-      } else {
-        await tx.update(items).set({ price: n4(n(s.sp) / (1 + it.vatRate / 100)) }).where(eq(items.id, it.id));
-      }
-    }
   }
-  // legacy `applySalePrices`: a changed retail price in a store creates a levelling (нивелација) for the earlier stock
-  // (lines with no earlier stock are skipped, as in legacy).
-  const lv = level.filter((l) => l.qty > 0);
-  if (lv.length) {
-    await saveLevelling(tx, { firmId, userId: actor.userId }, {
-      date: input.date, wh: W, today: todaySkopje(), note: 'од калкулација ' + (pur.calcNo || pur.number || ''),
-      prices: Object.fromEntries(lv.map((l) => [l.item, l.sp])), qty: Object.fromEntries(lv.map((l) => [l.item, l.qty])),
-      old: Object.fromEntries(lv.map((l) => [l.item, l.old])),
-    });
-  }
+  // `applySalePrices`: a purchase waiting for approval (client portal) changes no price yet – only a posted one does
+  if (status === 'posted') await applyPurchasePrices(tx, firmId, pur, stock, actor.userId);
   await audit(tx, { userId: actor.userId, firmId, action: existing ? 'editPur' : 'savePur', entityType: 'purchase', entityId: pur.id,
     data: { number, date: pur.date, status, total: n(pur.total), stockLines: fin.length } });
   // the supplier's bank account read from / typed on the invoice → the partner's accounts (for payment orders)
@@ -423,6 +444,10 @@ export async function approvePurchase(tx: Tx, firmId: string, id: string, actor:
   if (pur.status !== 'pending') throw new DocumentError('Документот не чека одобрување.');
   const [u] = await tx.update(purchases).set({ status: 'posted', approvedBy: actor.userId, approvedAt: new Date() }).where(eq(purchases.id, id)).returning();
   await postPurchase(tx, f, u!, actor.userId);
+  // the store retail prices / levelling held back while it was pending
+  const ST = await tx.select({ itemId: purchaseStockLines.itemId, qty: purchaseStockLines.qty, sp: purchaseStockLines.sp }).from(purchaseStockLines)
+    .where(eq(purchaseStockLines.purchaseId, id)).orderBy(asc(purchaseStockLines.lineNo));
+  await applyPurchasePrices(tx, firmId, u!, ST, actor.userId);
   await audit(tx, { userId: actor.userId, firmId, action: 'approveDoc', entityType: 'purchase', entityId: id, data: { number: pur.number } });
 }
 
@@ -491,6 +516,14 @@ export async function setPurchasesCash(tx: Tx, f: Parameters<typeof firmPostingC
     const [p] = await tx.select().from(purchases).where(and(eq(purchases.id, id), eq(purchases.firmId, f.id))).limit(1);
     if (!p || p.cash || p.status !== 'posted' || p.imp) continue;
     const L = await tx.select().from(purchaseStockLines).where(eq(purchaseStockLines.purchaseId, id));
+    // an invoice already (partly) paid is no cash receipt – its payments would be left without a document
+    if (Number((await documentPayments(tx, f.id, { purchaseIds: [id] })).get(id)?.paid) > 0) { skipped.push(`${p.number} (има плаќање – не е платена во готово)`); continue; }
+    // goods already sold / issued after the purchase are not turned into an expense
+    if (L.length) {
+      const [out] = await tx.select({ id: stockMoves.id }).from(stockMoves).where(and(eq(stockMoves.firmId, f.id), inArray(stockMoves.itemId, [...new Set(L.map((x) => x.itemId))]),
+        locationWhere(stockMoves.locationId, p.warehouseId), eq(stockMoves.direction, 'out'), eq(stockMoves.pending, false), sql`${stockMoves.date} >= ${p.date}`)).limit(1);
+      if (out) { skipped.push(`${p.number} (стоката е веќе продадена / издадена)`); continue; }
+    }
     // goods already moved on (a transfer from its calculation) are not turned into an expense
     if (L.length && (await dependentTransfers(tx, f.id, [id])).length) { skipped.push(`${p.number} (стоката е префрлена – прво избришете ја преносницата)`); continue; }
     try {

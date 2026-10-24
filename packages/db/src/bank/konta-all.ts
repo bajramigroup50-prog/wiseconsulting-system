@@ -81,6 +81,21 @@ async function lockTest(tx: Tx, firmId: string): Promise<(st: { id: string; date
 /** Lock test of a firm's statements (period lock date, locked nalog): the reason, or null when open. */
 export const statementLockTest = (tx: Tx, firmId: string) => lockTest(tx, firmId);
 
+/** A statement a year-wide action leaves out (locked period / locked nalog), with the reason. */
+export interface LockedStatement { statementId: string; number: string | null; date: string; why: string }
+
+/**
+ * The locked statements among `S` (period lock date, locked nalog), keyed by id — year-wide buttons skip and list them
+ * instead of failing as a whole (like `repostAccountStatements`).
+ */
+export async function lockedStatements(tx: Tx, firmId: string, S: readonly { id: string; date: string; number: string | null }[]): Promise<Map<string, LockedStatement>> {
+  const out = new Map<string, LockedStatement>();
+  if (!S.length) return out;
+  const lockOf = await lockTest(tx, firmId);
+  for (const s of S) { const why = lockOf(s); if (why && !out.has(s.id)) out.set(s.id, { statementId: s.id, number: s.number, date: s.date, why }); }
+  return out;
+}
+
 /** Bank accounts that would get their bank's analytic konto, chosen in order so two accounts never get the same konto. */
 async function accountMoves(tx: Tx, firmId: string): Promise<{ moves: BulkAccountMove[]; manual: number; noMatch: number }> {
   const [f, A, chart] = await Promise.all([loadFirm(tx, firmId), loadBankAccounts(tx, firmId), effectiveChart(tx, firmId)]);

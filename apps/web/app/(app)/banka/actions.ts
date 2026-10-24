@@ -14,7 +14,7 @@ import {
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, createLineKonto, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, loadBankAccounts, bankLines, bankAccounts, bankStatements, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
-  saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost,
+  saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost, type LockedStatement,
   pendingReads, dismissReads, linkBankAccountNumber, createStatementAccount, bulkDeleteStatements, bulkDeleteStatementsPlan, type Tx,
 } from '@wise/db';
 import { BANK_KONTA_FIELDS } from '@wise/core';
@@ -25,7 +25,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { firmAction } from '@/lib/books';
 import { loadAiResult, markAiReadsSaved } from '@/lib/ai';
-import { bankError, bankRun, isDate, num, str } from '@/lib/bank';
+import { amt as amtOf, badAmt, bankError, bankRun, isDate, num, str } from '@/lib/bank';
 import { db } from '@/lib/db';
 import { runPayNotes } from './paynotes';
 import { bulkPreviewText, bulkSkippedText } from './bulk-delete-text';
@@ -469,19 +469,22 @@ export async function undoImportAction(batch: string): Promise<FormState> {
 export async function updateStatementAction(_p: FormState, form: FormData): Promise<FormState> {
   const statementId = str(form.get('st'));
   const has = (k: string) => form.has(k);
+  // FIX: a balance / total / rate that cannot be read is an error (it was saved as empty)
+  const bad = (['opening', 'closing', 'sd', 'sp', 'rate'] as const).filter((k) => has(k) && (k === 'rate' ? String(form.get(k) ?? '').trim() !== '' && num(form.get(k)) == null : badAmt(form.get(k))));
+  if (bad.length) return { error: `Неважечки износ: ${bad.map((k) => ({ opening: 'почетно салдо', closing: 'крајно салдо', sd: 'вкупно должи', sp: 'вкупно побарува', rate: 'курс' })[k]).join(', ')}.` };
   return bankRun('write', P, ({ tx, u, firm }) => updateStatement(tx, {
     firmId: firm.id, userId: u.id, statementId,
     ...(has('number') ? { number: str(form.get('number')) || null } : {}),
-    ...(has('opening') ? { opening: num(form.get('opening')) } : {}),
-    ...(has('closing') ? { closing: num(form.get('closing')) } : {}),
-    ...(has('sd') ? { statedDebit: num(form.get('sd')) } : {}),
-    ...(has('sp') ? { statedCredit: num(form.get('sp')) } : {}),
+    ...(has('opening') ? { opening: amtOf(form.get('opening')) } : {}),
+    ...(has('closing') ? { closing: amtOf(form.get('closing')) } : {}),
+    ...(has('sd') ? { statedDebit: amtOf(form.get('sd')) } : {}),
+    ...(has('sp') ? { statedCredit: amtOf(form.get('sp')) } : {}),
     ...(has('rate') ? { rate: num(form.get('rate')) } : {}),
   }).then(() => 'Зачувано.'));
 }
 
 export async function numberStatementsAction(): Promise<FormState> {
-  return bankRun('numIzv', P, async ({ tx, u, firm, year }) => { const n = await numberStatements(tx, { firmId: firm.id, userId: u.id, year }); return n ? `Нумерирани ${n} изводи. Изводите се нумерирани по датум. Бројот може да го промените рачно.` : 'Сите изводи имаат број.'; });
+  return bankRun('numIzv', P, async ({ tx, u, firm, year }) => { const report: { skipped?: LockedStatement[] } = {}; const n = await numberStatements(tx, { firmId: firm.id, userId: u.id, year, report }); return (n ? `Нумерирани ${n} изводи. Изводите се нумерирани по датум. Бројот може да го промените рачно.` : report.skipped?.length ? 'Нема изводи за нумерирање во отворен период.' : 'Сите изводи имаат број.') + skippedMsg(report.skipped ?? []); });
 }
 
 /**
@@ -497,10 +500,11 @@ export async function addManualLineAction(_p: FormState, form: FormData): Promis
   const [dt, docId, openC, docNo, docP] = str(form.get('doc')).split('|');
   const doc = docId && (dt === 'inv' || dt === 'pur') ? { id: docId, open: Number(openC) || 0, no: docNo ?? '', partner: docP ?? '' } : null;
   if (doc && (dt === 'inv') !== dirIn) return { error: dirIn ? 'Приливот може да затвора само наша (излезна) фактура.' : 'Одливот може да затвора само влезна фактура.' };
-  const a0 = num(form.get('amount'));
+  if (badAmt(form.get('amount')) || badAmt(form.get('amountMkd'))) return { error: 'Неважечки износ.' };
+  const a0 = amtOf(form.get('amount'));
   const amt = a0 != null && a0 !== 0 ? Math.abs(a0) : doc ? doc.open / 100 : 0;
   if (!amt) return { error: 'Внесете износ.' };
-  const mkd = num(form.get('amountMkd'));
+  const mkd = amtOf(form.get('amountMkd'));
   // „Нова ставка“ dialog (fast entry): the document number is kept in the description
   const ldoc = str(form.get('ldoc'));
   const desc0 = str(form.get('desc')) || (doc ? `${dirIn ? 'Уплата' : 'Плаќање'} по фактура ${doc.no}` : dirIn ? 'Уплата' : 'Плаќање');
@@ -540,7 +544,11 @@ export async function removeRuleAction(ruleId: string): Promise<FormState> {
   return bankRun('rmRule', P, ({ tx, u, firm }) => removeRule(tx, { firmId: firm.id, userId: u.id, ruleId }).then(() => 'Отстрането.'));
 }
 export async function feeFixAction(): Promise<FormState> {
-  return bankRun('feeFix', P, async ({ tx, u, firm, year }) => `Прекнижани ${await applyFeeFix(tx, { firmId: firm.id, userId: u.id, year })} провизии на 4460.`);
+  return bankRun('feeFix', P, async ({ tx, u, firm, year }) => {
+    const report: { skipped?: LockedStatement[] } = {};
+    const n = await applyFeeFix(tx, { firmId: firm.id, userId: u.id, year, report });
+    return `Прекнижани ${n} провизии на 4460.${skippedMsg(report.skipped ?? [])}`;
+  });
 }
 export async function closeTransitAction(konto: string, date: string): Promise<FormState> {
   return bankRun('trClose', P, async ({ tx, u, firm }) => `Курсната разлика е книжена (налог ${await closeTransit(tx, { firmId: firm.id, userId: u.id, konto, date })}).`);
@@ -590,7 +598,7 @@ export async function saveAutoNotifyAction(_p: FormState, form: FormData): Promi
 export async function bkpFixAction(): Promise<FormState> {
   return bankRun('write', [...P, '/kartici', '/partneri'], async ({ tx, u, firm, year }) => {
     const r = await applyBankPartnerFix(tx, { firmId: firm.id, userId: u.id, year });
-    return r.linked ? `Поврзани ${r.linked} ставки со комитентот од изводот${r.created ? `; креирани ${r.created} нови комитенти` : ''}.` : 'Нема такви ставки.';
+    return (r.linked ? `Поврзани ${r.linked} ставки со комитентот од изводот${r.created ? `; креирани ${r.created} нови комитенти` : ''}.` : 'Нема такви ставки.') + skippedMsg(r.skipped);
   });
 }
 
@@ -607,14 +615,14 @@ export async function bulkDeleteLinesAction(_p: FormState, form: FormData): Prom
 
 /** Legacy ACT `izvFill` 12400: fill empty statement numbers by neighbour (previous + 1). */
 export async function izvFillAction(): Promise<FormState> {
-  return bankRun('write', P, async ({ tx, u, firm, year }) => { const n = await fillStatementNumbers(tx, { firmId: firm.id, userId: u.id, year }); return n ? `Пополнети ${n} броеви на изводи.` : 'Сите изводи имаат број.'; });
+  return bankRun('write', P, async ({ tx, u, firm, year }) => { const report: { skipped?: LockedStatement[] } = {}; const n = await fillStatementNumbers(tx, { firmId: firm.id, userId: u.id, year, report }); return (n ? `Пополнети ${n} броеви на изводи.` : 'Сите изводи имаат број.') + skippedMsg(report.skipped ?? []); });
 }
 
 /** Legacy ACT `posFee` 13078: „Книжи провизија 4460“ (amount in denars, date). */
 export async function posFeeAction(_p: FormState, form: FormData): Promise<FormState> {
-  const amount = num(form.get('amount'));
+  const amount = amtOf(form.get('amount'));
   const date = str(form.get('date'));
-  if (!amount || amount <= 0) return { error: 'Внесете износ на провизијата.' };
+  if (!amount || amount <= 0) return { error: badAmt(form.get('amount')) ? 'Неважечки износ.' : 'Внесете износ на провизијата.' };
   if (!isDate(date)) return { error: 'Внесете датум.' };
   return bankRun('write', [...P, '/fiskPer'], async ({ tx, u, firm, year }) => `Провизијата е книжена (налог ${await bookBankPosFee(tx, { firmId: firm.id, userId: u.id, year, amount: Math.round(amount * 100), date })}).`);
 }
@@ -626,6 +634,8 @@ export async function removeBankAccountAction(id: string): Promise<FormState> {
 /* ---------------- „Конта за изводи“ (owner / chief accountant: `settings`) ---------------- */
 
 const dmyS = (d: string) => d.split('-').reverse().join('.');
+/** The statements a year-wide button skipped (locked period / locked nalog). */
+const skippedMsg = (S: readonly LockedStatement[]) => (S.length ? ` Прескокнати (заклучен период / налог): ${S.map((s) => `извод ${s.number ?? '—'} од ${dmyS(s.date)}`).join(', ')}.` : '');
 
 /** Per-firm bank kontos and the bank konto layout of the statement journal; validated against the chart, audited `bankKontaSet`. */
 export async function saveBankKontaAction(_p: FormState, form: FormData): Promise<FormState> {

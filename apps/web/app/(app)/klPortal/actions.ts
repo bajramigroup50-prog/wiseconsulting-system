@@ -9,7 +9,7 @@ import { klNoteClean } from '@wise/core/firms/klnote';
 import { appSettings, audit, files, firms, type Tx } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
-import { fv, isUuid, officeAction, officeError } from '@/lib/office';
+import { fv, isUuid, officeAction, officeError, officeGlobal } from '@/lib/office';
 
 /** Office-wide original sticker image (legacy `appsettings/notice` {url,id}). */
 const NOTICE_KEY = 'notice';
@@ -112,18 +112,25 @@ export async function saveNote(_p: ActionState, f: FormData): Promise<ActionStat
   } catch (e) { return officeError(e); }
 }
 
-/** Legacy `kn_img` upload: the original УЈП sticker image, office-wide (`appsettings/notice`). */
+/**
+ * Legacy `kn_img` upload: the original УЈП sticker image, office-wide (`appsettings/notice`).
+ * FIX: an office-wide setting – the office-wide `settings` right (not the right on the current firm), and only an image
+ * of the office or uploaded by this user (any file id, of any firm, was accepted).
+ */
 export async function setNoticeImage(_p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const { u, firm } = await officeAction('settings');
+    const u = await officeGlobal('settings');
     const id = f.getAll('fileIds').map(String).find(isUuid);
     if (!id) return { error: 'Прикачете слика (PNG/JPG).' };
-    const [file] = await db().select({ mime: files.mime }).from(files).where(eq(files.id, id)).limit(1);
-    if (!file || !/^image\//.test(file.mime ?? '')) return { error: 'Датотеката не е слика.' };
+    // an office file (no firm, as the upload field here sends it) or one this user uploaded (an upload of the same image
+    // answers with the existing file): never another firm's document
+    const [file] = await db().select({ mime: files.mime, by: files.uploadedBy, firmId: files.firmId, status: files.status }).from(files).where(eq(files.id, id)).limit(1);
+    if (!file || file.status !== 'ready' || (file.firmId !== null && file.by !== u.id)) return { error: 'Датотеката не е прикачена.' };
+    if (!/^image\//.test(file.mime ?? '')) return { error: 'Датотеката не е слика.' };
     await db().transaction(async (tx) => {
       const value = { fileId: id, at: new Date().toISOString() };
       await tx.insert(appSettings).values({ key: NOTICE_KEY, value, updatedBy: u.id }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedBy: u.id } });
-      await audit(tx, { userId: u.id, firmId: firm.id, action: 'klImgUp', entityType: 'app_settings', entityId: NOTICE_KEY, data: { fileId: id } });
+      await audit(tx, { userId: u.id, firmId: null, action: 'klImgUp', entityType: 'app_settings', entityId: NOTICE_KEY, data: { fileId: id } });
     });
     revalidatePath('/klPortal');
     return { ok: 'Оригиналот е прикачен – важи за сите фирми.' };
@@ -133,10 +140,10 @@ export async function setNoticeImage(_p: ActionState, f: FormData): Promise<Acti
 /** Legacy `klImgRm`: back to the drawn sticker. */
 export async function removeNoticeImage(): Promise<ActionState> {
   try {
-    const { u, firm } = await officeAction('settings');
+    const u = await officeGlobal('settings');
     await db().transaction(async (tx) => {
       await tx.delete(appSettings).where(eq(appSettings.key, NOTICE_KEY));
-      await audit(tx, { userId: u.id, firmId: firm.id, action: 'klImgRm', entityType: 'app_settings', entityId: NOTICE_KEY });
+      await audit(tx, { userId: u.id, firmId: null, action: 'klImgRm', entityType: 'app_settings', entityId: NOTICE_KEY });
     });
     revalidatePath('/klPortal');
     return { ok: 'Се печати дизајнот.' };

@@ -37,7 +37,7 @@ export interface DbResult {
  * Compute the ДБ return (legacy `dbData`).
  * @param C        AOP result of the year
  * @param adj      `firm.dbAdj[year]` — manual inputs by AOP (or old DB_MIG keys)
- * @param akontAuto sum of DEBITS on konto 2330 in the year excluding the opening balance (prepayments made)
+ * @param akontAuto sum of DEBITS on konto 2330 in the year excluding the opening balance, less last year's liability settled (prepayments made)
  */
 export function computeDb(C: Pick<ZsResult, 'V'>, adj: Readonly<Record<string, number | string>> | null | undefined, akontAuto: number): DbResult {
   const A: Record<string, number> = {};
@@ -74,9 +74,15 @@ export function computeDb(C: Pick<ZsResult, 'V'>, adj: Readonly<Record<string, n
   return { V, A, akAuto, incAuto, profit: g('01'), nd: g('02'), base: g('49'), tax: g('56'), ak: g('57'), diff: g('59'), red: g('41') };
 }
 
-/** Prepayments of profit tax: debits on 2330 that are not part of the opening balance (legacy `akAuto`). */
-export function dbAkontFromTurnover(rows: readonly { account: string; debit: number }[]): number {
-  return Math.round(rows.filter((r) => String(r.account) === '2330').reduce((s, r) => s + (+r.debit || 0), 0));
+/**
+ * Prepayments of profit tax: debits on 2330 that are not part of the opening balance (legacy `akAuto`), less the
+ * settlement of last year's final tax (the opening credit balance of 2330, paid in Feb / March).
+ */
+export function dbAkontFromTurnover(rows: readonly { account: string; debit: number; openingDebit?: number; openingCredit?: number }[]): number {
+  const R = rows.filter((r) => String(r.account) === '2330');
+  const debits = R.reduce((s, r) => s + (+r.debit || 0), 0);
+  const owed = Math.max(0, R.reduce((s, r) => s + (+(r.openingCredit ?? 0) || 0) - (+(r.openingDebit ?? 0) || 0), 0));
+  return Math.round(debits - Math.min(owed, debits));
 }
 
 /** EDB with the "МК" prefix the УЈП form expects (legacy `dbEdb`). */

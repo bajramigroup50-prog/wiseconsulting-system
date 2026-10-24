@@ -203,10 +203,11 @@ export async function planImport(tx: Tx, o: ImportOptions, env0?: BankEnv): Prom
         }
       }
       const keys = [...new Set(lines.map((l) => l.dupKey))];
-      const seen = keys.length
-        ? new Set((await tx.select({ k: bankLines.dupKey }).from(bankLines).where(and(eq(bankLines.firmId, o.firmId), inArray(bankLines.dupKey, keys)))).map((r) => r.k))
-        : new Set<string>();
-      for (const l of lines) l.dup = seen.has(l.dupKey);
+      // FIX: duplicates by multiplicity — a corrected statement with one more identical line (same account, date, amount,
+      // description) than the books imports the surplus (only lines already in the books are duplicates)
+      const seen = new Map<string, number>();
+      if (keys.length) for (const r of await tx.select({ k: bankLines.dupKey }).from(bankLines).where(and(eq(bankLines.firmId, o.firmId), inArray(bankLines.dupKey, keys)))) seen.set(r.k, (seen.get(r.k) ?? 0) + 1);
+      for (const l of lines) { const n = seen.get(l.dupKey) ?? 0; l.dup = n > 0; if (n) seen.set(l.dupKey, n - 1); }
       const allDup = lines.length > 0 && lines.every((l) => l.dup);
       let no = ex?.number || '';
       // the existing statement keeps its number; a different number printed by the bank is pointed out (an earlier

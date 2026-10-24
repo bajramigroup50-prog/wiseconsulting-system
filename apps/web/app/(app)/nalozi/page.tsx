@@ -364,7 +364,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             {fix && one && !locked(one) && <RowAction className="btn sm" action={resetOverrideAction.bind(null, one.id)} label="↺ Врати како во документот" confirm="Да се поништи рачната корекција и налогот да се врати како што го книжи документот?" />}
           </div>
         )}
-        {!!(ov && !ov.applied && (ov.dropped || ov.unbalanced)) && <div className="callout warn">Документот е изменет по рачната корекција – корекцијата {ov.unbalanced ? 'би го направила налогот неизедначен и' : 'на изменетите редови'} не е применета.</div>}
+        {!!(ov && (ov.dropped || ov.unbalanced)) && <div className="callout warn">Документот е изменет по рачната корекција – корекцијата {ov.unbalanced ? 'би го направила налогот неизедначен и' : 'на изменетите редови'} не е применета.</div>}
         {stIds.length > 0 && (() => {
           const pr = BL.filter((x) => Number(x.amount) > 0).reduce((s, x) => s + Number(x.amount), 0), od = BL.filter((x) => Number(x.amount) < 0).reduce((s, x) => s - Number(x.amount), 0);
           const open = BL.filter((x) => !x.refId && !x.konto).length;
@@ -504,7 +504,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               const href = `/nalozi?n=${encodeURIComponent(g.no)}`;
               const lk = g.journals.some(locked);
               const status = lk ? '🔒 Заклучен' : !n ? 'Празен' : Math.abs(D - P) > 0.009 ? 'Неизедначен' : 'Отворен';
-              const pending = g.journals.some((j) => { const o = ovOf(j); return !!(o && !o.applied && (o.dropped || o.unbalanced)); });
+              const pending = g.journals.some((j) => { const o = ovOf(j); return !!(o && (o.dropped || o.unbalanced)); });
               const zaKl = !g.journals.some((j) => j.sourceType === 'yearClose' || j.kind === 'close');
               return (
                 <tr key={g.no} data-nal={g.no} data-d={D} data-p={P}>

@@ -12,23 +12,39 @@ import { audit, type Tx } from '../audit';
 import { postJournal } from '../posting';
 import { bankLines, bankStatements, journalLines, journals, partners } from '../schema/index';
 import { BankError, cents, loadBankEnv } from './context';
+import { lockedStatements, type LockedStatement } from './konta-all';
 import { postStatements } from './posting';
 import { toBankRow } from './rows';
 
-/** Lines of the year without a partner (or with a wrongly opened one) that can be linked (legacy `bkpNoP`). */
-export async function bankPartnerFixPlan(tx: Tx, firmId: string, year: number): Promise<PartnerFixPlan[]> {
+/**
+ * Lines of the year without a partner (or with a wrongly opened one) that can be linked (legacy `bkpNoP`).
+ * FIX: lines of statements in a locked period / with a locked nalog are left out (listed in `o.skipped`) — one locked
+ * statement no longer fails the whole „Поврзи со комитент од изводот“, and the count on the button is what is linked.
+ */
+export async function bankPartnerFixPlan(tx: Tx, firmId: string, year: number, o: { skipped?: LockedStatement[] } = {}): Promise<PartnerFixPlan[]> {
   const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
   const P = await tx.select({ id: partners.id, name: partners.name, edb: partners.edb, embs: partners.embs, code: partners.code }).from(partners).where(eq(partners.firmId, firmId));
-  return partnerFixPlan(L.map(toBankRow), {
+  const plan = partnerFixPlan(L.map(toBankRow), {
     year, partners: P.map((p) => ({ id: p.id, name: p.name, edb: p.edb ?? undefined, embs: p.embs ?? undefined, code: p.code ?? undefined })),
     refPartner: () => '', partnerKey: bkCore,
   });
+  if (!plan.length) return plan;
+  const stOf = new Map(L.map((l) => [l.id, l.statementId]));
+  const stIds = [...new Set(plan.map((x) => stOf.get(x.id)!))];
+  const S = await tx.select({ id: bankStatements.id, date: bankStatements.date, number: bankStatements.number }).from(bankStatements).where(inArray(bankStatements.id, stIds));
+  const locked = await lockedStatements(tx, firmId, S);
+  if (o.skipped) o.skipped.push(...locked.values());
+  return plan.filter((x) => !locked.has(stOf.get(x.id)!));
 }
 
-/** Legacy `ACT.bkpFix` 12433: link the lines, creating the partners that do not exist yet; re-post the statements. */
-export async function applyBankPartnerFix(tx: Tx, a: { firmId: string; userId: string | null; year: number }): Promise<{ linked: number; created: number }> {
-  const plan = await bankPartnerFixPlan(tx, a.firmId, a.year);
-  if (!plan.length) return { linked: 0, created: 0 };
+/**
+ * Legacy `ACT.bkpFix` 12433: link the lines, creating the partners that do not exist yet; re-post the statements.
+ * Statements in a locked period are skipped (`skipped`).
+ */
+export async function applyBankPartnerFix(tx: Tx, a: { firmId: string; userId: string | null; year: number }): Promise<{ linked: number; created: number; skipped: LockedStatement[] }> {
+  const skipped: LockedStatement[] = [];
+  const plan = await bankPartnerFixPlan(tx, a.firmId, a.year, { skipped });
+  if (!plan.length) return { linked: 0, created: 0, skipped };
   const made = new Map<string, string>();
   let created = 0;
   const touched = new Set<string>();
@@ -50,8 +66,8 @@ export async function applyBankPartnerFix(tx: Tx, a: { firmId: string; userId: s
   }
   await postStatements(tx, touched, a.userId);
   await learnAccountsFromStatements(tx, { firmId: a.firmId, userId: a.userId, lineIds: plan.map((x) => x.id) });
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bkpFix', entityType: 'bank_line', data: { linked: plan.length, created } });
-  return { linked: plan.length, created };
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'bkpFix', entityType: 'bank_line', data: { linked: plan.length, created, ...(skipped.length ? { skipped: skipped.length } : {}) } });
+  return { linked: plan.length, created, skipped };
 }
 
 /** Legacy `posSaldo` 13075 over the ledger: card sales on the POS konto vs money received from the bank. */
@@ -89,21 +105,32 @@ export async function fxStatementBalance(tx: Tx, bankAccountId: string, date: st
   return bookSaldoCur(withBal.map((s) => ({ date: s.date, opening: cents(s.opening) })), L.map((l) => ({ date: l.date, amount: cents(l.amount), amountCur: l.amountCur == null ? null : cents(l.amountCur) })), date);
 }
 
-/** Legacy `izvSugg` 12392: suggested numbers of the year's statements without a number, keyed by statement id. */
-export async function statementNoSuggestions(tx: Tx, firmId: string, year: number): Promise<Map<string, string>> {
+/**
+ * Legacy `izvSugg` 12392: suggested numbers of the year's statements without a number, keyed by statement id.
+ * Statements in a locked period / with a locked nalog get no suggestion (listed in `o.skipped`).
+ */
+export async function statementNoSuggestions(tx: Tx, firmId: string, year: number, o: { skipped?: LockedStatement[] } = {}): Promise<Map<string, string>> {
   const S = await tx.select({ id: bankStatements.id, acct: bankStatements.bankAccountId, date: bankStatements.date, no: bankStatements.number }).from(bankStatements)
     .where(and(eq(bankStatements.firmId, firmId), sql`${bankStatements.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
   const M = statementNumberSuggestions(S.map((s) => ({ acct: s.acct, date: s.date, no: s.no })));
   const out = new Map<string, string>();
-  for (const s of S) if (!s.no && M[s.acct + '|' + s.date]) out.set(s.id, M[s.acct + '|' + s.date]!);
+  const empty = S.filter((s) => !s.no && M[s.acct + '|' + s.date]);
+  const locked = await lockedStatements(tx, firmId, empty.map((s) => ({ id: s.id, date: s.date, number: s.no })));
+  if (o.skipped) o.skipped.push(...locked.values());
+  for (const s of empty) if (!locked.has(s.id)) out.set(s.id, M[s.acct + '|' + s.date]!);
   return out;
 }
 
-/** Legacy ACT `izvFill` 12400: fill the empty statement numbers with the suggestions (previous number + 1 …). */
-export async function fillStatementNumbers(tx: Tx, a: { firmId: string; userId: string | null; year: number }): Promise<number> {
-  const M = await statementNoSuggestions(tx, a.firmId, a.year);
+/**
+ * Legacy ACT `izvFill` 12400: fill the empty statement numbers with the suggestions (previous number + 1 …).
+ * Statements in a locked period are skipped and listed in `a.report.skipped`.
+ */
+export async function fillStatementNumbers(tx: Tx, a: { firmId: string; userId: string | null; year: number; report?: { skipped?: LockedStatement[] } }): Promise<number> {
+  const skipped: LockedStatement[] = [];
+  const M = await statementNoSuggestions(tx, a.firmId, a.year, { skipped });
+  if (a.report) a.report.skipped = skipped;
   for (const [id, no] of M) await tx.update(bankStatements).set({ number: no }).where(eq(bankStatements.id, id));
   if (M.size) await postStatements(tx, M.keys(), a.userId);
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'izvFill', entityType: 'bank_statement', data: { n: M.size } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'izvFill', entityType: 'bank_statement', data: { n: M.size, ...(skipped.length ? { skipped: skipped.length } : {}) } });
   return M.size;
 }

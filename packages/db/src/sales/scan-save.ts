@@ -149,7 +149,9 @@ export async function saveSelectedScanDrafts(tx: Tx, a: { firmId: string; kind: 
           // has passed – a document found now is reported in the open return, never „книжен подоцна“ into an old period
           const per = dt ? periodOf(dt, c.vatKind) : '';
           const due = per ? (() => { const end = perRange(per)[1]; const m = new Date(end + 'T00:00:00Z'); m.setUTCDate(m.getUTCDate() + 25); return m.toISOString().slice(0, 10); })() : '';
-          const late = c.vat && !!dt && (c.closed.has(per) || due < todaySkopje());
+          // only an expense moves: goods on stock (and an import) keep their date – the stock card follows the document
+          const cost = (dr.ptype ?? (dr.stock?.length ? 'stock' : 'cost')) === 'cost' && !(dr as { imp?: boolean }).imp;
+          const late = cost && c.vat && !!dt && (c.closed.has(per) || due < todaySkopje());
           // the first day the document may be booked on: the open VAT period (after a closed one: the next); a receipt
           // also not before its cash nalog's period
           openFrom ??= c.vat ? await openVatPeriodStart(t, { id: a.firmId, vatPeriod: c.vatKind } as never) : '';

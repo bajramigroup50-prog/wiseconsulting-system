@@ -43,7 +43,7 @@ describe('statement lines', () => {
     const plan = await T((tx) => bankPartnerFixPlan(tx, firmId, 2026));
     expect(plan.map((x) => x.name)).toEqual(['Гама ДОО']);
     const r = await T((tx) => applyBankPartnerFix(tx, { firmId, userId: null, year: 2026 }));
-    expect(r).toEqual({ linked: 1, created: 1 });
+    expect(r).toEqual({ linked: 1, created: 1, skipped: [] });
     const [ln] = await db.select().from(schema.bankLines).where(eq(schema.bankLines.id, l1));
     expect(ln!.partnerId).toBeTruthy();
     // numbers: manual lines got numbers 1, 2 → clear the second and let the suggestion refill it
