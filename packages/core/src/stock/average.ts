@@ -497,6 +497,55 @@ export function reaverage(ctx: StockContext, production: readonly ProductionReco
   return { moves, production: prods, changedMoves: [...changed], changedProduction: changedP };
 }
 
+/**
+ * Cost share of a store's stock kept at retail value on a date: Σ cost / Σ retail value without the embedded VAT of
+ * the goods on stock there (= 1 − the store's average embedded margin rate, 6694 / (6630 − 6640)), between 0 and 1;
+ * 1 without stock (the turnover is all cost).
+ */
+export function retailCostRatio(ctx: StockContext, wh: string, date: string): number {
+  let cost = 0;
+  let net = 0;
+  for (const [id, b] of stockAtAll(ctx, { wh, date })) {
+    const it = itemById(ctx, id);
+    if (!it || it.type !== 'goods' || !(b.qty > 0)) continue;
+    const rv = b.qty * priceAt(ctx, it, wh, date);
+    const rate = postingRate(ctx, it);
+    net += rate ? (rv * 100) / (100 + rate) : rv;
+    cost += b.value;
+  }
+  return net > 0 ? Math.min(1, Math.max(0, cost / net)) : 1;
+}
+
+export interface RetailClearArgs {
+  wh: string;
+  date: string;
+  /** Turnover incl. VAT to clear from the retail stock. */
+  gross: number;
+  /** VAT contained in it (0 for a firm that is not a VAT payer). */
+  vat: number;
+  /** Cost share of the net turnover (default {@link retailCostRatio} of the store on the date). */
+  ratio?: number;
+}
+
+/**
+ * The daily turnover of a store kept at retail value clears its stock by the turnover: D cost of goods sold (net
+ * turnover × the store's cost share) / D realised margin / D embedded VAT, C retail stock (the turnover). A negative
+ * amount (a correction) posts the mirror image. So the ЕТ book (col. 7 = turnover) and the retail stock account agree.
+ */
+export function retailClearLines(ctx: StockContext, a: RetailClearArgs): StockJournalLine[] {
+  const g = r2(a.gross);
+  if (!g) return [];
+  const vt = r2(a.vat);
+  const net = r2(g - vt);
+  const cost = r2(net * (a.ratio ?? retailCostRatio(ctx, a.wh, a.date)));
+  return normalizeLines([
+    { account: cogsAccount(ctx, { type: 'goods' }), debit: cost, credit: 0 },
+    { account: retailAccount(ctx, a.wh, 'Marg'), debit: r2(net - cost), credit: 0 },
+    { account: retailAccount(ctx, a.wh, 'Vat'), debit: vt, credit: 0 },
+    { account: retailAccount(ctx, a.wh, 'Stock'), debit: 0, credit: g },
+  ]);
+}
+
 /** COGS account for an item (re-exported convenience for issue callers). */
 export const issueAccount = (ctx: StockContext, item: Pick<StockItem, 'type'>): string => cogsAccount(ctx, item);
 

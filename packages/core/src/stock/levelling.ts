@@ -5,7 +5,7 @@ import type { LevellingDoc, LevellingLine, StockContext, StockItem, StockJournal
 import { addDaysIso, num, r2, r4, rnd } from './num';
 import { itemById, retailPrice } from './retail';
 import { postOut, stock, stockAt } from './average';
-import { transferLines } from './journal';
+import { transferLines, transferOutLines } from './journal';
 
 export interface LevellingDraft {
   /** Location id. */
@@ -144,14 +144,16 @@ export interface TransferResult {
 }
 
 /**
- * One transfer line (legacy `ACT.prSave`, index.html 17396): issue from the source at average cost without lines,
- * receive at the destination at the same cost with `transferLines`.
+ * One transfer line (legacy `ACT.prSave`, index.html 17396): issue from the source at average cost without lines (out
+ * of a store kept at retail value: `transferOutLines`), receive at the destination at the same cost with `transferLines`.
  */
 export function postTransfer(ctx: StockContext, a: TransferArgs): TransferResult {
   const q = num(a.qty);
   const res = postOut(ctx, { item: a.item, qty: q, date: a.date, type: 'transfer', src: a.src, label: a.outLabel ?? 'Преносница', debitAccount: null, wh: a.from });
   const spU = a.retailUnitPrice == null || a.retailUnitPrice === '' ? retailPrice(a.item, a.to) : num(a.retailUnitPrice);
   const lines: StockJournalLine[] = transferLines(ctx, { item: a.item, qty: q, retailUnitPrice: spU, cost: res.value, from: a.from, to: a.to });
+  // out of a store kept at retail value: the issue clears its retail stock / margin / VAT (the cost goes to the receiver)
+  const outLines = transferOutLines(ctx, { item: a.item, qty: q, retailUnitPrice: spU, cost: res.value, from: a.from, to: a.to, date: a.date });
   const inMove: StockMove = {
     id: a.src + '-' + a.item.id + '-in' + (a.lineIndex != null ? '-' + a.lineIndex : ''),
     date: a.date,
@@ -164,7 +166,7 @@ export function postTransfer(ctx: StockContext, a: TransferArgs): TransferResult
     label: a.inLabel ?? 'Преносница',
     lines,
   };
-  return { out: res.move, in: inMove, cost: res.value, unitCost: q ? r4(res.value / q) : 0, retailUnitPrice: spU };
+  return { out: outLines.length ? { ...res.move, lines: outLines } : res.move, in: inMove, cost: res.value, unitCost: q ? r4(res.value / q) : 0, retailUnitPrice: spU };
 }
 
 /** Stock shortages for a transfer (legacy `prSave` check): items whose stock at the source on the date is below the requested total. */

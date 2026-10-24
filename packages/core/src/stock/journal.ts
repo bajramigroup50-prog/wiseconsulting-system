@@ -4,8 +4,8 @@
  */
 import type { LevellingDoc, StockContext, StockItem, StockJournalLine, StockScheme } from './types';
 import { num, r2 } from './num';
-import { locationKind, normalizeLines, retailAccount, retailOn, stockAccount, whOf } from './accounts';
-import { itemById, postingRate } from './retail';
+import { locationKind, normalizeLines, retailAccount, retailOn, stockAccount, stockAccountForType, whOf } from './accounts';
+import { itemById, postingRate, priceAt } from './retail';
 
 /**
  * Production receipt (legacy `runProd` 5669 / `reaverage` 5108), Macedonian chart practice (costs by nature):
@@ -57,7 +57,7 @@ export interface TransferLineArgs {
  * - VAT follows `vatRegistered` in every path.
  */
 export function transferLines(ctx: StockContext, a: TransferLineArgs): StockJournalLine[] {
-  const fromK = stockAccount(ctx, a.from, a.item);
+  const fromK = transferCostAccount(ctx, a.from, a.to, a.item);
   const val = r2(a.cost);
   if (retailOn(ctx, a.to)) {
     const rv = r2(num(a.qty) * num(a.retailUnitPrice));
@@ -77,6 +77,41 @@ export function transferLines(ctx: StockContext, a: TransferLineArgs): StockJour
       { account: fromK, debit: 0, credit: val },
     ]);
   return [];
+}
+
+/** Is the issuing side of a transfer out of a location kept at retail value (goods, like `postOut`)? */
+const retailSource = (ctx: StockContext, from: string, item: Pick<StockItem, 'type'>): boolean => retailOn(ctx, from) && item.type === 'goods';
+
+/**
+ * The account the cost of a transfer moves through: the source's stock account at cost; out of a store kept at retail
+ * value (whose stock account is the retail one) the receiving side's stock account at cost, or — into another store
+ * kept at retail value — the cost stock account of the item type (debited by the issue, credited by the receipt).
+ */
+export function transferCostAccount(ctx: StockContext, from: string, to: string, item: StockItem): string {
+  if (!retailSource(ctx, from, item)) return stockAccount(ctx, from, item);
+  return retailOn(ctx, to) ? stockAccountForType(ctx, item.type) || '6600' : stockAccount(ctx, to, item);
+}
+
+/**
+ * Journal lines of the issuing side of a transfer out of a location kept at retail value (posted like a retail issue):
+ * D cost (`transferCostAccount`) / D margin / D embedded VAT, C retail stock at the retail value of the date. `[]` when
+ * the source is kept at cost (the receiving side's `transferLines` carry the whole entry).
+ *
+ * FIX: a transfer out of a store kept at retail value never cleared 6630 / 6694 / 6640 — the issue had no lines and
+ * the receipt credited the cost stock account 6600, which the store never had.
+ */
+export function transferOutLines(ctx: StockContext, a: TransferLineArgs & { date: string }): StockJournalLine[] {
+  if (!retailSource(ctx, a.from, a.item)) return [];
+  const rv = r2(num(a.qty) * priceAt(ctx, a.item, a.from, a.date));
+  const rate = postingRate(ctx, a.item);
+  const vt = rate ? r2((rv * rate) / (100 + rate)) : 0;
+  const val = r2(a.cost);
+  return normalizeLines([
+    { account: transferCostAccount(ctx, a.from, a.to, a.item), debit: val, credit: 0 },
+    { account: retailAccount(ctx, a.from, 'Marg'), debit: r2(rv - vt - val), credit: 0 },
+    { account: retailAccount(ctx, a.from, 'Vat'), debit: vt, credit: 0 },
+    { account: retailAccount(ctx, a.from, 'Stock'), debit: 0, credit: rv },
+  ]);
 }
 
 /** Total retail difference of a levelling: Σ qty × (new − old), cents. */

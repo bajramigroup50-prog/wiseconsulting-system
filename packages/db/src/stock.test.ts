@@ -250,7 +250,8 @@ describe('daily sales (kasa / fiskPer)', () => {
     await tx((t) => deleteSalesDay(t, A, u.id));
     const n = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-03-07', wh: s1, number: '17', gross: { 18: 500 }, fisk: { sc: 'trgNoVat' } }));
     const nj = await journal('sales_daily', n.id);
-    expect(nj!.lines.filter((l) => ['6694', '6630', '6690'].includes(l[0]))).toEqual([['6694', 500, 0], ['6630', 0, 500]]);
+    // the turnover leaves the retail stock as cost of goods sold (7010, at the store's cost share) + realised margin
+    expect(nj!.lines.filter((l) => ['7010', '6694', '6630', '6690'].includes(l[0]))).toEqual([['7010', 300, 0], ['6694', 200, 0], ['6630', 0, 500]]);
     await tx((t) => deleteSalesDay(t, A, n.id));
   });
 });

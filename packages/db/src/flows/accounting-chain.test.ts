@@ -220,10 +220,15 @@ describe('flow 2 — purchases, stock and retail', () => {
     const L = await loadStockContext(db, firmId);
     expect(stockAt(L.ctx, { item: goods, wh: store, date: '2026-03-07' }).qty).toBe(45);
     const J = (await journal('sales_daily', r.id))!;
-    const money = J.L.filter((l) => !l.account.startsWith('99'));
+    const clr = ['6630', '6694', '6640', '7010'];
+    const money = J.L.filter((l) => !l.account.startsWith('99') && !clr.includes(l.account));
     expect(r2(money.reduce((s, l) => s + Number(l.debit), 0))).toBe(743.4);
     expect(r2(money.reduce((s, l) => s + Number(l.credit), 0))).toBe(743.4);
     expect(J.by['230018']).toBe(-113.4); // 743.40 × 18/118
+    // the goods issue cleared 6630 at the store price (826); the turnover (743.40) is what the ЕТ book subtracts, so
+    // the 82.60 discount goes back to 6630 (D 6630 / C 6640 12.60 / C margin and cost)
+    expect(J.by['6630']).toBe(82.6);
+    expect(J.by['6640']).toBe(-12.6);
   });
 
   it('Z report of the store posts the fiscal turnover and issues the goods', async () => {

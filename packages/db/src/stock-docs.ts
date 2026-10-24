@@ -11,15 +11,17 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
 import {
   bomCycle, cogsAccount, dailySalesTotals, fiskEntries, levellingEntries, levellingLines, levellingReversal, nextYearNumber, postIn,
-  postOut, postTransfer, priceAt, productionNeeds, reaverage, runProduction, salesVatBases, schemeValue, stockAt, stockAtAll, transferShortages, vbLines,
+  locationKind, postOut, postTransfer, priceAt, productionNeeds, reaverage, retailAccount, retailClearLines, retailCostRatio, retailOn, retailPrice, runProduction,
+  salesVatBases, schemeValue, stockAt, stockAtAll, transferShortages, vbLines,
   type FiscalSchemeKey, type JournalLine, type LevellingDoc, type ProductionRecord, type SalesDoc, type StockContext, type StockItem,
   type StockMove,
 } from '@wise/core';
+import { todaySkopje } from '@wise/core/office/dates';
 import { audit, type Tx } from './audit';
 import { assertOpenPeriod, postJournal, unpostSource } from './posting';
 import { assertTransferRemovable } from './transfer-links';
 import {
-  boms, fileLinks, files, firms, journals, levellingDocs, productionOrders, purchases, salesDaily, stockCounts, stockMoves, transfers,
+  boms, fileLinks, files, firms, journals, levellingDocs, productionOrders, purchases, salesDaily, stockCounts, stockMoves, storeOuts, transfers,
   type LevellingDocLine, type SalesDayRow, type SalesFiskInfo, type SalesGroupRow, type SalesItemLine, type StockCountLine,
   type TransferLine,
 } from './schema/index';
@@ -65,8 +67,9 @@ export interface TransferInput {
 
 /**
  * Save a transfer warehouse → store (legacy `ACT.prSave` 17396): stock check at the source on the date, issue at
- * average cost from the source, receipt at the destination with `transferLines` (retail-value stores: D 6630 / C stock /
- * C 6694 / C 6640), retail prices of the destination updated (legacy `applySalePrices`).
+ * average cost from the source (out of a retail-value store: D cost / D 6694 / D 6640 / C 6630, `transferOutLines`),
+ * receipt at the destination with `transferLines` (retail-value stores: D 6630 / C stock / C 6694 / C 6640), retail
+ * prices of the destination updated (legacy `applySalePrices`) with a levelling of the stock already there.
  */
 export async function saveTransfer(tx: Tx, a: Actor, input: TransferInput): Promise<{ id: string; number: string }> {
   needDate(input.date);
@@ -117,7 +120,27 @@ export async function saveTransfer(tx: Tx, a: Actor, input: TransferInput): Prom
   await replaceSourceMoves(tx, { firmId: a.firmId, sourceType: 'transfer', sourceId: id, moves, date: input.date, description: `Преносница ${number}: ${L.locName(from)} → ${L.locName(to)}`, userId: a.userId });
   const sp = new Map<string, number>();
   for (const l of lines) if (l.sp != null && Number.isFinite(l.sp)) sp.set(l.itemId, r2(l.sp));
+  // FIX (as purchases, legacy `applySalePrices`): a new retail price in a store re-prices the stock that was there
+  // before this transfer (stock at the date − received qty) with a levelling (нивелација), not silently
+  const level: { item: string; qty: number; old: number; sp: number }[] = [];
+  if (locationKind(L.ctx, whId(to)) === 'store') {
+    for (const [item, p] of sp) {
+      const it = its.find((x) => x.id === item)!;
+      const old = retailPrice(it, whId(to));
+      if (Math.abs(old - p) < 0.005) continue;
+      const recv = lines.filter((l) => l.itemId === item).reduce((x, l) => x + r4(l.qty), 0);
+      const qty = r4(stockAt(live, { item, wh: whId(to), date: input.date }).qty - recv);
+      if (qty > 0) level.push({ item, qty, old, sp: p });
+    }
+  }
   await setRetailPrices(tx, a.firmId, whId(to), sp);
+  if (level.length) {
+    await saveLevelling(tx, a, {
+      date: input.date, wh: to, today: todaySkopje(), note: 'од преносница ' + number,
+      prices: Object.fromEntries(level.map((l) => [l.item, l.sp])), qty: Object.fromEntries(level.map((l) => [l.item, l.qty])),
+      old: Object.fromEntries(level.map((l) => [l.item, l.old])),
+    });
+  }
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'prSave', entityType: 'transfer', entityId: id, data: { number, date: input.date, from, to, lines: docLines.length, edit: !!prev } });
   return { id, number };
 }
@@ -389,6 +412,48 @@ export interface SalesDayInput {
   replace?: boolean;
   /** Uploaded scan of the report (legacy `attach` 11450), linked to the record. */
   fileId?: string | null;
+  /** Retail stock (incl. VAT) and embedded VAT already cleared by the document's own goods issue (a store sale ПР). */
+  retailCleared?: { stock: number; vat: number } | null;
+}
+
+/**
+ * A real Z / fiscal report row: not the turnover row of a store sale (ПР, `fisk.mo`), which shares kind `fisk`, date
+ * and store with the day's Z report (rows saved before the marker are known by their store sale).
+ */
+export const realFiskRow = sql`(coalesce(${salesDaily.fisk}->>'mo', '') = '' and not exists (select 1 from ${storeOuts} where ${storeOuts.salesDayId} = ${salesDaily.id}))`;
+
+/**
+ * A store kept at retail value: the daily turnover clears the retail stock by the whole turnover (`retailClearLines`,
+ * D 7010 cost / D 6694 realised margin / D 6640 embedded VAT, C 6630), less what the goods issued for it (POS,
+ * „Излез на стока“, the ПР's own issue) already cleared at the item prices — so the ЕТ book (col. 7) and 6630 agree
+ * and the cost of goods sold reaches 7010 also without a goods issue. Lines of other items than goods (services,
+ * dishes issued by their normativ) are not retail stock. Services reports (`usl`) carry no goods; `trgNoVat` clears
+ * in its own posting (`fiskEntries` with `cogs`).
+ *
+ * FIX: a Z report without „Излез на стока“ posted revenue only, so 6630 / 6694 / 6640 were never cleared and nothing
+ * reached 7010 while ЕТ col. 7 still subtracted the turnover.
+ */
+function turnoverClearing(L: LoadedStock, a: {
+  wh: string; date: string; sc?: string; total: number; vat: number; cart: readonly SalesItemLine[]; moved: readonly Pick<StockMove, 'lines'>[];
+  cleared?: { stock: number; vat: number } | null;
+}): JournalLine[] {
+  if (!retailOn(L.ctx, a.wh) || a.sc === 'usl' || a.sc === 'trgNoVat') return [];
+  let gross = a.total, vat = a.vat;
+  for (const l of a.cart) {
+    const it = l.itemId ? L.ctx.items?.find((i) => i.id === l.itemId) : undefined;
+    if (!it || it.type === 'goods') continue;
+    const g = l.qty * l.price;
+    gross -= g;
+    vat -= l.rate ? (g * l.rate) / (100 + l.rate) : 0;
+  }
+  const sk = retailAccount(L.ctx, a.wh, 'Stock'), vk = retailAccount(L.ctx, a.wh, 'Vat');
+  gross -= a.cleared?.stock ?? 0;
+  vat -= a.cleared?.vat ?? 0;
+  for (const m of a.moved) for (const l of m.lines ?? []) {
+    if (l.account === sk) gross -= l.credit - l.debit;
+    else if (l.account === vk) vat -= l.debit - l.credit;
+  }
+  return retailClearLines(L.ctx, { wh: a.wh, date: a.date, gross: r2(gross), vat: r2(vat) }).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit }));
 }
 
 /** Revenue account of an item sold at retail (legacy: item `konto`, else `revRetail` for goods, else `REV_K[type]`). */
@@ -463,9 +528,10 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
       const [dup] = await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'pos'), eq(salesDaily.date, input.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`)).limit(1);
       if (dup) throw new StockDocError('За овој ден и објект веќе постои дневен промет од каса – дополнете го.');
     }
-    if (kind === 'fisk') {
+    // a store sale's (ПР) turnover row never collides with the day's Z report nor with other ПР of the day
+    if (kind === 'fisk' && !fisk?.mo) {
       // legacy 11414 / 11429: „⚠ За овој ден … веќе има промет во оваа каса“ — replace only when asked
-      const D = await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'fisk'), eq(salesDaily.date, input.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`));
+      const D = await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'fisk'), eq(salesDaily.date, input.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`, realFiskRow));
       if (D.length && !input.replace) throw new StockDocError(`За ${input.date.split('-').reverse().join('.')} во овој објект веќе има прокнижен фискален извештај – штиклирајте „замени го постојниот“ или изберете друг датум.`);
       for (const x of D) await deleteSalesDay(tx, a, x.id);
     }
@@ -475,22 +541,7 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
     const [f] = await tx.select({ id: files.id }).from(files).where(and(eq(files.id, input.fileId), eq(files.firmId, a.firmId))).limit(1);
     if (f) await tx.insert(fileLinks).values({ fileId: f.id, entityType: 'sales_daily', entityId: id, role: 'source' }).onConflictDoNothing();
   }
-  // revenue journal
-  const posting = { ...L.settings.posting, firm: { ...L.settings.posting.firm } };
-  const posK = posting.firm.posK || schemeValue(posting, 'posCard');
-  if (card > 0 && /^12/.test(cardAccount || posK)) posting.firm.posPartnerId = await ensurePosPartner(tx, a.firmId, a.userId);
-  const doc: SalesDoc = {
-    id, date: input.date, wh: W, total, groups, card, cardKonto: cardAccount ?? undefined,
-    fisk: fisk?.sc ? { sc: sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
-  };
-  // legacy `vbLines` 3451 (Каса): the off-balance VAT bases of the day's sales (Д 994… / П 999…)
-  const J: JournalLine[] = [...fiskEntries(doc, posting), ...vbLines(salesVatBases(groups), posting)];
   const zLabel = kind === 'pos' ? 'Каса' : `Дн. фин. изв.${input.number ? ' Z бр. ' + input.number : ''}`;
-  await postJournal(tx, {
-    firmId: a.firmId, date: input.date, kind: 'kasa', sourceType: 'sales_daily', sourceId: id, userId: a.userId,
-    description: `${zLabel} ${input.date.split('-').reverse().join('.')} · ${L.locName(loc)}`,
-    lines: J.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: loc })),
-  });
   // goods issue
   const issue = kind === 'pos' || (!!input.issue && sc !== 'usl' && sc !== 'trgNoVat');
   let live = L.ctx;
@@ -518,6 +569,23 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
       moves.push(mv);
       live = withMoves(live, [mv]);
     });
+  // revenue journal
+  const posting = { ...L.settings.posting, firm: { ...L.settings.posting.firm } };
+  const posK = posting.firm.posK || schemeValue(posting, 'posCard');
+  if (card > 0 && /^12/.test(cardAccount || posK)) posting.firm.posPartnerId = await ensurePosPartner(tx, a.firmId, a.userId);
+  const doc: SalesDoc = {
+    id, date: input.date, wh: W, total, groups, card, cardKonto: cardAccount ?? undefined,
+    fisk: fisk?.sc ? { sc: sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
+    ...(sc === 'trgNoVat' ? { cogs: { account: cogsAccount(L.ctx, { type: 'goods' }), ratio: retailCostRatio(L.ctx, W, input.date) } } : {}),
+  };
+  // legacy `vbLines` 3451 (Каса): the off-balance VAT bases of the day's sales (Д 994… / П 999…)
+  const clear = turnoverClearing(L, { wh: W, date: input.date, sc, total, vat: nonVat ? 0 : r2(groups.reduce((x, g) => x + g.vat, 0)), cart, moved: moves, cleared: input.retailCleared });
+  const J: JournalLine[] = [...fiskEntries(doc, posting), ...clear, ...vbLines(salesVatBases(groups), posting)];
+  await postJournal(tx, {
+    firmId: a.firmId, date: input.date, kind: 'kasa', sourceType: 'sales_daily', sourceId: id, userId: a.userId,
+    description: `${zLabel} ${input.date.split('-').reverse().join('.')} · ${L.locName(loc)}`,
+    lines: J.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: loc })),
+  });
   await replaceSourceMoves(tx, { firmId: a.firmId, sourceType: 'sales_daily', sourceId: id, moves, date: input.date, description: `Излез на стока · ${zLabel} · ${L.locName(loc)}`, userId: a.userId });
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: kind === 'pos' ? 'posSell' : 'fkPost', entityType: 'sales_daily', entityId: id, data: { date: input.date, wh: W, total, card, sc: sc ?? null, issued: moves.length, edit: !!prev } });
   return { id, total };
@@ -658,8 +726,11 @@ export const isTracked = (it: Pick<StockItem, 'type'>): boolean => !!it.type && 
 export async function repostSalesDay(tx: Tx, a: Actor, id: string): Promise<void> {
   const [d] = await tx.select().from(salesDaily).where(and(eq(salesDaily.id, id), eq(salesDaily.firmId, a.firmId))).limit(1);
   if (!d || d.pending) return;
-  const L = await loadStockContext(tx, a.firmId);
+  const L = await loadStockContext(tx, a.firmId, { excludeSource: { sourceType: 'sales_daily', sourceId: id } });
   assertOpenPeriod(L.firm, d.date);
+  // the stored goods issue of the day (and of the store sale ПР whose turnover this is) for the retail-stock clearing
+  const so = await tx.select({ id: storeOuts.id }).from(storeOuts).where(and(eq(storeOuts.firmId, a.firmId), eq(storeOuts.salesDayId, id)));
+  const moved = await tx.select({ lines: stockMoves.lines }).from(stockMoves).where(and(eq(stockMoves.firmId, a.firmId), eq(stockMoves.pending, false), sql`(${and(eq(stockMoves.sourceType, 'sales_daily'), eq(stockMoves.sourceId, id))} or ${so.length ? and(eq(stockMoves.sourceType, 'store_out'), inArray(stockMoves.sourceId, so.map((x) => x.id))) : sql`false`})`));
   const fisk = d.fisk ?? null;
   const total = Number(d.total), card = Number(d.card);
   const posting = { ...L.settings.posting, firm: { ...L.settings.posting.firm } };
@@ -668,12 +739,18 @@ export async function repostSalesDay(tx: Tx, a: Actor, id: string): Promise<void
   const doc: SalesDoc = {
     id, date: d.date, wh: whId(d.locationId), total, groups: d.groups, card, cardKonto: d.cardAccount ?? undefined,
     fisk: fisk?.sc ? { sc: fisk.sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
+    ...(fisk?.sc === 'trgNoVat' ? { cogs: { account: cogsAccount(L.ctx, { type: 'goods' }), ratio: retailCostRatio(L.ctx, whId(d.locationId), d.date) } } : {}),
   };
+  const nonVat = !L.settings.vatRegistered || !!fisk?.nonVat;
+  const clear = turnoverClearing(L, {
+    wh: whId(d.locationId), date: d.date, sc: fisk?.sc, total, vat: nonVat ? 0 : r2(d.groups.reduce((x, g) => x + Number(g.vat), 0)), cart: d.lines ?? [],
+    moved: moved.map((m) => ({ lines: (m.lines ?? []).map((l) => ({ account: l.account, debit: Number(l.debit), credit: Number(l.credit) })) })),
+  });
   const zLabel = d.kind === 'pos' ? 'Каса' : `Дн. фин. изв.${d.number ? ' Z бр. ' + d.number : ''}`;
   await postJournal(tx, {
     firmId: a.firmId, date: d.date, kind: 'kasa', sourceType: 'sales_daily', sourceId: id, userId: a.userId, auditAction: 'schRepost',
     description: `${zLabel} ${d.date.split('-').reverse().join('.')} · ${L.locName(d.locationId)}`,
     // with the off-balance VAT bases, as when it was saved (a re-post kept only the turnover)
-    lines: [...fiskEntries(doc, posting), ...vbLines(salesVatBases(d.groups), posting)].map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: d.locationId })),
+    lines: [...fiskEntries(doc, posting), ...clear, ...vbLines(salesVatBases(d.groups), posting)].map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId ?? null, note: l.note ?? null, doc: l.doc ?? null, locationId: d.locationId })),
   });
 }

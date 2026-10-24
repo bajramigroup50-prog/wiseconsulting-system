@@ -7,7 +7,7 @@
  */
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
-  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, nalogNumber, retailPrice, roundPurchase, schemeValue, stockAt,
+  calculationRows, finalizeStockLines, purchaseEntries, purchaseVatBases, vbLines, PostingError as CorePostingError, r2, nalogNumber, priceAt, retailOn, retailPrice, roundPurchase, schemeValue, stockAt,
   type CostSlot, type PurchaseCostKey, type PurchaseDoc, type PurchaseLike, type StockItem,
 } from '@wise/core';
 import { findDuplicate, purchaseTotal } from '@wise/core/sales';
@@ -289,10 +289,26 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
     if (!n(c.amount) && !lines.length) continue;
     costs[k] = { amt: n(c.amount), fx: k === 'dev' ? n(c.fx) || 1 : undefined, doc: c.doc ?? undefined, date: c.date ?? undefined, due: c.due ?? undefined, partner: c.partnerId ?? undefined, byQty: !!c.byQty, foreign: !!c.foreign, lines };
   }
+  // FIX: the ПЛТ of a store is frozen — a line without its own МПЦ gets the store's retail price on the purchase date
+  // (it used today's price, so ЕТ col. 6 of an old ПЛТ and the carry-over changed after a later levelling); a store kept
+  // at retail value needs a МПЦ for every goods line
+  const spOf = new Map<number, number>();
+  const W0 = input.warehouseId || null;
+  if (W0 && stock.some((s) => empty(s.sp) || !(n(s.sp) > 0)) && (await stockLocations(tx, firmId)).find((l) => l.id === W0)?.kind === 'store') {
+    const sc = (await loadStockContext(tx, firmId)).ctx;
+    const ret = retailOn(sc, W0);
+    stock.forEach((s, i) => {
+      if (!empty(s.sp) && n(s.sp) > 0) return;
+      const it = sc.items?.find((x) => x.id === s.itemId);
+      const v = it ? r2(priceAt(sc, it, W0, input.date)) : 0;
+      if (v > 0) spOf.set(i, v);
+      else if (ret && (IT.get(s.itemId!)?.type ?? 'goods') === 'goods') throw new DocumentError(`Внесете МПЦ за „${IT.get(s.itemId!)?.name ?? s.name ?? ''}“ – продавницата се води по продажни цени.`);
+    });
+  }
   const p0: PurchaseLike = {
     imp, fx: n(input.fx) || 1, art32, wh: input.warehouseId ?? undefined, costs: costs as PurchaseLike['costs'], cnames: input.cnames ?? [], distMode: input.distMode ?? 'val',
     groups: groups.map((g) => ({ konto: g.account, rate: g.rate, base: g.base, vat: g.vat })),
-    stock: stock.map((s) => ({ item: s.itemId!, name: s.name ?? '', code: s.code ?? '', barcode: s.barcode ?? '', amount: n(s.amount), qty: n(s.qty), price: n(s.price), rab: n(s.rab), cn: empty(s.cn) ? '' : n(s.cn), dep: empty(s.dep) ? '' : n(s.dep), sp: empty(s.sp) ? '' : n(s.sp) })),
+    stock: stock.map((s, i) => ({ item: s.itemId!, name: s.name ?? '', code: s.code ?? '', barcode: s.barcode ?? '', amount: n(s.amount), qty: n(s.qty), price: n(s.price), rab: n(s.rab), cn: empty(s.cn) ? '' : n(s.cn), dep: empty(s.dep) ? '' : n(s.dep), sp: spOf.get(i) ?? (empty(s.sp) ? '' : n(s.sp)) })),
   };
   const p = roundPurchase(p0);
   const fin = finalizeStockLines(p);

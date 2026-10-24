@@ -764,6 +764,11 @@ export interface SalesDoc {
   cardKonto?: string;
   fisk?: FiscalInfo | null;
   pend?: boolean;
+  /**
+   * `trgNoVat`: cost of goods sold of the turnover — `ratio` = cost share of the turnover (the store's
+   * `retailCostRatio`), debited to `account` (7010). Absent = the legacy posting (the whole turnover D 6694).
+   */
+  cogs?: { account: string; ratio: number } | null;
 }
 
 function saleLines(s: SalesDoc, ctx: PostingContext): IL[] {
@@ -816,7 +821,8 @@ function fiskBase(z: SalesDoc, ctx: PostingContext, posK: string): IL[] {
  * Fiscal (Z / periodic) report posting (legacy `fiskEntries`, final 13093 with `FK_SC`):
  * - no scheme → cash-sale posting with card payments on the card konto (`posK`, POS partner);
  * - `usl` → D cash 1009 / D card / P output VAT / P 7414;
- * - `trgNoVat` → D cash / D card / P 7410 for the total, plus D retail margin 6694 / P retail stock 6630 (legacy: 6690);
+ * - `trgNoVat` → D cash / D card / P 7410 for the total, plus D cost of goods sold 7010 (`cogs`) / D retail margin 6694 /
+ *   P retail stock 6630 (legacy: the whole turnover D 6690);
  * - `trg` → D cash / D card / P revenue + VAT from the cash-sale posting (stock issue is a separate move).
  *
  * FIX: in `trg` legacy dropped the cash-sale debit by the literal konto '1020'; with a configured
@@ -857,7 +863,12 @@ export function fiskEntries(z: SalesDoc, ctx: PostingContext): JournalLine[] {
     // (`retailMarg`, 6694) like sales, transfers and levelling; `fiskMarg` / `fiskStock` stay as explicit overrides.
     const mk = schemeValue(ctx, 'fiskMarg') || schemeValue(ctx, 'retailMarg') || '6694';
     const sk = schemeValue(ctx, 'fiskStock') || schemeValue(ctx, 'retailStock') || '6630';
-    L.push({ k: mk, d: tot, p: 0, note: ds }, { k: sk, d: 0, p: tot, note: ds });
+    // FIX: the turnover cleared from the retail stock is cost of goods sold (D 7010) + realised margin (D 6694); the
+    // whole turnover on 6694 never brought the cost of goods sold to 7010
+    const cost = z.cogs ? Math.min(tot, Math.max(0, Math.round(tot * n0(z.cogs.ratio)))) : 0;
+    if (cost) L.push({ k: z.cogs!.account, d: cost, p: 0, note: ds });
+    if (tot - cost) L.push({ k: mk, d: tot - cost, p: 0, note: ds });
+    L.push({ k: sk, d: 0, p: tot, note: ds });
   }
   if (fk.sc === 'trg') {
     const cashK = schemeValue(ctx, 'kasaCash');

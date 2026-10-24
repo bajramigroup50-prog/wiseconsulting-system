@@ -11,7 +11,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { deletePurchase, savePurchase, type PurchaseInput } from './sales/purchases';
 import { releaseScanDrafts } from './sales/ai-docs';
 import type { DocActor } from './sales/context';
-import { cogsAccount, fkIssuePlan, postOut, priceAt, schemeValue, stockAt, type StockMove } from '@wise/core';
+import { cogsAccount, fkIssuePlan, postOut, priceAt, retailAccount, schemeValue, stockAt, type StockMove } from '@wise/core';
 import { fkNormDate, type FiskRead } from '@wise/core/ai/fisk';
 import {
   FK_SC, ksInvLines, ksMergeCheck, ksMergeGroups, ksMergeHead, type KsInvLine, couponCheck, findCard, fkGrossByRate, fkMetgDays, fkRows2, pointsEarned, posDiscount, posDiscountLines, posSaldo, type Coupon, type LoyaltyCard,
@@ -22,7 +22,7 @@ import { audit, type Tx } from './audit';
 import { coupons, firmDocs, firms, items, journalLines, journals, loyaltyCards, partners, purchaseStockLines, purchaseVatGroups, purchases, salesDaily, storeOuts, transfers, type StoreOutLine } from './schema/index';
 import { assertOpenPeriod, postJournal } from './posting';
 import { StockDocError, ensurePosPartner, loadStockContext, removeSourceMoves, replaceSourceMoves, requireLocation, requireTracked, whId } from './stock-service';
-import { deleteSalesDay, posSell, retailDocNumber, saveSalesDay, type Actor } from './stock-docs';
+import { deleteSalesDay, posSell, realFiskRow, retailDocNumber, saveSalesDay, type Actor } from './stock-docs';
 import { loyaltyApplySale, loyaltyRulesOf, patchFirmSettings } from './retail';
 import { dependentTransfers } from './transfer-links';
 
@@ -87,7 +87,7 @@ export async function postFiskRead(tx: Tx, a: Actor, x: FiskReadPostInput): Prom
   for (const [i, r] of X.rows.entries()) {
     if (!(r.total > 0)) continue;
     const [ex] = await tx.select({ id: salesDaily.id }).from(salesDaily)
-      .where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'fisk'), eq(salesDaily.date, r.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`)).limit(1);
+      .where(and(eq(salesDaily.firmId, a.firmId), eq(salesDaily.kind, 'fisk'), eq(salesDaily.date, r.date), sql`coalesce(${salesDaily.locationId}::text, 'main') = ${loc ?? 'main'}`, realFiskRow)).limit(1);
     const days = X.rows.length === 1 ? fkMetgDays(x.read, r, { nonVat: X.nonVat, mg: x.mg, today: x.today }) : null;
     const lines = plan?.[i]?.lines.map((l) => ({ itemId: l.item, qty: l.qty, price: l.price, rate: l.rate })) ?? [];
     const d = await saveSalesDay(tx, a, {
@@ -224,17 +224,6 @@ export async function saveStoreOut(tx: Tx, a: Actor, x: StoreOutInput): Promise<
     : (await tx.insert(storeOuts).values({ ...head, firmId: a.firmId, createdBy: a.userId }).returning({ id: storeOuts.id }))[0]!.id;
   const lab = (kind === 'sale' ? 'Продажба ' : 'Повратница ') + number;
   let salesDayId: string | null = prev?.salesDayId ?? null;
-  if (kind === 'sale') {
-    // the turnover as a fiscal-day row: D „Наплата“ / C revenue + VAT; no goods issue there (the moves are this document's)
-    const gross: Record<string, number> = {};
-    for (const l of lines) gross[String(l.rate)] = r2((gross[String(l.rate)] ?? 0) + l.val);
-    const d = await saveSalesDay(tx, a, {
-      id: salesDayId, kind: 'fisk', date: x.date, wh: loc, number, gross, count: 1, issue: false,
-      fisk: { sc: 'trg', ...(acc ? { cashK: acc } : {}), ...(nonVat ? { nonVat: true } : {}) }, note: lab,
-    });
-    salesDayId = d.id;
-  }
-  await tx.update(storeOuts).set({ salesDayId }).where(eq(storeOuts.id, id));
   let live = L.ctx;
   const moves: StockMove[] = [];
   const pName = x.partnerId ? (await tx.select({ name: partners.name }).from(partners).where(eq(partners.id, x.partnerId)).limit(1))[0]?.name ?? '' : '';
@@ -246,6 +235,25 @@ export async function saveStoreOut(tx: Tx, a: Actor, x: StoreOutInput): Promise<
     moves.push(mv);
     live = { ...live, moves: [...live.moves, mv] };
   });
+  if (kind === 'sale') {
+    // the turnover as a fiscal-day row: D „Наплата“ / C revenue + VAT; no goods issue there (the moves are this document's)
+    const gross: Record<string, number> = {};
+    for (const l of lines) gross[String(l.rate)] = r2((gross[String(l.rate)] ?? 0) + l.val);
+    // a store kept at retail value: what this sale's own issue cleared (at the store price), the rest by the turnover
+    const sk = retailAccount(L.ctx, W, 'Stock'), vk = retailAccount(L.ctx, W, 'Vat');
+    const cleared = { stock: 0, vat: 0 };
+    for (const m of moves) for (const j of m.lines ?? []) {
+      if (j.account === sk) cleared.stock = r2(cleared.stock + j.credit - j.debit);
+      else if (j.account === vk) cleared.vat = r2(cleared.vat + j.debit - j.credit);
+    }
+    // `mo` marks the row as this sale's turnover (not a Z report): several ПР a day, never replaced by the day's Z
+    const d = await saveSalesDay(tx, a, {
+      id: salesDayId, kind: 'fisk', date: x.date, wh: loc, number, gross, count: 1, issue: false, retailCleared: cleared,
+      fisk: { sc: 'trg', ...(acc ? { cashK: acc } : {}), ...(nonVat ? { nonVat: true } : {}), mo: id }, note: lab,
+    });
+    salesDayId = d.id;
+  }
+  await tx.update(storeOuts).set({ salesDayId }).where(eq(storeOuts.id, id));
   await replaceSourceMoves(tx, { firmId: a.firmId, sourceType: 'store_out', sourceId: id, moves, date: x.date, description: lab + ' · ' + L.locName(loc), userId: a.userId });
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'moSave', entityType: 'store_out', entityId: id, data: { kind, number, date: x.date, wh: W, lines: lines.length, edit: !!prev } });
   return { id, number };

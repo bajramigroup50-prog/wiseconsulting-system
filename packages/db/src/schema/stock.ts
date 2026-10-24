@@ -185,6 +185,8 @@ export interface SalesFiskInfo {
   periodic?: boolean; fileId?: string | null; receipts?: number;
   /** Goods issued for the turnover with FIFO / LIFO / proportional selection. */
   meth?: 'fifo' | 'lifo' | 'prop';
+  /** The turnover row of a store sale (ПР, `store_outs.id`): not a Z report — never replaced by one, several per day. */
+  mo?: string;
 }
 /** POS cart line / goods issued for a fiscal turnover. */
 export interface SalesItemLine { itemId: string; qty: number; price: number; rate: number; /** POS discount line label (no item). */ name?: string }
