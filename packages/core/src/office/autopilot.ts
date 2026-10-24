@@ -191,9 +191,15 @@ export function alCompute(S: FirmSnapshot): Finding[] {
 
   /* 3. VAT registration threshold */
   if (!S.firm.vatRegistered) {
-    const rev = r2(L.filter((l) => /^7[4-6]/.test(l.account)).reduce((a, l) => a + l.credit - l.debit, 0));
-    if (rev >= AL_DDV_LIMIT) add('bad', 'ДДВ', `Промет ${fmtMk(rev)} ден. во ${y} – над 2.000.000 ден. Фирмата треба да се регистрира за ДДВ – проверете го рокот со УЈП.`, 'firmi');
-    else if (rev >= AL_DDV_LIMIT * 0.8) add('warn', 'ДДВ', `Промет ${fmtMk(rev)} ден. во ${y} – ${Math.round((rev / AL_DDV_LIMIT) * 100)}% од прагот од 2.000.000 ден. за ДДВ.`, 'firmi');
+    // the day the year's turnover went over the threshold (cumulative, by date) and the deadline for the application:
+    // the 15th of the following month – told in time, never discovered at the year end
+    const R = L.filter((l) => /^7[4-6]/.test(l.account)).sort((a, b) => a.date.localeCompare(b.date));
+    let rev = 0, over = '';
+    for (const l of R) { rev = r2(rev + l.credit - l.debit); if (!over && rev >= AL_DDV_LIMIT) over = l.date; }
+    if (over && rev >= AL_DDV_LIMIT) {
+      const due = `${ymAdd(over.slice(0, 7), 1)}-15`;
+      add('bad', 'ДДВ', `🚨 ПРАГ ЗА ДДВ НАДМИНАТ: промет ${fmtMk(rev)} ден. во ${y} – над 2.000.000 ден. од ${dmy(over)}. Барање за регистрација за ДДВ до УЈП најдоцна до ${dmy(due)}${td > due ? ' – РОКОТ ПОМИНА, поднесете веднаш' : ''}; потоа во картичката на фирмата „ДДВ обврзник“ од датумот на регистрацијата.`, 'firmi');
+    } else if (rev >= AL_DDV_LIMIT * 0.7) add('warn', 'ДДВ', `⚠ Близу прагот за ДДВ: промет ${fmtMk(rev)} ден. во ${y} – ${Math.round((rev / AL_DDV_LIMIT) * 100)}% од 2.000.000 ден. (уште ${fmtMk(r2(AL_DDV_LIMIT - rev))} ден.). При надминување, барањето до УЈП е до 15-ти во наредниот месец.`, 'firmi');
   }
 
   /* 4. previous VAT return not posted 25 days after the period */

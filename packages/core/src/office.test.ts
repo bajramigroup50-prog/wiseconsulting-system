@@ -97,6 +97,15 @@ describe('recurring', () => {
 });
 
 describe('autopilot checks (alCompute / apExtra)', () => {
+  it('VAT threshold: the day it was crossed and the deadline (15th of the next month); a warning from 70 %', () => {
+    const firm = { id: 'f1', name: 'Тест ДООЕЛ', vatRegistered: false, nkd: '47.11' };
+    const over = alCompute(snap({ firm, ledger: [ln('2026-03-10', '7400', 0, 1_500_000), ln('2026-05-20', '7400', 0, 600_000)] })).find((f) => f.cat === 'ДДВ')!;
+    expect(over.lvl).toBe('bad');
+    expect(over.txt).toMatch(/ПРАГ ЗА ДДВ НАДМИНАТ.*од 20\.05\.2026.*до 15\.06\.2026.*РОКОТ ПОМИНА/);
+    const near = alCompute(snap({ firm, ledger: [ln('2026-03-10', '7400', 0, 1_500_000)] })).find((f) => f.cat === 'ДДВ')!;
+    expect(near.lvl).toBe('warn');
+    expect(near.txt).toMatch(/Близу прагот за ДДВ.*75%/);
+  });
   it('flags suppliers paid without invoice, customer prepayments, negative cash and expiring documents', () => {
     const S = snap({
       ledger: [
