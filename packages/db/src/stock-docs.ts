@@ -576,7 +576,7 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
   const doc: SalesDoc = {
     id, date: input.date, wh: W, total, groups, card, cardKonto: cardAccount ?? undefined,
     fisk: fisk?.sc ? { sc: sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
-    ...(sc === 'trgNoVat' ? { cogs: { account: cogsAccount(L.ctx, { type: 'goods' }), ratio: retailCostRatio(L.ctx, W, input.date) } } : {}),
+    ...(sc === 'trgNoVat' && retailOn(L.ctx, W) ? { cogs: { account: cogsAccount(L.ctx, { type: 'goods' }), ratio: retailCostRatio(L.ctx, W, input.date) } } : {}),
   };
   // legacy `vbLines` 3451 (Каса): the off-balance VAT bases of the day's sales (Д 994… / П 999…)
   const clear = turnoverClearing(L, { wh: W, date: input.date, sc, total, vat: nonVat ? 0 : r2(groups.reduce((x, g) => x + g.vat, 0)), cart, moved: moves, cleared: input.retailCleared });
@@ -739,7 +739,7 @@ export async function repostSalesDay(tx: Tx, a: Actor, id: string): Promise<void
   const doc: SalesDoc = {
     id, date: d.date, wh: whId(d.locationId), total, groups: d.groups, card, cardKonto: d.cardAccount ?? undefined,
     fisk: fisk?.sc ? { sc: fisk.sc as FiscalSchemeKey, cashK: fisk.cashK, rev: fisk.rev, nonVat: fisk.nonVat, from: fisk.from, to: fisk.to, z: fisk.z } : null,
-    ...(fisk?.sc === 'trgNoVat' ? { cogs: { account: cogsAccount(L.ctx, { type: 'goods' }), ratio: retailCostRatio(L.ctx, whId(d.locationId), d.date) } } : {}),
+    ...(fisk?.sc === 'trgNoVat' && retailOn(L.ctx, whId(d.locationId)) ? { cogs: { account: cogsAccount(L.ctx, { type: 'goods' }), ratio: retailCostRatio(L.ctx, whId(d.locationId), d.date) } } : {}),
   };
   const nonVat = !L.settings.vatRegistered || !!fisk?.nonVat;
   const clear = turnoverClearing(L, {

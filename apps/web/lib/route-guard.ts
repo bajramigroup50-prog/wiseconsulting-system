@@ -35,7 +35,7 @@ export function publicPath(p: string): boolean {
 /** API endpoints every signed-in role may call (each checks the file's / current firm's access itself). */
 const SHARED_API = ['/api/files', '/api/pdf', '/api/errors', '/api/firm-now'];
 
-const TEREN_VIEWS = ['mojzad', 'mojpn', 'lozinka', 'izlezF'];
+export const TEREN_VIEWS = ['mojzad', 'mojpn', 'lozinka', 'izlezF'];
 
 /**
  * Which client sections a file link belongs to (`file_links.entity_type` → view ids). A client may open a file only
@@ -196,6 +196,23 @@ export function actionAllowedFor(filename: string | null | undefined, views: Rea
   const seg = rest.split('/')[0]!;
   if (['_ai', '_stock', '_retail', '_repost', '_fx'].includes(seg)) return true;
   return views.has(seg);
+}
+
+/**
+ * 🔒 Server actions of a client (portal) or a field worker: only those of their own sections (the views they may open,
+ * the portal home, the password) and the firm / year picker – never a bookkeeping action posted to an allowed page
+ * (closing VAT, importing statements, booking…), whatever right `write` the role carries on its firm. Fail closed.
+ */
+export function portalActionAllowed(filename: string | null | undefined, views: readonly string[]): boolean {
+  const f = (filename ?? '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^apps\/web\//, '');
+  if (!f) return false;
+  if (f === 'app/login/actions.ts' || f.startsWith('app/print/doc/')) return true;
+  const m = /^app\/\(app\)\/(.+)$/.exec(f);
+  if (!m) return false;
+  const rest = m[1]!;
+  if (rest === 'actions.ts') return true;
+  const seg = rest.split('/')[0]!;
+  return new Set([...views, 'klHome', 'lozinka']).has(seg);
 }
 
 /** `null` = allowed; `'/'` = back to the demo dashboard; `'403'` for an API call. */

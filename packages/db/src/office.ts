@@ -310,7 +310,9 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
       await tx.update(autopilotFindings).set({ resolvedAt: now })
         // the nightly tax review's findings (`lr:…`, `automation/lawrep.ts`) are resolved by that job, not here
         .where(and(eq(autopilotFindings.firmId, f.id), isNull(autopilotFindings.resolvedAt), notLike(autopilotFindings.key, 'lr:%'), keys.length ? notInArray(autopilotFindings.key, keys) : undefined));
-      for (const g of X.msgs) {
+      // client messages only from the full run (every 6 h): a re-check of one firm (after a save, „↻ Провери пак“, every
+      // 5 minutes while it is being booked) never sends – the counts change while the accountant works
+      for (const g of o.firmIds ? [] : X.msgs) {
         const [ins] = await tx.insert(autopilotMessages).values({ key: g.key, firmId: f.id, type: g.type, subject: g.subj, body: g.body })
           .onConflictDoNothing().returning({ key: autopilotMessages.key });
         if (!ins) continue;

@@ -19,7 +19,7 @@ import { firmKlientViews, klientViews } from './lib/kl-views';
 import { DEMO_OFF_MSG } from '@wise/core/demo';
 import { actionFile } from './lib/action-manifest';
 import {
-  BOOK_ONLY_MSG, PREVIEW_COOKIE, bookActionAllowed, bookVerdict, demoActionAllowed, demoVerdict, isGuardRole, previewVerdict, publicPath, routeVerdict,
+  BOOK_ONLY_MSG, PREVIEW_COOKIE, TEREN_VIEWS, bookActionAllowed, bookVerdict, demoActionAllowed, demoVerdict, isGuardRole, portalActionAllowed, previewVerdict, publicPath, routeVerdict,
 } from './lib/route-guard';
 import { viewsOf } from './lib/view-access';
 import { FIRM_MISMATCH_HEADER, staleTab } from './lib/firm-guard';
@@ -98,6 +98,11 @@ async function route(req: NextRequest, device: DeviceRow | null): Promise<NextRe
     return pvv ? NextResponse.redirect(new URL(pvv, req.url)) : NextResponse.next();
   }
   const views = u.role === 'klient' ? await klientViews(u.id, req.cookies.get(FIRM_COOKIE)?.value) : [];
+  // a client / field worker posts only the actions of its own sections (its role carries `write` on the firm)
+  const action = req.headers.get('next-action');
+  if (action && req.method === 'POST' && !portalActionAllowed(await actionFile(action), u.role === 'teren' ? [...TEREN_VIEWS, 'kanc'] : views)) {
+    return NextResponse.json({ error: 'Немате пристап.' }, { status: 403 });
+  }
   const v = routeVerdict(u.role, p, views);
   if (!v) return NextResponse.next();
   if (v === '403') return NextResponse.json({ error: 'Немате пристап.' }, { status: 403 });
