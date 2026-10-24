@@ -13,8 +13,9 @@ import { etBook } from '@wise/core';
 import * as schema from './schema/index';
 import { seedReference } from './seed/reference';
 import { loadStockContext, replaceSourceMoves } from './stock-service';
-import { saveSalesDay, saveTransfer, type Actor } from './stock-docs';
-import { postFiskRead, saveStoreOut } from './parity-retail';
+import { stockAt } from '@wise/core';
+import { deleteSalesDay, repostSalesDay, saveSalesDay, saveStockCount, saveTransfer, type Actor } from './stock-docs';
+import { deleteStoreOut, postFiskRead, saveStoreOut } from './parity-retail';
 import { savePurchase } from './sales/purchases';
 import { loadStockSales, stockDocResolver } from './stock-reports';
 
@@ -24,6 +25,7 @@ let A: Actor;
 let firmId = '';
 let s1 = '';
 let s2 = '';
+let s3 = '';
 let sup = '';
 const I: Record<string, string> = {};
 const tx = <T>(f: (t: DB) => Promise<T>) => db.transaction((t) => f(t as unknown as DB));
@@ -60,14 +62,17 @@ beforeAll(async () => {
   const rows = await db.insert(schema.items).values([
     { firmId, code: '001', name: 'Кафе', type: 'goods', unit: 'ком', price: '100', vatRate: 18 },
     { firmId, code: '002', name: 'Без цена', type: 'goods', unit: 'ком', vatRate: 18 },
+    { firmId, code: '003', name: 'Колач', type: 'product', unit: 'ком', price: '50', vatRate: 18 },
   ]).returning();
   for (const r of rows) I[r.code!] = r.id;
   const locs = await db.insert(schema.codes).values([
     { firmId, cb: 'store', code: '02', name: 'Продавница 1' },
     { firmId, cb: 'store', code: '03', name: 'Продавница 2' },
+    { firmId, cb: 'store', code: '04', name: 'Продавница 3' },
   ]).returning();
   s1 = locs[0]!.id;
   s2 = locs[1]!.id;
+  s3 = locs[2]!.id;
   await tx((t) => replaceSourceMoves(t, {
     firmId, sourceType: 'purchase', sourceId: 'P-1', date: '2026-01-05', userId: null, partnerId: sup,
     moves: [{ id: '', date: '2026-01-05', item: I['001']!, qty: 20, value: 1200, type: 'in', wh: 'main', lines: [{ account: '6600', debit: 1200, credit: 0 }, { account: '2200', debit: 0, credit: 1200 }] }],
@@ -112,22 +117,28 @@ describe('a transfer with a new МПЦ', () => {
 });
 
 describe('the daily turnover of a store kept at retail value clears 6630', () => {
-  it('a Z report without „Излез на стока“: D 7010 cost / D 6694 margin / D 6640 VAT, C 6630 the turnover', async () => {
-    const z = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-05', wh: s1, number: '5', gross: { 18: 250 }, fisk: { sc: 'trg' } }));
+  it('a Z report without „Излез на стока“ in a store with goods on stock is refused (a later попис would clear 6630 again)', async () => {
+    const e = await err(tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-05', wh: s1, number: '5', gross: { 18: 250 }, fisk: { sc: 'trg' } })));
+    expect(e.message).toMatch(/штиклирајте „Излез на стока“/);
+    // the same for a fiscal read posted without the goods issue
+    const read = { device: 'AC1', from: '2026-02-05', to: '2026-02-05', days: [{ date: '2026-02-05', z: '5', gross: { 'А': 250 }, vat: { 'А': 38.14 }, total: 250, cash: 250 }] };
+    expect((await err(tx((t) => postFiskRead(t, A, { read, today: '2026-02-06', nonVat: false, sum: false, sc: 'trg', wh: s1 })))).message).toMatch(/штиклирајте „Излез на стока“/);
+    expect(await balanceAt('6630', s1)).toBe(1000);
+  });
+
+  it('a store without goods on stock: the Z report without a goods issue clears 6630 by the turnover', async () => {
+    const z = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-05', wh: s3, number: '5', gross: { 18: 118 }, fisk: { sc: 'trg' } }));
     const j = (await journal('sales_daily', z.id))!;
     expect(j.d).toBe(j.c);
-    // 8 pieces at cost 60 = 480, at 125 without VAT 847.46: cost share 0.5664 → 211.86 × 0.5664 = 120
-    expect([j.by['6630'], j.by['6640'], j.by['7010'], j.by['6694']]).toEqual([-250, 38.14, 120, 91.86]);
-    expect(await balanceAt('6630', s1)).toBe(750);
-    expect(await etClose(s1)).toBe(750);
+    expect([j.by['6630'], j.by['6640']]).toEqual([-118, 18]);
   });
 
   it('with „Излез на стока“ the issue clears 6630 once (no second clearing in the revenue journal)', async () => {
     const z = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-06', wh: s1, number: '6', gross: { 18: 125 }, fisk: { sc: 'trg' }, issue: true, lines: [{ itemId: I['001']!, qty: 1, price: 125 }] }));
     expect((await journal('sales_daily', z.id))!.by['6630']).toBeUndefined();
     expect((await journal('stock:sales_daily', z.id))!.by['6630']).toBe(-125);
-    expect(await balanceAt('6630', s1)).toBe(625);
-    expect(await etClose(s1)).toBe(625);
+    expect(await balanceAt('6630', s1)).toBe(875);
+    expect(await etClose(s1)).toBe(875);
   });
 
   it('trgNoVat: the turnover leaves 6630 as cost of goods sold 7010 + realised margin 6694', async () => {
@@ -142,8 +153,8 @@ describe('the daily turnover of a store kept at retail value clears 6630', () =>
 
 describe('store sales (ПР) next to the Z report of the day', () => {
   it('several ПР a day; a Z report is saved without „замени“, its replace and a fiscal read leave the ПР alone', async () => {
-    const p1 = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-10', wh: s1, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }] }));
-    const p2 = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-10', wh: s1, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }] }));
+    const p1 = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-10', wh: s2, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }] }));
+    const p2 = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-10', wh: s2, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }] }));
     const so = await db.select().from(schema.storeOuts).where(eq(schema.storeOuts.firmId, firmId));
     expect(so).toHaveLength(2);
     // the ПР's own issue cleared 6630 at the store price: no second clearing on its turnover row
@@ -151,21 +162,76 @@ describe('store sales (ПР) next to the Z report of the day', () => {
       expect(s.salesDayId).toBeTruthy();
       expect((await journal('sales_daily', s.salesDayId!))!.by['6630']).toBeUndefined();
     }
-    const z = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-10', wh: s1, number: '10', gross: { 18: 250 }, fisk: { sc: 'trg' } }));
-    expect((await err(tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-10', wh: s1, number: '10', gross: { 18: 250 }, fisk: { sc: 'trg' } })))).message).toMatch(/веќе има прокнижен фискален извештај/);
-    const z2 = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-10', wh: s1, number: '10', gross: { 18: 375 }, fisk: { sc: 'trg' }, replace: true }));
+    const z = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-10', wh: s2, number: '10', gross: { 18: 250 }, fisk: { sc: 'trg' } }));
+    expect((await err(tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-10', wh: s2, number: '10', gross: { 18: 250 }, fisk: { sc: 'trg' } })))).message).toMatch(/веќе има прокнижен фискален извештај/);
+    const z2 = await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-10', wh: s2, number: '10', gross: { 18: 375 }, fisk: { sc: 'trg' }, replace: true }));
     const rows = () => db.select().from(schema.salesDaily).where(and(eq(schema.salesDaily.firmId, firmId), eq(schema.salesDaily.date, '2026-02-10')));
     let R = await rows();
     expect(R.map((r) => r.id).sort()).toEqual([so[0]!.salesDayId!, so[1]!.salesDayId!, z2.id].sort());
     expect(R.some((r) => r.id === z.id)).toBe(false);
     // a fiscal read of the day overwrites the Z report, not a ПР
     const read = { device: 'AC1', from: '2026-02-10', to: '2026-02-10', days: [{ date: '2026-02-10', z: '10', gross: { 'А': 500 }, vat: { 'А': 76.27 }, total: 500, cash: 500 }] };
-    const f = await tx((t) => postFiskRead(t, A, { read, today: '2026-02-11', nonVat: false, sum: false, sc: 'trg', wh: s1 }));
+    const f = await tx((t) => postFiskRead(t, A, { read, today: '2026-02-11', nonVat: false, sum: false, sc: 'trg', wh: s2 }));
     expect(f.ids).toEqual([z2.id]);
     R = await rows();
     expect(R).toHaveLength(3);
     expect(Number(R.find((r) => r.id === z2.id)!.total)).toBe(500);
     expect(R.filter((r) => r.fisk?.mo).map((r) => r.fisk!.mo).sort()).toEqual([p1.id, p2.id].sort());
+  });
+});
+
+describe('a ПР with a product line', () => {
+  it('clears 6630 by the goods only (the product leaves 6300 by its own issue), the same on a re-post', async () => {
+    // 5 cakes made into store 1 at cost 50 (a product stays at cost: D 6300 / C 6000)
+    await tx((t) => replaceSourceMoves(t, {
+      firmId, sourceType: 'production', sourceId: 'PR-1', date: '2026-02-14', userId: null,
+      moves: [{ id: '', date: '2026-02-14', item: I['003']!, qty: 5, value: 250, type: 'in', wh: s1, lines: [{ account: '6300', debit: 250, credit: 0 }, { account: '6000', debit: 0, credit: 250 }] }],
+    }));
+    const b0 = await balanceAt('6630', s1);
+    const p = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-15', wh: s1, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }, { itemId: I['003']!, qty: 1, price: 59 }] }));
+    const [so] = await db.select().from(schema.storeOuts).where(eq(schema.storeOuts.id, p.id));
+    const [row] = await db.select().from(schema.salesDaily).where(eq(schema.salesDaily.id, so!.salesDayId!));
+    expect(row!.lines).toHaveLength(2);
+    const j = (await journal('sales_daily', row!.id))!;
+    expect(j.by['6630']).toBeUndefined();
+    expect(j.d).toBe(j.c);
+    expect(r2(b0 - (await balanceAt('6630', s1)))).toBe(125);
+    await tx((t) => repostSalesDay(t, A, row!.id));
+    expect((await journal('sales_daily', row!.id))!.by).toEqual(j.by);
+    // nothing issued twice: only the ПР's own moves
+    expect(await db.select().from(schema.stockMoves).where(and(eq(schema.stockMoves.sourceType, 'sales_daily'), eq(schema.stockMoves.sourceId, row!.id)))).toHaveLength(0);
+  });
+});
+
+describe('the turnover row of a ПР', () => {
+  it('is neither deleted nor edited on its own; the ПР deletes it, also when it is already gone', async () => {
+    const p = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-16', wh: s1, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }] }));
+    const [so] = await db.select().from(schema.storeOuts).where(eq(schema.storeOuts.id, p.id));
+    const sd = so!.salesDayId!;
+    expect((await err(tx((t) => deleteSalesDay(t, A, sd)))).message).toMatch(/Овој промет е од ПР/);
+    expect((await err(tx((t) => saveSalesDay(t, A, { id: sd, kind: 'fisk', date: '2026-02-16', wh: s1, gross: { 18: 125 }, fisk: { sc: 'trg' }, issue: true, lines: [{ itemId: I['001']!, qty: 1, price: 125 }] })))).message).toMatch(/менувајте го ПР-от/);
+    // rows saved before the `mo` marker are known by the ПР's link
+    await db.update(schema.salesDaily).set({ fisk: { sc: 'trg' } }).where(eq(schema.salesDaily.id, sd));
+    expect((await err(tx((t) => deleteSalesDay(t, A, sd)))).message).toMatch(/Овој промет е од ПР/);
+    await tx((t) => deleteStoreOut(t, A, p.id));
+    expect(await db.select().from(schema.salesDaily).where(eq(schema.salesDaily.id, sd))).toHaveLength(0);
+    expect(await journal('sales_daily', sd)).toBeNull();
+    // a ПР whose turnover row was deleted earlier (before that was refused) is still deleted
+    const q = await tx((t) => saveStoreOut(t, A, { kind: 'sale', date: '2026-02-16', wh: s1, account: '1009', lines: [{ itemId: I['001']!, qty: 1 }] }));
+    const [qo] = await db.select().from(schema.storeOuts).where(eq(schema.storeOuts.id, q.id));
+    await db.delete(schema.salesDaily).where(eq(schema.salesDaily.id, qo!.salesDayId!));
+    await tx((t) => deleteStoreOut(t, A, q.id));
+    expect(await db.select().from(schema.storeOuts).where(eq(schema.storeOuts.id, q.id))).toHaveLength(0);
+  });
+});
+
+describe('a Z report with its goods issue and a later попис', () => {
+  it('the count finds no shortage, so 6630 is cleared once', async () => {
+    const q0 = stockAt((await loadStockContext(db, firmId)).ctx, { item: I['001']!, wh: s1, date: '2026-02-17' }).qty;
+    const b0 = await balanceAt('6630', s1);
+    await tx((t) => saveSalesDay(t, A, { kind: 'fisk', date: '2026-02-17', wh: s1, number: '17', gross: { 18: 125 }, fisk: { sc: 'trg' }, issue: true, lines: [{ itemId: I['001']!, qty: 1, price: 125 }] }));
+    expect(r2(b0 - (await balanceAt('6630', s1)))).toBe(125);
+    expect((await err(tx((t) => saveStockCount(t, A, { kind: 'count', date: '2026-02-17', wh: s1, lines: [{ itemId: I['001']!, cnt: q0 - 1 }] })))).message).toMatch(/Нема разлики/);
   });
 });
 

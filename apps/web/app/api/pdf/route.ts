@@ -43,6 +43,8 @@ export async function POST(req: Request) {
   const p = parsePrintPdfRequest(await req.json().catch(() => null), { categories: DOS_CAT, roles: ROLES });
   if ('error' in p) return Response.json(p, { status: 400 });
   if (p.save && (!firm || !can(u.principal, 'write', firm.id))) return Response.json({ error: 'Немате право да зачувувате во досието.' }, { status: 403 });
+  // a client / field worker never writes the firm's dossier or year-end documents through a print (its role carries write)
+  if (p.save && (u.role === 'klient' || u.role === 'teren')) return Response.json({ error: 'Немате право да зачувувате во досието.' }, { status: 403 });
 
   const ids = fileImageIds(p.html).slice(0, 20);
   const imgs = new Map<string, string | null>();

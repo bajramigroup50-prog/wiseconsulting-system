@@ -25,9 +25,9 @@ export async function createReceipt(tx: Tx, r: NewReceipt, userId: string | null
   return { id: row!.id, no, year };
 }
 
-export async function markReceiptReturned(tx: Tx, id: string, to: string | null, userId: string | null): Promise<void> {
+export async function markReceiptReturned(tx: Tx, id: string, to: string | null, userId: string | null, firmId?: string): Promise<void> {
   const [r] = await tx.update(docReceipts).set({ returnedAt: new Date(), returnedBy: userId, returnedTo: to?.trim() || null })
-    .where(and(eq(docReceipts.id, id), sql`${docReceipts.returnedAt} is null`)).returning({ firmId: docReceipts.firmId });
+    .where(and(eq(docReceipts.id, id), firmId ? eq(docReceipts.firmId, firmId) : undefined, sql`${docReceipts.returnedAt} is null`)).returning({ firmId: docReceipts.firmId });
   if (!r) throw new PriemError('Приемот не постои или е веќе вратен.');
   await audit(tx, { userId, firmId: r.firmId, action: 'priemReturned', entityType: 'doc_receipts', entityId: id, data: { to } });
 }

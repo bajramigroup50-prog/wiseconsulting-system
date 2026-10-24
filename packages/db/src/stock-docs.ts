@@ -456,6 +456,24 @@ function turnoverClearing(L: LoadedStock, a: {
   return retailClearLines(L.ctx, { wh: a.wh, date: a.date, gross: r2(gross), vat: r2(vat) }).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit }));
 }
 
+/** A location kept at retail value with goods on stock at the date (its turnover alone must not clear the stock). */
+function retailGoodsOnStock(L: LoadedStock, wh: string, date: string): boolean {
+  if (!retailOn(L.ctx, wh)) return false;
+  const goods = new Set((L.ctx.items ?? []).filter((i) => i.type === 'goods').map((i) => i.id));
+  for (const [id, b] of stockAtAll(L.ctx, { wh, date })) if (goods.has(id) && b.qty > 1e-9) return true;
+  return false;
+}
+
+/** The turnover row of a store sale (ПР): marked `fisk.mo` or linked from a store sale (rows saved before the marker). */
+async function storeOutRow(tx: Tx, firmId: string, row: { id: string; fisk: SalesFiskInfo | null }): Promise<boolean> {
+  if (row.fisk?.mo) return true;
+  const [so] = await tx.select({ id: storeOuts.id }).from(storeOuts).where(and(eq(storeOuts.firmId, firmId), eq(storeOuts.salesDayId, row.id))).limit(1);
+  return !!so;
+}
+
+/** Internal callers: the store sale (ПР) that owns its turnover row. */
+export interface SalesDayOpts { storeOut?: boolean }
+
 /** Revenue account of an item sold at retail (legacy: item `konto`, else `revRetail` for goods, else `REV_K[type]`). */
 function retailRevenue(L: LoadedStock, it: StockItem | undefined): string {
   const P = L.settings.posting;
@@ -472,9 +490,11 @@ function retailRevenue(L: LoadedStock, it: StockItem | undefined): string {
  * (`trg`, `usl`, `trgNoVat`). Goods sold are issued at average cost (`postOut`, D COGS / C stock, or the retail-value
  * split in retail-value stores) as `stock_moves` with their own stock journal.
  */
-export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Promise<{ id: string; total: number }> {
+export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput, opt: SalesDayOpts = {}): Promise<{ id: string; total: number }> {
   needDate(input.date);
   const prev = input.id ? await own(tx.select().from(salesDaily).where(and(eq(salesDaily.id, input.id), eq(salesDaily.firmId, a.firmId))).limit(1), 'Дневниот промет') : null;
+  // a ПР's turnover is saved by the ПР only (an edit here would clear the retail stock a second time)
+  if (prev && !opt.storeOut && (await storeOutRow(tx, a.firmId, prev))) throw new StockDocError('Овој промет е од ПР – менувајте го ПР-от.');
   const L = await loadStockContext(tx, a.firmId, prev ? { excludeSource: { sourceType: 'sales_daily', sourceId: prev.id } } : {});
   assertOpenPeriod(L.firm, input.date);
   if (prev) assertOpenPeriod(L.firm, prev.date);
@@ -515,6 +535,12 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
     if (!total) throw new StockDocError('Внесете промет.');
     if (nonVat && groups.length) groups = [{ rate: 0, konto: fisk?.rev || rev, base: total, vat: 0 }];
   }
+  const issue = kind === 'pos' || (!!input.issue && sc !== 'usl' && sc !== 'trgNoVat');
+  // FIX: a store kept at retail value cleared 6630 by the turnover but left the quantities, so a later попис / отпис /
+  // transfer cleared it a second time — with goods on stock the Z report needs its goods issue (a ПР issues its own)
+  if (kind === 'fisk' && !fisk?.mo && !opt.storeOut && sc !== 'usl' && sc !== 'trgNoVat'
+    && !(issue && cart.some((l) => L.ctx.items?.find((i) => i.id === l.itemId)?.type === 'goods')) && retailGoodsOnStock(L, W, input.date))
+    throw new StockDocError('Продавницата се води по продажни цени: штиклирајте „Излез на стока“ (или внесете ги продадените артикли) – инаку пописот ќе ја раздолжи залихата втор пат.');
   const card = Math.min(total, Math.max(0, r2(input.card ?? 0)));
   const cardAccount = input.cardAccount?.trim() || L.settings.fiskOpt.cardK || null;
   const head = {
@@ -543,7 +569,6 @@ export async function saveSalesDay(tx: Tx, a: Actor, input: SalesDayInput): Prom
   }
   const zLabel = kind === 'pos' ? 'Каса' : `Дн. фин. изв.${input.number ? ' Z бр. ' + input.number : ''}`;
   // goods issue
-  const issue = kind === 'pos' || (!!input.issue && sc !== 'usl' && sc !== 'trgNoVat');
   let live = L.ctx;
   const moves: StockMove[] = [];
   if (issue)
@@ -602,8 +627,10 @@ export async function posSell(tx: Tx, a: Actor, input: { date: string; wh?: stri
   });
 }
 
-export async function deleteSalesDay(tx: Tx, a: Actor, id: string): Promise<void> {
+export async function deleteSalesDay(tx: Tx, a: Actor, id: string, opt: SalesDayOpts = {}): Promise<void> {
   const row = await own(tx.select().from(salesDaily).where(and(eq(salesDaily.id, id), eq(salesDaily.firmId, a.firmId))).limit(1), 'Дневниот промет');
+  // a ПР's turnover goes with the ПР (deleting it alone left the ПР without its revenue)
+  if (!opt.storeOut && (await storeOutRow(tx, a.firmId, row))) throw new StockDocError('Овој промет е од ПР – избришете го ПР-от.');
   await assertDocOpen(tx, a.firmId, row.date);
   await removeSourceMoves(tx, { firmId: a.firmId, sourceType: 'sales_daily', sourceId: id, userId: a.userId });
   await unpostSource(tx, { firmId: a.firmId, sourceType: 'sales_daily', sourceId: id, userId: a.userId });

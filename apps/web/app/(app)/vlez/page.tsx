@@ -165,7 +165,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   // legacy `purDups` (4440): same number and date entered twice — the last saved one is kept
   const nn = (x: string) => x.toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕј]/gi, '');
   const G = new Map<string, (typeof rows)[number]['p'][]>();
-  for (const { p } of rows) if (p.number) { const k = nn(p.number) + '|' + p.date; G.set(k, [...(G.get(k) ?? []), p]); }
+  // the same supplier and amount too: two suppliers' invoice „1“ of one day, or two parking receipts of 150 (auto
+  // numbered „БФ дата износ“) are never duplicates of each other; a cash receipt numbered by its date and amount never is
+  for (const { p } of rows) if (p.number && !/^БФ /.test(p.number)) { const k = [nn(p.number), p.date, p.partnerId ?? p.supplierEdb ?? p.supplierName ?? '', Number(p.total).toFixed(2)].join('|'); G.set(k, [...(G.get(k) ?? []), p]); }
   const DUPS = [...G.values()].filter((L) => L.length > 1).flatMap((L) => [...L].sort((a, b) => +b.updatedAt - +a.updatedAt).slice(1));
   // legacy `purFxInfo` / `purFxCell` (17325): foreign-currency amount, rate and the control against the lines
   const fxInfo = (p: (typeof rows)[number]['p']) => {

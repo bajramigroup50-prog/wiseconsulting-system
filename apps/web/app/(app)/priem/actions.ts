@@ -27,9 +27,10 @@ export async function priemSave(_p: ActionState, f: FormData): Promise<ActionSta
 
 export async function priemReturned(id: string, _p: ActionState, f: FormData): Promise<ActionState> {
   try {
-    const { u } = await officeAction('write');
+    const { u, firm } = await officeAction('write');
     if (!isUuid(id)) return { error: 'Непознат прием.' };
-    await db().transaction((tx) => markReceiptReturned(tx, id, fv(f, 'to'), u.id));
+    // only a receipt of the firm being worked in
+    await db().transaction((tx) => markReceiptReturned(tx, id, fv(f, 'to'), u.id, firm.id));
   } catch (e) { return err(e); }
   revalidatePath(PATH);
   return { ok: 'Оригиналите се означени како вратени.' };

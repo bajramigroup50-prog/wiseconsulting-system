@@ -183,6 +183,7 @@ export async function queueNonVatRepairs(tx: Tx, year: number, firmIds?: readonl
   const R = await tx.execute(sql`select distinct j.firm_id as id from ${journalLines} jl join ${journals} j on j.id = jl.journal_id join ${firms} f on f.id = j.firm_id
     where f.vat_registered = false and f.active and j.date between ${year + '-01-01'} and ${year + '-12-31'}
       and (f.lock_date is null or f.lock_date < ${year + '-01-01'})
+      and coalesce(f.settings->>'vatFrom', '') not between ${year + '-01-02'} and ${year + '-12-31'}
       and not exists (select 1 from vat_periods v where v.firm_id = f.id and v.date_to >= ${year + '-01-01'} and v.date_from <= ${year + '-12-31'} and (v.status = 'closed' or v.submitted_at is not null))
       and ((j.source_type = 'invoice' and (jl.account like '230%' or jl.account = '1200009')) or (j.source_type = 'purchase' and jl.account like '130%')
         or (j.source_type in ('invoice', 'purchase') and (jl.account like '994%' or jl.account like '999%')))

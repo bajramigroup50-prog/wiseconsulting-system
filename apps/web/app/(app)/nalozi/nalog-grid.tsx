@@ -224,6 +224,8 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
     const j = J.get(g.jid)!;
     // the statement's bank konto (Σ приливи / Σ одливи) opens too: a manual correction of the nalog when the read was wrong
     if (g.head && j.mode !== 'override') { setMsg({ error: `Конто ${g.account} е банкарското конто на изводот – се книжи автоматски (Σ приливи / Σ одливи). Променете ја ставката на изводот.` }); return; }
+    // a foreign-currency statement: the correction would lose the EUR amount of the bank konto – the lines are corrected
+    if (g.head && ((g.cur && g.cur !== 'MKD') || g.devD || g.devP)) { setMsg({ error: `Девизен извод: банкарското конто ${g.account} не се менува рачно (би се изгубил девизниот износ) – поправете ги ставките на изводот.` }); return; }
     if (g.head) setMsg({ ok: `Рачна корекција на банкарското конто ${g.account} (збир на изводот) – налогот мора да остане изедначен (Д = П).` });
     if (j.mode === 'none') { setMsg({ error: j.why || 'Налогот не може да се менува.' }); return; }
     setMsg(null);

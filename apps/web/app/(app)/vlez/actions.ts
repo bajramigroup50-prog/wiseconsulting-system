@@ -8,6 +8,7 @@ import {
   setPurchasesCash, unsetPurchasesCash,
   approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, draftSourceFiles, ensurePartner, firms,
   loadAiDocument, markDraftSaved, partners, savePurchase, transfers, type PurchaseInput,
+  PostingError,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -52,6 +53,8 @@ export async function savePurchaseAction(_prev: ActionState, form: FormData): Pr
     const res = await db().transaction(async (tx) => {
       // one invoice of a file that holds several: the file is linked to each of their purchases (with the pages)
       if (v.scanDocId != null && v.scanIndex != null && /^[0-9a-f-]{36}$/i.test(v.scanDocId)) {
+        // a scanned invoice is saved once (a second tab / a resubmit)
+        if (!v.id && (await loadAiDocument(tx, firm.id, v.scanDocId)).drafts[v.scanIndex]?.savedId) throw new PostingError('not_found', 'Оваа скенирана фактура е веќе зачувана.');
         const src = draftSourceFiles(await loadAiDocument(tx, firm.id, v.scanDocId), v.scanIndex);
         if (src.shared) {
           input.sharedSource = true;

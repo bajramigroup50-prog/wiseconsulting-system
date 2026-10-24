@@ -15,7 +15,7 @@ import { dfiControl, fkIssuePlan, schemeValue, stock, type FkMethod } from '@wis
 import { fkRows, fiskAfterRead, fiskFinish, fiskGroupWarnings } from '@wise/core/ai/fisk';
 import { vatGroupsLabel } from '@wise/core/retail/vat-groups';
 import { FK_SC, fkChecks2, fkEdbOk, fkManualRead, fkRows2, fkScDef, posSaldo } from '@wise/core/retail';
-import { fiscalDevicesOf, journalLines, journals, loadLedgerLines, loadStockSales, salesDaily } from '@wise/db';
+import { fiscalDevicesOf, journalLines, journals, loadLedgerLines, loadStockSales, salesDaily, storeOuts } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dateInYear, locOptions, pickLoc, rangeOf, stockPage, todayIso } from '@/lib/stock';
@@ -269,6 +269,9 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
   const list = await db().select().from(salesDaily)
     .where(and(eq(salesDaily.firmId, firm.id), eq(salesDaily.kind, 'fisk'), gte(salesDaily.date, `${year}-01-01`), lte(salesDaily.date, `${year}-12-31`)))
     .orderBy(desc(salesDaily.date));
+  // a store sale's (ПР) turnover is deleted with the ПР, not here
+  const soDays = new Set((await db().select({ id: storeOuts.salesDayId }).from(storeOuts).where(eq(storeOuts.firmId, firm.id))).map((r) => r.id));
+  const isMo = (d: (typeof list)[number]) => !!d.fisk?.mo || soDays.has(d.id);
   return (
     <>
       <Hd t="Фискални извештаи (рачна каса)" sub="скенирај → прочитај → прокнижи → излез на стока" />
@@ -314,7 +317,7 @@ export default async function FiskPerPage({ searchParams }: { searchParams: Prom
                 <td>{d.number}</td><td>{L.locName(d.locationId)}</td><td className="mini">{d.fisk?.device}</td><td>{d.fisk?.sc ?? '—'}</td><td className="n">{fmt(d.total)}</td><td className="n">{fmt(d.card)}</td>
                 <td className="mini">{d.groups.map((g) => `${g.rate}%: ${fmt(g.base + g.vat)}`).join(' · ')}</td><td className="n">{d.lines.length}</td>
                 <td className="noprint" style={{ whiteSpace: 'nowrap' }}>{d.fisk?.fileId && <a className="btn sm ghost" href={`/api/files/${d.fisk.fileId}`} target="_blank" title="Скениран извештај">📎</a>}
-                  {write && <RowAction action={deleteSalesDayAction.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише извештајот ${d.number ?? ''} од ${dmy(d.date)}?`} />}</td>
+                  {write && isMo(d) ? <span className="mini" title="Прометот на ПР се брише со ПР-от">ПР</span> : write && <RowAction action={deleteSalesDayAction.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише извештајот ${d.number ?? ''} од ${dmy(d.date)}?`} />}</td>
               </tr>
             ))}</tbody>
           </table></div>

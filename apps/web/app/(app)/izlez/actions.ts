@@ -9,7 +9,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { isFuel } from '@wise/core/sales';
 import { z } from 'zod';
-import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, draftSourceFiles, fileLinks, firms, invoices, items, markDraftSaved, markInvoicesVat, saveInvoice } from '@wise/db';
+import { aiDocuments, approveInvoice, audit, createInvoiceNalog, deleteInvoice, draftSourceFiles, fileLinks, firms, invoices, items, markDraftSaved, markInvoicesVat, saveInvoice, PostingError } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { actorOf } from '@/lib/sales';
@@ -65,6 +65,11 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
     const asDraft = v.kind === 'invoice' && (form.get('asDraft') === '1' || !!v.draft);
     const { u, firm } = await firmAction(v.id ? 'editInv' : 'saveInv');
     const res = await db().transaction(async (tx) => {
+      // a scanned invoice is saved once, with its printed number (a taken number is refused, never renumbered)
+      if (!v.id && v.scanDocId != null && v.scanIndex != null && /^[0-9a-f-]{36}$/i.test(v.scanDocId)) {
+        const [d] = await tx.select({ drafts: aiDocuments.drafts }).from(aiDocuments).where(and(eq(aiDocuments.id, v.scanDocId), eq(aiDocuments.firmId, firm.id))).limit(1);
+        if (d?.drafts[v.scanIndex]?.savedId) throw new PostingError('not_found', 'Оваа скенирана фактура е веќе зачувана.');
+      }
       const r = await saveInvoice(tx, firm.id, {
         ...v, lines: v.lines.map((l) => ({ ...l, itemId: l.itemId || null })), partnerId: v.partnerId || null, warehouseId: v.warehouseId || null,
         refInvoiceId: v.refInvoiceId || null, fromDocId: v.fromDocId || null, scanned: !!v.scanDocId,
@@ -73,7 +78,7 @@ export async function saveInvoiceAction(_prev: ActionState, form: FormData): Pro
           lines: v.production.lines.map((l) => ({ ...l, ...(l.wh !== undefined ? { wh: l.wh || null } : {}), ...(l.extra !== undefined ? { extra: l.extra || '0' } : {}) })),
         } : null,
         advances: v.advances.filter((a) => Number(a.amount) > 0),
-        data: v.data, draft: asDraft,
+        data: v.data, draft: asDraft, ...(!v.id && v.scanDocId ? { keepNumber: true } : {}),
       }, actorOf(u));
       if (v.scanDocId != null && v.scanIndex != null) {
         await markDraftSaved(tx, firm.id, v.scanDocId, v.scanIndex, r.id);

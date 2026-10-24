@@ -247,10 +247,13 @@ export async function saveStoreOut(tx: Tx, a: Actor, x: StoreOutInput): Promise<
       else if (j.account === vk) cleared.vat = r2(cleared.vat + j.debit - j.credit);
     }
     // `mo` marks the row as this sale's turnover (not a Z report): several ПР a day, never replaced by the day's Z
+    if (salesDayId && !(await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.id, salesDayId), eq(salesDaily.firmId, a.firmId))).limit(1)).length) salesDayId = null;
+    // the lines (not issued again) keep products / materials out of the retail-stock clearing, also on a re-post
     const d = await saveSalesDay(tx, a, {
       id: salesDayId, kind: 'fisk', date: x.date, wh: loc, number, gross, count: 1, issue: false, retailCleared: cleared,
+      lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty, price: l.price, rate: l.rate })),
       fisk: { sc: 'trg', ...(acc ? { cashK: acc } : {}), ...(nonVat ? { nonVat: true } : {}), mo: id }, note: lab,
-    });
+    }, { storeOut: true });
     salesDayId = d.id;
   }
   await tx.update(storeOuts).set({ salesDayId }).where(eq(storeOuts.id, id));
@@ -265,7 +268,11 @@ export async function deleteStoreOut(tx: Tx, a: Actor, id: string): Promise<void
   const L = await loadStockContext(tx, a.firmId);
   assertOpenPeriod(L.firm, row.date);
   await removeSourceMoves(tx, { firmId: a.firmId, sourceType: 'store_out', sourceId: id, userId: a.userId });
-  if (row.salesDayId) await deleteSalesDay(tx, a, row.salesDayId);
+  // its turnover row (gone already when it was deleted before that was refused)
+  if (row.salesDayId) {
+    const [d] = await tx.select({ id: salesDaily.id }).from(salesDaily).where(and(eq(salesDaily.id, row.salesDayId), eq(salesDaily.firmId, a.firmId))).limit(1);
+    if (d) await deleteSalesDay(tx, a, d.id, { storeOut: true });
+  }
   await tx.delete(storeOuts).where(eq(storeOuts.id, id));
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'moDel', entityType: 'store_out', entityId: id, data: { kind: row.kind, number: row.number, date: row.date } });
 }

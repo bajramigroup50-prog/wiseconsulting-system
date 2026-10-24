@@ -31,7 +31,13 @@ export async function GET(req: Request, { params }: Ctx) {
     const [fr] = f.firmId ? await db().select({ s: firms.settings }).from(firms).where(eq(firms.id, f.firmId)).limit(1) : [];
     const S = (fr?.s ?? {}) as Record<string, unknown>;
     const img = ['logo', 'sign', 'stamp'].some((k) => S[k] === f.id);
-    allowed = klFileAllowed(links, await klientViews(u.id, (await cookies()).get(FIRM_COOKIE)?.value), f.uploadedBy === u.id, img);
+    // the sections opened on the FILE's firm (a client of several firms), not on the firm picked in the cookie
+    allowed = klFileAllowed(links, await klientViews(u.id, f.firmId ?? (await cookies()).get(FIRM_COOKIE)?.value), f.uploadedBy === u.id, img);
+  }
+  // a field worker opens only what it uploaded or what is attached to a task – never the firm's books
+  if (allowed && f && u.role === 'teren' && f.uploadedBy !== u.id) {
+    const links = await db().select({ entityType: fileLinks.entityType }).from(fileLinks).where(eq(fileLinks.fileId, f.id));
+    allowed = links.some((l) => /task/i.test(l.entityType));
   }
   if (!f || f.status !== 'ready' || !allowed) return new Response('not found', { status: 404 });
   const dl = new URL(req.url).searchParams.get('dl') === '1';
