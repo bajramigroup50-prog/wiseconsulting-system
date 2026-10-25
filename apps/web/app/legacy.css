@@ -166,6 +166,11 @@ a.hg:hover{background:rgba(255,255,255,.16)}
 .hero-grid .hg i{font-style:normal;font-size:11.5px;color:rgba(255,255,255,.75)}
 .hero-grid .hg i .dl,.hero-grid .hg i em{color:rgba(255,255,255,.85)!important;font-style:normal}
 .hero-grid .hg.main{background:rgba(255,255,255,.18)}.hero-grid .hg.main b{font-size:24px}
+.hero-grid .hg-per{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#fff;font-size:12px}
+.hero-grid .hg-per>span:first-child{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.75)}
+.hero-grid .hg-per select{padding:3px 6px;border-radius:7px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;font-size:12.5px}
+.hero-grid .hg-per select option{color:#111}
+.hero-grid .hg-per .btn{background:rgba(255,255,255,.18);color:#fff;border-color:rgba(255,255,255,.3)}
 @media (max-width:760px){.hero-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .hchip{display:inline-block;margin:4px 6px 0 0;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.14);font-size:12px;color:#fff}
 .card{box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 5%,transparent)}

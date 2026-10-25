@@ -5,7 +5,7 @@ import { opDays, opDue, opGroups, opOnlyFilter, opOnlyIds, opText, waPhone } fro
 import { mhKind, mhKindGroup } from './mailhist';
 import { klStrongPw, klUserName } from './klprofili';
 import { fimpFind, fimpParse, fimpToFirm } from './firmimp';
-import { dashAgg, dashMonthly, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
+import { dashAgg, dashMonthly, dashMonths, dashRange, kdBuckets, kdRange, payDeadline, pct } from './dash';
 import { miCalc, miMonths, miRange } from './mojizv';
 import { FORMS0, TPL0, askFields, fillTpl, formHtml, formVals } from './requests';
 import { fsDup, lfGuess, normalizeResh, otherNkd, tkFromRead, tkMatch } from './resh';
@@ -148,6 +148,10 @@ describe('dashboard (legacy dashRange / dashAgg / dashMonthly / kdRange)', () =>
     expect(dashRange(2026, 'q1', '2026-05-10')).toMatchObject({ from: '2026-01-01', to: '2026-03-31', m0: 0, m1: 2 });
     expect(dashRange(2026, 'ytd', '2026-05-10')).toMatchObject({ to: '2026-05-31', m1: 4 });
     expect(dashRange(2025, 'm', '2026-05-10')).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
+    // „Период од – до“: any month range of the year
+    expect(dashMonths(2026, '1', '6')).toEqual({ from: '2026-01-01', to: '2026-06-30', m0: 0, m1: 5, lab: 'јан–јун 2026' });
+    expect(dashMonths(2026, 2, 2)).toMatchObject({ from: '2026-02-01', to: '2026-02-28', lab: 'фев 2026' });
+    expect([dashMonths(2026, '7', '3'), dashMonths(2026, '0', '5'), dashMonths(2026, '1', '13'), dashMonths(2026, undefined, '6'), dashMonths(2026, '', '')]).toEqual([null, null, null, null, null]);
   });
   it('aggregates and monthly cash', () => {
     expect(dashAgg(L, 0, 11)).toEqual({ rev: 1000, exp: 500, res: 500, eg: { '41': 300, '70': 200 } });

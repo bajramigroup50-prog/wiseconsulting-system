@@ -9,7 +9,7 @@ import { BKPK_RE, bankEffKonto, bankName, BANKS_MK, bankCodeOf, noPartnerLine, o
 import { sameRefKey, transitOpen, transitResidueLabel } from '@wise/core/bank/parity';
 import { findPartnerMatch } from '@wise/core/partners/match';
 import {
-  bankLines, bankPartnerFixPlan, bankRules, feeFixPlan, lockedStatements, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
+  bankLines, bankPartnerFixPlan, bankRules, contribFixPlan, feeFixPlan, lockedStatements, bankStatements, effectiveChart, fxStatementBalance, journalLines, journals, lineFxDifference, lineOpenDocs, lineProblem,
   loadBankAccounts, loadBankEnv, matchContext, posBalance, proposeMatches, statementGapsFor, statementNoSuggestions, toBankRow, transitResidues, type BankLine, type BankStatement,
   statementSuggestions, type LineSuggestion, bankReadsNotImported,
 } from '@wise/db';
@@ -25,7 +25,7 @@ import { PartnerPicker } from '@/components/partner-picker';
 import { KontoField } from '@/components/konto-field';
 import { BankManualEntry } from '@/components/bank-manual-entry';
 import {
-  addRuleAction, applyMatchesAction, bookAllAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
+  addRuleAction, applyMatchesAction, bookAllAction, bkpFixAction, saveAutoNotifyAction, bulkDeleteLinesAction, closeTransitAction, contribFixAction, deleteLineAction, deleteStatementAction, feeFixAction, izvFillAction, posFeeAction,
   flipLineAction, linkLineAction, numberStatementsAction, removeBankAccountAction, removeRuleAction, saveBankAccountAction,
   setKontoAction, setPartnerAction, undoImportAction, unlinkLineAction, updateStatementAction,
 } from './actions';
@@ -128,6 +128,8 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
   // legacy 12407: the count is over the whole year (the action fixes the whole year); statements in a locked period are
   // skipped by the year-wide buttons, so they are not counted (nor offer „Нумерирај изводи“)
   const fees = write ? (await db().transaction((tx) => feeFixPlan(tx, firm.id, year))).fix.filter((r) => BK.some((b) => b.id === r.acct)).length : 0;
+  // МПИН payments (843 / 840) not on the konto of their part (e.g. all on 2349 while the payroll books 2341 / 2342 …)
+  const contrib = write ? (await db().transaction((tx) => contribFixPlan(tx, firm.id, year))).fix.length : 0;
   const noNo = S.filter((s) => !s.number && s.date.startsWith(String(year)));
   const unnumbered = write && noNo.length > 0 && (await db().transaction((tx) => lockedStatements(tx, firm.id, noNo))).size < noNo.length;
   const nOpen = L.filter((l) => lineProblem(l, fx)).length;
@@ -297,6 +299,9 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
           <span key={t.konto + t.date} className="row" style={{ gap: 6, display: 'inline-flex' }}>{t.konto} на {dmy(t.date)}: {fmt(t.residue)} → {transitResidueLabel(t.residue)}
             {write && <RowAction className="btn sm" action={closeTransitAction.bind(null, t.konto, t.date)} label="Книжи курсна разлика" />}</span>
         ))}</div>
+      )}
+      {contrib > 0 && (
+        <div className="callout warn">{contrib} уплати на придонеси / данок (шифра 843 / 840) не се на контото на својот вид – платата ги книжи ПИО 2341, здравство 2342, дополнително 2343, вработување 2344, данок 2340, па обврските не се затвораат. <RowAction className="btn sm" action={contribFixAction} label="Придонеси по вид" confirm={`${contrib} уплати на придонеси / данок да се префрлат на контото на својот вид (ПИО, здравство, вработување, дополнително, данок)? Изводите се прекнижуваат.`} /></div>
       )}
       {fees > 0 && (
         <div className="callout warn">{fees} банкарски провизии се книжени на 2200/4400 без фактура. <RowAction className="btn sm" action={feeFixAction} label="Прекнижи на 4460" confirm={`${fees} банкарски надомести се прокнижени на 2200/4400 без документ. Да се префрлат на 4460 Банкарски услуги?`} /></div>

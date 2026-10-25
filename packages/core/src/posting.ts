@@ -443,7 +443,11 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
   const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx), !!inv.export);
   const L: IL[] = [{ k: cust, d: toC(c.total), p: 0, partner: inv.partner }];
   const m0: Record<string, string> = {};
-  for (const [rev, zero] of [['revGoods', 'revGoods0'], ['revService', 'revService0'], ['revProduct', 'revProduct0']] as const) {
+  // a non-VAT firm: services / products → 7414, goods → 7410 (never the VAT payer's „ослободени од данок“ 74002 / 74102)
+  const zeros = nonVat
+    ? [['revGoods', 'revGoodsNoVat'], ['revProduct', 'revServiceNoVat'], ['revService', 'revServiceNoVat']] as const
+    : [['revGoods', 'revGoods0'], ['revService', 'revService0'], ['revProduct', 'revProduct0']] as const;
+  for (const [rev, zero] of zeros) {
     m0[schemeValue(ctx, rev)] = schemeOn(ctx, zero) ? schemeValue(ctx, zero) : '';
   }
   for (const g of c.by) {

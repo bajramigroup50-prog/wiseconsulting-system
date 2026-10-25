@@ -40,7 +40,6 @@ const INVOICES: [string, any, Record<string, any>?][] = [
     { firm: { sch: { customer: '1201', revService_18: '-', revService0: '7409' }, vatOut: { 18: '2300180' } } }],
   ['global VAT override ignored when it is a summary konto', { date: '2026-03-09', partner: 'P1', items: [{ qty: 1, price: 1000, rate: 10, konto: '7400' }] },
     { gsch: { vatOut: { 10: '2300' }, sch: { revService: '7401' } } }],
-  ['non-VAT firm', { date: '2026-03-10', partner: 'P1', items: [{ qty: 2, price: 500, rate: 18, konto: '7400' }] }, { firm: { ddv: false } }],
 ];
 
 describe('invoiceEntries', () => {
@@ -59,6 +58,23 @@ describe('invoiceEntries', () => {
     const leg = legacy.run(st, (L) => normLegacy(L.invoiceEntries!(inv)));
     expect(isBalanced(leg)).toBe(false);
     expect(() => invoiceEntries(invOf(inv), ctxOf(st))).toThrow(/7%/);
+  });
+
+  it('FIX: a non-VAT firm posts services on 7414 and goods on 7410, never on the exempt 74002 / 74102', () => {
+    const inv = { date: '2026-03-10', partner: 'P1', items: [{ qty: 2, price: 500, rate: 18, konto: '7400' }, { qty: 1, price: 300, rate: 0, konto: '7410' }, { qty: 1, price: 50, rate: 0 }] };
+    const st = legacyState({ firm: { ddv: false }, data: { invoices: [inv] } });
+    const leg = legacy.run(st, (L) => normLegacy(L.invoiceEntries!(inv)));
+    expect(leg.filter((l) => l.credit).map((l) => l.account)).toEqual(['74002', '74102']); // legacy: as „ослободени од данок“
+    const mine = invoiceEntries(invOf(inv), ctxOf(st));
+    expect(mine.filter((l) => l.credit).map((l) => [l.account, l.credit])).toEqual([['7414', 1050], ['7410', 300]]);
+    expect(mine.find((l) => l.debit)!.account).toBe('1200');
+    expect(isBalanced(mine)).toBe(true);
+    // a firm's own choice wins
+    const st2 = legacyState({ firm: { ddv: false, sch: { revServiceNoVat: '7401' } }, data: { invoices: [inv] } });
+    expect(invoiceEntries(invOf(inv), ctxOf(st2)).filter((l) => l.credit).map((l) => l.account)).toEqual(['7401', '7410']);
+    // a VAT payer's exempt 0 % line keeps 74002
+    const st3 = legacyState({ data: { invoices: [inv] } });
+    expect(invoiceEntries(invOf({ ...inv, items: [{ qty: 1, price: 50, rate: 0, konto: '7400' }] }), ctxOf(st3)).find((l) => l.credit)!.account).toBe('74002');
   });
 
   it('FIX: a firm value equal to an old default (SCH_OLD) is honoured', () => {

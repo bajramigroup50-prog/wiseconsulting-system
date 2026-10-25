@@ -338,6 +338,8 @@ export function learnRule(rules: BankRule[], desc: unknown, konto: string): Bank
  */
 export function learnOsnov(osnovK: Record<string, string>, b: BankRow): Record<string, string> | null {
   if (!b.osnov || !b.konto || b.ref || /^(12|22)/.test(String(b.konto)) || b.ai) return null;
+  // 843 / 840 carry every МПИН part (ПИО, здравство, данок …): one konto for the code would merge them – see mpinPartKonto
+  if (mpinPartKonto(b)) return null;
   const k = String(b.osnov) + '|' + (+b.amount > 0 ? 'in' : 'out');
   return osnovK[k] !== b.konto ? { ...osnovK, [k]: b.konto } : null;
 }
@@ -675,6 +677,8 @@ const noDoc = (b: BankRow, ctx: MatchContext) => !!noPartnerLine(b, ctx);
 function layerOsnov(w: Work): void {
   const M = w.ctx.osnovK || {};
   for (const b of w.rows.filter((b) => !b.ref && !b.konto && b.osnov && !b.own)) {
+    // a МПИН part (843 / 840) is never booked by the code's rule – it goes to its own konto (noPartnerLine / the suggestion)
+    if (mpinPartKonto(b, w.ctx.payScheme)) continue;
     const k = M[String(b.osnov) + '|' + (+b.amount > 0 ? 'in' : 'out')];
     if (!k) continue;
     commit(w, { ...b, konto: k }, 'osnov');
@@ -1141,6 +1145,28 @@ export function payrollKonto(part: PayrollPart, scheme?: Partial<PayScheme>): st
   return k && k !== '-' ? k : S.pay_contrib;
 }
 
+/**
+ * Payroll part of a public-revenue payment by its text („Penziski“, „Zdravstvo“, „Vrabotuvanje“, „0.5% dodatno“,
+ * „Danok“ – the МПИН payment lines): each goes to its own liability konto, the way the payroll books it.
+ */
+export function payrollPartOf(text: unknown): Exclude<PayrollPart, 'net'> | null {
+  const t = String(text ?? '');
+  return /0[.,]5\s*%|дополнител|dopolnitel|dodatn|додатн/i.test(t) ? 'dop'
+    : /вработ|vrabot/i.test(t) ? 'vrab'
+      : /здравств|zdravstv/i.test(t) ? 'zdr'
+        : /пензи|penzi|(^|[^\p{L}])(пио|pio)(?![\p{L}])/iu.test(t) ? 'pio'
+          : /(данок|danok|пдд|\bpdd\b|personal)/i.test(t) && !/добивк|dobivk|ддв|\bddv\b|имот|imot/i.test(t) ? 'tax'
+            : null;
+}
+
+/** An outgoing МПИН payment line (шифра 843 придонеси / 840 данок) whose part is named: the konto of that part, else ''. */
+export function mpinPartKonto(b: Pick<BankRow, 'osnov' | 'amount' | 'desc' | 'name' | 'purpose'>, scheme?: Partial<PayScheme>): string {
+  const code = String(b.osnov ?? '').trim();
+  if (+b.amount >= 0 || (code !== '843' && code !== '840')) return '';
+  const part = payrollPartOf([b.name, b.desc, b.purpose].filter(Boolean).join(' '));
+  return part ? payrollKonto(part, scheme) : '';
+}
+
 export type NoPartnerKind = 'fee' | 'card' | 'bank' | 'treasury' | 'wage';
 
 export interface NoPartnerHit {
@@ -1172,13 +1198,7 @@ export function noPartnerLine(b: BankRow, ctx: Pick<MatchContext, 'konta' | 'pay
     if (out && /камат|kamat/i.test(t)) return { kind: 'treasury', konto: K.taxInterest };
     if (out && /(^|[^\p{L}])(мдб|mdb)(?![\p{L}])|данок\s+на\s+добивк|danok\s+na\s+dobivk|аконтациј\S*\s+(на\s+)?(данок|ддб)/iu.test(t)) return { kind: 'treasury', konto: K.profitTax };
     const payref = PAYREF_RE.test(t) || PERIOD_RE.test(t) || WAGE_RE.test(t) || /придонес|pridones/i.test(t);
-    const part: PayrollPart | null = !payref || !out ? null
-      : /0[.,]5\s*%|дополнител|dopolnitel|dodatn|додатн/i.test(t) ? 'dop'
-        : /вработ|vrabot/i.test(t) ? 'vrab'
-          : /здравств|zdravstv/i.test(t) ? 'zdr'
-            : /пензи|penzi|(^|[^\p{L}])(пио|pio)(?![\p{L}])/iu.test(t) ? 'pio'
-              : /(данок|danok|пдд|\bpdd\b|personal)/i.test(t) && !/добивк|dobivk|ддв|\bddv\b|имот|imot/i.test(t) ? 'tax'
-                : null;
+    const part = !payref || !out ? null : payrollPartOf(t);
     return part ? { kind: 'treasury', part, konto: payrollKonto(part, ctx.payScheme) } : { kind: 'treasury' };
   }
   const bankCp = BANK_NAME_RE.test(name);

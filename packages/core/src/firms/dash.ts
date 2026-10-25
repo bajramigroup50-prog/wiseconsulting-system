@@ -27,6 +27,14 @@ export const isDashPer = (p: unknown): p is DashPer => DASH_PER.some(([k]) => k 
 
 const mEnd = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
 
+/** A chosen month range of the year („од јан до јун“, months 1–12): the same shape as {@link dashRange}; null when invalid. */
+export function dashMonths(y: number, a: unknown, b: unknown): { from: string; to: string; m0: number; m1: number; lab: string } | null {
+  if (a == null || b == null || a === '' || b === '') return null;
+  const m0 = Number(a), m1 = Number(b);
+  if (!Number.isInteger(m0) || !Number.isInteger(m1) || m0 < 1 || m1 > 12 || m0 > m1) return null;
+  return { from: `${y}-${String(m0).padStart(2, '0')}-01`, to: mEnd(y, m1), m0: m0 - 1, m1: m1 - 1, lab: m0 === m1 ? `${MON[m0 - 1]} ${y}` : `${MON[m0 - 1]}–${MON[m1 - 1]} ${y}` };
+}
+
 /** Legacy `dashRange`: [from, to], month indexes m0..m1 (0-based) and a label. */
 export function dashRange(y: number, p: DashPer, today: string): { from: string; to: string; m0: number; m1: number; lab: string } {
   const cm = today.startsWith(String(y)) ? +today.slice(5, 7) : 12;

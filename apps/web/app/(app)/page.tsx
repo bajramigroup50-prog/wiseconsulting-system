@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { can, periodOf } from '@wise/core';
-import { AGE, DASH_PER, EXPG, MON, dashAgg, dashMonthly, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
+import { AGE, DASH_PER, EXPG, MK_MON, MON, dashAgg, dashMonthly, dashMonths, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
   autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
   journalLines, kontrolaDue, kontroli, vatDueEstimate,
@@ -87,7 +87,7 @@ function Tile({ lab, val, sub, sp, col, ic, tn }: { lab: string; val: string; su
 
 async function safe<T>(p: Promise<T>, d: T): Promise<T> { try { return await p; } catch { return d; } }
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ per?: string; godina?: string }> }) {
+export default async function Home({ searchParams }: { searchParams: Promise<{ per?: string; godina?: string; od?: string; do?: string }> }) {
   const u = await requireUser();
   if (u.role === 'klient') redirect('/klHome');
   if (u.role === 'teren') redirect('/mojzad');
@@ -108,8 +108,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
       book={!!V} canFirmi={!V || V.has('firmi')} />;
   }
   if (V) return <BookHome role={u.role} f={f} year={year} see={(v) => V.has(v)} />;
-  const P = isDashPer(sp.per) ? sp.per : 'year';
-  const rg = dashRange(year, P, td);
+  // „Период од … до …“: any month range of the year (e.g. јан–јун) – it wins over the period chips
+  const RM = dashMonths(year, sp.od, sp.do);
+  const P = RM ? 'range' : isDashPer(sp.per) ? sp.per : 'year';
+  const rg = RM ?? dashRange(year, P === 'range' ? 'year' : P, td);
   const per = f.vatPeriod === 'month' ? 'month' : 'quarter';
   const cur = periodOf(td, per);
   const [L, LP, ck, inv, pur, est, D] = await Promise.all([
@@ -303,6 +305,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         </div>
         {/* the numbers of the period at a glance: приходи, расходи, добивка, ДДВ to pay (with its deadline), данок на добивка, пари */}
         <div className="hero-grid">
+          <form method="get" action="/" className="hg-per" aria-label="Период од – до">
+            <span>Период</span>
+            <select name="od" defaultValue={String(rg.m0 + 1)} aria-label="Од месец">{MK_MON.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select>
+            <span>–</span>
+            <select name="do" defaultValue={String(rg.m1 + 1)} aria-label="До месец">{MK_MON.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select>
+            <button type="submit" className="btn sm">Прикажи</button>
+            {P !== 'year' && <Link href="/" className="btn sm ghost">Цела {year}</Link>}
+          </form>
           <a href="#det-rev" className="hg"><span>Приходи · {rg.lab}</span><b className="num">{fmt(A.rev)}</b><i><DPill d={pct(A.rev, AP.rev)} py={year - 1} /></i></a>
           <a href="#det-exp" className="hg"><span>Расходи · {rg.lab}</span><b className="num">{fmt(A.exp)}</b><i><DPill d={pct(A.exp, AP.exp)} inv py={year - 1} /></i></a>
           <a href="#det-res" className="hg main"><span>Добивка · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '—' : 'маржа ' + mg.toLocaleString('mk-MK') + '%'}</i></a>

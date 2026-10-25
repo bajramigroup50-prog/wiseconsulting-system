@@ -7,11 +7,12 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   assignStatementNumbers, bankDupKey, counterparty, feeFix, fxRate, fxToMkd, learnOsnov, learnRule, statementGaps, statementKey, transitCloseLines, transitResidue,
-  BKPK_RE, newKontoCheck, type StatementBalance,
+  BKPK_RE, mpinPartKonto, newKontoCheck, type StatementBalance,
 } from '@wise/core';
 import { learnAccountsFromStatements } from '../partner-accounts';
 import { audit, type Tx } from '../audit';
 import { assertOpenPeriod, missingAccounts, postJournal, unpostSource } from '../posting';
+import { loadPayScheme } from '../payroll';
 import { bankKontoName } from '@wise/core/bank/parity';
 import { accounts } from '../schema/index';
 import { effectiveChart, loadLedgerLines } from '../ledger-queries';
@@ -361,6 +362,53 @@ export async function applyFeeFix(tx: Tx, a: { firmId: string; userId: string | 
   await postStatements(tx, st, a.userId, env);
   if (fix.length) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'feeFix', entityType: 'bank_lines', data: { lines: fix.length, ...(skipped.length ? { skipped: skipped.length } : {}) } });
   return fix.length;
+}
+
+/**
+ * МПИН payment lines (шифра 843 / 840) booked on another konto than their part's — e.g. every contribution on the shared
+ * 2349 while the payroll books ПИО 2341, здравство 2342, дополнително 2343, вработување 2344, данок 2340 (the
+ * liabilities never closed). Statements in a locked period are left out (`o.skipped`). The count on „Придонеси по вид“.
+ */
+export async function contribFixPlan(tx: Tx, firmId: string, year: number, o: { skipped?: LockedStatement[] } = {}) {
+  const env = await loadBankEnv(tx, firmId);
+  const scheme = await loadPayScheme(tx, env.firm);
+  const L = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), inArray(bankLines.osnov, ['843', '840']),
+    sql`${bankLines.amount} < 0`, sql`${bankLines.refId} is null`, sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`));
+  const fix = L.map((l) => ({ id: l.id, statementId: l.statementId, from: l.konto ?? '', konto: mpinPartKonto(toBankRow(l), scheme) }))
+    .filter((r) => r.konto && r.konto !== r.from);
+  const ids = [...new Set(fix.map((r) => r.statementId))];
+  const S = ids.length ? await tx.select({ id: bankStatements.id, date: bankStatements.date, number: bankStatements.number }).from(bankStatements).where(inArray(bankStatements.id, ids)) : [];
+  const locked = await lockedStatements(tx, firmId, S);
+  if (o.skipped) o.skipped.push(...locked.values());
+  return { env, fix: fix.filter((r) => !locked.has(r.statementId)) };
+}
+
+/** „Придонеси по вид“: the lines of {@link contribFixPlan} moved to their part's konto, the statements re-posted. */
+export async function applyContribFix(tx: Tx, a: { firmId: string; userId: string | null; year: number; report?: { skipped?: LockedStatement[] } }): Promise<number> {
+  const skipped: LockedStatement[] = [];
+  const { env, fix } = await contribFixPlan(tx, a.firmId, a.year, { skipped });
+  if (a.report) a.report.skipped = skipped;
+  for (const r of fix) await tx.update(bankLines).set({ konto: r.konto, partnerId: null }).where(eq(bankLines.id, r.id));
+  await postStatements(tx, new Set(fix.map((r) => r.statementId)), a.userId, env);
+  if (fix.length) {
+    await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'contribFix', entityType: 'bank_lines',
+      data: { lines: fix.length, moves: [...new Set(fix.map((r) => `${r.from}→${r.konto}`))], ...(skipped.length ? { skipped: skipped.length } : {}) } });
+  }
+  return fix.length;
+}
+
+/**
+ * Autopilot (6-hourly and within 5 minutes of a change): {@link applyContribFix} for every firm (or `firmIds`) that has МПИН
+ * lines (843 / 840) off their part's konto this year – each firm in its own savepoint, a locked period is left as it is.
+ */
+export async function repairContribLines(tx: Tx, year: number, firmIds?: readonly string[]): Promise<number> {
+  const R = await tx.selectDistinct({ firmId: bankLines.firmId }).from(bankLines).where(and(inArray(bankLines.osnov, ['843', '840']), sql`${bankLines.amount} < 0`,
+    sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`, firmIds?.length ? inArray(bankLines.firmId, [...firmIds]) : undefined));
+  let n = 0;
+  for (const { firmId } of R) {
+    try { n += await tx.transaction((sp) => applyContribFix(sp as unknown as Tx, { firmId, userId: null, year })); } catch { /* a firm that cannot be re-posted now stays for the next run */ }
+  }
+  return n;
 }
 
 /* ---------------- transit residues (own transfers / conversions) ---------------- */

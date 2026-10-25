@@ -68,6 +68,13 @@ export const SCH_EXTRA = {
    * 1200009 when the firm's effective chart has it (the old program's konto for these sales), else `customer`; '-' = off.
    */
   customerExempt: '',
+  /**
+   * Revenue of a firm that is NOT a VAT payer (its sales are outside VAT, not „ослободени од данок“): services (and
+   * products) on 7414 „Услуги во земјата“, goods on 7410 – the zero-rate kontos (`revService0` 74002 …) are only for a VAT
+   * payer's exempt sales. FIX: the old program posted a non-VAT firm's invoices on 74002 / 74102.
+   */
+  revServiceNoVat: '7414',
+  revGoodsNoVat: '7410',
 } as const;
 
 /**

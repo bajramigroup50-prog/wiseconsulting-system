@@ -8,7 +8,7 @@
  */
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
-  autoMatch, Bank, BANK_FEE, partnerOpenKonto, type MatchContext, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, ruleSideOk, schemeValue,
+  autoMatch, Bank, BANK_FEE, partnerOpenKonto, type MatchContext, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, payrollKonto, payrollPartOf, ruleSideOk, schemeValue,
   wrongSideWarning, type BankRow, type NoPartnerKind, type PayScheme,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
@@ -66,6 +66,7 @@ const NP_WHY: Record<NoPartnerKind, string> = {
   fee: 'провизија / надоместок на банката (без комитент)', card: 'плаќање со платежна картичка (без комитент)', bank: 'банката не е комитент',
   treasury: 'јавни приходи (Трезор / Министерство за финансии) – без комитент', wage: 'исплата на плата (нето) – без комитент',
 };
+const PART_WHY = { pio: 'придонес ПИО', zdr: 'придонес здравство', vrab: 'придонес вработување', dop: 'дополнителен придонес', tax: 'персонален данок' } as const;
 /** Payroll kontos from the posting scheme (`pay_*`), for the salary / contribution lines. */
 const payScheme = (posting: BankEnv['posting']): Partial<PayScheme> =>
   Object.fromEntries(PAY_SCH_KEYS.map((k) => [k, schemeValue(posting, k)]).filter(([, v]) => !!v)) as Partial<PayScheme>;
@@ -79,6 +80,12 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
   const text = [x.desc, x.name, x.purpose].filter(Boolean).join(' ');
   const t = lc(text);
   const code = String(x.osnov ?? '').trim();
+  // МПИН payments (шифра 843 придонеси / 840 данок, one line per part): each part on its own liability konto as the payroll
+  // books it (ПИО 2341, здравство 2342, дополнително 2343, вработување 2344, данок 2340) – never the shared 843 rule / 2349
+  if (out && (code === '843' || code === '840')) {
+    const part = payrollPartOf(text);
+    if (part) return { konto: payrollKonto(part, payScheme(env.posting)), why: `шифра ${code} – ${PART_WHY[part]} (шема на плати)`, how: part === 'tax' ? 'tax' : 'contrib' };
+  }
   if (code) {
     const k = env.osnovK[code + '|' + (out ? 'out' : 'in')];
     if (k) return { konto: k, why: `запомнато правило за шифра ${code}`, how: 'osnov' };

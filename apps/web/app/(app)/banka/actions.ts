@@ -10,7 +10,7 @@ import {
   decodeBankBytes, detectStatementFormat, parseStatementFile, readBankTable, splitCsv, statementProblems, type Statement,
 } from '@wise/core/bank-parsers';
 import {
-  addManualLine, addRule, applyBankPartnerFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
+  addManualLine, addRule, applyBankPartnerFix, applyContribFix, applyFeeFix, applyMatches, bookBankPosFee, fillStatementNumbers, closeTransit, deleteLine, deleteStatement, flipLine, linkLine, numberStatements,
   planImport, removeBankAccount, removeRule, saveBankAccount, saveImport, createLineKonto, setLineKonto, setLinePartner, undoImport, unlinkLine,
   updateStatement, loadBankAccounts, bankLines, bankAccounts, bankStatements, firms, userFirms, audit, type ImportPlan,
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
@@ -548,6 +548,14 @@ export async function feeFixAction(): Promise<FormState> {
     const report: { skipped?: LockedStatement[] } = {};
     const n = await applyFeeFix(tx, { firmId: firm.id, userId: u.id, year, report });
     return `Прекнижани ${n} провизии на 4460.${skippedMsg(report.skipped ?? [])}`;
+  });
+}
+/** „Придонеси по вид“: МПИН lines (843 / 840) on the konto of their part (ПИО 2341, здравство 2342 …), as the payroll books it. */
+export async function contribFixAction(): Promise<FormState> {
+  return bankRun('feeFix', [...P, '/kkart'], async ({ tx, u, firm, year }) => {
+    const report: { skipped?: LockedStatement[] } = {};
+    const n = await applyContribFix(tx, { firmId: firm.id, userId: u.id, year, report });
+    return `Прекнижани ${n} уплати на придонеси / данок на контото на својот вид.${skippedMsg(report.skipped ?? [])}`;
   });
 }
 export async function closeTransitAction(konto: string, date: string): Promise<FormState> {
