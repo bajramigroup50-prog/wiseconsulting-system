@@ -398,11 +398,13 @@ export async function applyContribFix(tx: Tx, a: { firmId: string; userId: strin
 }
 
 /**
- * Autopilot (6-hourly and within 5 minutes of a change): {@link applyContribFix} for every firm (or `firmIds`) that has МПИН
+ * Autopilot (every 5 minutes, all firms): {@link applyContribFix} for every firm (or `firmIds`) that has МПИН
  * lines (843 / 840) off their part's konto this year – each firm in its own savepoint, a locked period is left as it is.
  */
 export async function repairContribLines(tx: Tx, year: number, firmIds?: readonly string[]): Promise<number> {
+  // only firms with a candidate (shared 2349, another konto or none) – the plan per firm decides by its payroll scheme
   const R = await tx.selectDistinct({ firmId: bankLines.firmId }).from(bankLines).where(and(inArray(bankLines.osnov, ['843', '840']), sql`${bankLines.amount} < 0`,
+    sql`${bankLines.refId} is null`, sql`(${bankLines.konto} is null or ${bankLines.konto} = '2349' or ${bankLines.konto} not like '234%')`,
     sql`${bankLines.date} between ${year + '-01-01'} and ${year + '-12-31'}`, firmIds?.length ? inArray(bankLines.firmId, [...firmIds]) : undefined));
   let n = 0;
   for (const { firmId } of R) {

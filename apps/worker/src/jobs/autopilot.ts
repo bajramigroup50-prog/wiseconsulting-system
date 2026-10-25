@@ -46,6 +46,9 @@ export const autopilotRecent = defineJob<Record<string, never>>({
   name: 'autopilot.recent',
   cron: '*/5 * * * *',
   async run(_data, ctx) {
+    // МПИН payments (843 / 840) on the konto of their part – every firm, not only the ones changed lately (an imported
+    // statement is fixed within 5 minutes without anyone opening it)
+    try { const m = await ctx.db.transaction((tx) => repairContribLines(tx, new Date().getFullYear())); if (m) ctx.log(`contribution payments moved to their part's konto: ${m}`); } catch (e) { ctx.log(`contribution repair: ${(e as Error).message}`); }
     const R = await ctx.db.execute(sql`select ${auditLog.firmId} as id, max(${auditLog.at}) as at from ${auditLog}
       where ${auditLog.at} > now() - interval '30 minutes' and ${auditLog.firmId} is not null and ${auditLog.userId} is not null and ${auditLog.action} not in ('login', 'logout', 'autoRepost', 'autoRepostRequest')
       group by ${auditLog.firmId}`);
@@ -54,7 +57,6 @@ export const autopilotRecent = defineJob<Record<string, never>>({
     if (!ids.length) return;
     // receipts paid in cash outside the cash register's nalog of their period: moved there
     try { const m = await ctx.db.transaction((tx) => repairCashPurchaseNalogs(tx, ids)); if (m) ctx.log(`cash receipts moved to the cash nalog: ${m}`); } catch (e) { ctx.log(`cash nalog repair: ${(e as Error).message}`); }
-    try { const m = await ctx.db.transaction((tx) => repairContribLines(tx, new Date().getFullYear(), ids)); if (m) ctx.log(`contribution payments moved to their part's konto: ${m}`); } catch (e) { ctx.log(`contribution repair: ${(e as Error).message}`); }
     const r = await runAutopilot(ctx.db, { trigger: 'manual', firmIds: ids });
     // after the run: what the run itself writes is not a new change
     const now = Date.now();
