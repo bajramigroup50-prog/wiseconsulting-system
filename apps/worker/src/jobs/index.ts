@@ -38,6 +38,7 @@ export const JOBS: JobDef<any>[] = [
   aiReadDocument,
   aiPing,
   autopilot,
+  autopilotRecent,
   recurring,
   remindersJob,
   pdfRender,
