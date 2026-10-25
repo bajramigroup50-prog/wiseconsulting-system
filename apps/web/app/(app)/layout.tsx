@@ -25,6 +25,7 @@ import { klPrevOff } from './klPortal/actions';
 import { AinbPanel } from '@/components/ainb';
 import { AlStartup } from '@/components/al-startup';
 import { DatalistFull } from '@/components/datalist-full';
+import { PrintDates } from '@/components/print-dates';
 import { FirmGuard } from '@/components/firm-guard';
 import { Nav } from '@/components/nav';
 import { NavBack } from '@/components/nav-back';
@@ -149,6 +150,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {office && !demo && !book && <AinbPanel items={st.ainb} current={firm?.id ?? null} />}
       {office && !demo && !book && <AlStartup />}
       <DatalistFull />
+      <PrintDates />
       {office && !demo && !book && <RobotPanel />}
     </div>
     </FirmGuard>
