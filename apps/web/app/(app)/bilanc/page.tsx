@@ -17,6 +17,7 @@ import { NoFirm } from '@/components/no-firm';
 import { ExportBar } from '@/components/parity-fin/export-bar';
 import { ActionForm } from '@/components/action-form';
 import { KeyNav } from '@/components/key-nav';
+import { FormPrintLink } from '@/components/form-print-link';
 import { bbAnKOf } from '@/lib/parity-fin';
 import { locationNames } from '../poobjekti/data';
 import { saveBbAnKAction } from './actions';
@@ -55,15 +56,16 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <KeyNav table="bb" keys={{ F2: pr({ or: 'p' }), F3: pr({ short: '1', or: 'p' }), F5: zbir }} />
+      <KeyNav table="bb" keys={{ F2: '#bbF2', F3: '#bbF3', F5: '#bbF5' }} />
       <Hd t="Бруто биланс" sub="рекапитулар" excel={false}>
-        <a className="btn" href={pr({ or: 'p' })} target="_blank" rel="noopener" title={tab === 'a' ? 'Аналитики со комитенти' : undefined}>🖨 Печатење (F2)</a>
-        <a className="btn" href={pr()} target="_blank" rel="noopener">Печатење Landscape</a>
-        {tab === 'a' && <a className="btn" href={pr({ kom: '0' })} target="_blank" rel="noopener" title="Сите аналитички конта, без поделба по комитенти">🖨 Само конта (без комитенти)</a>}
-        <a className="btn" href={pr({ short: '1', or: 'p' })} target="_blank" rel="noopener" title="Конто, назив, вкупно должи / побарува, салдо">Скратено печатење (F3)</a>
-        <a className="btn" href={pr({ short: '1' })} target="_blank" rel="noopener">Скратено печатење Landscape</a>
-        <a className="btn" href={zbir} target="_blank" rel="noopener" title="Аналитичките картици на сите конта од опсегот во едно печатење">Збирна аналитичка картица (F5)</a>
-        <a className="btn" href="/print/bilanc/zl" target="_blank" rel="noopener" title="Аналитички бруто биланс за целата година пред заклучните книжења, со биланс на состојба и успех">Заклучен лист (PDF)</a>
+        {/* the print buttons take the dates / parameters typed in the form even before „Прикажи“ */}
+        <FormPrintLink id="bbF2" form="bbForm" className="btn" href={pr({ or: 'p' })} title={tab === 'a' ? 'Аналитики со комитенти' : undefined}>🖨 Печатење (F2)</FormPrintLink>
+        <FormPrintLink form="bbForm" className="btn" href={pr()}>Печатење Landscape</FormPrintLink>
+        {tab === 'a' && <FormPrintLink form="bbForm" className="btn" href={pr({ kom: '0' })} title="Сите аналитички конта, без поделба по комитенти">🖨 Само конта (без комитенти)</FormPrintLink>}
+        <FormPrintLink id="bbF3" form="bbForm" className="btn" href={pr({ short: '1', or: 'p' })} title="Конто, назив, вкупно должи / побарува, салдо">Скратено печатење (F3)</FormPrintLink>
+        <FormPrintLink form="bbForm" className="btn" href={pr({ short: '1' })}>Скратено печатење Landscape</FormPrintLink>
+        <FormPrintLink id="bbF5" form="bbForm" only={['from', 'to', 'pre', 'suf', 'kf', 'kt', 'q', 'p']} className="btn" href={zbir} title="Аналитичките картици на сите конта од опсегот во едно печатење">Збирна аналитичка картица (F5)</FormPrintLink>
+        <FormPrintLink form="bbForm" only={['from', 'to']} className="btn" href={'/print/bilanc/zl?' + enc({ from, to })} title="Аналитички бруто биланс за избраниот период (Датум од – до) пред заклучните книжења, со биланс на состојба и успех">Заклучен лист (PDF)</FormPrintLink>
         <ExportBar pdf={false} name={`Bruto_bilans_${year}`} title="Бруто биланс" rows={[['Конто', 'Назив', 'Салдо', 'Вк. должи', 'Вк. побарува', 'Поч. сост. должи', 'Поч. сост. побарува', ...(noCur ? [] : ['Должи од тек. година', 'Побарува од тек. година'])],
           ...listed.map((r) => [r.k, r.name, r.s, r.vd, r.vp, r.od, r.op, ...(noCur ? [] : [r.td, r.tp])])]} />
       </Hd>
@@ -71,7 +73,7 @@ export default async function BilancPage({ searchParams }: { searchParams: Promi
         <div className="row" style={{ gap: 6 }}>
           {BB_TABS.map(([v, t]) => <Link key={v} className={`btn sm ${v === tab ? 'pri' : ''}`} href={qs({ lvl: v, exp: '' })}>{t}</Link>)}
         </div>
-        <form className="row" style={{ gap: '8px 12px', alignItems: 'end', flexWrap: 'wrap' }}>
+        <form id="bbForm" className="row" style={{ gap: '8px 12px', alignItems: 'end', flexWrap: 'wrap' }}>
           <input type="hidden" name="lvl" value={tab} />
           <label className="f">Датум од<input type="date" name="from" defaultValue={from} /></label>
           <label className="f">до<input type="date" name="to" defaultValue={to} /></label>

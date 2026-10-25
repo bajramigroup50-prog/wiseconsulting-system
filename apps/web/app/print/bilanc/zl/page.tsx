@@ -1,13 +1,14 @@
 /**
- * Заклучен лист (legacy `zlHTML` 8238, `ACT.zlPdf`): analytic trial balance of the whole year before the closing
+ * Заклучен лист (legacy `zlHTML` 8238, `ACT.zlPdf`): analytic trial balance of the year (or the dates chosen on „Бруто биланс“) before the closing
  * entries, 14 columns — Почетна состојба, Промет, Вкупен промет, Салдо (Д/П), Биланс на состојба (Актива / Пасива for
  * classes other than 4/5/7/8), Биланс на успех (Расходи / Приходи for 4/5/7/8), class totals, ВКУПНО and the result.
  */
 import { Fragment } from 'react';
 import { CLS, trialBalance, type TbRow } from '@wise/core';
 import { effectiveChart } from '@wise/db';
+import { inYearOr } from '@/lib/books';
 import { db } from '@/lib/db';
-import { fmt } from '@/lib/fmt';
+import { dmy, fmt } from '@/lib/fmt';
 import { aggregatedLines } from '@/lib/ledger-agg';
 import { FirmHead, Sig } from '../../firm-head';
 import { printGuard } from '../../guard';
@@ -20,9 +21,12 @@ const bu = (k: string) => /^[4578]/.test(k);
 const sd = (r: Pick<TbRow, 's'>) => (r.s > 0 ? r.s : 0), sp = (r: Pick<TbRow, 's'>) => (r.s < 0 ? -r.s : 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-export default async function PrintZl() {
+export default async function PrintZl({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
+  const prm = await searchParams;
   const { firm, year } = await printGuard('bilanc');
-  const from = `${year}-01-01`, to = `${year}-12-31`;
+  // the dates chosen on „Бруто биланс“ (e.g. 01.01 – 30.06); without them the whole year
+  const from = inYearOr(prm.from, year, `${year}-01-01`), to = inYearOr(prm.to, year, `${year}-12-31`);
+  const whole = from === `${year}-01-01` && to === `${year}-12-31`;
   const [lines, chart] = await Promise.all([aggregatedLines(firm.id, from, to), effectiveChart(db(), firm.id)]);
   const names = new Map(chart.map((a) => [a.code, a.name]));
   const R = trialBalance(lines, { level: 'a', from, to, withClose: false, accountName: (k) => names.get(k) }).rows;
@@ -40,7 +44,7 @@ export default async function PrintZl() {
   return (
     <div className="pdfdoc land">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <FirmHead firm={firm} title="ЗАКЛУЧЕН ЛИСТ" sub={`Година ${year} · состојба пред заклучни книжења`} />
+      <FirmHead firm={firm} title="ЗАКЛУЧЕН ЛИСТ" sub={whole ? `Година ${year} · состојба пред заклучни книжења` : `Период ${dmy(from)} – ${dmy(to)} · состојба пред заклучни книжења`} />
       <table className="dense zl">
         <colgroup><col style={{ width: '5%' }} /><col style={{ width: '17%' }} />{Array.from({ length: 12 }, (_, i) => <col key={i} style={{ width: '6.5%' }} />)}</colgroup>
         <thead>
@@ -64,7 +68,7 @@ export default async function PrintZl() {
         </tbody>
         <tfoot>{tot(R, 'ВКУПНО', '')}</tfoot>
       </table>
-      <p style={{ marginTop: 8 }}><b>Финансиски резултат {year}:</b> {res >= 0 ? 'добивка' : 'загуба'} {fmt(Math.abs(res))} ден. (приходи {fmt(rp)} − расходи {fmt(rd)})</p>
+      <p style={{ marginTop: 8 }}><b>Финансиски резултат {whole ? year : `${dmy(from)} – ${dmy(to)}`}:</b> {res >= 0 ? 'добивка' : 'загуба'} {fmt(Math.abs(res))} ден. (приходи {fmt(rp)} − расходи {fmt(rd)})</p>
       <Sig />
     </div>
   );
