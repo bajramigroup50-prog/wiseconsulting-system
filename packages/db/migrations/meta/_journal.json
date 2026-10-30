@@ -274,6 +274,13 @@
       "when": 1792526914569,
       "tag": "0038_doc_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793350000000,
+      "tag": "0039_firm_years_import",
+      "breakpoints": true
     }
   ]
 }

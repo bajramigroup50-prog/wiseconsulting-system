@@ -62,10 +62,11 @@ describe('firm working years (firmActiveIn)', () => {
     expect(fyOnDeactivate({ toYear: '2024' }, 2026)).toEqual({ toYear: '2024' });
     expect(fyOnRestore({ toYear: '2024' })).toEqual({ toYear: '2024' });
   });
-  it('Excel import: „Година“ is curYear and fromYear', () => {
+  it('Excel import: „Година“ is curYear only, never the first working year', () => {
     const P = fimpParse([['Име на фирма', 'Година'], ['АЛФА ДООЕЛ', 2024], ['БЕТА ДОО', ''], ['ГАМА', 'тековна']]);
     if ('error' in P) throw new Error(P.error);
-    expect(fimpToFirm(P.L[0]!).settings).toMatchObject({ curYear: '2024', fromYear: '2024' });
+    expect(fimpToFirm(P.L[0]!).settings).toMatchObject({ curYear: '2024' });
+    expect(fimpToFirm(P.L[0]!).settings.fromYear).toBeUndefined();
     expect(fimpToFirm(P.L[1]!).settings.fromYear).toBeUndefined();
     expect(fimpToFirm(P.L[2]!).settings).toEqual({ curYear: 'тековна' });
   });

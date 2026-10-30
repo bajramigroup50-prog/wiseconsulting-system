@@ -129,9 +129,10 @@ export function fimpToFirm(f: FimpRecord): FimpFirm {
     if (COLS.has(k) || v === '' || v == null) continue;
     settings[k === 'bank' ? 'bankAccount' : k] = String(v).slice(0, 300);
   }
-  // „Година“ (legacy „Тековна година“) is also the first working year of the firm (`years.ts`: listed from that year)
+  // „Година“ (legacy „Тековна година“) is kept as curYear only: it is NOT the first working year – earlier years stay empty
+  // until the user fills them (user decision; the firm is listed from the year it is entered, `years.ts`)
   const gy = /(?:^|\D)((?:19|20)\d{2})(?:\D|$)/.exec(String(f.curYear ?? ''))?.[1];
-  if (gy && fyParse(gy) != null) { settings.curYear = gy; settings.fromYear = gy; }
+  if (gy && fyParse(gy) != null) settings.curYear = gy;
   return {
     cols: {
       name: String(f.name).trim().slice(0, 300), code: s('code'), legalForm: fimpLegalForm(f.lf), edb: e.length === 13 ? e : s('edb'),
