@@ -50,7 +50,7 @@ export function RowAction({ action, label, title, confirm: ask, preview, classNa
     <>
       {button}
       {res && (
-        <div className={`callout ${res.error ? 'bad' : 'good'}`} role="status" style={{ flexBasis: '100%', margin: '8px 0 0' }}>
+        <div className={`callout ${res.error ? 'bad' : 'good'}`} role="status" style={{ flexBasis: '100%', margin: '8px 0 0', whiteSpace: 'pre-line' }}>
           {res.error ?? res.ok}{' '}
           {!res.error && okHref && <Link className="btn sm" href={okHref}>{okLink ?? 'Отвори →'}</Link>}
         </div>

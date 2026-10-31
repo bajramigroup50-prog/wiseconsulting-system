@@ -12,8 +12,9 @@ import { patchFirmSettings } from '@/lib/firms-office';
 import { csvToGrid, DB_F, DE38, DLD_ND, parseCarryKey, parseCarryStatPrefixes, parseTurnoverTb } from '@wise/core';
 import {
   audit, carryOneRow, carryStatPrefixesOf, clearCrmXml, closeYear, firms, getStatement, importCrmXml, importPostCloseTb, loadYear, lockYear, openNextYear,
-  snapshotAop, undoClose, undoOpen, unlockYear, upsertStatement, type StatementPatch,
+  runDepreciation, snapshotAop, undoClose, undoOpen, unlockYear, upsertStatement, yearFindings, type StatementPatch,
 } from '@wise/db';
+import { saveYearXml } from '../zsDos/actions';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { journalLines, journals, partners, updateJournal } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
@@ -91,6 +92,75 @@ export async function closeYearAction(): Promise<ActionState> {
     if (r.carry) return { ok: `${closed} Салдата се пренесени во „Почетна состојба ${year + 1}“ на 01.01.${year + 1} (${r.carry.lines} ставки, ${fmt(r.carry.debit)} = ${fmt(r.carry.credit)}) – проверете во „Пренос на салда“.` };
     return { ok: `${closed} Салдата НЕ се пренесени во ${year + 1}: ${r.carryError ?? ''} Средете го тоа и притиснете „Пренеси ги салдата“ во „Пренос на салда“.` };
   } catch (e) { return actionError(e); }
+}
+
+/**
+ * „⚡ Заврши сè за оваа фирма“ – the year end of the SELECTED firm in one click, phase by phase as on this screen:
+ * 1. Контрола (the gate); depreciation is run first when it is the only reason (`dep`) – the other findings stop it;
+ * 2. ДБ (companies): saved without adjustments when it was never saved (the computed tax stays as it is);
+ * 3. Затворање 4/7 → 8 → 9 with the carry-over into the next year (`closeYear`);
+ * 4. Биланси и обрасци – computed from the books, nothing to save;
+ * 5. Белешки – the automatic notes are saved when they were never saved;
+ * 6. XML for ЦРМ (companies) saved into the year dossier (`saveYearXml`).
+ * Each step reports what it did or why it stopped; a step already done is left as it is.
+ */
+export async function finishYearAction(): Promise<ActionState> {
+  const done1: string[] = [];
+  try {
+    const { u, firm, year } = await firmAction('closeYear');
+    const today = todayMk();
+    let L = await loadYear(db(), firm.id, year);
+    // 1. depreciation when the books have assets and no depreciation journal yet
+    let F = await yearFindings(db(), L, today);
+    if (!L.Y.closed && F.open.some((f) => f.key === 'dep')) {
+      if (!canDo(u, 'runDep', firm.id)) return { error: 'Амортизацијата не е прокнижена, а немате право да ја прокнижите – отворете „Основни средства“.' };
+      const r = await db().transaction((tx) => runDepreciation(tx, { firmId: firm.id, year, userId: u.id }));
+      done1.push(`✓ Амортизација ${fmt(r.total)} ден. (налог ${r.journal.number})`);
+      L = await loadYear(db(), firm.id, year);
+      F = await yearFindings(db(), L, today);
+    }
+    if (!L.Y.closed && F.open.length) {
+      const list = F.open.slice(0, 5).map((f) => `• ${f.area}: ${f.txt}`).join('\n');
+      return { error: `${done1.length ? done1.join('\n') + '\n' : ''}Контролата не е чиста (${F.open.length} наоди) – средете ги, па притиснете повторно:\n${list}${F.open.length > 5 ? `\n… уште ${F.open.length - 5} во „Контрола“` : ''}` };
+    }
+    done1.push('✓ Контрола – чиста');
+    // 2. ДБ without adjustments when never saved (companies)
+    if (L.ent === 'co' && !(L.statement && Object.keys(L.statement.dbAdj).length > 0)) {
+      await db().transaction(async (tx) => {
+        await upsertStatement(tx, firm.id, year, { dbAdj: { _auto: 0 } }, u.id);
+        await audit(tx, { userId: u.id, firmId: firm.id, action: 'dbSave', entityType: 'annualStatement', entityId: String(year), data: { auto: true } });
+      });
+      done1.push(`✓ Даночен биланс зачуван без корекции (данок ${fmt(L.Y.co.db.tax)} ден.) – ако има непризнаени расходи, внесете ги во „Даночен биланс“ пред поднесување`);
+    } else if (L.ent === 'co') done1.push('✓ Даночен биланс – веќе зачуван');
+    // 3. close 4/7 → 8 → 9 and carry over
+    if (!L.closeJournal) {
+      const r = await db().transaction((tx) => closeYear(tx, { firmId: firm.id, year, userId: u.id, today }));
+      done1.push(`✓ Затворање 4/7 → 8 → 9 (налог ${r.journal.number}): ${r.plan.profit >= 0 ? 'добивка' : 'загуба'} ${fmt(Math.abs(r.plan.profit))}, данок ${fmt(r.plan.tax)}, нето ${fmt(r.plan.net)} ден.`);
+      done1.push(r.carry ? `✓ Пренос во ${year + 1} (${r.carry.lines} ставки)` : `⚠ Преносот во ${year + 1} не е направен: ${r.carryError ?? ''} – „Пренос на салда“`);
+    } else done1.push(`✓ Затворање – веќе затворена (налог ${L.closeJournal.number})`);
+    // 4. statements – computed from the books
+    done1.push('✓ Биланс на состојба и Биланс на успех – пресметани (Биланси и обрасци)');
+    // 5. notes: the automatic text saved when never saved
+    L = await loadYear(db(), firm.id, year);
+    if (!(L.statement && Object.keys(L.statement.notes).length > 0)) {
+      await db().transaction(async (tx) => {
+        await upsertStatement(tx, firm.id, year, { notes: { _saved: new Date().toISOString() } }, u.id);
+        await audit(tx, { userId: u.id, firmId: firm.id, action: 'belSave', entityType: 'annualStatement', entityId: String(year), data: { auto: true } });
+      });
+      done1.push('✓ Објаснувачки белешки – зачувани (автоматски текст)');
+    } else done1.push('✓ Објаснувачки белешки – веќе зачувани');
+    // 6. XML for ЦРМ into the year dossier (companies)
+    if (L.ent === 'co') {
+      // the close stays done even when the file cannot be stored now – the XML can be saved again from „Досие на годината“
+      const x = await saveYearXml(year).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }) as ActionState);
+      done1.push(x.error ? `⚠ XML: ${x.error}` : `✓ XML за ЦРМ (GS_${year}_${(firm.embs ?? '').replace(/\D/g, '') || 'firma'}.xml) – во „Досие на годината“ и „XML и поднесување“`);
+    } else done1.push('ℹ XML за ЦРМ е само за трговски друштва – за овој субјект печатете ги обрасците');
+  } catch (e) {
+    const r = actionError(e);
+    return { error: (done1.length ? done1.join('\n') + '\n' : '') + (r.error ?? 'Грешка.') };
+  }
+  done();
+  return { ok: done1.join('\n') };
 }
 
 /**

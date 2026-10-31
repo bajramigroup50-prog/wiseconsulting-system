@@ -20,7 +20,7 @@ import { isDemoUser } from '@/lib/demo';
 import { today } from '@/lib/office';
 import { db } from '@/lib/db';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
-import { archiveNotesAction, openYearAction, setCrmPeriodAction } from './actions';
+import { archiveNotesAction, finishYearAction, openYearAction, setCrmPeriodAction } from './actions';
 
 function Card({ t, ok, href, children }: { t: string; ok: boolean | null; href: string; children?: React.ReactNode }) {
   return (
@@ -68,6 +68,14 @@ export default async function ZsProcPage() {
       <ZsHead id="zsProc" t="Завршна сметка – по фази" year={year} ent={ent} done={phaseDone(L)} />
       <PrevYearCallout firmId={firm.id} year={year} />
       <NotClosedNote closed={L.Y.closed} year={year} />
+      {canDo(u, 'closeYear', firm.id) && (
+        <div className="card row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', borderLeft: '4px solid var(--accent)' }}>
+          <div style={{ flex: '1 1 320px' }}><b>⚡ Заврши сè за оваа фирма – еден клик</b>
+            <p className="mini" style={{ margin: '2px 0 0' }}>Само за <b>{firm.name}</b> ({year}): контрола → амортизација (ако треба) → даночен биланс → затворање 4/7 → 8 → 9 со пренос во {year + 1} → биланси → белешки → XML за ЦРМ. Ако контролата има наоди, застанува и ги покажува. Готовите чекори не се повторуваат.</p></div>
+          <RowAction inline className="btn pri" action={finishYearAction} label="⚡ Заврши сè"
+            confirm={`Да се заврши годишната сметка ${year} за ${firm.name}: затворање 4/7 → 8 → 9, пренос во ${year + 1}, белешки и XML?${ent === 'co' && !(L.statement && Object.keys(L.statement.dbAdj).length > 0) ? ' Даночниот биланс ќе се зачува без корекции (непризнаени расходи = 0).' : ''}`} />
+        </div>
+      )}
       <div className="cols">
         <div className="card">
           <h2>Состојба {year}</h2>
