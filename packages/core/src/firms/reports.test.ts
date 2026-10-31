@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { agingByPartner, ageBucket, liabilitiesByMonth, pnlByMonth } from './reports';
+import { agingByPartner, ageBucket, bankRecon, liabilitiesByMonth, monthlyControl, pnlByMonth } from './reports';
+
+describe('Усогласување банка', () => {
+  it('statement closing vs ledger per month; breaks between statements', () => {
+    const [R] = bankRecon([{ id: 'a', name: 'Халк', konto: '100005' }],
+      [{ acct: 'a', date: '2026-01-10', number: '1', opening: 0, closing: 500 }, { acct: 'a', date: '2026-02-05', number: '2', opening: 500, closing: 300 }, { acct: 'a', date: '2026-03-01', number: '4', opening: 250, closing: 250 }],
+      [{ account: '100005', month: 1, debit: 500, credit: 0 }, { account: '100005', month: 2, debit: 0, credit: 200 }, { account: '100005', month: 3, debit: 0, credit: 50 }], 2026);
+    expect(R!.months.slice(0, 4).map((m) => [m.izv, m.book, m.diff])).toEqual([[500, 500, 0], [300, 300, 0], [250, 250, 0], [250, 250, 0]]);
+    expect(R!.breaks).toEqual([{ date: '2026-03-01', number: '4', diff: -50 }]);
+    expect(R!.last).toBe('2026-03-01');
+  });
+});
+
+describe('Контролен извештај', () => {
+  it('missing statements, negative bank, 2349, missing payroll months; cash in plus is fine', () => {
+    const C = monthlyControl({
+      today: '2026-10-31', year: 2026, banks: [{ name: 'Халк', konto: '100005', last: '2026-06-18' }],
+      draftStatements: 0, openBankLines: 2, draftDocs: 0,
+      saldo: new Map([['100005', -100], ['2349', 32398], ['1020', 50]]), payrollMonths: new Set([1, 2, 3, 5, 6, 7, 8, 9]),
+    });
+    expect(C.filter((c) => c.lvl === 'bad').map((c) => c.cat)).toEqual(['Банка', 'Банка', 'Плати']);
+    expect(C.find((c) => c.cat === 'Плати' && c.lvl === 'bad')!.txt).toContain('04/2026');
+    expect(C.some((c) => c.txt.includes('2349'))).toBe(true);
+    expect(C.some((c) => c.txt.includes('1020'))).toBe(false);
+  });
+});
 
 describe('Старосна структура', () => {
   it('buckets by days overdue, per partner, biggest debt first', () => {

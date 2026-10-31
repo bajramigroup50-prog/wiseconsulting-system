@@ -100,3 +100,87 @@ export function pnlByMonth(L: readonly AcctMonth[], LP: readonly AcctMonth[] = [
     { key: 'res', label: 'Резултат (добивка / загуба)', m: res, y: tot(res), py: r2(tot(revP) - expPY), kind: 'res' },
   ];
 }
+
+/* ---------------- Усогласување банка ---------------- */
+
+export interface ReconAccount { id: string; name: string; konto: string }
+export interface ReconStatement { acct: string; date: string; number: string | null; opening: number | null; closing: number | null }
+export interface ReconMonth { izv: number | null; izvDate: string | null; book: number; diff: number | null }
+export interface ReconRow { acct: ReconAccount; months: ReconMonth[]; last: string | null; breaks: { date: string; number: string | null; diff: number }[] }
+
+const mEndOf = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+
+/**
+ * Per bank account and month: the closing saldo of its last statement up to the month end against the ledger saldo
+ * (Д − П) of the account's konto at the month end, the difference; the last statement date; and the breaks between
+ * consecutive statements (an opening that is not the previous closing – a statement is missing in between).
+ */
+export function bankRecon(A: readonly ReconAccount[], S: readonly ReconStatement[], L: readonly AcctMonth[], year: number): ReconRow[] {
+  return A.map((acct) => {
+    const st = S.filter((s) => s.acct === acct.id && s.date.startsWith(String(year))).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    let cum = 0;
+    const months = Array.from({ length: 12 }, (_, i): ReconMonth => {
+      for (const l of L) if (l.account === acct.konto && l.month === i + 1) cum = r2(cum + l.debit - l.credit);
+      const end = mEndOf(year, i + 1);
+      const last = [...st].reverse().find((s) => s.date <= end && s.closing != null);
+      const izv = last ? last.closing! : null;
+      return { izv, izvDate: last?.date ?? null, book: cum, diff: izv == null ? null : r2(izv - cum) };
+    });
+    const breaks: ReconRow['breaks'] = [];
+    for (let i = 1; i < st.length; i++) {
+      const a = st[i - 1]!, b = st[i]!;
+      if (a.closing != null && b.opening != null && Math.abs(a.closing - b.opening) > 0.004) breaks.push({ date: b.date, number: b.number, diff: r2(b.opening - a.closing) });
+    }
+    return { acct, months, last: st.at(-1)?.date ?? null, breaks };
+  });
+}
+
+/* ---------------- Контролен извештај за месецот ---------------- */
+
+export interface ControlItem { lvl: 'bad' | 'warn' | 'ok'; cat: string; txt: string; go?: string }
+export interface ControlInput {
+  today: string; year: number;
+  /** Bank accounts with the date of their last statement this year (null = none). */
+  banks: { name: string; konto: string; last: string | null }[];
+  draftStatements: number; openBankLines: number; draftDocs: number;
+  /** Saldo (Д − П) of the year per konto. */
+  saldo: ReadonlyMap<string, number>;
+  /** Months (1–12) with a posted payroll this year; empty = the firm has no payroll. */
+  payrollMonths: ReadonlySet<number>;
+}
+
+const dmy = (d: string) => d.split('-').reverse().join('.');
+const amt = (v: number) => v.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** The checks of the month for one firm: statements, unbooked lines, drafts, kontos with an impossible saldo, payroll. */
+export function monthlyControl(i: ControlInput): ControlItem[] {
+  const out: ControlItem[] = [];
+  const y = i.year, cur = i.today.startsWith(String(y));
+  // the last day that should be covered: the end of the previous month (the current one is still running)
+  const lastM = cur ? +i.today.slice(5, 7) - 1 : 12;
+  const want = lastM >= 1 ? mEndOf(y, lastM) : null;
+  for (const b of i.banks) {
+    if (!b.last) out.push({ lvl: 'bad', cat: 'Банка', txt: `${b.name} (${b.konto}): нема ниту еден извод во ${y}.`, go: 'banka' });
+    else if (want && b.last < want) out.push({ lvl: dayNo(want) - dayNo(b.last) > 31 ? 'bad' : 'warn', cat: 'Банка', txt: `${b.name} (${b.konto}): последен извод на ${dmy(b.last)} – недостасуваат изводите до ${dmy(want)}.`, go: 'banka' });
+    else out.push({ lvl: 'ok', cat: 'Банка', txt: `${b.name}: изводите се до ${dmy(b.last)}.` });
+    const s = i.saldo.get(b.konto) ?? 0;
+    if (s < -0.004) out.push({ lvl: 'bad', cat: 'Банка', txt: `Конто ${b.konto} (${b.name}) е во минус ${amt(s)} – банката не може да има негативно салдо (недостасува прилив или погрешно книжење).`, go: 'kkart?k=' + b.konto });
+  }
+  if (i.draftStatements) out.push({ lvl: 'warn', cat: 'Банка', txt: `${i.draftStatements} изводи не се прокнижени.`, go: 'banka' });
+  if (i.openBankLines) out.push({ lvl: 'warn', cat: 'Банка', txt: `${i.openBankLines} ставки од изводите немаат конто / комитент.`, go: 'banka' });
+  if (i.draftDocs) out.push({ lvl: 'warn', cat: 'Документи', txt: `${i.draftDocs} фактури се во нацрт (не се книжени).`, go: 'vnes' });
+  const k = (code: string) => i.saldo.get(code) ?? 0;
+  if (k('1020') < -0.004) out.push({ lvl: 'bad', cat: 'Благајна', txt: `Благајната (1020) е во минус ${amt(k('1020'))}.`, go: 'blagajna' });
+  if (Math.abs(k('2349')) > 0.004) out.push({ lvl: 'warn', cat: 'Плати', txt: `Конто 2349 има салдо ${amt(k('2349'))} – придонесите треба да се на 2341–2344, како во платата.`, go: 'kkart?k=2349' });
+  for (const t of ['1039', '1009']) if (Math.abs(k(t)) > 0.004) out.push({ lvl: 'warn', cat: 'Банка', txt: `Преодното конто ${t} има салдо ${amt(k(t))} – затворете ја курсната разлика / преносот.`, go: 'kkart?k=' + t });
+  if (k('1200') < -0.004) out.push({ lvl: 'warn', cat: 'Комитенти', txt: `Купувачите (1200) се вкупно во побарува ${amt(-k('1200'))} – уплати без фактура или аванси.`, go: 'bkAdv' });
+  if (k('2200') > 0.004) out.push({ lvl: 'warn', cat: 'Комитенти', txt: `Добавувачите (2200) се вкупно во должи ${amt(k('2200'))} – плаќања без влезна фактура.`, go: 'bkAdv' });
+  if (i.payrollMonths.size && lastM >= 1) {
+    const first = Math.min(...i.payrollMonths);
+    const miss = Array.from({ length: lastM }, (_, j) => j + 1).filter((m) => m >= first && !i.payrollMonths.has(m));
+    if (miss.length) out.push({ lvl: 'bad', cat: 'Плати', txt: `Плата не е книжена за: ${miss.map((m) => String(m).padStart(2, '0') + '/' + y).join(', ')}.`, go: 'plati' });
+    else out.push({ lvl: 'ok', cat: 'Плати', txt: `Платите се книжени до ${String(lastM).padStart(2, '0')}/${y}.` });
+  }
+  const rank = { bad: 0, warn: 1, ok: 2 } as const;
+  return out.sort((a, b) => rank[a.lvl] - rank[b.lvl]);
+}
