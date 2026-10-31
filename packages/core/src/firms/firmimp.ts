@@ -118,6 +118,16 @@ export interface FimpFirm {
 
 const COLS = new Set(['name', 'code', 'lf', 'edb', 'embs', 'address', 'city', 'phone', 'email', 'activity', 'ddv', 'per']);
 
+/** Old 7-bit Latin (YUSCII) of the old program → Š Ć Č Đ Ž (only when the text has none of the real letters). */
+export function yuscii(t: string): string {
+  if (!/[[\]^\\@{}~|`]/.test(t) || /[ŠĆČĐŽšćčđž]/.test(t)) return t;
+  const M: Record<string, string> = { '[': 'Š', ']': 'Ć', '^': 'Č', '\\': 'Đ', '@': 'Ž', '{': 'š', '}': 'ć', '~': 'č', '|': 'đ', '`': 'ž' };
+  return t.replace(/[[\]^\\@{}~|`]/g, (c) => M[c] ?? c);
+}
+
+/** A person's name (not a phone, an e-mail or a note): 2–4 words of letters. */
+export const isPersonLike = (t: string): boolean => !/\d/.test(t) && !/@\S+\./.test(t) && /^\p{L}[\p{L}'’.-]*(\s+\p{L}[\p{L}'’.-]*){1,3}$/u.test(t.trim());
+
 /** One imported record → firm columns + settings (bank account etc.). */
 export function fimpToFirm(f: FimpRecord): FimpFirm {
   const s = (k: string) => (f[k] == null || f[k] === '' ? null : String(f[k]).trim().slice(0, 300));
@@ -133,6 +143,10 @@ export function fimpToFirm(f: FimpRecord): FimpFirm {
   // until the user fills them (user decision; the firm is listed from the year it is entered, `years.ts`)
   const gy = /(?:^|\D)((?:19|20)\d{2})(?:\D|$)/.exec(String(f.curYear ?? ''))?.[1];
   if (gy && fyParse(gy) != null) settings.curYear = gy;
+  // the contact person of the old program is the firm's manager: also the signer (Одговорно лице) of the notes, forms and
+  // contracts, with the old 7-bit letters ([ ] ^ \ @ …) read as Š Ć Č Đ Ž
+  if (settings.contact) settings.contact = yuscii(settings.contact);
+  if (!settings.signer && settings.contact && isPersonLike(settings.contact)) { settings.signer = settings.contact; settings.signerRole ||= 'Управител'; }
   return {
     cols: {
       name: String(f.name).trim().slice(0, 300), code: s('code'), legalForm: fimpLegalForm(f.lf), edb: e.length === 13 ? e : s('edb'),
