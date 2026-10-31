@@ -3,6 +3,19 @@
  * helpers used by the top bar / Известувања (legacy `alFirmBadge` 8606, `alSummaryText` 8572, `alMail` 8579).
  * Pure: the screens pass plain rows.
  */
+import { translitKey } from '../text/yuscii';
+
+/**
+ * Every word of the search in the texts – as typed, or spelled in the other script („bajrami“ finds „БАЈРАМИ“,
+ * „медиа“ finds „MEDIA“, „kovaci“ finds „KOVA^I“).
+ */
+export function wordsMatch(parts: readonly (string | null | undefined)[], q: string): boolean {
+  const W = String(q ?? '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!W.length) return true;
+  const hay = parts.filter(Boolean).join(' ').toLowerCase();
+  const key = parts.filter(Boolean).map((x) => translitKey(x)).join(' ');
+  return W.every((w) => { if (hay.includes(w)) return true; const k = translitKey(w); return !!k && key.includes(k); });
+}
 
 /** Legacy `FP_AZ`: Macedonian alphabet for the letter bar. */
 export const FP_AZ = 'АБВГДЃЕЖЗЅИЈКЛЉМНЊОПРСТЌУФХЦЧЏШ'.split('');
@@ -136,8 +149,7 @@ export function fgData(f: { code?: string | null; legalForm?: string | null; act
 /** Grid search: every word in name, шифра, Родител, ЕДБ, ЕМБС or an account (accounts also without dashes / spaces). */
 export function fgMatch(f: FpFirm, q: string): boolean {
   const A = [...(f.g?.accts ?? []), f.g?.bank ?? ''].filter(Boolean);
-  const hay = [f.name, f.code, f.g?.parent, ...(f.g?.codes ?? []), f.edb, f.embs, ...A, ...A.map((a) => a.replace(/\D/g, ''))].filter(Boolean).join(' ').toLowerCase();
-  return q.toLowerCase().trim().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+  return wordsMatch([f.name, f.code, f.g?.parent, ...(f.g?.codes ?? []), f.edb, f.embs, ...A, ...A.map((a) => a.replace(/\D/g, ''))], q);
 }
 
 /** Grid pipeline: search → sort by a column (default Шифра, numbers in numeric order, empty cells last). */
@@ -201,8 +213,7 @@ export function fpDdvDue(f: Pick<FpFirm, 'vat' | 'month'>, today: string): { per
 
 /** Legacy `srchMatch`: every word must occur (case-insensitive). */
 export function fpMatch(f: FpFirm, q: string): boolean {
-  const hay = [f.name, f.edb, f.city, f.code, f.embs, f.email, f.phone, f.phone2, f.contact].filter(Boolean).join(' ').toLowerCase();
-  return q.toLowerCase().trim().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+  return wordsMatch([f.name, f.edb, f.city, f.code, f.embs, f.email, f.phone, f.phone2, f.contact], q);
 }
 
 const FILTER: Record<FpFilter, (f: FpFirm) => boolean> = {

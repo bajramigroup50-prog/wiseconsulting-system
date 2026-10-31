@@ -6,7 +6,9 @@
  */
 import Link from 'next/link';
 import { WipeYearBox } from './wipe-box';
-import { asc, eq, ilike, inArray, or, sql, and } from 'drizzle-orm';
+import { FirmLiveFilter } from './live-filter';
+import { wordsMatch } from '@wise/core/firms/picker';
+import { asc, eq, inArray, sql, and } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { DEMO_MAX_FIRMS } from '@wise/core/demo';
 import { FR_F, frList, isFrFilter } from '@wise/core/firms/firmform';
@@ -45,7 +47,6 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const demoGroup = await isOfficeOwner(u).catch(() => false)
     ? await db().select().from(firms).where(and(demoFirmSql, eq(firms.active, true))).orderBy(asc(firms.name))
     : [];
-  const search = q ? or(ilike(firms.name, `%${q}%`), ilike(firms.edb, `%${q}%`), ilike(firms.embs, `%${q}%`), ilike(firms.city, `%${q}%`), ilike(firms.code, `%${q}%`)) : undefined;
 
   const all = await db().select().from(firms).where(and(scoped, eq(firms.active, true), allYears ? undefined : firmInYearSql(year))).orderBy(asc(firms.name));
   const nOther = allYears ? 0 : ((await db().select({ n: sql<number>`count(*)::int` }).from(firms).where(and(scoped, eq(firms.active, true))))[0]?.n ?? 0) - all.length;
@@ -57,8 +58,9 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const ex = (f: typeof all[number]) => (f.settings as { example?: boolean }).example === true;
   const R = all.map((f) => ({ ...f, example: ex(f) }));
   const shown = new Set(frList(R, fk, withEx).map((f) => f.id));
-  const matchQ = q ? new Set((await db().select({ id: firms.id }).from(firms).where(and(scoped, search))).map((r) => r.id)) : null;
-  const rows = R.filter((f) => shown.has(f.id) && (!matchQ || matchQ.has(f.id)));
+  // the search: every word, Latin = Cyrillic (`wordsMatch`); the box also filters live while typing (`FirmLiveFilter`)
+  const hayOf = (f: typeof R[number]) => [f.name, f.code, f.edb, f.embs, f.city, (f.settings as { short?: string } | null)?.short].filter(Boolean).join(' ');
+  const rows = R.filter((f) => shown.has(f.id) && (!q || wordsMatch([hayOf(f)], q)));
 
   const editId = sp.edit;
   const draft = editId ? (await db().select().from(firms).where(eq(firms.id, editId)).limit(1))[0] : undefined;
@@ -104,7 +106,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
               <input type="hidden" name="ex" value="0" />
               {allYears && <input type="hidden" name="sve" value="1" />}
               <label className="chk"><input type="checkbox" name="ex" value="1" defaultChecked={withEx} /> вклучи примери</label>
-              <input name="q" defaultValue={q} placeholder="🔍 Назив, ЕДБ, ЕМБС, шифра или град…" style={{ flex: 1, minWidth: 200 }} />
+              <FirmLiveFilter table="firmTbl" defaultValue={q} placeholder="🔍 Назив (кирилица или латиница), ЕДБ, ЕМБС, шифра или град…" />
               <button className="btn">Прикажи</button>
               <span style={{ flex: 1 }} />
               <a className="btn pri" style={{ fontWeight: 700 }} href={`/print/firmi${qs({})}`} target="_blank">🖨 PDF</a>
@@ -114,11 +116,11 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
         )}
         {all.length ? (
           <div className="tw">
-            <table>
+            <table id="firmTbl">
               <thead><tr><th>Фирма</th><th>ЕДБ</th><th>ДДВ</th><th title="Години во кои фирмата работи">Години</th><th>Заклучено до</th><th></th></tr></thead>
               <tbody>
                 {rows.map((f) => (
-                  <tr key={f.id}>
+                  <tr key={f.id} data-s={hayOf(f)}>
                     <td>{f.code && <span className="mut">{f.code} · </span>}{f.name}{f.example && <> <span className="pill warn">пример</span></>}{f.id === cur?.id && <> <span className="pill good">тековна</span></>}
                       {allYears && !firmActiveIn(f, year, fdy.get(f.id), ldy.get(f.id)) && <> <span className="pill warn">не е активна во {year}</span></>}</td>
                     <td>{f.edb ?? ''}</td>
@@ -139,6 +141,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
                   </tr>
                 ))}
                 {!rows.length && <tr><td colSpan={6} className="mut">{q ? `Нема фирма што одговара на „${q}“.` : 'Нема фирми за избраниот филтер.'}</td></tr>}
+                {rows.length > 0 && <tr id="firmTbl-none" hidden><td colSpan={6} className="mut">Нема фирма што одговара на пребарувањето.</td></tr>}
               </tbody>
             </table>
           </div>
