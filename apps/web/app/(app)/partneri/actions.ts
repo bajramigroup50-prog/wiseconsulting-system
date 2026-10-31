@@ -134,13 +134,22 @@ export async function deletePartnersAction(ids: string[]): Promise<ActionState> 
     const L = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x));
     const free = L.filter((x) => !use.get(x));
     if (!free.length) return { error: 'Сите избрани се користат во документи – не може да се избришат.' };
+    // one by one (each in its savepoint): a partner still referenced somewhere else (a statement line …) is skipped,
+    // never the whole selection
+    const kept: string[] = [];
+    let n = 0;
     await db().transaction(async (tx) => {
-      await tx.delete(partners).where(and(eq(partners.firmId, firm.id), inArray(partners.id, free)));
-      await audit(tx, { userId: u.id, firmId: firm.id, action: 'slDel', entityType: 'partner', data: { text: 'Масовно бришење (partners): ' + free.length } });
+      for (const id of free) {
+        try {
+          await tx.transaction(async (sp) => { const r = await sp.delete(partners).where(and(eq(partners.firmId, firm.id), eq(partners.id, id))).returning({ id: partners.id }); n += r.length; });
+        } catch { kept.push(id); }
+      }
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'slDel', entityType: 'partner', data: { text: 'Масовно бришење (partners): ' + n } });
     });
     revalidatePath('/partneri');
-    const rest = L.length - free.length;
-    return { ok: 'Избришани ' + free.length + ' од ' + L.length + '.' + (rest ? ' ' + rest + ' се користат во документи и не се избришани.' : '') };
+    const usedIds = [...L.filter((x) => use.get(x)), ...kept];
+    const names = usedIds.length ? (await db().select({ name: partners.name }).from(partners).where(and(eq(partners.firmId, firm.id), inArray(partners.id, usedIds.slice(0, 10))))).map((r) => r.name) : [];
+    return { ok: 'Избришани ' + n + ' од ' + L.length + '.' + (usedIds.length ? ` ${usedIds.length} се користат (фактури, изводи, налози) и не се избришани: ${names.join(', ')}${usedIds.length > 10 ? ' …' : ''}.` : '') };
   } catch (e) { return actionError(e); }
 }
 

@@ -40,6 +40,7 @@ export async function partnerUsage(firmId: string): Promise<Map<string, number>>
       select partner_id as id, count(*) as n from invoices where firm_id = ${firmId} and partner_id is not null group by partner_id
       union all select partner_id, count(*) from purchases where firm_id = ${firmId} and partner_id is not null group by partner_id
       union all select partner_id, count(*) from supplier_credits where firm_id = ${firmId} and partner_id is not null group by partner_id
+      union all select partner_id, count(distinct statement_id) from bank_lines where firm_id = ${firmId} and partner_id is not null group by partner_id
       union all select jl.partner_id, count(distinct jl.journal_id) from journal_lines jl join journals j on j.id = jl.journal_id
         where jl.firm_id = ${firmId} and jl.partner_id is not null and coalesce(j.source_type, '') not in ('invoice', 'purchase', 'supplier_credit') group by jl.partner_id
     ) x group by id`);
