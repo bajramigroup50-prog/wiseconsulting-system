@@ -18,7 +18,8 @@ let firmId = '', used = '', a = '', b = '';
 beforeAll(async () => {
   await setupDb();
   firmId = (await pg.insert(schema.firms).values({ name: 'Бришење ДООЕЛ' }).returning())[0]!.id;
-  [used, a, b] = (await pg.insert(schema.partners).values([{ firmId, name: 'НА ИЗВОД ДОО' }, { firmId, name: 'Слободен А' }, { firmId, name: 'Слободен Б' }]).returning()).map((p) => p.id);
+  const P = (await pg.insert(schema.partners).values([{ firmId, name: 'НА ИЗВОД ДОО' }, { firmId, name: 'Слободен А' }, { firmId, name: 'Слободен Б' }]).returning()).map((p) => p.id);
+  used = P[0]!; a = P[1]!; b = P[2]!;
   const acct = await pg.transaction((tx) => saveBankAccount(tx as never, { firmId, userId: null, input: { name: 'Халкбанк', cur: 'MKD', konto: '100077' } }));
   await pg.transaction((tx) => addManualLine(tx as never, { firmId, userId: null, bankAccountId: acct, date: '2026-10-07', amount: -14160, desc: 'плаќање', konto: '2200', partnerId: used } as never));
   await signIn('admin');
