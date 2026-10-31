@@ -101,3 +101,4 @@ export * from './demo/firms';
 export * from './automation/index';
 export * from './nalog-titles';
 export * from './nalog-delete';
+export * from './firm-wipe';

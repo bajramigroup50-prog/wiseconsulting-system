@@ -5,6 +5,7 @@
  * with every tab (`firm-form.tsx`). Server additions: search, ⬇ Извоз (re-importable Excel), archived firms.
  */
 import Link from 'next/link';
+import { WipeYearBox } from './wipe-box';
 import { asc, eq, ilike, inArray, or, sql, and } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { DEMO_MAX_FIRMS } from '@wise/core/demo';
@@ -86,6 +87,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
       </Hd>
       {meDemo && <div className="callout warn">🎭 Демо фирми: <b>{nDemo} / {DEMO_MAX_FIRMS}</b>. Новата фирма се зачувува како „ДЕМО – …“ и се брише при ресетирање на демото (секоја ноќ или рачно).</div>}
       {showForm && <FirmForm key={draft?.id ?? 'new'} firm={draft ?? null} fromYearDef={draftFrom} withFee={withFee} feeNote={feeNote} canDelete={admin} canResh={can(u.principal, 'firms')} />}
+      {showForm && draft && admin && !meDemo && <WipeYearBox firmId={draft.id} firmName={draft.name} year={year} />}
       {!showForm && <>
         <div className="row" style={{ gap: 8, alignItems: 'center', margin: '0 0 8px', flexWrap: 'wrap' }}>
           {allYears
