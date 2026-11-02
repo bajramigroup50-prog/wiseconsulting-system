@@ -17,16 +17,14 @@ import {
 } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import { defineJob } from '../job';
-import { mailerFromEnv, type Mailer } from '../mail/mailer';
+import { sharedMailer } from '../mail/mailer';
 import { readS3File, s3Configured } from '../mail/files';
 import { sendLoggedMail, type MailDeps } from '../mail/send';
 import { sendQueuedMail } from './reminders';
 import { renderInvoicePdf, type InvoiceMailDeps } from './invoice-mail';
 
-let mailer: Mailer | null | undefined;
 const mailDeps = (): MailDeps => {
-  if (mailer === undefined) mailer = mailerFromEnv();
-  return { mailer, ...(s3Configured() ? { readFile: readS3File } : {}) };
+  return { mailer: sharedMailer(), ...(s3Configured() ? { readFile: readS3File } : {}) };
 };
 /** SMTP configured (e-mails are only written when they can be sent). */
 const canMail = () => !!mailDeps().mailer;

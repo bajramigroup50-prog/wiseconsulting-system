@@ -3,7 +3,9 @@
  * The queue lives in the same Postgres (schema `pgboss`).
  */
 import { PgBoss } from 'pg-boss';
-import { getDb } from '@wise/db';
+import { eq } from 'drizzle-orm';
+import { appSettings, getDb } from '@wise/db';
+import { setMailerOverride } from './mail/mailer';
 import { JOBS } from './jobs/index';
 import { closeBrowser } from './pdf/render';
 import { pgbossJobs, requeueStaleReads } from './requeue';
@@ -17,6 +19,15 @@ await boss.start();
 
 const db = getDb(url);
 const send = (name: string, data: object) => boss.send(name, data);
+// the e-mail login typed in the program (Систем → Е-пошта на програмата) – read now and every minute
+const refreshMailerOverride = async () => {
+  try {
+    const [r] = await db.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, 'smtp')).limit(1);
+    setMailerOverride((r?.v ?? {}) as { user?: string; pass?: string });
+  } catch (e) { console.error('[smtp]', e); }
+};
+await refreshMailerOverride();
+setInterval(() => void refreshMailerOverride(), 60_000).unref();
 for (const j of JOBS) {
   const log = (m: string) => console.log(`[${j.name}] ${m}`);
   await boss.createQueue(j.name, j.queue);

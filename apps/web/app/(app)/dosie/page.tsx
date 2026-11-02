@@ -21,6 +21,13 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
   const { u, firm } = await officePage('dosie');
   if (!firm) return <NoFirm t="🗂 Досие на фирмата" />;
   const td = today();
+  // the firm's own people (Фирми → Измени): the manager / signer and the contact person, with the firm's e-mail and phone
+  const fs = (firm.settings ?? {}) as { signer?: string; signerRole?: string; contact?: string };
+  const own = [
+    ...(fs.signer ? [{ name: fs.signer, role: fs.signerRole || 'Управител', email: firm.email ?? '', phone: firm.phone ?? '' }] : []),
+    ...(fs.contact && fs.contact !== fs.signer ? [{ name: fs.contact, role: 'Лице за контакт', email: fs.signer ? '' : firm.email ?? '', phone: fs.signer ? '' : firm.phone ?? '' }] : []),
+    ...(!fs.signer && !fs.contact && (firm.email || firm.phone) ? [{ name: firm.name, role: 'Фирма', email: firm.email ?? '', phone: firm.phone ?? '' }] : []),
+  ];
   const [docs, contacts, deadlines, pend] = await Promise.all([
     db().select().from(dossierDocs).where(eq(dossierDocs.firmId, firm.id)).orderBy(asc(dossierDocs.category), desc(dossierDocs.date)),
     db().select().from(firmContacts).where(eq(firmContacts.firmId, firm.id)).orderBy(asc(firmContacts.name)),
@@ -130,8 +137,11 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
         <div className="grid2" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))' }}>
           <div className="card">
             <h2 style={{ fontSize: 15 }}>👤 Контакти</h2>
-            {contacts.length ? (
+            {(contacts.length || own.length) ? (
               <table className="dense"><tbody>
+                {own.map((c) => (
+                  <tr key={'own' + c.role}><td><b>{c.name || '—'}</b> <span className="mini">{c.role}</span> <span className="pill" title="Од податоците на фирмата (Фирми → Измени)">фирма</span></td><td>{c.email}</td><td>{c.phone}</td><td /></tr>
+                ))}
                 {contacts.map((c) => (
                   <tr key={c.id}><td><b>{c.name}</b> {c.role && <span className="mini">{c.role}</span>}</td><td>{c.email}</td><td>{c.phone}</td>
                     <td>{office && <RowAction action={deleteContact.bind(null, c.id)} label="✕" confirm={`Да се избрише ${c.name}?`} />}</td></tr>

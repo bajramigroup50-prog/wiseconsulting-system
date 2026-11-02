@@ -143,7 +143,7 @@ const NOISE = new Set((
   // „⏸ минат период“: the summary row of a bulk save that held documents, and the firm setting (b)
   + 'pastHold pastHoldSet '
   + 'autoCfgSet autoRunNow autoCloseLockAll autoPayPostAll autoVatClose autoVatCloseAll crPublishAll '
-  + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing viewPersonal '
+  + 'akRaw artAbbrSave artIgn devDel dfiOpt lotDays loyCfgSave pcCfgSave replCfg rnPct convPreset aiSwitch aiPing smtpSave mailResend viewPersonal '
   // literals picked up from `action:` keys that are not audit actions (status words of other objects)
   + 'na photo mail cancel reminded dep deliv approve pct posted mrp recv action pos'
 ).split(' '));

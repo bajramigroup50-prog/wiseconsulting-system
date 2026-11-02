@@ -8,14 +8,12 @@
 import { and, asc, eq, inArray, lt } from 'drizzle-orm';
 import { files, mailLog, mailWaitsForAttachments } from '@wise/db';
 import { defineJob } from '../job';
-import { mailerFromEnv, type Mailer } from '../mail/mailer';
+import { sharedMailer } from '../mail/mailer';
 import { readS3File, s3Configured } from '../mail/files';
 import { sendLoggedMail, type MailDeps, type MailSendData } from '../mail/send';
 
-let mailer: Mailer | null | undefined;
 const deps = (): MailDeps => {
-  if (mailer === undefined) mailer = mailerFromEnv();
-  return { mailer, ...(s3Configured() ? { readFile: readS3File } : {}) };
+  return { mailer: sharedMailer(), ...(s3Configured() ? { readFile: readS3File } : {}) };
 };
 
 export const mailSend = defineJob<MailSendData>({

@@ -55,3 +55,24 @@ export function mailerFromEnv(env: Env = process.env): Mailer | null {
   const from = env.MAIL_FROM?.trim() || user || '';
   return { transport, from };
 }
+
+/**
+ * The login typed in the program („Систем → Е-пошта на програмата“, app setting `smtp`: user / app password) wins over
+ * docker/.env – a Gmail with 2-step verification needs an app password, and the office sets it without a deploy.
+ * `refreshMailerOverride` (worker start, then every minute) reads it; `sharedMailer` rebuilds the transport on a change.
+ */
+let override: { user?: string; pass?: string } = {};
+let shared: { key: string; m: Mailer | null } | null = null;
+
+export function setMailerOverride(o: { user?: string; pass?: string }): void { override = { ...(o.user ? { user: o.user } : {}), ...(o.pass ? { pass: o.pass } : {}) }; }
+
+export function sharedMailer(env: Env = process.env): Mailer | null {
+  const key = `${override.user ?? ''}|${override.pass ?? ''}`;
+  if (!shared || shared.key !== key) {
+    const e: Env = { ...env };
+    if (override.user) { e.SMTP_USER = override.user; e.MAIL_FROM = env.MAIL_FROM?.includes(override.user) ? env.MAIL_FROM : `WISE CONSULTING <${override.user}>`; }
+    if (override.pass) e.SMTP_PASS = override.pass;
+    shared = { key, m: mailerFromEnv(e) };
+  }
+  return shared.m;
+}

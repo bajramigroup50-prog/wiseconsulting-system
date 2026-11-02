@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import { files, PDF_MAIL_JOB, type DB, type PdfMailJob } from '@wise/db';
 import { defineJob } from '../job';
 import type { PdfInput } from '../pdf/document';
-import { mailerFromEnv, type Mailer } from '../mail/mailer';
+import { sharedMailer } from '../mail/mailer';
 import { readS3File, s3Configured } from '../mail/files';
 import { sendLoggedMail, type MailDeps } from '../mail/send';
 import type { ObjectStore } from '../storage';
@@ -27,12 +27,11 @@ export async function runPdfMail(db: DB, d: PdfMailJob, deps: PdfMailDeps) {
   return sendLoggedMail(db, { logId: d.logId }, deps.mail);
 }
 
-let mailer: Mailer | null | undefined;
 
 export const pdfMail = defineJob<PdfMailJob>({
   name: PDF_MAIL_JOB,
   async run(data, { db, log }) {
-    if (mailer === undefined) mailer = mailerFromEnv();
+    const mailer = sharedMailer();
     const r = await runPdfMail(db, data, { mail: { mailer, ...(s3Configured() ? { readFile: readS3File } : {}) } });
     log(`${r.id} (${data.title}) → ${r.to.join(', ')}: ${r.status}${r.error ? ' (' + r.error + ')' : ''}`);
   },

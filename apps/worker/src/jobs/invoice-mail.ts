@@ -12,7 +12,7 @@ import { files, loadInvoicePrintData, textMailHtml, type DB, type InvoiceMailReq
 import { inArray } from 'drizzle-orm';
 import { defineJob } from '../job';
 import type { PdfInput } from '../pdf/document';
-import { mailerFromEnv, type Mailer } from '../mail/mailer';
+import { sharedMailer, type Mailer } from '../mail/mailer';
 import { readS3File, s3Configured } from '../mail/files';
 import { sendLoggedMail, type MailDeps } from '../mail/send';
 import type { ObjectStore } from '../storage';
@@ -66,12 +66,11 @@ export async function runInvoiceMail(db: DB, d: InvoiceMailData, deps: InvoiceMa
   }, deps.mail);
 }
 
-let mailer: Mailer | null | undefined;
 
 export const invoiceMail = defineJob<InvoiceMailData>({
   name: INVOICE_MAIL,
   async run(data, { db, log }) {
-    if (mailer === undefined) mailer = mailerFromEnv();
+    const mailer = sharedMailer();
     const r = await runInvoiceMail(db, data, { mail: { mailer, ...(s3Configured() ? { readFile: readS3File } : {}) } });
     log(r ? `${data.invoiceId} → ${r.to.join(', ')}: ${r.status}${r.error ? ' (' + r.error + ')' : ''}` : `${data?.invoiceId}: document not found`);
   },

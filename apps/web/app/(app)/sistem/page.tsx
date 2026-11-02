@@ -19,6 +19,7 @@ import { Hd, dmyHm } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { AiCard } from '../aiCitanje/ai-card';
+import { SmtpCard } from './smtp-card';
 import { backupNowAction, pickRestoreAction, restoreAction } from './actions';
 
 const tsz = (v: number) => (v > 1048576 ? `${(v / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(v / 1024))} KB`);
@@ -73,6 +74,7 @@ export default async function SistemPage({ searchParams }: { searchParams: Promi
       </div>
 
       {/* „AI читање“ (also its own page, Систем › 🤖 AI читање) — off: drop zones keep working, files are read without AI */}
+      <SmtpCard admin={u.role === 'admin'} />
       <AiCard admin={u.role === 'admin'} />
 
       {!firm ? <div className="callout">Изберете фирма за копија и враќање на податоците на фирмата.</div> : (
