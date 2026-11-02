@@ -28,7 +28,10 @@ const L = loadLegacy();
 const portCalc = (e: PayEmp) => {
   const { capK, ...rest } = empCalc(e, PARAMS) as EmpCalc;
   expect(capK).toBe(1);
-  return rest;
+  /* `nep` (non-taxable payments, not in legacy) is always 0 for legacy lines */
+  const { nep, ...T } = rest.T;
+  expect(nep).toBe(0);
+  return { ...rest, T, rows: rest.rows.map(({ nep: _n, ...r }) => r) };
 };
 const legacyCalc = (e: PayEmp) => {
   const r = plain(L.empCalc(e, PARAMS));
@@ -45,7 +48,7 @@ describe('payroll constants match legacy', () => {
   });
   it('HTYPES / PCAT / PXTRA / catOf', () => {
     expect(HTYPES).toEqual(plain(L.HTYPES));
-    expect(PCAT).toEqual(plain(L.PCAT));
+    expect(PCAT.slice(0, -1)).toEqual(plain(L.PCAT)); // + 'nep' (Helix non-taxable payments)
     expect(PXTRA).toEqual(plain(L.PXTRA));
     for (const t of [...HTYPES.map((h) => h[0]), ...PXTRA.map((x) => x[0]), 'Нешто друго', '', 'Боледување над 30 дена']) expect(payCatOf(t)).toBe(L.catOf(t));
   });
@@ -138,9 +141,10 @@ describe('payTotals / mpinRows / stazFor / payDraft', () => {
   it('payTotals matches legacy', () => {
     const p = { month: MONTH, params: PARAMS, emps: NORMAL_EMPS };
     const legacy = plain(L.payTotals(p));
-    const { ded, ...port } = plain(payTotals(NORMAL_EMPS, PARAMS)); // `ded` is an addition of the port
+    const { ded, nep, ...port } = plain(payTotals(NORMAL_EMPS, PARAMS)); // `ded`, `nep` are additions of the port
     expect(port).toEqual(legacy);
     expect(ded).toBe(Math.round(425) + Math.round(3000.4));
+    expect(nep).toBe(0);
   });
 
   it('mpinRows matches legacy', () => {

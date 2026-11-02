@@ -1,27 +1,34 @@
 'use server';
-/** Legacy `ACT.kamNote` 7240: book penalty interest on a late invoice (Д 1200 купувач / П 7800), journal kind `kamata`. */
+/**
+ * Legacy `ACT.kamNote` 7240: book penalty interest on a late invoice (Д 1200 купувач / П 7800), journal kind `kamata`.
+ * The amount is the Helix „каматна листа“ (`kamInvoice`): dated payments and the office rate table (`kamRates`).
+ */
 import { revalidatePath } from 'next/cache';
 import { and, eq } from 'drizzle-orm';
-import { daysLate, interestLines, penaltyInterest } from '@wise/core/finance';
-import { deleteJournal, documentPayments, invoices, journals, postJournal } from '@wise/db';
+import { interestLines, type KamRate } from '@wise/core/finance';
+import { appSettings, audit, deleteJournal, invoices, journals, postJournal } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
+import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { isDate } from '@/lib/finance';
+import { kamInvoice, kamRates } from './kam';
 
 export async function kamNoteAction(invoiceId: string, ratePct: number, asOf: string): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('kamNote');
     if (!isDate(asOf)) return { error: 'Неважечки датум.' };
-    if (!(ratePct > 0) || ratePct > 100) return { error: 'Внесете годишна стапка на казнена камата.' };
+    if (ratePct < 0 || ratePct > 100) return { error: 'Стапката мора да е 0–100 %.' };
+    const rates = ratePct > 0 ? [] : await kamRates();
+    if (!(ratePct > 0) && !rates.length) return { error: 'Внесете годишна стапка или пополнете ја табелата со стапки.' };
     const [inv] = await db().select().from(invoices).where(and(eq(invoices.id, invoiceId), eq(invoices.firmId, firm.id))).limit(1);
-    if (!inv || inv.kind !== 'invoice') return { error: 'Фактурата не постои.' };
+    if (!inv || inv.kind !== 'invoice' || !inv.due) return { error: 'Фактурата не постои.' };
     const k = await db().transaction(async (tx) => {
-      const pay = (await documentPayments(tx, firm.id, { invoiceIds: [inv.id] })).get(inv.id);
-      const days = daysLate(inv.due, asOf);
-      const amt = penaltyInterest(pay?.remaining ?? 0, ratePct, days);
+      const x = (await kamInvoice(tx, firm.id, [{ id: inv.id, due: inv.due! }], asOf, ratePct, rates)).get(inv.id);
+      const amt = x?.k ?? 0;
       if (!(amt > 0)) throw Object.assign(new Error('nothing'), { kam: true });
+      const days = x!.segs.reduce((a, g) => a + g.days, 0);
       await postJournal(tx, {
-        firmId: firm.id, date: asOf, kind: 'kamata', description: `Камата ф-ра ${inv.number}, ${days} дена, ${ratePct}%`,
+        firmId: firm.id, date: asOf, kind: 'kamata', description: `Камата ф-ра ${inv.number}, ${days} дена, ${ratePct > 0 ? ratePct + '%' : 'по табела на стапки'}`,
         sourceType: 'kamata', sourceId: `${inv.id}:${asOf}`,
         lines: interestLines(amt, inv.partnerId).map((l) => ({ ...l, doc: inv.number })), userId: u.id, auditAction: 'kamNote',
       });
@@ -46,3 +53,28 @@ export async function kamDelAction(journalId: string): Promise<ActionState> {
     return { ok: 'Избришано.' };
   } catch (e) { return actionError(e); }
 }
+
+/** Office rate table (app setting `kamRates`): rows „од датум / стапка %“, e.g. every 1 Jan and 1 Jul (ЗОО). */
+export async function kamRatesAction(_p: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const u = await requireUser();
+    if (['klient', 'teren', 'view'].includes(u.role)) return { error: 'Само канцеларијата ги менува стапките.' };
+    const F = form.getAll('from').map(String), R = form.getAll('rate').map(String);
+    const rows: KamRate[] = [];
+    for (let i = 0; i < F.length; i++) {
+      const f = F[i]!.trim(), r = +(R[i] ?? '').replace(',', '.');
+      if (!f && !R[i]?.trim()) continue;
+      if (!isDate(f)) return { error: `Ред ${i + 1}: внесете датум „од“.` };
+      if (!(r > 0 && r < 100)) return { error: `Ред ${i + 1}: стапката мора да е меѓу 0 и 100 %.` };
+      rows.push({ from: f, rate: r });
+    }
+    rows.sort((a, b) => a.from.localeCompare(b.from));
+    await db().transaction(async (tx) => {
+      await tx.insert(appSettings).values({ key: 'kamRates', value: rows, updatedBy: u.id }).onConflictDoUpdate({ target: appSettings.key, set: { value: rows, updatedBy: u.id } });
+      await audit(tx, { userId: u.id, action: 'kamRates', entityType: 'app_settings', entityId: 'kamRates', data: { n: rows.length } });
+    });
+    revalidatePath('/kamati');
+    return { ok: `Зачувани ${rows.length} стапки.` };
+  } catch (e) { return actionError(e); }
+}
+

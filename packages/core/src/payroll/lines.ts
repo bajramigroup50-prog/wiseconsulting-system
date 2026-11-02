@@ -30,7 +30,7 @@ export const PAY_HOLIDAY = 'Државен празник';
 export const payLineCat = (l: Pick<PayLine, 'cat' | 'type'>): PayCat => (l.cat || payCatOf(l.type)) as PayCat;
 
 /** An absence line reduces regular hours (sick leave, leave, holiday…), additional hours/amounts don't. */
-export const payIsAbsence = (l: PayLine): boolean => l.type !== PAY_REGULAR && !HT_ADD(l.type) && !['dop', 'kor', 'sin'].includes(payLineCat(l));
+export const payIsAbsence = (l: PayLine): boolean => l.type !== PAY_REGULAR && !HT_ADD(l.type) && !['dop', 'kor', 'sin', 'nep'].includes(payLineCat(l));
 
 /** The hour fund of one employee in a run: personal `hNorm` (part-time) before the month's hours. */
 export const empHourFund = (e: Pick<PayEmp, 'hNorm'>, P: Pick<PayParams, 'hours'>): number => n(e.hNorm) || n(P.hours) || 176;
@@ -59,7 +59,8 @@ export function makePayLine(o: PayLineInput, codes: readonly PsifCode[] = []): P
     l.mpin = sx.mpin;
   }
   if (!l.hours && !l.amt) throw new Error('Внесете часови или износ.');
-  if (l.cat === 'sin') {
+  if (l.cat === 'sin' || l.cat === 'nep') {
+    if (l.cat === 'nep' && !l.amt) throw new Error('Внесете износ.');
     l.hours = 0;
     l.pct = 0;
   }
@@ -71,7 +72,7 @@ export function upsertPayLine(e: PayEmp, line: PayLine, ix: number | null, P: Pi
   e.lines ??= [];
   if (ix == null || ix < 0 || ix >= e.lines.length) e.lines.push(line);
   else e.lines[ix] = line;
-  if (line.type !== PAY_REGULAR && n(line.hours) && payLineCat(line) !== 'dop') fixRegular(e, empHourFund(e, P));
+  if (line.type !== PAY_REGULAR && n(line.hours) && payLineCat(line) !== 'dop' && payLineCat(line) !== 'nep') fixRegular(e, empHourFund(e, P));
 }
 
 /** Remove line `ix`; regular hours are recomputed only when an absence was removed (FIX #14). */

@@ -8,7 +8,7 @@
  * Payroll v1 (`payrollCalc`/`payrollEntries`, SCH_OLD accounts, no callers) is not ported (#2).
  */
 import { r2 } from '../money';
-import { empCalc, payTotals, type PayEmp } from './calc';
+import { empCalc, payTotals, PNEP, type PayEmp } from './calc';
 import { resolvePayParams, type PayParamRow, type PayParams } from './params';
 
 export const PAY_SCH_KEYS = [
@@ -110,9 +110,18 @@ export interface PayrollRun {
 export function payrollEntries2(p: PayrollRun, scheme: PayScheme = PAY_SCH0, overrides: readonly PayParamRow[] = []): PayJournalLine[] {
   const P = resolvePayParams(p.params, p.month, overrides);
   const A = { gross: 0, net: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, tax: 0, dopl: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, ded: 0 };
+  /* non-taxable payments (регрес, отпремнина…): expense konto → liability konto per type, outside the gross */
+  const nep = new Map<string, { exp: string; liab: string; v: number }>();
   for (const e of p.emps) {
     const c = empCalc(e, P);
     for (const k of Object.keys(A) as (keyof typeof A)[]) A[k] += c.T[k] || 0;
+    for (const r of c.rows) {
+      if (!r.nep) continue;
+      const t = PNEP.find((x) => x[0] === r.type) ?? ['', '4229', '2429'];
+      const m = nep.get(t[1] + '|' + t[2]) ?? { exp: t[1], liab: t[2], v: 0 };
+      m.v += r.nep;
+      nep.set(t[1] + '|' + t[2], m);
+    }
   }
   type L = { k: string; d: number; p: number; note?: string };
   const ex = (key: PaySchKey, v: number): L | null => (on(scheme, key) ? { k: scheme[key], d: v, p: 0 } : null);
@@ -148,6 +157,7 @@ export function payrollEntries2(p: PayrollRun, scheme: PayScheme = PAY_SCH0, ove
     ...via,
     ...E.map((l) => ({ ...l, d: r2(l.d) })),
     { k: scheme.pay_gross, d: r2(G - split), p: 0 },
+    ...[...nep.values()].flatMap((m) => [{ k: m.exp, d: r2(m.v), p: 0 }, { k: m.liab, d: 0, p: r2(m.v) }]),
   ];
   const M: L[] = [];
   for (const l of all) {

@@ -184,6 +184,47 @@ export function daysLate(due: string | null | undefined, asOf: string): number {
 /** Legacy kamati: open × rate% × max(0, days) / 365. */
 export const penaltyInterest = (open: number, ratePct: number, days: number): number => r2(open * (+ratePct || 0) / 100 * Math.max(0, days) / 365);
 
+/** One period of the penalty-interest rate table (ЗОО: NBRSM reference rate + 8 p.p., set per half-year). */
+export interface KamRate { from: string; rate: number }
+export interface KamSeg { from: string; to: string; days: number; base: number; rate: number; k: number }
+
+const dayMs = (d: string) => Date.parse(d + 'T00:00:00Z');
+const isoOf = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+/** The rate in force on `date` (latest `from` ≤ date), else `fallback`. */
+export function kamRateOn(rates: readonly KamRate[], date: string, fallback = 0): number {
+  let r = fallback, f = '';
+  for (const x of rates) if (x.from <= date && x.from >= f && +x.rate > 0) { r = +x.rate; f = x.from; }
+  return r;
+}
+
+/**
+ * Penalty interest of one invoice like the Helix „каматна листа“: from the due date to `asOf` on the balance that was
+ * open each day – every dated payment lowers it from its date (an invoice paid late still owes interest for the days
+ * it was late) – at the rate in force in each period of `rates` (a fixed `rate` when the table is empty). `open0` is
+ * the balance at the due date (total less what was settled by then or undated: credit notes, compensations…).
+ */
+export function kamSchedule(o: { open0: number; due: string; asOf: string; payments: readonly { date: string; amt: number }[]; rates?: readonly KamRate[]; rate?: number }): { k: number; segs: KamSeg[] } {
+  const rates = (o.rates ?? []).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.from) && +x.rate > 0);
+  const segs: KamSeg[] = [];
+  if (!(o.due < o.asOf)) return { k: 0, segs };
+  const P = [...o.payments].filter((p) => p.date > o.due && p.date <= o.asOf && p.amt > 0).sort((a, b) => a.date.localeCompare(b.date));
+  const cuts = new Set<string>([o.asOf, ...P.map((p) => p.date), ...rates.map((r) => r.from).filter((f) => f > o.due && f < o.asOf)]);
+  let bal = o.open0, t = o.due, k = 0;
+  for (const c of [...cuts].sort()) {
+    const days = Math.round((dayMs(c) - dayMs(t)) / 864e5);
+    const rate = rates.length ? kamRateOn(rates, t, +(o.rate ?? 0) || 0) : +(o.rate ?? 0) || 0;
+    if (days > 0 && bal > 0.009 && rate > 0) {
+      const v = r2(bal * rate / 100 * days / 365);
+      segs.push({ from: isoOf(dayMs(t) + 864e5), to: c, days, base: r2(bal), rate, k: v });
+      k += v;
+    }
+    for (const p of P) if (p.date === c) bal = r2(bal - p.amt);
+    t = c;
+  }
+  return { k: r2(k), segs };
+}
+
 /** Penalty-interest journal (legacy `kamNote`): Д 1200 купувач / П 7800. */
 export function interestLines(amount: number, partnerId: string | null, o: { customer?: string; income?: string } = {}) {
   return [

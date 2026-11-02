@@ -227,7 +227,7 @@ export async function saveRun(tx: Tx, input: SaveRunInput): Promise<{ id: string
         cat: (l.cat || payCatOf(l.type)) as string,
         hours: String(+(l.hours ?? 0) || 0), pct: l.pct === '' || l.pct == null ? null : String(+l.pct), amt: String(+(l.amt ?? 0) || 0),
         payer: l.payer || null, mpin: l.mpin || null,
-      })).map((x) => ({ ...x, cat: ['reg', 'dop', 'bol', 'odm', 'kor', 'sin'].includes(x.cat) ? x.cat : 'reg' })));
+      })).map((x) => ({ ...x, cat: ['reg', 'dop', 'bol', 'odm', 'kor', 'sin', 'nep'].includes(x.cat) ? x.cat : 'reg' })));
     }
   }
   await audit(tx, { userId, firmId, action: ex ? 'savePay2' : 'payNewM', entityType: 'payroll_run', entityId: id,

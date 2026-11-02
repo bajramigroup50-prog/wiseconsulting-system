@@ -81,6 +81,7 @@ export function slipHtml(run: { month: string; params: PayParams }, e: PayEmp, f
     + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div>${sec('Придонеси')}<table style="margin:0">${tr('ПИО ' + fq(P.pio) + '%', fmt(T.pio))}${tr('Здравство ' + fq(P.zdr) + '%', fmt(T.zdr))}${tr('Дополнително здравствено ' + fq(P.dop) + '%', fmt(T.dop))}${tr('Вработување ' + fq(P.vrab) + '%', fmt(T.vrab))}${T.dopl ? tr('Доплата до најниска основица (работодавач)', fmt(T.dopl)) : ''}${tr('Вкупно придонеси', fmt(T.contr), true)}</table></div>`
     + `<div>${sec('Данок')}<table style="margin:0">${tr('Даночно ослободување', fmt(T.ex))}${tr('Даночна основа', fmt(Math.max(0, T.gross - T.contr - T.ex)))}${tr('Персонален данок ' + fq(P.tax) + '%', fmt(T.tax))}</table>${dd.length ? sec('Задршки') + '<table style="margin:0">' + dd.map((r) => tr(h(r.type), fmt(r.ded))).join('') + '</table>' : ''}</div></div>`
     + `<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;background:${G};color:#fff;border-radius:10px;padding:9px 14px"><span style="font-size:13px">НЕТО ЗА ИСПЛАТА</span><b style="font-size:20px">${fmt(T.net)} ден.</b></div>`
+    + (T.nep ? `<table style="margin:4px 0 0">${c.rows.filter((r) => r.nep).map((r) => tr(h(r.type) + ' (неоданочиво)', fmt(r.nep))).join('')}${tr('ВКУПНО ЗА ИСПЛАТА (нето + неоданочиви)', fmt(T.net + T.nep) + ' ден.', true)}</table>` : '')
     + `<div style="display:flex;gap:12mm;margin-top:10mm;font-size:10.5px;text-align:center;align-items:flex-start"><div style="flex:1"><div style="height:18mm;display:flex;align-items:flex-end;justify-content:center">${sgImg}</div><div style="border-top:1px solid #111;padding-top:2px">Пресметката ја изготвил${sgName}</div></div><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Примил</div></div><div style="flex:1"><div style="height:18mm"></div><div style="border-top:1px solid #111;padding-top:2px">Раководител · М.П.</div></div></div></div>`;
 }
 
@@ -96,7 +97,7 @@ export function recapHtml(run: { month: string; params: PayParams; emps: readonl
     + sig('Пресметката ја изготвил', 'Раководител');
 }
 
-export interface YearRow { key: string; no: string; name: string; embg: string; m: Record<string, { g: number; n: number; h: number; t: number; c: number }> }
+export interface YearRow { key: string; no: string; name: string; embg: string; m: Record<string, { g: number; n: number; h: number; t: number; c: number; d: number; x: number }> }
 
 /** Per-employee month values of the year's runs (legacy `VIEWS.payGod`). */
 export function yearRows(runs: readonly { month: string; params: PayParams; emps: readonly PayEmp[] }[]): YearRow[] {
@@ -105,7 +106,7 @@ export function yearRows(runs: readonly { month: string; params: PayParams; emps
     const c = empCalc(e, p.params);
     const k = e.empId || e.name;
     const o = E.get(k) ?? E.set(k, { key: k, no: e.no ?? '', name: e.name, embg: e.embg ?? '', m: {} }).get(k)!;
-    o.m[p.month.slice(5, 7)] = { g: c.T.gross + c.T.dopl, n: c.T.net, h: c.T.hours, t: c.T.tax, c: c.T.contr + c.T.dopl };
+    o.m[p.month.slice(5, 7)] = { g: c.T.gross + c.T.dopl, n: c.T.net, h: c.T.hours, t: c.T.tax, c: c.T.contr + c.T.dopl, d: c.T.ded, x: c.T.nep };
   }
   return [...E.values()];
 }

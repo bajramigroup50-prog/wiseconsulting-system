@@ -24,6 +24,7 @@ export const REPORT_GROUPS: readonly (readonly [string, readonly ReportEntry[]])
     { view: 'izvestai', href: '/izvestai/obvrski', label: 'Обврски кон УЈП и фондови', desc: 'по месеци: пресметано, платено и салдо за данок, придонеси, нето плати и ДДВ', isNew: true },
     { view: 'izvestai', href: '/izvestai/kontrola', label: 'Контролен извештај за месецот', desc: 'што фали или е погрешно: изводи, непрокнижени ставки, нацрти, конта со погрешно салдо, плати', isNew: true },
     { view: 'izvestai', href: '/izvestai/banka', label: 'Усогласување банка', desc: 'салдо на изводот наспроти контото по месеци, прекини меѓу изводите', isNew: true },
+    { view: 'izvestai', href: '/izvestai/artikli', label: 'Продадени и набавени артикли', desc: 'количина и вредност по артикл или по купувач / добавувач за период; споредба набавено – продадено', isNew: true },
     { view: 'izvestai', href: '/izvestai/bu-mesec', label: 'Биланс на успех по месеци', desc: 'приходи, расходи по групи и резултат јан–дек, со споредба со претходната година', isNew: true },
   ]],
   ['Книговодство', [

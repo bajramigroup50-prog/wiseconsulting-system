@@ -80,8 +80,8 @@ export function cbInput(k: CbKey, raw: Readonly<Record<string, unknown>>): CbInp
     } else if (s) data[f] = s;
   }
   if (!name && !code) return { error: 'Внесете шифра или назив.' };
-  if (k === 'paysif' && data.cat && !['reg', 'dop', 'bol', 'odm', 'kor', 'sin'].includes(String(data.cat))) {
-    return { error: 'Тип: reg, dop, bol, odm, kor или sin.' };
+  if (k === 'paysif' && data.cat && !['reg', 'dop', 'bol', 'odm', 'kor', 'sin', 'nep'].includes(String(data.cat))) {
+    return { error: 'Тип: reg, dop, bol, odm, kor, sin или nep.' };
   }
   if (k === 'currency' && code) code = code.toUpperCase();
   return { code, name, data };

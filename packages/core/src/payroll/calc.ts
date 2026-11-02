@@ -18,7 +18,7 @@ import { r2 } from '../money';
 import PSIF_JSON from '../data/payroll-psif.json';
 import { assertPayParams, type PayParams } from './params';
 
-export type PayCat = 'reg' | 'dop' | 'bol' | 'odm' | 'kor' | 'sin';
+export type PayCat = 'reg' | 'dop' | 'bol' | 'odm' | 'kor' | 'sin' | 'nep';
 type Num = number | string | null | undefined;
 const n = (v: Num): number => +(v as number) || 0;
 
@@ -53,6 +53,7 @@ export const PCAT: readonly (readonly [PayCat, string])[] = [
   ['odm', 'Одмори'],
   ['kor', 'Корекции'],
   ['sin', 'Синдикат/Осигурување'],
+  ['nep', 'Неоданочиви надоместоци'],
 ];
 /** Amount-only line types (legacy `PXTRA`). */
 export const PXTRA: readonly (readonly [string, number, PayCat])[] = [
@@ -63,9 +64,22 @@ export const PXTRA: readonly (readonly [string, number, PayCat])[] = [
   ['Кредит / судска забрана (задршка)', 0, 'sin'],
 ];
 
+/**
+ * Non-taxable payments (Helix „регрес / отпремнина / јубилејна / помош“; not in legacy): paid to the employee on top
+ * of the net, no contributions and no personal tax up to the statutory amount (ЗДЛД) – the part above it is entered as
+ * „Награда / бонус“. [type, expense konto, liability konto] of the chart of accounts.
+ */
+export const PNEP: readonly (readonly [string, string, string])[] = [
+  ['Регрес за годишен одмор', '4223', '2420'],
+  ['Отпремнина при заминување во пензија', '4220', '2422'],
+  ['Јубилејна награда', '4222', '2421'],
+  ['Солидарна помош (смрт, болест, непогода)', '4224', '2423'],
+];
+
 /** Category of a line type (legacy `catOf`). */
 export function payCatOf(t: unknown): PayCat {
   const s = String(t || '');
+  if (PNEP.some((p) => p[0] === s)) return 'nep';
   if (/^Боледување|^Породилно/.test(s)) return 'bol';
   if (/одмор|отсуство/i.test(s)) return 'odm';
   if (HT_ADD(s)) return 'dop';
@@ -162,6 +176,8 @@ export interface EmpCalcRow extends PayLine {
   tax: number;
   ded: number;
   net: number;
+  /** Non-taxable payment (`nep`), paid on top of the net. */
+  nep: number;
 }
 
 export interface EmpTotals {
@@ -182,6 +198,8 @@ export interface EmpTotals {
   dVrab: number;
   ded: number;
   contr: number;
+  /** Non-taxable payments (регрес, отпремнина…), paid on top of `net`. */
+  nep: number;
 }
 
 export interface EmpCalc {
@@ -261,14 +279,15 @@ export function empCalc(e: PayEmp, P: PayParams): EmpCalc {
     return !hr && n(l.amt) ? Math.round(n(l.amt)) : Math.round((Gf / H) * hr * pc / 100);
   };
   /* maximum contribution base (fix): scale every line's base when the month's gross exceeds it */
-  const gTot = lines.reduce((s, l) => (cat(l) === 'sin' ? s : s + grOf(l)), 0);
+  const gTot = lines.reduce((s, l) => (cat(l) === 'sin' || cat(l) === 'nep' ? s : s + grOf(l)), 0);
   const capK = P.maxBase > 0 && gTot > P.maxBase ? P.maxBase / gTot : 1;
 
   const rows: EmpCalcRow[] = lines.map((l) => {
     if (cat(l) === 'sin') {
       const a = Math.round(n(l.amt));
-      return { ...l, hr: 0, pc: 0, gr: 0, ex: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, tax: 0, ded: a, net: -a };
+      return { ...l, hr: 0, pc: 0, gr: 0, ex: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, tax: 0, ded: a, net: -a, nep: 0 };
     }
+    if (cat(l) === 'nep') return { ...l, hr: 0, pc: 0, gr: 0, ex: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, tax: 0, ded: 0, net: 0, nep: Math.round(n(l.amt)) };
     const hr = n(l.hours),
       pc = l.pct === '' || l.pct == null ? 100 : +l.pct;
     const gr = grOf(l);
@@ -287,7 +306,7 @@ export function empCalc(e: PayEmp, P: PayParams): EmpCalc {
     const cU = cb * (RP + RZ + RD + RV),
       taxU = e.noTax ? 0 : Math.max(0, gr - cU - ex) * RT;
     const tax = Math.round(taxU);
-    return { ...l, hr, pc, gr, ex, pio, zdr, dop, vrab, dPio, dZdr, dDop, dVrab, tax, ded: 0, net: Math.round(gr - cU - taxU) };
+    return { ...l, hr, pc, gr, ex, pio, zdr, dop, vrab, dPio, dZdr, dDop, dVrab, tax, ded: 0, net: Math.round(gr - cU - taxU), nep: 0 };
   });
   const S_ = (f: keyof EmpCalcRow): number => rows.reduce((s, r) => s + (r[f] as number), 0);
   const T: EmpTotals = {
@@ -307,6 +326,7 @@ export function empCalc(e: PayEmp, P: PayParams): EmpCalc {
     dVrab: S_('dVrab'),
     ded: S_('ded'),
     contr: 0,
+    nep: S_('nep'),
   };
   T.contr = T.pio + T.zdr + T.dop + T.vrab;
   return { netFull, base, mt, Gf, Gc, raised, minG, minB, E, H, capK, rows, T };
@@ -326,15 +346,16 @@ export interface PayTotals {
   dDop: number;
   dVrab: number;
   ded: number;
+  nep: number;
   emps: { e: PayEmp; net: number }[];
 }
 
 /** Totals of a payroll run; `P` must already be resolved (legacy `payTotals`). */
 export function payTotals(emps: readonly PayEmp[], P: PayParams): PayTotals {
-  const A: PayTotals = { gross: 0, net: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, tax: 0, dopl: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, ded: 0, emps: [] };
+  const A: PayTotals = { gross: 0, net: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, tax: 0, dopl: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, ded: 0, nep: 0, emps: [] };
   for (const e of emps) {
     const c = empCalc(e, P);
-    for (const k of ['gross', 'net', 'pio', 'zdr', 'dop', 'vrab', 'tax', 'dopl', 'dPio', 'dZdr', 'dDop', 'dVrab', 'ded'] as const) A[k] += c.T[k];
+    for (const k of ['gross', 'net', 'pio', 'zdr', 'dop', 'vrab', 'tax', 'dopl', 'dPio', 'dZdr', 'dDop', 'dVrab', 'ded', 'nep'] as const) A[k] += c.T[k];
     A.emps.push({ e, net: c.T.net });
   }
   return A;
@@ -345,7 +366,7 @@ export function fixRegular(e: PayEmp, H: number): void {
   const L = e.lines || [];
   const reg = L.find((l) => l.type === 'Редовно работење');
   if (!reg) return;
-  const abs = L.filter((l) => l !== reg && !HT_ADD(l.type) && !['dop', 'kor', 'sin'].includes(l.cat || '')).reduce((s, l) => s + n(l.hours), 0);
+  const abs = L.filter((l) => l !== reg && !HT_ADD(l.type) && !['dop', 'kor', 'sin', 'nep'].includes(l.cat || '')).reduce((s, l) => s + n(l.hours), 0);
   reg.hours = Math.max(0, (+H || 0) - abs);
 }
 
@@ -406,3 +427,29 @@ export function mpinRows(emps: readonly PayEmp[], P: PayParams, employees: reado
     };
   });
 }
+
+/** An employee loan / court withholding (Helix „Кредити“, „Извршители“): repaid by the payroll deduction lines. */
+export interface PayLoan { id: string; kind: string; creditor: string; total: number; monthly: number; from: string; note?: string }
+export interface PayLoanStatus extends PayLoan { paid: number; rest: number; months: string[] }
+
+/** A deduction line that repays a loan / withholding (not union fee or insurance). */
+export const isLoanDeduction = (type: string): boolean => /кредит|забрана|извршител|задршка по решение|рата/i.test(type) && !/синдикал|осигурув/i.test(type);
+
+/**
+ * Paid / rest of an employee's loans from the payroll deductions (`month` → amount of the loan deduction lines):
+ * every month's deduction goes to the loans in force (from ≤ month) oldest first, each up to its open rest.
+ */
+export function payLoanStatus(loans: readonly PayLoan[], ded: ReadonlyMap<string, number>): PayLoanStatus[] {
+  const L = [...loans].sort((a, b) => a.from.localeCompare(b.from)).map((l) => ({ ...l, paid: 0, rest: +l.total || 0, months: [] as string[] }));
+  for (const m of [...ded.keys()].sort()) {
+    let v = ded.get(m) ?? 0;
+    for (const l of L) {
+      if (v <= 0.009) break;
+      if (l.from.slice(0, 7) > m || l.rest <= 0.009) continue;
+      const a = Math.min(v, l.rest);
+      l.paid = r2(l.paid + a); l.rest = r2(l.rest - a); v = r2(v - a); l.months.push(m);
+    }
+  }
+  return L;
+}
+

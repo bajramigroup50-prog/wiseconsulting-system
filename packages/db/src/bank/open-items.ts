@@ -234,3 +234,22 @@ let current: OpenItemsSource = documentOpenItemsSource;
 export const openItemsSource = (): OpenItemsSource => current;
 /** Switch the source (e.g. `ledgerOpenItemsSource` for books without documents; tests). */
 export const setOpenItemsSource = (s: OpenItemsSource): void => { current = s; };
+
+/**
+ * Dated bank payments of invoices (`id` → [{ date, amt }] in denars), the same rule as `bankPaid`: a split row counts
+ * its part for the document, a plain row its settle / amount. Used by the penalty interest (каматна листа).
+ */
+export async function invoiceBankPayments(tx: Tx, firmId: string, invoiceIds: readonly string[]): Promise<Map<string, { date: string; amt: number }[]>> {
+  const out = new Map<string, { date: string; amt: number }[]>();
+  if (!invoiceIds.length) return out;
+  const want = new Set(invoiceIds);
+  const BL = await tx.select().from(bankLines).where(and(eq(bankLines.firmId, firmId), or(isNotNull(bankLines.refId), isNotNull(bankLines.refs))));
+  const put = (id: string, date: string, c: number) => { if (want.has(id) && c) (out.get(id) ?? out.set(id, []).get(id)!).push({ date, amt: c / 100 }); };
+  for (const b of BL.map(toBankRow)) {
+    if (!b.ref) continue;
+    if (b.refs?.length) { for (const r of b.refs) if (r.type === 'invoice') put(r.id, b.date, +r.amt || 0); }
+    else if (b.ref.type === 'invoice') put(b.ref.id, b.date, b.settle != null ? +b.settle : Math.abs(+b.amount || 0));
+  }
+  return out;
+}
+

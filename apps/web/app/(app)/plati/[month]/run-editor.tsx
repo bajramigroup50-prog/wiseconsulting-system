@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
   empCalc, HT_ADD, makePayLine, payBaseSum, payCatOf, payEmpFor, payIOHours, PCAT, removePayLine, takeFromEmployee, upsertPayLine,
-  HTYPES, PXTRA, type PayCat, type PayEmp, type PayLine, type PayParams, type PsifCode,
+  HTYPES, PNEP, PXTRA, type PayCat, type PayEmp, type PayLine, type PayParams, type PsifCode,
 } from '@wise/core/payroll';
 import { fmt, fq } from '@/lib/fmt';
 import { deleteRunAction, lockRunAction, mailSlipsAction, saveRunAction, unpostRunAction } from '../actions';
@@ -301,14 +301,14 @@ export function RunEditor(p: Props) {
                   <td>{l.code && <small className="mut">{l.code} </small>}{l.type}{l.payer === 'ФЗО' && <> <span className="pill warn">ФЗО</span></>}</td>
                   <td className="n">{+(l.hours ?? 0) ? fq(l.hours as number) : ''}</td>
                   <td className="n">{cat === 'sin' || (!+(l.hours ?? 0) && +(l.amt ?? 0)) ? '' : String(l.pct ?? 100)}</td>
-                  <td className="n">{r ? fmt(cat === 'sin' ? -(+(l.amt ?? 0) || 0) : r.gr) : ''}</td>
+                  <td className="n">{r ? fmt(cat === 'sin' ? -(+(l.amt ?? 0) || 0) : cat === 'nep' ? r.nep : r.gr) : ''}</td>
                   {flags.map((f, i) => <td key={i} className="c">{f ? '☑' : '☐'}</td>)}
                 </tr>
               );
             })}</tbody>
             <tfoot><tr><td>Вкупно</td><td className="n">{(() => { const x = c.rows.filter((r) => catOf(r) === 'dop').reduce((a, r) => a + (r.hr || 0), 0); return x ? `${fq(c.T.hours)} + ${fq(x)} = ${fq(c.T.hours + x)}` : fq(c.T.hours); })()}</td><td></td><td className="n">{fmt(c.T.gross)}</td><td colSpan={7}></td></tr></tfoot>
           </table></div>
-          <div className="mini" style={{ margin: '6px 0' }}>Бруто {fmt(c.T.gross + c.T.dopl)} · придонеси {fmt(c.T.contr + c.T.dopl)} · данок {fmt(c.T.tax)}{c.T.ded ? ' · задршки ' + fmt(c.T.ded) : ''} · <b>за исплата {fmt(c.T.net)}</b>
+          <div className="mini" style={{ margin: '6px 0' }}>Бруто {fmt(c.T.gross + c.T.dopl)} · придонеси {fmt(c.T.contr + c.T.dopl)} · данок {fmt(c.T.tax)}{c.T.ded ? ' · задршки ' + fmt(c.T.ded) : ''} · <b>за исплата {fmt(c.T.net)}</b>{c.T.nep ? <> · неоданочиви {fmt(c.T.nep)} · <b>вкупно {fmt(c.T.net + c.T.nep)}</b></> : null}
             {(() => { const f = c.rows.filter((r) => r.payer === 'ФЗО').reduce((a, r) => a + r.gr, 0); return f ? <> · <span className="pill warn">од тоа бруто на товар на ФЗО (рефундација): {fmt(f)}</span></> : null; })()}</div>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn" disabled={ro} onClick={() => setLineEd({ ix: null, code: '', type: '', hours: '0', amt: '0', pct: '100', cat: 'dop' })}>Нов</button>
@@ -340,7 +340,7 @@ function edOf(l: PayLine, ix: number): LineEd {
 
 function LineDialog({ ed, psif, setEd, onOk }: { ed: LineEd; psif: PsifCode[]; setEd: (x: LineEd | null) => void; onOk: (x: LineEd) => void }) {
   const info = ed.code ? psif.find((y) => y.code === ed.code) : undefined;
-  const types = [...new Set([...psif.map((x) => x.name), ...HTYPES.map((x) => x[0]), ...PXTRA.map((x) => x[0])])];
+  const types = [...new Set([...psif.map((x) => x.name), ...HTYPES.map((x) => x[0]), ...PXTRA.map((x) => x[0]), ...PNEP.map((x) => x[0])])];
   return (
     <div className="card" style={{ marginTop: 8, borderColor: 'var(--accent)' }}>
       <div className="row" style={{ gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -352,7 +352,7 @@ function LineDialog({ ed, psif, setEd, onOk }: { ed: LineEd; psif: PsifCode[]; s
             <option value="">— слободен внес —</option>
             {PCAT.map(([k, n]) => <optgroup key={k} label={n}>{psif.filter((x) => x.cat === k).map((x) => <option key={x.code} value={x.code}>{x.code} · {x.name}{x.cat === 'kor' || x.cat === 'sin' ? '' : ' – ' + x.pct + '%'}</option>)}</optgroup>)}
           </select></label>
-          <label className="f wide">Опис<input list="plTypes" value={ed.type} autoFocus onChange={(x) => setEd({ ...ed, type: x.target.value })} /></label>
+          <label className="f wide">Опис<input list="plTypes" value={ed.type} autoFocus onChange={(x) => setEd({ ...ed, type: x.target.value, ...(PNEP.some((p) => p[0] === x.target.value) ? { cat: 'nep' as PayCat, hours: '', pct: '0' } : {}) })} /></label>
           <label className="f">Часови<input type="number" step="any" value={ed.hours} onChange={(x) => setEd({ ...ed, hours: x.target.value })} /></label>
           <label className="f">Износ<input type="number" step="any" value={ed.amt} onChange={(x) => setEd({ ...ed, amt: x.target.value })} /></label>
           <label className="f">Процент<input type="number" step="any" value={ed.pct} onChange={(x) => setEd({ ...ed, pct: x.target.value })} /></label>
@@ -366,7 +366,7 @@ function LineDialog({ ed, psif, setEd, onOk }: { ed: LineEd; psif: PsifCode[]; s
         </div>
       </div>
       {info && <p className="note" style={{ margin: '6px 0 0' }}><b>{info.code} {info.name}</b> · {info.cat === 'kor' || info.cat === 'sin' ? 'износ' : info.pct + '%'} · на товар на: <b>{info.payer}</b>{info.mpin ? ' · МПИН вид на надоместок: ' + info.mpin : ''}{info.basis ? <><br />Основ: {info.basis}</> : null}</p>}
-      <p className="note" style={{ margin: '6px 0 0' }}>Часови × процент = износ од бруто платата по час. Ако внесете само <b>Износ</b> (без часови), се додава фиксен бруто износ (награда, корекција; казна со минус). „Синдикат/Осигурување“ е задршка од нето платата.</p>
+      <p className="note" style={{ margin: '6px 0 0' }}>Часови × процент = износ од бруто платата по час. Ако внесете само <b>Износ</b> (без часови), се додава фиксен бруто износ (награда, корекција; казна со минус). „Синдикат/Осигурување“ е задршка од нето платата. „Неоданочиви надоместоци“ (регрес, отпремнина, јубилејна, помош) се исплаќаат над нетото без придонеси и данок, до законскиот износ – вишокот внесете како „Награда / бонус“.</p>
       <datalist id="plTypes">{types.map((x) => <option key={x} value={x} />)}</datalist>
     </div>
   );

@@ -71,8 +71,8 @@ describe('seedDemo', () => {
     const S = schema;
     // VAT: closed periods with a ДДВ-04 snapshot
     const closed = async (firmId: string) => (await db.select().from(S.vatPeriods).where(and(eq(S.vatPeriods.firmId, firmId), eq(S.vatPeriods.status, 'closed')))).length;
-    expect(await closed(trg)).toBe(8);
-    expect(await closed(prod)).toBe(8);
+    expect(await closed(trg)).toBe(demoYear(undefined).M - 1); // completed months before the last one (date-dependent)
+    expect(await closed(prod)).toBe(demoYear(undefined).M - 1);
     expect(await closed(usl)).toBe(3);
     // payroll
     expect(await count(S.payrollRuns, S.payrollRuns.firmId, trg)).toBe(2);
@@ -88,7 +88,7 @@ describe('seedDemo', () => {
     expect(await count(S.bankLines, S.bankLines.firmId, usl)).toBeGreaterThan(5);
     for (const f of [trg, prod, usl]) expect(await count(S.cashVouchers, S.cashVouchers.firmId, f)).toBeGreaterThanOrEqual(2);
     // invoices, purchases, journals
-    expect(await count(S.invoices, S.invoices.firmId, usl)).toBe(27);
+    expect(await count(S.invoices, S.invoices.firmId, usl)).toBe(3 * demoYear(undefined).M); // 3 per completed month (date-dependent)
     expect(await count(S.purchases, S.purchases.firmId, trg)).toBe(6);
     expect(await count(S.journals, S.journals.firmId, trg)).toBeGreaterThan(20);
     // office side

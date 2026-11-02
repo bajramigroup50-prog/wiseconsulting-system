@@ -163,7 +163,7 @@ export const payrollLines = pgTable('payroll_lines', {
   mpin: text('mpin'),
 }, (t) => [
   index('payroll_lines_emp_idx').on(t.runEmpId, t.pos),
-  check('payroll_lines_cat_chk', sql`${t.cat} in ('reg','dop','bol','odm','kor','sin')`),
+  check('payroll_lines_cat_chk', sql`${t.cat} in ('reg','dop','bol','odm','kor','sin','nep')`),
 ]);
 
 /* ---------------- Parameters & settings ---------------- */
