@@ -73,3 +73,11 @@ export async function schemeChoice(firm: Pick<Firm, 'id' | 'settings'>): Promise
     partnerSchemes: Object.fromEntries(rows.map((r) => [r.id, schemeNoOf(r.s)]).filter(([, n]) => (n as number) > 1)),
   };
 }
+
+/** „Ценовник по комитент“ (Helix Cenovnik_po_Komitent): the customers' own net prices per item (`partners.data.prices`). */
+export async function partnerPrices(firmId: string): Promise<Record<string, Record<string, number>>> {
+  const rows = await db().select({ id: partners.id, p: sql<Record<string, number>>`${partners.data}->'prices'` }).from(partners)
+    .where(and(eq(partners.firmId, firmId), sql`${partners.data} ? 'prices'`));
+  return Object.fromEntries(rows.filter((r) => r.p && Object.keys(r.p).length).map((r) => [r.id, r.p]));
+}
+

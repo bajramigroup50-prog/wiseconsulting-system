@@ -67,6 +67,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
         {write && <Link className="btn" href="/os?new=1">+ Ново средство</Link>}
         <Link className="btn" href="/pecati/os" target="_blank">🖨 PDF регистар</Link>
         {all.length > 0 && <Link className="btn" href="/os/etiketi" target="_blank">🏷 Етикети за сите (PDF)</Link>}
+        {all.length > 0 && <Link className="btn" href="/os/popis" target="_blank">📋 Пописна листа</Link>}
         <XlsxButton name={`Osnovni_sredstva_${year}.xlsx`} label="⬇ Excel" sheets={[{ name: 'Основни средства', rows: xl }]} />
         {write && <XlsxImport action={importAssets} template={[[...OS_XLSX_HEAD]]} templateName="Osnovni_sredstva_obrazec.xlsx" confirm="Да се увезат {n} основни средства?" />}
         {write && d.total > 0 && <RowAction className="btn pri" action={runDepAction} label={dep ? 'Пресметај амортизација повторно' : `Пресметај амортизација ${year}`}

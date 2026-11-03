@@ -85,7 +85,8 @@ describe('📅 calendar of deadlines (stored, automatic done)', () => {
     const cl = await dispatchRokReminders(db, { today: '2026-11-03', mail: true });
     // 4 clients (the office firm is skipped): 4 portal messages + e-mail to the 2 with an address
     expect(cl.client).toBe(6);
-    const d = await dispatchReminders(db, new Date('2026-11-03T08:00:00Z'));
+    // the reminders are queued at the real time of the run – dispatch after both that and 03.11 08:00
+    const d = await dispatchReminders(db, new Date(Math.max(Date.parse('2026-11-03T08:00:00Z'), Date.now()) + 60_000));
     expect(d.mailIds.length).toBeGreaterThanOrEqual(4);
     const [msg] = await db.select().from(schema.inboxItems).where(and(eq(schema.inboxItems.firmId, n), eq(schema.inboxItems.fromOffice, true)));
     expect(msg!.note).toContain('доставете ги изводите / фактурите за месец октомври 2026');

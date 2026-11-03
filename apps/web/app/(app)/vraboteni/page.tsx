@@ -7,6 +7,7 @@ import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
 import { firmEmployees, payPage } from '@/lib/payroll/server';
+import { hrExpiring } from '@/lib/payroll/hr-recs';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -60,6 +61,8 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
         <XlsxButton name="Vraboteni.xlsx" label="⬇ Excel" sheets={[{ name: 'Вработени', rows: xl }]} />
         {write && sp.nov === undefined && !edit && <XlsxImport action={importEmployeesXlsx} template={EMP_TEMPLATE.map((r) => r.map(String))} templateName="Vraboteni.xlsx" label="Увези од Excel" confirm="Да се увезат {n} вработени?" />}
       </Hd>
+      {(() => { const X = active.flatMap((e) => hrExpiring(e.data, today).map((r) => ({ e, r }))); return X.length ? (
+        <div className="callout warn">🎓 Истекува или истечено (систематски преглед, лиценца): {X.map(({ e, r }, i) => <span key={i}>{i ? ', ' : ''}<Link href={`/vraboteni/${e.id}/kadrovska`}>{e.name}</Link> – {r.kind}{r.kind === 'Систематски преглед' ? '' : ' „' + r.title + '“'} до {dmy(r.until!)}</span>)}</div>) : null; })()}
       {write && sp.nov === undefined && !edit && <EmpScan firmId={firm.id} />}
       {(sp.nov !== undefined || edit) && write && <EmployeeForm e={edit ?? null} nextNo={nextNo} positions={[...new Set(all.map((e) => e.position).filter((x): x is string => !!x))]} />}
       <form className="row" style={{ gap: 8, marginBottom: 10 }}>
@@ -88,6 +91,7 @@ export default async function VraboteniPage({ searchParams }: { searchParams: Pr
                   {write && <Link className="btn sm" href={`/vraboteni?edit=${e.id}`}>Измени</Link>}{' '}
                   <Link className="btn sm" href={`/vraboteni/${e.id}/dogovor`}>Договор</Link>{' '}
                   <Link className="btn sm ghost" href={`/vraboteni/${e.id}/merki`} title="Предупредување, дисциплинска мерка, отказ, спогодба">⚖</Link>{' '}
+                  <Link className="btn sm ghost" href={`/vraboteni/${e.id}/kadrovska`} title="Кадровска евиденција: образование, квалификации, јазици, систематски прегледи, семинари, мерки">🎓{hrExpiring(e.data, today).length ? <span className="pill warn" title="Истекува / истечено">{hrExpiring(e.data, today).length}</span> : null}</Link>{' '}
                   {write && <RowAction action={setEmployeeActive.bind(null, e.id, !e.active)} label={e.active ? 'Неактивен' : 'Активирај'} />}
                   {del && <RowAction action={deleteEmployee.bind(null, e.id)} label="Избриши" confirm={`Да се избрише „${e.name}“?`} />}
                 </td>

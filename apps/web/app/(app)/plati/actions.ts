@@ -8,7 +8,7 @@ import { redirect } from 'next/navigation';
 import { and, asc, desc, eq, like, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { payCopyPrev, payDraft, type PayEmp, type PayParams } from '@wise/core';
-import { audit, deleteRun, employees, getOfficeProfile, loadRun, payrollNotes, payrollRuns, payrollSettings, postRun, saveRun, setRunLocked, textMailHtml, unpostRun, type PdfMailJob, officeProfileForFirm } from '@wise/db';
+import { applyLoanInstalments, audit, deleteRun, employees, getOfficeProfile, loadRun, payrollNotes, payrollRuns, payrollSettings, postRun, saveRun, setRunLocked, textMailHtml, unpostRun, type PdfMailJob, officeProfileForFirm } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dispatchMail, queueMail, splitAddresses, validAddresses } from '@/lib/mail';
@@ -42,6 +42,7 @@ export async function createRun(_prev: ActionState, form: FormData): Promise<Act
         const prev = p ? await loadRun(tx, firm.id, { id: p.id }) : null;
         if (prev?.emps.length) emps = payCopyPrev(month, prev.emps, d.params);
       }
+      emps = await applyLoanInstalments(tx, firm.id, month, emps);
       await saveRun(tx, { firmId: firm.id, month, params: d.params, emps, userId: u.id, source: mode });
     });
   } catch (e) { return payError(e); }

@@ -152,6 +152,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
                   <td>{r.bankAccount}</td><td>{r.vatRegistered ? 'Да' : 'Не'}</td><td>{r.active ? 'Да' : 'Не'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {write && <Link className="btn sm" href={`/partneri?edit=${r.id}${q ? '&q=' + encodeURIComponent(q) : ''}`}>Измени</Link>}{' '}
+                    <Link className="btn sm ghost" href={`/partneri/${r.id}/ceni`} title="Ценовник по комитент – посебни цени за овој купувач">💲</Link>{' '}
                     {n > 0 ? (
                       <>
                         <Link className="btn sm ghost" href={`/partneri?use=${r.id}${q ? '&q=' + encodeURIComponent(q) : ''}`} title={`Користен во ${n} документи – не може да се избрише. Кликнете за да видите каде.`}>🔒 {n}</Link>{' '}

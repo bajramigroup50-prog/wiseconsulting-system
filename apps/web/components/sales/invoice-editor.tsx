@@ -86,6 +86,8 @@ export interface InvoiceEditorProps {
   /** „Шема за книжење“: numbered schemes of the firm and the partners' defaults (empty = only Шема 1). */
   schemes?: SchemeOpt[];
   partnerSchemes?: Record<string, number>;
+  /** „Ценовник по комитент“: partner → item → net price. */
+  partnerPrices?: Record<string, Record<string, number>>;
 }
 export interface NalogOpt { number: string; description: string; from: string; to: string; periodFrom: string | null; periodTo: string | null; invoices: number; collective: boolean }
 
@@ -241,7 +243,7 @@ export function InvoiceEditor(p: InvoiceEditorProps) {
   const stockOf = (id: string): number | undefined => { const t = itemById.get(id)?.type; return t && t !== 'service' ? p.stock[id]?.[W] ?? 0 : undefined; };
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const loc = p.locations.find((l) => l.id === d.warehouseId);
-  const priceOf = (it: InvItemOpt) => (loc?.kind === 'store' && it.sp[W] != null ? Math.round((it.sp[W]! / (1 + it.rate / 100)) * 100) / 100 : it.price);
+  const priceOf = (it: InvItemOpt) => p.partnerPrices?.[d.partnerId]?.[it.id] ?? (loc?.kind === 'store' && it.sp[W] != null ? Math.round((it.sp[W]! / (1 + it.rate / 100)) * 100) / 100 : it.price);
   const fromItem = (it: InvItemOpt): Partial<EdLine> => ({
     itemId: it.id, code: it.code ?? '', name: it.name, unit: it.unit || 'ком', price: String(priceOf(it)),
     rate: d.export ? '0' : String(it.rate), account: it.account || p.revByType[it.type] || p.revDefault,

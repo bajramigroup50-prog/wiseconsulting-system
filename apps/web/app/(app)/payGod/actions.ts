@@ -33,7 +33,7 @@ export async function payLoanSaveAction(_p: ActionState, form: FormData): Promis
     if (!(l.total > 0)) return { error: 'Внесете вкупен износ.' };
     if (!isDate(l.from)) return { error: 'Внесете датум од кога се одбива.' };
     await setLoans(empId, (L) => [...L, l]);
-    return { ok: 'Зачувано. Месечниот износ внесете го во платата како „Кредит / судска забрана (задршка)“ – се копира секој месец.' };
+    return { ok: 'Зачувано. Ратата се внесува сама во секоја нова плата (ставка „Кредит / судска забрана (задршка)“) додека не се отплати.' };
   } catch (e) { return actionError(e); }
 }
 

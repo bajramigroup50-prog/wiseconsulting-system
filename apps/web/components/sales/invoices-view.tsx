@@ -14,7 +14,7 @@ import { calcInvoiceDraft } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
-import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState, schemeChoice } from '@/lib/sales';
+import { accountOptions, itemOptions, listPayments, locationOptions, partnerOptions, payState, partnerPrices, schemeChoice } from '@/lib/sales';
 import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
@@ -221,7 +221,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       svcOnly={FS.svcOnly === true || (FS.svcOnly !== false && !I.some((i) => i.type !== 'service'))} svcTexts={Array.isArray(FS.svcTexts) ? FS.svcTexts as string[] : []}
       vehicles={VH.map((v) => ({ code: v.code ?? '', name: v.name }))} drivers={[...new Set([...VH.map((v) => String((v.data as Record<string, unknown>)?.driver ?? '')).filter(Boolean), ...EMP.map((e) => e.name)])]}
       boms={BM} avg={avg} prodRun={prodRun} workOrders={workOrders} nextWorkOrder={nextWorkOrder}
-      nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} {...await schemeChoice(firm)} /></>;
+      nonVatPartners={NV.map((x) => x.id)} fuelRule={await fuelRuleNow()} canSettings={canDo(u, 'settings', firm.id)} {...await schemeChoice(firm)} partnerPrices={await partnerPrices(firm.id)} /></>;
   }
 
   /* ---------------- list ---------------- */
