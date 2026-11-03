@@ -9,6 +9,10 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteOpening, transferFromPrevYear } from './actions';
+import { addPayLiabToOpeningAction } from './paylib';
+import { payLiabGaps } from './paylib-gaps';
+import { ActionForm } from '@/components/action-form';
+import { fmt } from '@/lib/fmt';
 import { OpeningEditor, type ORow } from './opening-editor';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
 import { YearGo } from '@/components/yearend/year-go';
@@ -48,6 +52,20 @@ export default async function PocetnaPage({ searchParams }: { searchParams: Prom
         {ex && del && <RowAction className="btn danger" action={deleteOpening.bind(null, full)} label="🗑 Избриши" confirm={`Да се избрише ${full ? 'увезениот бруто биланс' : 'почетната состојба'} за ${year}?`} />}
       </Hd>
       {!full && <PrevYearCallout firmId={firm.id} year={year} />}
+      {!full && write && await (async () => {
+        const G = await db().transaction((tx) => payLiabGaps(tx, firm.id, year));
+        if (!G.length) return null;
+        const tot = G.reduce((a, g) => a + g.missing, 0);
+        return (
+          <div className="callout warn">
+            <b>Недостасуваат обврски за плата од декември {year - 1}.</b> Изводот во јануари ги плаќа ({G.map((g) => `${g.account}: ${fmt(g.missing)}`).join(' · ')} = <b>{fmt(tot)}</b> ден.), а ги нема во почетната состојба – затоа контата 234x / 2401 не излегуваат 0.
+            <ActionForm action={addPayLiabToOpeningAction} className="row" style={{ gap: 8, alignItems: 'end', marginTop: 6 }}>
+              <label className="f">Противставка (Должи)<input name="off" defaultValue="950" style={{ width: 90 }} /></label>
+              <button className="btn pri">+ Додај ги во почетната состојба</button>
+            </ActionForm>
+          </div>
+        );
+      })()}
       {!full && ex && typeof (ex.meta as { carriedFrom?: unknown } | null)?.carriedFrom === 'number' && (
         <div className="callout good">✓ Почетната состојба е пренесена од завршната сметка за {year - 1} (конто по конто и партнер по партнер, {lines.length} ставки).{' '}
           {(await canSee('prenos')) && <YearGo year={year - 1} to="/prenos">Контрола на преносот {year - 1} → {year}</YearGo>}</div>

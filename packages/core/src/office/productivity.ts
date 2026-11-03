@@ -80,7 +80,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear fileDelete'],
   ['ai', 'c', 'aiRead aiClassify scanStart scanDeep scanRetry scanIntoDraft fsRead mpinRead mpinReread pnScan lawAsk inspCodesScan'],
   ['ai', 'd', 'scanCancel scanRemove'],
-  ['zatvoranje', 'c', 'carryOver closeYear saveOpen crmXmlImport zmImport zpArch zyAdd zyGen zyToPkg'],
+  ['zatvoranje', 'c', 'carryOver closeYear saveOpen obPayLiab crmXmlImport zmImport zpArch zyAdd zyGen zyToPkg'],
   ['zatvoranje', 'u', 'carryRow lockYear firmUnlock zatLock bbAnK npoPlan tpSave zcAck zcUnack zsStatus zprSave prReset spSave dbSave vpSave zmSave zmClear deSave deReset belSave belReset crmPeriod'],
   ['zatvoranje', 'd', 'undoClose crmXClr zyDel'],
   ['dejnosti', 'c', 'apNew apInv apKasa htNew htAdv htFisc htInv htResImport htRoomImport rcNew rcInv rcFleetImport woNew woInv cvNew cvImport cpNew csInv pnNew pnCashPost pnRetCr pnMail pnVehImport frNew frInv frDocImport taNew tbNew tbAdv tbInv tbPay fleetImport potMail kcImport rtableSave rordSave cnoteSave frdocSave frfuelSave'],
