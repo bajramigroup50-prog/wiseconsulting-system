@@ -1,5 +1,9 @@
 /**
- * Заклучен лист (legacy `zlHTML` 8238, `ACT.zlPdf`): analytic trial balance of the year (or the dates chosen on „Бруто биланс“) before the closing
+ * Заклучен лист. Default: the Helix layout (`ZaklucenListAnaliticen`, `BB_BrutoBilans_Poc_I_Tekovna`) – Конто, Опис,
+ * Почетна сост. (saldo), Само од тековна година Д / П, Вкупно од тековна година Д / П, Крајно салдо, with totals per
+ * синтетика and класа. `?v=14`: the legacy layout below.
+ *
+ * Legacy `zlHTML` 8238, `ACT.zlPdf`: analytic trial balance of the year (or the dates chosen on „Бруто биланс“) before the closing
  * entries, 14 columns — Почетна состојба, Промет, Вкупен промет, Салдо (Д/П), Биланс на состојба (Актива / Пасива for
  * classes other than 4/5/7/8), Биланс на успех (Расходи / Приходи for 4/5/7/8), class totals, ВКУПНО and the result.
  */
@@ -21,7 +25,7 @@ const bu = (k: string) => /^[4578]/.test(k);
 const sd = (r: Pick<TbRow, 's'>) => (r.s > 0 ? r.s : 0), sp = (r: Pick<TbRow, 's'>) => (r.s < 0 ? -r.s : 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-export default async function PrintZl({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
+export default async function PrintZl({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; v?: string }> }) {
   const prm = await searchParams;
   const { firm, year } = await printGuard('bilanc');
   // the dates chosen on „Бруто биланс“ (e.g. 01.01 – 30.06); without them the whole year
@@ -31,6 +35,11 @@ export default async function PrintZl({ searchParams }: { searchParams: Promise<
   const names = new Map(chart.map((a) => [a.code, a.name]));
   const R = trialBalance(lines, { level: 'a', from, to, withClose: false, accountName: (k) => names.get(k) }).rows;
   const c = (v: number) => <td className="n">{v ? fmt(v) : ''}</td>;
+  const qs = (v?: string) => `/print/bilanc/zl?from=${from}&to=${to}${v ? '&v=' + v : ''}`;
+  const switcher = (v14: boolean) => (
+    <p className="noprint" style={{ margin: '0 0 6px', fontSize: 12 }}>Формат: {v14 ? <a href={qs()}>Helix (почетна, тековна, вкупно, крајно салдо)</a> : <b>Helix</b>} · {v14 ? <b>14 колони (биланс на состојба / успех)</b> : <a href={qs('14')}>14 колони (биланс на состојба / успех)</a>}</p>
+  );
+  if (prm.v !== '14') return <HelixZl R={R} firm={firm} title={whole ? `Година ${year}` : `Период ${dmy(from)} – ${dmy(to)}`} top={switcher(false)} />;
   const tot = (rows: TbRow[], label: string, cls: string) => {
     const t = (f: (r: TbRow) => number) => r2(rows.reduce((a, r) => a + f(r), 0));
     return (
@@ -44,6 +53,7 @@ export default async function PrintZl({ searchParams }: { searchParams: Promise<
   return (
     <div className="pdfdoc land">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      {switcher(true)}
       <FirmHead firm={firm} title="ЗАКЛУЧЕН ЛИСТ" sub={whole ? `Година ${year} · состојба пред заклучни книжења` : `Период ${dmy(from)} – ${dmy(to)} · состојба пред заклучни книжења`} />
       <table className="dense zl">
         <colgroup><col style={{ width: '5%' }} /><col style={{ width: '17%' }} />{Array.from({ length: 12 }, (_, i) => <col key={i} style={{ width: '6.5%' }} />)}</colgroup>
@@ -73,3 +83,51 @@ export default async function PrintZl({ searchParams }: { searchParams: Promise<
     </div>
   );
 }
+
+/** Helix „Заклучен лист“: signed opening saldo, turnover of the period only, opening + turnover, final saldo (Д − П). */
+function HelixZl({ R, firm, title, top }: { R: TbRow[]; firm: Parameters<typeof FirmHead>[0]['firm']; title: string; top: React.ReactNode }) {
+  const G = ['ps', 'td', 'tp', 'vd', 'vp', 's'] as const;
+  const val = (r: TbRow, g: (typeof G)[number]) => (g === 'ps' ? r.od - r.op : r[g]);
+  const sum = (rows: TbRow[]) => G.map((g) => r2(rows.reduce((a, r) => a + val(r, g), 0)));
+  const cell = (v: number) => <td className="n">{v ? fmt(v) : ''}</td>;
+  const tot = (rows: TbRow[], label: string, cls: string) => <tr className={cls}><td colSpan={2}><b>{label}</b></td>{sum(rows).map((v, i) => <td key={i} className="n"><b>{fmt(v)}</b></td>)}</tr>;
+  const classes = [...new Set(R.map((r) => r.k[0]!))];
+  return (
+    <div className="pdfdoc land">
+      <style dangerouslySetInnerHTML={{ __html: '@page{size:A4 landscape}.pdfdoc table.zh{table-layout:fixed;width:100%}.pdfdoc table.zh td,.pdfdoc table.zh th{font-size:7.5pt!important;padding:2px 3px!important;font-family:Arial,Helvetica,sans-serif!important}.pdfdoc table.zh td.n{white-space:nowrap}.pdfdoc table.zh th{text-align:center}' }} />
+      {top}
+      <FirmHead firm={firm} title="ЗАКЛУЧЕН ЛИСТ СО АНАЛИТИКА" sub={`${title} · состојба пред заклучни книжења`} />
+      <table className="dense zh">
+        <colgroup><col style={{ width: '8%' }} /><col style={{ width: '32%' }} />{G.map((g) => <col key={g} style={{ width: '10%' }} />)}</colgroup>
+        <thead>
+          <tr><th rowSpan={2}>КОНТО</th><th rowSpan={2}>Опис</th><th rowSpan={2}>Почетна сост.</th><th colSpan={2}>Само од тековна година</th><th colSpan={2}>Вкупно од тековна година</th><th rowSpan={2}>КРАЈНО САЛДО</th></tr>
+          <tr><th>Должи</th><th>Побарува</th><th>Должи</th><th>Побарува</th></tr>
+        </thead>
+        <tbody>
+          {classes.map((k) => {
+            const rows = R.filter((r) => r.k[0] === k);
+            const syn = [...new Set(rows.map((r) => r.k.slice(0, 3)))];
+            return (
+              <Fragment key={k}>
+                <tr className="sub"><td colSpan={8}><b>{(CLS[+k as 0] ?? 'Класа ' + k).toUpperCase()}</b></td></tr>
+                {syn.map((sk) => {
+                  const S = rows.filter((r) => r.k.slice(0, 3) === sk);
+                  return (
+                    <Fragment key={sk}>
+                      {S.map((r) => <tr key={r.k}><td>{r.k}</td><td>{r.name}</td>{G.map((g) => <Fragment key={g}>{cell(val(r, g))}</Fragment>)}</tr>)}
+                      {(S.length > 1 || S[0]!.k !== sk) && tot(S, 'Синтетика ' + sk, 'tot')}
+                    </Fragment>
+                  );
+                })}
+                {tot(rows, 'Класа ' + k, 'tot')}
+              </Fragment>
+            );
+          })}
+        </tbody>
+        <tfoot>{tot(R, 'ВКУПНО', '')}</tfoot>
+      </table>
+      <Sig />
+    </div>
+  );
+}
+
