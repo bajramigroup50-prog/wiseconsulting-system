@@ -8,6 +8,7 @@
  */
 import { PrintBar } from './print-bar';
 import { DesktopPdfGuard } from '@/components/desktop-pdf-guard';
+import { FitTables } from './fit-tables';
 
 const CSS = `
 body{background:#e9e9e9}
@@ -22,6 +23,7 @@ export default function PrintLayout({ children }: { children: React.ReactNode })
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <PrintBar />
       <DesktopPdfGuard />
+      <FitTables />
       <div className="prt" id="printArea" style={{ display: 'flex' }}>{children}</div>
     </>
   );

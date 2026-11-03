@@ -49,6 +49,28 @@ export async function closeBrowser(): Promise<void> {
   if (b) await (await b).close().catch(() => {});
 }
 
+/**
+ * A table wider than its `.pdfdoc` page (many columns, long names) is shrunk – smaller font and padding, down to 6 px –
+ * so it never runs past the paper's edge (the same rule as the print views' `FitTables`).
+ */
+const FIT_TABLES = `(() => {
+  for (const doc of document.querySelectorAll('.pdfdoc')) {
+    const W = doc.clientWidth;
+    if (!(W > 0)) continue;
+    for (const t of doc.querySelectorAll('table')) {
+      if (t.scrollWidth <= W + 1) continue;
+      const cells = Array.from(t.querySelectorAll('th, td'));
+      let fs = parseFloat(getComputedStyle(t).fontSize) || 10;
+      for (let i = 0; i < 16 && t.scrollWidth > W + 1 && fs > 6; i++) {
+        fs = Math.max(6, fs - 0.5);
+        t.style.fontSize = fs + 'px';
+        for (const c of cells) { c.style.fontSize = fs + 'px'; c.style.padding = fs < 8 ? '1.5px 2px' : '2px 3px'; }
+      }
+      if (t.scrollWidth > W + 1) for (const c of cells) if (!c.classList.contains('n')) c.style.wordBreak = 'break-word';
+    }
+  }
+})()`;
+
 /** Render HTML to PDF bytes. */
 export async function htmlToPdf(p: PdfInput): Promise<Uint8Array> {
   const b = await getBrowser();
@@ -57,6 +79,8 @@ export async function htmlToPdf(p: PdfInput): Promise<Uint8Array> {
     await ctx.route('**/*', (route) => (route.request().url().startsWith('data:') ? route.continue() : route.abort()));
     const page = await ctx.newPage();
     await page.setContent(wrapHtml(p), { waitUntil: 'load', timeout: 30_000 });
+    // the page's own scripts stay off; this runs in an isolated world: a table wider than its page is shrunk to fit
+    await page.evaluate(FIT_TABLES).catch(() => {});
     const pdf = await page.pdf({ format: p.format ?? 'A4', landscape: !!p.landscape, printBackground: true, preferCSSPageSize: true });
     return new Uint8Array(pdf);
   } finally {

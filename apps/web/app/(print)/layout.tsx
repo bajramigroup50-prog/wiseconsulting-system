@@ -4,6 +4,7 @@
  */
 import { PdfButton } from '@/components/pdf-button';
 import { PrintButton } from '@/components/yearend/go-button';
+import { FitTables } from '../print/fit-tables';
 
 export default function PrintLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export default function PrintLayout({ children }: { children: React.ReactNode })
       <div id="printArea" style={{ display: 'block', background: '#fff', color: '#000' }}>
         <div className="card" style={{ background: '#fff', color: '#000', maxWidth: '210mm', margin: '10px auto', padding: '10mm', boxShadow: 'none' }}>
           <div className="pdfdoc">{children}</div>
+          <FitTables />
         </div>
       </div>
     </>
