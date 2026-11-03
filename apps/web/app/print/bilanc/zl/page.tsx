@@ -92,6 +92,8 @@ function HelixZl({ R, firm, title, top }: { R: TbRow[]; firm: Parameters<typeof 
   const cell = (v: number) => <td className="n">{v ? fmt(v) : ''}</td>;
   const tot = (rows: TbRow[], label: string, cls: string) => <tr className={cls}><td colSpan={2}><b>{label}</b></td>{sum(rows).map((v, i) => <td key={i} className="n"><b>{fmt(v)}</b></td>)}</tr>;
   const classes = [...new Set(R.map((r) => r.k[0]!))];
+  /* result of the period: revenues − expenses of classes 4 / 5 / 7 / 8 (as in the 14-column layout) */
+  const rd = r2(R.reduce((a, r) => a + (bu(r.k) ? sd(r) : 0), 0)), rp = r2(R.reduce((a, r) => a + (bu(r.k) ? sp(r) : 0), 0)), res = r2(rp - rd);
   return (
     <div className="pdfdoc land">
       <style dangerouslySetInnerHTML={{ __html: '@page{size:A4 landscape}.pdfdoc table.zh{table-layout:fixed;width:100%}.pdfdoc table.zh td,.pdfdoc table.zh th{font-size:7.5pt!important;padding:2px 3px!important;font-family:Arial,Helvetica,sans-serif!important}.pdfdoc table.zh td.n{white-space:nowrap}.pdfdoc table.zh th{text-align:center}' }} />
@@ -126,6 +128,7 @@ function HelixZl({ R, firm, title, top }: { R: TbRow[]; firm: Parameters<typeof 
         </tbody>
         <tfoot>{tot(R, 'ВКУПНО', '')}</tfoot>
       </table>
+      <p style={{ marginTop: 8 }}><b>Финансиски резултат {title.replace(/^Година |^Период /, '')}:</b> {res >= 0 ? 'добивка' : 'загуба'} {fmt(Math.abs(res))} ден. (приходи {fmt(rp)} − расходи {fmt(rd)})</p>
       <Sig />
     </div>
   );
