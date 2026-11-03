@@ -148,7 +148,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
   const isClosed = (dt: string) => !!dt && (p.closed ?? []).some(([a, b]) => dt >= a && dt <= b);
 
   const P = {
-    imp: d.imp, fx: n(d.fx), distMode: d.distMode, cnames: d.cnames,
+    imp: d.imp, fx: n(d.fx), distMode: d.distMode, cnames: d.cnames, noVat: p.nonVat,
     costs: Object.fromEntries(Object.entries(d.costs).map(([k, c]) => [k, { amt: n(c.amount), fx: n(c.fx), byQty: c.byQty, lines: c.lines.map((l) => ({ base: n(l.base), rate: n(l.rate), vat: n(l.vat) })) }])),
     stock: d.stock.map((s) => ({ item: s.itemId, qty: n(s.qty), price: n(s.price), rab: n(s.rab), cn: s.cn === '' ? '' : n(s.cn), dep: s.dep === '' ? '' : n(s.dep) })),
   };
@@ -265,14 +265,22 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
 
   /* ---------- attached documents and AI reading into the draft (legacy readIntoDraft / readAtt / readImportDocs) ---------- */
   const mergeScan = (dr: ScanPurchaseDraft) => setD((o) => ({
-    ...o, scanned: true, number: dr.number || o.number, date: dr.date || o.date, docDate: dr.docDate || o.docDate, due: dr.due || o.due,
+    ...o, scanned: true,
+    /* a foreign-currency invoice → import: currency, the total in that currency, foreign supplier konto; the rate is fetched below */
+    ...(dr.imp ? { imp: true, cash: false, currency: dr.currency || 'EUR', supplierAccount: o.supplierAccount || '2210' } : {}), number: dr.number || o.number, date: dr.date || o.date, docDate: dr.docDate || o.docDate, due: dr.due || o.due,
     partnerId: dr.partnerId || o.partnerId, supplierName: dr.supplierName, supplierEdb: dr.supplierEdb, art32: dr.art32,
-    data: dr.bankAcc ? { ...o.data, bankAcc: dr.bankAcc } : o.data,
+    data: { ...o.data, ...(dr.bankAcc ? { bankAcc: dr.bankAcc } : {}), ...(dr.imp && dr.fxAmt ? { fxAmt: String(dr.fxAmt) } : {}) },
     groups: dr.groups.map((g) => ({ account: g.konto, rate: String(g.rate), base: String(g.base), vat: String(g.vat) })),
     stock: dr.stock.length ? dr.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: l.unit ?? 'ком', qty: String(l.qty), price: String(l.price), rab: '', amount: l.amount ? String(l.amount) : '', cn: '', dep: '', sp: l.sp === undefined ? '' : String(l.sp), type: l.type ?? '', rate: String(l.rate ?? ''), isNew: l.isNew })) : o.stock,
   }));
   /** Cost partners the reading could not match: created as suppliers after the merge (`addSupplierAction`). */
   const needParts = useRef<{ k: string; name: string; edb: string; foreign: boolean }[]>([]);
+  /* import: once the rate is known the goods value in denars (amount in currency × rate) goes into the posting by itself */
+  useEffect(() => {
+    if (!d.imp || !(n(d.data.fxAmt) > 0) || !(n(d.fx) > 0) || n(d.fx) === 1 || d.groups.some((g) => n(g.base))) return;
+    set({ groups: [{ account: d.groups[0]?.account && /^[036]/.test(d.groups[0].account) ? d.groups[0].account : tk.goods, rate: '0', base: String(r2(n(d.data.fxAmt) * n(d.fx))), vat: '0' }] });
+  }, [d.imp, d.fx, d.data.fxAmt]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (d.imp && d.scanned && !(n(d.fx) > 0 && n(d.fx) !== 1)) autoFx(d.currency, d.docDate || d.date, true); }, [d.imp, d.currency, d.scanned]); // eslint-disable-line react-hooks/exhaustive-deps
   const mergeImp = (docs: ImpDoc[]) => {
     const o = d;
     let x: EdPurchase = { ...o, imp: true, data: { ...o.data }, costs: { ...o.costs } };
@@ -598,7 +606,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
                 </div>);
             })}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 20 }}><span>Вкупно трошоци без ДДВ: <b className="num">{fmt(totC)}</b></span><span>ДДВ на трошоци: <b className="num">{fmt(totV)}</b></span></div>
-            <p className="note">Трошоците без ДДВ се распоредуваат на артиклите во приемницата пропорционално на вредноста (транспортот и по количини). {d.imp ? 'ДДВ платен на царина оди во полињата 27/28 на ДДВ-04 (увоз); ДДВ на останатите трошоци во 21/22.' : 'ДДВ на трошоците оди во полињата 21/22 на ДДВ-04.'}</p>
+            <p className="note">Трошоците без ДДВ се распоредуваат на артиклите во приемницата пропорционално на вредноста (транспортот и по количини). {p.nonVat ? 'Фирмата не е ДДВ обврзник: ДДВ на царината, шпедицијата и транспортот не се одбива – влегува во набавната вредност на артиклите (целиот износ), без ДДВ-04.' : d.imp ? 'ДДВ платен на царина оди во полињата 27/28 на ДДВ-04 (увоз); ДДВ на останатите трошоци во 21/22.' : 'ДДВ на трошоците оди во полињата 21/22 на ДДВ-04.'}</p>
           </div>{d.imp && <div>
             <fieldset className="fs"><legend>Царински наименувања без ДДВ</legend>
               {Array.from({ length: 15 }, (_, i) => <label key={i} className="fl" style={{ gridTemplateColumns: '90px 1fr' }}><span>Наимен. {i + 1}</span><input type="number" step="any" value={d.cnames[i] ?? ''} style={{ textAlign: 'right' }}
@@ -686,7 +694,7 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
             : <span className="mini">Калкулација, приемен лист и приемница – по зачувување</span>}
           <label className="chk" style={{ margin: 0 }}><input type="checkbox" checked={!!d.data.withVat} onChange={(e) => setData({ withVat: e.target.checked ? '1' : '' })} /> Со данок</label>
         </div>{AL.manual && Math.abs(aSum - AL.tot) > 0.5 && <div className="callout warn" style={{ marginTop: 8 }}>Распоредените трошоци ({fmt(aSum)}) не се еднакви на вкупните трошоци ({fmt(AL.tot)}). Притиснете „Распоред на трошоци (F5)“ повторно.</div>}</div>}
-        <div className="tw"><table><thead><tr><th>Артикл</th><th>Ед. мерка</th>{cnUsed.length > 0 && <th>Цар. наимен.</th>}<th className="n">Количина</th><th className="n">{d.imp ? 'Цена во ' + d.currency : 'Набавна цена / ед.'}</th><th className="n">Рабат %</th><th className="n">Вредност ден.</th><th className="n">Зависни трошоци</th><th className="n">Набавна цена / ед.</th>{d.imp && <th className="n">ДДВ царина</th>}<th className="n">{store ? 'Малопр. цена со ДДВ' : 'Продажна цена со ДДВ'}</th><th className="n">Разлика %</th><th></th></tr></thead><tbody>
+        <div className="tw"><table><thead><tr><th>Артикл</th><th>Ед. мерка</th>{cnUsed.length > 0 && <th>Цар. наимен.</th>}<th className="n">Количина</th><th className="n">{d.imp ? 'Цена во ' + d.currency : 'Набавна цена / ед.'}</th><th className="n">Рабат %</th><th className="n">Вредност ден.</th><th className="n">Зависни трошоци</th><th className="n">Набавна цена / ед.</th>{d.imp && !p.nonVat && <th className="n">ДДВ царина</th>}<th className="n">{store ? 'Малопр. цена' + (p.nonVat ? '' : ' со ДДВ') : p.nonVat ? 'Продажна цена' : 'Продажна цена со ДДВ'}</th><th className="n">Разлика %</th><th></th></tr></thead><tbody>
           {d.stock.map((s, i) => {
             const it = s.itemId ? itemById.get(s.itemId) : undefined;
             const v = stockLineValue(P, P.stock[i]!), a = AL.by[i] ?? 0, nab = n(s.qty) ? (v + a) / n(s.qty) : 0;
@@ -719,13 +727,13 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
                 <td className="n">{fmt(v)}</td>
                 <td className="n">{AL.manual ? <input type="number" step="any" value={s.dep} style={{ textAlign: 'right', width: 110 }} onChange={(e) => setS(i, { dep: e.target.value })} /> : fmt(a)}</td>
                 <td className="n">{n(s.qty) ? nab.toFixed(4) : '—'}</td>
-                {d.imp && <td className="n">{fmt(AL.cvat[i] ?? 0)}</td>}
+                {d.imp && !p.nonVat && <td className="n">{fmt(AL.cvat[i] ?? 0)}</td>}
                 <td><input type="number" step="any" value={s.sp !== '' ? s.sp : spv ? String(spv) : ''} style={{ textAlign: 'right', width: 110 }} title={'Се зачувува како нова цена за ' + (p.locations.find((l) => l.id === d.warehouseId)?.name ?? 'Главен магацин')} onChange={(e) => setS(i, { sp: e.target.value })} /></td>
                 <td className="n">{mg == null ? '—' : mg.toFixed(2)}</td>
                 <td><button type="button" className="btn sm ghost danger" aria-label="Отстрани" onClick={() => set({ stock: d.stock.filter((_, k) => k !== i) })}>✕</button></td>
               </tr>);
           })}
-        </tbody><tfoot><tr><td colSpan={cnUsed.length ? 6 : 5}>Вкупно</td><td className="n">{fmt(P.stock.reduce((t, s) => t + stockLineValue(P, s), 0))}</td><td className="n">{fmt(aSum)}</td><td />{d.imp && <td className="n">{fmt(AL.cvat.reduce((a, b) => a + b, 0))}</td>}<td colSpan={3} /></tr></tfoot></table></div>
+        </tbody><tfoot><tr><td colSpan={cnUsed.length ? 6 : 5}>Вкупно</td><td className="n">{fmt(P.stock.reduce((t, s) => t + stockLineValue(P, s), 0))}</td><td className="n">{fmt(aSum)}</td><td />{d.imp && !p.nonVat && <td className="n">{fmt(AL.cvat.reduce((a, b) => a + b, 0))}</td>}<td colSpan={3} /></tr></tfoot></table></div>
         {d.stock.length > 0 && <p className="note">Автоматски распоред: трошоците по вредност (транспортот по количини ако е означено). Со „Распоред на трошоци (F5)“ износите се префрлаат во редовите и можете рачно да ги измените. Продажната цена со ДДВ се зачувува за {p.locations.find((l) => l.id === d.warehouseId)?.name ?? 'Главен магацин'}{store ? ' (ако е различна од тековната, автоматски се прави нивелација)' : ''}.</p>}
         <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="btn" onClick={() => set({ stock: [...d.stock, blankStock()] })}>+ Артикл на залиха</button>

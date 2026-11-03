@@ -23,6 +23,13 @@ export const PUR_BANK_ADD = `
 SUPPLIER BANK ACCOUNT: in every invoice object also return "supplierBankAccount":string = the SUPPLIER's (issuer's) bank account printed on the invoice („жиро сметка“, „трансакциска сметка“, „Ж.С.“, IBAN, e.g. 300-0000012345-67 or MK07300000001234567) exactly as printed; "" if none. NEVER the buyer's account.`;
 
 /**
+ * Added to `PUR_PROMPT` (not in legacy): the invoice currency, so an invoice of a foreign supplier in EUR / USD / CNY is
+ * drafted as an import (amounts in that currency, converted at the НБРМ rate) instead of being booked as denars.
+ */
+export const PUR_FX_ADD = `
+CURRENCY: in every invoice object also return "currency":string = the ISO code of the invoice currency (EUR, USD, CNY, GBP, CHF…; "MKD" for denars / ден.) and "supplierForeign":boolean = true when the supplier is outside North Macedonia (foreign address / no Macedonian ЕДБ). For a foreign-currency invoice keep prices, amounts and "total" IN THAT CURRENCY (never convert) and return EVERY product line.`;
+
+/**
  * Utility bills (EVN, Телеком, water…) print the previous unpaid debt and „вкупно за плаќање“ = debt + this month's
  * charge: only this invoice's own amount is booked (`prevDebtFix` in `@wise/core/sales` checks it deterministically).
  */

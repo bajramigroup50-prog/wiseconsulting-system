@@ -360,6 +360,7 @@ export async function savePurchase(tx: Tx, firmId: string, input: PurchaseInput,
   }
   const p0: PurchaseLike = {
     imp, fx: n(input.fx) || 1, art32, wh: input.warehouseId ?? undefined, costs: costs as PurchaseLike['costs'], cnames: input.cnames ?? [], distMode: input.distMode ?? 'val',
+    noVat: f.vatRegistered === false,
     groups: groups.map((g) => ({ konto: g.account, rate: g.rate, base: g.base, vat: g.vat })),
     stock: stock.map((s, i) => ({ item: s.itemId!, name: s.name ?? '', code: s.code ?? '', barcode: s.barcode ?? '', amount: n(s.amount), qty: n(s.qty), price: n(s.price), rab: n(s.rab), cn: empty(s.cn) ? '' : n(s.cn), dep: empty(s.dep) ? '' : n(s.dep), sp: spOf.get(i) ?? (empty(s.sp) ? '' : n(s.sp)) })),
   };

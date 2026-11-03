@@ -24,6 +24,8 @@ export interface ScanInvoice {
   /** UBL CreditNote (amounts negative). */
   credit?: boolean;
   currency?: string;
+  /** The supplier is outside North Macedonia (read with the currency). */
+  supplierForeign?: boolean;
   /** Pages of the source file this invoice is printed on („1“, „2-3“) when the file holds several invoices. */
   pages?: string;
   /**
@@ -405,6 +407,20 @@ export interface ScanPurchaseDraft {
   match?: DraftPartnerMatch;
   /** Previous debt printed on the bill and left out of the total (not booked). */
   prevDebt?: number;
+  /**
+   * A foreign-currency invoice: drafted as an import (Увозна) – the lines' prices and `fxAmt` (the invoice total) are in
+   * `currency`; the denar value comes from the НБРМ rate in the editor, so it is never saved in bulk from the scan list.
+   */
+  imp?: boolean;
+  currency?: string;
+  fxAmt?: number;
+}
+
+/** ISO currency of a read invoice when it is not denars ('' = MKD / unknown). */
+export function scanForeignCurrency(r: Pick<ScanInvoice, 'currency'>): string {
+  const c = String(r.currency ?? '').trim().toUpperCase();
+  if (!c || /^(MKD|ДЕН|DEN|МКД)/.test(c)) return '';
+  return /^[A-Z]{3}$/.test(c) ? c : c === '€' ? 'EUR' : c === '$' ? 'USD' : '';
 }
 /** The expense kontos of a supplier's most recent saved purchase: per VAT rate, and its main konto (largest base). */
 export interface SupplierKontoMemory { byRate: Record<string, string>; main: string }
@@ -481,7 +497,9 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
   r = { ...r, lines: fixLines(r.lines) };
   const pm = findPartnerMatch(o.partners, { name: r.supplierName, id: r.supplierEdb, bankAccount: r.supplierBankAccount });
   const p = pm.partner;
-  const goodsInv = (r.groups ?? []).some((g) => g.kind === 'goods' || g.kind === 'material') || !!o.warehouseId;
+  /* an invoice in a foreign currency is an import: every product line, prices in that currency */
+  const fxCur = o.costOnly ? '' : scanForeignCurrency(r);
+  const goodsInv = !!fxCur || (r.groups ?? []).some((g) => g.kind === 'goods' || g.kind === 'material') || !!o.warehouseId;
   const onlyMat = (r.groups ?? []).some((g) => g.kind === 'material') && !(r.groups ?? []).some((g) => g.kind === 'goods');
   const mg = o.defMargin || 25, rd = o.mgRound || 1;
   const st: ScanPurchaseLine[] = [];
@@ -494,7 +512,8 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
     st.push({
       itemId: '', name: String(l.name ?? ''), code: String(l.code ?? ''), barcode: String(l.barcode ?? ''), amount: n(l.amount), unit: l.unit || 'ком',
       rate: rt, qty: n(l.qty), price: n(l.price), isNew: true, type: onlyMat ? 'material' : 'goods',
-      sp: n(l.price) ? r2(Math.round((n(l.price) * (1 + mg / 100) * (1 + rt / 100)) / rd) * rd) : '',
+      // a foreign price is not a denar price: the selling price is set in the import (after the rate and the costs)
+      sp: fxCur ? '' : n(l.price) ? r2(Math.round((n(l.price) * (1 + mg / 100) * (1 + rt / 100)) / rd) * rd) : '',
     });
   }
   const mem = p?.id ? o.supplierKontos?.(p.id) ?? null : null;
@@ -526,8 +545,9 @@ export function purchaseDraftFromScan(r0: ScanInvoice, o: PurchaseDraftOptions):
     partnerId: p?.id ?? '', supplierName: String(r.supplierName ?? ''), supplierEdb: String(r.supplierEdb ?? ''),
     art32: !!r.art32, cash: !!o.cash, warehouseId: o.warehouseId ?? null,
     ptype: o.costOnly ? 'cost' : stock.length || goodsInv ? 'stock' : 'cost',
-    groups, stock, credit: !!r.credit, bankAcc: accountKey(r.supplierBankAccount),
+    groups: fxCur ? [{ rate: 0, base: 0, vat: 0, konto: o.accounts.goods }] : groups, stock, credit: !!r.credit, bankAcc: accountKey(r.supplierBankAccount),
     ...(r.pages ? { pages: String(r.pages) } : {}), match: draftMatchOf(pm),
+    ...(fxCur ? { imp: true, currency: fxCur, fxAmt: n(r.total) || r2(st.reduce((a, l) => a + n(l.qty) * n(l.price), 0)) } : {}),
   };
 }
 
@@ -608,7 +628,8 @@ export function batchStatus(d: ScanPurchaseDraft, raw: ScanInvoice | null, dup: 
   if (!d.partnerId && !d.supplierName) why.push('нема добавувач');
   if (!d.partnerId && d.match?.candidates.length) why.push('изберете го добавувачот (слични комитенти)');
   if (!d.number) why.push('нема број');
-  if (!d.groups.some((g) => g.base)) why.push('нема износ');
+  if (d.imp) why.push(`увоз во ${d.currency} ${d.fxAmt ?? ''} – отворете ја (Измени): курс, ЕЦД, шпедиција, продажни цени`.replace(/ {2}/g, ' '));
+  else if (!d.groups.some((g) => g.base)) why.push('нема износ');
   if (raw && !scanConsistent(raw)) why.push('износите не се совпаѓаат со рекапитулацијата');
   if (owner) why.push(owner);
   if (d.credit) why.push('одобрение (CreditNote) – проверете');

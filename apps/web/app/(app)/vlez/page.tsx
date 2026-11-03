@@ -97,7 +97,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         ptype: dr.ptype, art32: dr.art32, cash: dr.cash, warehouseId: dr.warehouseId ?? '', shifted: dr.shifted, credit: dr.credit,
         groups: dr.groups.map((g) => ({ account: g.konto, rate: s(g.rate), base: s(g.base), vat: s(g.vat) })),
         stock: dr.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: l.unit ?? 'ком', qty: s(l.qty), price: s(l.price), rab: '', amount: l.amount ? s(l.amount) : '', cn: '', dep: '', sp: l.sp === undefined ? '' : s(l.sp), type: l.type ?? '', rate: s(l.rate ?? ''), isNew: l.isNew })),
-        fileIds, scanned: true, scanDocId: doc.id, scanIndex: idx, data: dr.bankAcc ? { ...init.data, bankAcc: dr.bankAcc } : init.data,
+        fileIds, scanned: true, scanDocId: doc.id, scanIndex: idx,
+        data: { ...init.data, ...(dr.bankAcc ? { bankAcc: dr.bankAcc } : {}), ...(dr.imp && dr.fxAmt ? { fxAmt: s(dr.fxAmt) } : {}) },
+        // a foreign-currency invoice opens as an import (Увозна): the editor fetches the НБРМ rate and converts the total
+        ...(dr.imp ? { imp: true, cash: false, currency: dr.currency || 'EUR', fx: '', supplierAccount: init.supplierAccount || '2210' } : {}),
       };
       scanInfo = 'Податоците се прочитани автоматски од документот' + (doc.drafts.length > 1 ? ` (фактура ${idx + 1} од ${doc.drafts.length}${dr.pages ? ', стр. ' + dr.pages : ''} – секоја се книжи посебно)` : '')
         + (x?.msg ? ' – провери: ' + x.msg : '') + '. Проверете ги износите пред да зачувате.';

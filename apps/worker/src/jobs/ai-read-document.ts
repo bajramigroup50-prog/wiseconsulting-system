@@ -38,7 +38,7 @@ import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
-import { DOC_TYPE_ADD, INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_DEBT_ADD, PUR_PROMPT, SALE_PROMPT, VAT_NOTE_ADD } from '../ai/prompts';
+import { DOC_TYPE_ADD, INV_MULTI_ADD, INV_PAGES_NOTE, PUR_BANK_ADD, PUR_DEBT_ADD, PUR_FX_ADD, PUR_PROMPT, SALE_PROMPT, VAT_NOTE_ADD } from '../ai/prompts';
 import { AiReadError, fileContent, loadFile, readContent } from '../ai/read-document';
 import { purchaseDrafts, saleDrafts, SCAN_RULES_V } from '../ai/drafts';
 import { readObject } from '../ai/storage';
@@ -251,7 +251,7 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
         content.extra += INV_PAGES_NOTE(extra.length + 1);
       }
       // the rule of the bank import: several invoices in the file → `invoices[]`, one object (one draft) per invoice
-      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD + PUR_DEBT_ADD) + VAT_NOTE_ADD + DOC_TYPE_ADD + INV_MULTI_ADD;
+      const prompt = (doc.kind === 'sale' ? SALE_PROMPT(f) : PUR_PROMPT + PUR_BANK_ADD + PUR_DEBT_ADD + PUR_FX_ADD) + VAT_NOTE_ADD + DOC_TYPE_ADD + INV_MULTI_ADD;
       const base = { db, firmId: f.id, prompt, purpose: doc.kind, refId: doc.id, userId: doc.createdBy };
       let quick: ScanResult | null = null;
       // legacy `outDeep` / `outRunDeep`: a deeper read straight away (no quick read)
@@ -285,7 +285,7 @@ WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the b
         // still our firm as the buyer: it IS a supplier's invoice to us – read it as a purchase (supplier = the issuer)
         else {
           const pur = await viaAi(async () => {
-            const r = await readContent<ScanResult>({ ...base, tier: 'default', purpose: 'purchase', prompt: PUR_PROMPT + PUR_BANK_ADD + PUR_DEBT_ADD + VAT_NOTE_ADD + DOC_TYPE_ADD + INV_MULTI_ADD }, content);
+            const r = await readContent<ScanResult>({ ...base, tier: 'default', purpose: 'purchase', prompt: PUR_PROMPT + PUR_BANK_ADD + PUR_DEBT_ADD + PUR_FX_ADD + VAT_NOTE_ADD + DOC_TYPE_ADD + INV_MULTI_ADD }, content);
             return { result: fx(r.data), model: r.model };
           }).catch(() => null);
           if (pur?.result && scanInvoices(pur.result as ScanResult).length) { result = pur.result as ScanResult; model = pur.model; readAs = 'purchase'; log(`${docId}: a supplier's invoice to this firm – read as a purchase`); }

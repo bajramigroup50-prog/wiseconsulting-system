@@ -64,6 +64,11 @@ export interface PurchaseLike {
   cnames?: (number | string | null | undefined)[];
   /** `val` (by value), `cn` (customs by tariff), `multi` (customs and its VAT by tariff). */
   distMode?: AllocMode;
+  /**
+   * The firm is not a VAT payer: no VAT is deducted, so the VAT of every cost (customs VAT of the ЕЦД, forwarding,
+   * transport…) is part of the goods' purchase value – spread like the cost amounts, as the posting capitalises it.
+   */
+  noVat?: boolean;
   groups?: { konto?: string; rate?: number | string; base?: number | string; vat?: number | string; [k: string]: unknown }[];
   [k: string]: unknown;
 }
@@ -140,16 +145,18 @@ export function allocAuto(p: PurchaseLike, mode: AllocMode = 'val'): Allocation 
   const dep = st.map(() => 0);
   let tot = 0;
   for (const c of cs) {
-    tot += c.amt;
+    /* a firm that is not a VAT payer: the cost's VAT is landed cost too */
+    const a = p.noVat ? c.amt + c.vat : c.amt;
+    tot += a;
     const sh =
       c.k === 'trans' && p.costs?.trans?.byQty
-        ? spread(c.amt, qts)
+        ? spread(a, qts)
         : c.k === 'car' && (mode === 'cn' || mode === 'multi')
-          ? byNames(c.amt)
-          : spread(c.amt, vals);
+          ? byNames(a)
+          : spread(a, vals);
     sh.forEach((x, i) => (dep[i]! += x));
   }
-  const cv = costVat(p.costs?.car ?? {});
+  const cv = p.noVat ? 0 : costVat(p.costs?.car ?? {});
   const cvat = mode === 'multi' ? byNames(cv) : spread(cv, vals);
   return { by: dep.map(r2), tot: r2(tot), cvat: cvat.map(r2) };
 }
