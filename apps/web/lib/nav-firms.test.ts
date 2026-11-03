@@ -5,9 +5,10 @@ import { routeVerdict } from './route-guard';
 const ids = (g: string) => navFlat(NAV.find(([n]) => n === g)![1]).map(([id]) => id);
 
 describe('firm / office menu items (legacy runtime NAV patches)', () => {
-  it('inserts opomeni and mailhist after the documents (Влез, Излез, Услуги, Профактури, Одобренија, Е-Фактура together), payBatch after plati, firmiResh after firmiImp', () => {
+  it('inserts opomeni and mailhist at the end of „Излез ▸“ (after Е-Фактура), payBatch after plati, firmiResh after firmiImp', () => {
     const m = ids('Материјално');
-    expect(m.slice(m.indexOf('izlez'), m.indexOf('izlez') + 8)).toEqual(['izlez', 'uslugi', 'profakturi', 'odobrenija', 'povratDob', 'efaktura', 'opomeni', 'mailhist']);
+    expect(m.slice(m.indexOf('izlez'), m.indexOf('izlez') + 9)).toEqual(['izlez', 'profakturi', 'odobrenija', 'ispratnici', 'skanIzlez', 'efaktura', 'opomeni', 'mailhist', 'uslugi']); // porachki: industry module only
+    expect(m.slice(m.indexOf('vlez'), m.indexOf('vlez') + 6)).toEqual(['vlez', 'skan', 'skanFisk', 'masovno', 'uvozMat', 'povratDob']);
     const f = ids('Финансово');
     expect(f[f.indexOf('plati') + 1]).toBe('payBatch');
     const fi = ids('Фирми');
