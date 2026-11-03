@@ -63,7 +63,7 @@ describe('prompts are verbatim legacy', () => {
   };
   it('static prompts', () => {
     expect(PUR_PROMPT).toBe(tpl('PUR_PROMPT'));
-    expect(IMP_PROMPT).toBe(tpl('IMP_PROMPT'));
+    expect(IMP_PROMPT).toBe(tpl('IMP_PROMPT')); // the worker sends IMP_PROMPT + IMP_ADD (ЕЦД VAT per rate)
     expect(EMP_PROMPT).toBe(tpl('EMP_PROMPT'));
     expect(BLG_PROMPT).toBe(tpl('BLG_PROMPT'));
   });
@@ -174,8 +174,12 @@ describe('ai.read-document job', () => {
       { number: '35/2026', date: '2026-02-07', buyerName: 'Нов купувач', lines: [{ name: 'Дезинсекција', qty: 1, price: 1000, amount: 1000, rate: 0 }], groups: [{ rate: 0, base: 1000, vat: 0 }], total: 1000 },
     ] })]);
     setAiClient(api);
+    // the firm's rule „провери“ for an invoice without VAT and without a note (the default `ded` books it as exempt, чл. 24)
+    const [f0] = await pg.select({ settings: schema.firms.settings }).from(schema.firms).where(eq(schema.firms.id, firmId));
+    await pg.update(schema.firms).set({ settings: { ...((f0!.settings ?? {}) as object), scanNoVat: 'check' } }).where(eq(schema.firms.id, firmId));
     const id = await doc('sale', await file('g.jpg', 'image/jpeg'));
     await runReadDocument(db, id);
+    await pg.update(schema.firms).set({ settings: f0!.settings }).where(eq(schema.firms.id, firmId));
     expect(JSON.stringify(api.calls[0]!.messages[0]!.content)).toContain('VAT NOTE');
     const [d] = await pg.select().from(schema.aiDocuments).where(eq(schema.aiDocuments.id, id));
     expect(d!.drafts[0]).toMatchObject({ status: 'ok', draft: { art32: true, items: [{ rate: 18, price: 1000 }] } });

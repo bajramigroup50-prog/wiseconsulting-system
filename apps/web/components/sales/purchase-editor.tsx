@@ -72,7 +72,20 @@ interface ImpDoc {
   type?: string; issuerName?: string; issuerTaxId?: string; issuerForeign?: boolean; number?: string; date?: string; dueDate?: string;
   currency?: string; exchangeRate?: number; totalCurrency?: number; lines?: { name?: string; unit?: string; qty?: number; price?: number }[];
   base?: number; vatRate?: number; vat?: number; ecd?: string; duty?: number; vatBase?: number; customsVat?: number;
+  vatLines?: { rate?: number; base?: number; vat?: number }[]; tariffLines?: { code?: string; name?: string; value?: number; duty?: number; vatRate?: number }[];
 }
+
+/** Partner of an import cost document: by ЕДБ / tax id first, then by name (case, spaces and Latin / Cyrillic insensitive). */
+const normNm = (s: string) => s.toLowerCase().replace(/[„“"'.,]/g, ' ').replace(/\b(доо(ел)?|ад|dooel|doo|d\.?o\.?o\.?|gmbh|srl|sh\.?p\.?k|ltd|s\.?r\.?l)\b/g, ' ').replace(/\s+/g, ' ').trim();
+function partnerOfDoc(parts: readonly { id: string; name: string; edb: string | null }[], name?: string, tax?: string): string {
+  const t = String(tax ?? '').replace(/\D/g, '');
+  if (t.length >= 7) { const x = parts.find((p) => String(p.edb ?? '').replace(/\D/g, '').endsWith(t.slice(-7))); if (x) return x.id; }
+  const nm = normNm(String(name ?? ''));
+  if (!nm) return '';
+  return parts.find((p) => normNm(p.name) === nm)?.id ?? parts.find((p) => { const q = normNm(p.name); return q.length > 4 && (q.includes(nm) || nm.includes(q)); })?.id ?? '';
+}
+/** Cost slots in order of use: a second transport / forwarding / other invoice goes to the next free slot. */
+const IMP_SLOTS: Record<string, readonly string[]> = { forwarding: ['sped', 't1', 't2', 'dr'], transport: ['trans', 't1', 't2', 'dr'], other_cost: ['t1', 't2', 'dr'] };
 
 export function PurchaseEditor(p: PurchaseEditorProps) {
   const router = useRouter();
@@ -258,13 +271,23 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
     groups: dr.groups.map((g) => ({ account: g.konto, rate: String(g.rate), base: String(g.base), vat: String(g.vat) })),
     stock: dr.stock.length ? dr.stock.map((l) => ({ itemId: l.itemId, name: l.name, code: l.code, barcode: l.barcode, unit: l.unit ?? 'ком', qty: String(l.qty), price: String(l.price), rab: '', amount: l.amount ? String(l.amount) : '', cn: '', dep: '', sp: l.sp === undefined ? '' : String(l.sp), type: l.type ?? '', rate: String(l.rate ?? ''), isNew: l.isNew })) : o.stock,
   }));
-  const mergeImp = (docs: ImpDoc[]) => setD((o) => {
+  /** Cost partners the reading could not match: created as suppliers after the merge (`addSupplierAction`). */
+  const needParts = useRef<{ k: string; name: string; edb: string; foreign: boolean }[]>([]);
+  const mergeImp = (docs: ImpDoc[]) => {
+    const o = d;
     let x: EdPurchase = { ...o, imp: true, data: { ...o.data }, costs: { ...o.costs } };
-    const slot = (k: string, base: number, rate: number, vat: number, doc: ImpDoc, foreign: boolean) => {
-      const pid = parts.find((pp) => pp.name.toLowerCase() === String(doc.issuerName ?? '').toLowerCase())?.id ?? '';
-      x.costs[k] = { ...(x.costs[k] ?? blankCost()), amount: String(r2(base)), doc: doc.number ?? '', date: doc.date ?? '', due: doc.dueDate ?? '', partnerId: pid, foreign,
-        lines: [{ base: String(r2(base)), rate: String(rate), vat: String(r2(vat)) }, { base: '', rate: '18', vat: '' }, { base: '', rate: '18', vat: '' }] };
+    const used = new Set<string>();
+    const free = (type: string) => (IMP_SLOTS[type] ?? ['t1']).find((k) => !used.has(k) && !n(x.costs[k]?.amount) && !(x.costs[k]?.lines ?? []).some((l) => n(l.base)))
+      ?? (IMP_SLOTS[type] ?? ['t1'])[0]!;
+    const slot = (k: string, base: number, lines: { base: number; rate: number; vat: number }[], doc: ImpDoc, foreign: boolean) => {
+      used.add(k);
+      const pid = partnerOfDoc(parts, doc.issuerName, doc.issuerTaxId);
+      if (!pid && doc.issuerName) needParts.current.push({ k, name: doc.issuerName, edb: String(doc.issuerTaxId ?? '').replace(/\D/g, '').length === 13 ? String(doc.issuerTaxId).replace(/\D/g, '') : '', foreign });
+      const L = lines.slice(0, 3).map((l) => ({ base: String(r2(l.base)), rate: String(l.rate), vat: String(r2(l.vat)) }));
+      while (L.length < 3) L.push({ base: '', rate: '18', vat: '' });
+      x.costs[k] = { ...(x.costs[k] ?? blankCost()), amount: String(r2(base)), doc: doc.number ?? '', date: doc.date ?? '', due: doc.dueDate ?? '', partnerId: pid, foreign, lines: L };
     };
+    const one = (doc: ImpDoc) => [{ base: n(doc.base), rate: n(doc.vatRate), vat: n(doc.vat) }];
     for (const doc of docs) {
       if (doc.type === 'supplier_invoice') {
         x = { ...x, number: doc.number || x.number, docDate: doc.date || x.docDate, due: doc.dueDate || x.due, supplierName: x.partnerId ? x.supplierName : doc.issuerName ?? '', supplierEdb: doc.issuerTaxId ?? x.supplierEdb,
@@ -273,16 +296,17 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
         if ((doc.lines ?? []).length && !x.stock.length) x.stock = (doc.lines ?? []).map((l) => ({ ...blankStock(), name: l.name ?? '', unit: l.unit || 'ком', qty: String(l.qty ?? ''), price: String(l.price ?? '') }));
       } else if (doc.type === 'customs_declaration') {
         x = { ...x, data: { ...x.data, ecd: doc.ecd || x.data.ecd || '' }, fx: doc.exchangeRate ? String(doc.exchangeRate) : x.fx, currency: doc.currency || x.currency };
-        slot('car', n(doc.duty), 18, n(doc.customsVat), doc, false);
-        const c = x.costs.car!;
-        if (doc.vatBase) c.lines = [{ base: String(r2(n(doc.vatBase))), rate: '18', vat: String(r2(n(doc.customsVat))) }, ...c.lines.slice(1)];
-      } else if (doc.type === 'forwarding') slot('sped', n(doc.base), n(doc.vatRate), n(doc.vat), doc, !!doc.issuerForeign);
-      else if (doc.type === 'transport') slot('trans', n(doc.base), n(doc.vatRate), n(doc.vat), doc, !!doc.issuerForeign);
-      else if (doc.type === 'other_cost') slot(n(x.costs.t1?.amount) ? 't2' : 't1', n(doc.base), n(doc.vatRate), n(doc.vat), doc, !!doc.issuerForeign);
+        /* the customs VAT per rate (5 / 10 / 18 %), else one line at the read rate (18 % when none) */
+        const VL = (doc.vatLines ?? []).filter((l) => n(l.base) || n(l.vat)).map((l) => ({ base: n(l.base), rate: n(l.rate) || 18, vat: n(l.vat) }));
+        slot('car', n(doc.duty), VL.length ? VL : [{ base: n(doc.vatBase), rate: n(doc.vatRate) || 18, vat: n(doc.customsVat) }], { ...doc, issuerName: doc.issuerName || 'Царинска управа' }, false);
+        /* the tariff lines (customs value in denars) into the 15 „Царински наименувања“ when still empty */
+        const T = (doc.tariffLines ?? []).map((t) => n(t.value)).filter((v) => v > 0);
+        if (T.length && !x.cnames.some((v) => n(v))) { const c = T.slice(0, 15).map((v) => String(r2(v))); while (c.length < 15) c.push(''); x.cnames = c; }
+      } else if (IMP_SLOTS[doc.type ?? '']) slot(free(doc.type!), n(doc.base), one(doc), doc, !!doc.issuerForeign);
     }
     if (n(x.data.fxAmt) && n(x.fx)) x.groups = [{ account: x.groups[0]?.account && /^[036]/.test(x.groups[0].account) ? x.groups[0].account : tk.goods, rate: '0', base: String(r2(n(x.data.fxAmt) * n(x.fx))), vat: '0' }];
-    return x;
-  });
+    setD(x);
+  };
   useEffect(() => {
     if (!reading.length) return;
     const t = setInterval(async () => {
@@ -312,7 +336,20 @@ export function PurchaseEditor(p: PurchaseEditorProps) {
           const done = S.filter((s) => s.status === 'done' || s.status === 'error');
           if (done.length === imp.length) {
             const ok = done.filter((s) => s.status === 'done').map((s) => s.result as ImpDoc);
-            if (ok.length) mergeImp(ok);
+            if (ok.length) {
+              needParts.current = [];
+              mergeImp(ok);
+              /* the forwarder / carrier / Царинска управа not yet among the partners: added as suppliers and linked */
+              setTimeout(async () => {
+                const N = needParts.current.splice(0).filter((q, i, A) => A.findIndex((z) => z.k === q.k) === i);
+                for (const q of N) {
+                  const r = await addSupplierAction(q.name, q.edb, q.foreign);
+                  if (!r.id) continue;
+                  addPart({ id: r.id, code: r.code ?? null, name: r.name ?? q.name, edb: r.edb ?? null });
+                  setD((o) => (o.costs[q.k] && !o.costs[q.k]!.partnerId ? { ...o, costs: { ...o.costs, [q.k]: { ...o.costs[q.k]!, partnerId: r.id! } } } : o));
+                }
+              }, 0);
+            }
             const err = done.filter((s) => s.status === 'error').length;
             setToast(ok.length ? aiReadDoneMsg([`${ok.length} документи за увоз${err ? ` (${err} не се прочитани)` : ''}`]) : AI_OPEN_FAILED_MSG);
             setReading((R) => R.filter((r) => r.kind !== 'imp'));

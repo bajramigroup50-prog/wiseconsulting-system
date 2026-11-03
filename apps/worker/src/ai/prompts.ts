@@ -73,6 +73,13 @@ Rules:
 - forwarding = invoice from špediter/customs agent (шпедиција) for their service; transport = invoice for freight/превоз; other_cost = any other invoice for costs of this import (insurance, bank fee, storage...). For these fill base (amount without VAT in denars), vatRate (18/10/5/0), vat (denars), issuerName, issuerTaxId, number, date, dueDate. If such an invoice is in foreign currency put currency, totalCurrency and exchangeRate too.
 - Amounts are plain numbers (no thousands separators). Dates ISO. Use 0 or "" for missing values. Keep names in the original language.`;
 
+/**
+ * Added to `IMP_PROMPT` (not in legacy): the ЕЦД VAT per rate (imports at 5 / 10 / 18 %) and the tariff lines with
+ * their duty and VAT rate, so the import is filled per rate instead of one 18 % line.
+ */
+export const IMP_ADD = `
+- customs_declaration, more detail: "vatLines":[{"rate":18|10|5,"base":number,"vat":number}] = the customs VAT (B00) per VAT rate in denars (one entry per rate that appears; base = the VAT base for that rate); each tariffLines entry may also carry "name" (goods description, field 31), "duty" (its A00 in denars) and "vatRate".`;
+
 /** Legacy `EMP_PROMPT` (6044–6046) — employee documents (kind `emp`, legacy `readEmployeeDocs`). */
 export const EMP_PROMPT = `This is an employment document from North Macedonia (договор за вработување, решение, М1/М2 пријава, лична карта or similar). Extract the employee. Reply with ONLY JSON:
 {"name":string,"embg":string,"address":string,"position":string,"start":"YYYY-MM-DD","end":"YYYY-MM-DD"|"","contract":"неопределено"|"определено"|"","hoursWeek":number,"netSalary":number,"grossSalary":number,"bankAcc":string,"bank":string,"stazPrevYears":number}

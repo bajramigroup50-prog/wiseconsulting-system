@@ -60,6 +60,8 @@ function multiFound(docs: AiDocument[], names: Map<string, string>, parents: Map
   return [...by.values()].filter((g) => g.n > 1);
 }
 
+/** A customs declaration, forwarder or carrier: belongs to an import (Влез → Увозна → Девизна), not a purchase of its own. */
+const IMP_RE = /царин|ецд|mrn|шпедиц|špedic|spedic|spediz|forward|транспорт|transport|превоз|freight|logisti|логисти/i;
 type PurDraft = { partnerId?: string; supplierName?: string; number?: string; date?: string; groups?: { base: number; vat: number }[]; stock?: unknown[]; art32?: boolean };
 type SaleDraft = { partnerId?: string; buyer?: { name?: string }; match?: DraftPartnerMatch; number?: string; date?: string; total?: number; calcTotal?: number };
 
@@ -220,7 +222,7 @@ export async function ScanCenter({ mode, sp }: { mode: 'skan' | 'masovno' | 'mas
             return (
               <tr key={r.doc.id + ':' + r.i}>
                 <td>{k + 1}</td><td>{file}</td>
-                <td>{d.partnerId ? P.get(d.partnerId) : d.supplierName}</td><td>{d.number}</td><td>{dmy(d.date)}</td>
+                <td>{d.partnerId ? P.get(d.partnerId) : d.supplierName}{IMP_RE.test(`${d.partnerId ? P.get(d.partnerId) ?? '' : d.supplierName ?? ''} ${file ? String((r.doc as { name?: string }).name ?? '') : ''}`) && <> <span className="pill warn" title="Царинска декларација, шпедиција или транспорт за увоз: отворете ја увозната фактура (Влез → Увозна) и повлечете го документот во картичката „Девизна“ → „Прочитај ги документите за увоз“ – така се внесува како зависен трошок на увозот, а не како посебна фактура.">увоз?</span></>}</td><td>{d.number}</td><td>{dmy(d.date)}</td>
                 <td className="n">{x ? fmt(b) : ''}</td><td className="n">{x ? fmt(v) : ''}</td><td className="n">{x ? fmt(b + v) : ''}</td><td className="n">{x ? (d.stock ?? []).length : ''}</td>
                 {status}{acts}
               </tr>);
