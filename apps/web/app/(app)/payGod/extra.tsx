@@ -14,7 +14,7 @@ export const MM = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '
 type Runs = Awaited<ReturnType<typeof yearRuns>>;
 
 function Tabs({ k }: { k: string }) {
-  const T = [['st', 'Рекапитулар по ставки'], ['oe', 'По организациони единици'], ['bol', 'Боледувања и ФЗО']] as const;
+  const T = [['st', 'Рекапитулар по ставки'], ['oe', 'По организациони единици'], ['kum', 'Кумулативна пресметка'], ['bol', 'Боледувања и ФЗО']] as const;
   return (
     <div className="row" style={{ gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
       <Link className="btn sm ghost" href="/payGod">← Годишен извештај</Link>
@@ -84,6 +84,71 @@ export async function OeReport({ runs, year, firmId }: { runs: Runs; year: numbe
         <div id="oeArea"><h2>Бруто</h2><MonthTable id="oeG" head="Организациона единица" rows={rG} /><h2>Нето за исплата</h2><MonthTable id="oeN" head="Организациона единица" rows={rN} /></div>
         <p className="note">Организационата единица се внесува во податоците на вработениот (поле „ОЕ“).</p>
       </> : <div className="card empty">Нема пресметани плати за {year}.</div>}
+    </>
+  );
+}
+
+/**
+ * „Кумулативна пресметка“ (Helix KumulativVrabOE / KumulativPoOE): per employee for the months `od`–`do`, grouped by
+ * организациона единица with a subtotal each – часови, бруто, придонеси, данок, задршки, неоданочиви, нето за исплата.
+ */
+export async function KumReport({ runs, year, firmId, od, to }: { runs: Runs; year: number; firmId: string; od?: string; to?: string }) {
+  const oeOf = new Map((await firmEmployees(firmId)).map((e) => [e.id, (e.oe ?? '').trim()]));
+  const mo = (v: string | undefined, d: string) => (v && /^(0[1-9]|1[0-2])$/.test(v) ? v : d);
+  let a = mo(od, '01'), b = mo(to, '12');
+  if (a > b) [a, b] = [b, a];
+  const COLS = [['h', 'Часови'], ['g', 'Бруто'], ['c', 'Придонеси'], ['t', 'Данок'], ['d', 'Задршки'], ['x', 'Неоданочиви'], ['n', 'Нето за исплата']] as const;
+  type V = Record<(typeof COLS)[number][0], number>;
+  const zero = (): V => ({ h: 0, g: 0, c: 0, t: 0, d: 0, x: 0, n: 0 });
+  const E = new Map<string, { oe: string; no: string; name: string; embg: string; months: number; v: V }>();
+  for (const p of runs) {
+    const mm = p.month.slice(5, 7);
+    if (mm < a || mm > b) continue;
+    for (const e of p.emps) {
+      const T = empCalc(e, p.params).T, k = e.empId || (e.no ?? '') + '|' + e.name;
+      const o = E.get(k) ?? E.set(k, { oe: oeOf.get(e.empId) || 'Без организациона единица', no: e.no ?? '', name: e.name, embg: e.embg ?? '', months: 0, v: zero() }).get(k)!;
+      o.months++;
+      o.v.h += T.hours; o.v.g += T.gross + T.dopl; o.v.c += T.contr; o.v.t += T.tax; o.v.d += T.ded; o.v.x += T.nep; o.v.n += T.net;
+    }
+  }
+  const rows = [...E.values()].sort((x, y) => x.oe.localeCompare(y.oe, 'mk') || x.no.localeCompare(y.no, 'mk', { numeric: true }) || x.name.localeCompare(y.name, 'mk'));
+  const oes = [...new Set(rows.map((r) => r.oe))];
+  const sum = (rs: typeof rows): V => rs.reduce((s, r) => { for (const [c] of COLS) s[c] += r.v[c]; return s; }, zero());
+  const f = (c: string, v: number) => (c === 'h' ? fq(v) : fmt(v));
+  const per = a === '01' && b === '12' ? String(year) : `${a}.${year} – ${b}.${year}`;
+  const csv: Cell[][] = [['ОЕ', 'Шифра', 'Вработен', 'ЕМБГ', 'Месеци', ...COLS.map((c) => c[1])]];
+  for (const oe of oes) {
+    const rs = rows.filter((r) => r.oe === oe);
+    for (const r of rs) csv.push([r.oe, r.no, r.name, r.embg, r.months, ...COLS.map(([c]) => r.v[c])]);
+    if (oes.length > 1) csv.push([oe, '', 'Вкупно ОЕ', '', '', ...COLS.map(([c]) => sum(rs)[c])]);
+  }
+  csv.push(['', '', 'ВКУПНО', '', '', ...COLS.map(([c]) => sum(rows)[c])]);
+  const sel = (n: string, v: string) => <select name={n} defaultValue={v}>{MM.map((x) => <option key={x} value={x}>{x}</option>)}</select>;
+  return (
+    <>
+      <Hd t="Кумулативна пресметка на плати" sub={`${per} · по вработен и организациона единица`} />
+      <Tabs k="kum" />
+      <form className="row" style={{ gap: 6, marginBottom: 8, alignItems: 'center' }}>
+        <input type="hidden" name="k" value="kum" />
+        <span className="mini">Од месец</span>{sel('od', a)}<span className="mini">до</span>{sel('do', b)}<button className="btn sm">Прикажи</button>
+      </form>
+      {rows.length ? <>
+        <div className="row"><ExportBar name={`Kumulativ_plati_${year}_${a}-${b}`} title={`Кумулативна пресметка на плати ${per}`} rows={csv} pdf="#kumArea" landscape /></div>
+        <div className="tw" id="kumArea"><table className="dense">
+          <thead><tr><th>Шифра</th><th>Вработен</th><th>ЕМБГ</th><th className="n">Месеци</th>{COLS.map(([c, l]) => <th key={c} className="n">{l}</th>)}</tr></thead>
+          {oes.map((oe) => {
+            const rs = rows.filter((r) => r.oe === oe), s = sum(rs);
+            return (
+              <tbody key={oe}>
+                {oes.length > 1 && <tr><td colSpan={4 + COLS.length}><b>{oe}</b></td></tr>}
+                {rs.map((r, i) => <tr key={i}><td>{r.no}</td><td>{r.name}</td><td>{r.embg}</td><td className="n">{r.months}</td>{COLS.map(([c]) => <td key={c} className="n">{f(c, r.v[c])}</td>)}</tr>)}
+                {oes.length > 1 && <tr><td colSpan={4}><i>Вкупно {oe}</i></td>{COLS.map(([c]) => <td key={c} className="n"><i>{f(c, s[c])}</i></td>)}</tr>}
+              </tbody>
+            );
+          })}
+          <tfoot><tr><td colSpan={4}>ВКУПНО</td>{COLS.map(([c]) => <td key={c} className="n">{f(c, sum(rows)[c])}</td>)}</tr></tfoot>
+        </table></div>
+      </> : <div className="card empty">Нема пресметани плати за {per}.</div>}
     </>
   );
 }

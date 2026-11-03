@@ -12,7 +12,7 @@ import { firmEmployees, payPage, yearRuns } from '@/lib/payroll/server';
 import { ActionForm } from '@/components/action-form';
 import { RowAction } from '@/components/row-action';
 import { payLoanDelAction, payLoanSaveAction } from './actions';
-import { BolReport, OeReport, StavkiReport } from './extra';
+import { BolReport, KumReport, OeReport, StavkiReport } from './extra';
 import { yearRows } from '@/lib/payroll/slip';
 import { DownloadCsv } from '@/components/download-csv';
 import { XlsxButton } from '@/components/vp-tools';
@@ -23,13 +23,14 @@ const MM = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '1
 const LAB = { n: 'Нето за исплата', g: 'Бруто', c: 'Придонеси', t: 'Данок', h: 'Часови', d: 'Задршки', x: 'Неоданочиви' } as const;
 type K = keyof typeof LAB;
 
-export default async function PayGodPage({ searchParams }: { searchParams: Promise<{ k?: string; m?: string }> }) {
+export default async function PayGodPage({ searchParams }: { searchParams: Promise<{ k?: string; m?: string; od?: string; do?: string }> }) {
   const sp = await searchParams;
   const { firm, year } = await payPage('payGod');
   if (!firm) return <NoFirm t="Годишен извештај за плати" />;
   if (sp.k === 'kr') return <Loans firmId={firm.id} />;
   if (sp.k === 'st') return <StavkiReport runs={await yearRuns(firm.id, year)} year={year} />;
   if (sp.k === 'oe') return <OeReport runs={await yearRuns(firm.id, year)} year={year} firmId={firm.id} />;
+  if (sp.k === 'kum') return <KumReport runs={await yearRuns(firm.id, year)} year={year} firmId={firm.id} od={sp.od} to={sp.do} />;
   if (sp.k === 'bol') return <BolReport runs={await yearRuns(firm.id, year)} year={year} month={sp.m} />;
   const K: K = (sp.k && sp.k in LAB ? sp.k : 'n') as K;
   const rows = yearRows(await yearRuns(firm.id, year));
@@ -44,7 +45,7 @@ export default async function PayGodPage({ searchParams }: { searchParams: Promi
         {rows.length > 0 && <XlsxButton name={`Godisen_izvestaj_plati_${year}.xlsx`} label="Excel" sheets={[{ name: `Плати ${year}`, rows: csv }]} />}
         {rows.length > 0 && <DownloadCsv name={`Godisen_izvestaj_plati_${year}.csv`} rows={csv} label="CSV" />}
       </Hd>
-      <div className="row" style={{ gap: 6, marginBottom: 8 }}>{(Object.keys(LAB) as K[]).map((k) => <Link key={k} className={'btn sm' + (K === k ? ' pri' : '')} href={`/payGod?k=${k}`}>{LAB[k]}</Link>)}<Link className="btn sm" href="/payGod?k=kr">💳 Кредити и задршки</Link><Link className="btn sm" href="/payGod?k=st">Рекапитулар по ставки</Link><Link className="btn sm" href="/payGod?k=oe">По ОЕ</Link><Link className="btn sm" href="/payGod?k=bol">Боледувања и ФЗО</Link></div>
+      <div className="row" style={{ gap: 6, marginBottom: 8 }}>{(Object.keys(LAB) as K[]).map((k) => <Link key={k} className={'btn sm' + (K === k ? ' pri' : '')} href={`/payGod?k=${k}`}>{LAB[k]}</Link>)}<Link className="btn sm" href="/payGod?k=kr">💳 Кредити и задршки</Link><Link className="btn sm" href="/payGod?k=st">Рекапитулар по ставки</Link><Link className="btn sm" href="/payGod?k=oe">По ОЕ</Link><Link className="btn sm" href="/payGod?k=kum">Кумулативна пресметка</Link><Link className="btn sm" href="/payGod?k=bol">Боледувања и ФЗО</Link></div>
       {rows.length ? (
         <div className="tw"><table className="dense">
           <thead><tr><th>Шифра</th><th>Вработен</th>{MM.map((x) => <th key={x} className="n">{x}</th>)}<th className="n">Вкупно</th></tr></thead>
