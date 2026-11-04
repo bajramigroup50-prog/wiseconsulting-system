@@ -18,6 +18,12 @@ x-env: &app-env
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASS: ${SMTP_PASS:-}
   TZ: Europe/Skopje
+  # the office brand of this server (packages/core/src/brand.ts); empty = WISE CONSULTING
+  APP_DOMAIN: ${DOMAIN}
+  BRAND_NAME: ${BRAND_NAME:-}
+  BRAND_SHORT: ${BRAND_SHORT:-}
+  BRAND_LETTER: ${BRAND_LETTER:-}
+  BRAND_SITE: ${BRAND_SITE:-}
 
 services:
   postgres:
