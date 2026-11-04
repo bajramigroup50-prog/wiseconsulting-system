@@ -92,7 +92,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
       </ActionForm>
 
       {P.map((p) => (
-        <div key={p.id} className="card">
+        <div key={p.id} id={`pkg-${p.id}`} className="card">
           <div className="hd"><h2 style={{ fontSize: 15 }}>{p.name}{p.recipient && <span className="mk"> · {p.recipient}</span>}</h2>
             <div className="row">
               <a className="btn sm pri" href={`/api/office/pkg/${p.id}`}>⬇ ZIP</a>
@@ -101,9 +101,20 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
           <ol style={{ margin: 0 }}>{p.items.map((i, k) => <li key={k}>{i.label}</li>)}</ol>
           <span className="mini">{dmyHm(p.createdAt)}</span>
           {/* legacy PKG_REP: generated reports, rendered by `pdf.render` and added to this package (`?pkg=`) */}
+          {/* the period of the reports added to this package (ДДВ-04 of every tax period inside it, the books and the bilans of exactly that range) */}
+          <form action={`/paket#pkg-${p.id}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8 }}>
+            <b className="mini">Период на извештаите:</b>
+            <label className="mini">од <input name="from" type="date" defaultValue={from} style={{ width: 'auto' }} /></label>
+            <label className="mini">до <input name="to" type="date" defaultValue={to} style={{ width: 'auto' }} /></label>
+            {sp.pre && <input type="hidden" name="pre" value={sp.pre} />}
+            <input type="hidden" name="age" value={String(age)} />
+            <button className="btn sm">Примени</button>
+            {badPeriod ? <span className="pill bad">периодот не е точен</span> : <span className="mini mut">{dmy(from)} – {dmy(to)}</span>}
+          </form>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            {REPORTS.map(([k, href, label]) => <a key={k} className={`btn sm ${pre?.rep.includes(k) ? 'pri' : ''}`} href={`${href}${href.includes('?') ? '&' : '?'}pkg=${p.id}&from=${from}&to=${to}`} target="_blank" rel="noopener">+ {label}</a>)}
+            {REPORTS.map(([k, href, label]) => badPeriod ? <span key={k} className="btn sm" aria-disabled>+ {label}</span> : <a key={k} className={`btn sm ${pre?.rep.includes(k) ? 'pri' : ''}`} href={`${href}${href.includes('?') ? '&' : '?'}pkg=${p.id}&from=${from}&to=${to}`} target="_blank" rel="noopener">+ {label}</a>)}
           </div>
+          <p className="mini mut" style={{ margin: '4px 0 0' }}>ДДВ-04: секој даночен период што е цел во периодот · книгите и бруто билансот: точно од – до · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).</p>
           {/* legacy `pkgMail` / `pkgMailGo` */}
           <ActionForm action={mailPackage} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             <input type="hidden" name="id" value={p.id} />

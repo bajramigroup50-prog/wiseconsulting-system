@@ -6,7 +6,8 @@ import { db } from './db';
 import { vatSource } from './vat-source';
 import { DT_DEF, periodShortLabel } from './vat-view';
 
-export type InspRow = { l: string; F: Record<string, number> };
+/** `p` = the VAT period (`2026-03`, `2026-Т1`) of the row. */
+export type InspRow = { l: string; p: string; F: Record<string, number> };
 
 const list = (v: string | string[] | undefined) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
@@ -30,12 +31,12 @@ export async function inspTables(firm: Firm, YS: readonly number[], mode: 'month
   return Promise.all(YS.map(async (y) => {
     if (mode === 'per') {
       const ov = await vatYearOverview(db(), firm, y, vatSource);
-      return { y, rows: ov.periods.map((p) => ({ l: periodShortLabel(p.period), F: p.fields })) };
+      return { y, rows: ov.periods.map((p) => ({ l: periodShortLabel(p.period), p: p.period, F: p.fields })) };
     }
     const data = await vatSource.load(db(), firm, `${y}-01-01`, `${y}-12-31`, ctx);
     return { y, rows: Array.from({ length: 12 }, (_, i) => {
       const p = `${y}-${String(i + 1).padStart(2, '0')}`;
-      return { l: periodShortLabel(p), F: ddv04FromResult(ddvFor(data.docs, p, 'month', ctx, { travel: data.travel })) };
+      return { l: periodShortLabel(p), p, F: ddv04FromResult(ddvFor(data.docs, p, 'month', ctx, { travel: data.travel })) };
     }) };
   }));
 }

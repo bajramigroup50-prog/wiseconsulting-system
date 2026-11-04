@@ -54,8 +54,9 @@ export interface VatBookData {
 }
 
 /** One VAT book with its totals and the reconciliation against ДДВ-04 (legacy `dkOut` / `dkIn` / `dkCheck`). */
-export async function loadVatBook(firm: Firm, year: number, t: BookKind, sel: string): Promise<VatBookData> {
-  const [from, to] = bookRange(sel, year);
+export async function loadVatBook(firm: Firm, year: number, t: BookKind, sel: string, range?: [string, string]): Promise<VatBookData> {
+  /* `range` = an exact from–to (a document package's period): no ДДВ-04 reconciliation, the periods need not be whole */
+  const [from, to] = range ?? bookRange(sel, year);
   const ctx = await loadVatPostingContext(db(), firm);
   const data = await vatSource.load(db(), firm, from, to, ctx);
   const opts = { partners: data.partners, travel: data.travel };
@@ -63,7 +64,7 @@ export async function loadVatBook(firm: Firm, year: number, t: BookKind, sel: st
   const sum = vatBookSum(rows, t);
   let check: VatBookData['check'] = null;
   const kind = firmVatPeriodKind(firm);
-  const P = firm.vatRegistered ? checkPeriods(sel, year, kind) : null;
+  const P = firm.vatRegistered && !range ? checkPeriods(sel, year, kind) : null;
   if (P) {
     const s: Record<string, number> = {};
     const add = (k: string, v: number) => { s[k] = (s[k] ?? 0) + v; };
