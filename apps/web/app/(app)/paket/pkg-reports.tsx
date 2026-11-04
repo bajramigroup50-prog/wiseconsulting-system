@@ -53,8 +53,12 @@ export function PkgReports({ pkg, reports, picked, from: f0, to: t0, ks: k0, not
         {bad && <span className="pill bad">периодот не е точен</span>}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 6 }}>
-        {reports.map(([k, , label]) => (
-          <label key={k} className="chk"><input type="checkbox" checked={sel.has(k)} onChange={() => flip(k)} /> {label}</label>
+        {reports.map(([k, href, label]) => (
+          <span key={k} style={{ whiteSpace: 'nowrap' }}>
+            <label className="chk"><input type="checkbox" checked={sel.has(k)} onChange={() => flip(k)} /> {label}</label>
+            {/* only to look at it (a new tab, not added to the package) */}
+            {!bad && <a className="mini" href={urlOf(k, href)} target="_blank" rel="noopener" title="Отвори го за преглед (не се додава во пакетот)" style={{ marginLeft: 4 }}>👁 види</a>}
+          </span>
         ))}
       </div>
       {sel.has('kart') && (
