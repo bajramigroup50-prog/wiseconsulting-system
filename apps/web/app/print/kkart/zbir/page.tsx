@@ -1,7 +1,8 @@
 /**
  * „Збирна аналитичка картица“ (Бруто биланс – рекапитулар, F5 in the old program): the account card of every analytic
  * konto of the trial balance's range (Префикс / Суфикс / Од – До конто, search, partner) in one print, one card after
- * another (`kkTable(X,true)` each), landscape.
+ * another (`kkTable(X,true)` each), landscape. `ks` = a list of konto prefixes („1200,1210,2200,7“ – a document package's
+ * cards: those kontos and every konto of class 7 with turnover).
  */
 import { Fragment } from 'react';
 import { dmy } from '@/lib/fmt';
@@ -16,14 +17,17 @@ import { printGuard } from '../../guard';
 export const metadata = { title: 'Збирна аналитичка картица' };
 
 const MAX = 200;
-type SP = { from?: string; to?: string; pre?: string; suf?: string; kf?: string; kt?: string; q?: string; p?: string };
+type SP = { from?: string; to?: string; pre?: string; suf?: string; kf?: string; kt?: string; q?: string; p?: string; ks?: string };
 
 export default async function PrintKkZbir({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const { firm, year } = await printGuard('bilanc');
   const from = inYearOr(sp.from, year, `${year}-01-01`), to = inYearOr(sp.to, year, `${year}-12-31`);
   const q = (sp.q ?? '').trim();
-  let K = bbCardKontos(await aggregatedLines(firm.id, `${year}-01-01`, to), bbFilterOf(sp), MAX + 1);
+  const KS = (sp.ks ?? '').split(/[\s,;]+/).filter((x) => /^\d{1,10}$/.test(x));
+  // with `ks` the prefixes pick the kontos first, so the limit counts only those (class 7 is not cut off by 1xxx–6xxx)
+  let K = bbCardKontos(await aggregatedLines(firm.id, `${year}-01-01`, to), bbFilterOf(sp), KS.length ? 100000 : MAX + 1);
+  if (KS.length) K = K.filter((k) => KS.some((x) => k.startsWith(x)));
   if (/^\d+$/.test(q)) K = K.filter((k) => k.startsWith(q));
   const more = K.length > MAX;
   K = K.slice(0, MAX);
