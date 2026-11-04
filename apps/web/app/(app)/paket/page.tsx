@@ -1,7 +1,7 @@
 /** Legacy `VIEWS.paket` 8169 … **16838** — document package for a bank / institution, downloaded as one ZIP. */
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, like, sql } from 'drizzle-orm';
 import { DOS_CAT, freshness } from '@wise/core/office';
-import { docPackages, dossierDocs, mailLog, OFFICE_FILE_ENTITY } from '@wise/db';
+import { docPackages, dossierDocs, journalLines, journals, mailLog, OFFICE_FILE_ENTITY } from '@wise/db';
 import { db } from '@/lib/db';
 import { filesOf, officePage, today } from '@/lib/office';
 import { ActionForm } from '@/components/action-form';
@@ -20,8 +20,8 @@ const REPORTS: [string, string, string][] = [
   ['ddvt', '/print/ddvTab?mode=month', 'Табела ДДВ по месеци (за инспектор)'],
   ['zl', '/print/bilanc/zl', 'Заклучен лист'], ['kart', '/print/kkart/zbir', 'Аналитички картици (избраните конта)'],
 ];
-/** Kontos whose analytic cards a bank usually asks for: customers, suppliers, loans, and every revenue konto (class 7). */
-const KART_DEF = '1200 1210 2200 2210 1620 2620 7';
+/** Kontos whose analytic cards a bank usually asks for: customers, suppliers, loans – plus the firm's own revenue kontos (class 7, listed one by one). */
+const KART_DEF = '1200 1210 2200 2210 1620 2620';
 /** Legacy `PKG_PRE` (+ 16580 „🏛 УЈП – еден клик“): reports and the newest dossier document of each listed kind. */
 const PRE: Record<string, { n: string; rep: string[]; dos: string[] }> = {
   ujp: { n: '🏛 УЈП – еден клик', rep: ['bba', 'ddv', 'ddvk', 'ddvt'], dos: [] },
@@ -46,7 +46,11 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
   const year = td.slice(0, 4);
   const from = sp.from || `${year}-01-01`, to = sp.to || td;
   const badPeriod = from > to;
-  const ks = (sp.ks ?? KART_DEF).split(/[\s,;]+/).filter((x) => /^\d{1,10}$/.test(x)).join(' ') || KART_DEF;
+  // the firm's class-7 kontos with turnover in the period, each by its number (not a bare „7“)
+  const k7 = badPeriod ? [] : (await db().selectDistinct({ k: journalLines.account }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .where(and(eq(journalLines.firmId, firm.id), like(journalLines.account, '7%'), sql`${journals.date} between ${from} and ${to}`))).map((r) => r.k).sort();
+  const ksDef = [KART_DEF, ...k7].join(' ');
+  const ks = (sp.ks ?? ksDef).split(/[\s,;]+/).filter((x) => /^\d{1,10}$/.test(x)).join(' ') || ksDef;
   const preDos = new Set(pre ? pre.dos.map((c) => D.find((d) => d.category === c)?.id).filter((x): x is string => !!x) : []);
   const addM = (d: string, m: number) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() + m); return x.toISOString().slice(0, 10); };
   const oldFresh = D.filter((d) => preDos.has(d.id) && freshness(d, td) && td > addM(d.date ?? '1900-01-01', age));
@@ -112,7 +116,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
             <label className="mini">до <input name="to" type="date" defaultValue={to} style={{ width: 'auto' }} /></label>
             {sp.pre && <input type="hidden" name="pre" value={sp.pre} />}
             <input type="hidden" name="age" value={String(age)} />
-            <label className="mini" title="Почеток на контото: 1200 = 1200 и неговите аналитики, 7 = сите конта од класа 7 со промет">картици за конта <input name="ks" defaultValue={ks} style={{ width: 230 }} /></label>
+            <label className="mini" title="Почеток на контото: 1200 = 1200 и неговите аналитики, 7 = сите конта од класа 7 со промет">картици за конта <input name="ks" defaultValue={ks} style={{ width: 'auto', minWidth: 260 }} size={Math.max(30, ks.length + 2)} /></label>
             <button className="btn sm">Примени</button>
             {badPeriod ? <span className="pill bad">периодот не е точен</span> : <span className="mini mut">{dmy(from)} – {dmy(to)}</span>}
           </form>
