@@ -123,12 +123,12 @@ export async function KumReport({ runs, year, firmId, od, to }: { runs: Runs; ye
     if (oes.length > 1) csv.push([oe, '', 'Вкупно ОЕ', '', '', ...COLS.map(([c]) => sum(rs)[c])]);
   }
   csv.push(['', '', 'ВКУПНО', '', '', ...COLS.map(([c]) => sum(rows)[c])]);
-  const sel = (n: string, v: string) => <select name={n} defaultValue={v}>{MM.map((x) => <option key={x} value={x}>{x}</option>)}</select>;
+  const sel = (n: string, v: string) => <select name={n} defaultValue={v} style={{ width: 'auto', minWidth: 70 }}>{MM.map((x) => <option key={x} value={x}>{x}</option>)}</select>;
   return (
     <>
       <Hd t="Кумулативна пресметка на плати" sub={`${per} · по вработен и организациона единица`} />
       <Tabs k="kum" />
-      <form className="row" style={{ gap: 6, marginBottom: 8, alignItems: 'center' }}>
+      <form style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, alignItems: 'center' }}>
         <input type="hidden" name="k" value="kum" />
         <span className="mini">Од месец</span>{sel('od', a)}<span className="mini">до</span>{sel('do', b)}<button className="btn sm">Прикажи</button>
       </form>
