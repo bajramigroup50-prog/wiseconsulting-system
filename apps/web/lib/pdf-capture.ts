@@ -134,28 +134,31 @@ export async function screenPdf(o: { selector?: string; title: string; sub?: str
   await openPdf({ html, css: pageCss(), title: o.title, landscape: land, head: own ? null : { sub: o.sub ?? '' } });
 }
 
-/** Load a print view in a hidden frame and return its `#printArea` (or `selector`) as PDF input. */
+/**
+ * Fetch a print view (server-rendered) and return its `#printArea` (or `selector`) as PDF input, with the CSS of its
+ * stylesheets. Fetched, not loaded in a frame: the site sends `X-Frame-Options: DENY`, which blocks even the
+ * program's own frames (a hidden frame came back empty: „Документот е празен или не постои“).
+ */
 export async function captureUrl(url: string, selector = '#printArea'): Promise<{ html: string; css: string; landscape: boolean }> {
-  const f = document.createElement('iframe');
-  f.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:900px;border:0;visibility:hidden';
-  f.setAttribute('aria-hidden', 'true');
-  document.body.appendChild(f);
-  try {
-    await new Promise<void>((ok, no) => {
-      const t = setTimeout(() => no(new Error('Прегледот за печатење не се вчита: ' + url)), 60_000);
-      f.onload = () => { clearTimeout(t); ok(); };
-      f.src = url;
-    });
-    const d = f.contentDocument;
-    const el = d?.querySelector(selector) as HTMLElement | null;
-    if (!d || !el || !el.textContent?.trim()) throw new Error('Документот е празен или не постои: ' + url);
-    const c = el.cloneNode(true) as HTMLElement;
-    c.querySelectorAll('.noprint,script').forEach((x) => x.remove());
-    const html = c.id === 'printArea' ? c.outerHTML : `<div id="printArea" style="display:block">${c.outerHTML}</div>`;
-    return { html, css: pageCss(d), landscape: !!el.querySelector('.pdfdoc.land') };
-  } finally {
-    f.remove();
+  let r: Response;
+  try { r = await timed(url, { credentials: 'same-origin', cache: 'no-store' }, 90_000); } catch {
+    throw new Error('Прегледот за печатење не се вчита: ' + url);
   }
+  if (!r.ok || r.redirected && /\/login/.test(r.url)) throw new Error(r.redirected ? 'Најавете се повторно.' : `Прегледот за печатење не се вчита (${r.status}): ${url}`);
+  const d = new DOMParser().parseFromString(await r.text(), 'text/html');
+  const el = d.querySelector(selector) as HTMLElement | null;
+  if (!el || !el.textContent?.trim()) throw new Error('Документот е празен или не постои: ' + url);
+  el.querySelectorAll('.noprint,script').forEach((x) => x.remove());
+  const html = el.id === 'printArea' ? el.outerHTML : `<div id="printArea" style="display:block">${el.outerHTML}</div>`;
+  // the page's stylesheets (same origin) and its <style> blocks, in document order
+  const parts: string[] = [];
+  for (const n of Array.from(d.querySelectorAll<HTMLElement>('link[rel="stylesheet"][href], style'))) {
+    if (n.tagName === 'STYLE') { parts.push(n.textContent ?? ''); continue; }
+    const href = new URL(n.getAttribute('href')!, location.href);
+    if (href.origin !== location.origin) continue;
+    try { const x = await timed(href.href, { cache: 'force-cache' }, 30_000); if (x.ok) parts.push(await x.text()); } catch { /* a missing sheet: rendered without it */ }
+  }
+  return { html, css: parts.join('\n'), landscape: !!el.querySelector('.pdfdoc.land') };
 }
 
 /** Every visible table of the screen as one Excel workbook (a sheet per table, named after the nearest heading). */
