@@ -21,11 +21,13 @@ const REPORTS: [string, string, string][] = [
   ['zl', '/print/bilanc/zl', 'Заклучен лист'], ['kart', '/print/kkart/zbir', 'Аналитички картици (избраните конта)'],
 ];
 /** Kontos whose analytic cards a bank usually asks for: customers, suppliers, loans – plus the firm's own revenue kontos (class 7, listed one by one). */
+/** The VAT reports: never offered for a firm that is not a VAT payer; for a VAT payer only when picked (not in the bank preset). */
+const VAT_REP = new Set(['ddv', 'ddvk', 'ddvt']);
 const KART_DEF = '1200 1210 2200 2210 1620 2620';
 /** Legacy `PKG_PRE` (+ 16580 „🏛 УЈП – еден клик“): reports and the newest dossier document of each listed kind. */
 const PRE: Record<string, { n: string; rep: string[]; dos: string[] }> = {
   ujp: { n: '🏛 УЈП – еден клик', rep: ['bba', 'ddv', 'ddvk', 'ddvt'], dos: [] },
-  bank: { n: 'Банка – кредит', rep: ['bba', 'bb3', 'bs', 'bu', 'zl', 'kart', 'ddv'], dos: ['Тековна состојба (ЦРМ)', 'Тековна состојба – вистински сопственик (ЦРМ)', 'Решение за ДДВ / ЕДБ'] },
+  bank: { n: 'Банка – кредит', rep: ['bba', 'bb3', 'bs', 'bu', 'zl', 'kart'], dos: ['Тековна состојба (ЦРМ)', 'Тековна состојба – вистински сопственик (ЦРМ)', 'Решение за ДДВ / ЕДБ'] },
   lease: { n: 'Лизинг / тендер', rep: ['bb3', 'bs', 'bu', 'db'], dos: ['Тековна состојба (ЦРМ)', 'Тековна состојба – вистински сопственик (ЦРМ)'] },
   ddv: { n: 'ДДВ пријави', rep: ['ddv', 'ddvk'], dos: [] },
   pay: { n: 'Плати', rep: [], dos: [] },
@@ -41,7 +43,10 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
     db().select().from(docPackages).where(eq(docPackages.firmId, firm.id)).orderBy(desc(docPackages.createdAt)),
     db().select().from(mailLog).where(and(eq(mailLog.firmId, firm.id), eq(mailLog.entityType, 'doc_package'))).orderBy(desc(mailLog.createdAt)).limit(15),
   ]);
-  const pre = sp.pre && PRE[sp.pre] ? PRE[sp.pre]! : null;
+  const vat = firm.vatRegistered !== false;
+  const presets = Object.entries(PRE).filter(([k]) => vat || k !== 'ddv');
+  const reports = REPORTS.filter(([k]) => vat || !VAT_REP.has(k));
+  const pre = sp.pre && PRE[sp.pre] && (vat || sp.pre !== 'ddv') ? PRE[sp.pre]! : null;
   const age = sp.age === '6' ? 6 : 3;
   const year = td.slice(0, 4);
   const from = sp.from || `${year}-01-01`, to = sp.to || td;
@@ -63,7 +68,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
       <form className="card">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <span className="mini">Брз избор:</span>
-          {Object.entries(PRE).map(([k, x]) => <a key={k} className={`btn sm ${k === 'ujp' || sp.pre === k ? 'pri' : ''}`} href={`/paket?pre=${k}&age=${age}&from=${from}&to=${to}`}>{x.n}</a>)}
+          {presets.map(([k, x]) => <a key={k} className={`btn sm ${k === 'ujp' || sp.pre === k ? 'pri' : ''}`} href={`/paket?pre=${k}&age=${age}&from=${from}&to=${to}`}>{x.n}</a>)}
           <a className="btn sm ghost" href="/paket">Исчисти</a>
           <label className="mini">Период од <input name="from" type="date" defaultValue={from} /></label>
           <label className="mini">до <input name="to" type="date" defaultValue={to} /></label>
@@ -121,9 +126,9 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
             {badPeriod ? <span className="pill bad">периодот не е точен</span> : <span className="mini mut">{dmy(from)} – {dmy(to)}</span>}
           </form>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            {REPORTS.map(([k, href, label]) => badPeriod ? <span key={k} className="btn sm" aria-disabled>+ {label}</span> : <a key={k} className={`btn sm ${pre?.rep.includes(k) ? 'pri' : ''}`} href={`${href}${href.includes('?') ? '&' : '?'}pkg=${p.id}&from=${from}&to=${to}${k === 'kart' ? `&ks=${encodeURIComponent(ks.replace(/ /g, ','))}` : ''}`} target="_blank" rel="noopener">+ {label}</a>)}
+            {reports.map(([k, href, label]) => badPeriod ? <span key={k} className="btn sm" aria-disabled>+ {label}</span> : <a key={k} className={`btn sm ${pre?.rep.includes(k) ? 'pri' : ''}`} href={`${href}${href.includes('?') ? '&' : '?'}pkg=${p.id}&from=${from}&to=${to}${k === 'kart' ? `&ks=${encodeURIComponent(ks.replace(/ /g, ','))}` : ''}`} target="_blank" rel="noopener">+ {label}</a>)}
           </div>
-          <p className="mini mut" style={{ margin: '4px 0 0' }}>ДДВ-04: секој даночен период што е цел во периодот · книгите, бруто билансот, заклучниот лист и картиците: точно од – до (картиците: само конта со промет) · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).</p>
+          <p className="mini mut" style={{ margin: '4px 0 0' }}>{vat ? 'ДДВ (по избор): ДДВ-04 за секој даночен период што е цел во периодот, книгите точно од – до · ' : 'Фирмата не е ДДВ обврзник – извештаите за ДДВ не се нудат · '}бруто билансот, заклучниот лист и картиците: точно од – до (картиците: само конта со промет) · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).</p>
           {/* legacy `pkgMail` / `pkgMailGo` */}
           <ActionForm action={mailPackage} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             <input type="hidden" name="id" value={p.id} />
