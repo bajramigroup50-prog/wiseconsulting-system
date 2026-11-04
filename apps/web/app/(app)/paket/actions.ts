@@ -42,12 +42,17 @@ export async function mailPackage(_p: ActionState, f: FormData): Promise<ActionS
     const ids = await db().transaction(async (tx) => {
       const [p] = await tx.select().from(docPackages).where(and(eq(docPackages.id, id), eq(docPackages.firmId, firm.id))).limit(1);
       if (!p) throw new OfficeError('Пакетот не постои.');
-      const dIds = p.items.map((i) => i.dossierId).filter((x): x is string => !!x);
+      /* `only` = the titles of the reports ticked on the screen: the package's other generated reports stay out of this
+         mail (the dossier documents put in the package always go) */
+      let only: string[] | null = null;
+      try { const o = JSON.parse(fv(f, 'only') ?? 'null'); if (Array.isArray(o) && o.length) only = o.map(String); } catch { /* none */ }
+      const items = only ? p.items.filter((i) => i.dossierId || only!.includes(i.label)) : p.items;
+      const dIds = items.map((i) => i.dossierId).filter((x): x is string => !!x);
       const L = dIds.length ? await tx.select({ id: files.id }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
         .where(and(eq(fileLinks.entityType, OFFICE_FILE_ENTITY.dossier), inArray(fileLinks.entityId, dIds), eq(files.firmId, firm.id), eq(files.status, 'ready'))) : [];
-      const att = [...new Set([...L.map((x) => x.id), ...p.items.map((i) => i.fileId).filter((x): x is string => !!x)])];
+      const att = [...new Set([...L.map((x) => x.id), ...items.map((i) => i.fileId).filter((x): x is string => !!x)])];
       if (!att.length) throw new OfficeError('Пакетот нема датотеки.');
-      const body = `${p.recipient ? `До: ${p.recipient}\n\n` : ''}${p.coverNote ? p.coverNote + '\n\n' : ''}Во прилог ги доставуваме следните документи (${firm.name}):\n${p.items.map((i, k) => `${k + 1}. ${i.label}`).join('\n')}`;
+      const body = `${p.recipient ? `До: ${p.recipient}\n\n` : ''}${p.coverNote ? p.coverNote + '\n\n' : ''}Во прилог ги доставуваме следните документи (${firm.name}):\n${items.map((i, k) => `${k + 1}. ${i.label}`).join('\n')}`;
       const mid = await queueMail(tx, { firmId: firm.id, to, subject: fv(f, 'subject') || `${p.name} – ${firm.name}`, html: textMailHtml(body), attachments: att, entityType: 'doc_package', entityId: p.id, userId: u.id });
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'pkgMail', entityType: 'doc_package', entityId: p.id, data: { to, files: att.length } });
       return [mid];

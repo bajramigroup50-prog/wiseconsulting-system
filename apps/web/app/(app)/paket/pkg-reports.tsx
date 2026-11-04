@@ -4,7 +4,8 @@
  * of the analytic cards are set here, every ticked report is rendered from its print view to a server PDF in a hidden
  * frame (`captureUrl`) and appended to the package (`/api/pdf` `pkg`), one after another – no tab per report.
  * „✉ Испрати“ first adds the ticked reports the package does not hold yet (same title = same report and period), then
- * mails the package (`mailPackage`), so ticking and sending is enough.
+ * mails the package (`mailPackage`) with only the ticked reports (and the package's dossier documents), so ticking and
+ * sending is enough.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -106,6 +107,8 @@ export function PkgReports({ pkg, reports, picked, from: f0, to: t0, ks: k0, not
         {res.error && <div className="callout bad" role="alert">{res.error}</div>}
         {res.ok && <div className="callout good" role="status">{res.ok}</div>}
         <input type="hidden" name="id" value={pkg} />
+        {/* only the ticked reports go in the mail (not every report added to the package before) */}
+        <input type="hidden" name="only" value={JSON.stringify(reports.filter(([k]) => sel.has(k)).map(([, , l]) => titleOf(l)))} />
         <input name="to" type="email" placeholder="е-пошта на примачот" required style={{ width: 240 }} />
         <input name="subject" defaultValue={subject} style={{ width: 240 }} />
         <button className="btn sm pri" disabled={busy}>{busy ? 'Се подготвува…' : sel.size ? '✉ Додај ги избраните и испрати' : '✉ Испрати по е-пошта'}</button>
