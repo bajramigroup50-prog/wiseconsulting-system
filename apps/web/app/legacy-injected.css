@@ -8,6 +8,8 @@
 .pdfdoc.land{width:277mm}
 .pdfdoc h1{font-size:18px;margin:0 0 2px;font-family:Arial,"IBM Plex Sans",sans-serif;font-weight:400;color:#111}
 .pdfdoc h2{font-size:12.5px;margin:12px 0 4px;color:#111}
+/* a heading never stays alone at the bottom of a page: it moves to the next page with its table (e.g. „КОНТО 7414“ of the collected cards) */
+.pdfdoc h1,.pdfdoc h2,.pdfdoc h3,.pdfdoc h4{break-after:avoid;page-break-after:avoid}
 .pdfdoc .fh{font-family:Arial,"IBM Plex Sans",sans-serif;margin-bottom:6px}
 .pdfdoc .fh .fn{font-size:20px;font-weight:700;letter-spacing:.01em;border-bottom:4px double #111;padding-bottom:2px}
 .pdfdoc .fh .fa{text-align:center;font-size:9.5px;margin-top:3px;line-height:1.35}
