@@ -69,3 +69,19 @@ export async function deletePackage(id: string): Promise<ActionState> {
     return { ok: 'Избришано.' };
   } catch (e) { return officeError(e); }
 }
+
+/** Takes one document (a dossier document or a generated report) out of a package; the file itself stays. */
+export async function removePackageItem(id: string, idx: number): Promise<ActionState> {
+  try {
+    const { u, firm } = await officeAction('office');
+    await db().transaction(async (tx) => {
+      const [p] = await tx.select().from(docPackages).where(and(eq(docPackages.id, id), eq(docPackages.firmId, firm.id))).limit(1);
+      const it = p?.items[idx];
+      if (!p || !it) throw new OfficeError('Документот не е во пакетот.');
+      await tx.update(docPackages).set({ items: p.items.filter((_, k) => k !== idx) }).where(eq(docPackages.id, p.id));
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'pkgItemRm', entityType: 'doc_package', entityId: p.id, data: { label: it.label } });
+    });
+    revalidatePath('/paket');
+    return { ok: 'Отстрането од пакетот.' };
+  } catch (e) { return officeError(e); }
+}

@@ -77,7 +77,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['firmi', 'd', 'delFirm delS scanUndoPartner slDel delAcc cbDelRow fxDel rmBankAcct'],
   ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend klFoto lnAtt'],
   ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave fileMove'],
-  ['dokumenti', 'd', 'fileUnlink dosDel pkgRm tplDel batchClear fileDelete'],
+  ['dokumenti', 'd', 'fileUnlink dosDel pkgRm pkgItemRm tplDel batchClear fileDelete'],
   ['ai', 'c', 'aiRead aiClassify scanStart scanDeep scanRetry scanIntoDraft fsRead mpinRead mpinReread pnScan lawAsk inspCodesScan'],
   ['ai', 'd', 'scanCancel scanRemove'],
   ['zatvoranje', 'c', 'carryOver closeYear saveOpen obPayLiab crmXmlImport zmImport zpArch zyAdd zyGen zyToPkg'],

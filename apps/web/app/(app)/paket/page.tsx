@@ -10,7 +10,8 @@ import { Hd, dmy, dmyHm } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { SendExtras } from '@/components/send-extras';
-import { deletePackage, mailPackage, savePackage } from './actions';
+import { deletePackage, mailPackage, removePackageItem, savePackage } from './actions';
+import { PkgReports } from './pkg-reports';
 
 /** Generated reports a package can hold (print views with the server „⬇ PDF“ button). */
 const REPORTS: [string, string, string][] = [
@@ -22,6 +23,8 @@ const REPORTS: [string, string, string][] = [
 ];
 /** Kontos whose analytic cards a bank usually asks for: customers, suppliers, loans – plus the firm's own revenue kontos (class 7, listed one by one). */
 /** The VAT reports: never offered for a firm that is not a VAT payer; for a VAT payer only when picked (not in the bank preset). */
+/** Ticked by default (no preset chosen): what a bank usually asks for. */
+const BANK_DEF = ['bba', 'bb3', 'bs', 'bu', 'zl', 'kart'];
 const VAT_REP = new Set(['ddv', 'ddvk', 'ddvt']);
 const KART_DEF = '1200 1210 2200 2210 1620 2620';
 /** Legacy `PKG_PRE` (+ 16580 „🏛 УЈП – еден клик“): reports and the newest dossier document of each listed kind. */
@@ -100,7 +103,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
             })}
           </tbody></table></div>
         ) : <p className="note">Досието е празно – прво додадете документи во <a href="/dosie">Досие</a>.</p>}
-        <p className="note">Генерираните извештаи (ДДВ-04, биланс на состојба / успех, даночен биланс) се додаваат во зачуван пакет подолу: „+ извештај“ го отвора печатењето, а „⬇ PDF“ таму го додава PDF-от во пакетот.</p>
+        <p className="note">Генерираните извештаи (ДДВ-04, биланс на состојба / успех, даночен биланс) се додаваат во зачуван пакет подолу: штиклирајте ги потребните и „+ Додај ги избраните во пакетот“.</p>
         <div className="row"><button className="btn pri">📦 Подготви пакет</button></div>
       </ActionForm>
 
@@ -111,24 +114,11 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
               <a className="btn sm pri" href={`/api/office/pkg/${p.id}`}>⬇ ZIP</a>
               <RowAction action={deletePackage.bind(null, p.id)} label="✕" confirm="Да се избрише пакетот?" />
             </div></div>
-          <ol style={{ margin: 0 }}>{p.items.map((i, k) => <li key={k}>{i.label}</li>)}</ol>
+          <ol style={{ margin: 0 }}>{p.items.map((i, k) => <li key={k}>{i.label} <RowAction action={removePackageItem.bind(null, p.id, k)} label="✕" confirm={`Да се отстрани „${i.label}“ од пакетот?`} /></li>)}</ol>
           <span className="mini">{dmyHm(p.createdAt)}</span>
-          {/* legacy PKG_REP: generated reports, rendered by `pdf.render` and added to this package (`?pkg=`) */}
-          {/* the period of the reports added to this package (ДДВ-04 of every tax period inside it, the books and the bilans of exactly that range) */}
-          <form action={`/paket#pkg-${p.id}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8 }}>
-            <b className="mini">Период на извештаите:</b>
-            <label className="mini">од <input name="from" type="date" defaultValue={from} style={{ width: 'auto' }} /></label>
-            <label className="mini">до <input name="to" type="date" defaultValue={to} style={{ width: 'auto' }} /></label>
-            {sp.pre && <input type="hidden" name="pre" value={sp.pre} />}
-            <input type="hidden" name="age" value={String(age)} />
-            <label className="mini" title="Почеток на контото: 1200 = 1200 и неговите аналитики, 7 = сите конта од класа 7 со промет">картици за конта <input name="ks" defaultValue={ks} style={{ width: 'auto', minWidth: 260 }} size={Math.max(30, ks.length + 2)} /></label>
-            <button className="btn sm">Примени</button>
-            {badPeriod ? <span className="pill bad">периодот не е точен</span> : <span className="mini mut">{dmy(from)} – {dmy(to)}</span>}
-          </form>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            {reports.map(([k, href, label]) => badPeriod ? <span key={k} className="btn sm" aria-disabled>+ {label}</span> : <a key={k} className={`btn sm ${pre?.rep.includes(k) ? 'pri' : ''}`} href={`${href}${href.includes('?') ? '&' : '?'}pkg=${p.id}&from=${from}&to=${to}${k === 'kart' ? `&ks=${encodeURIComponent(ks.replace(/ /g, ','))}` : ''}`} target="_blank" rel="noopener">+ {label}</a>)}
-          </div>
-          <p className="mini mut" style={{ margin: '4px 0 0' }}>{vat ? 'ДДВ (по избор): ДДВ-04 за секој даночен период што е цел во периодот, книгите точно од – до · ' : 'Фирмата не е ДДВ обврзник – извештаите за ДДВ не се нудат · '}бруто билансот, заклучниот лист и картиците: точно од – до (картиците: само конта со промет) · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).</p>
+          {/* legacy PKG_REP: generated reports ticked and added in one click (server PDFs appended to this package) */}
+          <PkgReports pkg={p.id} reports={reports} picked={(pre?.rep ?? BANK_DEF).filter((k) => reports.some(([x]) => x === k))} from={from} to={to} ks={ks}
+            note={`${vat ? 'ДДВ (по избор): ДДВ-04 за секој даночен период што е цел во периодот, книгите точно од – до · ' : 'Фирмата не е ДДВ обврзник – извештаите за ДДВ не се нудат · '}бруто билансот, заклучниот лист и картиците: точно од – до (картиците: само конта со промет) · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).`} />
           {/* legacy `pkgMail` / `pkgMailGo` */}
           <ActionForm action={mailPackage} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             <input type="hidden" name="id" value={p.id} />
@@ -149,7 +139,7 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
           </table></div>
         </>
       )}
-      <p className="note">Пакетот може да се испрати по е-пошта (сите документи во прилог) или да се преземе како ZIP. Извештаите се додаваат во зачуван пакет: „+ извештај“ го отвора печатењето за избраниот период, а „⬇ PDF“ таму го додава PDF-от во пакетот.</p>
+      <p className="note">Пакетот може да се испрати по е-пошта (сите документи во прилог) или да се преземе како ZIP. Извештаите се штиклираат во зачуваниот пакет и се додаваат сите одеднаш со „+ Додај ги избраните во пакетот“; „✕“ до документот го отстранува од пакетот.</p>
     </>
   );
 }
