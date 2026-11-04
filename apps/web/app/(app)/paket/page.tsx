@@ -9,7 +9,6 @@ import { Pill } from '@/components/file-chips';
 import { Hd, dmy, dmyHm } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
-import { SendExtras } from '@/components/send-extras';
 import { deletePackage, mailPackage, removePackageItem, savePackage } from './actions';
 import { PkgReports } from './pkg-reports';
 
@@ -118,16 +117,8 @@ export default async function PaketPage({ searchParams }: { searchParams: Promis
           <span className="mini">{dmyHm(p.createdAt)}</span>
           {/* legacy PKG_REP: generated reports ticked and added in one click (server PDFs appended to this package) */}
           <PkgReports pkg={p.id} reports={reports} picked={(pre?.rep ?? BANK_DEF).filter((k) => reports.some(([x]) => x === k))} from={from} to={to} ks={ks}
-            note={`${vat ? 'ДДВ (по избор): ДДВ-04 за секој даночен период што е цел во периодот, книгите точно од – до · ' : 'Фирмата не е ДДВ обврзник – извештаите за ДДВ не се нудат · '}бруто билансот, заклучниот лист и картиците: точно од – до (картиците: само конта со промет) · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).`} />
-          {/* legacy `pkgMail` / `pkgMailGo` */}
-          <ActionForm action={mailPackage} className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            <input type="hidden" name="id" value={p.id} />
-            <input name="to" type="email" placeholder="е-пошта на примачот" required style={{ width: 240 }} />
-            <input name="subject" defaultValue={`Доставување документација – ${firm.name}`} placeholder={`${p.name} – ${firm.name}`} style={{ width: 240 }} />
-            <button className="btn sm">✉ Испрати по е-пошта</button>
-            <textarea name="body" hidden defaultValue={p.coverNote ?? ''} />
-            <SendExtras selName="__none" files={{}} defaultBody={p.coverNote ?? ''} attachHref={`/api/office/pkg/${p.id}`} />
-          </ActionForm>
+            note={`${vat ? 'ДДВ (по избор): ДДВ-04 за секој даночен период што е цел во периодот, книгите точно од – до · ' : 'Фирмата не е ДДВ обврзник – извештаите за ДДВ не се нудат · '}бруто билансот, заклучниот лист и картиците: точно од – до (картиците: само конта со промет) · биланс на состојба / успех и даночен биланс: годишни, за избраната работна година (горе десно).`} 
+            have={p.items.map((i) => i.label)} mail={mailPackage} subject={`Доставување документација – ${firm.name}`} coverNote={p.coverNote ?? ''} />
         </div>
       ))}
       {sent.length > 0 && (
