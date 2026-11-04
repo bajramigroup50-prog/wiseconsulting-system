@@ -34,6 +34,7 @@ import { VersionCheck } from '@/components/version-check';
 import { DesktopPdfGuard } from '@/components/desktop-pdf-guard';
 import { RobotPanel } from '@/components/robot/robot-panel';
 import { buildId } from '@/lib/build-id';
+import { brandLetter, brandName } from '@wise/core';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const u = await requireUser();
@@ -88,7 +89,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <FirmGuard firm={firm && { id: firm.id, name: firm.name }} year={year}>
     <div className="app">
       <header className="mbar">
-        <div className="brand" title="WISE CONSULTING"><i aria-hidden="true">W</i><span>WISE CONSULTING</span></div>
+        <div className="brand" title={brandName()}><i aria-hidden="true">{brandLetter()}</i><span>{brandName()}</span></div>
         <Nav groups={groups} search={search} fresh={fresh} />
       </header>
       <main>

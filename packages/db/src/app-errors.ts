@@ -53,6 +53,6 @@ export async function deleteFixedErrors(tx: Tx, a: { userId: string }): Promise<
 
 /** Legacy `errCopy`: text to paste into a conversation for a fix. */
 export function errorsCopyText(L: readonly AppError[], ver = ''): string {
-  return `Грешки во WISE CONSULTING${ver ? ` (${ver})` : ''}:\n\n` + L.slice(0, 20).map((e, i) =>
+  return `Грешки во ${process.env.BRAND_NAME?.trim() || 'WISE CONSULTING'}${ver ? ` (${ver})` : ''}:\n\n` + L.slice(0, 20).map((e, i) =>
     `${i + 1}. ${e.lastAt.toISOString().slice(0, 16).replace('T', ' ')} · ${e.userName ?? ''} (${e.role ?? ''}) · фирма: ${e.firmName || '-'} · екран: ${e.view ?? ''} · ${e.src}${e.count > 1 ? ` · ${e.count}×` : ''}\n   ${e.msg}\n   ${String(e.stack ?? '').split('\n').slice(0, 4).join('\n   ')}`).join('\n\n');
 }

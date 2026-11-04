@@ -16,6 +16,7 @@ import { isDemoUser } from '@/lib/demo';
 import { createDemoLink, demoAdminUser, revokeDemoLink } from '@/lib/demo-links';
 import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 import { calendarYear } from '@/lib/context';
+import { appUrl } from '@wise/core';
 
 export interface DemoState { error?: string; ok?: string; password?: string; link?: string }
 
@@ -93,7 +94,7 @@ export async function newDemoLinkAction(_p: DemoState, f: FormData): Promise<Dem
     const note = String(f.get('note') ?? '').trim().slice(0, 200) || null;
     const { token } = await createDemoLink({ days, note, createdBy: me.id });
     const origin = String(f.get('origin') ?? '').replace(/\/+$/, '');
-    const base = /^https?:\/\/[^/\s]+$/i.test(origin) ? origin : 'https://app.wiseconsulting.com.mk';
+    const base = /^https?:\/\/[^/\s]+$/i.test(origin) ? origin : appUrl();
     revalidatePath('/korisnici');
     return { ok: 'Линкот е креиран (се прикажува само сега):', link: `${base}/demo/${token}` };
   } catch (e) { return fail(e); }

@@ -70,7 +70,7 @@ export function sharedMailer(env: Env = process.env): Mailer | null {
   const key = `${override.user ?? ''}|${override.pass ?? ''}`;
   if (!shared || shared.key !== key) {
     const e: Env = { ...env };
-    if (override.user) { e.SMTP_USER = override.user; e.MAIL_FROM = env.MAIL_FROM?.includes(override.user) ? env.MAIL_FROM : `WISE CONSULTING <${override.user}>`; }
+    if (override.user) { e.SMTP_USER = override.user; e.MAIL_FROM = env.MAIL_FROM?.includes(override.user) ? env.MAIL_FROM : `${env.BRAND_NAME?.trim() || 'WISE CONSULTING'} <${override.user}>`; }
     if (override.pass) e.SMTP_PASS = override.pass;
     shared = { key, m: mailerFromEnv(e) };
   }

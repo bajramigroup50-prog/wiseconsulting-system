@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import './legacy.css';
 import './legacy-injected.css';
+import { brandName, brandShort } from '@wise/core';
 
-export const metadata: Metadata = {
-  title: 'WISE CONSULTING',
-  applicationName: 'WISE CONSULTING',
-  appleWebApp: { capable: true, title: 'WISE', statusBarStyle: 'black-translucent' },
-};
+/* per request: the brand is this server's (`BRAND_NAME`), not the one at build time */
+export function generateMetadata(): Metadata {
+  return { title: brandName(), applicationName: brandName(), appleWebApp: { capable: true, title: brandShort(), statusBarStyle: 'black-translucent' } };
+}
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#0d5b4b' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

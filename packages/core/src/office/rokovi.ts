@@ -21,6 +21,7 @@
 import { rollToWorkday } from '../compliance/deadlines';
 import type { YeEntity } from '../yearend';
 import { addDays, daysBetween, dmy, fmtMk, MON_MK } from './dates';
+import { brandName, brandShort } from '../brand';
 
 export const ROK_TYPES = {
   ddv: { n: 'ДДВ-04', link: 'ddv', verified: true },
@@ -414,7 +415,7 @@ export function icsFold(line: string): string {
 /** iCalendar (all-day events) of the deadlines; `firm` names the firm of each row. */
 export function rokIcs(rows: readonly (Pick<Rok, 'key' | 'firmId' | 'title' | 'due' | 'verified'> & { firm: string; done?: boolean; url?: string })[], stamp: string): string {
   const d8 = (d: string) => d.replace(/-/g, '');
-  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//WISE CONSULTING//Kalendar na rokovi//MK', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Рокови – WISE'];
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${brandName()}//Kalendar na rokovi//MK`, 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:Рокови – ${brandShort()}`];
   for (const r of rows) {
     L.push('BEGIN:VEVENT',
       `UID:${r.firmId}-${r.key.replace(/[^\w.-]/g, '_')}@wise`,

@@ -1,13 +1,16 @@
 import type { MetadataRoute } from 'next';
 import { PWA_GREEN } from '@/lib/pwa-icon';
+import { brandName, brandShort } from '@wise/core';
+
+export const dynamic = 'force-dynamic';
 
 /** Installable desktop / mobile app (PWA), served at /manifest.webmanifest. No middleware guards it or the icons. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: 'WISE CONSULTING',
-    short_name: 'WISE',
-    description: 'Сметководствена програма WISE CONSULTING',
+    name: brandName(),
+    short_name: brandShort(),
+    description: `Сметководствена програма ${brandName()}`,
     lang: 'mk',
     start_url: '/',
     scope: '/',

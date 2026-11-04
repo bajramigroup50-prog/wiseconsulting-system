@@ -8,6 +8,7 @@
  */
 import { empCalc, payCatOf, payBaseSum, type PayEmp, type PayParams } from '@wise/core/payroll';
 import { dmy, fmt, fq, h, monthName, mmYYYY, ph, sig } from './html';
+import { brandName } from '@wise/core';
 
 export interface SlipFirm {
   name: string;
@@ -54,7 +55,7 @@ export interface SlipPreparer { rep?: string | null; brand?: string | null; sig?
 export function slipHtml(run: { month: string; params: PayParams }, e: PayEmp, f: SlipFirm, E: SlipEmployee | null, preparedBy: string | SlipPreparer = ''): string {
   const pb: SlipPreparer = typeof preparedBy === 'string' ? { user: preparedBy } : preparedBy;
   const sgImg = pb.sig && /^[0-9a-f-]{36}$/i.test(pb.sig) ? `<img src="/api/files/${pb.sig}" alt="" style="max-height:17mm;max-width:55mm;object-fit:contain">` : '';
-  const sgName = pb.rep ? '<br><b>' + h(pb.rep) + '</b> · ' + h(pb.brand || 'WISE CONSULTING') : pb.user ? '<br><b>' + h(pb.user) + '</b>' : '';
+  const sgName = pb.rep ? '<br><b>' + h(pb.rep) + '</b> · ' + h(pb.brand || brandName()) : pb.user ? '<br><b>' + h(pb.user) + '</b>' : '';
   const P = run.params, c = empCalc(e, P), T = c.T;
   const z = E?.start || E?.stazPrev ? stazYMD(E, run.month) : { y: Math.floor(+(e.stazY ?? 0) || 0), m: 0, d: 0 };
   const cat = (r: { cat?: string; type: string }) => r.cat || payCatOf(r.type);

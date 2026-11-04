@@ -18,9 +18,10 @@ import { createCipheriv, createDecipheriv, createHash, createPrivateKey, generat
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import forge from 'node-forge';
+import { brandName } from '@wise/core';
 
-export const DEVICE_CA_CN = 'WISE CONSULTING Device CA';
-export const DEVICE_ORG = 'WISE CONSULTING';
+export const DEVICE_CA_CN = `${brandName()} Device CA`;
+export const DEVICE_ORG = brandName();
 /** X.509 upper bound for a commonName (RFC 5280 ub-common-name). */
 export const CN_MAX = 64;
 
@@ -126,7 +127,7 @@ export function issueDeviceCert(ca: CaMaterial, name: string, opts: { years?: nu
   c.sign(caKey, forge.md.sha256.create());
   const certPem = forge.pki.certificateToPem(c);
   const password = opts.password ?? newP12Password();
-  const asn = forge.pkcs12.toPkcs12Asn1(priv, [c], password, { algorithm: '3des', friendlyName: 'WISE CONSULTING' });
+  const asn = forge.pkcs12.toPkcs12Asn1(priv, [c], password, { algorithm: '3des', friendlyName: brandName() });
   const p12 = Buffer.from(forge.asn1.toDer(asn).getBytes(), 'binary');
   return {
     certPem, p12, password, serial: c.serialNumber.toLowerCase(), fingerprint: fingerprintOf(certPem),

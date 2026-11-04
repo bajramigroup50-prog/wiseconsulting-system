@@ -4,6 +4,7 @@
  * Only those public items ever go out: nothing of the firms, the books or people (the job reads `law_changes` only).
  */
 import { LAW_IMP, LAW_INST } from '../law/robot';
+import { brandCustom, brandName, brandSite } from '../brand';
 
 /** Graph API version used by the worker and the connect screen. */
 export const GRAPH = 'https://graph.facebook.com/v23.0';
@@ -60,12 +61,12 @@ h1{margin:22px 0 0;font-size:${t}px;line-height:1.12;color:#fff;font-weight:700}
 <div class="ring" style="right:-200px;top:-200px;width:640px;height:640px"></div>
 <div class="ring" style="left:-260px;bottom:-300px;width:760px;height:760px"></div>
 <div class="wrap">
-<div class="top"><div class="logo"><img src="${esc(o.logo || WISE_LOGO_DATA)}" alt=""></div><div class="tag">🔔 НОВОСТ</div></div>
+<div class="top"><div class="logo">${o.logo || !brandCustom() ? `<img src="${esc(o.logo || WISE_LOGO_DATA)}" alt="">` : `<b>${esc(brandName())}</b>`}</div><div class="tag">🔔 НОВОСТ</div></div>
 <div class="inst">${esc(inst)}</div>
 <h1>${esc(title)}</h1>
 ${what ? `<div class="what">${esc(what)}</div>` : ''}
 ${from ? `<div><span class="from">Важи од ${esc(from)}</span></div>` : ''}
-<div class="foot"><div><b>WISE CONSULTING</b><br>wiseconsulting.com.mk</div><div>${esc(dmy(n.date) || dmy(o.today))}</div></div>
+<div class="foot"><div><b>${esc(brandName())}</b><br>${esc(brandSite())}</div><div>${esc(dmy(n.date) || dmy(o.today))}</div></div>
 </div></body></html>`;
 }
 
@@ -79,8 +80,8 @@ export function caption(n: SocialNews): string {
     n.who ? `\n👥 Се однесува на: ${String(n.who).trim()}` : imp.length ? `\n👥 Се однесува на: ${imp.join(', ')}` : '',
     n.from ? `📅 Важи од: ${dmy(n.from)}` : '',
     n.urls?.[0] ? `🔗 Извор: ${n.urls[0]}` : '',
-    '\nЗа прашања – WISE CONSULTING, вашата сметководствена канцеларија.',
-    '#WISEconsulting #сметководство #УЈП #даноци #Македонија',
+    `\nЗа прашања – ${brandName()}, вашата сметководствена канцеларија.`,
+    `#${brandCustom() ? brandName().replace(/[^\p{L}\p{N}]+/gu, '') : 'WISEconsulting'} #сметководство #УЈП #даноци #Македонија`,
   ].filter(Boolean);
   return cut(L.join('\n'), 2200);
 }

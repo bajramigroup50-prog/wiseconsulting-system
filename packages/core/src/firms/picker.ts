@@ -4,6 +4,7 @@
  * Pure: the screens pass plain rows.
  */
 import { translitKey } from '../text/yuscii';
+import { brandName } from '../brand';
 
 /**
  * Every word of the search in the texts – as typed, or spelled in the other script („bajrami“ finds „БАЈРАМИ“,
@@ -275,7 +276,7 @@ export function alSummaryText(items: readonly AlItem[], forVoice = false): strin
 export function alMailBody(items: readonly AlItem[], todayDmy: string, auto: boolean): { subject: string; body: string } {
   const n = items.filter((a) => a.lvl !== 'info').length;
   const info = items.filter((a) => a.lvl === 'info');
-  const body = 'Известувања од WISE CONSULTING – ' + todayDmy + '\n\n' + alSummaryText(items) + '\n\n'
+  const body = 'Известувања од ' + brandName() + ' – ' + todayDmy + '\n\n' + alSummaryText(items) + '\n\n'
     + (info.length ? 'Инфо:\n' + info.map((a) => '  🔵 ' + a.firm + ': ' + a.txt).join('\n') + '\n\n' : '')
     + (auto ? '(Автоматски потсетник – се праќа еднаш дневно при првото отворање на програмата.)' : '');
   return { subject: '🔔 Известувања (' + n + ') – ' + todayDmy, body };

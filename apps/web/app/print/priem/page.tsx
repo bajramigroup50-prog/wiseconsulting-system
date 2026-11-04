@@ -13,6 +13,7 @@ import { db } from '@/lib/db';
 import { dmy } from '@/lib/fmt';
 import { allowedFirms } from '@/lib/office';
 import { viewAllowed } from '@/lib/nav';
+import { appUrl, brandName } from '@wise/core';
 
 export const metadata = { title: 'Прием на документи' };
 
@@ -55,7 +56,7 @@ const label = (i: PriemItem) => (i.k === 'other' && i.text ? i.text : PRIEM_KIND
 const cnt = (i: PriemItem) => `${i.n}${i.pack ? ' пак.' : ''}`;
 
 function Issuer({ o }: { o: Office }) {
-  return <div className="iss"><b>{o.name}</b><div>{[o.edb && `ЕДБ ${o.edb}`, o.address].filter(Boolean).join(' · ')}</div><div className="brand">WISE CONSULTING · сметководствена канцеларија</div></div>;
+  return <div className="iss"><b>{o.name}</b><div>{[o.edb && `ЕДБ ${o.edb}`, o.address].filter(Boolean).join(' · ')}</div><div className="brand">{brandName()} · сметководствена канцеларија</div></div>;
 }
 
 async function Cover({ r, o, url }: { r: R; o: Office; url: string }) {
@@ -128,8 +129,8 @@ export default async function PrintPriem({ searchParams }: { searchParams: Promi
   if (!r || !(await allowedFirms(u, { year: 'all' })).some((f) => f.id === r.firmId)) notFound();
   const all = await db().select({ name: firms.name, edb: firms.edb, address: firms.address, settings: firms.settings }).from(firms).where(eq(firms.active, true));
   const of = all.find((f) => (f.settings as { officeFirm?: boolean } | null)?.officeFirm);
-  const o: Office = of ? { name: of.name, edb: of.edb, address: of.address } : { name: 'WISE CONSULTING', edb: null, address: null };
-  const url = `https://app.wiseconsulting.com.mk/priem?id=${r.id}&all=1`;
+  const o: Office = of ? { name: of.name, edb: of.edb, address: of.address } : { name: brandName(), edb: null, address: null };
+  const url = `${appUrl()}/priem?id=${r.id}&all=1`;
   const p = sp.p ?? 'site';
   return (
     <div className="pdfdoc pr">

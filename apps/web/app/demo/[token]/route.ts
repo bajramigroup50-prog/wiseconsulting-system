@@ -11,12 +11,13 @@ import { createSession, destroySession } from '@/lib/auth';
 import { calendarYear } from '@/lib/context';
 import { demoRateHit, firstDemoFirm, noteDemoLinkUse, usableDemoLink } from '@/lib/demo-links';
 import { clientIp } from '@/lib/login-guard';
+import { brandName } from '@wise/core';
 
 const page = (msg: string, status: number) => new Response(
-  '<!doctype html><html lang="mk"><head><meta charset="utf-8"><title>WISE CONSULTING</title>'
+  '<!doctype html><html lang="mk"><head><meta charset="utf-8"><title>' + brandName() + '</title>'
   + '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"></head>'
   + '<body style="font-family:Segoe UI,Arial,sans-serif;padding:40px;color:#0d5b4b;max-width:640px">'
-  + `<h2>WISE CONSULTING</h2><p>${msg}</p></body></html>`,
+  + `<h2>${brandName()}</h2><p>${msg}</p></body></html>`,
   { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } },
 );
 

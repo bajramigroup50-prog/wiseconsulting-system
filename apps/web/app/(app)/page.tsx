@@ -9,7 +9,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
-import { can, periodOf } from '@wise/core';
+import { brandName, can, periodOf } from '@wise/core';
 import { AGE, DASH_PER, EXPG, MK_MON, MON, dashAgg, dashMonthly, dashMonths, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
   autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
@@ -104,7 +104,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     // legacy: no firm → `S.chooser` → full-screen `firmPicker` (menu and firm bar hidden, `body.picking`)
     const [P, O] = await Promise.all([pickerFirms(u, year), officeProfileFor(u).catch(() => ({ name: '' }))]);
     const rows = V ? P.rows.map((r) => ({ ...r, fee: 0, recNext: null, al: null })) : P.rows;
-    return <FirmPicker rows={rows} canNew={can(u.principal, 'newFirm') && (!V || V.has('firmi'))} user={u.name} uid={u.id} office={O.name || 'WISE CONSULTING'} today={td} year={year}
+    return <FirmPicker rows={rows} canNew={can(u.principal, 'newFirm') && (!V || V.has('firmi'))} user={u.name} uid={u.id} office={O.name || brandName()} today={td} year={year}
       book={!!V} canFirmi={!V || V.has('firmi')} />;
   }
   if (V) return <BookHome role={u.role} f={f} year={year} see={(v) => V.has(v)} />;

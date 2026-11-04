@@ -9,6 +9,8 @@
  *               this also covers the IP_HOST site, which has no client_auth).
  * A device bound to a client firm is used by that firm's client users and by office staff only.
  */
+/* the office brand of this server (pure: no import of @wise/core here, the proxy loads this file) */
+const brandName = (): string => process.env.BRAND_NAME?.trim() || 'WISE CONSULTING';
 export type DeviceMode = 'off' | 'optional' | 'required';
 export const FP_HEADER = 'x-wise-client-fp';
 
@@ -51,7 +53,7 @@ export function deviceUserOk(device: DeviceRow | null, role: string, userFirms: 
 }
 
 export const DEVICE_MSG: Record<'none' | 'unknown' | 'revoked' | 'firm', string> = {
-  none: 'Овој компјутер не е овластен за пристап до WISE CONSULTING.',
+  get none() { return `Овој компјутер не е овластен за пристап до ${brandName()}.`; },
   unknown: 'Сертификатот на овој компјутер не е познат.',
   revoked: 'Пристапот за овој компјутер е одземен.',
   firm: 'Овој компјутер е наменет за друга фирма.',
@@ -59,9 +61,9 @@ export const DEVICE_MSG: Record<'none' | 'unknown' | 'revoked' | 'firm', string>
 
 /** The 403 page: a short closing message (no login form, nothing else to find). */
 export function devicePage(reason: keyof typeof DEVICE_MSG): string {
-  return '<!doctype html><html lang="mk"><head><meta charset="utf-8"><title>WISE CONSULTING</title>'
+  return '<!doctype html><html lang="mk"><head><meta charset="utf-8"><title>' + brandName() + '</title>'
     + '<meta name="viewport" content="width=device-width,initial-scale=1"></head>'
     + '<body style="font-family:Segoe UI,Arial,sans-serif;padding:40px;color:#0d5b4b;max-width:640px">'
-    + `<h2>🔐 WISE CONSULTING</h2><p>${DEVICE_MSG[reason]}</p>`
-    + '<p>Обратете се кај WISE CONSULTING за инсталација на овој компјутер.</p></body></html>';
+    + `<h2>🔐 ${brandName()}</h2><p>${DEVICE_MSG[reason]}</p>`
+    + `<p>Обратете се кај ${brandName()} за инсталација на овој компјутер.</p></body></html>`;
 }
