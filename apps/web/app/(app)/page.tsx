@@ -325,6 +325,27 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         </div>
       </section>
       <DashMissing firm={f} />
+      {/* owner: the hero, then what is missing (autopilot), then the quick buttons and the period figures, then the detail tabs */}
+      <div className="dfilter" role="group" aria-label="Период">
+        <span className="mini">Период:</span>
+        {DASH_PER.map(([k, t]) => <Link key={k} className={`chip ${P === k ? 'on' : ''}`} href={k === 'year' ? '/' : `/?per=${k}`} aria-pressed={P === k}>{t}<LinkPending /></Link>)}
+        <span className="mini" style={{ marginLeft: 'auto' }}>Споредба со ист период {year - 1}</span>
+      </div>
+      <div className="quick q2">
+        {QV.map(([v, ic, t, s, tn]) => (
+          <Link key={v} href={QHREF[v] ?? `/${v}`}><i className={`ib ${tn}`}><Ico k={ic} sz={24} /></i><span><b>{t}</b><small>{s}</small></span></Link>
+        ))}
+      </div>
+      <div className="tiles kpi k4">
+        <Tile lab="Приходи" val={fmt(A.rev)} sub={<DPill d={pct(A.rev, AP.rev)} py={year - 1} />} sp={<Spark vals={M.R} hl={hl} col="var(--c1)" />} ic="up" tn="t1" />
+        <Tile lab="Расходи" val={fmt(A.exp)} sub={<DPill d={pct(A.exp, AP.exp)} inv py={year - 1} />} sp={<Spark vals={M.E} hl={hl} col="var(--c2)" />} ic="down" tn="t2" />
+        <Tile lab="Резултат" val={fmt(A.res)} sub={<DPill d={pct(A.res, AP.res)} py={year - 1} />} sp={<Spark vals={M.R.map((v, i) => v - M.E[i]!)} hl={hl} col="var(--accent)" />} col={A.res >= 0 ? 'var(--good)' : 'var(--bad)'} ic="res" tn="t8" />
+        <Tile lab="Пари (банки + благајна)" val={fmt(cashNow)} sub={<DPill d={pct(cashNow, cashLY)} py={year - 1} />} sp={<Spark vals={M.CB.slice(0, lastM + 1).concat(Array(11 - lastM).fill(0))} col="var(--c1)" />} ic="wallet" tn="t3" />
+        <Tile lab="Побарувања од купувачи" val={fmt(recv)} sub={<>{inv.length} отворени{late.length ? <> · <strong style={{ color: 'var(--bad)' }}>{late.length} задоцнети ({kfmt(lateSum)})</strong></> : ' · сите во рок'}</>} ic="users" tn="t6" />
+        <Tile lab="Обврски кон добавувачи" val={fmt(pay)} sub={<>{pur.length} отворени · за 7 дена: <strong>{kfmt(due7)}</strong>{payLate ? <> · <strong style={{ color: 'var(--bad)' }}>задоцнети {kfmt(payLate)}</strong></> : null}</>} ic="truck" tn="t5" />
+        <Tile lab={'ДДВ ' + cur} val={fmt(Dcur)} sub={(Dcur > 0 ? 'за плаќање' : 'за поврат') + ' · тековен период'} col={Dcur > 0 ? 'var(--bad)' : 'var(--good)'} ic="tax" tn="t7" />
+        <Tile lab="Залиха (набавна вредност)" val={fmt(stockS.wh + stockS.st)} sub={`магацин ${kfmt(stockS.wh)} · продавници ${kfmt(stockS.st)}`} ic="box" tn="t4" />
+      </div>
       <DashInteractive D={DX} />
       <div className="dash-grid">
         <div className="card dash-chart">
@@ -374,27 +395,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         {rec.length ? <div className="tw"><table><thead><tr><th>Датум</th><th>Вид</th><th>Број</th><th>Партнер</th><th className="n">Износ</th><th></th></tr></thead><tbody>
           {rec.map((x, i) => <tr key={i}><td>{dmy(x.d)}</td><td><span className="pill">{x.t}</span></td><td>{x.n}</td><td>{x.p}</td><td className="n">{fmt(x.v)}</td><td>{nalOf.get(`${x.st}|${x.id}`) ? <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(nalOf.get(`${x.st}|${x.id}`)!)}`}>Налог</Link> : <Link className="btn sm" href={x.href} title="Документот сè уште не е прокнижен">Налог</Link>}</td></tr>)}
         </tbody></table></div> : <div className="empty">Сè уште нема документи.</div>}
-      </div>
-      {/* owner: the robot first at the top; the quick buttons and the period figures at the bottom */}
-      <div className="dfilter" role="group" aria-label="Период">
-        <span className="mini">Период:</span>
-        {DASH_PER.map(([k, t]) => <Link key={k} className={`chip ${P === k ? 'on' : ''}`} href={k === 'year' ? '/' : `/?per=${k}`} aria-pressed={P === k}>{t}<LinkPending /></Link>)}
-        <span className="mini" style={{ marginLeft: 'auto' }}>Споредба со ист период {year - 1}</span>
-      </div>
-      <div className="quick q2">
-        {QV.map(([v, ic, t, s, tn]) => (
-          <Link key={v} href={QHREF[v] ?? `/${v}`}><i className={`ib ${tn}`}><Ico k={ic} sz={24} /></i><span><b>{t}</b><small>{s}</small></span></Link>
-        ))}
-      </div>
-      <div className="tiles kpi k4">
-        <Tile lab="Приходи" val={fmt(A.rev)} sub={<DPill d={pct(A.rev, AP.rev)} py={year - 1} />} sp={<Spark vals={M.R} hl={hl} col="var(--c1)" />} ic="up" tn="t1" />
-        <Tile lab="Расходи" val={fmt(A.exp)} sub={<DPill d={pct(A.exp, AP.exp)} inv py={year - 1} />} sp={<Spark vals={M.E} hl={hl} col="var(--c2)" />} ic="down" tn="t2" />
-        <Tile lab="Резултат" val={fmt(A.res)} sub={<DPill d={pct(A.res, AP.res)} py={year - 1} />} sp={<Spark vals={M.R.map((v, i) => v - M.E[i]!)} hl={hl} col="var(--accent)" />} col={A.res >= 0 ? 'var(--good)' : 'var(--bad)'} ic="res" tn="t8" />
-        <Tile lab="Пари (банки + благајна)" val={fmt(cashNow)} sub={<DPill d={pct(cashNow, cashLY)} py={year - 1} />} sp={<Spark vals={M.CB.slice(0, lastM + 1).concat(Array(11 - lastM).fill(0))} col="var(--c1)" />} ic="wallet" tn="t3" />
-        <Tile lab="Побарувања од купувачи" val={fmt(recv)} sub={<>{inv.length} отворени{late.length ? <> · <strong style={{ color: 'var(--bad)' }}>{late.length} задоцнети ({kfmt(lateSum)})</strong></> : ' · сите во рок'}</>} ic="users" tn="t6" />
-        <Tile lab="Обврски кон добавувачи" val={fmt(pay)} sub={<>{pur.length} отворени · за 7 дена: <strong>{kfmt(due7)}</strong>{payLate ? <> · <strong style={{ color: 'var(--bad)' }}>задоцнети {kfmt(payLate)}</strong></> : null}</>} ic="truck" tn="t5" />
-        <Tile lab={'ДДВ ' + cur} val={fmt(Dcur)} sub={(Dcur > 0 ? 'за плаќање' : 'за поврат') + ' · тековен период'} col={Dcur > 0 ? 'var(--bad)' : 'var(--good)'} ic="tax" tn="t7" />
-        <Tile lab="Залиха (набавна вредност)" val={fmt(stockS.wh + stockS.st)} sub={`магацин ${kfmt(stockS.wh)} · продавници ${kfmt(stockS.st)}`} ic="box" tn="t4" />
       </div>
       <div className="row noprint" style={{ justifyContent: 'flex-end', marginTop: 8 }}><PdfButton selector="#main" title={`Контролна табла – ${f.name}`} landscape /></div>
     </>
