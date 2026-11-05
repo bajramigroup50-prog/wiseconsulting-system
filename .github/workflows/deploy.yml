@@ -75,3 +75,16 @@ jobs:
           chmod 600 ~/.ssh/deploy
           echo '207.180.254.154 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPqeGMNdNYj383VETrNpx4I6cD+e95pzaD/fAc7nu6sN' > ~/.ssh/known_hosts
           printf '%s\n%s\n%s\n' "$TOKEN" "${{ github.actor }}" "${{ github.sha }}" | ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 wise@207.180.254.154
+
+      # the same program for the other offices, each on its own server and database (brand from that server's .env)
+      - name: Deploy ФЕЈКАН АКОНТИНГ (app.fejkan.com.mk)
+        if: always()
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          echo '13.140.213.86 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJlWWPUhZmT1OB1Uqz8MTjL+YvE6V81a5YDdlz2ZpS5/' > ~/.ssh/known_hosts
+          printf '%s\n%s\n%s\n' "$TOKEN" "${{ github.actor }}" "${{ github.sha }}" | ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 wise@13.140.213.86
