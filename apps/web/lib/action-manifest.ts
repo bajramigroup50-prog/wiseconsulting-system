@@ -19,7 +19,9 @@ export function actionFiles(m: Manifest): Map<string, string> {
 export async function actionFile(id: string): Promise<string | null> {
   if (!cache || Date.now() - cache.at > 30_000) {
     let map = new Map<string, string>();
-    for (const dir of [join(process.cwd(), '.next', 'server'), join(process.cwd(), 'apps', 'web', '.next', 'server')]) {
+    // `next dev` writes its manifest under .next/dev (a stale .next/server from an older build would refuse every action)
+    const sub = process.env.NODE_ENV === 'development' ? ['dev', 'server'] : ['server'];
+    for (const dir of [join(process.cwd(), '.next', ...sub), join(process.cwd(), 'apps', 'web', '.next', ...sub)]) {
       try { map = actionFiles(JSON.parse(await readFile(join(dir, 'server-reference-manifest.json'), 'utf8')) as Manifest); break; } catch { /* next */ }
     }
     cache = { at: Date.now(), map };
