@@ -68,6 +68,7 @@ export const HUBS: readonly Hub[] = [
       { view: 'banka', label: '📄 Изводи', href: '/banka' },
       { view: 'banka', label: '✓ Преглед за книжење', href: '/banka/pregled' },
       { view: 'bkAdv', label: '🔗 Поврзување' },
+      { view: 'bankFeed', label: '🏦 Од банка (автоматски)' },
     ],
     alt: ['преглед за книжење', 'прокнижи изводи', 'поврзување', 'плаќања без фактура', 'аванси', 'поврзи со фактура'],
   },

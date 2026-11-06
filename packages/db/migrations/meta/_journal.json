@@ -295,6 +295,13 @@
       "when": 1793640000000,
       "tag": "0041_payroll_nep",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793980086758,
+      "tag": "0042_bank_feeds",
+      "breakpoints": true
     }
   ]
 }

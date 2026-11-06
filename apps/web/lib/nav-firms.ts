@@ -23,6 +23,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // owner-only: „Конта за изводи“ applied to every firm at once (in the „ново“ menu: a tab of Изводи → ⚙ Поставки)
   ['Финансово', 'bankFmt', [['bankSite', '🏦 Конта за изводи – за сите фирми']]],
+  // the statements the bank connections bring every evening (worker `bank.feeds`): print, check, approve and book
+  ['Финансово', 'banka', [['bankFeed', '🏦 Изводи од банка (автоматски)']]],
   // owner-only (hidden for everybody else in the layout, `OWNER_VIEWS`)
   ['Систем', 'aktivnost', [['produktivnost', '📊 Продуктивност на вработените']]],
   // owner-only: AI cost report and monthly AI limit (docs/AI-TROSHOK.md)

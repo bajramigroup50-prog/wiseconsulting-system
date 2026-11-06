@@ -6,6 +6,9 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+  # ssh2 (bank SFTP) works in pure JS: no native crypto add-ons to build
+  ssh2: false
+  cpu-features: false
 minimumReleaseAgeExclude:
   - drizzle-orm@0.45.4
   - pg-boss@12.37.1
