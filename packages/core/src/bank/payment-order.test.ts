@@ -24,9 +24,9 @@ describe('payment-order accounts', () => {
     expect(mkAccountValid('MK07250120000058984')).toBe(true);
     expect(mkAccountValid('abc')).toBe(false);
   });
-  it('ppAccTxt switches to IBAN from 2026-11-01', () => {
-    expect(ppAccTxt('100000000063095', '2026-10-31')).toBe('100-0000000630-95');
-    expect(ppAccTxt('100000000063095', '2026-11-01')).toBe(ppIban('100000000063095'));
+  it('ppAccTxt switches to IBAN from 2026-11-09 (the new НБРМ orders)', () => {
+    expect(ppAccTxt('100000000063095', '2026-11-08')).toBe('100-0000000630-95');
+    expect(ppAccTxt('100000000063095', '2026-11-09')).toBe(ppIban('100000000063095'));
     expect(ppAccTxt('x', '2026-11-01')).toBe('x');
   });
   it('bank detection', () => {

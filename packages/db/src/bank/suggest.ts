@@ -8,7 +8,7 @@
  */
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
-  autoMatch, Bank, BANK_FEE, partnerOpenKonto, type MatchContext, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, payrollKonto, payrollPartOf, ruleSideOk, schemeValue,
+  autoMatch, Bank, BANK_FEE, osnovRule, partnerOpenKonto, type MatchContext, BKPK_RE, bankName, isFxAccount, isVatPayment, keywordKonto, noPartnerLine, ownTransferBy, PAY_SCH_KEYS, payrollKonto, payrollPartOf, ruleSideOk, schemeValue,
   wrongSideWarning, type BankRow, type NoPartnerKind, type PayScheme,
 } from '@wise/core';
 import { audit, type Tx } from '../audit';
@@ -37,7 +37,8 @@ export interface LineSuggestion {
 }
 
 /** Payment codes of bank fees (Халкбанк / НЛБ statements). */
-export const FEE_CODES = new Set(['666', '289']);
+/** Bank-fee payment codes: the old 666 / 289 and FEES / BKFE (ISO 20022, from 9 Nov 2026). */
+export const FEE_CODES = new Set(['666', '289', 'FEES', 'BKFE']);
 /** Treasury account of the Budget (ПП50 recipient) — public revenue payments. */
 const TREASURY_RE = /^100000000063|^MK07100000000063/;
 const PUBLIC_RE = /трезор|буџет|народна банка|нбрсм|ујп|управа за јавни приходи|фонд за (пензиско|здравствено)|пиом|фзом|агенција за вработување/i;
@@ -87,7 +88,7 @@ export function suggestByCode(x: SuggestInput, env: Pick<BankEnv, 'rules' | 'osn
     if (part) return { konto: payrollKonto(part, payScheme(env.posting)), why: `шифра ${code} – ${PART_WHY[part]} (шема на плати)`, how: part === 'tax' ? 'tax' : 'contrib' };
   }
   if (code) {
-    const k = env.osnovK[code + '|' + (out ? 'out' : 'in')];
+    const k = osnovRule(env.osnovK, code, out);
     if (k) return { konto: k, why: `запомнато правило за шифра ${code}`, how: 'osnov' };
   }
   const rule = env.rules.find((r) => r.match && t.includes(r.match.toLowerCase()) && ruleSideOk(r.konto, x.amount));

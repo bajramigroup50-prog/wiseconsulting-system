@@ -30,6 +30,7 @@ export * as Ledger from './ledger';
 export * from './bank/open-items';
 export * from './bank/statements';
 export * from './bank/pp';
+export * from './bank/purpose-codes';
 export * from './bank/mk-banks';
 export * from './bank/partner-accounts';
 export * from './bank/pp-fill';

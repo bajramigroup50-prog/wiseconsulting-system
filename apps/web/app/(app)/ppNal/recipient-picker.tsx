@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { fromIban, mkBankName, toIban } from '@wise/core/bank/mk-banks';
 import { ppInvoicesFill, ppNacin, ppPartyText } from '@wise/core/bank/pp-fill';
+import { newPayments } from '@wise/core/bank/purpose-codes';
 
 export interface PpPickOption {
   key: string; kind: 'partner' | 'employee'; name: string; address: string; city: string;
@@ -34,6 +35,8 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
 
   const field = (form: HTMLFormElement | null, k: string) => form?.elements.namedItem(k) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
   const setF = (form: HTMLFormElement | null, k: string, v: string) => { const el = field(form, k); if (el) el.value = v; };
+  /** Date of the order in the form (the new ISO codes apply from 9 Nov 2026). */
+  const dateOf = (form: HTMLFormElement | null) => field(form, 'date')?.value || new Date().toISOString().slice(0, 10);
   const ibanOn = (form: HTMLFormElement | null) => !!(field(form, 'iban') as HTMLInputElement | null)?.checked;
 
   const applyAccount = (form: HTMLFormElement | null, a: { acc: string; bank: string } | undefined) => {
@@ -53,14 +56,14 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
     setF(form, 'amount', f.amount == null ? '' : f.amount.toFixed(2));
     setF(form, 'purpose', f.purpose ?? '');
     setF(form, 'refCredit', f.refCredit ?? '');
-    setF(form, 'code', '930');
+    setF(form, 'code', newPayments(dateOf(form)) ? 'GDSV' : '930');
   };
   const choose = (form: HTMLFormElement | null, o: PpPickOption) => {
     setSel(o); setOpen(false); setQ('');
     setF(form, 'recip', ppPartyText(o));
     applyAccount(form, o.accounts.find((a) => a.def) ?? o.accounts[0]);
     if (o.kind === 'employee') {
-      setF(form, 'code', '101');
+      setF(form, 'code', newPayments(dateOf(form)) ? 'SALA' : '101');
       const purpose = field(form, 'purpose');
       if (purpose && !purpose.value.trim()) purpose.value = 'Исплата на нето плата';
       applyInvoices(form, o, []);
@@ -89,7 +92,7 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
               <span className="mini"> {o.accounts.find((a) => a.def)?.acc || 'нема сметка'}{o.invoices.length ? ` · ${o.invoices.length} неплатени (${fmt(o.invoices.reduce((s, x) => s + Math.round(x.open * 100), 0) / 100)})` : ''}</span>
             </button>
           ))}
-          {taxes.length > 0 && <div className="mini" style={{ padding: 6 }}>Даноци и придонеси се плаќаат со ПП50: {taxes.map((t) => <Link key={t.key} href={`/ppNal?tax=${t.key}`} style={{ marginRight: 8 }}>{t.name}</Link>)}</div>}
+          {taxes.length > 0 && <div className="mini" style={{ padding: 6 }}>Даноци и придонеси се плаќаат со КТБ (поранешен ПП50): {taxes.map((t) => <Link key={t.key} href={`/ppNal?tax=${t.key}`} style={{ marginRight: 8 }}>{t.name}</Link>)}</div>}
         </div>
       )}
       {sel && sel.accounts.length > 1 && (

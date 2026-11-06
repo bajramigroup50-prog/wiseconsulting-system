@@ -75,7 +75,7 @@ export function OrdersForm({ o, canEdit, defaults }: { o: Record<string, unknown
         <tbody>{PAY_FUNDS.map(([k, n]) => (
           <tr key={k}><td>{n}</td><td><input name={`${k}_uplSm`} defaultValue={funds[k]?.uplSm ?? ''} disabled={!canEdit} /></td><td><input name={`${k}_prihod`} defaultValue={funds[k]?.prihod ?? ''} disabled={!canEdit} /></td></tr>
         ))}</tbody></table>
-      <p className="note">Уплатните сметки и приходните шифри проверете ги според упатството на УЈП (ujp.gov.mk → Уплатни сметки). Без нив налозите ПП50 се печатат празни и се означени како непотполни.</p>
+      <p className="note">Уплатните сметки и приходните шифри проверете ги според упатството на УЈП (ujp.gov.mk → Уплатни сметки). Без нив налозите КТБ (ПП50) се печатат празни и се означени како непотполни.</p>
       {canEdit && <div className="row"><button className="btn pri" disabled={pending}>Зачувај</button></div>}
     </form>
   );

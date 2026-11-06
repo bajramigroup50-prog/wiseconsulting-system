@@ -22,8 +22,8 @@ export function ppIban(acc: unknown): string {
   return 'MK' + String(98 - mod97(b + '2220' + '00')).padStart(2, '0') + b;
 }
 
-/** Legacy `ppIbanOn`: payment orders show IBANs from 2026-11-01. */
-export const ppIbanOn = (date: string): boolean => date >= '2026-11-01';
+/** Payment orders show IBANs (МК07 + account) from 2026-11-09, when the new НБРМ orders apply (legacy had 11-01). */
+export const ppIbanOn = (date: string): boolean => date >= '2026-11-09';
 
 /** Legacy `ppAccTxt`: `XXX-XXXXXXXXXX-XX` before the IBAN date, IBAN after (or when forced). */
 export function ppAccTxt(acc: unknown, date: string, forceIban?: boolean): string {

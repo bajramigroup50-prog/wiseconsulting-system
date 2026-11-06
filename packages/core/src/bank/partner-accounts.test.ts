@@ -122,7 +122,7 @@ describe('ПП30 autofill', () => {
     expect(ppWarnings(n)).toEqual([]);
     expect(ppFieldText(n, 'recipAcc', 'acc')).toBe('MK07300000001234555');
     expect(ppApplyIban(n, false).recipAcc).toBe(KB);
-    expect(ppWarnings({ ...n, recipAcc: '30000000123455' })).toContain('Сметката на примачот мора да има 15 цифри.');
+    expect(ppWarnings({ ...n, recipAcc: '30000000123455' })).toContain('Сметката на примачот мора да има 15 цифри или IBAN MK07….');
   });
   it('batch: one order per supplier with all its invoices, oldest first', () => {
     const party = { name: 'Добавувач', acc: KB };

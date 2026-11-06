@@ -7,7 +7,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import { mkAccountValid } from '@wise/core/bank/payment-order';
-import { mkBankName, namesBankOf } from '@wise/core/bank/mk-banks';
+import { mkBankName, namesBankOf, parseAccount } from '@wise/core/bank/mk-banks';
 import { audit, type Tx } from '../audit';
 import { bankAccounts, type BankAccountRow } from '../schema/index';
 import { autoBankKonto, BankError, bankKontoChart } from './context';
@@ -36,7 +36,7 @@ export async function numberlessAccountsOf(tx: Tx, firmId: string, account: stri
 
 /** What to do with a statement account the firm does not have (null when it is not a valid MK account). */
 export async function proposeStatementAccount(tx: Tx, firmId: string, account: string, rows: readonly BankAccountRow[]): Promise<AccountProposal | null> {
-  const acc = dig(account);
+  const acc = parseAccount(account)?.acc || dig(account);
   if (acc.length !== 15 || !mkAccountValid(acc)) return null;
   const bank = mkBankName(acc);
   const C = await numberlessAccountsOf(tx, firmId, acc, rows);
@@ -46,7 +46,7 @@ export async function proposeStatementAccount(tx: Tx, firmId: string, account: s
 
 /** „Поврзи ја сметката 210… со ЖИРО СМЕТКА ТУТУНСКА БАНКА (100001)“: the number is filled in on that account. */
 export async function linkBankAccountNumber(tx: Tx, a: { firmId: string; userId: string | null; accountId: string; account: string }): Promise<void> {
-  const acc = dig(a.account);
+  const acc = parseAccount(a.account)?.acc || dig(a.account);
   if (acc.length !== 15 || !mkAccountValid(acc)) throw new BankError('Неважечки број на сметка.');
   const [b] = await tx.select().from(bankAccounts).where(and(eq(bankAccounts.id, a.accountId), eq(bankAccounts.firmId, a.firmId))).limit(1);
   if (!b) throw new BankError('Сметката не постои.');
@@ -63,7 +63,7 @@ export async function linkBankAccountNumber(tx: Tx, a: { firmId: string; userId:
 
 /** „Отвори ја сметката 210…“: a new denar account for the statement's account, on the konto of its bank. */
 export async function createStatementAccount(tx: Tx, a: { firmId: string; userId: string | null; account: string }): Promise<string> {
-  const acc = dig(a.account);
+  const acc = parseAccount(a.account)?.acc || dig(a.account);
   if (acc.length !== 15 || !mkAccountValid(acc)) throw new BankError('Неважечки број на сметка.');
   const all = await tx.select({ name: bankAccounts.name, account: bankAccounts.account, iban: bankAccounts.iban }).from(bankAccounts).where(eq(bankAccounts.firmId, a.firmId));
   const other = all.find((x) => [dig(x.account), dig(x.iban)].some((d) => d.length >= 15 && d.endsWith(acc)));

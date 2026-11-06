@@ -2,17 +2,18 @@
  * One payment-order slip 210×99 mm (legacy `ppSlip` 15796): `full` draws the form with labels and boxes on plain
  * paper; `data` prints only the values (for pre-printed forms), shifted by the calibration offset.
  */
-import { PP_LAY, ppFieldText, type PaymentOrder } from '@wise/core';
+import { ppFieldText, ppLayout, ppShort, type PaymentOrder } from '@wise/core';
 
 export function PpSlip({ n, mode = 'full', dx = 0, dy = 0 }: { n: PaymentOrder; mode?: 'full' | 'data'; dx?: number; dy?: number }) {
-  const L = PP_LAY[n.kind];
+  // the new НБРМ forms (КТД / КТБ / ВГ) from 9 Nov 2026, the old ПП layout for older orders
+  const L = ppLayout(n.kind, n.date);
   const full = mode !== 'data';
   const C = full ? { dx: 0, dy: 0 } : { dx, dy };
   return (
     <div className="ppslip" style={{ position: 'relative', width: '210mm', height: '99mm', overflow: 'hidden', boxSizing: 'border-box', background: '#fff', color: '#000', ...(full ? { borderBottom: '0.2mm dashed #999' } : {}) }}>
       {full && <>
         <div style={{ position: 'absolute', left: '5mm', top: '3mm', font: 'bold 10.5pt Arial' }}>{L.title}</div>
-        <div style={{ position: 'absolute', right: '6mm', top: '3.5mm', font: '7pt Arial' }}>образец {n.kind.replace('pp', 'ПП')}</div>
+        <div style={{ position: 'absolute', right: '6mm', top: '3.5mm', font: '7pt Arial' }}>образец {ppShort(n.kind, n.date)}</div>
       </>}
       {L.f.map(([k, label, x, y, w, h, ml, t]) => (
         <div key={k}>

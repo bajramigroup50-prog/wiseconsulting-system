@@ -327,7 +327,7 @@ export function apExtra(S: FirmSnapshot): ApExtra {
     if (lines.length && Number(S.firm.akontDD) > 0) lines.push(`Аконтација данок на добивка: ${fmtMk(Number(S.firm.akontDD))} ден. месечно, рок до 15-ти.`);
     if (lines.length) X.msgs.push({
       type: 'vat', key: `vat|${S.firm.id}|${E.period}|${mo}`, subj: `Даноци што доаѓаат – ${fname}`,
-      body: `${hello}Ве известуваме однапред за обврските на ${fname}:\n\n${lines.map((x) => `• ${x}`).join('\n\n')}\n\nПроценката се менува со новите фактури. Платниот налог (ПП50) можеме да го подготвиме ние.${sign}`,
+      body: `${hello}Ве известуваме однапред за обврските на ${fname}:\n\n${lines.map((x) => `• ${x}`).join('\n\n')}\n\nПроценката се менува со новите фактури. Платниот налог (КТБ, поранешен ПП50) можеме да го подготвиме ние.${sign}`,
     });
   }
 

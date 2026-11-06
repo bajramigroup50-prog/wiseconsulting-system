@@ -79,7 +79,7 @@ export function nlbDpsGrid(items0: readonly PdfItem[]): NlbGrid | null {
     const seq = B.find((it) => it.x1 <= nameX + 2 && /^\d{1,5}$/.test(it.t))?.t ?? '';
     const nameItems = B.filter((it) => it.x >= nameX && it.x < depX && !ACC.test(it.t));
     const acc = B.find((it) => it.x >= nameX && it.x < depX && ACC.test(it.t))?.t ?? '';
-    const code = B.find((it) => it.x >= sifX && it.x < purpX && /^\d{1,4}$/.test(it.t))?.t ?? '';
+    const code = B.find((it) => it.x >= sifX && it.x < purpX && /^(\d{1,4}|[A-Z]{4})$/.test(it.t))?.t ?? '';
     const purp = B.filter((it) => it.x >= purpX && it.x < refX && it !== a);
     const refs = [...new Set(B.filter((it) => it.x >= refX && it.x < rekX).sort((p, q) => (p.page - q.page) || (q.y - p.y) || (p.x - q.x)).map((x) => x.t))];
     const debit = a.x1 <= dcSplit ? a.t : '', credit = a.x1 > dcSplit ? a.t : '';

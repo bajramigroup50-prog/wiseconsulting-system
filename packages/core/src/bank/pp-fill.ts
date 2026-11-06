@@ -3,6 +3,7 @@
  * picked, accounts as IBAN when the IBAN box is ticked, and one order per supplier for a batch of unpaid invoices.
  * Money is summed in whole cents (exact).
  */
+import { newPayments } from './purpose-codes';
 import { ppNew, type PaymentOrder, type PpFirm } from './pp';
 import { fromIban, mkBankName, parseAccount, toIban } from './mk-banks';
 import { fixYuscii } from '../text/yuscii';
@@ -62,7 +63,7 @@ export function ppBatchOrders(items: readonly PpBatchItem[], payer: PpFirm, date
   return [...by].map(([partnerId, L]) => {
     const S = [...L].sort((a, b) => ((a.due || a.date) < (b.due || b.date) ? -1 : (a.due || a.date) > (b.due || b.date) ? 1 : 0));
     const r = ppRecipientFields(S[0]!.party);
-    let order = ppNew('pp30', date, payer, { ...r, ...ppInvoicesFill(S), code: '930', nacin: ppNacin(payer.account, r.recipAcc) });
+    let order = ppNew('pp30', date, payer, { ...r, ...ppInvoicesFill(S), code: newPayments(date) ? 'GDSV' : '930', nacin: ppNacin(payer.account, r.recipAcc) });
     if (o.iban) order = ppApplyIban(order, true);
     return { partnerId, refIds: S.map((x) => x.refId), order, missing: !parseAccount(r.recipAcc) };
   });

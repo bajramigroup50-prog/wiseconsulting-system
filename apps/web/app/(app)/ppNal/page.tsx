@@ -7,7 +7,7 @@ import { canSee } from '@/lib/can-see';
 import Link from 'next/link';
 import { and, desc, eq } from 'drizzle-orm';
 import {
-  PP_NACIN, PP_SIF, PP_T, PP_TAX, ppApplyIban, ppIbanOn, ppNacin, ppNew, ppTaxNew, ppWarnings, ppAccTxt, type PaymentOrder, type PpKind,
+  newPayments, PP_NACIN, PP_SIF, PP_TAX, ppApplyIban, ppShort, ppTitle, ppIbanOn, ppNacin, ppNew, ppTaxNew, ppWarnings, ppAccTxt, type PaymentOrder, type PpKind,
   hasYuscii,
 } from '@wise/core';
 import { ppExportRows } from '@wise/core/bank/fin-parity';
@@ -62,11 +62,11 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   } else if (sp.ref) {
     const s = sug.find((x) => x.refId === sp.ref);
     if (s) {
-      draft = ppNew('pp30', today, payer, { recip: s.recip, recipAcc: s.recipAcc, recipBank: s.recipBank, purpose: 'Плаќање по фактура бр. ' + s.refCredit, amount: s.amount, code: '930', refCredit: s.refCredit, nacin: ppNacin(payer.account, s.recipAcc) });
+      draft = ppNew('pp30', today, payer, { recip: s.recip, recipAcc: s.recipAcc, recipBank: s.recipBank, purpose: 'Плаќање по фактура бр. ' + s.refCredit, amount: s.amount, code: newPayments(today) ? 'GDSV' : '930', refCredit: s.refCredit, nacin: ppNacin(payer.account, s.recipAcc) });
       refId = s.refId; refIds = [s.refId];
     }
   } else if (sp.nov && KINDS.includes(sp.nov as PpKind)) draft = ppNew(sp.nov as PpKind, today, payer);
-  // new orders from 01.11.2026: the accounts are shown as IBAN right away (the box is ticked)
+  // new orders from 09.11.2026 (КТД / КТБ / ВГ): the accounts are shown as IBAN МК07… right away (the box is ticked)
   if (draft && !editId && ppIbanOn(draft.date)) draft = ppApplyIban(draft, true);
   const W = draft ? ppWarnings(draft) : [];
   const taxTpl: PpTaxTpl[] = PP_TAX.map((t) => { const d = taxDraft(t[0]); return { key: t[0], name: t[1], uplSm: d.uplSm ?? '', prihod: d.prihod ?? '', refDebit: d.refDebit ?? '', purpose: d.purpose ?? '', amount: d.amount ? String(d.amount) : '' }; });
@@ -81,22 +81,22 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <Hd t="💳 Платни налози" sub="ПП30 · ПП50 · ПП10 – автоматско пополнување и печатење" />
+      <Hd t="💳 Платни налози" sub="КТД · КТБ · ВГ (поранешни ПП30 · ПП50 · ПП10) – автоматско пополнување и печатење, IBAN МК07 и ISO шифри од 9.11.2026" />
       {[firm.name, firm.address, firm.city].some((x) => hasYuscii(x)) && <div className="callout warn">Податоците на фирмата имаат знаци од стариот YUSCII фонт (пр. „^“ наместо „Ч“) – на налогот се печатат поправени. Поправете ги трајно во {(await canSee('firmi')) ? <Link href="/firmi/kirilica">Фирми › Поправка на увезени фирми</Link> : 'Фирми › Поправка на увезени фирми (сопственикот)'}.</div>}
       {String(payer.account).replace(/\D/g, '').length !== 15 && <div className="callout warn">Внесете ја трансакциската сметка (15 цифри) на фирмата во „Изводи › Банкарски сметки“ – се користи како налогодавач.</div>}
       {write && (
         <div className="card"><div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <Link className="btn pri" href="/ppNal?nov=pp30">+ ПП30 налог за пренос</Link>
-          <Link className="btn pri" href="/ppNal?nov=pp50">+ ПП50 јавни приходи</Link>
-          <Link className="btn" href="/ppNal?nov=pp10">+ ПП10 уплатница</Link>
+          <Link className="btn pri" href="/ppNal?nov=pp30">+ КТД кредитен трансфер (ПП30)</Link>
+          <Link className="btn pri" href="/ppNal?nov=pp50">+ КТБ јавни приходи (ПП50)</Link>
+          <Link className="btn" href="/ppNal?nov=pp10">+ ВГ внесување готовина (ПП10)</Link>
           <span style={{ flex: 1 }} />
-          {PP_TAX.map((t) => <Link key={t[0]} className="btn sm" href={`/ppNal?tax=${t[0]}`}>ПП50: {t[1]}</Link>)}
+          {PP_TAX.map((t) => <Link key={t[0]} className="btn sm" href={`/ppNal?tax=${t[0]}`}>КТБ: {t[1]}</Link>)}
         </div>
         <p className="mini" style={{ margin: '6px 0 0' }}>⚠ Од <b>01.11.2026</b> плаќањата во земјата се само со <b>IBAN</b> (MK + 2 контролни + 15 цифри) – програмата го пресметува автоматски од сметката.</p></div>
       )}
 
       {sp.made && (
-        <div className="callout good" role="status">✓ Подготвени {sp.made.split(',').filter(Boolean).length} налози ПП30 (по еден за добавувач).{' '}
+        <div className="callout good" role="status">✓ Подготвени {sp.made.split(',').filter(Boolean).length} налози КТД (по еден за добавувач).{' '}
           <Link className="btn sm" href={`/ppNal/print?ids=${sp.made}&m=full`} target="_blank">🖨 Печати ги сите (PDF, 3 на А4)</Link>{' '}
           <Link className="btn sm" href={`/ppNal/print?ids=${sp.made}&m=data`} target="_blank">🖨 Допечати на обрасци</Link>
           {sp.miss && <div className="mini">⚠ Без жиро сметка (внесете ја во налогот): {sp.miss}</div>}
@@ -106,7 +106,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
       {draft && write && (
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <BankForm action={savePpAction}>
-            <div className="hd"><h2>💳 {PP_T[draft.kind]}</h2>
+            <div className="hd"><h2>💳 {ppTitle(draft.kind, draft.date)}</h2>
               <div className="row">
                 <button className="btn pri">Зачувај</button>
                 {editId && <>
@@ -122,16 +122,16 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
             <div className="ctgrid">
               <div>
                 <div className="form">
-                  {F('payer', draft.kind === 'pp10' ? 'Уплатувач' : 'Налогодавач (назив и седиште)', { ml: true })}
-                  {draft.kind !== 'pp10' && F('payerBank', 'Банка на налогодавач')}
-                  {draft.kind === 'pp50' ? F('payerTax', 'Даночен број (ЕДБ) или ЕМБГ') : draft.kind === 'pp30' ? F('payerAcc', 'Сметка на налогодавач', { mode: 'numeric' }) : null}
+                  {F('payer', draft.kind === 'pp10' ? 'Внесувач' : 'Плаќач (назив и седиште)', { ml: true })}
+                  {draft.kind !== 'pp10' && F('payerBank', 'Банка на плаќачот')}
+                  {draft.kind === 'pp50' ? F('payerTax', 'Даночен број (ЕДБ) или ЕМБГ') : draft.kind === 'pp30' ? F('payerAcc', 'Платежна сметка на плаќачот (МК07 + сметка)') : null}
                   {draft.kind === 'pp30' && <PpRecipientPicker options={recips} taxes={PP_TAX.map((t) => ({ key: t[0], name: t[1] }))} initialRefIds={refIds} />}
                   {F('recip', draft.kind === 'pp50' ? 'Примач' : 'Примач (назив и седиште)', { ml: true })}
-                  {F('recipAcc', 'Сметка на примач', { mode: 'numeric' })}
+                  {F('recipAcc', 'Платежна сметка на примачот (МК07 + сметка)')}
                   {F('recipBank', 'Банка на примач')}
-                  {F('purpose', 'Цел на дознаката', { ml: true })}
+                  {F('purpose', 'Цел на дознаката (заедно со повикот на број = „Опис на плаќањето“, најмногу 140 знаци)', { ml: true })}
                   {F('amount', 'Износ (МКД)', { mode: 'decimal' })}
-                  {draft.kind !== 'pp50' && F('code', 'Шифра', { list: 'pp_sif' })}
+                  {F('code', draft.kind === 'pp50' ? 'Шифра (не е задолжителна, пр. GOVT)' : 'Шифра (ISO, пр. GDSV, OTHR, SALA)', { list: 'pp_sif' })}
                   {draft.kind !== 'pp10' && (
                     <label className="f">Начин<select name="nacin" defaultValue={draft.nacin}>{PP_NACIN.map(([c, t]) => <option key={c} value={c}>{t}</option>)}</select></label>
                   )}
@@ -159,7 +159,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
 
       {draft && write && (
         <BankForm action={savePpCalAction.bind(null, draft.kind)} className="card row" style={{ gap: 10, alignItems: 'end' }}>
-          <b>📐 Калибрација за {PP_T[draft.kind]} (допечатување)</b>
+          <b>📐 Калибрација за {ppTitle(draft.kind, draft.date)} (допечатување)</b>
           <label className="f">Поместување десно (мм)<input name="dx" type="number" step="0.5" defaultValue={kc.dx ?? 0} style={{ width: 90 }} /></label>
           <label className="f">Поместување долу (мм)<input name="dy" type="number" step="0.5" defaultValue={kc.dy ?? 0} style={{ width: 90 }} /></label>
           <button className="btn sm">Зачувај калибрација</button>
@@ -173,16 +173,16 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
           <div className="tw" style={{ maxHeight: 300 }}><table className="dense">
             <thead><tr><th></th><th>Добавувач · фактура · датум</th><th className="n">Отворено</th><th></th></tr></thead>
             <tbody>{vatSug && (
-              <tr><td></td><td><b>{vatSug.label}</b> <span className="pill">ПП50</span></td><td className="n">{fmt(vatSug.amount)}</td><td><Link className="btn sm" href="/ppNal?tax=ddv">Направи налог</Link></td></tr>
+              <tr><td></td><td><b>{vatSug.label}</b> <span className="pill">КТБ</span></td><td className="n">{fmt(vatSug.amount)}</td><td><Link className="btn sm" href="/ppNal?tax=ddv">Направи налог</Link></td></tr>
             )}{sug.map((s) => (
               <tr key={s.refId}><td>{s.partnerId && <input type="checkbox" name="pick" value={s.refId} aria-label={'Избери ' + s.label} />}</td>
                 <td>{s.label}{s.warn && <span className="pill warn"> {s.warn}</span>}</td><td className="n">{fmt(s.amount)}</td>
-                <td><Link className="btn sm" href={`/ppNal?ref=${encodeURIComponent(s.refId)}`}>ПП30</Link></td></tr>
+                <td><Link className="btn sm" href={`/ppNal?ref=${encodeURIComponent(s.refId)}`}>КТД</Link></td></tr>
             ))}</tbody>
           </table></div>
           <div className="row" style={{ gap: 8, alignItems: 'end', marginTop: 6 }}>
             <label className="f">Датум на налозите<input type="date" name="date" defaultValue={today} /></label>
-            <button className="btn pri">💳 Подготви ПП30 за избраните</button>
+            <button className="btn pri">💳 Подготви КТД за избраните</button>
             <span className="note">Еден налог по добавувач (збир на штиклираните фактури, цел и повикување со броевите), сите се печатат на еден PDF.</span>
           </div>
           <p className="note">Отворените износи се од книжењата на 220–228 по број на фактура, намалени за плаќањата од изводите. Жиро сметката е основната сметка на комитентот (се учи од прочитаните фактури и изводите).</p>
@@ -205,7 +205,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
               return (
                 <tr key={o.id}>
                   <td><input type="checkbox" name="ids" value={o.id} aria-label="Избери" /></td>
-                  <td>{o.kind.replace('pp', 'ПП')}</td><td>{dmy(o.date)}</td><td>{o.recipient}</td><td>{String(d.purpose ?? '').slice(0, 60)}</td>
+                  <td>{ppShort(o.kind as PpKind, o.date)}</td><td>{dmy(o.date)}</td><td>{o.recipient}</td><td>{String(d.purpose ?? '').slice(0, 60)}</td>
                   <td className="n">{o.amount != null ? fmt(Number(o.amount)) : ''}</td><td>{o.printedAt ? dmy(o.printedAt.toISOString()) : ''}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {write && <Link className="btn sm" href={`/ppNal?edit=${o.id}`}>Отвори</Link>}{' '}
@@ -219,7 +219,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
       </form>
       <div className="card">
         <h2>🖨 Печатач за налози</h2>
-        <p className="note">За самокопирни (повеќеделни) обрасци ПП30/ПП50 потребен е <b>матричен (иглен) печатач</b> – на пр. Epson LQ-350 (за единечни налози) или Epson LQ-590II (полесно внесување на обрасците и подолг век). Ласерски / инкџет печатач може да печати само на единечни листови или „Цел образец“ на бела хартија (ако банката го прифаќа). По првото печатење проверете со вистински образец и подесете ја калибрацијата погоре.</p>
+        <p className="note">За самокопирни (повеќеделни) обрасци КТД/КТБ (поранешни ПП30/ПП50) потребен е <b>матричен (иглен) печатач</b> – на пр. Epson LQ-350 (за единечни налози) или Epson LQ-590II (полесно внесување на обрасците и подолг век). Ласерски / инкџет печатач може да печати само на единечни листови или „Цел образец“ на бела хартија (ако банката го прифаќа). По првото печатење проверете со вистински образец и подесете ја калибрацијата погоре.</p>
       </div>
     </>
   );

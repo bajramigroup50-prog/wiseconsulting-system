@@ -14,6 +14,7 @@
  *
  * Deliberate fixes (LEGACY-MAP Phase 4 §4.4) are marked `FIX #n:`.
  */
+import { purposeAliases, purposeIs } from './bank/purpose-codes';
 import { toCents, fromCents } from './bank/cents';
 import { PAY_SCH0, type PayScheme } from './payroll/entries';
 
@@ -674,12 +675,22 @@ function layerNoPartner(w: Work): void {
 /** The line never closes a document (bank, Treasury, card, salary — {@link noPartnerLine}). */
 const noDoc = (b: BankRow, ctx: MatchContext) => !!noPartnerLine(b, ctx);
 
+/**
+ * A learned payment-code rule for the line: the code as read, or the same purpose in the other spelling – an old
+ * 3-digit code (200, 220, 930 …) and its ISO 20022 code from 9 Nov 2026 (GDDS, GDSV, OTHR …) share their rules.
+ */
+export function osnovRule(M: Record<string, string> | undefined, code: unknown, out: boolean): string | undefined {
+  if (!M) return undefined;
+  for (const c of purposeAliases(code)) { const k = M[c + '|' + (out ? 'out' : 'in')]; if (k) return k; }
+  return undefined;
+}
+
 function layerOsnov(w: Work): void {
   const M = w.ctx.osnovK || {};
   for (const b of w.rows.filter((b) => !b.ref && !b.konto && b.osnov && !b.own)) {
     // a МПИН part (843 / 840) is never booked by the code's rule – it goes to its own konto (noPartnerLine / the suggestion)
     if (mpinPartKonto(b, w.ctx.payScheme)) continue;
-    const k = M[String(b.osnov) + '|' + (+b.amount > 0 ? 'in' : 'out')];
+    const k = osnovRule(M, b.osnov, !(+b.amount > 0));
     if (!k) continue;
     commit(w, { ...b, konto: k }, 'osnov');
   }
@@ -1027,7 +1038,7 @@ export function ownTransferBy(b: BankRow, ctx: Pick<MatchContext, 'firmName' | '
   const by = selfCounterparty(b, ctx);
   if (by === 'name' && keywordKonto(b, ctx.accounts, ctx.konta)) return null;
   // payment code 903 = „Пренос од средства на делот на правно лице и обратно“ — a transfer between the firm's own accounts
-  if (!by && String(b.osnov ?? '').trim() === '903' && !isFxAccount(ctx.accounts, b.acct)) return 'name';
+  if (!by && (String(b.osnov ?? '').trim() === '903' || purposeIs(b.osnov, 'ACCT')) && !isFxAccount(ctx.accounts, b.acct)) return 'name';
   return by;
 }
 
@@ -1094,7 +1105,7 @@ export function keywordKonto(b: BankRow, accounts: BankAccount[], konta?: Partia
   const K = { ...BANK_KONTA, ...(konta || {}) };
   const t = rowText(b);
   // payment code 800 = „Уплата во готово на сопствена сметка од дневен пазар“ (НБРСМ шифри на плаќање)
-  if (+b.amount > 0 && (TURNOVER_RE.test(t) || String(b.osnov ?? '').trim() === '800')) return { konto: K.dailyTurnover, cls: 'turnover' };
+  if (+b.amount > 0 && (TURNOVER_RE.test(t) || purposeIs(b.osnov, '800'))) return { konto: K.dailyTurnover, cls: 'turnover' };
   if (+b.amount < 0 && CASH_WD_RE.test(t)) return { konto: K.cashWithdraw, cls: 'cash' };
   return null;
 }
@@ -1191,7 +1202,7 @@ export function noPartnerLine(b: BankRow, ctx: Pick<MatchContext, 'konta' | 'pay
   const out = +b.amount < 0;
   const name = leadName(b);
   const t = [b.name, b.desc, b.purpose].filter(Boolean).join(' ');
-  const treasury = TREASURY_RE.test(name) || TREASURY_RE.test(t) || dig(b.counterAccount) === TREASURY_ACC;
+  const treasury = TREASURY_RE.test(name) || TREASURY_RE.test(t) || (dig(b.counterAccount) === TREASURY_ACC || dig(b.counterAccount).endsWith(TREASURY_ACC));
   if (treasury) {
     // VAT, the monthly profit-tax advance („уплата мдб 06/2026“) and interest on late tax: the firm's tax kontos
     if (/(^|[^\p{L}])(ддв|ddv)(?![\p{L}])|данок\s+на\s+додадена|danok\s+na\s+dodadena/iu.test(t)) return { kind: 'treasury', konto: out ? K.ddvPay : K.ddvClaim };

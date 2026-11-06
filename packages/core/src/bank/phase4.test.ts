@@ -100,7 +100,7 @@ describe('payment orders', () => {
   it('new orders: firm as payer, ПП50 to the budget, warnings and errors', () => {
     const n = ppNew('pp30', '2026-10-08', { name: 'Алфа', city: 'Скопје', account: good }, { recipAcc: '123', amount: 0 });
     expect(n).toMatchObject({ payer: 'Алфа\nСкопје', payerAcc: good, code: '930', nacin: '2' });
-    expect(ppWarnings(n)).toEqual(['Сметката на примачот мора да има 15 цифри.', 'Внесете износ.']);
+    expect(ppWarnings(n)).toEqual(['Сметката на примачот мора да има 15 цифри или IBAN MK07….', 'Внесете износ.']);
     expect(ppErrors({ ...n, recipAcc: good.slice(0, 14) + ((+good[14]! + 1) % 10) })).toEqual(['Сметката на примачот не е валидна.']);
     const t = ppTaxNew('dda', '2026-10-08', { name: 'Алфа' }, { muni: '182', akont: 1500 });
     expect(t).toMatchObject({ kind: 'pp50', recipAcc: '100000000063095', uplSm: '840-182-01076', refDebit: '01092026-30092026', amount: 1500 });

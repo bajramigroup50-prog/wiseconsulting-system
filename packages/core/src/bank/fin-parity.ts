@@ -5,7 +5,7 @@
 import { FX_DEF } from '../bank-match';
 import { mpOpsFrom } from '../payroll/mpin';
 import { r2 } from '../money';
-import { PP_T, ppBankName, type PaymentOrder } from './pp';
+import { ppBankName, ppTitle, type PaymentOrder, type PpKind } from './pp';
 
 type Cell = string | number | null | undefined;
 
@@ -146,7 +146,7 @@ export function ppExportRows(L: readonly { kind: string; date: string; amount: s
   return [
     ['Датум', 'Образец', 'Налогодавач', 'Сметка налогодавач', 'Примач', 'Сметка примач', 'Банка примач', 'Цел', 'Шифра', 'Повикување (задолжување)', 'Повикување (одобрување)', 'Износ', 'Печатен'],
     ...L.map((o) => [
-      o.date, PP_T[o.kind as keyof typeof PP_T] ?? o.kind, String(o.data.payer ?? '').split('\n')[0] ?? '', o.data.payerAcc ?? '',
+      o.date, ppTitle(o.kind as PpKind, o.date) ?? o.kind, String(o.data.payer ?? '').split('\n')[0] ?? '', o.data.payerAcc ?? '',
       String(o.data.recip ?? '').split('\n')[0] ?? '', o.data.recipAcc ?? '', o.data.recipBank ?? '', o.data.purpose ?? '', o.data.code ?? '',
       o.data.refDebit ?? '', o.data.refCredit ?? '', o.amount == null || o.amount === '' ? '' : Number(o.amount), d(o.printedAt),
     ]),

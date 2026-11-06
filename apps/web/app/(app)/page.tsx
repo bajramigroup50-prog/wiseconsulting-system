@@ -61,7 +61,7 @@ const Q: [string, string, string, string, string][] = [
   ['prenosi', 'move', 'Пренос', 'во продавница', 't4'], ['kasa', 'cash', 'Каса', 'дневен промет', 't5'], ['plati', 'pay', 'Плати', 'МПИН', 't6'],
   ['ddv', 'tax', 'ДДВ-04', 'пријава', 't7'], ['bilanc', 'bal', 'Бруто биланс', 'извештај', 't8'], ['zsProc', 'year', 'Завршна сметка', 'по фази', 't8'],
   ['fiskPer', 'fisk', 'Фискални извештаи', 'рачна каса', 't5'], ['dosie', 'doc', 'Документи', 'досие на фирмата', 't3'], ['klInbox', 'inbox', 'Од клиенти', 'пристигнато', 't2'],
-  ['ppNal', 'wallet', 'Платни налози', 'ПП30 · ПП50 · ПП10', 't6'],
+  ['ppNal', 'wallet', 'Платни налози', 'КТД · КТБ · ВГ (ПП30 · ПП50 · ПП10)', 't6'],
   // reviewing without going through the menus: the lists, the approval list, the archive, the nalozi, the overview
   ['izlez:list', 'inv', 'Излезни фактури', 'преглед на листата', 't1'], ['vlez:list', 'doc', 'Влезни фактури', 'преглед на листата', 't2'],
   ['skan:proverka', 'scan', 'За физичка проверка', 'одобри скенирани', 't2'], ['arhiva', 'doc', 'Архива', 'документи по налог', 't3'],

@@ -79,7 +79,8 @@ describe('payment orders vs legacy (15759–15762)', () => {
   it('ppIban / ppAccTxt', () => {
     for (const a of ['100000000063095', '270-0000123456-78', '300000000299999', '12345', '210 0000001111 11']) {
       expect(ppIban(a), a).toBe(call('ppIban', a));
-      for (const d of ['2026-10-31', '2026-11-01']) expect(ppAccTxt(a, d), a + d).toBe(call('ppAccTxt', a, d));
+      // FIX: the IBAN date moved from legacy 11-01 to 11-09 (the НБРМ start) – compare outside that week
+      for (const d of ['2026-10-31', '2026-11-10']) expect(ppAccTxt(a, d), a + d).toBe(call('ppAccTxt', a, d));
       expect(ppAccTxt(a, '2026-01-01', true)).toBe(call('ppAccTxt', a, '2026-01-01', true));
     }
   });

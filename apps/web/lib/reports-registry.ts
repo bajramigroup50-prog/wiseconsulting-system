@@ -53,7 +53,7 @@ export const REPORT_GROUPS: readonly (readonly [string, readonly ReportEntry[]])
     { view: 'banka', label: 'Изводи (денарски)', desc: 'изводи, преглед за книжење' },
     { view: 'devizni', label: 'Девизни изводи', desc: 'изводи во девизи' },
     { view: 'blagajna', label: 'Благајна', desc: 'благајнички дневник', p: true },
-    { view: 'ppNal', label: 'Платни налози', desc: 'ПП30 / ПП50 / ПП10' },
+    { view: 'ppNal', label: 'Платни налози', desc: 'КТД / КТБ / ВГ (поранешни ПП30 / ПП50 / ПП10)' },
     { view: 'kompenzacii', label: 'Компензации', desc: 'пребивања меѓу комитенти' },
     { view: 'fiskPer', label: 'Фискални извештаи', desc: 'дневен промет од каса', p: true },
   ]],

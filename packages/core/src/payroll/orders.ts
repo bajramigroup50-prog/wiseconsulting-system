@@ -10,6 +10,8 @@
  */
 import { mpinRows, type PayEmp } from './calc';
 import type { PayParams } from './params';
+import { parseAccount } from '../bank/mk-banks';
+import { newPayments } from '../bank/purpose-codes';
 
 /** Per-fund payment settings: payment account (уплатна сметка) and revenue code (приходна шифра и програма). */
 export type PayFundKey = 'pio' | 'zdr' | 'dop' | 'vrab' | 'tax';
@@ -44,7 +46,7 @@ export interface PayOrder {
   recip: string;
   recipAcc: string;
   recipBank: string;
-  /** ПП30 payment code (101 = нето плата). */
+  /** КТД (ПП30) purpose code: SALA from 9 Nov 2026 (101 before). */
   code?: string;
   /** 1 МИПС, 2 клиринг, 3 иста банка. */
   nacin: string;
@@ -65,7 +67,8 @@ export interface PayOrdersFirm {
   bankName?: string | null;
 }
 
-const dig = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+/** 15 digits of a plain / dashed account or an MK IBAN (MK07…); the raw digits otherwise (then reported as missing). */
+const dig = (v: unknown) => parseAccount(v)?.acc || String(v ?? '').replace(/\D/g, '');
 
 /** All orders of the run. `date` = payment date (default the run date). */
 export function payrollPaymentOrders(
@@ -103,7 +106,7 @@ export function payrollPaymentOrders(
       recip: r.name,
       recipAcc: acc,
       recipBank: r.bank,
-      code: '101',
+      code: newPayments(date) ? 'SALA' : '101',
       nacin: acc && payerAcc && acc.slice(0, 3) === payerAcc.slice(0, 3) ? '3' : '2',
       refCredit: r.embg,
       ref: e.empId,

@@ -8,17 +8,22 @@
  */
 import { BANKS_MK, ibanValid, mkAccountValid, ppAccTxt } from './payment-order';
 import { mkBankName } from './mk-banks';
+import { isoOf, newPayments, PURPOSE_COMMON } from './purpose-codes';
 import { fixYuscii } from '../text/yuscii';
 
 export type PpKind = 'pp30' | 'pp50' | 'pp10';
 
-export const PP_T: Record<PpKind, string> = { pp30: 'ПП30 – Налог за пренос', pp50: 'ПП50 – Налог за јавни приходи', pp10: 'ПП10 – Уплатница' };
+/** Titles of the forms used until 8 Nov 2026. */
+export const PP_T_OLD: Record<PpKind, string> = { pp30: 'ПП30 – Налог за пренос', pp50: 'ПП50 – Налог за јавни приходи', pp10: 'ПП10 – Уплатница' };
+/** The new orders from 9 Nov 2026 (НБРМ / ISO 20022): ПП30 → КТД, ПП50 → КТБ, ПП10 → ВГ. */
+export const PP_T: Record<PpKind, string> = { pp30: 'КТД – Кредитен трансфер во денари', pp50: 'КТБ – Кредитен трансфер кон буџетските корисници', pp10: 'ВГ – Внесување готовина' };
+/** Short form name: КТД / КТБ / ВГ (ПП30 / ПП50 / ПП10 before 9 Nov 2026). */
+export const ppShort = (k: PpKind, date?: string | null): string => (date && !newPayments(date) ? { pp30: 'ПП30', pp50: 'ПП50', pp10: 'ПП10' } : { pp30: 'КТД', pp50: 'КТБ', pp10: 'ВГ' })[k];
+/** Title for an order dated `date` (old form names before 9 Nov 2026). */
+export const ppTitle = (k: PpKind, date?: string | null): string => (date && !newPayments(date) ? PP_T_OLD : PP_T)[k];
 export const PP_NACIN: readonly (readonly [string, string])[] = [['1', '1 – МИПС (итно)'], ['2', '2 – Клиринг (КИБС)'], ['3', '3 – Во иста банка']];
-export const PP_SIF: readonly (readonly [string, string])[] = [
-  ['930', '930 – Останати плаќања'], ['220', '220 – Услуги'], ['200', '200 – Стоки'], ['210', '210 – Трговија на мало'], ['211', '211 – Трговија на големо'],
-  ['250', '250 – Аванс'], ['101', '101 – Нето плата'], ['188', '188 – Дневници / патни трошоци'], ['410', '410 – Компензација'],
-  ['468', '468 – Заем од правно лице'], ['469', '469 – Заем од физичко лице'], ['568', '568 – Враќање заем'],
-];
+/** Purpose codes offered on the order (ISO 20022 from 9 Nov 2026; the old numbers are in the labels). */
+export const PP_SIF: readonly (readonly [string, string])[] = PURPOSE_COMMON;
 /** [key, name, payment account (XXX = municipality), revenue code & programme, reference kind] — check with УЈП. */
 export const PP_TAX: readonly (readonly [string, string, string, string, '' | 'period' | 'month' | 'year'])[] = [
   ['ddv', 'ДДВ (промет во земјата)', '840-XXX-02687', '714116 00', 'period'],
@@ -74,7 +79,7 @@ export interface PpFirm { name?: string | null; address?: string | null; city?: 
 export function ppNew(kind: PpKind, date: string, firm: PpFirm, o: Partial<PaymentOrder> = {}): PaymentOrder {
   const acc = dig(firm.account);
   const n: PaymentOrder = {
-    kind, date, valDate: date, nacin: kind === 'pp50' ? '1' : '2', code: kind === 'pp50' ? '' : '930',
+    kind, date, valDate: date, nacin: kind === 'pp50' ? '1' : '2', code: kind === 'pp50' ? '' : newPayments(date) ? 'OTHR' : '930',
     payer: fixYuscii([firm.name, [firm.address, firm.city].filter(Boolean).join(', ')].filter(Boolean).join('\n')),
     payerAcc: acc, payerBank: firm.bankName || ppBankName(acc), payerTax: firm.edb || '', place: fixYuscii(firm.city || ''),
     purpose: '', amount: null, recip: '', recipAcc: '', recipBank: '', refDebit: '', refCredit: '', uplSm: '', prihod: '', ...o,
@@ -121,14 +126,19 @@ export const ppAccountOk = (acc: unknown): boolean => {
 export function ppWarnings(n: PaymentOrder): string[] {
   const W: string[] = [];
   if (n.kind !== 'pp10') {
-    if (dig(n.payerAcc).length !== 15 && !/^[A-Z]{2}/i.test(String(n.payerAcc ?? '').trim())) W.push('Сметката на налогодавачот мора да има 15 цифри (внесете ја кај податоците на фирмата).');
+    if (dig(n.payerAcc).length !== 15 && !/^[A-Z]{2}/i.test(String(n.payerAcc ?? '').trim())) W.push('Сметката на плаќачот мора да има 15 цифри или IBAN MK07… (внесете ја кај податоците на фирмата).');
     else if (!ppAccountOk(n.payerAcc)) W.push('Сметката на налогодавачот има погрешни контролни цифри.');
   }
-  if (dig(n.recipAcc).length !== 15 && !/^[A-Z]{2}/i.test(String(n.recipAcc ?? '').trim())) W.push('Сметката на примачот мора да има 15 цифри.');
+  if (dig(n.recipAcc).length !== 15 && !/^[A-Z]{2}/i.test(String(n.recipAcc ?? '').trim())) W.push('Сметката на примачот мора да има 15 цифри или IBAN MK07….');
   else if (!ppAccountOk(n.recipAcc)) W.push('Сметката на примачот има погрешни контролни цифри (проверете ја).');
   if (!(Number(n.amount) > 0)) W.push('Внесете износ.');
   if (n.kind === 'pp50' && /XXX/.test(n.uplSm || '')) W.push('Уплатната сметка: заменете XXX со шифрата на општината на седиштето (пр. Центар 182, Тетово 169).');
   if (n.kind === 'pp50') W.push('Уплатната сметка, приходната шифра и повикувањето – проверете ги на ujp.gov.mk → Уплатни сметки (се менуваат).');
+  if (newPayments(n.date)) {
+    const d = ppDesc(n);
+    if (d.length > 140) W.push(`Описот на плаќањето има ${d.length} знаци – дозволени се најмногу 140 (повик на број + цел на дознака).`);
+    if (n.code && /^\d+$/.test(n.code.trim())) W.push(isoOf(n.code) ? `Шифрата ${n.code} од 9.11.2026 е ${isoOf(n.code)} (се печати автоматски).` : `Шифрата ${n.code} нема нова ISO шифра – изберете од листата (пр. OTHR).`);
+  }
   return W;
 }
 
@@ -142,7 +152,7 @@ export function ppErrors(n: PaymentOrder): string[] {
 }
 
 /** Field layout of the printed forms (mm on a 210×99 slip): [field, label, x, y, w, h, multiline, type]. */
-export type PpField = readonly [keyof PaymentOrder | 'sign', string, number, number, number, number, 0 | 1, ('acc' | 'amt' | 'date')?];
+export type PpField = readonly [keyof PaymentOrder | 'sign' | 'desc', string, number, number, number, number, 0 | 1, ('acc' | 'amt' | 'date')?];
 export const PP_LAY: Record<PpKind, { title: string; f: readonly PpField[] }> = {
   pp30: { title: 'НАЛОГ ЗА ПРЕНОС', f: [
     ['payer', 'НАЗИВ И СЕДИШТЕ НА НАЛОГОДАВАЧ', 5, 13, 98, 11, 1], ['payerBank', 'БАНКА НА НАЛОГОДАВАЧ', 5, 27, 98, 6, 0], ['payerAcc', 'ТРАНСАКЦИСКА СМЕТКА НА НАЛОГОДАВАЧ', 5, 36, 98, 6, 0, 'acc'],
@@ -165,6 +175,43 @@ export const PP_LAY: Record<PpKind, { title: string; f: readonly PpField[] }> = 
   ] },
 };
 
+/**
+ * The new forms (НБРМ, 9 Nov 2026): „МК07“ + account, and „Повик на број одобрување / задолжување“ and „Цел на
+ * дознака“ merged into one „Опис на плаќањето“ field (max 140 characters, in the order the banks prescribe).
+ */
+export const PP_LAY_NEW: Record<PpKind, { title: string; f: readonly PpField[] }> = {
+  pp30: { title: 'КРЕДИТЕН ТРАНСФЕР ВО ДЕНАРИ – КТД', f: [
+    ['payer', 'ПЛАЌАЧ (НАЗИВ И СЕДИШТЕ)', 5, 13, 98, 11, 1], ['payerBank', 'ДАВАТЕЛ НА ПЛАТЕЖНИ УСЛУГИ НА ПЛАЌАЧОТ', 5, 27, 98, 6, 0], ['payerAcc', 'ПЛАТЕЖНА СМЕТКА НА ПЛАЌАЧОТ', 5, 36, 98, 6, 0, 'acc'],
+    ['desc', 'ОПИС НА ПЛАЌАЊЕТО (ИНФОРМАЦИЈА ОД ПЛАЌАЧОТ ЗА ПРИМАЧОТ)', 5, 45, 98, 9, 1], ['code', 'ШИФРА', 5, 58, 16, 6, 0], ['nacin', 'НАЧИН', 23, 58, 10, 6, 0], ['amount', 'МКД  ИЗНОС', 35, 58, 68, 6, 0, 'amt'],
+    ['recip', 'ПРИМАЧ (НАЗИВ И СЕДИШТЕ)', 107, 13, 98, 11, 1], ['recipBank', 'ДАВАТЕЛ НА ПЛАТЕЖНИ УСЛУГИ НА ПРИМАЧОТ', 107, 27, 98, 6, 0], ['recipAcc', 'ПЛАТЕЖНА СМЕТКА НА ПРИМАЧОТ', 107, 36, 98, 6, 0, 'acc'],
+    ['place', 'МЕСТО НА ПОДНЕСУВАЊЕ', 5, 72, 40, 6, 0], ['date', 'ДАТУМ НА ПОДНЕСУВАЊЕ', 48, 72, 30, 6, 0, 'date'], ['valDate', 'ДАТУМ НА ВАЛУТА', 81, 72, 30, 6, 0, 'date'], ['sign', 'ПОТПИС', 140, 70, 65, 14, 0],
+  ] },
+  pp50: { title: 'КРЕДИТЕН ТРАНСФЕР КОН БУЏЕТСКИТЕ КОРИСНИЦИ – КТБ', f: [
+    ['payer', 'ПЛАЌАЧ (НАЗИВ И СЕДИШТЕ)', 5, 13, 98, 11, 1], ['payerBank', 'ДАВАТЕЛ НА ПЛАТЕЖНИ УСЛУГИ НА ПЛАЌАЧОТ', 5, 27, 98, 6, 0], ['payerTax', 'ДАНОЧЕН БРОЈ или (ЕМБГ)', 5, 36, 98, 6, 0],
+    ['desc', 'ОПИС НА ПЛАЌАЊЕТО (ИНФОРМАЦИЈА ОД ПЛАЌАЧОТ ЗА ПРИМАЧОТ)', 5, 45, 98, 9, 1], ['nacin', 'НАЧИН', 5, 58, 12, 6, 0], ['amount', 'МКД  ИЗНОС', 20, 58, 83, 6, 0, 'amt'],
+    ['recip', 'ПРИМАЧ (НАЗИВ И СЕДИШТЕ)', 107, 13, 98, 8, 1], ['recipBank', 'ДАВАТЕЛ НА ПЛАТЕЖНИ УСЛУГИ НА ПРИМАЧОТ', 107, 24, 98, 5, 0], ['recipAcc', 'ПЛАТЕЖНА СМЕТКА НА ПРИМАЧОТ', 107, 32, 98, 5, 0, 'acc'],
+    ['uplSm', 'УПЛАТНА СМЕТКА / СМЕТКА НА БУЏЕТСКИ КОРИСНИК', 107, 41, 98, 6, 0], ['prihod', 'ПРИХОДНА ШИФРА И ПРОГРАМА', 107, 50, 98, 6, 0], ['code', 'ШИФРА (не е задолжителна)', 107, 59, 40, 6, 0],
+    ['place', 'МЕСТО НА ПОДНЕСУВАЊЕ', 5, 72, 40, 6, 0], ['date', 'ДАТУМ НА ПОДНЕСУВАЊЕ', 48, 72, 30, 6, 0, 'date'], ['valDate', 'ДАТУМ НА ВАЛУТА', 81, 72, 30, 6, 0, 'date'], ['sign', 'ПОТПИС', 140, 70, 65, 14, 0],
+  ] },
+  pp10: { title: 'ВНЕСУВАЊЕ ГОТОВИНА – ВГ', f: [
+    ['payer', 'ВНЕСУВАЧ (име, презиме и адреса)', 5, 13, 98, 11, 1], ['desc', 'ОПИС НА ВНЕСУВАЊЕТО ГОТОВИНА', 5, 28, 98, 10, 1], ['code', 'ШИФРА', 5, 42, 16, 6, 0], ['amount', 'МКД  ИЗНОС', 23, 42, 80, 6, 0, 'amt'],
+    ['recip', 'ПРИМАЧ', 107, 13, 98, 11, 1], ['recipAcc', 'ПЛАТЕЖНА СМЕТКА НА ПРИМАЧОТ', 107, 28, 98, 6, 0, 'acc'], ['recipBank', 'ДАВАТЕЛ НА ПЛАТЕЖНИ УСЛУГИ НА ПРИМАЧОТ', 107, 37, 98, 6, 0],
+    ['place', 'МЕСТО', 5, 72, 40, 6, 0], ['date', 'ДАТУМ НА ПОДНЕСУВАЊЕ', 48, 72, 30, 6, 0, 'date'], ['sign', 'ПОТПИС НА ВНЕСУВАЧОТ', 140, 70, 65, 14, 0],
+  ] },
+};
+
+/** Form layout for an order dated `date` (the old ПП layout before 9 Nov 2026). */
+export const ppLayout = (k: PpKind, date?: string | null) => (date && !newPayments(date) ? PP_LAY : PP_LAY_NEW)[k];
+
+/**
+ * „Опис на плаќањето“ of the new forms, in the banks' order: КТД – повик одобрување, повик задолжување, цел;
+ * КТБ – повик задолжување, цел; ВГ – повик одобрување, цел. Parts are separated by „ / “.
+ */
+export function ppDesc(n: PaymentOrder): string {
+  const p = n.kind === 'pp30' ? [n.refCredit, n.refDebit, n.purpose] : n.kind === 'pp50' ? [n.refDebit, n.purpose] : [n.refCredit, n.purpose];
+  return p.map((x) => fixYuscii(String(x ?? '')).replace(/\s+/g, ' ').trim()).filter(Boolean).join(' / ');
+}
+
 /** Legacy `ppAmt`: `1.234,56`. */
 export const ppAmt = (v: unknown): string => {
   if (v === '' || v == null) return '';
@@ -176,6 +223,9 @@ export const ppAmt = (v: unknown): string => {
 /** Text of one printed field (legacy `ppSlip` `val`). */
 export function ppFieldText(n: PaymentOrder, k: PpField[0], t?: 'acc' | 'amt' | 'date'): string {
   if (k === 'sign') return '';
+  if (k === 'desc') return ppDesc(n);
+  // from 9 Nov 2026 the purpose code is the 4-letter ISO code (old numbers saved on orders print converted)
+  if (k === 'code' && newPayments(n.date)) return isoOf(n.code) || String(n.code ?? '');
   const v = n[k];
   if (t === 'acc') return ppAccTxt(v, n.date, n.iban ?? undefined);
   if (t === 'amt') return ppAmt(v);

@@ -12,7 +12,9 @@ export interface LoanBankLine { id: string; date: string; amount: number; osnov?
 export function loanBankKind(b: LoanBankLine, kontoName: (k: string) => string = () => ''): { dir: LoanDir; kind: 'out' | 'back'; amt: number } | null {
   const amt = +b.amount || 0;
   if (!amt) return null;
-  const os = String(b.osnov || '').trim();
+  // old codes 468 / 469 (loan given) and 568 (repaid); from 9 Nov 2026 the ISO codes LOAN / LOAR
+  const os0 = String(b.osnov || '').trim().toUpperCase();
+  const os = os0 === 'LOAN' ? '468' : os0 === 'LOAR' ? '568' : os0;
   const txt = (b.desc || '') + ' ' + (b.name || '');
   let dir = b.konto ? loanKontoDir(b.konto, kontoName(b.konto)) : null;
   if (!dir && !['468', '469', '568'].includes(os) && !LN_RE.test(txt)) return null;
