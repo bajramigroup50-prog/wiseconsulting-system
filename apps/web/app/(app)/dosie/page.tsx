@@ -65,6 +65,24 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
       {missingFresh.length > 0 && <div className="callout warn">Нема: {missingFresh.join(', ')} – банките и институциите бараат тековна состојба не постара од 3 / 6 месеци.</div>}
       {pend.length > 0 && <div className="callout">⏳ {pend.length} документи испратени од клиентот чекаат одобрување во <a href="/klInbox">Пристигнато од клиенти</a>.</div>}
 
+      {/* legacy `dosMail` / `dosShare`: send selected documents by e-mail (packages with a cover letter: /paket) */}
+      {write && sp.mail && docs.some((d) => F.get(d.id)?.length) && (
+        <div id="mail"><ActionForm action={mailDossierDocs}>
+          <h2 style={{ fontSize: 15 }}>✉ Испрати документи по е-пошта</h2>
+          <div className="row" style={{ gap: '4px 14px', flexWrap: 'wrap' }}>
+            {docs.filter((d) => F.get(d.id)?.length).map((d) => (
+              <label key={d.id} className="chk"><input type="checkbox" name="docId" value={d.id} defaultChecked={sel.has(d.id)} /> {d.title || d.category}{d.date ? ` (${dmy(d.date)})` : ''}</label>
+            ))}
+          </div>
+          <div className="form">
+            <label className="f">До (е-пошта)<input name="to" type="email" required defaultValue={firm.email ?? ''} /></label>
+            <label className="f">Наслов<input name="subject" placeholder={`Документи – ${firm.name}`} /></label>
+            <label className="f wide">Порака<textarea name="note" rows={3} defaultValue={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} /></label>
+          </div>
+          <div className="row"><button className="btn pri">✉ Испрати по е-пошта</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
+          <SendExtras selName="docId" zipHref="/dosie/zip" defaultBody={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} files={Object.fromEntries(docs.map((d) => [d.id, (F.get(d.id) ?? []).map((x) => ({ id: x.id, name: x.name }))]))} />
+        </ActionForm></div>
+      )}
       {showForm && (
         <ActionForm action={saveDossierDoc} reset={!editing}>
           <h2>{editing ? '✎ Промени документ' : '+ Нов документ во досието'}</h2>
@@ -86,7 +104,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
         </ActionForm>
       )}
 
-      <form className="card" method="get" action="/dosie">
+      <form className="card" method="get" action="/dosie#mail">
         <div className="row" style={{ gap: '10px 16px', alignItems: 'end', flexWrap: 'wrap' }}>
           <input name="q" placeholder="Барај назив, број, датотека…" defaultValue={sp.q ?? ''} style={{ width: 260 }} />
           <label className="mini">Вид <select name="cat" defaultValue={cat} style={{ width: 'auto' }}><option value="">сите</option>{[...new Set([...DOS_CAT, ...docs.map((d) => d.category)])].map((c) => <option key={c}>{c}</option>)}</select></label>
@@ -116,7 +134,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
                       <td><FileChips files={F.get(d.id)} /></td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {F.get(d.id)?.[0] && <a className="btn sm" href={`/api/files/${F.get(d.id)![0]!.id}`} target="_blank" rel="noopener" title="Погледни го документот">👁</a>}
-                        <a className="btn sm" href={`/dosie?mail=1&id=${d.id}`} title="Испрати по е-пошта">✉</a>
+                        <a className="btn sm" href={`/dosie?mail=1&id=${d.id}#mail`} title="Испрати по е-пошта">✉</a>
                         <a className="btn sm" href={`/dosie/wa?id=${d.id}`} title="WhatsApp / Viber">💬</a>
                         {write && <a className="btn sm" href={`/dosie?edit=${d.id}`} title="Промени">✎</a>}
                         {del && <RowAction action={deleteDossierDoc.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише „${d.title || c}“ од досието?`} />}
@@ -187,24 +205,6 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
             )}
           </div>
         </div>
-      )}
-      {/* legacy `dosMail` / `dosShare`: send selected documents by e-mail (packages with a cover letter: /paket) */}
-      {write && sp.mail && docs.some((d) => F.get(d.id)?.length) && (
-        <ActionForm action={mailDossierDocs}>
-          <h2 style={{ fontSize: 15 }}>✉ Испрати документи по е-пошта</h2>
-          <div className="row" style={{ gap: '4px 14px', flexWrap: 'wrap' }}>
-            {docs.filter((d) => F.get(d.id)?.length).map((d) => (
-              <label key={d.id} className="chk"><input type="checkbox" name="docId" value={d.id} defaultChecked={sel.has(d.id)} /> {d.title || d.category}{d.date ? ` (${dmy(d.date)})` : ''}</label>
-            ))}
-          </div>
-          <div className="form">
-            <label className="f">До (е-пошта)<input name="to" type="email" required defaultValue={firm.email ?? ''} /></label>
-            <label className="f">Наслов<input name="subject" placeholder={`Документи – ${firm.name}`} /></label>
-            <label className="f wide">Порака<textarea name="note" rows={3} defaultValue={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} /></label>
-          </div>
-          <div className="row"><button className="btn pri">✉ Испрати по е-пошта</button> <a className="btn ghost" href="/paket">📦 Пакет документи</a></div>
-          <SendExtras selName="docId" zipHref="/dosie/zip" defaultBody={'Почитувани,\n\nВо прилог Ви ги доставуваме документите.'} files={Object.fromEntries(docs.map((d) => [d.id, (F.get(d.id) ?? []).map((x) => ({ id: x.id, name: x.name }))]))} />
-        </ActionForm>
       )}
     </>
   );
