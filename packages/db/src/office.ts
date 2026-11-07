@@ -9,7 +9,7 @@
  */
 import { and, asc, eq, inArray, isNull, lte, notInArray, notLike, sql } from 'drizzle-orm';
 import {
-  alCompute, apExtra, apRisk, CLIENT_ENTRY_KINDS, dmy, DOS_CAT, fmtMk, INBOX_ROUTE_TARGET, recIssue, todaySkopje, type ClientMessage, type DraftInvoice, type Finding,
+  alCompute, apExtra, apRisk, NO_PARTNER_KONTO_RE, CLIENT_ENTRY_KINDS, dmy, DOS_CAT, fmtMk, INBOX_ROUTE_TARGET, recIssue, todaySkopje, type ClientMessage, type DraftInvoice, type Finding,
   type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
 } from '@wise/core/office';
 import type { RokSettings } from '@wise/core/office/rokovi';
@@ -267,6 +267,8 @@ export async function buildFirmSnapshot(
     },
     today, ledger, partnerNames: Object.fromEntries(P.map((p) => [p.id, p.name])), dossier, pendingClient: pend,
     cashAccounts: [...new Set(['1020', st.kasaCash ?? '1020'])],
+    // customer / supplier sub-kontos with no partner by nature (card / POS / cash receipts of the daily turnover)
+    noPartnerKontos: await effectiveChart(tx, firmId).then((C) => C.filter((c) => /^(12|22)/.test(c.code) && NO_PARTNER_KONTO_RE.test(c.name ?? '')).map((c) => c.code)).catch(() => []),
     invoices, employees: emps, payrollMonths: pm, vatClosedPeriods: vat, fiscalDays: fisk, vatEstimate,
     payEvents: await officePayEvents(tx, firmId, today).catch(() => null),
     // the inspection looks at the people currently employed

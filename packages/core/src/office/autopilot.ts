@@ -33,6 +33,9 @@ export const AL_DESC: Record<string, string> = {
 };
 
 export type FindingLvl = 'bad' | 'warn' | 'info';
+/** Konto names of card / POS / cash takings (no customer on the line): „Плаќање со картици од купувачи“, „ПОС терминал“… */
+export const NO_PARTNER_KONTO_RE = /картиц|картичк|pos|пос[ -]?терминал|терминал|дневен промет|готовин|малопродаж|фискал/i;
+
 export interface Finding { lvl: FindingLvl; cat: string; txt: string; go: string; key: string }
 export interface ClientMessage { type: 'inv' | 'out' | 'cash' | 'izv' | 'vat' | 'vnes'; key: string; subj: string; body: string }
 
@@ -61,6 +64,8 @@ export interface FirmSnapshot {
   pendingClient: number;
   /** Cash accounts (legacy `1020` + `sch('kasaCash')`). */
   cashAccounts?: readonly string[];
+  /** 12x / 22x sub-kontos that have no partner by nature (card / POS / cash takings – „Плаќање со картици“…). */
+  noPartnerKontos?: readonly string[];
   /** Phase 3 — issued invoices of the year (null = not available). */
   invoices?: readonly SnapshotInvoice[] | null;
   /** Phase 6 — employees and computed payroll months `YYYY-MM` (null = not available). */
@@ -183,9 +188,10 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   for (const o of cus) add('warn', 'Излезни фактури', `Примена уплата ${fmtMk(-o.s)} ден. без излезна фактура (аванс?) – ${pn(o.p, 'купувач')}${kontoNote(o.k, '1200')}`, card(o));
   /* 2a. lines on customer / supplier kontos without a partner (per konto) */
   const np = new Map<string, { n: number; s: number }>();
+  const freeK = new Set(S.noPartnerKontos ?? []);
   for (const l of L) {
     const t = String(l.account).slice(0, 2);
-    if (l.partnerId || (t !== '12' && t !== '22')) continue;
+    if (l.partnerId || (t !== '12' && t !== '22') || freeK.has(String(l.account))) continue;
     const o = np.get(String(l.account)) ?? { n: 0, s: 0 };
     o.n++; o.s = r2(o.s + l.debit - l.credit);
     np.set(String(l.account), o);
