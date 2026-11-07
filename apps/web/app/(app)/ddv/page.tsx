@@ -196,7 +196,9 @@ export default async function DdvPage({ searchParams }: { searchParams: Promise<
             <tr key={p.period} style={p.period === sel ? { background: 'var(--accent-soft)' } : undefined}>
               <td><b>{vatPeriodLabel(p.period)}</b>{p.kind !== kind && <span className="mini"> · {p.kind === 'month' ? 'месечно' : 'тримесечно'}</span>}</td>
               <td className="n">{fi(p.fields['20'])}</td><td className="n">{fi(p.fields['29'])}</td>
-              <td className="n" style={{ color: (p.fields['31'] ?? 0) > 0 ? 'var(--bad)' : (p.fields['31'] ?? 0) < 0 ? 'var(--good)' : 'inherit' }}>{fi(p.fields['31'])}</td>
+              <td className="n" style={{ color: (p.fields['31'] ?? 0) > 0 ? 'var(--bad)' : (p.fields['31'] ?? 0) < 0 ? 'var(--good)' : 'inherit', fontWeight: 600 }}>
+                {fi(Math.abs(p.fields['31'] ?? 0))} <span className="mini" style={{ color: 'inherit' }}>{(p.fields['31'] ?? 0) > 0 ? 'за плаќање' : (p.fields['31'] ?? 0) < 0 ? 'поврат' : ''}</span>
+              </td>
               <td>{dmy(p.due)}</td><td>{statusPill(p)}{lateBy(p).length > 0 && <> <span className="pill bad" title="Документи книжени по затворањето / рокот – ДДВ-04 треба да се коригира">⚠ {lateBy(p).length} книжени подоцна</span></>}</td>
               <td><Link className="btn sm" href={qs({ p: p.period }) + '#period'}>Отвори</Link></td>
             </tr>
