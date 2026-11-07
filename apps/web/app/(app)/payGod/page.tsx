@@ -3,15 +3,16 @@
  * „Кредити и задршки“ (`?k=kr`): each loan / court withholding with what the payroll deductions have repaid and the rest.
  */
 import Link from 'next/link';
-import { and, eq, gte } from 'drizzle-orm';
-import { empCalc, isLoanDeduction, payLoanStatus, type PayLoan } from '@wise/core';
-import { loadRun, payrollRuns } from '@wise/db';
+import { and, eq, gte, inArray } from 'drizzle-orm';
+import { LOAN_CAP_LABEL, loanCap, payLoanStatus, ppAccTxt, type PayLoan } from '@wise/core';
+import { fileLinks, PAY_LOAN_FILE_ENTITY, loanDeductions } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy, fmt, fq } from '@/lib/fmt';
 import { firmEmployees, payPage, yearRuns } from '@/lib/payroll/server';
 import { ActionForm } from '@/components/action-form';
 import { RowAction } from '@/components/row-action';
-import { payLoanDelAction, payLoanSaveAction } from './actions';
+import { payLoanCloseAction, payLoanDelAction, payLoanSaveAction } from './actions';
+import { UploadField } from '@/components/upload-field';
 import { BolReport, KumReport, OeReport, StavkiReport } from './extra';
 import { yearRows } from '@/lib/payroll/slip';
 import { DownloadCsv } from '@/components/download-csv';
@@ -27,7 +28,7 @@ export default async function PayGodPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const { firm, year } = await payPage('payGod');
   if (!firm) return <NoFirm t="Годишен извештај за плати" />;
-  if (sp.k === 'kr') return <Loans firmId={firm.id} />;
+  if (sp.k === 'kr') return <Loans firmId={firm.id} edit={sp.m} />;
   if (sp.k === 'st') return <StavkiReport runs={await yearRuns(firm.id, year)} year={year} />;
   if (sp.k === 'oe') return <OeReport runs={await yearRuns(firm.id, year)} year={year} firmId={firm.id} />;
   if (sp.k === 'kum') return <KumReport runs={await yearRuns(firm.id, year)} year={year} firmId={firm.id} od={sp.od} to={sp.do} />;
@@ -59,56 +60,67 @@ export default async function PayGodPage({ searchParams }: { searchParams: Promi
   );
 }
 
-const KINDS = ['Кредит', 'Судска забрана / извршител', 'Задршка по решение', 'Друго'];
+const KINDS = ['Судска забрана / извршител', 'Издршка (алиментација)', 'Кредит (административна забрана)', 'Задршка по решение', 'Друго'];
 
-async function Loans({ firmId }: { firmId: string }) {
+async function Loans({ firmId, edit }: { firmId: string; edit?: string }) {
   const E = await firmEmployees(firmId);
   const withL = E.map((e) => ({ e, L: (((e.data ?? {}) as { loans?: PayLoan[] }).loans ?? []) })).filter((x) => x.L.length);
   const from = withL.flatMap((x) => x.L.map((l) => l.from.slice(0, 7))).sort()[0];
-  /* the loan deductions per employee and month, from every run since the oldest loan */
-  const ded = new Map<string, Map<string, number>>();
-  if (from) {
-    const R = await db().select({ id: payrollRuns.id }).from(payrollRuns).where(and(eq(payrollRuns.firmId, firmId), gte(payrollRuns.month, from)));
-    for (const r of R) {
-      const run = await loadRun(db(), firmId, { id: r.id });
-      if (!run) continue;
-      for (const e of run.emps) {
-        const v = empCalc(e, run.params).rows.filter((x) => x.ded && isLoanDeduction(x.type)).reduce((a, x) => a + x.ded, 0);
-        if (!v || !e.empId) continue;
-        const m = ded.get(e.empId) ?? ded.set(e.empId, new Map()).get(e.empId)!;
-        m.set(run.month, (m.get(run.month) ?? 0) + v);
-      }
-    }
-  }
+  /* the deductions per employee, month and order (the tagged lines „Задршка: … #id“), from every run since the oldest order */
+  const ded = from ? await loanDeductions(db(), firmId, new Map(withL.map((x) => [x.e.id, x.L])), from) : new Map();
   const rows = withL.flatMap(({ e, L }) => payLoanStatus(L, ded.get(e.id) ?? new Map()).map((s) => ({ e, s })));
+  const F = rows.length ? await db().select({ fileId: fileLinks.fileId, id: fileLinks.entityId }).from(fileLinks).where(and(eq(fileLinks.entityType, PAY_LOAN_FILE_ENTITY), inArray(fileLinks.entityId, rows.map((r) => r.s.id)))) : [];
+  const ed = rows.find((r) => r.s.id === edit);
+  const v = ed?.s;
   return (
     <>
-      <Hd t="Кредити и задршки од плата" sub="регистар">
+      <Hd t="Кредити и задршки од плата" sub="извршители · издршка · административни забрани">
         <Link className="btn" href="/payGod">← Годишен извештај</Link>
       </Hd>
-      <ActionForm action={payLoanSaveAction} className="card">
+      <ActionForm action={payLoanSaveAction} className="card" reset={!ed}>
+        <h2 style={{ fontSize: 15 }}>{ed ? `✎ ${ed.e.name} – ${v!.creditor}` : '+ Ново решение за задршка'}</h2>
+        {v && <input type="hidden" name="id" value={v.id} />}
         <div className="form">
-          <label className="f">Вработен<select name="emp" defaultValue=""><option value="">—</option>{E.map((e) => <option key={e.id} value={e.id}>{e.no} {e.name}</option>)}</select></label>
-          <label className="f">Вид<select name="kind">{KINDS.map((k) => <option key={k}>{k}</option>)}</select></label>
-          <label className="f">Доверител (банка / извршител)<input name="creditor" /></label>
-          <label className="f">Вкупен износ<input name="total" type="number" step="any" /></label>
-          <label className="f">Месечна рата<input name="monthly" type="number" step="any" /></label>
-          <label className="f">Се одбива од<input name="from" type="date" /></label>
-          <label className="f wide">Забелешка (број на решение, сметка…)<input name="note" /></label>
+          <label className="f">Вработен<select name="emp" defaultValue={ed?.e.id ?? ''} required><option value="">—</option>{E.map((e) => <option key={e.id} value={e.id}>{e.no} {e.name}</option>)}</select></label>
+          <label className="f">Вид<select name="kind" defaultValue={v?.kind ?? KINDS[0]}>{[...new Set([...KINDS, ...(v ? [v.kind] : [])])].map((k) => <option key={k}>{k}</option>)}</select></label>
+          <label className="f">Доверител (извршител / банка)<input name="creditor" defaultValue={v?.creditor ?? ''} placeholder="Извршител Петар Петров" /></label>
+          <label className="f">Сметка на доверителот<input name="acc" defaultValue={v?.acc ?? ''} placeholder="МК07… или 300-0000000000-00" /></label>
+          <label className="f">Број на решение / предмет<input name="caseNo" defaultValue={v?.caseNo ?? ''} placeholder="И.бр. 123/26" /></label>
+          <label className="f">Повик на број (одобрување)<input name="ref" defaultValue={v?.ref ?? ''} /></label>
+          <label className="f">Вкупен долг<input name="total" type="number" step="any" defaultValue={v?.total ?? ''} /></label>
+          <label className="f">Месечна рата<input name="monthly" type="number" step="any" defaultValue={v?.monthly || ''} /></label>
+          <label className="f">или % од нето платата<input name="pct" type="number" step="any" min={0} max={100} defaultValue={v?.pct ?? ''} /></label>
+          <label className="f">Законска граница<select name="cap" defaultValue={v ? loanCap(v) : ''}><option value="">автоматски според видот</option>{Object.entries(LOAN_CAP_LABEL).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
+          <label className="f">Се одбива од (прием на решението)<input name="from" type="date" defaultValue={v?.from ?? ''} /></label>
+          <label className="f wide">Забелешка<input name="note" defaultValue={v?.note ?? ''} /></label>
+          <UploadField firmId={firmId} capture accept="image/*,application/pdf" label="📎 Прикачи го решението (PDF / слика)" />
         </div>
-        <button className="btn pri">+ Додај</button>
-        <p className="note">Отплатата се пресметува од ставките „Кредит / судска забрана (задршка)“ во платите (месец по месец, најстариот кредит прв). Секоја нова плата ја добива ратата сама (последната само остатокот); по отплатата ставката повеќе не се додава.</p>
+        <div className="row" style={{ gap: 8 }}><button className="btn pri">{ed ? 'Зачувај' : '+ Додај'}</button>{ed && <Link className="btn" href="/payGod?k=kr">Откажи</Link>}</div>
+        <p className="note">Секоја нова плата добива посебна ставка „Задршка: доверител (бр. на решение)“: ратата или процентот, најмногу остатокот на долгот и <b>најмногу до законската граница</b> (ЗИ чл. 117: издршка до 1/2 од платата, другите побарувања заедно до 1/3, вкупно никогаш над 1/2; повеќе решенија по редот на прием). Налозите за плата (КТД) имаат и налог до секој доверител; книжењето е на 2492 по доверител.</p>
       </ActionForm>
       {rows.length ? (
         <div className="tw"><table>
-          <thead><tr><th>Вработен</th><th>Вид</th><th>Доверител</th><th>Од</th><th className="n">Вкупно</th><th className="n">Рата</th><th className="n">Отплатено</th><th className="n">Останува</th><th className="n">Рати</th><th /></tr></thead>
-          <tbody>{rows.map(({ e, s }) => (
-            <tr key={s.id}><td>{e.no} {e.name}</td><td>{s.kind}</td><td>{s.creditor}{s.note ? <small className="mut"> · {s.note}</small> : null}</td><td>{dmy(s.from)}</td>
-              <td className="n">{fmt(s.total)}</td><td className="n">{s.monthly ? fmt(s.monthly) : ''}</td><td className="n">{fmt(s.paid)}</td>
-              <td className="n">{s.rest > 0.009 ? <b>{fmt(s.rest)}</b> : <span className="pill ok">отплатен</span>}</td><td className="n">{s.months.length}</td>
-              <td><RowAction label="🗑" title="Избриши" confirm="Да се избрише од регистарот?" action={payLoanDelAction.bind(null, e.id, s.id)} /></td></tr>
-          ))}</tbody>
-          <tfoot><tr><td colSpan={4}>Вкупно</td><td className="n">{fmt(rows.reduce((a, r) => a + r.s.total, 0))}</td><td /><td className="n">{fmt(rows.reduce((a, r) => a + r.s.paid, 0))}</td><td className="n">{fmt(rows.reduce((a, r) => a + r.s.rest, 0))}</td><td colSpan={2} /></tr></tfoot>
+          <thead><tr><th>Вработен</th><th>Вид / доверител</th><th>Од</th><th>Граница</th><th className="n">Долг</th><th className="n">Рата</th><th className="n">Отплатено</th><th className="n">Останува</th><th className="n">Месеци</th><th>Решение</th><th /></tr></thead>
+          <tbody>{rows.map(({ e, s }) => {
+            const ff = F.filter((x) => x.id === s.id);
+            return (
+              <tr key={s.id} style={s.closed ? { opacity: 0.55 } : undefined}>
+                <td>{e.no} {e.name}</td>
+                <td><b>{s.creditor}</b><div className="mini">{s.kind}{s.caseNo ? ` · ${s.caseNo}` : ''}{s.acc ? ` · ${ppAccTxt(s.acc, '2026-11-09')}` : ' · ⚠ нема сметка'}</div>{s.note ? <small className="mut">{s.note}</small> : null}</td>
+                <td>{dmy(s.from)}</td><td className="mini">{LOAN_CAP_LABEL[loanCap(s)]}</td>
+                <td className="n">{fmt(s.total)}</td><td className="n">{s.monthly ? fmt(s.monthly) : ''}{s.pct ? <div className="mini">{s.pct}% од нето</div> : null}</td><td className="n">{fmt(s.paid)}</td>
+                <td className="n">{s.closed ? <span className="pill">затворено</span> : s.rest > 0.009 ? <b>{fmt(s.rest)}</b> : <span className="pill ok">отплатен</span>}</td><td className="n" title={s.months.join(', ')}>{s.months.length}</td>
+                <td>{ff.length ? ff.map((f, i) => <a key={f.fileId} className="btn sm" href={`/api/files/${f.fileId}`} target="_blank" rel="noopener">👁{ff.length > 1 ? i + 1 : ''}</a>) : <span className="mini">—</span>}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <Link className="btn sm" href={`/payGod?k=kr&m=${s.id}`} title="Промени / прикачи решение">✎</Link>
+                  <a className="btn sm" href={`/payGod/izvestaj?id=${s.id}&emp=${e.id}`} target="_blank" rel="noopener" title="Извештај до извршителот / вработениот">🖨</a>
+                  <RowAction label={s.closed ? '↺' : '⏹'} title={s.closed ? 'Отвори повторно' : 'Затвори (не се одбива повеќе)'} confirm={s.closed ? undefined : 'Решението да не се одбива повеќе?'} action={payLoanCloseAction.bind(null, e.id, s.id, !s.closed)} />
+                  <RowAction label="🗑" title="Избриши" confirm="Да се избрише од регистарот?" action={payLoanDelAction.bind(null, e.id, s.id)} />
+                </td>
+              </tr>
+            );
+          })}</tbody>
+          <tfoot><tr><td colSpan={4}>Вкупно</td><td className="n">{fmt(rows.reduce((a, r) => a + r.s.total, 0))}</td><td /><td className="n">{fmt(rows.reduce((a, r) => a + r.s.paid, 0))}</td><td className="n">{fmt(rows.reduce((a, r) => a + (r.s.closed ? 0 : r.s.rest), 0))}</td><td colSpan={3} /></tr></tfoot>
         </table></div>
       ) : <div className="card empty">Нема внесени кредити или задршки.</div>}
     </>

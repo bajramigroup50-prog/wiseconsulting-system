@@ -112,10 +112,13 @@ export function payrollEntries2(p: PayrollRun, scheme: PayScheme = PAY_SCH0, ove
   const A = { gross: 0, net: 0, pio: 0, zdr: 0, dop: 0, vrab: 0, tax: 0, dopl: 0, dPio: 0, dZdr: 0, dDop: 0, dVrab: 0, ded: 0 };
   /* non-taxable payments (регрес, отпремнина…): expense konto → liability konto per type, outside the gross */
   const nep = new Map<string, { exp: string; liab: string; v: number }>();
+  /* the deductions per kind (one 2492 line per creditor / withholding, „Задршка: …“ named) */
+  const dedBy = new Map<string, number>();
   for (const e of p.emps) {
     const c = empCalc(e, P);
     for (const k of Object.keys(A) as (keyof typeof A)[]) A[k] += c.T[k] || 0;
     for (const r of c.rows) {
+      if (r.ded) { const t = r.type.replace(/\s+#[0-9a-f]{8}$/i, ''); dedBy.set(t, (dedBy.get(t) ?? 0) + r.ded); }
       if (!r.nep) continue;
       const t = PNEP.find((x) => x[0] === r.type) ?? ['', '4229', '2429'];
       const m = nep.get(t[1] + '|' + t[2]) ?? { exp: t[1], liab: t[2], v: 0 };
@@ -153,7 +156,9 @@ export function payrollEntries2(p: PayrollRun, scheme: PayScheme = PAY_SCH0, ove
   const all: L[] = [
     ...contrib,
     { k: scheme.pay_net, d: 0, p: A.net },
-    ...(A.ded ? [{ k: scheme.pay_ded || '2492', d: 0, p: r2(A.ded), note: 'Задршки од плата' }] : []),
+    // a withholding order of the register („Задршка: извршител …“) is its own 2492 line; the other deductions together
+    ...[...dedBy].filter(([t]) => /^Задршка:/.test(t)).map(([t, v]) => ({ k: scheme.pay_ded || '2492', d: 0, p: r2(v), note: t })),
+    ...(() => { const rest = r2(A.ded - [...dedBy].filter(([t]) => /^Задршка:/.test(t)).reduce((a, [, v]) => a + v, 0)); return rest ? [{ k: scheme.pay_ded || '2492', d: 0, p: rest, note: 'Задршки од плата' }] : []; })(),
     ...via,
     ...E.map((l) => ({ ...l, d: r2(l.d) })),
     { k: scheme.pay_gross, d: r2(G - split), p: 0 },
@@ -161,7 +166,8 @@ export function payrollEntries2(p: PayrollRun, scheme: PayScheme = PAY_SCH0, ove
   ];
   const M: L[] = [];
   for (const l of all) {
-    const x = M.find((y) => y.k === l.k && !!y.d === !!l.d);
+    // the deductions stay one line per creditor („Задршка: …“); everything else merges per konto and side
+    const x = M.find((y) => y.k === l.k && !!y.d === !!l.d && (l.k !== (scheme.pay_ded || '2492') || y.note === l.note));
     if (x) {
       x.d = r2(x.d + l.d);
       x.p = r2(x.p + l.p);

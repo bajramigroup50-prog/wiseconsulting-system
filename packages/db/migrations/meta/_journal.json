@@ -302,6 +302,13 @@
       "when": 1793980086758,
       "tag": "0042_bank_feeds",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794047565992,
+      "tag": "0043_pay_absences",
+      "breakpoints": true
     }
   ]
 }

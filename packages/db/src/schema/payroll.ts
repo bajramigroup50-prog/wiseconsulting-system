@@ -342,3 +342,24 @@ export type PayrollSettingsRow = typeof payrollSettings.$inferSelect;
 export type PayrollNote = typeof payrollNotes.$inferSelect;
 export type HrContractRow = typeof hrContracts.$inferSelect;
 export type HrDoc = typeof hrDocs.$inferSelect;
+
+/**
+ * „🗓 Отсуства“: dated absences of an employee (породилно, боледување, годишен одмор, платено / неплатено отсуство) with
+ * the decision number; the monthly payroll draft turns them into its lines (`absenceLines`, `applyAbsences`). The
+ * decision (решение, дознака) is attached through `file_links` (entity `pay_absence`).
+ */
+export const payAbsences = pgTable('pay_absences', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
+  employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
+  /** Line code (`PSIF0`): 301 породилно, 201 боледување до 30 дена, 211 над 30 дена (ФЗО), 401 годишен одмор … */
+  code: text('code').notNull(),
+  from: date('from').notNull(),
+  to: date('to').notNull(),
+  docNo: text('doc_no'),
+  note: text('note'),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+  updatedAt: ts('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [index('pay_absences_firm_idx').on(t.firmId, t.from), index('pay_absences_emp_idx').on(t.employeeId, t.from)]);
+export type PayAbsenceRow = typeof payAbsences.$inferSelect;

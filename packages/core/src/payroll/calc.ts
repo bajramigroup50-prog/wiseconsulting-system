@@ -428,21 +428,97 @@ export function mpinRows(emps: readonly PayEmp[], P: PayParams, employees: reado
   });
 }
 
+/**
+ * Legal cap of a withholding from the salary (Закон за извршување чл. 117): `half` = up to 1/2 of the net (законска
+ * издршка / алиментација), `third` = up to 1/3 (other claims, also an administrative stop – чл. 147), `fifth` = up to
+ * 1/5 (a salary up to the average, when the decision says so), `none` = no cap (a voluntary instalment).
+ */
+export type PayLoanCap = 'half' | 'third' | 'fifth' | 'none';
+export const LOAN_CAP_SHARE: Record<PayLoanCap, number> = { half: 1 / 2, third: 1 / 3, fifth: 1 / 5, none: 1 };
+export const LOAN_CAP_LABEL: Record<PayLoanCap, string> = { half: 'до 1/2 од платата (издршка)', third: 'до 1/3 од платата', fifth: 'до 1/5 од платата', none: 'без ограничување' };
+
 /** An employee loan / court withholding (Helix „Кредити“, „Извршители“): repaid by the payroll deduction lines. */
-export interface PayLoan { id: string; kind: string; creditor: string; total: number; monthly: number; from: string; note?: string }
+export interface PayLoan {
+  id: string; kind: string; creditor: string; total: number; monthly: number; from: string; note?: string;
+  /** Instalment as % of the net before deductions (instead of / together with `monthly`: the smaller one). */
+  pct?: number;
+  /** Legal cap (default by kind: издршка 1/2, извршител / забрана 1/3, кредит 1/3, друго none). */
+  cap?: PayLoanCap;
+  /** Payee account (the executor's / bank's), bank, case number („И.бр. 123/26“), reference for the payment order. */
+  acc?: string; bank?: string; caseNo?: string; ref?: string;
+  /** Closed by hand (paid outside the payroll, revoked). */
+  closed?: boolean;
+}
 export interface PayLoanStatus extends PayLoan { paid: number; rest: number; months: string[] }
+/** One month's loan deductions of an employee: per order (`by` tag → amount) and untagged (`pool`). */
+export interface LoanMonthDed { by: Record<string, number>; pool: number }
+
+/** The default cap of a kind (legal limits, ЗИ чл. 117). */
+export const loanDefaultCap = (kind: string): PayLoanCap => (/издршк|алимент/i.test(kind) ? 'half' : /друго/i.test(kind) ? 'none' : 'third');
+export const loanCap = (l: Pick<PayLoan, 'cap' | 'kind'>): PayLoanCap => l.cap ?? loanDefaultCap(l.kind);
+/** `#xxxxxxxx` — ties a payroll deduction line to its order. */
+export const loanTag = (l: Pick<PayLoan, 'id'>): string => '#' + l.id.replace(/-/g, '').slice(0, 8);
+/** The deduction line of one order: „Задршка: Извршител Петров (И.бр. 123/26) #1a2b3c4d“. */
+export const loanLineType = (l: Pick<PayLoan, 'id' | 'creditor' | 'caseNo' | 'kind'>): string =>
+  `Задршка: ${l.creditor || l.kind}${l.caseNo ? ` (${l.caseNo})` : ''} ${loanTag(l)}`;
+/** The order a deduction line belongs to (by its tag), if any. */
+export const loanOfLine = <T extends Pick<PayLoan, 'id'>>(type: string, loans: readonly T[]): T | undefined => {
+  const m = /#([0-9a-f]{8})\s*$/i.exec(type);
+  return m ? loans.find((l) => loanTag(l) === '#' + m[1]!.toLowerCase()) : undefined;
+};
 
 /** A deduction line that repays a loan / withholding (not union fee or insurance). */
-export const isLoanDeduction = (type: string): boolean => /кредит|забрана|извршител|задршка по решение|рата/i.test(type) && !/синдикал|осигурув/i.test(type);
+export const isLoanDeduction = (type: string): boolean => /кредит|забрана|извршител|задршка по решение|^задршка:|рата/i.test(type) && !/синдикал|осигурув/i.test(type);
+
+export interface LoanCut { loan: PayLoan; amt: number; due: number; capped: boolean }
+
+/**
+ * The withholdings of one month (ЗИ чл. 117 / 147): the orders in force (from ≤ month, not closed, rest > 0) in the
+ * order received (oldest first), each its instalment (`monthly`, or `pct` of the net before deductions – the smaller
+ * when both), at most its rest; the legal cap is checked against the net before deductions – alimony orders share up
+ * to 1/2, the other orders together up to their cap (1/3 or 1/5) and never more than 1/2 in all. `capped` marks an
+ * order cut by the cap (the rest stays for the next months).
+ */
+export function loanCuts(loans: readonly (PayLoan & { rest: number })[], netBefore: number, month: string): LoanCut[] {
+  const L = [...loans].filter((l) => !l.closed && l.from.slice(0, 7) <= month && l.rest > 0.009).sort((a, b) => a.from.localeCompare(b.from));
+  const base = Math.max(0, netBefore);
+  let used = 0, usedOther = 0;
+  return L.map((l) => {
+    const pctAmt = +(l.pct ?? 0) > 0 ? r2(base * (+l.pct! / 100)) : 0;
+    const want = +l.monthly > 0 && pctAmt > 0 ? Math.min(+l.monthly, pctAmt) : +l.monthly > 0 ? +l.monthly : pctAmt > 0 ? pctAmt : l.rest;
+    const due = r2(Math.min(want, l.rest));
+    const cap = loanCap(l);
+    let room = due;
+    if (cap !== 'none') {
+      const share = LOAN_CAP_SHARE[cap];
+      const total = r2(base / 2 - used);
+      room = cap === 'half' ? Math.min(due, total) : Math.min(due, r2(base * share - usedOther), total);
+    }
+    const amt = Math.max(0, Math.floor(room));
+    used = r2(used + (cap === 'none' ? 0 : amt));
+    if (cap !== 'half' && cap !== 'none') usedOther = r2(usedOther + amt);
+    return { loan: l, amt, due, capped: amt + 0.009 < due };
+  });
+}
 
 /**
  * Paid / rest of an employee's loans from the payroll deductions (`month` → amount of the loan deduction lines):
  * every month's deduction goes to the loans in force (from ≤ month) oldest first, each up to its open rest.
  */
-export function payLoanStatus(loans: readonly PayLoan[], ded: ReadonlyMap<string, number>): PayLoanStatus[] {
+export function payLoanStatus(loans: readonly PayLoan[], ded: ReadonlyMap<string, number | LoanMonthDed>): PayLoanStatus[] {
   const L = [...loans].sort((a, b) => a.from.localeCompare(b.from)).map((l) => ({ ...l, paid: 0, rest: +l.total || 0, months: [] as string[] }));
   for (const m of [...ded.keys()].sort()) {
-    let v = ded.get(m) ?? 0;
+    const x = ded.get(m) ?? 0;
+    // the lines tagged with their order („… #1a2b3c4d“) go to that order; the rest (older untagged lines) oldest first
+    if (typeof x === 'object') {
+      for (const [tag, a0] of Object.entries(x.by)) {
+        const l = L.find((y) => loanTag(y) === tag);
+        if (!l) continue;
+        const a = Math.min(a0, l.rest);
+        if (a > 0) { l.paid = r2(l.paid + a); l.rest = r2(l.rest - a); if (!l.months.includes(m)) l.months.push(m); }
+      }
+    }
+    let v = typeof x === 'object' ? x.pool : x;
     for (const l of L) {
       if (v <= 0.009) break;
       if (l.from.slice(0, 7) > m || l.rest <= 0.009) continue;

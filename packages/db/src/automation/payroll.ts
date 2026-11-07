@@ -15,6 +15,7 @@ import { isAutoDay, ymPrev } from '@wise/core/office/automations';
 import { audit, type Tx } from '../audit';
 import { loadPayOverrides, loadRun, postRun, saveRun } from '../payroll';
 import { applyLoanInstalments } from '../payroll-loans';
+import { applyAbsences } from '../payroll-absences';
 import { employees, payrollNotes, payrollRuns, type Employee, type Firm } from '../schema/index';
 import { autoFirms, autoSettings, decideDraft, listDrafts, noteAutoRun, upsertDraft } from './common';
 
@@ -48,7 +49,8 @@ export async function payBuildDraft(tx: Tx, firm: Pick<Firm, 'id'>, month: strin
     const prev = p ? await loadRun(tx, firm.id, { id: p.id }) : null;
     if (prev?.emps.length) { emps = payCopyPrev(month, prev.emps as PayEmp[], d.params, [], ['sin']); prevMonth = prev.month; } // FIX(D11): legacy pbBuild copies only `sin` lines
   }
-  emps = await applyLoanInstalments(tx, firm.id, month, emps);
+  emps = await applyAbsences(tx, firm.id, month, emps, d.params);
+  emps = await applyLoanInstalments(tx, firm.id, month, emps, d.params);
   return emps.length ? { params: d.params, emps, prevMonth } : null;
 }
 

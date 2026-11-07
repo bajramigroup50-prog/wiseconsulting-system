@@ -55,6 +55,7 @@ export * from './transfer-links';
 export * from './stock-reports';
 export * from './payroll';
 export * from './payroll-loans';
+export * from './payroll-absences';
 export * from './industry/index';
 export * from './vat-estimate';
 export * from './mail-queue';

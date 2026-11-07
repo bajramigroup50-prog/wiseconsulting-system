@@ -21,6 +21,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'kdfakturi', [['firmIzv', '🗂 Целосен извештај за фирма']]],
   ['Материјално', 'efaktura', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
+  // dated absences (породилно, боледување, одмор) taken by the monthly payroll by itself
+  ['Финансово', 'payBatch', [['payOds', '🗓 Отсуства (породилно, боледување, одмор)']]],
   // owner-only: „Конта за изводи“ applied to every firm at once (in the „ново“ menu: a tab of Изводи → ⚙ Поставки)
   ['Финансово', 'bankFmt', [['bankSite', '🏦 Конта за изводи – за сите фирми']]],
   // the statements the bank connections bring every evening (worker `bank.feeds`): print, check, approve and book

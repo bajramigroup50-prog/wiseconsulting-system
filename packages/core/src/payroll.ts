@@ -21,3 +21,4 @@ export * from './payroll/draft';
 export * from './payroll/lines';
 export * from './payroll/hr';
 export * from './payroll/orders';
+export * from './payroll/absence';

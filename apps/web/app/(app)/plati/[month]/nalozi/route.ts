@@ -4,7 +4,7 @@
  * (default today); `?csv=1` = net pay list for the bank (legacy `Neto_plati_banka_*.csv`).
  * FIX(#19): accounts and revenue codes come from the firm's payroll settings; missing data is listed on the page.
  */
-import { payrollPaymentOrders, resolvePayParams } from '@wise/core';
+import { payrollPaymentOrders, resolvePayParams, type PayLoan } from '@wise/core';
 import { loadRun } from '@wise/db';
 import { db } from '@/lib/db';
 import { toCsv, todayIso } from '@/lib/fmt';
@@ -23,7 +23,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ month: s
   const q = new URL(req.url).searchParams;
   const datum = /^\d{4}-\d{2}-\d{2}$/.test(q.get('datum') ?? '') ? q.get('datum')! : todayIso();
   const P = resolvePayParams(run.params, month, ctx.overrides);
-  const E = (await firmEmployees(g.firm.id)).map(coreEmp);
+  // with the withholding orders: one КТД to every creditor of the month
+  const E = (await firmEmployees(g.firm.id)).map((e) => ({ ...coreEmp(e), loans: (((e.data ?? {}) as { loans?: PayLoan[] }).loans ?? []) }));
   const r = payrollPaymentOrders(run, P, E, ctx.firm, ctx.orders, datum);
   if (q.get('csv') === '1') {
     const rows = [['Примач', 'ЕМБГ', 'Сметка', 'Банка', 'Износ', 'Цел'], ...r.orders.filter((o) => o.kind === 'pp30').map((o) => [o.recip, o.refCredit ?? '', o.recipAcc, o.recipBank, String(o.amount).replace('.', ','), o.purpose])];

@@ -8,7 +8,7 @@
  * public-revenue orders are ПП50 (the form used for public revenues), and every missing account or code
  * is reported in `missing` instead of printing an empty order silently.
  */
-import { mpinRows, type PayEmp } from './calc';
+import { empCalc, isLoanDeduction, loanOfLine, mpinRows, type PayEmp, type PayLoan } from './calc';
 import type { PayParams } from './params';
 import { parseAccount } from '../bank/mk-banks';
 import { newPayments } from '../bank/purpose-codes';
@@ -74,7 +74,7 @@ const dig = (v: unknown) => parseAccount(v)?.acc || String(v ?? '').replace(/\D/
 export function payrollPaymentOrders(
   run: { month: string; emps: readonly PayEmp[] },
   P: PayParams,
-  employees: readonly { id: string; embg?: string; bankAcc?: string; bank?: string; name?: string }[],
+  employees: readonly { id: string; embg?: string; bankAcc?: string; bank?: string; name?: string; loans?: readonly PayLoan[] }[],
   firm: PayOrdersFirm,
   settings: PayOrderSettings = {},
   date: string,
@@ -111,6 +111,30 @@ export function payrollPaymentOrders(
       refCredit: r.embg,
       ref: e.empId,
     });
+    // the withholdings of the month: one КТД to each executor / creditor (ЗИ: the employer pays it on the salary day)
+    const loans = employees.find((x) => x.id === e.empId)?.loans ?? [];
+    for (const row of empCalc(e, P).rows) {
+      if (!row.ded || !isLoanDeduction(row.type)) continue;
+      const l = loanOfLine(row.type, loans);
+      if (!l) continue;
+      const la = dig(l.acc);
+      if (la.length !== 15) missing.push(`Сметка на доверителот „${l.creditor || l.kind}“ (${r.name})`);
+      const exec = /извршител|забрана|решение|издршк|алимент/i.test(l.kind);
+      orders.push({
+        ...base,
+        kind: 'pp30',
+        purpose: `Задршка од плата ${mm} – ${r.name}${l.caseNo ? `, ${l.caseNo}` : ''}`,
+        amount: row.ded,
+        recip: l.creditor || l.kind,
+        recipAcc: la,
+        recipBank: l.bank || '',
+        code: newPayments(date) ? (exec ? 'PENO' : /кредит/i.test(l.kind) ? 'LOAR' : 'OTHR') : exec ? '290' : '930',
+        nacin: la && payerAcc && la.slice(0, 3) === payerAcc.slice(0, 3) ? '3' : '2',
+        refCredit: l.ref || l.caseNo || '',
+        refDebit: r.embg,
+        ref: e.empId,
+      });
+    }
   });
   const totals = { pio: 0, zdr: 0, dop: 0, vrab: 0, tax: 0, net: 0 } as Record<PayFundKey | 'net', number>;
   for (const r of R) {
