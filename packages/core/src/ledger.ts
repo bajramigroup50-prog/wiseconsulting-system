@@ -694,12 +694,15 @@ function parseOpeningSheetFmt(A: readonly (readonly unknown[])[], src: 'excel' |
     }
     const col = (re: RegExp) => H.findIndex((c) => re.test(c));
     cK = col(/конто|сметка|konto/); cN = col(/назив на конто|назив|опис/);
-    cP = col(/партнер|комитент|купувач|добавувач|субјект/); cC = col(/шифра на (партнер|комитент)|едб|даночен|шифра/);
+    cP = col(/партнер|комитент|купувач|добавувач|субјект/); cC = col(/шифра на (партнер|комитент)|едб|даночен|шифра|^ком\.?\s*ш/);
     // multi-block trial balance: the closing saldo (never the opening one), else the cumulative totals (netted on import)
     const B = tbPreferredBlock(tbBlocks(H));
     if (B) { cD = B.d; cR = B.p; } else {
-      const dI = H.map((c, i) => (/долж/.test(c) ? i : -1)).filter((i) => i >= 0);
-      const pI = H.map((c, i) => (/побар/.test(c) ? i : -1)).filter((i) => i >= 0);
+      // the denar columns, never the foreign-currency ones of a journal export („Дев.должи / Дев.побарува“, „Девизно“)
+      const fx = (c: string) => /дев\.|девиз|валут|eur|usd|(^|[^a-z])fx([^a-z]|$)/.test(c);
+      const pickCols = (re: RegExp) => { const L = H.map((c, i) => (re.test(c) ? i : -1)).filter((i) => i >= 0); const M = L.filter((i) => !fx(H[i]!)); return M.length ? M : L; };
+      const dI = pickCols(/долж/);
+      const pI = pickCols(/побар/);
       if (dI.length && pI.length) { cD = dI[dI.length - 1]!; cR = pI[pI.length - 1]!; } else cS = col(/салдо/);
     }
     if (cK < 0 || (cD < 0 && cS < 0)) return null;

@@ -13,4 +13,10 @@ describe('parseOpeningSheet: headings in Latin / other programs', () => {
   it('still reads the Cyrillic headings', () => {
     expect(parseOpeningSheet([['Конто', 'Назив', 'Должи', 'Побарува'], ['1000', 'x', 10, 0]])?.rows.length).toBe(1);
   });
+  it('reads a journal export (налог „P.S.“) with denar and foreign-currency columns: the denar ones, partner code „Ком.ш.“', () => {
+    const H = ['*', 'Р.бр.', 'Датум', 'Содржина', 'Конто', 'Должи', 'Побарува', 'Документ', 'Дев.должи', 'Дев.побарува', 'О.ед.', 'Ком.ш.', 'Комитент', 'Прекн/Непрекн.', 'Поч. сос.'];
+    const r = (k: string, d: number, p: number, c = '', n = '') => ['', 0, '2026-01-01', 'SALDO', k, d, p, '', 0, 0, '', c, n, 0, 'Da'];
+    const R = parseOpeningSheet([H, r('0030', 200000, 0), r('1200', 0, 6000, '1029', 'MAJANCE TRANSPORT SKOPJE'), r('2200', 0, 194000, '1034', 'GLOBUS GROUP')]);
+    expect(R?.rows).toEqual([['0030', '', '', '', 200000, 0], ['1200', '', 'MAJANCE TRANSPORT SKOPJE', '1029', 0, 6000], ['2200', '', 'GLOBUS GROUP', '1034', 0, 194000]]);
+  });
 });
