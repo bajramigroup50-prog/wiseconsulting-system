@@ -2,6 +2,7 @@
  * Fixed-asset register extras (legacy `VIEWS.os` 5850, editor 8631–8655, `osBadge`, `osLabelsHTML` 8656, `osCardHTML`
  * 8676): vehicle fields, document types, expiry badges, QR text, and the Excel template / import of the register.
  */
+import { yusciiDecode } from '../noai/tb-analitika';
 
 /** Asset document types (legacy `OS_DOCT`). */
 export const OS_DOCT: readonly string[] = [
@@ -62,8 +63,8 @@ export interface OsImportRow {
 
 const N = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕј%]+/gi, ' ').trim();
 const ALIAS: Record<keyof OsImportRow, string[]> = {
-  invNo: ['инв', 'инвентарен', 'inv'], name: ['назив', 'име', 'средство', 'name'], serial: ['сериски', 'шасија', 'serial'], barcode: ['баркод', 'barcode'],
-  konto: ['конто', 'konto', 'account'], date: ['датум', 'набавено', 'date'], cost: ['набавна', 'вредност', 'cost'], rate: ['стапка', 'rate', '%'],
+  invNo: ['инв', 'инвентарен', 'inventaren', 'inv'], name: ['назив', 'име', 'средство', 'opis', 'naziv', 'name'], serial: ['сериски', 'шасија', 'serial'], barcode: ['баркод', 'barcode'],
+  konto: ['конто', 'konto', 'account'], date: ['датум', 'набавено', 'datum na aktivacija', 'datum', 'date'], cost: ['набавна', 'вредност', 'nabavna', 'cost'], rate: ['стапка', 'stapka', 'procent', 'процент', 'rate', '%'],
   supplier: ['добавувач', 'supplier'], invDoc: ['фактура', 'документ', 'invoice'], location: ['локација', 'задолжено', 'location'], plate: ['таблица', 'регистарска', 'plate'],
 };
 
@@ -85,7 +86,10 @@ const isoDate = (v: unknown): string => {
 };
 
 /** Register import: header row first; needs Назив, Набавна вредност and Датум. */
-export function osParse(rows: readonly (readonly unknown[])[]): OsImportRow[] | { error: string } {
+export function osParse(rows0: readonly (readonly unknown[])[]): OsImportRow[] | { error: string } {
+  // the header may come after a title row („Spisok na osnovni sredstva“): the first row that names Назив and вредност
+  const hi = Math.max(0, rows0.slice(0, 10).findIndex((r) => { const h = r.map(N); return h.some((x) => /назив|opis|naziv|name/.test(x)) && h.some((x) => /набавна|nabavna|cost|вредност/.test(x)); }));
+  const rows = rows0.slice(hi);
   const H = (rows[0] ?? []).map(N);
   const col: Partial<Record<keyof OsImportRow, number>> = {};
   const used = new Set<number>();
@@ -96,12 +100,43 @@ export function osParse(rows: readonly (readonly unknown[])[]): OsImportRow[] | 
   if (col.name == null || col.cost == null || col.date == null) return { error: 'Excel мора да има колони „Назив“, „Набавна вредност“ и „Датум на набавка“.' };
   const g = (r: readonly unknown[], k: keyof OsImportRow) => (col[k] == null ? '' : r[col[k]!]);
   const s = (r: readonly unknown[], k: keyof OsImportRow) => String(g(r, k) ?? '').trim();
-  return rows.slice(1).filter((r) => s(r, 'name')).map((r) => ({
-    invNo: s(r, 'invNo'), name: s(r, 'name').slice(0, 300), serial: s(r, 'serial'), barcode: s(r, 'barcode'), konto: s(r, 'konto').replace(/\D/g, '') || '0120',
-    date: isoDate(g(r, 'date')), cost: Math.round(num(g(r, 'cost')) * 100) / 100, rate: num(g(r, 'rate')),
-    supplier: s(r, 'supplier'), invDoc: s(r, 'invDoc'), location: s(r, 'location'), plate: s(r, 'plate'),
-  }));
+  // the old program's list („Spisok na osnovni sredstva“): Otpis od minati godini (the 2nd one is the real), Otpis od
+  // tekovna godina, Procent of THIS year (part of a year for an asset activated in the year), activation date counted
+  // from its own day
+  const last = (re: RegExp) => { let k = -1; H.forEach((h, j) => { if (re.test(h)) k = j; }); return k; };
+  const iCur = H.findIndex((h) => /otpis od tekovna|отпис од тековна|тековен отпис|tekoven otpis/.test(h));
+  const iPrev = last(/otpis od minati|отпис од минати/);
+  const old = iCur >= 0;
+  const out = rows.slice(1).filter((r) => s(r, 'name') && !/^(вкупно|vkupno|total)/i.test(s(r, 'name'))).map((r) => {
+    const inv = s(r, 'invNo');
+    let date = isoDate(g(r, 'date'));
+    let rate = num(g(r, 'rate'));
+    let konto = s(r, 'konto').replace(/\D/g, '');
+    let name = s(r, 'name');
+    if (old) {
+      const cur = num(r[iCur]), prev = iPrev >= 0 ? num(r[iPrev]) : 0;
+      // part of a year (activated in the list's year): the percent of the days → the annual rate (12.02 → 17,70 % = 20 %)
+      if (date && cur > 0 && prev <= 1 && rate > 0) {
+        const y = +date.slice(0, 4);
+        const days = Math.round((Date.UTC(y, 11, 31) - Date.UTC(y, +date.slice(5, 7) - 1, +date.slice(8, 10))) / 864e5) + 1;
+        if (days > 0 && days < 365) rate = Math.round(((rate * 365) / days) * 2) / 2;
+      }
+      // activated on the 1st: the old program depreciates that month too – WISE starts the month after the date
+      if (/-01$/.test(date)) { const d = new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, 0)); date = d.toISOString().slice(0, 10); }
+      if (!konto) konto = /^(0\d{2,6})(?:[-/.]|$)/.exec(inv)?.[1] ?? '';
+      name = osCyr(name);
+    }
+    return {
+      invNo: inv, name: name.slice(0, 300), serial: s(r, 'serial'), barcode: s(r, 'barcode'), konto: konto || '0120',
+      date, cost: Math.round(num(g(r, 'cost')) * 100) / 100, rate,
+      supplier: s(r, 'supplier'), invDoc: s(r, 'invDoc'), location: s(r, 'location'), plate: s(r, 'plate'),
+    };
+  });
+  return out;
 }
+
+/** Latin YUSCII name of the old program („VLEKA^ MAN“, „PRIKOLKA [VARZMULER“) → Cyrillic. */
+const osCyr = (t: string): string => t.replace(/\S+/g, (w) => (/[Ѐ-ӿ]/.test(w) ? w : yusciiDecode(w)));
 
 /** The old program's fixed-asset register (PDF / photo, any layout) read by AI → the register import rows. */
 export const OS_PROMPT = `This is a fixed-asset register (регистар / листа / попис на основни средства, амортизација) of a company in North Macedonia, printed by an accounting program (often in Latin transliteration: „Nabavna vrednost“, „Otpis od min. godini“, „Tekoven otpis“, „Vkupen otpis“, „Sega{na vrednost“). Extract EVERY asset row. Reply with ONLY JSON:

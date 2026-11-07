@@ -26,3 +26,19 @@ describe('fixed-asset register read from PDF', () => {
     expect(P[1]!.konto).toBe('01373');
   });
 });
+
+describe('the old program register in Excel („Spisok na osnovni sredstva“)', () => {
+  const H = ['Inventaren broj', 'Opis', 'Amortizaciona grupa', 'Datum na aktivacija', 'Datum na vnesuvawe', 'Nabavna vrednost', 'Otpis od minati godini', 'Nabavna vrednost tekovna godina', 'Otpis od minati godini', 'Otpis od tekovna godina', 'Vkupen Otpis', 'Procent'];
+  const R = [['Spisok na osnovni sredstva'], H,
+    ['01371-01', 'TOVARNO MAN SK 8493 BF', '01', '01/01/2023', '01/01/2023', '693649.00', '0.00', '693649.00', '346824.50', '173412.25', '520236.75', '25.00'],
+    ['01373-09', 'KEMPF KIPPER ', '2', '12/02/2025', '12/02/2025', '615250.00', '0.00', '615250.00', '0.00', '108890.82', '108890.82', '17.70'],
+    ['01373-13', 'PRIKOLKA ЊЕЛЛМЕЅЕР', '3', '01/07/2026', '01/07/2026', '557967.00', '0.00', '557967.00', '0.00', '0.00', '0.00', '10.00']];
+  it('reads the title row, Latin headings, konto from the inventory number, annual rate and the activation month', () => {
+    const P = osParse(R) as OsImportRow[];
+    expect(P[0]).toEqual(expect.objectContaining({ invNo: '01371-01', konto: '01371', date: '2022-12-31', rate: 25, cost: 693649, name: 'ТОВАРНО МАН СК 8493 БФ' }));
+    const d = depFor([{ id: 'a', konto: '01371', rate: 25, date: '2022-12-31', cost: 693649 }], 2025).rows[0]!;
+    expect([d.year, d.acc]).toEqual([173412.25, 520236.75]);
+    expect(P[1]).toEqual(expect.objectContaining({ rate: 20, date: '2025-02-12' }));
+    expect(P[2]!.name).toBe('ПРИКОЛКА ЊЕЛЛМЕЅЕР');
+  });
+});
