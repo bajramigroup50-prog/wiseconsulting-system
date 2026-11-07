@@ -71,8 +71,10 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
         ...(r.locationId ? { locationId: r.locationId } : {}),
       })),
       userId: u.id, auditAction: existing ? 'nalSave' : 'saveJ',
-      // opening balances may carry 12x/22x rows without a partner (saveOpening allows them)
-      requirePartner: !(existing && ['open', 'bbimp'].includes(existing.kind)),
+      // opening balances may carry 12x/22x rows without a partner (saveOpening allows them); so does a nalog imported
+      // from the old program (a daily turnover „PER.IZV“ with card payments on 1200001 has no customer) – it was booked
+      // that way and its correction must not ask for one
+      requirePartner: !(existing && (['open', 'bbimp'].includes(existing.kind) || existing.sourceType === 'import')),
       allowEmpty: empty,
       meta: { ...((existing?.meta as Record<string, unknown>) ?? {}), rows: empty ? R.map((r) => ({ account: r.account, partnerId: r.partnerId || null, note: r.note, doc: r.doc })) : undefined },
     };
