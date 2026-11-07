@@ -291,16 +291,39 @@ export const manualLedgerVatSource: VatDocumentSource = ledgerVatSourceExcept([.
  */
 export const defaultVatSource: VatDocumentSource = combineVatSources(documentsVatSource, manualLedgerVatSource);
 
+/**
+ * The VAT date of a journal: its date — except a nalog imported from the old program (`sourceType 'import'`) whose
+ * number names its months („1/1-3“, „2/4-6“, „12/10-10“): its documents count in the nalog's period, as the old
+ * program reported them (a sales invoice of 01.04 booked in „1/1-3“ stays in the first quarter).
+ */
+export function vatDateOf(date: string, number: string | null | undefined, sourceType: string | null | undefined): string {
+  if (sourceType !== 'import') return date;
+  const m = /\/(\d{1,2})-(\d{1,2})(?:\D.*)?$/.exec(String(number ?? '').trim());
+  if (!m) return date;
+  const a = +m[1]!, b = +m[2]!;
+  if (!(a >= 1 && b <= 12 && a <= b)) return date;
+  const y = date.slice(0, 4);
+  const start = `${y}-${String(a).padStart(2, '0')}-01`;
+  const end = new Date(Date.UTC(+y, b, 0)).toISOString().slice(0, 10);
+  return date < start ? start : date > end ? end : date;
+}
+
+const shiftDays = (d: string, n: number) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+
 async function loadLedger(tx: Tx, firm: Pick<Firm, 'id'>, from: string, to: string, ctx: PostingContext, exclude: readonly string[]): Promise<VatSourceData> {
   const roles = vatAccountRoles(ctx);
   const vatK = [...roles.keys()];
   const none: VatSourceData = { docs: {}, partners: {}, origin: 'ledger', ledgerJournals: 0 };
   if (!vatK.length) return none;
   const src = or(isNull(journals.sourceType), notInArray(journals.sourceType, [VAT_CLOSE_SOURCE, ...exclude]));
-  const J = await tx.selectDistinct({ id: journals.id }).from(journalLines)
+  // imported nalozi may count in a neighbouring period (`vatDateOf`): read a year around, keep those of [from, to]
+  const J = (await tx.selectDistinct({ id: journals.id, date: journals.date, number: journals.number, sourceType: journals.sourceType }).from(journalLines)
     .innerJoin(journals, eq(journals.id, journalLines.journalId))
-    .where(and(eq(journalLines.firmId, firm.id), sql`${journals.date} between ${from} and ${to}`, inArray(journalLines.account, vatK), src));
+    .where(and(eq(journalLines.firmId, firm.id), sql`${journals.date} between ${shiftDays(from, -366)} and ${shiftDays(to, 366)}`, inArray(journalLines.account, vatK), src,
+      or(sql`${journals.date} between ${from} and ${to}`, eq(journals.sourceType, 'import')))))
+    .filter((j) => { const d = vatDateOf(j.date, j.number, j.sourceType); return d >= from && d <= to; });
   if (!J.length) return none;
+  const vatDate = new Map(J.map((j) => [j.id, vatDateOf(j.date, j.number, j.sourceType)]));
   const rows = await tx.select({
     jid: journals.id, date: journals.date, number: journals.number, description: journals.description,
     account: journalLines.account, debit: journalLines.debit, credit: journalLines.credit, partnerId: journalLines.partnerId,
@@ -315,7 +338,7 @@ async function loadLedger(tx: Tx, firm: Pick<Firm, 'id'>, from: string, to: stri
   const purchases: PurchaseDoc[] = [];
   const pids = new Set<string>();
   for (const [jid, L] of byJ) {
-    const h = L[0]!;
+    const h = { ...L[0]!, date: vatDate.get(jid) ?? L[0]!.date };
     const no = h.number + (h.description ? ' · ' + h.description : '');
     const partnerOf = (re: RegExp) => L.find((l) => l.partnerId && re.test(l.account))?.partnerId ?? L.find((l) => l.partnerId)?.partnerId ?? undefined;
     // Net per role/rate in cents: output = credit − debit, input = debit − credit.
