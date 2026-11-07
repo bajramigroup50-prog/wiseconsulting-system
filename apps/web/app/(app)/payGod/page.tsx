@@ -68,13 +68,15 @@ async function Loans({ firmId, edit }: { firmId: string; edit?: string }) {
   const from = withL.flatMap((x) => x.L.map((l) => l.from.slice(0, 7))).sort()[0];
   /* the deductions per employee, month and order (the tagged lines „Задршка: … #id“), from every run since the oldest order */
   const ded = from ? await loanDeductions(db(), firmId, new Map(withL.map((x) => [x.e.id, x.L])), from) : new Map();
-  const rows = withL.flatMap(({ e, L }) => payLoanStatus(L, ded.get(e.id) ?? new Map()).map((s) => ({ e, s })));
+  // „Ред“: the order received per employee (ЗИ: executed oldest first; the next starts when one is paid)
+  const rows = withL.flatMap(({ e, L }) => payLoanStatus(L, ded.get(e.id) ?? new Map()).map((s, i) => ({ e, s, pos: i + 1 })));
   const F = rows.length ? await db().select({ fileId: fileLinks.fileId, id: fileLinks.entityId }).from(fileLinks).where(and(eq(fileLinks.entityType, PAY_LOAN_FILE_ENTITY), inArray(fileLinks.entityId, rows.map((r) => r.s.id)))) : [];
   const ed = rows.find((r) => r.s.id === edit);
   const v = ed?.s;
   return (
     <>
       <Hd t="Кредити и задршки од плата" sub="извршители · издршка · административни забрани">
+        <a className="btn pri" href={`/payGod/zadrski?m=${new Date().toISOString().slice(0, 7)}`} target="_blank" rel="noopener">🧾 Задршки за месецот – кому се плаќа</a>
         <Link className="btn" href="/payGod">← Годишен извештај</Link>
       </Hd>
       <ActionForm action={payLoanSaveAction} className="card" reset={!ed}>
@@ -100,12 +102,12 @@ async function Loans({ firmId, edit }: { firmId: string; edit?: string }) {
       </ActionForm>
       {rows.length ? (
         <div className="tw"><table>
-          <thead><tr><th>Вработен</th><th>Вид / доверител</th><th>Од</th><th>Граница</th><th className="n">Долг</th><th className="n">Рата</th><th className="n">Отплатено</th><th className="n">Останува</th><th className="n">Месеци</th><th>Решение</th><th /></tr></thead>
-          <tbody>{rows.map(({ e, s }) => {
+          <thead><tr><th>Вработен</th><th>Ред</th><th>Вид / доверител</th><th>Од</th><th>Граница</th><th className="n">Долг</th><th className="n">Рата</th><th className="n">Отплатено</th><th className="n">Останува</th><th className="n">Месеци</th><th>Решение</th><th /></tr></thead>
+          <tbody>{rows.map(({ e, s, pos }) => {
             const ff = F.filter((x) => x.id === s.id);
             return (
               <tr key={s.id} style={s.closed ? { opacity: 0.55 } : undefined}>
-                <td>{e.no} {e.name}</td>
+                <td>{e.no} {e.name}</td><td className="n">{pos}</td>
                 <td><b>{s.creditor}</b><div className="mini">{s.kind}{s.caseNo ? ` · ${s.caseNo}` : ''}{s.acc ? ` · ${ppAccTxt(s.acc, '2026-11-09')}` : ' · ⚠ нема сметка'}</div>{s.note ? <small className="mut">{s.note}</small> : null}</td>
                 <td>{dmy(s.from)}</td><td className="mini">{LOAN_CAP_LABEL[loanCap(s)]}</td>
                 <td className="n">{fmt(s.total)}</td><td className="n">{s.monthly ? fmt(s.monthly) : ''}{s.pct ? <div className="mini">{s.pct}% од нето</div> : null}</td><td className="n">{fmt(s.paid)}</td>
@@ -120,7 +122,7 @@ async function Loans({ firmId, edit }: { firmId: string; edit?: string }) {
               </tr>
             );
           })}</tbody>
-          <tfoot><tr><td colSpan={4}>Вкупно</td><td className="n">{fmt(rows.reduce((a, r) => a + r.s.total, 0))}</td><td /><td className="n">{fmt(rows.reduce((a, r) => a + r.s.paid, 0))}</td><td className="n">{fmt(rows.reduce((a, r) => a + (r.s.closed ? 0 : r.s.rest), 0))}</td><td colSpan={3} /></tr></tfoot>
+          <tfoot><tr><td colSpan={5}>Вкупно</td><td className="n">{fmt(rows.reduce((a, r) => a + r.s.total, 0))}</td><td /><td className="n">{fmt(rows.reduce((a, r) => a + r.s.paid, 0))}</td><td className="n">{fmt(rows.reduce((a, r) => a + (r.s.closed ? 0 : r.s.rest), 0))}</td><td colSpan={3} /></tr></tfoot>
         </table></div>
       ) : <div className="card empty">Нема внесени кредити или задршки.</div>}
     </>
