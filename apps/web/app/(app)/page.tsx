@@ -128,7 +128,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const od = (x: { due: string | null; date: string }) => daysBetween(td, x.due || x.date);
   const open = (x: { total: number; paid: number }) => (x.total - x.paid) / 100;
   const late = inv.filter((x) => od(x) < 0);
-  const recv = inv.reduce((s, x) => s + open(x), 0), pay = pur.reduce((s, x) => s + open(x), 0);
+  // a firm whose books came as nalozi (import from the old program, no invoice documents): the open balances of the
+  // customer (12…) / supplier (22…) kontos
+  const ledgerBal = (re: RegExp, sign: 1 | -1) => Math.max(0, Math.round(L.filter((l) => re.test(l.account)).reduce((s, l) => s + sign * (l.debit - l.credit), 0) * 100) / 100);
+  const recv = inv.length ? inv.reduce((s, x) => s + open(x), 0) : ledgerBal(/^12/, 1), pay = pur.length ? pur.reduce((s, x) => s + open(x), 0) : ledgerBal(/^22/, -1);
   const lateSum = late.reduce((s, x) => s + open(x), 0);
   const due7 = pur.filter((x) => { const n = od(x); return n >= 0 && n <= 7; }).reduce((s, x) => s + open(x), 0);
   const payLate = pur.filter((x) => od(x) < 0).reduce((s, x) => s + open(x), 0);
@@ -157,10 +160,30 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     ]),
     safe(stockSummary(f.id), { wh: 0, st: 0, neg: 0, low: 0 }),
   ]);
-  const PN = await partnerNames(f.id, [...TC.map((x) => x.p), ...TSu.map((x) => x.p), ...inv.map((x) => x.partnerId), ...pur.map((x) => x.partnerId), ...recent[0].map((x) => x.p), ...recent[1].map((x) => x.p)]);
+  // books from nalozi only (import from the old program): customers / suppliers and open items from the 12… / 22… kontos per partner
+  const noDocs = !inv.length && !pur.length && !TC.length && !TSu.length;
+  const LP2 = noDocs ? await safe(db().select({
+    k: sql<string>`left(${journalLines.account}, 2)`, p: journalLines.partnerId, m: sql<number>`extract(month from ${journals.date})::int`,
+    d: sql<string>`sum(${journalLines.debit})`, c: sql<string>`sum(${journalLines.credit})`, op: sql<boolean>`bool_or(${journals.sourceType} = 'opening')`,
+  }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+    .where(and(eq(journalLines.firmId, f.id), ne(journals.kind, 'close'), sql`${journals.date} between ${`${year}-01-01`} and ${`${year}-12-31`}`, sql`left(${journalLines.account}, 2) in ('12', '22')`))
+    .groupBy(sql`left(${journalLines.account}, 2)`, journalLines.partnerId, sql`extract(month from ${journals.date})`, journals.sourceType), []) : [];
+  const PN = await partnerNames(f.id, [...LP2.map((x) => x.p), ...TC.map((x) => x.p), ...TSu.map((x) => x.p), ...inv.map((x) => x.partnerId), ...pur.map((x) => x.partnerId), ...recent[0].map((x) => x.p), ...recent[1].map((x) => x.p)]);
   const pn = (id: string | null) => (id ? PN.get(id)?.name ?? '' : '');
   const top = (L2: { p: string | null; v: string }[]) => L2.map((x) => ({ n: pn(x.p) || '—', v: Math.round(Number(x.v) * 100) / 100 })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v).slice(0, 6);
-  const topC = top(TC), topS = top(TSu);
+  const inRg = (m: number) => m - 1 >= rg.m0 && m - 1 <= rg.m1;
+  const sumBy = (k: string, side: 'd' | 'c', within: boolean) => {
+    const M = new Map<string, number>();
+    for (const r of LP2) if (r.k === k && r.p && !r.op && (!within || inRg(r.m))) M.set(r.p, (M.get(r.p) ?? 0) + Number(side === 'd' ? r.d : r.c));
+    return [...M].map(([p, v]) => ({ p, v: String(v) }));
+  };
+  const openBy = (k: string, sign: 1 | -1) => {
+    const M = new Map<string, number>();
+    for (const r of LP2) if (r.k === k && r.p) M.set(r.p, (M.get(r.p) ?? 0) + sign * (Number(r.d) - Number(r.c)));
+    return [...M].map(([p, v]) => ({ p, v: Math.round(v * 100) / 100 })).filter((x) => x.v > 0.5).sort((a, b) => b.v - a.v);
+  };
+  const topC = noDocs ? top(sumBy('12', 'd', true)) : top(TC), topS = noDocs ? top(sumBy('22', 'c', true)) : top(TSu);
+  const openC = noDocs ? openBy('12', 1) : [], openS = noDocs ? openBy('22', -1) : [];
   const expRows = Object.entries(A.eg).map(([k, v]) => ({ n: EXPG[k] ?? 'Група ' + k, v: Math.round(v * 100) / 100 })).filter((r) => r.v > 0.5).sort((a, b) => b.v - a.v);
   const bal = Math.round(L.reduce((s, l) => s + l.debit - l.credit, 0) * 100) / 100;
   const payMiss = (empAct[0]?.n ?? 0) > 0 && !payPm.length;
@@ -385,10 +408,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
         <div className="card"><div className="hd"><h2>Отворени побарувања</h2><Link className="btn sm" href="/analitika">ИОС →</Link></div>
           {inv.length ? <div className="tw"><table><thead><tr><th>Фактура</th><th>Купувач</th><th>Рок</th><th className="n">Неплатено</th></tr></thead><tbody>
             {[...inv].sort((a, b) => od(a) - od(b)).slice(0, 6).map((x) => <tr key={x.id}><td>{x.number}</td><td>{pn(x.partnerId)}</td><td>{dmy(x.due || x.date)}{od(x) < 0 && <> <span className="pill bad">{-od(x)} ден.</span></>}</td><td className="n">{fmt(open(x))}</td></tr>)}
+          </tbody></table></div> : openC.length ? <div className="tw"><table><thead><tr><th>Купувач</th><th className="n">Салдо (конто 12)</th></tr></thead><tbody>
+            {openC.slice(0, 8).map((x) => <tr key={x.p}><td>{pn(x.p)}</td><td className="n">{fmt(x.v)}</td></tr>)}
           </tbody></table></div> : <div className="empty">Сите фактури се наплатени.</div>}</div>
         <div className="card"><div className="hd"><h2>Обврски кон добавувачи</h2><Link className="btn sm" href="/kartici">Картици →</Link></div>
           {pur.length ? <div className="tw"><table><thead><tr><th>Фактура</th><th>Добавувач</th><th>Рок</th><th className="n">Неплатено</th></tr></thead><tbody>
             {[...pur].sort((a, b) => od(a) - od(b)).slice(0, 6).map((x) => <tr key={x.id}><td>{x.number}</td><td>{pn(x.partnerId)}</td><td>{dmy(x.due || x.date)}{od(x) < 0 && <> <span className="pill bad">{-od(x)} ден.</span></>}</td><td className="n">{fmt(open(x))}</td></tr>)}
+          </tbody></table></div> : openS.length ? <div className="tw"><table><thead><tr><th>Добавувач</th><th className="n">Салдо (конто 22)</th></tr></thead><tbody>
+            {openS.slice(0, 8).map((x) => <tr key={x.p}><td>{pn(x.p)}</td><td className="n">{fmt(x.v)}</td></tr>)}
           </tbody></table></div> : <div className="empty">Нема отворени обврски.</div>}</div>
       </div>
       <div className="card"><div className="hd"><h2>Последни документи</h2></div>

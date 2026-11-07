@@ -289,7 +289,9 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
   const runId = run!.id;
   // only the firms working this year (`firm-years.ts`): a closed firm (`toYear`) is no longer checked
   const F = (await db.select().from(firms).where(and(eq(firms.active, true), firmOpenInSql(Number(today.slice(0, 4))))).orderBy(asc(firms.name)))
-    .filter((f) => !(f.settings as { officeFirm?: boolean }).officeFirm && !isDemoFirm(f)) // 🎭 the autopilot never checks / mails a demo firm
+    // 🎭 the autopilot never checks / mails a demo firm; the office's own firm is checked (its findings on its dashboard)
+    // but never gets the client messages (no „Што фали“ mail to ourselves)
+    .filter((f) => !isDemoFirm(f))
     // „↻ Провери пак“ / after a fix: only those firms (their findings are replaced, the others stay)
     .filter((f) => !o.firmIds || o.firmIds.includes(f.id));
   const rows: { id: string; m: Record<string, number | string | null> }[] = [];
@@ -336,7 +338,7 @@ export async function runAutopilot(db: Tx, o: { trigger?: 'cron' | 'manual'; tod
         .where(and(eq(autopilotFindings.firmId, f.id), isNull(autopilotFindings.resolvedAt), notLike(autopilotFindings.key, 'lr:%'), keys.length ? notInArray(autopilotFindings.key, keys) : undefined));
       // client messages only from the full run (every 6 h): a re-check of one firm (after a save, „↻ Провери пак“, every
       // 5 minutes while it is being booked) never sends – the counts change while the accountant works
-      for (const g of o.firmIds ? [] : X.msgs) {
+      for (const g of o.firmIds || (f.settings as { officeFirm?: boolean }).officeFirm ? [] : X.msgs) {
         const [ins] = await tx.insert(autopilotMessages).values({ key: g.key, firmId: f.id, type: g.type, subject: g.subj, body: g.body })
           .onConflictDoNothing().returning({ key: autopilotMessages.key });
         if (!ins) continue;
