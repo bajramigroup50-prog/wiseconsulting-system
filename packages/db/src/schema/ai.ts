@@ -48,7 +48,9 @@ export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | '
   /** Filed annual account (БС / БУ) for years kept in another program (legacy `zmImport` PDF). */
   | 'zm'
   /** Inspection record / decision → findings (compliance module, `KONTROLA_PROMPT`). */
-  | 'kontrola';
+  | 'kontrola'
+  /** Fixed-asset register of the old program (PDF / image) → the register import (`OS_PROMPT`). */
+  | 'os';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */

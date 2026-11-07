@@ -102,3 +102,20 @@ export function osParse(rows: readonly (readonly unknown[])[]): OsImportRow[] | 
     supplier: s(r, 'supplier'), invDoc: s(r, 'invDoc'), location: s(r, 'location'), plate: s(r, 'plate'),
   }));
 }
+
+/** The old program's fixed-asset register (PDF / photo, any layout) read by AI → the register import rows. */
+export const OS_PROMPT = `This is a fixed-asset register (регистар / попис на основни средства, амортизација) of a company in North Macedonia, printed by an accounting program. Extract EVERY asset row. Reply with ONLY JSON:
+{"assets":[{"invNo":string (инвентарен број),"name":string (назив на средството),"konto":string (account, e.g. "0230", "0220"; "" if not printed),"date":"YYYY-MM-DD" (датум на набавка / ставање во употреба),"cost":number (набавна вредност),"rate":number (стапка на амортизација %, 0 if not printed),"supplier":string,"invDoc":string (фактура / документ),"location":string,"serial":string,"plate":string}]}
+Rules: numbers as plain JSON numbers (1,234.56 or 1.234,56 → 1234.56); dates DD.MM.YYYY / DD/MM/YYYY → YYYY-MM-DD; skip totals (Вкупно / Total) and group headings; keep names in the original language; never invent rows or values.`;
+
+/** AI read of a register → the rows `importAssets` takes (header = `OS_XLSX_HEAD`). */
+export function osRowsFromRead(r: unknown): string[][] {
+  const o = (r && typeof r === 'object' ? r : {}) as { assets?: unknown };
+  const A = (Array.isArray(o.assets) ? o.assets : Array.isArray(r) ? r : []) as Record<string, unknown>[];
+  const S = (v: unknown) => (v == null ? '' : String(v).trim());
+  const rows = A.filter((a) => S(a.name) && num(a.cost) > 0).map((a) => [
+    S(a.invNo), S(a.name), S(a.serial), '', S(a.konto).replace(/\D/g, ''), isoDate(a.date), String(num(a.cost)), String(num(a.rate) || ''),
+    S(a.supplier), S(a.invDoc), S(a.location), S(a.plate),
+  ]);
+  return [[...OS_XLSX_HEAD], ...rows];
+}

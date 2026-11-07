@@ -22,6 +22,7 @@ import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { XlsxButton, XlsxImport } from '@/components/vp-tools';
 import { ActionForm } from '@/components/yearend/action-form';
+import { OsPdfImport } from './os-pdf-import';
 import { addAssetFiles, deleteAsset, importAssets, removeAssetFile, runDepAction, undoDepAction } from './actions';
 import { AssetForm } from './asset-form';
 
@@ -70,6 +71,7 @@ export default async function OsPage({ searchParams }: { searchParams: Promise<S
         {all.length > 0 && <Link className="btn" href="/os/popis" target="_blank">📋 Пописна листа</Link>}
         <XlsxButton name={`Osnovni_sredstva_${year}.xlsx`} label="⬇ Excel" sheets={[{ name: 'Основни средства', rows: xl }]} />
         {write && <XlsxImport action={importAssets} template={[[...OS_XLSX_HEAD]]} templateName="Osnovni_sredstva_obrazec.xlsx" confirm="Да се увезат {n} основни средства?" />}
+        {write && <OsPdfImport firmId={firm.id} />}
         {write && d.total > 0 && <RowAction className="btn pri" action={runDepAction} label={dep ? 'Пресметај амортизација повторно' : `Пресметај амортизација ${year}`}
           confirm={`Да се прокнижи амортизацијата за ${year}: ${fmt(d.total)} ден. на 31.12.${year}?`} />}
         {del && dep && <RowAction className="btn danger" action={undoDepAction} label="🗑 Налог за амортизација" confirm={`Да се избрише налогот за амортизација ${dep.number}?`} />}

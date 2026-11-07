@@ -21,6 +21,7 @@ import { fiskAfterRead, fiskApplySimple, fiskFinish, fiskReadTotal } from '@wise
 import { RC_DOC_PROMPT, RC_DOC_PROMPT_LICENCE, VREG_PROMPT } from '@wise/core/industry';
 import { FS_PROMPT } from '@wise/core/firms/resh';
 import { ZM_PROMPT } from '@wise/core/yearend/zm-import';
+import { OS_PROMPT } from '@wise/core/yearend/assets-io';
 import { KONTROLA_PROMPT } from '@wise/core/compliance';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
@@ -39,6 +40,7 @@ export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', '
   'tk',
   'zm',
   'kontrola',
+  'os',
 ]);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
@@ -162,6 +164,11 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     case 'kontrola': {
       // compliance: the inspection record / decision → structured findings (the office reviews them before use)
       const r = await readContent<unknown>({ ...base, prompt: KONTROLA_PROMPT, tier: 'complex', maxTokens: 12000 }, content);
+      return { result: r.data, model: r.model };
+    }
+    case 'os': {
+      // the old program's fixed-asset register (PDF / image) → rows of the register import
+      const r = await readContent<unknown>({ ...base, prompt: OS_PROMPT, tier: 'default', maxTokens: 16000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'zm': {

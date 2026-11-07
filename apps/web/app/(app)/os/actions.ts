@@ -8,7 +8,8 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { audit, depreciationRuns, fixedAssets, isIsoDate, runDepreciation, undoDepreciation } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
-import { OS_DOCT, OS_VEH, osParse, type OsDoc } from '@wise/core/yearend/assets-io';
+import { OS_DOCT, OS_VEH, osParse, osRowsFromRead, type OsDoc } from '@wise/core/yearend/assets-io';
+import { loadAiResult } from '@/lib/ai';
 import { isUuid, linkFiles } from '@/lib/office';
 import { fileLinks } from '@wise/db';
 import { db } from '@/lib/db';
@@ -193,5 +194,17 @@ export async function importAssets(rows: string[][]): Promise<ActionState> {
     });
     revalidatePath('/os');
     return { ok: `Увезени ${r.n} средства${r.skip ? ` · ${r.skip} постоечки инв. броеви прескокнати` : ''}${bad.length ? ` · ${bad.length} неисправни редови` : ''}.` };
+  } catch (e) { return actionError(e); }
+}
+
+/** „📄 Увоз од PDF“: the old program's register read by AI (kind `os`) → the same import as Excel. */
+export async function importAssetsFromRead(readId: string): Promise<ActionState> {
+  try {
+    const { firm } = await firmAction('saveAsset');
+    const d = await loadAiResult(firm.id, readId, 'os');
+    if (!d) return { error: 'Регистарот сè уште не е прочитан.' };
+    const rows = osRowsFromRead(d.result);
+    if (rows.length < 2) return { error: 'Во PDF-от не се пронајдени основни средства (назив и набавна вредност).' };
+    return importAssets(rows);
   } catch (e) { return actionError(e); }
 }
