@@ -349,10 +349,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <a href="#det-exp" className="hg"><span>Расходи · {rg.lab}</span><b className="num">{fmt(A.exp)}</b><i><DPill d={pct(A.exp, AP.exp)} inv py={year - 1} /></i></a>
           <a href="#det-res" className="hg main"><span>Добивка · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '—' : 'маржа ' + mg.toLocaleString('mk-MK') + '%'}</i></a>
           {f.vatRegistered ? (selVat != null
-            ? <Link href="/ddv" className="hg"><span>ДДВ · {selPers.length === 1 ? selPers[0] : rg.lab} · {selVat > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${selVat > 0 ? 'neg' : ''}`}>{fmt(Math.abs(selVat))}</b><i>{selPers.length > 1 ? `${selPers.length} периоди` : 'избран период'}</i></Link>
+            ? <Link href="/ddv" className="hg"><span>ДДВ · {selPers.length === 1 ? selPers[0] : rg.lab} · {selVat > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${selVat > 0 ? 'neg' : selVat < 0 ? 'ret' : ''}`}>{fmt(Math.abs(selVat))}</b><i>{selPers.length > 1 ? `${selPers.length} периоди` : 'избран период'}</i></Link>
             : est
-            ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
-            : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
+            ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : est.amount < 0 ? 'ret' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
+            : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : Dcur < 0 ? 'ret' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
             : <div className="hg"><span>ДДВ</span><b className="num">—</b><i>не е ДДВ обврзник</i></div>}
           <Link href="/zsProc" className="hg" title={`Промет ${year} (фискална каса + излезни фактури + POS, без отпис 7699): ${fmt(PT.turnover)} ден. – до 6.000.000 данок на вкупен приход 1%, над тоа 10% на добивката`}>
             <span>{PT.kind === 'vp' ? 'Данок на вкупен приход 1% ≈' : 'Данок на добивка 10% ≈'}</span><b className="num">{fmt(PT.tax)}</b>
