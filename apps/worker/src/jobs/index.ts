@@ -29,6 +29,7 @@ import { AUTOMATION_JOBS } from './automations2';
 import { autoRepost } from './auto-repost';
 import { incomingDetect } from './incoming-detect';
 import { bankFeeds } from './bank-feeds';
+import { docRead } from './doc-read';
 import { socialPost } from './social';
 
 /** Registry: one line per job. */
@@ -70,4 +71,5 @@ export const JOBS: JobDef<any>[] = [
   autoRepost,
   incomingDetect,
   bankFeeds,
+  docRead,
 ];

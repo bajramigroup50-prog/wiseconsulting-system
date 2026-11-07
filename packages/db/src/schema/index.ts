@@ -34,3 +34,4 @@ export * from './automations';
 export * from './robot';
 export * from './demo';
 export * from './bankfeed';
+export * from './docreads';

@@ -4,9 +4,10 @@
  * the month's tours without borders, and ⚙ Износи по држава (FR_CTRY with firm overrides, 0 < amount < 1000).
  */
 import Link from 'next/link';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { FR_COUNTRIES, currencyText, frDnevByDriver, frDnevTours, frToursWithoutBorders, isMonth, monthOptions } from '@wise/core/industry';
-import { freightTours } from '@wise/db';
+import { freightTours, journals, travelReads } from '@wise/db';
+import { TravelReadBox, type ReadRow } from './read-box';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
 import { freightContext } from '@/lib/freight';
@@ -28,6 +29,14 @@ export default async function FrDnev({ searchParams }: { searchParams: Promise<{
   const rows = frDnevByDriver(T, (t) => X.dn(t));
   const W = frToursWithoutBorders(all, mo);
   const C = X.rates;
+  // the client's travel orders read by AI → trips → booked per diems
+  const RD = g.write ? await travelReads(db(), g.firm.id) : [];
+  const refIds = RD.map((r) => r.refId).filter((x): x is string => !!x);
+  const booked = new Set(refIds.length ? (await db().select({ s: journals.sourceId }).from(journals).where(and(eq(journals.firmId, g.firm.id), eq(journals.sourceType, 'freight_perdiem'), inArray(journals.sourceId, refIds)))).map((x) => x.s) : []);
+  const readRows: ReadRow[] = RD.map((r) => ({
+    id: r.id, status: r.status, error: r.error, at: r.createdAt.toISOString().slice(0, 16).replace('T', ' '), refId: r.refId,
+    tourNo: r.refId ? all.find((t) => t.id === r.refId)?.number ?? null : null, booked: !!r.refId && booked.has(r.refId), r: (r.result ?? null) as ReadRow['r'],
+  }));
   const name = (k: string) => (k === '-' ? '(без возач)' : X.driver(k));
   const xlsx: Cell[][] = [['Возач', 'Тури', 'Број', 'Дневници', 'Износ', 'Денари'], ...rows.map((r) => [name(r.driverId), r.tours.length, r.tours.map((t) => t.number).join(', '), r.units, currencyText(r.by, fmt), r.mkd])];
   const detail: Cell[][] = [['Тура', 'Датум', 'Возач', 'Часови', 'Дневници', 'Износ', 'Денари'], ...T.map((t) => { const d = X.dn(t); return [t.number, t.date, name(t.driverId || '-'), d.totH, d.rows.reduce((a, r) => a + r.u, 0), currencyText(d.by, fmt), d.mkd]; })];
@@ -40,6 +49,7 @@ export default async function FrDnev({ searchParams }: { searchParams: Promise<{
         <Link className="btn" href={sp.cfg ? `/frDnev?mo=${mo}` : `/frDnev?mo=${mo}&cfg=1`}>⚙ Износи по држава</Link>
       </Hd>
       <div className="row" style={{ gap: 8, marginBottom: 8 }}><MonthSelect value={mo} options={monthOptions(mo, g.year)} /></div>
+      {g.write && <TravelReadBox firmId={g.firm.id} rows={readRows} names={Object.fromEntries(FR_COUNTRIES.map((c) => [c[0], c[1]]))} />}
       {g.write && <div className="row" style={{ gap: 8, marginBottom: 10 }}><Link className="btn pri" href="/frTuri?id=new&dn=1">+ Ново патување со дневници</Link></div>}
       {T.length ? (
         <div className="tw" id="frDnevList"><table><thead><tr><th>Возач</th><th className="n">Тури</th><th>Број</th><th className="n">Дневници</th><th className="n">Износ</th><th className="n">Денари</th><th /></tr></thead>

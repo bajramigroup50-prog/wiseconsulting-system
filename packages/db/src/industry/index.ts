@@ -12,3 +12,4 @@ export * from './freight-parity';
 export * from './transport-parity';
 export * from './hotel-rent-parity';
 export * from './other-parity';
+export * from './travel-reads';

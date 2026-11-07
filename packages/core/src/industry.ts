@@ -12,6 +12,7 @@ export * from './industry/construction';
 export * from './industry/appointments';
 export * from './industry/restaurant';
 export * from './industry/transport';
+export * from './industry/travel-read';
 export * from './industry/auto';
 export * from './industry/fuelcard';
 export * from './industry/fleetlive';
