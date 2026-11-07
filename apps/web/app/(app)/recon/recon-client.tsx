@@ -147,8 +147,9 @@ export function ReconForm({ pid, k, from, to, years, year, firmId }: { pid: stri
   );
 }
 
-export function CompareForm({ firmName, firmId, year }: { firmName: string; firmId: string; year: number }) {
+export function CompareForm({ firmName, firmId, year, partners = [] }: { firmName: string; firmId: string; year: number; /** our partners: card 1 straight from the books */ partners?: { id: string; name: string; code?: string | null }[] }) {
   const [res, setRes] = useState<Cmp | null>(null);
+  const [apid, setApid] = useState('');
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [names, setNames] = useState({ a: firmName, b: '' });
@@ -172,7 +173,19 @@ export function CompareForm({ firmName, firmId, year }: { firmName: string; firm
         <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 280 }}><b>Картица 1</b> <span className="mini">(наша / прва страна)</span>
             <input value={names.a} onChange={(e) => { setNames({ ...names, a: e.target.value }); setTyped({ ...typed, a: true }); }} placeholder="Назив" style={{ margin: '4px 0' }} />
-            <input type="file" name="a" accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" required />{res && <div className="mini">✓ {res.fa} · {res.na} ставки</div>}</div>
+            {partners.length > 0 && (
+              <select name="apid" value={apid} style={{ margin: '0 0 4px' }} onChange={(e) => {
+                const id = e.target.value; setApid(id);
+                const p = partners.find((x) => x.id === id);
+                if (p && !typed.b) setNames((n) => ({ ...n, b: p.name }));
+              }}>
+                <option value="">📂 од датотека (Excel / CSV / PDF)</option>
+                {partners.map((p) => <option key={p.id} value={p.id}>📒 од нашите книги: {p.code ? p.code + ' · ' : ''}{p.name}</option>)}
+              </select>
+            )}
+            {apid ? <div className="mini">Картицата на комитентот се зема директно од нашите книги (конта 12 / 22 / 15 / 23).</div>
+              : <input type="file" name="a" accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" required />}
+            {res && <div className="mini">✓ {res.fa} · {res.na} ставки</div>}</div>
           <div style={{ flex: 1, minWidth: 280 }}><b>Картица 2</b> <span className="mini">(на комитентот / втора страна)</span>
             <input value={names.b} onChange={(e) => { setNames({ ...names, b: e.target.value }); setTyped({ ...typed, b: !!e.target.value }); }} placeholder="Назив на комитентот" style={{ margin: '4px 0' }} />
             <input type="file" name="b" accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" required />{res && <div className="mini">✓ {res.fb} · {res.nb} ставки</div>}</div>

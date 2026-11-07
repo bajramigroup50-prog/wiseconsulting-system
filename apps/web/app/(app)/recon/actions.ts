@@ -81,11 +81,30 @@ export async function reconAction(form: FormData) {
   } catch (e) { return err(e); }
 }
 
+/** Our card of a partner from the books (the last 5 years, the opening of the first year only) as card rows. */
+async function ourCard(firmId: string, firmName: string, pid: string, year: number): Promise<{ rows: TheirRow[]; opening: number; name: string; names?: string[] }> {
+  const p = (await partnerMap(firmId)).get(pid);
+  if (!p) throw new Error('Изберете комитент.');
+  const y0 = year - 4;
+  const L = (await finLines(firmId, `${y0}-01-01`, `${year}-12-31`, { partnerId: pid, accountRe: '^(12|22|15|23)' }))
+    .filter((l) => l.kind !== 'close' && !(l.kind === 'open' && !l.date.startsWith(String(y0))))
+    .sort((x, y) => x.date.localeCompare(y.date));
+  if (!L.length) throw new Error(`Нема ставки за „${p.name}“ во нашите книги (${y0}–${year}).`);
+  const rows: TheirRow[] = L.map((l) => ({
+    date: l.date, doc: String(l.doc || l.number || ''), desc: String(l.note || l.description || ''), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0,
+    ...(l.kind === 'open' ? { prior: true } : {}),
+  }));
+  return { rows, opening: 0, name: `${firmName} – картица ${p.name}`, names: [firmName] };
+}
+
 /** Two arbitrary cards (legacy recFree). */
 export async function compareAction(form: FormData) {
   try {
     const { firm, year } = await guard();
-    const a = await readCard(form.get('a'), form.get('aAi'), firm.id), b = await readCard(form.get('b'), form.get('bAi'), firm.id);
+    // card 1 straight from our books (the chosen partner's card, 12 / 22 / 15 / 23) or a file
+    const apid = String(form.get('apid') ?? '');
+    const a = apid ? await ourCard(firm.id, firm.name, apid, year) : await readCard(form.get('a'), form.get('aAi'), firm.id);
+    const b = await readCard(form.get('b'), form.get('bAi'), firm.id);
     const m = String(form.get('mirror') ?? 'auto');
     const md = String(form.get('mode') ?? 'auto');
     const iso = (k: string) => (/^\d{4}-\d{2}-\d{2}$/.test(String(form.get(k) ?? '')) ? String(form.get(k)) : undefined);
