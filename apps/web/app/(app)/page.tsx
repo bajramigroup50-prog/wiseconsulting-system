@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { brandName, can, periodOf } from '@wise/core';
-import { AGE, DASH_PER, EXPG, MK_MON, MON, dashAgg, dashMonthly, dashMonths, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
+import { AGE, DASH_PER, EXPG, MK_MON, MON, dashAgg, dashMonthly, dashProfitTax, dashMonths, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
   autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
   journalLines, kontrolaDue, kontroli, vatDueEstimate,
@@ -121,6 +121,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     f.vatRegistered ? safe(computeVatPeriod(db(), f, cur).then((c) => c.fields['31'] ?? 0), 0) : Promise.resolve(0),
   ]);
   const A = dashAgg(L, rg.m0, rg.m1), AP = dashAgg(LP, rg.m0, rg.m1);
+  const PT = dashProfitTax(L, rg.m0, rg.m1, A.res);
   const M = dashMonthly(L, ck), MP = dashMonthly(LP, ck);
   const cmI = td.startsWith(String(year)) ? +td.slice(5, 7) - 1 : 11;
   const lastM = Math.min(cmI, 11);
@@ -351,7 +352,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
             ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
             : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
             : <div className="hg"><span>ДДВ</span><b className="num">—</b><i>не е ДДВ обврзник</i></div>}
-          <Link href="/zsProc" className="hg"><span>Данок на добивка 10% ≈</span><b className="num">{fmt(Math.max(0, Math.round(A.res * 10) / 100))}</b><i>проценка · ДБ до 15.03.{year + 1}</i></Link>
+          <Link href="/zsProc" className="hg" title={`Промет ${year} (фискална каса + излезни фактури + POS, без отпис 7699): ${fmt(PT.turnover)} ден. – до 6.000.000 данок на вкупен приход 1%, над тоа 10% на добивката`}>
+            <span>{PT.kind === 'vp' ? 'Данок на вкупен приход 1% ≈' : 'Данок на добивка 10% ≈'}</span><b className="num">{fmt(PT.tax)}</b>
+            <i>{PT.kind === 'vp' ? `промет ${fmt(PT.turnover)} ≤ 6 млн · ДБ-ВП` : `промет ${fmt(PT.turnover)} > 6 млн · ДБ`} до 15.03.{year + 1}</i></Link>
           <a href="#cash" className="hg"><span>Пари · банки + благајна</span><b className={`num ${cashNow < 0 ? 'neg' : ''}`}>{fmt(cashNow)}</b><i>побарувања {kfmt(recv)} · обврски {kfmt(pay)}</i></a>
         </div>
       </section>

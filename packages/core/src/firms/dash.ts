@@ -58,6 +58,28 @@ export function dashAgg(L: readonly AcctMonth[], m0: number, m1: number) {
   return { rev: r2(rev), exp: r2(exp), res: r2(rev - exp), eg };
 }
 
+/** Income that is not turnover for the 1% test: a written-off old invoice / debt (7699 – отпис, застарени побарувања / обврски). */
+export const isTurnoverExcluded = (k: string) => /^7699/.test(k);
+/** Turnover limit of the tax on total income (данок на вкупен приход 1%, ДБ-ВП). */
+export const TURNOVER_TAX_LIMIT = 6_000_000;
+
+/**
+ * Profit-tax tile: turnover of the year (fiscal register + outgoing invoices + POS = the revenue kontos 74–79, without
+ * the written-off old invoices 7699) up to 6.000.000 ден. → 1% on the turnover of the period (ДБ-ВП); above → 10% on the
+ * profit of the period (ДБ).
+ */
+export function dashProfitTax(L: readonly AcctMonth[], m0: number, m1: number, res: number): { kind: 'vp' | 'db'; turnover: number; base: number; tax: number } {
+  let year = 0, per = 0;
+  for (const l of L) {
+    if (!isRev(l.account) || isTurnoverExcluded(l.account)) continue;
+    const v = l.credit - l.debit;
+    year += v;
+    if (l.month - 1 >= m0 && l.month - 1 <= m1) per += v;
+  }
+  if (year <= TURNOVER_TAX_LIMIT) return { kind: 'vp', turnover: r2(year), base: r2(per), tax: r2(Math.max(0, per) * 0.01) };
+  return { kind: 'db', turnover: r2(year), base: r2(res), tax: r2(Math.max(0, res) * 0.1) };
+}
+
 /** Legacy `dashMonthly`: revenue / expenses per month and the cumulative money balance (bank kontos + 1020). */
 export function dashMonthly(L: readonly AcctMonth[], cashKontos: ReadonlySet<string>) {
   const R = Array(12).fill(0) as number[], E = Array(12).fill(0) as number[], C = Array(12).fill(0) as number[];
