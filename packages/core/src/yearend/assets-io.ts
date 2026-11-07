@@ -104,18 +104,46 @@ export function osParse(rows: readonly (readonly unknown[])[]): OsImportRow[] | 
 }
 
 /** The old program's fixed-asset register (PDF / photo, any layout) read by AI → the register import rows. */
-export const OS_PROMPT = `This is a fixed-asset register (регистар / попис на основни средства, амортизација) of a company in North Macedonia, printed by an accounting program. Extract EVERY asset row. Reply with ONLY JSON:
-{"assets":[{"invNo":string (инвентарен број),"name":string (назив на средството),"konto":string (account, e.g. "0230", "0220"; "" if not printed),"date":"YYYY-MM-DD" (датум на набавка / ставање во употреба),"cost":number (набавна вредност),"rate":number (стапка на амортизација %, 0 if not printed),"supplier":string,"invDoc":string (фактура / документ),"location":string,"serial":string,"plate":string}]}
-Rules: numbers as plain JSON numbers (1,234.56 or 1.234,56 → 1234.56); dates DD.MM.YYYY / DD/MM/YYYY → YYYY-MM-DD; skip totals (Вкупно / Total) and group headings; keep names in the original language; never invent rows or values.`;
+export const OS_PROMPT = `This is a fixed-asset register (регистар / листа / попис на основни средства, амортизација) of a company in North Macedonia, printed by an accounting program (often in Latin transliteration: „Nabavna vrednost“, „Otpis od min. godini“, „Tekoven otpis“, „Vkupen otpis“, „Sega{na vrednost“). Extract EVERY asset row. Reply with ONLY JSON:
+{"reportDate":"YYYY-MM-DD" (the date printed on the list, "Datum"),"assets":[{"invNo":string (инвентарен број exactly as printed, e.g. "01371-01"),"name":string (назив / opis, in Macedonian Cyrillic if it is transliterated Latin: "VLEKA^ MAN" → "ВЛЕКАЧ МАН", "[VARZMULER" → "ШВАРЗМУЛЕР"),"group":string (Am. gr. – amortization group),"konto":string ("" if not printed),"date":"YYYY-MM-DD" (датум на набавка, "" if not printed),"cost":number (набавна вредност),"prevDep":number (отпис од минати години),"curDep":number (тековен отпис – depreciation of this year),"totalDep":number (вкупен отпис),"rate":number (стапка %, 0 if not printed),"supplier":string,"invDoc":string,"location":string,"serial":string,"plate":string (registration plate in the name, e.g. "СК 8493 БФ")}]}
+Rules: numbers as plain JSON numbers (1,234.56 or 1.234,56 → 1234.56); a name that wraps onto the next line belongs to the same asset; skip totals (Вкупно / Total) and headings; never invent rows or values.`;
 
-/** AI read of a register → the rows `importAssets` takes (header = `OS_XLSX_HEAD`). */
+/**
+ * AI read of a register → the rows `importAssets` takes (header = `OS_XLSX_HEAD`). The old program's list often has no
+ * acquisition date, konto or rate: the konto is the inventory number's prefix („01371-01“ → 01371), the rate is this
+ * year's depreciation / cost (or the rate of the same konto), and the date is set so that WISE's straight-line
+ * depreciation gives the same „отпис од минати години“ (n months before 1 January of the list's year).
+ */
 export function osRowsFromRead(r: unknown): string[][] {
-  const o = (r && typeof r === 'object' ? r : {}) as { assets?: unknown };
+  const o = (r && typeof r === 'object' ? r : {}) as { assets?: unknown; reportDate?: unknown };
   const A = (Array.isArray(o.assets) ? o.assets : Array.isArray(r) ? r : []) as Record<string, unknown>[];
   const S = (v: unknown) => (v == null ? '' : String(v).trim());
-  const rows = A.filter((a) => S(a.name) && num(a.cost) > 0).map((a) => [
-    S(a.invNo), S(a.name), S(a.serial), '', S(a.konto).replace(/\D/g, ''), isoDate(a.date), String(num(a.cost)), String(num(a.rate) || ''),
-    S(a.supplier), S(a.invDoc), S(a.location), S(a.plate),
-  ]);
+  const rd = isoDate(o.reportDate);
+  const Y = +(rd.slice(0, 4) || new Date().getFullYear());
+  const L = A.filter((a) => S(a.name) && num(a.cost) > 0).map((a) => {
+    const cost = num(a.cost), prev = num(a.prevDep), cur = num(a.curDep);
+    const k0 = S(a.konto).replace(/\D/g, '') || (/^(0\d{3,6})(?:[-/.]|$)/.exec(S(a.invNo))?.[1] ?? '');
+    // a full year's depreciation this year (there was depreciation before): the rate itself
+    const full = prev > 1 && cur > 0 ? Math.round((cur / cost) * 10000) / 100 : 0;
+    return { a, cost, prev, cur, konto: k0, rate: num(a.rate) || full };
+  });
+  // rate of the same konto for the assets bought this year (part of a year depreciated)
+  const byK = new Map<string, number>();
+  for (const x of L) if (x.rate && !byK.has(x.konto)) byK.set(x.konto, x.rate);
+  const rows = L.map((x) => {
+    const rate = x.rate || byK.get(x.konto) || byK.get(x.konto.slice(0, 4)) || 0;
+    let date = isoDate(x.a.date);
+    if (!date && rate) {
+      const monthly = (x.cost * rate) / 100 / 12;
+      // months depreciated before this year (prev) or, for an asset of this year, months of this year (cur)
+      const before = x.prev > 1 ? Math.round(x.prev / monthly) : -Math.round(12 - x.cur / monthly);
+      const start = Y * 12 + 0 - before; // month index (Y*12 + month0) of the first depreciated month
+      const acq = start - 1; // depreciation starts the month AFTER the acquisition
+      const yy = Math.floor(acq / 12), mm = acq - yy * 12 + 1;
+      date = `${yy}-${String(mm).padStart(2, '0')}-15`;
+    }
+    if (!date && rd) date = rd;
+    return [S(x.a.invNo), S(x.a.name), S(x.a.serial), '', x.konto, date, String(x.cost), rate ? String(rate) : '', S(x.a.supplier), S(x.a.invDoc), S(x.a.location), S(x.a.plate)];
+  });
   return [[...OS_XLSX_HEAD], ...rows];
 }
