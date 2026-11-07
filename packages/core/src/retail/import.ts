@@ -28,6 +28,7 @@ export const IMP_T: Readonly<Record<ImpType, { t: string; f: readonly ImpField[]
     ['pedb', 'ЕДБ на комитент', 'едб на комитент,едб,edb,даночен број,даночен,ембс,embs,nipt,nui'],
     ['partner', 'Комитент', 'назив на комитент,комитент,партнер,partner,komitent,купувач,добавувач,subjekt'],
     ['doc', 'Документ', 'број на документ,документ,док,dokument,doc,фактура,извод'],
+    ['ntitle', 'Назив на налог', 'назив на налог,naziv na nalog,naziv naloga,опис на налог'],
     ['kname', 'Назив на конто', 'назив на конто,назив конто,назив,naziv konta,naziv,account name'],
     ['desc', 'Опис', 'опис,содржина,sodrzina,sodržina,opis,desc,description,pershkrimi,забелешка'],
     ['curD', 'Девизи должи', 'дев должи,девизи должи,девизен должи,dev dolzi,devizi dolzi'],

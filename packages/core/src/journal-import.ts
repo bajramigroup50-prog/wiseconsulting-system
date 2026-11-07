@@ -39,6 +39,8 @@ export interface JiRow {
   /** cents */
   d: number; p: number;
   pcode: string; pedb: string; pname: string; doc: string; desc: string; cur: string; curAmt: number | null;
+  /** the nalog's own name in the old program („ИЗВОДИ“, „ВЛЕЗНИ ФАКТУРИ“, „ПЛАТА 01-2026“) */
+  title?: string;
   /** konto name of the file (shown, not imported) */
   kname?: string;
   /** „Поч. сос.“ flag of the row: it belongs to the opening balance */
@@ -102,7 +104,7 @@ export function jiRows(input: readonly JiIn[], def: { type?: string; no?: string
     if (!pcode && kp.sub) pcode = kp.sub;
     const cd = cents(x.curD), cp = cents(x.curP);
     const ca = cd || cp ? (cd || cp) : x.curAmt == null || x.curAmt === '' ? null : cents(x.curAmt);
-    rows.push({ r, date, type, no, k: kp.k, d, p, pcode, pedb: g('pedb').replace(/\D/g, ''), pname, doc: g('doc'), desc: g('desc'), kname: g('kname'), ob: !!g('ob') && /^(да|da|д|d|yes|y|1|x|true|po)/i.test(g('ob')), cur: g('cur').toUpperCase().slice(0, 3), curAmt: ca });
+    rows.push({ r, date, type, no, k: kp.k, d, p, pcode, pedb: g('pedb').replace(/\D/g, ''), pname, doc: g('doc'), desc: g('desc'), title: g('ntitle') || undefined, kname: g('kname'), ob: !!g('ob') && /^(да|da|д|d|yes|y|1|x|true|po)/i.test(g('ob')), cur: g('cur').toUpperCase().slice(0, 3), curAmt: ca });
   });
   return { rows, bad, skipped };
 }
@@ -152,6 +154,8 @@ export const jiLabel = (type: string, no: string, date: string): string =>
 export interface JiJournal {
   /** nalog key (type + number, else type + date) */
   key: string; label: string; type: string; no: string; number: string | null;
+  /** the nalog's own name from the file (description of the journal), else „Увезен налог …“ */
+  title?: string;
   date: string; rows: JiRow[];
   /** cents */
   D: number; P: number;
@@ -189,7 +193,7 @@ export function jiGroup(rows: readonly JiRow[]): { journals: JiJournal[]; unbala
     if (D !== P) { unbalanced.push({ label, D, P, rows: R.map((x) => x.r) }); continue; }
     const mk = (part: JiRow[], date: string, warn?: string): JiJournal => {
       const d = sumD(part);
-      return { key, label, type, no, number: jiNumber(type, no), date, rows: part, D: d, P: sumP(part), dup: `${type}|${no}|${date}|${d}`, ...(warn ? { warn } : {}) };
+      return { key, label, type, no, number: jiNumber(type, no), ...(R.find((x) => x.title)?.title ? { title: R.find((x) => x.title)!.title } : {}), date, rows: part, D: d, P: sumP(part), dup: `${type}|${no}|${date}|${d}`, ...(warn ? { warn } : {}) };
     };
     // day by day; an unbalanced day takes the following days until the running sum is zero again
     const days = [...split(R, (x) => x.date)].sort((a, b) => (a[0] < b[0] ? -1 : 1));

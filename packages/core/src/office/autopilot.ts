@@ -34,7 +34,7 @@ export const AL_DESC: Record<string, string> = {
 
 export type FindingLvl = 'bad' | 'warn' | 'info';
 /** Konto names of card / POS / cash takings (no customer on the line): „Плаќање со картици од купувачи“, „ПОС терминал“… */
-export const NO_PARTNER_KONTO_RE = /картиц|картичк|pos|пос[ -]?терминал|терминал|дневен промет|готовин|малопродаж|фискал/i;
+export const NO_PARTNER_KONTO_RE = /картиц|картичк|\bpos\b|пос[ -]?терминал|терминал|дневен промет|готовин|малопродаж|фискал/i;
 
 export interface Finding { lvl: FindingLvl; cat: string; txt: string; go: string; key: string }
 export interface ClientMessage { type: 'inv' | 'out' | 'cash' | 'izv' | 'vat' | 'vnes'; key: string; subj: string; body: string }

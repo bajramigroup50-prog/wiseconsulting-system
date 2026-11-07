@@ -1,7 +1,7 @@
 import 'server-only';
 /** The signed-in user's `mayOpen` (`lib/screen-access.ts`), memoised per request: tab strips and `/ekran/<hub>`. */
 import { cache } from 'react';
-import { can, hasPerm, type Perm } from '@wise/core';
+import { brandCustom, can, hasPerm, type Perm } from '@wise/core';
 import { requireUser } from './auth';
 import { myViews } from './can-see';
 import { currentFirm } from './context';
@@ -22,5 +22,6 @@ export const screenMay = cache(async (): Promise<(view: string, perm?: string) =
     // `officePage(…, { perm, demoGlobal })`: a demo user without a firm passes on the role's permission
     can: (p: string) => can(u.principal, p, firm?.id ?? null) || (demo && !firm && hasPerm(u.principal, p as Perm)),
   };
-  return (view, perm) => mayOpen(ctx, view, perm);
+  // „🏦 Изводи од банка (автоматски)“ is for the office's own server only, not for the other installations (Фејкан)
+  return (view, perm) => !(view === 'bankFeed' && brandCustom()) && mayOpen(ctx, view, perm);
 });

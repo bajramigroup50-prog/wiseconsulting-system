@@ -3,6 +3,7 @@
  * filter (legacy `navFilter` / `navFor` 15975, FIX LEGACY-MAP 10.4 item 9: applies to every role).
  */
 import { viewEnabled } from '@wise/core/industry';
+import { brandCustom } from '@wise/core';
 import type { NavGroup, NavItem } from './nav-data';
 
 const FREIGHT: NavItem[] = [['frTuri', '🚛 Превоз за трети лица – тури и фактури'], ['frDnev', '🧾 Дневници во странство (возачи)'], ['frDok', '📄 Лиценци и документи (возила, возачи)']];
@@ -37,6 +38,7 @@ function filterItems(items: readonly NavItem[], ok: (v: string) => boolean): Nav
 export function filterNavByModules(nav: readonly NavGroup[], firm: { mods: readonly string[] } | null, client = false): readonly NavGroup[] {
   if (!firm) return nav;
   // „🚛 Излез – транспорт“ is for transport firms only (also for the office, not just clients)
-  const ok = (v: string) => (v === 'izlezTr' ? firm.mods.includes('frt') : viewEnabled(v, firm.mods, { hasFirm: true, client }));
+  // „🏦 Изводи од банка (автоматски)“ only on the office's own server (not on another installation such as Фејкан)
+  const ok = (v: string) => (v === 'bankFeed' ? !brandCustom() : v === 'izlezTr' ? firm.mods.includes('frt') : viewEnabled(v, firm.mods, { hasFirm: true, client }));
   return nav.map(([g, it]) => [g, filterItems(it, ok)] as NavGroup).filter(([, it]) => it.some((x) => x[0] !== '-'));
 }

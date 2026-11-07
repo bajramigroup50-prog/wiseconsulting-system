@@ -7,6 +7,7 @@
 import { notFound } from 'next/navigation';
 import { and, asc, eq } from 'drizzle-orm';
 import { isDemoFirm } from '@wise/core/demo';
+import { brandCustom } from '@wise/core';
 import type { Statement } from '@wise/core/bank-parsers';
 import { feedDocs, feedPublicKey, firms, listFeeds } from '@wise/db';
 import { Hd } from '@/components/hd';
@@ -24,7 +25,8 @@ const sum = (L: Statement['lines'], sign: 1 | -1) => L.reduce((s, l) => s + (Mat
 
 export default async function BankFeedPage() {
   const u = await requireUser();
-  if (['klient', 'teren', 'view'].includes(u.role) || u.demo) notFound();
+  // the bank connection is the office's own (WISE) server only – not on another installation (Фејкан)
+  if (['klient', 'teren', 'view'].includes(u.role) || u.demo || brandCustom()) notFound();
   const own = await isOfficeOwner(u);
   const [docs, feeds, pub, F] = await Promise.all([
     feedDocs(db(), { limit: 300 }), listFeeds(db()), own ? feedPublicKey(db()) : Promise.resolve(''),

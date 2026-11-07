@@ -61,7 +61,7 @@ function multiFound(docs: AiDocument[], names: Map<string, string>, parents: Map
 }
 
 /** A customs declaration, forwarder or carrier: belongs to an import (Влез → Увозна → Девизна), not a purchase of its own. */
-const IMP_RE = /царин|ецд|mrn|шпедиц|špedic|spedic|spediz|forward|транспорт|transport|превоз|freight|logisti|логисти/i;
+const IMP_RE = /царин|ецд|\bmrn\b|шпедиц|špedic|spedic|spediz|forward|транспорт|transport|превоз|freight|logisti|логисти/i;
 type PurDraft = { partnerId?: string; supplierName?: string; number?: string; date?: string; groups?: { base: number; vat: number }[]; stock?: unknown[]; art32?: boolean };
 type SaleDraft = { partnerId?: string; buyer?: { name?: string }; match?: DraftPartnerMatch; number?: string; date?: string; total?: number; calcTotal?: number };
 

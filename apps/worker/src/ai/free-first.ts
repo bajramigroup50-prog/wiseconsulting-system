@@ -173,7 +173,8 @@ export async function findCachedRead(db: Tx, doc: Pick<AiDocument, 'id' | 'firmI
  * the same file. `why` is the reason AI is still needed (stored as `options.aiWhy`). A detailed read („🔍“) skips (1).
  */
 export async function preRead(db: Tx, doc: AiDocument, firm: { id: string; edb?: string | null }): Promise<{ hit: true; result: unknown; model: string; cachedFrom?: string } | { hit: false; why: string }> {
-  if (!doc.fileId || doc.kind === 'cmp' || doc.kind === 'bom' || doc.kind === 'bankcls') return { hit: false, why: '' };
+  // a fixed-asset register is read rarely and its reading rules change: always read fresh (an older read lacks the depreciation columns)
+  if (!doc.fileId || doc.kind === 'cmp' || doc.kind === 'bom' || doc.kind === 'bankcls' || doc.kind === 'os') return { hit: false, why: '' };
   const deep = !!(doc.options as { deep?: boolean } | null)?.deep;
   let why = '';
   if (FREE_KINDS.has(doc.kind) && !deep) {

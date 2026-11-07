@@ -11,6 +11,7 @@
  * closes the table and is used as the control (Σ debit = Σ credit = printed total).
  */
 import type { PdfLine } from './pdf-lines';
+import { yusciiDecode } from './tb-analitika';
 
 export type FinNalogRow = [konto: string, name: string, partner: string, code: string, debit: number, credit: number];
 export interface FinNalogResult {
@@ -22,6 +23,8 @@ export interface FinNalogResult {
   /** debit = credit and (when printed) equal to the printed totals */
   balanced: boolean;
   number: string | null;
+  /** the nalog's name printed under the title („IZVODI“ → „ИЗВОДИ“, „PLATA 01-2026“), in Cyrillic */
+  title?: string | null;
   date: string | null;
   /** per row (aligned with `rows`): the record's own date (`YYYY-MM-DD`, else the nalog date) and its „Содржина“ */
   dates?: (string | null)[];
@@ -88,6 +91,16 @@ export function finNalogFromLines(L: readonly PdfLine[]): FinNalogResult | null 
       if (c) { number = c.s.trim(); break; }
     }
   }
+  // the nalog's name: next to „Од 31/03/2026“ (or after the date: „02/01/2026 IZLEZNA FAKTURA“), before the table header
+  let title: string | null = null;
+  for (const l of L) {
+    if (l.cells.some((c) => /^(konto|конто)/i.test(c.s.trim()))) break;
+    const i = l.cells.findIndex((c) => /^(?:(?:od|од)\s+)?\d{2}\/\d{2}\/\d{4}(?:\s+.*)?$/i.test(c.s.trim()));
+    if (i < 0) continue;
+    const own = l.cells[i]!.s.trim().replace(/^(?:(?:od|од)\s+)?\d{2}\/\d{2}\/\d{4}\s*/i, '');
+    const t = [own, ...l.cells.filter((_, j) => j !== i).map((c) => c.s.trim())].filter((x) => x && !/^(strana|страна)\b/i.test(x)).join(' ').replace(/\s*(strana|страна)\s*:?\s*\d+.*$/i, '').trim();
+    if (t) { title = /[Ѐ-ӿ]/.test(t) ? t : yusciiDecode(t); break; }
+  }
   type Rec = { k: string; name: string[]; partner: string[]; code: string; d: number; c: number; date: string | null };
   const recs: Rec[] = [];
   let cur: Rec | null = null, printed: [number, number] | null = null, inTable = false;
@@ -143,7 +156,7 @@ export function finNalogFromLines(L: readonly PdfLine[]): FinNalogResult | null 
   if (!rows.length) return null;
   const sum: [number, number] = [r2(rows.reduce((s, r) => s + r[4], 0)), r2(rows.reduce((s, r) => s + r[5], 0))];
   const balanced = Math.abs(sum[0] - sum[1]) < 0.005 && (!printed || (Math.abs(printed[0] - sum[0]) < 0.005 && Math.abs(printed[1] - sum[1]) < 0.005));
-  return { rows, sum, printed, balanced, number, date, dates: kept.map((r) => r.date ?? date), notes: kept.map((r) => r.name.join(' ').trim()) };
+  return { rows, sum, printed, balanced, number, title, date, dates: kept.map((r) => r.date ?? date), notes: kept.map((r) => r.name.join(' ').trim()) };
 }
 
 /** Grid for the converter / opening-balance importer: the opening-balance template headings + one line per record. */
@@ -170,9 +183,9 @@ export function finNalogsFromLines(L: readonly PdfLine[]): FinNalogResult[] {
  * „Содржина“ as the description.
  */
 export const finNalogJournalGrid = (R: FinNalogResult | readonly FinNalogResult[]): string[][] => [
-  ['Датум', 'Вид на налог', 'Број на налог', 'Конто', 'Должи', 'Побарува', 'Шифра на комитент', 'Комитент', 'Опис'],
+  ['Датум', 'Вид на налог', 'Број на налог', 'Назив на налог', 'Конто', 'Должи', 'Побарува', 'Шифра на комитент', 'Комитент', 'Опис'],
   ...(Array.isArray(R) ? R : [R as FinNalogResult]).flatMap((N) => N.rows.map((r: FinNalogRow, i: number) => {
     const d = N.dates?.[i] ?? N.date ?? '';
-    return [d ? d.split('-').reverse().join('.') : '', '', N.number ?? '', r[0], r[4] ? r[4].toFixed(2) : '', r[5] ? r[5].toFixed(2) : '', r[3], r[2], N.notes?.[i] ?? ''];
+    return [d ? d.split('-').reverse().join('.') : '', '', N.number ?? '', N.title ?? '', r[0], r[4] ? r[4].toFixed(2) : '', r[5] ? r[5].toFixed(2) : '', r[3], r[2], N.notes?.[i] ?? ''];
   })),
 ];

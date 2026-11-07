@@ -11,6 +11,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { statementsFromRead } from '@wise/core/ai/bank';
+import { brandCustom } from '@wise/core';
 import { detectIncoming } from '@wise/core/office';
 import type { Statement } from '@wise/core/bank-parsers';
 import {
@@ -159,6 +160,8 @@ export const bankFeeds = defineJob<{ feedId?: string; test?: boolean }>({
   cron: '*/15 * * * *',
   queue: { retryLimit: 0, expireInSeconds: 30 * 60 },
   async run(data, { db, log }) {
+    // the bank connection runs on the office's own (WISE) server only, never on another installation (Фејкан)
+    if (brandCustom()) return;
     if (data?.feedId) { await runFeed(db as unknown as DB, data.feedId, { test: !!data.test, log }); return; }
     const now = new Date();
     for (const f of await listFeeds(db as unknown as DB)) if (feedDue(f, now)) await runFeed(db as unknown as DB, f.id, { log });

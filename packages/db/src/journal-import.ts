@@ -439,7 +439,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
       continue;
     }
     await postJournal(tx, {
-      firmId: a.firmId, date: j.date, kind: 'manual', number: j.number, description: `Увезен налог ${j.label}`,
+      firmId: a.firmId, date: j.date, kind: 'manual', number: j.number, description: j.title || `Увезен налог ${j.label}`,
       sourceType: 'import', sourceId: `${batch}:${n}`,
       lines: j.rows.map((r) => ({
         account: r.k, debit: mk(r.d), credit: mk(r.p), partnerId: A.partnerOf.get(r) ?? null, note: r.desc || null, doc: (r.doc || r.desc).slice(0, 100) || null,
@@ -457,7 +457,7 @@ export async function commitJournalImport(tx: Tx, a: { firmId: string; userId: s
       const nb = jiNumber(j.type, j.no);
       n++;
       await postJournal(tx, {
-        firmId: a.firmId, date: j.date, kind: 'manual', number: nb && A.used.has(nb) ? 'У' + nb : nb, description: `Увезен налог ${j.label}`,
+        firmId: a.firmId, date: j.date, kind: 'manual', number: nb && A.used.has(nb) ? 'У' + nb : nb, description: j.title || `Увезен налог ${j.label}`,
         sourceType: 'import', sourceId: `${batch}:${n}`,
         lines: j.rows.map((r) => ({ account: r.k, debit: mk(r.d), credit: mk(r.p), partnerId: A.partnerOf.get(r) ?? null, note: r.desc || null, doc: (r.doc || r.desc).slice(0, 100) || null })),
         meta: { imp: { batch, file: input.file, hash: input.hash, dup: j.dup, type: j.type, no: j.no, rows: j.rows.map((r) => r.r), ...jiDates(j.rows) } },
