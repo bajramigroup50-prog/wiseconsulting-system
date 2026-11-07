@@ -310,6 +310,19 @@ export function vatDateOf(date: string, number: string | null | undefined, sourc
 
 const shiftDays = (d: string, n: number) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
+/**
+ * A VAT closing / settlement nalog: output VAT only debited, input VAT only credited (both cleared, none charged) and a
+ * line on the VAT payable / refund konto (2330…, 23008, 23009, 1308, 13008). Such a journal moves the
+ * period's VAT to the balance; counted as a document it would cancel the whole period.
+ */
+export function isVatSettlement(N: readonly { role: { kind: string }; c: number }[], L: readonly { account: string }[]): boolean {
+  if (!N.length) return false;
+  const outs = N.filter((x) => x.role.kind === 'out'), ins = N.filter((x) => x.role.kind === 'in' || x.role.kind === 'imp');
+  if (!outs.length && !ins.length) return false;
+  if (outs.some((x) => x.c > 0) || ins.some((x) => x.c > 0)) return false;
+  return L.some((l) => /^(233|2300[89]|1308|13008)/.test(String(l.account)));
+}
+
 async function loadLedger(tx: Tx, firm: Pick<Firm, 'id'>, from: string, to: string, ctx: PostingContext, exclude: readonly string[]): Promise<VatSourceData> {
   const roles = vatAccountRoles(ctx);
   const vatK = [...roles.keys()];
@@ -353,6 +366,9 @@ async function loadLedger(tx: Tx, firm: Pick<Firm, 'id'>, from: string, to: stri
       net.set(key, o);
     }
     const N = [...net.values()].filter((x) => x.c !== 0);
+    // the old program's VAT closing nalog (imported „DDV 07-09“: Д 230018 / П 130018 / П 23008 – the balance to pay or
+    // to get back) is not a document of the period: like WISE's own VAT-close journal it is left out
+    if (isVatSettlement(N, L)) continue;
     const outs = N.filter((x) => x.role.kind === 'out');
     for (const credit of [false, true]) {
       const part = outs.filter((x) => (x.c < 0) === credit);
