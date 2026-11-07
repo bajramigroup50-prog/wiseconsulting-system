@@ -65,13 +65,25 @@ export function finNalogFromLines(L: readonly PdfLine[]): FinNalogResult | null 
   const noX = hd.konto - 12; // row number lies left of the date / konto
   let number: string | null = null, date: string | null = null;
   for (const l of L) for (const c of l.cells) {
-    const m = c.s.match(/(?:nalog|налог)\s+(?:broj|број)\s*(\d+)?/i);
-    if (m && !number) number = m[1] ?? l.cells.find((x) => /^\d+$/.test(x.s))?.s ?? null;
+    const m = c.s.match(/(?:nalog|налог)\s+(?:broj|број)\s*(\S[^|]{0,23})?$/i);
+    // the number next to the title, whatever its form: „001/2026“, „6/1-3“, „66/1-3“, „1020/1-3“, „DDV 01-03“, „ODOB-2“
+    if (m && !number) number = m[1] ?? l.cells.find((x) => x !== c && x.s.trim() && x.s.trim().length <= 24 && !/(nalog|налог)/i.test(x.s))?.s.trim() ?? null;
   }
-  // the number printed on its own line under the title („Finansov nalog broj“ … „001/2026“), before the table header
+  // the number printed on its own line under the title, right above the line „datum + kind“ („31/03/2026 IZVODI“):
+  // „001/2026“, „6/1-3“, „66/1-3“, „1020/1-3“, „12/1-1“, „DDV 01-03“, „ODOB-2“ – whatever its form
   if (!number) {
+    let prev = '';
     for (const l of L) {
-      if (l.cells.some((c) => H.konto.test(c.s.trim()) || /^(konto|конто)/i.test(c.s.trim()))) break;
+      const txt = l.cells.map((c) => c.s.trim()).filter(Boolean).join(' ').trim();
+      if (l.cells.some((c) => /^(konto|конто)/i.test(c.s.trim()))) break;
+      if (/^\d{2}\/\d{2}\/\d{4}\s+\S/.test(txt)) {
+        if (prev && prev.length <= 24 && !/^(strana|страна|od|од)\b/i.test(prev) && !/(nalog|налог)/i.test(prev)) number = prev;
+        break;
+      }
+      if (txt) prev = txt;
+    }
+    if (!number) for (const l of L) {
+      if (l.cells.some((c) => /^(konto|конто)/i.test(c.s.trim()))) break;
       const c = l.cells.find((x) => /^\d{1,6}\/\d{2,4}$/.test(x.s.trim()));
       if (c) { number = c.s.trim(); break; }
     }
