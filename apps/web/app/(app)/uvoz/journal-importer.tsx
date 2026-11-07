@@ -11,6 +11,7 @@ import { IMP_T, impAuto, type DecMode } from '@wise/core/retail/import';
 import { jiGridRows, jiHeaderRow, jiNameDefault, jiTemplate } from '@wise/core/journal-import';
 import type { JiBatch, JiPreview } from '@wise/db';
 import { downloadXlsx, readRows } from '../_retail/read-file';
+import { JournalBulk } from './journal-bulk';
 import { commitJournalImportAction, deleteJournalImportAction, previewJournalImportAction, readJournalPdfAction } from './journal-actions';
 
 const T = IMP_T.journal;
@@ -130,6 +131,7 @@ export function JournalImporter({ year, batches, canDel }: { year: number; batch
         <button type="button" className="btn" onClick={() => downloadXlsx('Obrazec_uvoz_nalozi.xlsx', jiTemplate())}>⬇ Преземи образец за налози</button>
         <input ref={inp} type="file" hidden accept=".xlsx,.xls,.csv,.txt,.xml,.pdf" onChange={(e) => { void load(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
+      {!rows && <JournalBulk />}
       <p className="note" style={{ margin: '0 0 8px' }}>
         Колони: <b>датум</b>, вид и број на налог, <b>конто</b>, <b>должи / побарува</b> (или износ + страна Д/П), шифра / ЕДБ / назив на комитент, документ, опис, износ во девизи.
         Бројот на налогот од старата програма се задржува („06/9“). PDF: „Финансов налог“ од старата програма (со текст, не скениран).
