@@ -49,6 +49,8 @@ export default async function PayOdsPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <Hd t="🗓 Отсуства" sub={`${firm.name} · ${year} – породилно, боледување, одмор`}>
+        <a className="btn pri" href={`/payOds/izvestaj?y=${year}&k=301`} target="_blank" rel="noopener">🖨 Породилни – од / до</a>
+        <a className="btn" href={`/payOds/izvestaj?y=${year}`} target="_blank" rel="noopener">🖨 Сите отсуства</a>
         <Link className="btn" href="/plati">← Пресметка на плата</Link>
       </Hd>
       <ActionForm action={saveAbsenceAction} className="card" reset={!ed}>

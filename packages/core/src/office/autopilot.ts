@@ -74,6 +74,14 @@ export interface FirmSnapshot {
   vatEstimate?: SnapshotVatEstimate | null;
   /** Office EUR rate (default 61.5). */
   eurRate?: number;
+  /**
+   * Payroll events: absences around today (породилно / долго отсуство ending soon) and withholding orders (rest,
+   * the instalment due, how many orders of the employee wait for their turn). null = not available.
+   */
+  payEvents?: {
+    absences: readonly { name: string; code: string; kind: string; from: string; to: string }[];
+    orders: readonly { name: string; creditor: string; caseNo?: string; rest: number; due: number; waiting: number }[];
+  } | null;
   /** Signature used in client messages. */
   officeName?: string;
 }
@@ -218,6 +226,20 @@ export function alCompute(S: FirmSnapshot): Finding[] {
     if (act.length && Number(td.slice(8, 10)) >= 15) {
       const pm = ymAdd(td.slice(0, 7), -1);
       if (!S.payrollMonths.includes(pm)) add('warn', 'Плати', `Платата за ${pm.split('-').reverse().join('/')} не е пресметана (${act.length} вработени).`, 'plati');
+    }
+  }
+
+  /* 5b. payroll events: maternity / long absences ending, withholding orders finishing (the next one starts) */
+  if (S.payEvents) {
+    const add30 = (d: string, n: number) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    for (const a of S.payEvents.absences) {
+      const long = a.code === '301' || (Date.parse(a.to) - Date.parse(a.from)) / 86400000 >= 30;
+      if (!long) continue;
+      if (a.to >= td && a.to <= add30(td, 31)) add('warn', 'Плати', `${a.kind} на ${a.name} завршува на ${dmy(a.to)} – од ${dmy(add30(a.to, 1))} се враќа на работа (проверете ја платата и пријавата).`, 'payOds');
+      else if (a.to < td && a.to >= add30(td, -10)) add('info', 'Плати', `${a.kind} на ${a.name} заврши на ${dmy(a.to)} – од ${dmy(add30(a.to, 1))} редовна плата.`, 'payOds');
+    }
+    for (const o of S.payEvents.orders) {
+      if (o.rest > 0.009 && o.rest <= o.due + 0.009) add('info', 'Плати', `Задршката „${o.creditor}“${o.caseNo ? ` (${o.caseNo})` : ''} на ${o.name} се отплаќа со следната плата (останува ${o.rest.toLocaleString('de-DE', { minimumFractionDigits: 2 })}).${o.waiting ? ` Потоа почнува следното решение по ред (${o.waiting} чекаат).` : ''}`, 'payGod?k=kr');
     }
   }
 

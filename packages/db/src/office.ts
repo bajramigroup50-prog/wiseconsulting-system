@@ -13,6 +13,9 @@ import {
   type FirmSnapshot, type InboxRoute, type InspEmployee, type InspLoans, type RecDay, type RecEvery, type SnapshotEmployee, type SnapshotInvoice, type SnapshotVatEstimate,
 } from '@wise/core/office';
 import type { RokSettings } from '@wise/core/office/rokovi';
+import { ABSENCE_KINDS, payLoanStatus, type PayLoan } from '@wise/core';
+import { listAbsences } from './payroll-absences';
+import { loanDeductions } from './payroll-loans';
 import { DEMO_OFFICE_KEY, DEMO_OFFICE_NAME, isDemoFirm } from '@wise/core/demo';
 import { isDemoFirmId } from './demo/filters';
 import { kdOfficeFirm } from '@wise/core/firms/kdog';
@@ -204,6 +207,26 @@ export async function pendingClientCount(tx: Tx, firmId: string): Promise<number
   return (a?.n ?? 0) + (b?.n ?? 0);
 }
 
+/** Payroll events for the checks: absences around today and the withholding orders with their rest. */
+export async function officePayEvents(tx: Tx, firmId: string, today: string): Promise<NonNullable<FirmSnapshot['payEvents']>> {
+  const day = (n: number) => { const x = new Date(today + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const E = await tx.select({ id: employees.id, name: employees.name, data: employees.data }).from(employees).where(eq(employees.firmId, firmId));
+  const name = new Map(E.map((e) => [e.id, e.name]));
+  const A = await listAbsences(tx, firmId, { from: day(-10), to: day(45) });
+  const absences = A.map((a) => ({ name: name.get(a.employeeId) ?? '', code: a.code, kind: ABSENCE_KINDS.find((k) => k[0] === a.code)?.[1].replace(/\s*\(.*$/, '') ?? 'Отсуство', from: a.from, to: a.to }));
+  const withL = E.map((e) => ({ id: e.id, name: e.name, L: (((e.data ?? {}) as { loans?: PayLoan[] }).loans ?? []).filter((l) => !l.closed) })).filter((x) => x.L.length);
+  const orders: NonNullable<FirmSnapshot['payEvents']>['orders'][number][] = [];
+  if (withL.length) {
+    const from = withL.flatMap((x) => x.L.map((l) => l.from.slice(0, 7))).sort()[0]!;
+    const ded = await loanDeductions(tx, firmId, new Map(withL.map((x) => [x.id, x.L])), from);
+    for (const x of withL) {
+      const S = payLoanStatus(x.L, ded.get(x.id) ?? new Map()).filter((s) => s.rest > 0.009);
+      S.forEach((s, i) => orders.push({ name: x.name, creditor: s.creditor, ...(s.caseNo ? { caseNo: s.caseNo } : {}), rest: s.rest, due: +s.monthly > 0 ? +s.monthly : s.rest, waiting: S.length - i - 1 }));
+    }
+  }
+  return { absences, orders };
+}
+
 /** Everything the pure checks need for one firm. */
 export async function buildFirmSnapshot(
   tx: Tx, firmId: string, o: { today?: string; sources?: OfficeDataSources; eurRate?: number; officeName?: string } = {},
@@ -236,6 +259,7 @@ export async function buildFirmSnapshot(
     today, ledger, partnerNames: Object.fromEntries(P.map((p) => [p.id, p.name])), dossier, pendingClient: pend,
     cashAccounts: [...new Set(['1020', st.kasaCash ?? '1020'])],
     invoices, employees: emps, payrollMonths: pm, vatClosedPeriods: vat, fiscalDays: fisk, vatEstimate,
+    payEvents: await officePayEvents(tx, firmId, today).catch(() => null),
     // the inspection looks at the people currently employed
     inspEmployees: emps ? emps.filter((e) => e.active) : null, eurRate: o.eurRate, officeName: o.officeName,
     inspLoans: await (async () => {

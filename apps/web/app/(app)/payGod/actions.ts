@@ -27,7 +27,7 @@ async function setLoans(empId: string, f: (L: PayLoan[]) => PayLoan[], files: { 
     for (const id of files?.ids ?? []) await tx.insert(fileLinks).values({ fileId: id, entityType: PAY_LOAN_FILE_ENTITY, entityId: files!.loanId, role: 'attachment' }).onConflictDoNothing();
     await audit(tx, { userId: u.id, firmId: firm.id, action: 'payLoan', entityType: 'employee', entityId: e.id, data: { n: loans.length } });
   });
-  revalidatePath('/payGod');
+  revalidatePath('/payGod'); revalidatePath('/payZadr');
 }
 
 export async function payLoanSaveAction(_p: ActionState, form: FormData): Promise<ActionState> {
