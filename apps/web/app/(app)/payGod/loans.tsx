@@ -15,6 +15,7 @@ import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { Hd } from '@/components/hd';
 import { payLoanCloseAction, payLoanDelAction, payLoanSaveAction } from './actions';
+import { reapplyAction } from '../payOds/actions';
 
 const KINDS = ['Судска забрана / извршител', 'Издршка (алиментација)', 'Кредит (административна забрана)', 'Задршка по решение', 'Друго'];
 
@@ -46,7 +47,7 @@ export async function Loans({ firmId, edit, base }: { firmId: string; edit?: str
           <label className="f">Број на решение / предмет<input name="caseNo" defaultValue={v?.caseNo ?? ''} placeholder="И.бр. 123/26" /></label>
           <label className="f">Повик на број (одобрување)<input name="ref" defaultValue={v?.ref ?? ''} /></label>
           <label className="f">Вкупен долг<input name="total" type="number" step="any" defaultValue={v?.total ?? ''} /></label>
-          <label className="f">Месечна рата<input name="monthly" type="number" step="any" defaultValue={v?.monthly || ''} /></label>
+          <label className="f">Месечна рата (вие ја одредувате, на пр. 1/3 од платата)<input name="monthly" type="number" step="any" defaultValue={v?.monthly || ''} /></label>
           <label className="f">или % од нето платата<input name="pct" type="number" step="any" min={0} max={100} defaultValue={v?.pct ?? ''} /></label>
           <label className="f">Законска граница<select name="cap" defaultValue={v ? loanCap(v) : ''}><option value="">автоматски според видот</option>{Object.entries(LOAN_CAP_LABEL).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
           <label className="f">Се одбива од (прием на решението)<input name="from" type="date" defaultValue={v?.from ?? ''} /></label>
@@ -55,6 +56,13 @@ export async function Loans({ firmId, edit, base }: { firmId: string; edit?: str
         </div>
         <div className="row" style={{ gap: 8 }}><button className="btn pri">{ed ? 'Зачувај' : '+ Додај'}</button>{ed && <Link className="btn" href={base}>Откажи</Link>}</div>
         <p className="note">Секоја нова плата добива посебна ставка „Задршка: доверител (бр. на решение)“: ратата или процентот, најмногу остатокот на долгот и <b>најмногу до законската граница</b> (ЗИ чл. 117: издршка до 1/2 од платата, другите побарувања заедно до 1/3, вкупно никогаш над 1/2; повеќе решенија по редот на прием). Налозите за плата (КТД) имаат и налог до секој доверител; книжењето е на 2492 по доверител.</p>
+      </ActionForm>
+      <ActionForm action={reapplyAction} className="card" reset={false}>
+        <div className="row" style={{ gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
+          <span className="mini" style={{ flexBasis: '100%' }}>Новата плата ја внесува ратата <b>автоматски</b>. Ако платата за месецот е веќе направена (непрокнижена) пред да го внесете решението:</span>
+          <label className="f">Месец<input name="month" type="month" defaultValue={new Date().toISOString().slice(0, 7)} /></label>
+          <button className="btn">⟳ Внеси ги задршките во платата</button>
+        </div>
       </ActionForm>
       {rows.length ? (
         <div className="tw"><table>
@@ -66,7 +74,7 @@ export async function Loans({ firmId, edit, base }: { firmId: string; edit?: str
                 <td>{e.no} {e.name}</td><td className="n">{pos}</td>
                 <td><b>{s.creditor}</b><div className="mini">{s.kind}{s.caseNo ? ` · ${s.caseNo}` : ''}{s.acc ? ` · ${ppAccTxt(s.acc, '2026-11-09')}` : ' · ⚠ нема сметка'}</div>{s.note ? <small className="mut">{s.note}</small> : null}</td>
                 <td>{dmy(s.from)}</td><td className="mini">{LOAN_CAP_LABEL[loanCap(s)]}</td>
-                <td className="n">{fmt(s.total)}</td><td className="n">{s.monthly ? fmt(s.monthly) : ''}{s.pct ? <div className="mini">{s.pct}% од нето</div> : null}</td><td className="n">{fmt(s.paid)}</td>
+                <td className="n">{fmt(s.total)}</td><td className="n">{s.monthly ? fmt(s.monthly) : ''}{s.monthly > 0 ? <div className="mini">{Math.ceil(s.total / s.monthly)} рати · отплатени {s.months.length}</div> : null}{s.pct ? <div className="mini">{s.pct}% од нето</div> : null}</td><td className="n">{fmt(s.paid)}</td>
                 <td className="n">{s.closed ? <span className="pill">затворено</span> : s.rest > 0.009 ? <b>{fmt(s.rest)}</b> : <span className="pill ok">отплатен</span>}</td><td className="n" title={s.months.join(', ')}>{s.months.length}</td>
                 <td>{ff.length ? ff.map((f, i) => <a key={f.fileId} className="btn sm" href={`/api/files/${f.fileId}`} target="_blank" rel="noopener">👁{ff.length > 1 ? i + 1 : ''}</a>) : <span className="mini">—</span>}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
