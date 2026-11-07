@@ -149,10 +149,7 @@ describe.each(CO_FIXTURES.map((fx) => [fx.name, fx] as const))('zsCompute — %s
     const LV = rt.call<Record<string, unknown>>('vpData');
     const f = fx.firm as { name?: string; nkd?: string };
     const V = computeVp(N.zs, (fx.firm as { vpAdj?: Record<number, object> }).vpAdj?.[fx.year] ?? null, N.db.akAuto, f);
-    // deliberate change: legacy took ДБ-ВП only above 3 M; now every firm up to 6 M pays 1% on its total income
-    const inc = LV.inc as number;
-    const tax = inc > 0 && inc <= 6_000_000 ? Math.round(inc * 0.01) : 0;
-    expect(V).toEqual({ ...LV, elig: inc > 0 && inc <= 6_000_000, tax, diff: tax - (LV.ak as number) });
+    expect(V).toEqual(LV);
   });
 });
 

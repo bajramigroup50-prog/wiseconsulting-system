@@ -121,16 +121,13 @@ export interface VpResult {
   gdvp: string;
 }
 
-/**
- * Upper bound of total income for ДБ-ВП: up to 6 000 000 ден. the firm pays 1% on its total income, above it 10% on the
- * profit (the office's rule; legacy had a lower bound 3 000 000 < inc, removed – a small firm also pays 1%).
- */
-export const VP_MIN_INCOME = 0;
+/** Bounds of total income for ДБ-ВП: up to 3 000 000 no tax, 3 000 000 < inc ≤ 6 000 000 → 1%, above → 10% on the profit. */
+export const VP_MIN_INCOME = 3_000_000;
 export const VP_MAX_INCOME = 6_000_000;
 export const VP_RATE = 1;
 
 /**
- * ДБ-ВП (legacy `vpData`): 1% on total income up to 6 M denars. Income from written-off old invoices / debts (7699,
+ * ДБ-ВП (legacy `vpData`): 1% on total income above 3 M and up to 6 M denars. Income from written-off old invoices / debts (7699,
  * `excluded`) is not turnover and is left out of the base.
  */
 export function computeVp(
@@ -146,7 +143,6 @@ export function computeVp(
   const inc = A['01'] != null ? R(A['01']) : incAuto;
   const rate = VP_RATE;
   const elig = inc > VP_MIN_INCOME && inc <= VP_MAX_INCOME;
-  // (VP_MIN_INCOME = 0: every firm with income up to 6 M)
   const tax = elig ? R((inc * rate) / 100) : 0;
   const akAuto = R(akontAuto);
   const ak = A['07'] != null ? R(A['07']) : akAuto;

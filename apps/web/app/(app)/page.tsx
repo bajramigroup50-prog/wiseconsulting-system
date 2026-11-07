@@ -354,9 +354,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
             ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : est.amount < 0 ? 'ret' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
             : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : Dcur < 0 ? 'ret' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
             : <div className="hg"><span>ДДВ</span><b className="num">—</b><i>не е ДДВ обврзник</i></div>}
-          <Link href="/zsProc" className="hg" title={`Промет ${year} (фискална каса + излезни фактури + POS, без отпис 7699): ${fmt(PT.turnover)} ден. – до 6.000.000 данок на вкупен приход 1%, над тоа 10% на добивката`}>
-            <span>{PT.kind === 'vp' ? 'Данок на вкупен приход 1% ≈' : 'Данок на добивка 10% ≈'}</span><b className="num">{fmt(PT.tax)}</b>
-            <i>{PT.kind === 'vp' ? `промет ${fmt(PT.turnover)} ≤ 6 млн · ДБ-ВП` : `промет ${fmt(PT.turnover)} > 6 млн · ДБ`} до 15.03.{year + 1}</i></Link>
+          <Link href="/zsProc" className="hg" title={`Промет ${year} (фискална каса + излезни фактури + POS, без отпис 7699): ${fmt(PT.turnover)} ден. – до 3.000.000 нема данок, 3–6 милиони данок на вкупен приход 1%, над 6 милиони 10% на добивката`}>
+            <span>{PT.kind === 'free' ? 'Данок на добивка' : PT.kind === 'vp' ? 'Данок на вкупен приход 1% ≈' : 'Данок на добивка 10% ≈'}</span><b className="num">{fmt(PT.tax)}</b>
+            <i>{PT.kind === 'free' ? `промет ${fmt(PT.turnover)} ≤ 3 млн · не се плаќа` : PT.kind === 'vp' ? `промет ${fmt(PT.turnover)}: 3–6 млн · ДБ-ВП до 15.03.${year + 1}` : `промет ${fmt(PT.turnover)} > 6 млн · ДБ до 15.03.${year + 1}`}</i></Link>
           <a href="#cash" className="hg"><span>Пари · банки + благајна</span><b className={`num ${cashNow < 0 ? 'neg' : ''}`}>{fmt(cashNow)}</b><i>побарувања {kfmt(recv)} · обврски {kfmt(pay)}</i></a>
         </div>
       </section>
