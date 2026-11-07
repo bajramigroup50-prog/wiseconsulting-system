@@ -21,6 +21,7 @@ import { isDemoFirmId } from './demo/filters';
 import { kdOfficeFirm } from '@wise/core/firms/kdog';
 import type { FeeSettings } from '@wise/core/firms/kdfee';
 import { audit, type Tx } from './audit';
+import { vatDateOf } from './vat-source';
 import { entryOverview } from './entry-overview';
 import { vnesMessageKey, vnesRequest } from '@wise/core/office/vnes-request';
 import { firmOpenInSql } from './firm-years';
@@ -35,7 +36,7 @@ import { vatDueEstimate } from './vat-estimate';
 import {
   aiDocuments, appSettings, autopilotFindings, autopilotMessages, autopilotMetrics, autopilotRuns, clientEntries, dossierDocs, employees, fileLinks, files,
   firmDeadlines, firms, inboxItems, invoices, officeCounters, officeTasks, partners, payrollRuns, recurringInvoices, reminders,
-  salesDaily, users, vatPeriods, OFFICE_FILE_ENTITY,
+  salesDaily, users, vatPeriods, journals, journalLines, OFFICE_FILE_ENTITY,
   mpinInbox,
 } from './schema/index';
 
@@ -186,8 +187,16 @@ export const defaultSources: OfficeDataSources = {
   payrollMonths: async (tx, firmId, year) => (await tx.select({ m: payrollRuns.month }).from(payrollRuns)
     .where(and(eq(payrollRuns.firmId, firmId), sql`${payrollRuns.month} like ${`${year}-%`}`))).map((r) => r.m).sort(),
   // ДДВ-04 posted = the VAT period is closed; identified by its start date
-  vatClosedPeriods: async (tx, firmId, year) => (await tx.select({ d: vatPeriods.dateFrom }).from(vatPeriods)
-    .where(and(eq(vatPeriods.firmId, firmId), eq(vatPeriods.status, 'closed'), sql`${vatPeriods.dateFrom} ${yearRange(year)}`))).map((r) => r.d).sort(),
+  // … or closed in the old program: its VAT closing nalog imported with the books (lines on 2330… / 23008 / 1308)
+  vatClosedPeriods: async (tx, firmId, year) => {
+    const own = (await tx.select({ d: vatPeriods.dateFrom }).from(vatPeriods)
+      .where(and(eq(vatPeriods.firmId, firmId), eq(vatPeriods.status, 'closed'), sql`${vatPeriods.dateFrom} ${yearRange(year)}`))).map((r) => String(r.d));
+    const [f] = await tx.select({ per: firms.vatPeriod }).from(firms).where(eq(firms.id, firmId)).limit(1);
+    const imp = await tx.selectDistinct({ d: journals.date, n: journals.number }).from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+      .where(and(eq(journals.firmId, firmId), eq(journals.sourceType, 'import'), sql`${journals.date} ${yearRange(year)}`, sql`${journalLines.account} ~ '^(233|2300[89]|1308|13008)'`));
+    const start = (d: string) => { const m = +d.slice(5, 7); const m0 = f?.per === 'month' ? m : Math.floor((m - 1) / 3) * 3 + 1; return `${d.slice(0, 4)}-${String(m0).padStart(2, '0')}-01`; };
+    return [...new Set([...own, ...imp.map((j) => start(vatDateOf(String(j.d), j.n, 'import')))])].sort();
+  },
   // days with a fiscal daily report (legacy `sales.filter(z => z.fisk)`)
   fiscalDays: async (tx, firmId, year) => [...new Set((await tx.select({ d: salesDaily.date }).from(salesDaily)
     .where(and(eq(salesDaily.firmId, firmId), eq(salesDaily.kind, 'fisk'), sql`${salesDaily.date} ${yearRange(year)}`))).map((r) => r.d))].sort(),

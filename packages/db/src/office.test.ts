@@ -101,13 +101,15 @@ describe('client entries (klient → pending → office decision)', () => {
 
 describe('autopilot run', () => {
   const today = '2026-10-20';
-  it('posts → findings; posting the missing invoice resolves them; office firm skipped', async () => {
+  it('posts → findings; posting the missing invoice resolves them; the office firm is checked but gets no client mail', async () => {
     await db.transaction((tx) => postJournal(tx, {
       firmId, date: '2026-03-05', kind: 'manual', userId: null, sourceType: 'test', sourceId: 'pay1',
       lines: [{ account: '2200', partnerId: sup, debit: 5000 }, { account: '1000', credit: 5000 }],
     }));
     const r1 = await runAutopilot(db, { today, trigger: 'manual' });
-    expect(r1.firms).toBe(1);
+    // the office's own firm is checked too (its findings on its dashboard) – never a client message to itself
+    expect(r1.firms).toBe(2);
+    expect(await db.select().from(schema.autopilotMessages).where(eq(schema.autopilotMessages.firmId, officeFirm))).toHaveLength(0);
     const open = await db.select().from(schema.autopilotFindings).where(and(eq(schema.autopilotFindings.firmId, firmId), isNull(schema.autopilotFindings.resolvedAt)));
     expect(open.some((f) => f.cat === 'Влезни фактури' && f.txt.includes('Добавувач АД'))).toBe(true);
     const msgs = await db.select().from(schema.autopilotMessages).where(eq(schema.autopilotMessages.firmId, firmId));
@@ -120,7 +122,7 @@ describe('autopilot run', () => {
     await runAutopilot(db, { today });
     const still = await db.select().from(schema.autopilotFindings).where(and(eq(schema.autopilotFindings.firmId, firmId), isNull(schema.autopilotFindings.resolvedAt)));
     expect(still.some((f) => f.cat === 'Влезни фактури')).toBe(false);
-    expect(await db.select().from(schema.autopilotMetrics)).toHaveLength(1);
+    expect((await db.select().from(schema.autopilotMetrics)).filter((m) => m.firmId === firmId)).toHaveLength(1);
     await db.transaction((tx) => unpostSource(tx, { firmId, sourceType: 'test', sourceId: 'inv1', userId: null }));
   });
   it('auto-sends enabled message types to the portal once (dedupe by key)', async () => {
