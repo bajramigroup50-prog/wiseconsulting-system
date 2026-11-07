@@ -14,7 +14,7 @@ import { computeVp, type VpAdj, type VpResult } from './tax';
 import { closeYearLines, openYearLines, type PartnerBalance } from './close';
 import { npoChart, npoCloseLines, npoCompute, type NpoChart, type NpoResult } from './npo';
 import { tpCompute, type DldAdj, type TpResult } from './soleTrader';
-import { dbAkontFromTurnover } from './tax';
+import { dbAkontFromTurnover, vpExcludedIncome } from './tax';
 import { zsCompute, zsRules, type ZsPayrollRun, type ZsResult, type ZsRule } from './aop';
 import type { YeLedgerInputs } from './inputs';
 import { computeAnnualAccount, type AnnualAccount, type YeEntity } from '../yearend';
@@ -83,7 +83,7 @@ export function yeComputeYear(inp: YeYearInput): YeYear {
     firstPostingMonth: I.firstPostingMonth,
     hasImportedTb: I.hasImportedTb,
   });
-  const vp = computeVp(co.zs, S.vpAdj, dbAkontFromTurnover(I.tb), { name: inp.firm?.name ?? '', activity: inp.firm?.activity ?? '' });
+  const vp = computeVp(co.zs, S.vpAdj, dbAkontFromTurnover(I.tb), { name: inp.firm?.name ?? '', activity: inp.firm?.activity ?? '' }, vpExcludedIncome(I.tb));
   const tp = inp.ent === 'tp' || inp.ent === 'sd' ? tpCompute(B.pre, S.dldAdj) : null;
   const chart = npoChart(inp.accounts);
   const npo = inp.ent === 'npo' ? npoCompute({ pre: B.pre, all: B.all, closed, chart, ...(closed ? { closeTax } : {}) }) : null;

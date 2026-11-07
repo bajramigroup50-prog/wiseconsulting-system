@@ -78,7 +78,7 @@ describe('Даночен преглед (legacy LR_RULES / lrCheck)', () => {
     expect(find(X, 'p_est')).toBeUndefined();
   });
   it('profit estimate tiers and partner legal form', () => {
-    expect(find(lrCheck(lrCtx(base({ profit: 0, lines: [L('7400', 0, 5000000)] }))), 'p_est')!.txt).toMatch(/1% \(= 50\.000,00\)/);
+    expect(find(lrCheck(lrCtx(base({ profit: 0, lines: [L('7400', 0, 5000000)] }))), 'p_est')!.txt).toMatch(/1% = 50\.000,00/);
     expect(lrPartnerLegal('Алфа ДООЕЛ')).toBe(true);
     expect(lrPartnerLegal('Алфа ДООЕЛ', { embg: '1' })).toBe(false);
     expect(lrPartnerLegal('Општина Центар')).toBe(false);

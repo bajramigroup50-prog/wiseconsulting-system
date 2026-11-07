@@ -121,24 +121,32 @@ export interface VpResult {
   gdvp: string;
 }
 
-/** Lower / upper bound of total income for ДБ-ВП (legacy hard-coded 3 000 000 < inc ≤ 6 000 000). */
-export const VP_MIN_INCOME = 3_000_000;
+/**
+ * Upper bound of total income for ДБ-ВП: up to 6 000 000 ден. the firm pays 1% on its total income, above it 10% on the
+ * profit (the office's rule; legacy had a lower bound 3 000 000 < inc, removed – a small firm also pays 1%).
+ */
+export const VP_MIN_INCOME = 0;
 export const VP_MAX_INCOME = 6_000_000;
 export const VP_RATE = 1;
 
-/** ДБ-ВП (legacy `vpData`): 1% on total income when it is above 3 M and up to 6 M denars. */
+/**
+ * ДБ-ВП (legacy `vpData`): 1% on total income up to 6 M denars. Income from written-off old invoices / debts (7699,
+ * `excluded`) is not turnover and is left out of the base.
+ */
 export function computeVp(
   C: Pick<ZsResult, 'V'>,
   adj: VpAdj | null | undefined,
   akontAuto: number,
   firm: { name?: string; nkd?: string; activity?: string; activityName?: string } = {},
+  excluded = 0,
 ): VpResult {
   const A = adj ?? {};
   const R = (v: unknown) => Math.round(+(v as number) || 0);
-  const incAuto = R(zsV('bu', '201', C) + zsV('bu', '223', C));
+  const incAuto = R(zsV('bu', '201', C) + zsV('bu', '223', C) - Math.max(0, +excluded || 0));
   const inc = A['01'] != null ? R(A['01']) : incAuto;
   const rate = VP_RATE;
   const elig = inc > VP_MIN_INCOME && inc <= VP_MAX_INCOME;
+  // (VP_MIN_INCOME = 0: every firm with income up to 6 M)
   const tax = elig ? R((inc * rate) / 100) : 0;
   const akAuto = R(akontAuto);
   const ak = A['07'] != null ? R(A['07']) : akAuto;
@@ -161,4 +169,9 @@ export function computeVp(
     form: A.form ?? (/ДООЕЛ/i.test(name) ? 'ДООЕЛ' : /ДОО/i.test(name) ? 'ДОО' : /(^|[^\p{L}])АД([^\p{L}]|$)/u.test(name) ? 'АД' : ''),
     gdvp: A.gdvp ?? '',
   };
+}
+
+/** Income from written-off old invoices / debts (konto 7699…) in the trial balance – not turnover for ДБ-ВП. */
+export function vpExcludedIncome(rows: readonly { account: string; debit: number; credit: number }[]): number {
+  return Math.round(rows.filter((r) => /^7699/.test(String(r.account))).reduce((s, r) => s + (+r.credit || 0) - (+r.debit || 0), 0));
 }
