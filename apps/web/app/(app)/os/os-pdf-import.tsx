@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { uploadFile } from '@/lib/upload';
 import { aiReadStatus, startAiRead } from '@/app/(app)/_ai/actions';
 import { safeAction, STALE_ACTION_MSG } from '@/lib/version';
-import { importAssetsFromRead } from './actions';
+import { importAssets, importAssetsFromRead } from './actions';
 
 export function OsPdfImport({ firmId }: { firmId: string }) {
   const [msg, setMsg] = useState<{ ok?: string; error?: string; info?: string } | null>(null);
@@ -16,6 +16,19 @@ export function OsPdfImport({ firmId }: { firmId: string }) {
   const inp = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const go = (f: File) => start(async () => {
+    // an Excel / CSV list chosen here: imported like „Увоз од Excel“ (no AI)
+    if (/\.(xlsx?|csv)$/i.test(f.name)) {
+      try {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(new Uint8Array(await f.arrayBuffer()), { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]!]!, { header: 1, defval: '', raw: false })
+          .map((r) => r.map((v) => String(v ?? '').trim())).filter((r) => r.some((c) => c !== ''));
+        const r = await importAssets(rows.slice(0, 5001));
+        setMsg(r.error ? { error: r.error } : { ok: r.ok ?? 'Увезено.' });
+        router.refresh();
+      } catch { setMsg({ error: 'Датотеката не може да се прочита.' }); }
+      return;
+    }
     setMsg({ info: `Се прикачува „${f.name}“…` });
     const up = await uploadFile(f, firmId);
     if (!up.ok) { setMsg({ error: up.error }); return; }
@@ -38,8 +51,8 @@ export function OsPdfImport({ firmId }: { firmId: string }) {
   });
   return (
     <>
-      <button type="button" className="btn" disabled={pending} title="Регистар на основни средства од старата програма – PDF или слика" onClick={() => inp.current?.click()}>{pending ? '⏳ Се чита…' : '📄 Увоз од PDF'}</button>
-      <input ref={inp} type="file" hidden accept="application/pdf,image/*" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) go(f); }} />
+      <button type="button" className="btn" disabled={pending} title="Регистар на основни средства од старата програма – PDF или слика" onClick={() => inp.current?.click()}>{pending ? '⏳ Се чита…' : '📄 Увоз од PDF / Excel'}</button>
+      <input ref={inp} type="file" hidden accept="application/pdf,image/*,.xls,.xlsx,.csv" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) go(f); }} />
       {msg && <span className={'pill ' + (msg.error ? 'bad' : msg.ok ? 'good' : '')} style={{ alignSelf: 'center' }}>{msg.error ?? msg.ok ?? msg.info}</span>}
     </>
   );
