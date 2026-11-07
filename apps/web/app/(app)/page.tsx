@@ -240,6 +240,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   const mg = A.rev ? Math.round(A.res / A.rev * 1000) / 10 : null;
   const hl: [number, number] = [rg.m0, rg.m1];
   const Dcur = Math.round(D * 100) / 100;
+  // the VAT of the SELECTED period (a quarter / month chip or a range): the ДДВ-04 field 31 of every VAT period in it;
+  // the default „цела година“ view keeps the next payment (estimate)
+  const selPers = [...new Set(Array.from({ length: rg.m1 - rg.m0 + 1 }, (_, i) => periodOf(`${year}-${String(rg.m0 + i + 1).padStart(2, '0')}-15`, per)))];
+  const selVat = f.vatRegistered && (P !== 'year' || RM)
+    ? await safe(Promise.all(selPers.map((p) => computeVatPeriod(db(), f, p).then((c) => c.fields['31'] ?? 0))).then((a) => Math.round(a.reduce((x, y) => x + y, 0) * 100) / 100), null)
+    : null;
   // the interactive card: daily cash (last 60 days, back from today's balance), the next 30 days from the open documents
   const d60 = new Date(Date.UTC(+td.slice(0, 4), +td.slice(5, 7) - 1, +td.slice(8, 10) - 60)).toISOString().slice(0, 10);
   const mov = await safe(db().select({ d: journals.date, v: sql<string>`sum(${journalLines.debit} - ${journalLines.credit})` }).from(journalLines)
@@ -339,7 +345,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <a href="#det-rev" className="hg"><span>Приходи · {rg.lab}</span><b className="num">{fmt(A.rev)}</b><i><DPill d={pct(A.rev, AP.rev)} py={year - 1} /></i></a>
           <a href="#det-exp" className="hg"><span>Расходи · {rg.lab}</span><b className="num">{fmt(A.exp)}</b><i><DPill d={pct(A.exp, AP.exp)} inv py={year - 1} /></i></a>
           <a href="#det-res" className="hg main"><span>Добивка · {rg.lab}</span><b className={`num ${A.res < 0 ? 'neg' : ''}`}>{fmt(A.res)}</b><i>{mg == null ? '—' : 'маржа ' + mg.toLocaleString('mk-MK') + '%'}</i></a>
-          {f.vatRegistered ? (est
+          {f.vatRegistered ? (selVat != null
+            ? <Link href="/ddv" className="hg"><span>ДДВ · {selPers.length === 1 ? selPers[0] : rg.lab} · {selVat > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${selVat > 0 ? 'neg' : ''}`}>{fmt(Math.abs(selVat))}</b><i>{selPers.length > 1 ? `${selPers.length} периоди` : 'избран период'}</i></Link>
+            : est
             ? <Link href="/ddv" className="hg"><span>ДДВ {est.period} · {est.amount > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${est.amount > 0 ? 'neg' : ''}`}>{fmt(Math.abs(est.amount))}</b><i>рок {dmy(est.due)}</i></Link>
             : <Link href="/ddv" className="hg"><span>ДДВ {cur} · {Dcur > 0 ? 'за плаќање' : 'за поврат'}</span><b className={`num ${Dcur > 0 ? 'neg' : ''}`}>{fmt(Math.abs(Dcur))}</b><i>тековен период</i></Link>)
             : <div className="hg"><span>ДДВ</span><b className="num">—</b><i>не е ДДВ обврзник</i></div>}
