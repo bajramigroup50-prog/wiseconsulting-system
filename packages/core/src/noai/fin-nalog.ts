@@ -68,6 +68,14 @@ export function finNalogFromLines(L: readonly PdfLine[]): FinNalogResult | null 
     const m = c.s.match(/(?:nalog|налог)\s+(?:broj|број)\s*(\d+)?/i);
     if (m && !number) number = m[1] ?? l.cells.find((x) => /^\d+$/.test(x.s))?.s ?? null;
   }
+  // the number printed on its own line under the title („Finansov nalog broj“ … „001/2026“), before the table header
+  if (!number) {
+    for (const l of L) {
+      if (l.cells.some((c) => H.konto.test(c.s.trim()) || /^(konto|конто)/i.test(c.s.trim()))) break;
+      const c = l.cells.find((x) => /^\d{1,6}\/\d{2,4}$/.test(x.s.trim()));
+      if (c) { number = c.s.trim(); break; }
+    }
+  }
   type Rec = { k: string; name: string[]; partner: string[]; code: string; d: number; c: number; date: string | null };
   const recs: Rec[] = [];
   let cur: Rec | null = null, printed: [number, number] | null = null, inTable = false;
