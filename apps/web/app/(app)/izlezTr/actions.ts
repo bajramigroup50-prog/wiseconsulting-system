@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq } from 'drizzle-orm';
 import { frPerDiems } from '@wise/core/industry';
 import { fxRate as fxRate2 } from '@wise/core';
-import { bookTrip, docReads, fileLinks, freightTours, invoices, loadFxSources, TRAVEL_READ_JOB, TRIP_FILE_ENTITY, TripError } from '@wise/db';
+import { bookTrip, tripForInvoice, docReads, fileLinks, freightTours, invoices, loadFxSources, TRAVEL_READ_JOB, TRIP_FILE_ENTITY, TripError } from '@wise/db';
 import { freightRates } from '@/lib/freight';
 import { indRun } from '@/lib/industry';
 import { enqueue } from '@/lib/jobs';
@@ -16,6 +16,45 @@ import type { FormState } from '@/components/bank-form';
 
 const P = ['/izlezTr', '/frTuri', '/frDnev'];
 const ids = (L: string[]) => L.filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+
+/** „📦 Пакет на патувањето“: one PDF (or photos) with the whole trip → split, read, booked (worker `tripbundle`). */
+export async function readTripBundleAction(_p: FormState, fd: FormData): Promise<FormState> {
+  const F = ids(fd.getAll('fileIds').map(String));
+  if (!F.length) return { error: 'Изберете го PDF-от со целото патување.' };
+  const tour = String(fd.get('tourId') ?? '');
+  const made: string[] = [];
+  const r = await indRun('frDnRead', P, async ({ tx, a }) => {
+    if (tour) await ownTour(tx, a.firmId, tour);
+    // one bundle per file (several files = several trips)
+    for (const f of F) made.push((await tx.insert(docReads).values({ firmId: a.firmId, kind: 'tripbundle', fileIds: [f], refId: tour || null, createdBy: a.userId }).returning({ id: docReads.id }))[0]!.id);
+    return `Се дели и чита ${F.length === 1 ? 'пакетот' : F.length + ' пакети'} (1–3 минути): фактурата, CMR, патниот налог и сметките одат секој на своето место и патувањето се книжи.`;
+  });
+  if (r.error) return r;
+  for (const id of made) { try { await enqueue(TRAVEL_READ_JOB, { id }); } catch { /* stays queued */ } }
+  return r;
+}
+
+/** A bundle read without a trip: attach its CMR / papers / receipts (and invoice) to the chosen trip. */
+export async function attachBundleAction(bundleId: string, _p: FormState, fd: FormData): Promise<FormState> {
+  const tourId = String(fd.get('tourId') ?? '');
+  const reads: string[] = [];
+  const r = await indRun('frDnRead', P, async ({ tx, a }) => {
+    const t = await ownTour(tx, a.firmId, tourId);
+    const [b] = await tx.select().from(docReads).where(and(eq(docReads.id, bundleId), eq(docReads.firmId, a.firmId), eq(docReads.kind, 'tripbundle'))).limit(1);
+    if (!b || b.status !== 'done') throw new TripError('Пакетот не е прочитан.');
+    const res = (b.result ?? {}) as { parts?: { kind: string; fileId: string; invoiceId?: string }[] };
+    for (const p of res.parts ?? []) {
+      if (p.kind === 'cmr' || p.kind === 'other' || p.kind === 'travel') await tx.insert(fileLinks).values({ fileId: p.fileId, entityType: TRIP_FILE_ENTITY, entityId: tourId, role: p.kind === 'other' ? 'doc' : p.kind }).onConflictDoNothing();
+      if (p.kind === 'receipt') reads.push((await tx.insert(docReads).values({ firmId: a.firmId, kind: 'tripcost', fileIds: [p.fileId], refId: tourId, createdBy: a.userId }).returning({ id: docReads.id }))[0]!.id);
+      if (p.kind === 'invoice' && p.invoiceId && !t.invoiceId) await tx.update(freightTours).set({ invoiceId: p.invoiceId }).where(eq(freightTours.id, tourId));
+    }
+    await tx.update(docReads).set({ refId: tourId, result: { ...(b.result ?? {}), tourId } }).where(eq(docReads.id, bundleId));
+    return 'Поврзано – сметките се читаат; потоа „📒 Книжи го патувањето“ во досието.';
+  });
+  if (r.error) return r;
+  for (const id of reads) { try { await enqueue(TRAVEL_READ_JOB, { id }); } catch { /* stays queued */ } }
+  return r;
+}
 
 async function ownTour(tx: Parameters<Parameters<typeof indRun>[2]>[0]['tx'], firmId: string, tourId: string) {
   const [t] = await tx.select().from(freightTours).where(and(eq(freightTours.id, tourId), eq(freightTours.firmId, firmId))).limit(1);
@@ -104,4 +143,9 @@ export async function bookTripAction(tourId: string, _p: FormState, fd: FormData
     const f = (v: number) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return `Налог ${r.nalog}: дневници ${f(r.perDiems)} ден. · трошоци ${f(r.costs)} ден.${r.invoice ? ` · фактура ${r.invoice}` : ''}${r.skipped.length ? `. Не се книжени: ${r.skipped.slice(0, 5).join('; ')}.` : ''}`;
   });
+}
+
+/** Outgoing invoice made in the office → its trip dossier (found or created). */
+export async function tripForInvoiceAction(invoiceId: string): Promise<FormState> {
+  return indRun('frDnRead', P, async ({ tx, a }) => { await tripForInvoice(tx, a, invoiceId); return 'Досието е отворено.'; });
 }

@@ -11,7 +11,7 @@ const ts = (name: string) => timestamp(name, { withTimezone: true });
 export const docReads = pgTable('doc_reads', {
   id: uuid('id').primaryKey().defaultRandom(),
   firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
-  kind: text('kind').$type<'travel' | 'tripcost'>().notNull(),
+  kind: text('kind').$type<'travel' | 'tripcost' | 'tripbundle'>().notNull(),
   fileIds: uuid('file_ids').array().notNull(),
   status: text('status').$type<'queued' | 'reading' | 'done' | 'error' | 'used'>().notNull().default('queued'),
   result: jsonb('result').$type<Record<string, unknown>>(),

@@ -215,6 +215,9 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         label={<><b>📷 Пополни од скенирана фактура</b> — повлечете PDF / слика од излезната фактура тука: купувачот, бројот, датумот и ставките се пополнуваат автоматски.</>} />}
       {buyerBox && <ScanPartnerNote key={buyerBox.partnerId || "np"} docId={buyerBox.doc} index={buyerBox.i} match={buyerBox.match} partnerId={buyerBox.partnerId} name={buyerBox.name} idRaw={buyerBox.edb} who="Купувачот" onAdd={ensureScanBuyer.bind(null, buyerBox.doc, buyerBox.i)} />}
       {sp.prevSaved && <div className="callout good">Претходната фактура е зачувана. Се отвора следната скенирана фактура.</div>}
+      {dt === 'invoice' && sp.edit && Array.isArray(firm.mods) && (firm.mods as string[]).includes('frt') && <div className="callout info row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span>🚛 Фактура за превоз: CMR, патниот налог (дневници) и сметките од патот – прикачете ги во досието; сè се книжи во налогот на фактурата.</span>
+        <Link className="btn pri sm" href={`/izlezTr?inv=${sp.edit}#dosie`}>📁 Досие на патување</Link></div>}
       <InvoiceEditor key={init.partnerId || 'np'} initial={init} title={title} sub={sub} partners={P} items={I} stock={stock} locations={Lc} accounts={accts}
       refInvoices={refInvoices} advances={advances} revDefault={revDefault} revByType={{ service: schemeValue(ctx, 'revService'), goods: schemeValue(ctx, 'revGoods'), material: schemeValue(ctx, 'revGoods'), product: schemeValue(ctx, 'revProduct') }} advanceKonto={schemeValue(ctx, 'advance')} nonVat={!firm.vatRegistered}
       nalogNo={nalogNo} nalozi={nalozi} nextNalog={nextNalog} nextNumber={nextNumber} drafted={sp.drafted === '1' ? (sp.w ?? '') : null} back={back} firmAddress={firm.address} scanInfo={scanInfo}

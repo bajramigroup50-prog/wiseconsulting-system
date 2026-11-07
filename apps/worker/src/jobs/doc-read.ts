@@ -2,6 +2,7 @@
  * `ai.read-doc` — read a document that fills a record (`doc_reads`): `travel` = a travel order (патен налог) made by
  * the transport client → driver, vehicle, foreign countries with entry / exit times (for the per diems abroad). Text
  * `tripcost` = road-expense receipts of a trip (fuel, tolls, parking… from any country, the cash-receipt reader).
+ * `tripbundle` = one PDF with the whole trip (invoice, CMR, travel order, receipts) → split and booked (`trip-bundle.ts`).
  * PDFs and scans / photos go to the model; the cleaned result is stored on the row. Errors are stored (no retries).
  */
 import { and, eq, inArray } from 'drizzle-orm';
@@ -13,6 +14,7 @@ import { AiReadError, fileContent, readContent } from '../ai/read-document';
 import { readObject } from '../ai/storage';
 import { BLG_PAGES_ADD, BLG_PROMPT } from '../ai/prompts';
 import { readReceipts } from '@wise/core/ai/receipts';
+import { runTripBundle } from './trip-bundle';
 
 export const AI_READ_DOC = 'ai.read-doc';
 
@@ -24,6 +26,11 @@ export async function runDocRead(db: Tx, id: string): Promise<void> {
     const S = await getAiSettings(db);
     if (!S.enabled) throw new AiReadError('AI-читањето е исклучено – внесете го рачно.');
     if (!aiConfigured()) throw new AiUnavailableError();
+    if (row.kind === 'tripbundle') {
+      const res = await runTripBundle(db, row, (rid) => runDocRead(db, rid));
+      await db.update(docReads).set({ status: 'done', result: res as unknown as Record<string, unknown>, refId: res.tourId }).where(eq(docReads.id, id));
+      return;
+    }
     const F = await db.select().from(files).where(and(inArray(files.id, row.fileIds), eq(files.firmId, row.firmId), eq(files.status, 'ready')));
     if (!F.length) throw new AiReadError('Датотеката не е пронајдена.');
     const content = { blocks: [] as ReturnType<typeof fileContent>['blocks'], extra: '' };
@@ -39,7 +46,7 @@ export async function runDocRead(db: Tx, id: string): Promise<void> {
 
 export const docRead = defineJob<{ id: string }>({
   name: AI_READ_DOC,
-  queue: { retryLimit: 0, expireInSeconds: 5 * 60 },
+  queue: { retryLimit: 0, expireInSeconds: 20 * 60 },
   async run(data, { db, log }) {
     await runDocRead(db as unknown as Tx, data.id);
     log(`doc read ${data.id}`);

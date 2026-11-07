@@ -5,14 +5,15 @@
  * - its road expenses: fuel / toll / parking … receipts from ANY country (`doc_reads` kind `tripcost`, `refId` = the
  *   trip, read with the multi-country receipt reader): each in its own currency → MKD at the NBRM rate of the receipt
  *   date; a foreign receipt is a cost with its VAT (not deductible), a Macedonian one splits the input VAT for a VAT payer.
- * „📒 Книжи го патувањето“ books everything in one nalog „ПАТ <број>“: the per diems (Д 44001 / П 2411), the
+ * „📒 Книжи го патувањето“ books everything in one nalog opened with the INVOICE NUMBER („ПАТ <број>“ without one): the per diems (Д 44001 / П 2411), the
  * expenses (Д трошок [+ Д влезен ДДВ] / П the account they were paid from: the driver 2411, cash 1020 or the bank
  * 1000) and the invoice moved into the same nalog (re-posted with `nalogNo`; one in a closed period stays where it is).
  */
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { blgEntries, cashExpenseAccount, fxRate, type CashVoucher } from '@wise/core';
 import { receiptDraftProblem, receiptDrafts, type ReceiptDraft } from '@wise/core/ai/receipts';
 import { CASH_EXPENSE_CATEGORIES } from '@wise/core';
+import { frNextNo } from '@wise/core/industry';
 import { audit, type Tx } from '../audit';
 import { missingAccounts, postJournal, unpostSource } from '../posting';
 import { docReads, freightTours, invoices, journals } from '../schema/index';
@@ -63,8 +64,17 @@ export async function bookTrip(tx: Tx, a: IndActor, tourId: string, o: { perDiem
   const [t] = await tx.select().from(freightTours).where(and(eq(freightTours.id, tourId), eq(freightTours.firmId, a.firmId))).for('update').limit(1);
   if (!t) throw new TripError('Патувањето не постои.');
   if (!TRIP_PAY_KONTA.some((k) => k[0] === o.payK)) throw new TripError('Изберете од каде се платени трошоците.');
-  const N = tripNalogNo(t.number);
   const date = t.retDate || t.unloadDate || t.date;
+  // the nalog opens with the invoice number (the trip number without an invoice); when that number is already a nalog of
+  // other documents in the year, „ПАТ <фактура>“
+  const [inv] = t.invoiceId ? await tx.select().from(invoices).where(and(eq(invoices.id, t.invoiceId), eq(invoices.firmId, a.firmId))).limit(1) : [];
+  let N = inv ? inv.number : tripNalogNo(t.number);
+  if (inv) {
+    const y = date.slice(0, 4);
+    const [other] = await tx.select({ id: journals.id }).from(journals).where(and(eq(journals.firmId, a.firmId), eq(journals.number, N),
+      sql`${journals.date} between ${y + '-01-01'} and ${y + '-12-31'}`, sql`coalesce(${journals.sourceId}::text, '') not in (${tourId}, ${inv.id})`)).limit(1);
+    if (other) N = tripNalogNo(inv.number);
+  }
   const skipped: string[] = [];
   // 1. per diems
   let perDiems = 0;
@@ -93,9 +103,8 @@ export async function bookTrip(tx: Tx, a: IndActor, tourId: string, o: { perDiem
   } else await unpostSource(tx, { firmId: a.firmId, sourceType: TRIP_COST_SOURCE, sourceId: tourId, userId: a.userId });
   // 3. the invoice in the same nalog
   let invoice: string | null = null;
-  if (t.invoiceId && (perDiems || costs)) {
-    const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, t.invoiceId), eq(invoices.firmId, a.firmId))).limit(1);
-    if (inv && inv.status === 'posted') {
+  if (inv && (perDiems || costs)) {
+    if (inv.status === 'posted') {
       const data = (inv.data ?? {}) as Record<string, unknown>;
       if (data.nalogNo === N) invoice = inv.number;
       else {
@@ -113,6 +122,26 @@ export async function bookTrip(tx: Tx, a: IndActor, tourId: string, o: { perDiem
   return { nalog: N, perDiems, costs, invoice, skipped };
 }
 
-/** The journals of a trip's nalog (for the dossier: booked or not). */
-export const tripJournals = (tx: Pick<Tx, 'select'>, firmId: string, numbers: readonly string[]) =>
-  numbers.length ? tx.select({ number: journals.number, sourceType: journals.sourceType, sourceId: journals.sourceId }).from(journals).where(and(eq(journals.firmId, firmId), inArray(journals.number, [...numbers]))) : Promise.resolve([]);
+/** The per-diem / road-expense journals of the trips (their nalog number: booked or not). */
+export const tripJournals = (tx: Pick<Tx, 'select'>, firmId: string, tourIds: readonly string[]) =>
+  tourIds.length ? tx.select({ number: journals.number, sourceType: journals.sourceType, sourceId: journals.sourceId }).from(journals)
+    .where(and(eq(journals.firmId, firmId), inArray(journals.sourceType, ['freight_perdiem', TRIP_COST_SOURCE]), inArray(journals.sourceId, [...tourIds]))) : Promise.resolve([]);
+
+/**
+ * The trip of an outgoing invoice the office made itself (Излезни фактури → „📁 Досие на патување“): the trip that
+ * already carries it, else a new one (status „фактурирана“, the invoice's buyer, date and number) – then the CMR, the
+ * travel order and the road receipts are attached to it in the dossier and everything is booked in the invoice's nalog.
+ */
+export async function tripForInvoice(tx: Tx, a: IndActor, invoiceId: string): Promise<string> {
+  const [has] = await tx.select({ id: freightTours.id }).from(freightTours).where(and(eq(freightTours.firmId, a.firmId), eq(freightTours.invoiceId, invoiceId))).limit(1);
+  if (has) return has.id;
+  const [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, invoiceId), eq(invoices.firmId, a.firmId))).limit(1);
+  if (!inv || inv.kind !== 'invoice') throw new TripError('Фактурата не постои.');
+  const used = await tx.select({ number: freightTours.number, date: freightTours.date }).from(freightTours).where(eq(freightTours.firmId, a.firmId));
+  const number = used.some((u) => u.number === inv.number) ? frNextNo(used, inv.date) : inv.number;
+  const [t] = await tx.insert(freightTours).values({
+    firmId: a.firmId, number, date: inv.date, status: 'inv', partnerId: inv.partnerId, invoiceId: inv.id, cur: inv.currency || 'EUR', note: `Од фактура ${inv.number}`,
+  }).returning({ id: freightTours.id });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'frFromInvoice', entityType: 'freight_tour', entityId: t!.id, data: { invoice: inv.number } });
+  return t!.id;
+}

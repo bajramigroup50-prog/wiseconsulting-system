@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { and, desc, eq, gte, inArray, lte, ne } from 'drizzle-orm';
 import { FR_COUNTRIES } from '@wise/core/industry';
 import {
-  docReads, employees, fileLinks, files, freightTours, invoices, journals, loadFxSources, missingAccounts, partners, tripCostDrafts, tripCostReads, tripJournals,
+  docReads, employees, fileLinks, files, freightTours, invoices, loadFxSources, missingAccounts, partners, tripCostDrafts, tripCostReads, tripJournals,
   tripNalogNo, TRIP_COST_SOURCE, TRIP_FILE_ENTITY, TRIP_PAY_KONTA, type Firm,
 } from '@wise/db';
 import { CASH_EXPENSE_CATEGORIES } from '@wise/core';
@@ -29,26 +29,24 @@ export async function TripFiles({ firm, year, open, write }: { firm: Firm; year:
     .where(and(eq(freightTours.firmId, firm.id), ne(freightTours.status, 'cancel'), gte(freightTours.date, `${year}-01-01`), lte(freightTours.date, `${year}-12-31`)))
     .orderBy(desc(freightTours.date)).limit(60);
   const tid = T.map((t) => t.id);
-  const N = T.map((t) => tripNalogNo(t.number));
   const [L, J, E, CR] = await Promise.all([
     tid.length ? db().select({ id: fileLinks.entityId, role: fileLinks.role }).from(fileLinks).where(and(eq(fileLinks.entityType, TRIP_FILE_ENTITY), inArray(fileLinks.entityId, tid))) : Promise.resolve([]),
-    tripJournals(db(), firm.id, N),
+    tripJournals(db(), firm.id, tid),
     db().select({ id: employees.id, name: employees.name }).from(employees).where(eq(employees.firmId, firm.id)),
     tid.length ? db().select({ refId: docReads.refId, kind: docReads.kind }).from(docReads).where(and(eq(docReads.firmId, firm.id), inArray(docReads.refId, tid))) : Promise.resolve([]),
   ]);
   const drv = (id: string | null) => (id ? E.find((e) => e.id === id)?.name ?? '' : '');
   const has = (id: string, role: string) => L.some((l) => l.id === id && l.role === role) || (role === 'travel' && CR.some((c) => c.refId === id && c.kind === 'travel'));
-  const booked = (n: string) => J.some((j) => j.number === n);
+  const nalogOf = (id: string) => J.find((j) => j.sourceId === id)?.number ?? null;
   const t = T.find((x) => x.id === open);
   return (
     <div className="card" id="dosie">
-      <h2 style={{ fontSize: 15, marginTop: 0 }}>📁 Досие на патување – фактура, CMR, патен налог и трошоците во <u>еден налог</u></h2>
-      <p className="note" style={{ marginTop: 0 }}>Изберете патување: лево се документите (фактура + CMR + патен налог со државите → дневници), десно трошоците на патот (фискални сметки од секоја држава, во нивната валута → денари по курс на НБРМ). „📒 Книжи го патувањето“ книжи сè во налог <b>ПАТ &lt;број&gt;</b>.</p>
+      <h2 style={{ fontSize: 15, marginTop: 0 }}>📁 Досие на патување – фактура, CMR, патен налог и трошоците во <u>еден налог (бројот на фактурата)</u></h2>
+      <p className="note" style={{ marginTop: 0 }}>Изберете патување: лево се документите (фактура + CMR + патен налог со државите → дневници), десно трошоците на патот (фискални сметки од секоја држава, во нивната валута → денари по курс на НБРМ). „📒 Книжи го патувањето“ книжи сè во налог <b>со бројот на фактурата</b> (без фактура: „ПАТ &lt;број&gt;“).</p>
       {T.length === 0 ? <p className="note">Нема патувања во {year}. Прочитајте патен налог (погоре) или креирајте патување во <Link href="/frTuri">🚛 Тури</Link>.</p> : (
         <div className="tw"><table className="dense">
           <thead><tr><th>Патување</th><th>Датум</th><th>Возач</th><th>Релација</th><th>Фактура</th><th>CMR</th><th>Патен налог</th><th>Сметки</th><th>Налог</th><th /></tr></thead>
           <tbody>{T.map((x) => {
-            const n = tripNalogNo(x.number);
             const nc = CR.filter((c) => c.refId === x.id && c.kind === 'tripcost').length;
             return (
               <tr key={x.id} style={x.id === open ? { background: 'var(--sel, #eef4ff)' } : undefined}>
@@ -57,7 +55,7 @@ export async function TripFiles({ firm, year, open, write }: { firm: Firm; year:
                 <td>{x.invoiceId ? '✓' : <span className="mini" style={{ color: 'var(--bad)' }}>нема</span>}</td>
                 <td>{has(x.id, 'cmr') ? '✓' : '—'}</td><td>{has(x.id, 'travel') || (x.segs ?? []).length ? '✓' : '—'}</td>
                 <td>{nc || '—'}</td>
-                <td>{booked(n) ? <span className="pill good">{n}</span> : <span className="mini">непрокнижено</span>}</td>
+                <td>{nalogOf(x.id) ? <span className="pill good">{nalogOf(x.id)}</span> : <span className="mini">непрокнижено</span>}</td>
                 <td><Link className={'btn sm' + (x.id === open ? ' pri' : '')} href={`/izlezTr?t=${x.id}#dosie`}>📁 Отвори</Link></td>
               </tr>
             );
@@ -70,7 +68,6 @@ export async function TripFiles({ firm, year, open, write }: { firm: Firm; year:
 }
 
 async function TripDossier({ firm, t, write, driver, year }: { firm: Firm; t: typeof freightTours.$inferSelect; write: boolean; driver: string; year: number }) {
-  const N = tripNalogNo(t.number);
   const [X, fx, links, reads, travel, J, INV] = await Promise.all([
     freightContext(firm),
     loadFxSources(db(), firm.id),
@@ -78,7 +75,7 @@ async function TripDossier({ firm, t, write, driver, year }: { firm: Firm; t: ty
       .where(and(eq(fileLinks.entityType, TRIP_FILE_ENTITY), eq(fileLinks.entityId, t.id))),
     tripCostReads(db(), firm.id, [t.id]),
     db().select({ fileIds: docReads.fileIds }).from(docReads).where(and(eq(docReads.firmId, firm.id), eq(docReads.kind, 'travel'), eq(docReads.refId, t.id))),
-    db().select({ sourceType: journals.sourceType }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.number, N))),
+    tripJournals(db(), firm.id, [t.id]),
     db().select({ id: invoices.id, number: invoices.number, date: invoices.date, total: invoices.total, cur: invoices.currency, p: partners.name }).from(invoices).leftJoin(partners, eq(partners.id, invoices.partnerId))
       .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), eq(invoices.status, 'posted'), gte(invoices.date, `${year - 1}-12-01`))).orderBy(desc(invoices.date)).limit(300),
   ]);
@@ -86,6 +83,7 @@ async function TripDossier({ firm, t, write, driver, year }: { firm: Firm; t: ty
   const C = tripCostDrafts(reads, { fx, missing, today: todayIso() });
   const dn = X.dn(t);
   const inv = t.invoiceId ? INV.find((i) => i.id === t.invoiceId) : undefined;
+  const N = J[0]?.number ?? (inv ? inv.number : tripNalogNo(t.number));
   const travelFiles = [...new Set(travel.flatMap((r) => r.fileIds))];
   const sumC = C.filter((c) => !c.problem).reduce((s, c) => s + c.mkd, 0);
   const vatC = C.filter((c) => !c.problem && c.country === 'MK' && firm.vatRegistered).reduce((s, c) => s + (c.mkd * c.rate) / (100 + c.rate), 0);

@@ -13,6 +13,7 @@ export * from './industry/appointments';
 export * from './industry/restaurant';
 export * from './industry/transport';
 export * from './industry/travel-read';
+export * from './industry/trip-bundle';
 export * from './industry/auto';
 export * from './industry/fuelcard';
 export * from './industry/fleetlive';
