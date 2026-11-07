@@ -56,14 +56,14 @@ export async function tourFromTravelRead(tx: Tx, a: IndActor, readId: string): P
  * Book the per diems of a trip (`mkd` computed by the caller with the firm's rates and the NBRM rate): Д 44001 / П 2411,
  * dated on the return (or the trip date). Re-posting replaces the same journal (source `freight_perdiem` + tour id).
  */
-export async function bookTourPerDiems(tx: Tx, a: IndActor, tourId: string, mkd: number, detail: string): Promise<string> {
+export async function bookTourPerDiems(tx: Tx, a: IndActor, tourId: string, mkd: number, detail: string, number?: string): Promise<string> {
   const [t] = await tx.select().from(freightTours).where(and(eq(freightTours.id, tourId), eq(freightTours.firmId, a.firmId))).limit(1);
   if (!t) throw new TravelReadError('Патувањето не постои.');
   if (!(mkd > 0)) throw new TravelReadError('Нема дневници за книжење (внесете ги државите со влез и излез).');
   const [d] = t.driverId ? await tx.select({ name: employees.name }).from(employees).where(eq(employees.id, t.driverId)).limit(1) : [];
   const amt = Math.round(mkd * 100) / 100;
   const j = await postJournal(tx, {
-    firmId: a.firmId, date: t.retDate || t.date, kind: 'frdn', sourceType: 'freight_perdiem', sourceId: t.id, userId: a.userId,
+    firmId: a.firmId, date: t.retDate || t.date, kind: 'frdn', sourceType: 'freight_perdiem', sourceId: t.id, userId: a.userId, ...(number ? { number } : {}),
     description: `Дневници во странство – ${d?.name ?? 'возач'} – патување ${t.number}`,
     lines: [
       { account: '44001', debit: amt, note: detail.slice(0, 200) },

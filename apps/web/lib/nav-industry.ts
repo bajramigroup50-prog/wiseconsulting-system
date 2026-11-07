@@ -36,6 +36,7 @@ function filterItems(items: readonly NavItem[], ok: (v: string) => boolean): Nav
 /** Hide the views of modules that are off for the firm; empty groups disappear. */
 export function filterNavByModules(nav: readonly NavGroup[], firm: { mods: readonly string[] } | null, client = false): readonly NavGroup[] {
   if (!firm) return nav;
-  const ok = (v: string) => viewEnabled(v, firm.mods, { hasFirm: true, client });
+  // „🚛 Излез – транспорт“ is for transport firms only (also for the office, not just clients)
+  const ok = (v: string) => (v === 'izlezTr' ? firm.mods.includes('frt') : viewEnabled(v, firm.mods, { hasFirm: true, client }));
   return nav.map(([g, it]) => [g, filterItems(it, ok)] as NavGroup).filter(([, it]) => it.some((x) => x[0] !== '-'));
 }

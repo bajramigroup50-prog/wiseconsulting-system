@@ -1,6 +1,6 @@
 /**
  * AI reads of a document that fills a record (`kind`): `travel` = a travel order (патен налог) a transport client made
- * itself → driver, vehicle, countries with border times → a tour with per diems (`frDnev`). The worker job
+ * itself → driver, vehicle, countries with border times → a tour with per diems (`frDnev`); `tripcost` = road-expense receipts (any country) of a trip (`refId` = the tour). The worker job
  * `ai.read-doc` writes `result`; `refId` = the record made from it.
  */
 import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
@@ -11,7 +11,7 @@ const ts = (name: string) => timestamp(name, { withTimezone: true });
 export const docReads = pgTable('doc_reads', {
   id: uuid('id').primaryKey().defaultRandom(),
   firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
-  kind: text('kind').$type<'travel'>().notNull(),
+  kind: text('kind').$type<'travel' | 'tripcost'>().notNull(),
   fileIds: uuid('file_ids').array().notNull(),
   status: text('status').$type<'queued' | 'reading' | 'done' | 'error' | 'used'>().notNull().default('queued'),
   result: jsonb('result').$type<Record<string, unknown>>(),
