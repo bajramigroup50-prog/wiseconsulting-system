@@ -12,7 +12,7 @@ import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { brandName, can, periodOf } from '@wise/core';
 import { AGE, DASH_PER, EXPG, MK_MON, MON, dashAgg, dashMonthly, dashProfitTax, dashMonths, dashRange, daysBetween, isDashPer, kfmt, payDeadline, pct } from '@wise/core/firms/dash';
 import {
-  autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
+  autopilotFindings, autopilotRuns, bankAccounts, bankLines, computeVatPeriod, vatYearOverview, employees, getOfficeProfile, invoices, journals, payrollRuns, purchases, salesDaily,
   journalLines, kontrolaDue, kontroli, vatDueEstimate,
 } from '@wise/db';
 import { isKontrolaAuth, isKontrolaDoc, kontrolaDeadlines } from '@wise/core/compliance';
@@ -21,6 +21,7 @@ import { LawHome } from './zakoni/law-home';
 import { calendarYear, currentFirm, currentYear, firmYearCallout, yearChosen } from '@/lib/context';
 import { acctMonths, cashKontos, stockSummary } from '@/lib/dash';
 import { db } from '@/lib/db';
+import { vatSource } from '@/lib/vat-source';
 import { officeProfileFor } from '@/lib/demo-office';
 import { invoicesWithPayments, partnerNames, purchasesWithPayments } from '@/lib/firms-office';
 import { fmt } from '@/lib/fmt';
@@ -245,7 +246,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
   // the default „цела година“ view keeps the next payment (estimate)
   const selPers = [...new Set(Array.from({ length: rg.m1 - rg.m0 + 1 }, (_, i) => periodOf(`${year}-${String(rg.m0 + i + 1).padStart(2, '0')}-15`, per)))];
   const selVat = f.vatRegistered && (P !== 'year' || RM)
-    ? await safe(Promise.all(selPers.map((p) => computeVatPeriod(db(), f, p).then((c) => c.fields['31'] ?? 0))).then((a) => Math.round(a.reduce((x, y) => x + y, 0) * 100) / 100), null)
+    // the same numbers as the ДДВ-04 list: a filed period shows its filed return, the others the live computation
+    ? await safe(vatYearOverview(db(), f, year, vatSource).then((ov) => Math.round(ov.periods.filter((p) => selPers.includes(p.period)).reduce((x, p) => x + (p.fields['31'] ?? 0), 0) * 100) / 100), null)
     : null;
   // the interactive card: daily cash (last 60 days, back from today's balance), the next 30 days from the open documents
   const d60 = new Date(Date.UTC(+td.slice(0, 4), +td.slice(5, 7) - 1, +td.slice(8, 10) - 60)).toISOString().slice(0, 10);
