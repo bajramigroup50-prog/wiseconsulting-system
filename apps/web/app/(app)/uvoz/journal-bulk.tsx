@@ -13,7 +13,7 @@ import type { JiIn } from '@wise/core/journal-import';
 import { readRows } from '../_retail/read-file';
 import { commitJournalImportAction, previewJournalImportAction, readJournalPdfAction } from './journal-actions';
 
-const fmt = (n: number) => n.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Item = {
   file: string; hash: string; nalog: { type: string; no: string }; rows: JiIn[];

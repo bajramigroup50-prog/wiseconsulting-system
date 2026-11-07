@@ -15,7 +15,7 @@ import { JournalBulk } from './journal-bulk';
 import { commitJournalImportAction, deleteJournalImportAction, previewJournalImportAction, readJournalPdfAction } from './journal-actions';
 
 const T = IMP_T.journal;
-const fmt = (n: number) => n.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (d: string | null | undefined) => (d ? d.split('-').reverse().join('.') : '');
 const MONTHS = ['јануари', 'февруари', 'март', 'април', 'мај', 'јуни', 'јули', 'август', 'септември', 'октомври', 'ноември', 'декември'];
 const monthName = (m: string) => `${MONTHS[+m.slice(5, 7) - 1] ?? m} ${m.slice(0, 4)}`;
@@ -275,7 +275,7 @@ export function JournalImporter({ year, batches, canDel }: { year: number; batch
             <thead><tr><th>Датотека</th><th>Увезено</th><th>Период</th><th className="num">Налози</th><th className="num">Ставки</th><th className="num">Должи</th><th></th></tr></thead>
             <tbody>{batches.map((b) => (
               <tr key={b.batch}>
-                <td>{b.file}</td><td>{new Date(b.at).toLocaleString('mk-MK')}</td><td>{dmy(b.from)} – {dmy(b.to)}</td>
+                <td>{b.file}</td><td>{(() => { const d = new Date(new Date(b.at).toLocaleString('en-US', { timeZone: 'Europe/Skopje' })); const z = (n: number) => String(n).padStart(2, '0'); return `${z(d.getDate())}.${z(d.getMonth() + 1)}.${d.getFullYear()} ${z(d.getHours())}:${z(d.getMinutes())}`; })()}</td><td>{dmy(b.from)} – {dmy(b.to)}</td>
                 <td className="num">{b.journals}</td><td className="num">{b.lines}</td><td className="num">{fmt(b.D)}</td>
                 <td>{canDel && (b.locked ? <span className="mini mut">заклучен период</span>
                   : <button type="button" className="btn sm danger" disabled={pending} onClick={() => del(b)}>🗑 Избриши го увозот</button>)}</td>
