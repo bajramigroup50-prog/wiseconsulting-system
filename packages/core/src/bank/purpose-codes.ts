@@ -359,6 +359,11 @@ export const OLD_TO_ISO: Readonly<Record<string, string>> = {
   '812': 'ENRG',
   '813': 'WTER',
   '814': 'PHON',
+  // the same bills paid in cash (ВГ, ex ПП10) – NLB's official comparison list
+  '841': 'ELEC',
+  '842': 'ENRG',
+  '843': 'WTER',
+  '844': 'PHON',
   '845': 'RENT',
   '910': 'RIMB',
   '800': 'CASH',
