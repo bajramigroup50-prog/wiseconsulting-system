@@ -421,3 +421,32 @@ export const PURPOSE_COMMON: readonly (readonly [string, string])[] = [
   ['ACCT', 'ACCT – Пренос меѓу свои сметки (порано 457)'], ['NOWS', 'NOWS – Ненаведено (порано 262)'], ['GOVT', 'GOVT – Плаќање на државата (КТБ)'],
   ['TAXS', 'TAXS – Даноци'], ['VATX', 'VATX – ДДВ'], ['NITX', 'NITX – Данок на добивка'], ['INTX', 'INTX – Данок на доход'],
 ];
+
+/**
+ * Per-bank choices where the national list leaves two codes for one old code (220 → GDSV or GDDS…): bank code (the
+ * first 3 digits of the payer's account: 270 Халк, 300 Комерцијална, 210 НЛБ…) → old code → ISO code. Kept by the
+ * office (Шифрарници → Шифри за плаќање по банка); a bank or code not listed uses the national list (`isoOf`).
+ */
+export type BankIsoRules = Readonly<Record<string, Readonly<Record<string, string>>>>;
+
+/** Clean stored rules: 3-digit bank codes, old codes 1–3 digits, ISO codes of the list. */
+export function bankIsoClean(v: unknown): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  if (!v || typeof v !== 'object') return out;
+  for (const [b, m] of Object.entries(v as Record<string, unknown>)) {
+    if (!/^\d{3}$/.test(b) || !m || typeof m !== 'object') continue;
+    for (const [o, iso] of Object.entries(m as Record<string, unknown>)) {
+      const k = String(o).trim().replace(/^0+(?=\d)/, ''), c = String(iso ?? '').trim().toUpperCase();
+      if (/^\d{1,3}$/.test(k) && isIsoPurpose(c)) (out[b] ??= {})[k] = c;
+    }
+  }
+  return out;
+}
+
+/** The ISO code of an old code for the payer's bank (its own choice, else the national list). */
+export function isoOfBank(code: unknown, payerAcc: unknown, rules: BankIsoRules | null | undefined): string {
+  const c = String(code ?? '').trim().toUpperCase().replace(/^0+(?=\d)/, '');
+  const bank = String(payerAcc ?? '').replace(/^MK\d{2}/i, '').replace(/\D/g, '').slice(0, 3);
+  const own = rules?.[bank]?.[c];
+  return own || isoOf(code);
+}

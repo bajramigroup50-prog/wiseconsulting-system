@@ -8,10 +8,11 @@ import Link from 'next/link';
 import { and, desc, eq } from 'drizzle-orm';
 import {
   newPayments, PP_NACIN, PP_SIF, PP_TAX, ppApplyIban, ppShort, ppTitle, ppIbanOn, ppNacin, ppNew, ppTaxNew, ppWarnings, ppAccTxt, type PaymentOrder, type PpKind,
-  hasYuscii,
+  hasYuscii, isoOfBank, MK_BANK_CODES,
 } from '@wise/core';
+import { BankIsoForm } from './bank-iso';
 import { ppExportRows } from '@wise/core/bank/fin-parity';
-import { getOfficeProfile, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate, officeProfileForFirm } from '@wise/db';
+import { getBankIso, getOfficeProfile, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate, officeProfileForFirm } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
@@ -34,6 +35,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   if (!firm) return <NoFirm t="Платни налози" />;
   if (u.role === 'klient') return <><Hd t="Платни налози" /><div className="empty">Нема пристап.</div></>;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
+  const bankIso = await getBankIso(db());
   const today = todayIso();
   const [payer, list, sug, est, office, recips] = await Promise.all([
     payerOf(db(), firm.id),
@@ -62,7 +64,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   } else if (sp.ref) {
     const s = sug.find((x) => x.refId === sp.ref);
     if (s) {
-      draft = ppNew('pp30', today, payer, { recip: s.recip, recipAcc: s.recipAcc, recipBank: s.recipBank, purpose: 'Плаќање по фактура бр. ' + s.refCredit, amount: s.amount, code: newPayments(today) ? 'GDSV' : '930', refCredit: s.refCredit, nacin: ppNacin(payer.account, s.recipAcc) });
+      draft = ppNew('pp30', today, payer, { recip: s.recip, recipAcc: s.recipAcc, recipBank: s.recipBank, purpose: 'Плаќање по фактура бр. ' + s.refCredit, amount: s.amount, code: newPayments(today) ? isoOfBank('220', payer.account, bankIso) || 'GDSV' : '930', refCredit: s.refCredit, nacin: ppNacin(payer.account, s.recipAcc) });
       refId = s.refId; refIds = [s.refId];
     }
   } else if (sp.nov && KINDS.includes(sp.nov as PpKind)) draft = ppNew(sp.nov as PpKind, today, payer);
@@ -149,7 +151,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                 <p className="note">„Цел образец“ го црта налогот на бела хартија (А4, 3 налози). Пред прво користење прашајте ја банката дали прифаќа налог печатен на бела хартија. „Допечати“ печати само податоци врз купени обрасци (ласерски за единечни листови; за самокопирни сетови – матричен печатач). Распоредот е приближен – проверете со еден образец и калибрирајте.</p>
               </div>
               <div className="pdfwrap" style={{ maxHeight: '72vh', overflow: 'auto', background: '#fff' }}>
-                <div style={{ transform: 'scale(.82)', transformOrigin: '0 0', width: '210mm' }}><PpSlip n={draft} /></div>
+                <div style={{ transform: 'scale(.82)', transformOrigin: '0 0', width: '210mm' }}><PpSlip n={{ ...draft, bankIso }} /></div>
                 <p className="mini" style={{ margin: 6 }}>{draft.kind !== 'pp10' ? 'Налогодавач: ' + ppAccTxt(draft.payerAcc, draft.date, draft.iban ?? undefined) + ' · ' : ''}Примач: {ppAccTxt(draft.recipAcc, draft.date, draft.iban ?? undefined)}</p>
               </div>
             </div>
@@ -221,6 +223,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
         <h2>🖨 Печатач за налози</h2>
         <p className="note">За самокопирни (повеќеделни) обрасци КТД/КТБ (поранешни ПП30/ПП50) потребен е <b>матричен (иглен) печатач</b> – на пр. Epson LQ-350 (за единечни налози) или Epson LQ-590II (полесно внесување на обрасците и подолг век). Ласерски / инкџет печатач може да печати само на единечни листови или „Цел образец“ на бела хартија (ако банката го прифаќа). По првото печатење проверете со вистински образец и подесете ја калибрацијата погоре.</p>
       </div>
+      {canDo(u, 'settings', firm.id) && <BankIsoForm banks={MK_BANK_CODES.map((b) => ({ code: b.code, name: b.name }))} rules={bankIso as Record<string, Record<string, string>>} />}
     </>
   );
 }

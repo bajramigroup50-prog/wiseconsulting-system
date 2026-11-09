@@ -2,19 +2,19 @@
  * Payment-order slips drawn on A4 (3 per page, 210×99 mm): КТД / КТБ from 9 Nov 2026 (ПП30 / ПП50 before),
  * with the shared layout `ppLayout` (legacy `PP_LAY` 15779 + `ppSlip` 15791), plus a summary table like legacy `payOrders`.
  */
-import { ppAccTxt, ppFieldText, ppLayout, ppShort, type PaymentOrder, type PayOrder, type PpField } from '@wise/core';
+import { ppAccTxt, ppFieldText, ppLayout, ppShort, type BankIsoRules, type PaymentOrder, type PayOrder, type PpField } from '@wise/core';
 import { dmy, fmt, h, mmYYYY, ph, sig } from './html';
 
 const ppAmt = (v: number) => (+v || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** One slip (legacy `ppSlip(n, 'full')`). */
-export function ppSlipHtml(n: PayOrder): string {
+export function ppSlipHtml(n: PayOrder, bankIso?: BankIsoRules | null): string {
   const L = ppLayout(n.kind, n.date);
   const val = (k: PpField[0], t?: PpField[7]): string => {
     if (k === 'sign') return '';
     if (t === 'amt') return n.amount == null ? '' : ppAmt(+n.amount);
     if (t === 'date') { const v = n[k as 'date']; return v ? dmy(String(v)) : ''; }
-    return ppFieldText(n as unknown as PaymentOrder, k, t);
+    return ppFieldText({ ...(n as unknown as PaymentOrder), bankIso }, k, t);
   };
   const fld = ([k, l, x, y, w, hh, ml, t]: PpField) =>
     `<div style="position:absolute;left:${x}mm;top:${y - 3.2}mm;font:5.6pt Arial;color:#333;white-space:nowrap">${h(l)}</div><div style="position:absolute;left:${x}mm;top:${y}mm;width:${w}mm;height:${hh}mm;border:0.25mm solid #444;box-sizing:border-box"></div>`
@@ -23,10 +23,10 @@ export function ppSlipHtml(n: PayOrder): string {
 }
 
 /** Pages of 3 slips each. */
-export function ppPagesHtml(list: readonly PayOrder[]): string {
+export function ppPagesHtml(list: readonly PayOrder[], bankIso?: BankIsoRules | null): string {
   const pages: PayOrder[][] = [];
   for (let i = 0; i < list.length; i += 3) pages.push(list.slice(i, i + 3));
-  return pages.map((p, i) => `<div style="width:210mm;${i ? 'page-break-before:always;' : ''}">${p.map(ppSlipHtml).join('')}</div>`).join('');
+  return pages.map((p, i) => `<div style="width:210mm;${i ? 'page-break-before:always;' : ''}">${p.map((o) => ppSlipHtml(o, bankIso)).join('')}</div>`).join('');
 }
 
 /** Summary of the orders (legacy `payOrders` table: net per employee, contributions + PIT per fund). */

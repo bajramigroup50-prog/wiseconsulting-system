@@ -83,6 +83,7 @@ export * from './ai-settings';
 export * from './social';
 export * from './priem';
 export * from './ai-budget';
+export * from './bank-iso';
 export * from './ai-reuse';
 export * from './compliance';
 export * from './iso';

@@ -2,7 +2,7 @@
 import { notFound } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { PaymentOrder } from '@wise/core';
-import { appSettings, paymentOrders, officeProfileForFirm } from '@wise/db';
+import { appSettings, getBankIso, paymentOrders, officeProfileForFirm } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { PpSlip } from '@/components/pp-slip';
@@ -21,6 +21,7 @@ export default async function PpPrint({ searchParams }: { searchParams: Promise<
   // 🎭 a demo firm: the demo office's calibration (never the real office profile)
   const off = await officeProfileForFirm(db(), firm);
   const cal = ((off as Record<string, unknown>).ppCal ?? {}) as Record<string, { dx?: number; dy?: number }>;
+  const bankIso = await getBankIso(db());
   const per = mode === 'data1' ? 1 : 3;
   const pages: (typeof L)[] = [];
   for (let i = 0; i < L.length; i += per) pages.push(L.slice(i, i + per));
@@ -31,7 +32,7 @@ export default async function PpPrint({ searchParams }: { searchParams: Promise<
       {pages.map((p, i) => (
         <div className="pg" key={i}>
           {p.map((o) => {
-            const n = o.data as unknown as PaymentOrder;
+            const n = { ...(o.data as unknown as PaymentOrder), bankIso };
             const c = cal[n.kind] ?? {};
             return <PpSlip key={o.id} n={n} mode={mode === 'full' ? 'full' : 'data'} dx={Number(c.dx) || 0} dy={Number(c.dy) || 0} />;
           })}

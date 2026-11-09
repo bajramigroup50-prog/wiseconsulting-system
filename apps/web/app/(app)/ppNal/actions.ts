@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import type { PaymentOrder, PpKind } from '@wise/core';
 import { ppCalValue } from '@wise/core/bank/fin-parity';
-import { createSupplierPaymentOrders, deletePaymentOrder, markOrdersPrinted, savePaymentOrder, savePpCalibration } from '@wise/db';
+import { createSupplierPaymentOrders, deletePaymentOrder, markOrdersPrinted, putBankIso, savePaymentOrder, savePpCalibration } from '@wise/db';
 import { bankRun, isDate, num, str } from '@/lib/bank';
 import { todayIso } from '@/lib/fmt';
 import type { FormState } from '@/components/bank-form';
@@ -58,4 +58,25 @@ export async function batchPpAction(_p: FormState, form: FormData): Promise<Form
   const q = new URLSearchParams({ made: made.ids.join(',') });
   if (made.missing.length) q.set('miss', made.missing.join(' · ').slice(0, 600));
   redirect('/ppNal?' + q.toString());
+}
+
+/**
+ * „Шифри за плаќање по банка“: for each bank the ISO code it uses where the national list gives two for one old code
+ * (form fields `b_<bank>` = lines „220=GDDS“). Office-wide (all firms); the office settings permission.
+ */
+export async function saveBankIsoAction(_p: FormState, form: FormData): Promise<FormState> {
+  return bankRun('settings', ['/ppNal'], async ({ tx, u }) => {
+    const rules: Record<string, Record<string, string>> = {};
+    for (const [k, v] of form.entries()) {
+      const b = /^b_(\d{3})$/.exec(k)?.[1];
+      if (!b) continue;
+      for (const line of String(v).split(/[\n,;]+/)) {
+        const m = /^\s*0*(\d{1,3})\s*[=:→>-]+\s*([A-Za-z]{4})\s*$/.exec(line);
+        if (m) (rules[b] ??= {})[m[1]!] = m[2]!.toUpperCase();
+      }
+    }
+    const saved = await putBankIso(tx, rules, u.id);
+    const n = Object.values(saved).reduce((s, m) => s + Object.keys(m).length, 0);
+    return `Зачувано: ${n} шифри за ${Object.keys(saved).length} банки.`;
+  });
 }

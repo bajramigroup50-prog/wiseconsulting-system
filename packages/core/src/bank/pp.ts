@@ -8,7 +8,7 @@
  */
 import { BANKS_MK, ibanValid, mkAccountValid, ppAccTxt } from './payment-order';
 import { mkBankName } from './mk-banks';
-import { isoOf, newPayments, PURPOSE_COMMON } from './purpose-codes';
+import { isoOf, isoOfBank, newPayments, PURPOSE_COMMON, type BankIsoRules } from './purpose-codes';
 import { fixYuscii } from '../text/yuscii';
 
 export type PpKind = 'pp30' | 'pp50' | 'pp10';
@@ -58,6 +58,8 @@ export interface PaymentOrder {
   taxKey?: string;
   /** Print accounts as IBAN (default: from 2026-11-01). */
   iban?: boolean | null;
+  /** The office's per-bank purpose-code choices (set by the screen that prints, not stored on the order). */
+  bankIso?: BankIsoRules | null;
   /** The purchase invoices this order pays (batch / picker). */
   refIds?: string[];
 }
@@ -225,7 +227,7 @@ export function ppFieldText(n: PaymentOrder, k: PpField[0], t?: 'acc' | 'amt' | 
   if (k === 'sign') return '';
   if (k === 'desc') return ppDesc(n);
   // from 9 Nov 2026 the purpose code is the 4-letter ISO code (old numbers saved on orders print converted)
-  if (k === 'code' && newPayments(n.date)) return isoOf(n.code) || String(n.code ?? '');
+  if (k === 'code' && newPayments(n.date)) return isoOfBank(n.code, n.payerAcc, n.bankIso) || String(n.code ?? '');
   const v = n[k];
   if (t === 'acc') return ppAccTxt(v, n.date, n.iban ?? undefined);
   if (t === 'amt') return ppAmt(v);

@@ -5,7 +5,7 @@
  * FIX(#19): accounts and revenue codes come from the firm's payroll settings; missing data is listed on the page.
  */
 import { payrollPaymentOrders, resolvePayParams, type PayLoan } from '@wise/core';
-import { loadRun } from '@wise/db';
+import { getBankIso, loadRun } from '@wise/db';
 import { db } from '@/lib/db';
 import { toCsv, todayIso } from '@/lib/fmt';
 import { htmlResponse, printDoc } from '@/lib/payroll/html';
@@ -31,6 +31,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ month: s
     return new Response(toCsv(rows), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="Neto_plati_banka_${month}.csv"` } });
   }
   const tools = `<div class="pbar" style="background:#334"><span class="t">Датум на плаќање</span><form style="display:flex;gap:6px"><input type="date" name="datum" value="${datum}"><button>Примени</button></form><a href="?csv=1">CSV за банка (нето плати)</a></div>`;
-  const html = printDoc(`Nalozi_plati_${month}`, ordersSummaryHtml(ctx.firm, month, r.orders, r.missing) + '<div class="pb"></div>' + ppPagesHtml(r.orders), { land: false });
+  const html = printDoc(`Nalozi_plati_${month}`, ordersSummaryHtml(ctx.firm, month, r.orders, r.missing) + '<div class="pb"></div>' + ppPagesHtml(r.orders, await getBankIso(db())), { land: false });
   return htmlResponse(html.replace('<div class="page">', tools + '<div class="page">'));
 }
