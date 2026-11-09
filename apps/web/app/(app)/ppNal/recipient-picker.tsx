@@ -83,7 +83,7 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const o = list[0]; if (o) choose(e.currentTarget.form, o); } if (e.key === 'Escape') setOpen(false); }} />
       <input type="hidden" name="refIds" defaultValue={(initialRefIds ?? []).join(',')} />
       {open && (
-        <div className="card" role="listbox" style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, maxHeight: 320, overflow: 'auto', padding: 4, margin: 0 }}
+        <div className="card" role="listbox" style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, minWidth: 320, maxHeight: 420, overflowY: 'auto', overflowX: 'hidden', padding: 4, margin: 0, display: 'block' }}
           onMouseLeave={() => setOpen(false)}>
           {list.length === 0 && <div className="note" style={{ padding: 6 }}>Нема примач со жиро сметка или отворена фактура.</div>}
           {list.map((o) => (
@@ -93,7 +93,12 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
               <span className="mini"> {o.accounts.find((a) => a.def)?.acc || 'нема сметка'}{o.invoices.length ? ` · ${o.invoices.length} неплатени (${fmt(o.invoices.reduce((s, x) => s + Math.round(x.open * 100), 0) / 100)})` : ''}</span>
             </button>
           ))}
-          {taxes.length > 0 && <div className="mini" style={{ padding: 6 }}>Даноци и придонеси се плаќаат со КТБ (поранешен ПП50): {taxes.map((t) => <Link key={t.key} href={`/ppNal?tax=${t.key}`} style={{ marginRight: 8 }}>{t.name}</Link>)}</div>}
+          {taxes.length > 0 && (
+            <div style={{ display: 'block', padding: 6, borderTop: '1px solid var(--line, #ddd)', marginTop: 4 }}>
+              <div className="mini" style={{ display: 'block', marginBottom: 4 }}>Даноци и придонеси се плаќаат со <b>КТБ</b> (поранешен ПП50):</div>
+              {taxes.map((t) => <Link key={t.key} href={`/ppNal?tax=${t.key}`} style={{ display: 'block', padding: '3px 2px', whiteSpace: 'normal' }}>🏛 {t.name}</Link>)}
+            </div>
+          )}
         </div>
       )}
       {sel && sel.accounts.length > 1 && (
