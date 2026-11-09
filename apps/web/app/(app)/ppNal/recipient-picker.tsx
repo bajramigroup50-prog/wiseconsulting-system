@@ -34,7 +34,8 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
   }, [q, options]);
 
   const field = (form: HTMLFormElement | null, k: string) => form?.elements.namedItem(k) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
-  const setF = (form: HTMLFormElement | null, k: string, v: string) => { const el = field(form, k); if (el) el.value = v; };
+  // a programmatic change fires `input`, so the live slip beside the editor follows (ticked invoices → amount)
+  const setF = (form: HTMLFormElement | null, k: string, v: string) => { const el = field(form, k); if (el) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
   /** Date of the order in the form (the new ISO codes apply from 9 Nov 2026). */
   const dateOf = (form: HTMLFormElement | null) => field(form, 'date')?.value || new Date().toISOString().slice(0, 10);
   const ibanOn = (form: HTMLFormElement | null) => !!(field(form, 'iban') as HTMLInputElement | null)?.checked;

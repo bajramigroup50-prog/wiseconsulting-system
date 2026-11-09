@@ -11,6 +11,7 @@ import {
   hasYuscii, isoOfBank, MK_BANK_CODES,
 } from '@wise/core';
 import { BankIsoForm } from './bank-iso';
+import { LivePpPreview } from './live-preview';
 import { ppExportRows } from '@wise/core/bank/fin-parity';
 import { getBankIso, getOfficeProfile, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate, officeProfileForFirm } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
@@ -155,7 +156,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                 <p className="note">„Цел образец“ го црта налогот на бела хартија (А4, 3 налози). Пред прво користење прашајте ја банката дали прифаќа налог печатен на бела хартија. „Допечати“ печати само податоци врз купени обрасци (ласерски за единечни листови; за самокопирни сетови – матричен печатач). Распоредот е приближен – проверете со еден образец и калибрирајте.</p>
               </div>
               <div className="pdfwrap" style={{ maxHeight: '72vh', overflow: 'auto', background: '#fff' }}>
-                <div style={{ transform: 'scale(.82)', transformOrigin: '0 0', width: '210mm' }}><PpSlip n={{ ...draft, bankIso }} /></div>
+                <div style={{ transform: 'scale(.82)', transformOrigin: '0 0', width: '210mm' }}><LivePpPreview initial={{ ...draft, bankIso }} /></div>
                 <p className="mini" style={{ margin: 6 }}>{draft.kind !== 'pp10' ? 'Налогодавач: ' + ppAccTxt(draft.payerAcc, draft.date, draft.iban ?? undefined) + ' · ' : ''}Примач: {ppAccTxt(draft.recipAcc, draft.date, draft.iban ?? undefined)}</p>
               </div>
             </div>

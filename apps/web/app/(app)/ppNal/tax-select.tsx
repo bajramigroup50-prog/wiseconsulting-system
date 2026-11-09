@@ -14,7 +14,7 @@ export function PpTaxSelect({ templates, value }: { templates: PpTaxTpl[]; value
         if (!t || !F) return;
         const set = (k: string, v: string, onlyEmpty = false) => {
           const el = F.elements.namedItem(k) as HTMLInputElement | HTMLTextAreaElement | null;
-          if (el && (!onlyEmpty || !el.value.trim())) el.value = v;
+          if (el && (!onlyEmpty || !el.value.trim())) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }
         };
         set('uplSm', t.uplSm); set('prihod', t.prihod); set('refDebit', t.refDebit); set('purpose', t.purpose); set('amount', t.amount, true);
       }}>
