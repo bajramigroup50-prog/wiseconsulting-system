@@ -9,7 +9,7 @@ import { PpSlip } from '@/components/pp-slip';
 
 const KEYS = ['date', 'valDate', 'nacin', 'code', 'payer', 'payerAcc', 'payerBank', 'payerTax', 'recip', 'recipAcc', 'recipBank', 'purpose', 'refDebit', 'refCredit', 'uplSm', 'prihod', 'place', 'taxKey'] as const;
 
-export function LivePpPreview({ initial }: { initial: PaymentOrder }) {
+export function LivePpPreview({ initial, sig }: { initial: PaymentOrder; /** the firm's signature / stamp (shown as on „🖊 Со потпис и печат“) */ sig?: { sign?: string | null; stamp?: string | null } | null }) {
   const [n, setN] = useState<PaymentOrder>(initial);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -32,5 +32,5 @@ export function LivePpPreview({ initial }: { initial: PaymentOrder }) {
     read();
     return () => { form.removeEventListener('input', later); form.removeEventListener('change', later); };
   }, [initial]);
-  return <div ref={box}><PpSlip n={n} /></div>;
+  return <div ref={box}><PpSlip n={n} sig={sig} /></div>;
 }
