@@ -327,7 +327,8 @@ export const OLD_TO_ISO: Readonly<Record<string, string>> = {
   '241': 'ADVA',
   '100': 'SALA',
   '101': 'SALA',
-  '197': 'PRCP',
+  // Халк / НЛБ: 197 (надомест за боледување и др. лични примања) → ADCS, BENE или PAYR – на исплата преку плата: PAYR
+  '197': 'PAYR',
   '188': 'PRCP',
   '189': 'PRCP',
   '184': 'SSBE',
