@@ -15,6 +15,10 @@ export interface PpPickOption {
   key: string; kind: 'partner' | 'employee'; name: string; address: string; city: string;
   accounts: { acc: string; bank: string; def: boolean }[];
   invoices: { refId: string; number: string; date: string; due?: string | null; open: number }[];
+  /** supplier debt per the books (22x credit balance) */
+  debt?: number;
+  /** only found by searching (no account, invoice or debt) */
+  quiet?: boolean;
 }
 
 const fmt = (n: number) => n.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,7 +33,7 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
   const [acc, setAcc] = useState('');
   const list = useMemo(() => {
     const t = norm(q.trim());
-    const L = t ? options.filter((o) => norm(o.name + ' ' + o.city + ' ' + o.accounts.map((a) => a.acc).join(' ')).includes(t)) : options;
+    const L = t ? options.filter((o) => norm(o.name + ' ' + o.city + ' ' + o.accounts.map((a) => a.acc).join(' ')).includes(t)) : options.filter((o) => !o.quiet);
     return L.slice(0, 40);
   }, [q, options]);
 
@@ -72,6 +76,8 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
       // the oldest unpaid invoice is ticked; more can be added
       const first = o.invoices[0];
       applyInvoices(form, o, first ? [first.refId] : []);
+      // no invoice document, but a debt in the books (opening / imported journals) → the amount owed
+      if (!first && o.debt) { setF(form, 'amount', o.debt.toFixed(2)); setF(form, 'code', newPayments(dateOf(form)) ? 'GDSV' : '930'); }
     }
   };
 
@@ -85,12 +91,12 @@ export function PpRecipientPicker({ options, taxes, initialRefIds }: { options: 
       {open && (
         <div className="card" role="listbox" style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, minWidth: 320, maxHeight: 420, overflowY: 'auto', overflowX: 'hidden', padding: 4, margin: 0, display: 'block' }}
           onMouseLeave={() => setOpen(false)}>
-          {list.length === 0 && <div className="note" style={{ padding: 6 }}>Нема примач со жиро сметка или отворена фактура.</div>}
+          {list.length === 0 && <div className="note" style={{ padding: 6 }}>Нема комитент со тој назив (или комитенти со долг / жиро сметка) – пребарајте по назив.</div>}
           {list.map((o) => (
             <button type="button" key={o.key} className="btn ghost" role="option" aria-selected={sel?.key === o.key} style={{ display: 'block', width: '100%', textAlign: 'left', whiteSpace: 'normal' }}
               onClick={(e) => choose(e.currentTarget.form, o)}>
               <b>{o.name}</b>{o.city ? ', ' + o.city : ''} <span className="pill">{o.kind === 'employee' ? 'вработен' : 'комитент'}</span>
-              <span className="mini"> {o.accounts.find((a) => a.def)?.acc || 'нема сметка'}{o.invoices.length ? ` · ${o.invoices.length} неплатени (${fmt(o.invoices.reduce((s, x) => s + Math.round(x.open * 100), 0) / 100)})` : ''}</span>
+              <span className="mini"> {o.accounts.find((a) => a.def)?.acc || 'нема сметка'}{o.invoices.length ? ` · ${o.invoices.length} неплатени (${fmt(o.invoices.reduce((s, x) => s + Math.round(x.open * 100), 0) / 100)})` : ''}{o.debt ? ` · долг ${fmt(o.debt)}` : ''}</span>
             </button>
           ))}
           {taxes.length > 0 && (

@@ -1,14 +1,14 @@
 /**
  * Payment orders (ПП30 / ПП50 / ПП10) and the office exchange-rate list (Курсна листа).
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   fixYuscii, mkBankName, openAmount, parseAccount, partnerAccounts, ppBatchOrders, ppErrors, ppIbanOn, ppPartyText, PP_T, r2,
   type PaymentOrder, type PpBatchItem, type PpKind, type PpOpenInvoice,
 } from '@wise/core';
 import { ppFillBanks, ppMuniCode, ppSortByDue, ppToStamp } from '@wise/core/bank/fin-parity';
 import { audit, type Tx } from '../audit';
-import { bankLines, employees, fxRates, partners, paymentOrders, purchases } from '../schema/index';
+import { bankLines, employees, fxRates, journalLines, journals, partners, paymentOrders, purchases } from '../schema/index';
 import { den, loadBankAccounts, loadFirm } from './context';
 import { openItemsSource } from './open-items';
 import { toBankRow } from './rows';
@@ -125,6 +125,10 @@ export interface PpRecipientOption {
   key: string; kind: 'partner' | 'employee'; name: string; address: string; city: string;
   accounts: { acc: string; bank: string; def: boolean }[];
   invoices: PpOpenInvoice[];
+  /** Supplier debt in the books (credit balance on 22x, incl. opening and imported journals), denars. */
+  debt?: number;
+  /** Shown only when searched (no account, no invoice, no debt). */
+  quiet?: boolean;
 }
 
 /**
@@ -132,20 +136,28 @@ export interface PpRecipientOption {
  * employees with an account (net salary). Names / addresses repaired from YUSCII leftovers.
  */
 export async function ppRecipients(tx: Tx, firmId: string, year: number): Promise<PpRecipientOption[]> {
-  const [open, pm, E] = await Promise.all([
+  const [open, pm, E, B] = await Promise.all([
     openPurchases(tx, firmId, year), partnerMap(tx, firmId),
     tx.select({ id: employees.id, name: employees.name, address: employees.address, city: employees.city, bankAcc: employees.bankAcc, bank: employees.bank })
       .from(employees).where(and(eq(employees.firmId, firmId), eq(employees.active, true))),
+    // what we owe each supplier per the books (opening + imported / booked journals) – not only invoice documents
+    tx.select({ partnerId: journalLines.partnerId, bal: sql<string>`sum(${journalLines.credit}) - sum(${journalLines.debit})` })
+      .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId))
+      .where(and(eq(journalLines.firmId, firmId), sql`${journalLines.account} like '22%'`, sql`${journalLines.partnerId} is not null`,
+        sql`${journals.date} between ${`${year}-01-01`} and ${`${year}-12-31`}`, sql`${journals.kind} <> 'close'`))
+      .groupBy(journalLines.partnerId),
   ]);
+  const debt = new Map(B.map((b) => [String(b.partnerId), r2(Number(b.bal) || 0)]));
   const inv = new Map<string, PpOpenInvoice[]>();
   for (const x of open) if (x.partnerId) inv.set(x.partnerId, [...(inv.get(x.partnerId) ?? []), { refId: x.refId, number: x.number, date: x.date, due: x.due, open: x.open }]);
   const out: PpRecipientOption[] = [];
   for (const p of pm.values()) {
     const I = inv.get(p.id) ?? [];
-    if (!p.accounts.length && !I.length) continue;
-    if (!p.active && !I.length) continue;
+    const d = debt.get(p.id) ?? 0;
+    if (!p.active && !I.length && d <= 0) continue;
     out.push({ key: 'p:' + p.id, kind: 'partner', name: fixYuscii(p.name), address: fixYuscii(p.address ?? ''), city: fixYuscii(p.city ?? ''),
-      accounts: p.accounts.map((a) => ({ acc: a.acc, bank: a.bank, def: !!a.def })), invoices: I });
+      accounts: p.accounts.map((a) => ({ acc: a.acc, bank: a.bank, def: !!a.def })), invoices: I,
+      ...(d > 0 ? { debt: d } : {}), ...(!p.accounts.length && !I.length && d <= 0 ? { quiet: true } : {}) });
   }
   for (const e of E) {
     const a = parseAccount(e.bankAcc);
@@ -153,7 +165,8 @@ export async function ppRecipients(tx: Tx, firmId: string, year: number): Promis
     out.push({ key: 'e:' + e.id, kind: 'employee', name: fixYuscii(e.name), address: fixYuscii(e.address ?? ''), city: fixYuscii(e.city ?? ''),
       accounts: [{ acc: a.acc || a.iban, bank: String(e.bank ?? '').trim() || a.bank, def: true }], invoices: [] });
   }
-  return out.sort((a, b) => (b.invoices.length ? 1 : 0) - (a.invoices.length ? 1 : 0) || a.name.localeCompare(b.name, 'mk'));
+  const rank = (o: PpRecipientOption) => (o.invoices.length ? 2 : 0) + (o.debt ? 1 : 0);
+  return out.sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name, 'mk'));
 }
 
 /**
