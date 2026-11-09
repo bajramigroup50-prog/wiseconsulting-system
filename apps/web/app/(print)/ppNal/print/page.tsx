@@ -9,7 +9,7 @@ import { PpSlip } from '@/components/pp-slip';
 import { PrintPage } from '@/components/print-page';
 import { markPrintedAction } from '../../../(app)/ppNal/actions';
 
-export default async function PpPrint({ searchParams }: { searchParams: Promise<{ ids?: string | string[]; m?: string }> }) {
+export default async function PpPrint({ searchParams }: { searchParams: Promise<{ ids?: string | string[]; m?: string; sig?: string }> }) {
   const sp = await searchParams;
   const { u, firm } = await booksPage('ppNal');
   if (!firm) notFound();
@@ -22,6 +22,9 @@ export default async function PpPrint({ searchParams }: { searchParams: Promise<
   const off = await officeProfileForFirm(db(), firm);
   const cal = ((off as Record<string, unknown>).ppCal ?? {}) as Record<string, { dx?: number; dy?: number }>;
   const bankIso = await getBankIso(db());
+  // „со потпис“: the firm's signature (as deposited at the bank) and stamp, uploaded in the firm's data
+  const FS = (firm.settings ?? {}) as { sign?: string; stamp?: string };
+  const sig = sp.sig === '1' ? { sign: FS.sign ? `/api/files/${FS.sign}` : null, stamp: FS.stamp ? `/api/files/${FS.stamp}` : null } : null;
   const per = mode === 'data1' ? 1 : 3;
   const pages: (typeof L)[] = [];
   for (let i = 0; i < L.length; i += per) pages.push(L.slice(i, i + per));
@@ -34,7 +37,7 @@ export default async function PpPrint({ searchParams }: { searchParams: Promise<
           {p.map((o) => {
             const n = { ...(o.data as unknown as PaymentOrder), bankIso };
             const c = cal[n.kind] ?? {};
-            return <PpSlip key={o.id} n={n} mode={mode === 'full' ? 'full' : 'data'} dx={Number(c.dx) || 0} dy={Number(c.dy) || 0} />;
+            return <PpSlip key={o.id} n={n} mode={mode === 'full' ? 'full' : 'data'} dx={Number(c.dx) || 0} dy={Number(c.dy) || 0} sig={sig} />;
           })}
         </div>
       ))}

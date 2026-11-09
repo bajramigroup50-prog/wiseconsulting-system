@@ -36,6 +36,7 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
   if (u.role === 'klient') return <><Hd t="Платни налози" /><div className="empty">Нема пристап.</div></>;
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const bankIso = await getBankIso(db());
+  const hasSig = !!((firm.settings ?? {}) as { sign?: string; stamp?: string }).sign || !!((firm.settings ?? {}) as { stamp?: string }).stamp;
   const today = todayIso();
   const [payer, list, sug, est, office, recips] = await Promise.all([
     payerOf(db(), firm.id),
@@ -100,7 +101,8 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
       {sp.made && (
         <div className="callout good" role="status">✓ Подготвени {sp.made.split(',').filter(Boolean).length} налози КТД (по еден за добавувач).{' '}
           <Link className="btn sm" href={`/ppNal/print?ids=${sp.made}&m=full`} target="_blank">🖨 Печати ги сите (PDF, 3 на А4)</Link>{' '}
-          <Link className="btn sm" href={`/ppNal/print?ids=${sp.made}&m=data`} target="_blank">🖨 Допечати на обрасци</Link>
+          <Link className="btn sm" href={`/ppNal/print?ids=${sp.made}&m=data`} target="_blank">🖨 Допечати на обрасци</Link>{' '}
+          {hasSig && <Link className="btn sm" href={`/ppNal/print?ids=${sp.made}&m=full&sig=1`} target="_blank" title="Со потписот (депониран во банка) и печатот на фирмата">🖊 Печати со потпис и печат</Link>}
           {sp.miss && <div className="mini">⚠ Без жиро сметка (внесете ја во налогот): {sp.miss}</div>}
         </div>
       )}
@@ -113,6 +115,8 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
                 <button className="btn pri">Зачувај</button>
                 {editId && <>
                   <Link className="btn" href={`/ppNal/print?ids=${editId}&m=full`} target="_blank">🖨 Цел образец (А4)</Link>
+                  {hasSig ? <Link className="btn" href={`/ppNal/print?ids=${editId}&m=full&sig=1`} target="_blank" title="Со потписот (депониран во банка) и печатот на фирмата">🖊 Со потпис и печат</Link>
+                    : <Link className="btn ghost" href="/firmi" title="Прикачете го потписот од картонот во банка и печатот кај податоците на фирмата">🖊 Потпис / печат…</Link>}
                   <Link className="btn" href={`/ppNal/print?ids=${editId}&m=data`} target="_blank">🖨 Допечати (А4 – 3 обрасци)</Link>
                   <Link className="btn" href={`/ppNal/print?ids=${editId}&m=data1`} target="_blank">🖨 Допечати (210×99)</Link>
                 </>}

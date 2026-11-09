@@ -4,7 +4,9 @@
  */
 import { ppFieldText, ppLayout, ppShort, type PaymentOrder } from '@wise/core';
 
-export function PpSlip({ n, mode = 'full', dx = 0, dy = 0 }: { n: PaymentOrder; mode?: 'full' | 'data'; dx?: number; dy?: number }) {
+export function PpSlip({ n, mode = 'full', dx = 0, dy = 0, sig }: { n: PaymentOrder; mode?: 'full' | 'data'; dx?: number; dy?: number;
+  /** the firm's signature (as deposited at the bank) and stamp images, drawn in the „ПОТПИС“ box (print „со потпис“) */
+  sig?: { sign?: string | null; stamp?: string | null } | null }) {
   // the new НБРМ forms (КТД / КТБ / ВГ) from 9 Nov 2026, the old ПП layout for older orders
   const L = ppLayout(n.kind, n.date);
   const full = mode !== 'data';
@@ -21,6 +23,14 @@ export function PpSlip({ n, mode = 'full', dx = 0, dy = 0 }: { n: PaymentOrder; 
             <div style={{ position: 'absolute', left: `${x}mm`, top: `${y - 3.2}mm`, font: '5.6pt Arial', color: '#333', whiteSpace: 'nowrap' }}>{label}</div>
             <div style={{ position: 'absolute', left: `${x}mm`, top: `${y}mm`, width: `${w}mm`, height: `${h}mm`, border: '0.25mm solid #444', boxSizing: 'border-box' }} />
           </>}
+          {k === 'sign' && sig && (sig.sign || sig.stamp) && (
+            <div style={{ position: 'absolute', left: `${x + 1 + C.dx}mm`, top: `${y + 0.5 + C.dy}mm`, width: `${w - 2}mm`, height: `${h - 1}mm`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {sig.sign ? <img src={sig.sign} alt="" style={{ maxHeight: `${h - 1.5}mm`, maxWidth: `${(w - 2) * 0.6}mm`, objectFit: 'contain' }} /> : <span />}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {sig.stamp ? <img src={sig.stamp} alt="" style={{ maxHeight: `${h - 1}mm`, maxWidth: `${(w - 2) * 0.4}mm`, objectFit: 'contain', opacity: 0.85 }} /> : null}
+            </div>
+          )}
           {k !== 'sign' && (
             <div style={{
               position: 'absolute', left: `${x + 1 + C.dx}mm`, top: `${y + (ml ? 0.6 : h / 2 - 2) + C.dy}mm`, width: `${w - 2}mm`,
