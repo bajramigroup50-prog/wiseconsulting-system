@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { r2 } from '@wise/core';
 import { REC_EVERY, REC_EVERY_LBL, recIsDue, type RecEvery } from '@wise/core/office';
-import { firmDocs, partners, recurringInvoices } from '@wise/db';
+import { firmDocs, items as articles, partners, recurringInvoices } from '@wise/db';
 import { partnerOptions } from '@/lib/books';
 import { db } from '@/lib/db';
 import { officePage, today } from '@/lib/office';
@@ -16,22 +16,28 @@ import { RowAction } from '@/components/row-action';
 import { deleteRecurring, importRecurringAction, runRecurring, saveRecurring } from './actions';
 import { oxTemplate, REC_IMPORT } from '@wise/core/industry';
 import { XlsxImport } from '@/components/list-tools';
+import { RecItemFill } from './item-fill';
 
 const total = (items: { qty: number; price: number; vat: number }[]) => r2(items.reduce((a, l) => a + l.qty * l.price * (1 + l.vat / 100), 0));
 
-export default async function PeriodicniPage({ searchParams }: { searchParams: Promise<{ id?: string; nov?: string; bulk?: string }> }) {
+export default async function PeriodicniPage({ searchParams }: { searchParams: Promise<{ id?: string; nov?: string; bulk?: string; p?: string }> }) {
   const sp = await searchParams;
   const { firm } = await officePage('periodicni', { perm: 'office' });
   if (!firm) return <NoFirm t="🔁 Периодични фактури" />;
   const td = today();
-  const [L, P, drafts] = await Promise.all([
+  const [L, P, drafts, A] = await Promise.all([
     db().select({ r: recurringInvoices, partner: partners.name }).from(recurringInvoices).innerJoin(partners, eq(partners.id, recurringInvoices.partnerId))
       .where(eq(recurringInvoices.firmId, firm.id)).orderBy(asc(partners.name)),
     partnerOptions(firm.id),
     db().select().from(firmDocs).where(and(eq(firmDocs.firmId, firm.id), eq(firmDocs.type, 'invoice_draft'))).orderBy(desc(firmDocs.createdAt)).limit(20),
+    // the product / service of each line comes from the article register (name → unit, price, VAT)
+    db().select({ id: articles.id, name: articles.name, price: articles.price, vat: articles.vatRate, unit: articles.unit }).from(articles).where(eq(articles.firmId, firm.id)).orderBy(asc(articles.name)).limit(3000),
   ]);
+  const arts = A.map((a) => ({ id: a.id, name: a.name, price: a.price == null ? null : Number(a.price), vat: a.vat, unit: a.unit }));
   const e = sp.id ? L.find((x) => x.r.id === sp.id)?.r : undefined;
-  const items = [...(e?.items ?? []), ...Array(5).fill(null)].slice(0, Math.max(3, (e?.items.length ?? 0) + 1)) as ({ name: string; qty: number; price: number; vat: number; unit?: string } | null)[];
+  const items = [...(e?.items ?? []), ...Array(5).fill(null)].slice(0, Math.max(3, (e?.items.length ?? 0) + 1)) as ({ itemId?: string | null; name: string; qty: number; price: number; vat: number; unit?: string } | null)[];
+  const pSel = sp.p && P.some((p) => p.id === sp.p) ? sp.p : undefined;
+  const shown = pSel ? L.filter(({ r }) => r.partnerId === pSel) : L;
   const due = L.filter(({ r }) => recIsDue({ ...r, every: r.every as RecEvery, day: r.day === 'L' ? 'L' : Number(r.day) }, td));
   return (
     <>
@@ -46,9 +52,9 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
           <h2>{e ? 'Измена' : sp.bulk !== undefined ? '🔁 Месечна фактура за повеќе комитенти' : 'Нова периодична фактура'}</h2>
           {e && <input type="hidden" name="id" value={e.id} />}
           <div className="form">
-            {sp.bulk === undefined && <label className="f">Купувач<select name="partnerId" defaultValue={e?.partnerId ?? ''} required><option value="" disabled>— изберете —</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
+            {sp.bulk === undefined && <label className="f">Купувач<select name="partnerId" defaultValue={e?.partnerId ?? pSel ?? ''} required><option value="" disabled>— изберете —</option>{P.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
             <label className="f">Период<select name="every" defaultValue={e?.every ?? 'month'}>{(Object.keys(REC_EVERY) as RecEvery[]).map((k) => <option key={k} value={k}>{REC_EVERY_LBL[k]}</option>)}</select></label>
-            <label className="f">Ден во месецот<select name="day" defaultValue={e?.day ?? '1'}>{Array.from({ length: 31 }, (_, i) => <option key={i} value={String(i + 1)}>{i + 1}</option>)}<option value="L">последен работен ден</option></select></label>
+            <label className="f">📅 Ден на фактурирање (во месецот)<select name="day" defaultValue={e?.day ?? '1'}>{Array.from({ length: 31 }, (_, i) => <option key={i} value={String(i + 1)}>{i + 1}</option>)}<option value="L">последен работен ден</option></select></label>
             <label className="f">{e ? 'Следна фактура на' : 'Прва фактура на'}<input name="next" type="date" defaultValue={e?.next ?? ''} /></label>
             <label className="f">Заклучно со<input name="end" type="date" defaultValue={e?.end ?? ''} /></label>
             <label className="f">Рок за плаќање (дена)<input name="dueDays" type="number" min={0} defaultValue={e?.dueDays ?? 15} /></label>
@@ -56,15 +62,16 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
             <label className="chk"><input type="checkbox" name="active" defaultChecked={e?.active ?? true} /> Активна</label>
             <label className="chk"><input type="checkbox" name="mail" defaultChecked={e?.mail ?? false} /> Прати по е-пошта</label>
           </div>
-          <table className="dense"><thead><tr><th>Ставка (може „… за месец“ или „{'{месец}'}“)</th><th>Количина</th><th>Ед. мера</th><th>Цена без ДДВ</th><th>ДДВ %</th></tr></thead><tbody>
+          <table className="dense"><thead><tr><th>Производ / услуга – од артиклите или слободно (може „{'{месец}'}“)</th><th>Количина</th><th>Ед. мера</th><th>Цена без ДДВ</th><th>ДДВ %</th></tr></thead><tbody>
             {items.map((l, i) => (
               <tr key={i}>
-                <td><input name={`it${i}_name`} defaultValue={l?.name ?? ''} /></td><td><input name={`it${i}_qty`} defaultValue={l?.qty ?? ''} style={{ width: 80 }} /></td>
+                <td><input name={`it${i}_name`} list="recArt" defaultValue={l?.name ?? ''} placeholder="пребарај артикл…" style={{ minWidth: 260 }} /><input type="hidden" name={`it${i}_item`} defaultValue={l?.itemId ?? ''} /></td><td><input name={`it${i}_qty`} defaultValue={l?.qty ?? ''} style={{ width: 80 }} /></td>
                 <td><input name={`it${i}_unit`} defaultValue={l?.unit ?? ''} style={{ width: 70 }} /></td><td><input name={`it${i}_price`} defaultValue={l?.price ?? ''} style={{ width: 110 }} /></td>
                 <td><select name={`it${i}_vat`} defaultValue={String(l?.vat ?? 18)}>{['18', '10', '5', '0'].map((v) => <option key={v}>{v}</option>)}</select></td>
               </tr>
             ))}
           </tbody></table>
+          <RecItemFill articles={arts} />
           {sp.bulk !== undefined && !e && (
             <div className="tw" style={{ maxHeight: 320, overflow: 'auto', marginTop: 8 }}><table className="dense">
               <thead><tr><th></th><th>Комитент</th><th className="n">Своја цена</th></tr></thead>
@@ -74,12 +81,13 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
           <div className="row savebar"><button className="btn pri">Зачувај</button><Link className="btn" href="/periodicni">Затвори</Link></div>
         </ActionForm>
       )}
-      {L.length ? (
+      {pSel && <div className="callout info" style={{ marginBottom: 8 }}>Само за <b>{P.find((p) => p.id === pSel)?.name}</b> · <Link href={`/periodicni?nov&p=${pSel}`}>+ Нова за овој комитент</Link> · <Link href="/periodicni">сите комитенти</Link></div>}
+      {shown.length ? (
         <div className="tw"><table className="dense">
-          <thead><tr><th>Купувач</th><th>Период</th><th>Ден</th><th>Следна</th><th className="n">Износ</th><th>Последна издадена</th><th>Статус</th><th></th></tr></thead>
-          <tbody>{L.map(({ r, partner }) => (
+          <thead><tr><th>Купувач</th><th>Производ / услуга</th><th>Период</th><th>Ден на фактурирање</th><th>Следна фактура</th><th className="n">Износ</th><th>Последна издадена</th><th>Статус</th><th></th></tr></thead>
+          <tbody>{shown.map(({ r, partner }) => (
             <tr key={r.id} style={r.active ? undefined : { opacity: 0.55 }}>
-              <td><b>{partner}</b><div className="mini" style={{ display: 'block' }}>{r.items.map((i) => i.name).join(', ')}</div></td>
+              <td><b>{partner}</b></td><td>{r.items.map((i) => <div key={i.name}>{i.name} <span className="mini">{i.qty} × {fmt(i.price)}</span></div>)}</td>
               <td>{REC_EVERY_LBL[r.every as RecEvery] ?? r.every}</td><td>{r.day === 'L' ? 'посл. раб.' : r.day}</td>
               <td style={r.active && r.next && r.next <= td ? { color: 'var(--bad)', fontWeight: 700 } : undefined}>{dmy(r.next)}</td>
               <td className="n">{fmt(total(r.items))}</td><td>{dmy(r.last)}</td>

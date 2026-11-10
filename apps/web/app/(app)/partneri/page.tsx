@@ -1,7 +1,8 @@
 /** Legacy `VIEWS.partneri` 6818 → `partneri0` 6819 (`simpleList`), Шифрарник › Комитенти. */
 import Link from 'next/link';
 import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
-import { partners } from '@wise/db';
+import { partners, recurringInvoices } from '@wise/db';
+import { REC_EVERY_LBL, type RecEvery } from '@wise/core/office';
 import { booksPage, canDo } from '@/lib/books';
 import { nextCode } from '@/lib/codes';
 import { db } from '@/lib/db';
@@ -80,6 +81,7 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const edit = sp.edit ? (await db().select().from(partners).where(and(eq(partners.id, sp.edit), eq(partners.firmId, firm.id))).limit(1))[0] : undefined;
   const showForm = write && (sp.nov !== undefined || !!edit);
+  const recs = edit ? await db().select().from(recurringInvoices).where(and(eq(recurringInvoices.firmId, firm.id), eq(recurringInvoices.partnerId, edit.id))) : [];
   // legacy v404 tkModal: the next read ЦРМ extract to check (`?tk=` = the reads still to go)
   const tkIds = write ? (sp.tk ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 20) : [];
   let tk: { id: string; fileId: string | null; r: ReturnType<typeof tkFromRead>; rest: string[]; n: number } | null = null;
@@ -123,6 +125,28 @@ export default async function PartneriPage({ searchParams }: { searchParams: Pro
       )}
       {showForm && <PartnerForm p={edit ?? null} nextCode={nextCode(allCodes.map((c) => c.code))} used={edit ? used.get(edit.id) ?? 0 : 0}
         schemes={schemeProfilesOf(firm.settings).map((s) => ({ no: s.no, label: schemeLabel(s.no, [s]) }))} />}
+      {showForm && edit && (() => {
+        const rec = recs;
+        return (
+          <div className="card" style={{ marginBottom: 10 }}>
+            <div className="hd"><h2 style={{ fontSize: 15, margin: 0 }}>🔁 Периодично фактурирање</h2>
+              <Link className="btn sm pri" href={`/periodicni?nov&p=${edit.id}`}>+ Додади производ и датум на фактурирање</Link></div>
+            {rec.length ? (
+              <table className="dense"><thead><tr><th>Производ / услуга</th><th className="n">Цена без ДДВ</th><th>Период</th><th>Ден на фактурирање</th><th>Следна фактура</th><th>Е-пошта</th><th></th></tr></thead>
+                <tbody>{rec.map((r) => (
+                  <tr key={r.id} style={r.active ? undefined : { opacity: 0.55 }}>
+                    <td>{r.items.map((i) => <div key={i.name}>{i.name} <span className="mini">× {i.qty}</span></div>)}</td>
+                    <td className="n">{r.items.map((i) => <div key={i.name}>{i.price.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</div>)}</td>
+                    <td>{REC_EVERY_LBL[r.every as RecEvery] ?? r.every}</td><td>{r.day === 'L' ? 'последен работен ден' : r.day}</td>
+                    <td>{r.next ? r.next.split('-').reverse().join('.') : '—'}{r.active ? '' : ' (неактивна)'}</td>
+                    <td>{r.mail ? (edit.email ? '✉ ' + edit.email : <span style={{ color: 'var(--bad)' }}>нема е-пошта</span>) : '—'}</td>
+                    <td><Link className="btn sm" href={`/periodicni?id=${r.id}`}>Измени</Link></td>
+                  </tr>
+                ))}</tbody></table>
+            ) : <p className="note" style={{ margin: 0 }}>Нема периодична фактура за овој комитент. Со „+ Додади“ изберете производ од артиклите, ден на фактурирање и дали фактурата да оди по е-пошта.</p>}
+          </div>
+        );
+      })()}
       {showForm && edit && !(used.get(edit.id) ?? 0) && canDo(u, 'del', firm.id) && <div className="row" style={{ marginTop: -6, marginBottom: 10 }}><RowAction className="btn danger" action={deletePartner.bind(null, edit.id)} label="Избриши" confirm={`Да се избрише „${edit.name}“?`} /></div>}
       {showForm && edit && (canDo(u, 'settings', firm.id) || canDo(u, 'fix', firm.id)) && (
         <MergeInto self={{ id: edit.id, code: edit.code, name: edit.name }}

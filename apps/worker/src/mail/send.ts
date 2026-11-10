@@ -5,7 +5,7 @@
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { DEMO_OFF_MSG } from '@wise/core/demo';
-import { files, isDemoFirmId, isDemoUserId, mailLog, type DB, type MailLog } from '@wise/db';
+import { files, firms, isDemoFirmId, isDemoUserId, mailLog, type DB, type MailLog } from '@wise/db';
 import type { MailAttachment, Mailer } from './mailer';
 
 /** Job payload of `mail.send`. Either `logId` (row created by the web helper) or the message itself. */
@@ -50,6 +50,20 @@ async function finish(db: DB, id: string, patch: Partial<MailLog>): Promise<Mail
   return r!;
 }
 
+/**
+ * An invoice goes out in the name of the firm that issued it: the sender's name is the firm's name (the address stays
+ * the program's – only that mailbox may send) and replies go to the firm's own e-mail (Податоци за фирмата).
+ */
+async function invoiceSender(db: DB, row: MailLog, from: string): Promise<{ from: string; replyTo?: string }> {
+  if (row.entityType !== 'invoice' || !row.firmId) return { from };
+  const [f] = await db.select({ name: firms.name, email: firms.email }).from(firms).where(eq(firms.id, row.firmId)).limit(1);
+  if (!f) return { from };
+  const addr = /<([^>]+)>/.exec(from)?.[1] ?? from.trim();
+  const name = String(f.name ?? '').replace(/["<>\\\r\n]/g, '').trim();
+  const reply = splitAddresses(f.email ?? '').find((x) => EMAIL_RE.test(x));
+  return { from: name ? `"${name}" <${addr}>` : from, ...(reply ? { replyTo: reply } : {}) };
+}
+
 export async function sendLoggedMail(db: DB, d: MailSendData, deps: MailDeps): Promise<MailLog> {
   const row = await ensureRow(db, d);
   if (row.status === 'sent') return row; // idempotent: a retried job does not send twice
@@ -74,7 +88,8 @@ export async function sendLoggedMail(db: DB, d: MailSendData, deps: MailDeps): P
     }
   }
   try {
-    const r = await deps.mailer.transport.sendMail({ from: deps.mailer.from, to, subject: row.subject, html: row.html, ...(attachments.length ? { attachments } : {}) });
+    const who = await invoiceSender(db, row, deps.mailer.from);
+    const r = await deps.mailer.transport.sendMail({ from: who.from, ...(who.replyTo ? { replyTo: who.replyTo } : {}), to, subject: row.subject, html: row.html, ...(attachments.length ? { attachments } : {}) });
     return finish(db, row.id, { status: 'sent', error: null, messageId: r.messageId ?? null, attempts, sentAt: new Date() });
   } catch (e) {
     return fail('SMTP: ' + ((e as Error).message || String(e)).slice(0, 500));

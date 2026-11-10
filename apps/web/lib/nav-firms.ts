@@ -22,6 +22,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Материјално', 'efaktura', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // dated absences (породилно, боледување, одмор) taken by the monthly payroll by itself
+  // recurring / bulk invoicing (fixed items, invoicing dates) also next to the outgoing invoices, not only under Дејности
+  ['Материјално', 'izlez', [['periodicni', '🔁 Периодични фактури (масовно, фиксни артикли)']]],
   // only for transport firms (module frt, see nav-industry `filterNavByModules`)
   ['Материјално', 'izlez', [['izlezTr', '🚛 Излез – транспорт (само за превозници)']]],
   ['Финансово', 'payBatch', [['payOds', '🗓 Отсуства (породилно, боледување, одмор)'], ['payZadr', '⚖ Задршки од плата (извршители, кредити)']]],

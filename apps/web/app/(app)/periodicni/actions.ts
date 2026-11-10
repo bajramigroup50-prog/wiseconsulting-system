@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray } from 'drizzle-orm';
 import { r2 } from '@wise/core';
 import { firstLastWorkingDay, isRecEvery, type RecItem } from '@wise/core/office';
-import { audit, importRecurring, issueDueRecurring, partners, recurringInvoices } from '@wise/db';
+import { audit, importRecurring, issueDueRecurring, items as articles, partners, recurringInvoices } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { fdate, fv, isUuid, officeAction, officeError, today } from '@/lib/office';
@@ -30,9 +30,16 @@ export async function saveRecurring(_p: ActionState, f: FormData): Promise<Actio
     for (let i = 0; i < 5; i++) {
       const name = fv(f, `it${i}_name`);
       if (!name) continue;
-      items.push({ name, qty: r2(Number(fv(f, `it${i}_qty`)?.replace(',', '.')) || 1), price: r2(Number(fv(f, `it${i}_price`)?.replace(',', '.')) || 0), vat: Number(fv(f, `it${i}_vat`)) || 0, unit: fv(f, `it${i}_unit`) ?? undefined });
+      const itemId = fv(f, `it${i}_item`);
+      items.push({ ...(itemId && isUuid(itemId) ? { itemId } : {}), name, qty: r2(Number(fv(f, `it${i}_qty`)?.replace(',', '.')) || 1), price: r2(Number(fv(f, `it${i}_price`)?.replace(',', '.')) || 0), vat: Number(fv(f, `it${i}_vat`)) || 0, unit: fv(f, `it${i}_unit`) ?? undefined });
     }
     if (!items.length) return { error: 'Комитент, ставки и следна дата се задолжителни.' };
+    // an article id must be an article of this firm (else the line stays free text)
+    const ids = items.map((x) => x.itemId).filter((x): x is string => !!x);
+    if (ids.length) {
+      const own = new Set((await db().select({ id: articles.id }).from(articles).where(and(inArray(articles.id, ids), eq(articles.firmId, firm.id)))).map((x) => x.id));
+      for (const x of items) if (x.itemId && !own.has(x.itemId)) delete x.itemId;
+    }
     const next = fdate(f, 'next') ?? (day === 'L' ? firstLastWorkingDay(today()) : today());
     const v = {
       partnerId, every, day, next, end: fdate(f, 'end'), dueDays: Math.max(0, Math.round(Number(fv(f, 'dueDays')) || 0)), items,

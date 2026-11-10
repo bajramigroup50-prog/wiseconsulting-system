@@ -15,6 +15,8 @@ export interface MailAttachment {
 
 export interface OutgoingMail {
   from: string;
+  /** Replies go here (an invoice: the issuing firm's e-mail). */
+  replyTo?: string;
   to: string[];
   subject: string;
   html: string;
