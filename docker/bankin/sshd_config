@@ -1,0 +1,22 @@
+Port 22
+HostKey /keys/ssh_host_ed25519_key
+HostKey /keys/ssh_host_rsa_key
+PermitRootLogin no
+AllowUsers halk
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+MaxAuthTries 3
+MaxSessions 4
+LoginGraceTime 30
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+AllowStreamLocalForwarding no
+PermitTunnel no
+PermitUserRC no
+Subsystem sftp internal-sftp -u 0022
+Match User halk
+    ChrootDirectory /data/halk
+    ForceCommand internal-sftp -u 0022

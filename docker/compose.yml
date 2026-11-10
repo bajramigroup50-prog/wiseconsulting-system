@@ -108,6 +108,20 @@ services:
     restart: unless-stopped
     depends_on: { migrate: { condition: service_completed_successfully } }
     environment: *app-env
+    volumes:
+      # statement files the banks push to the SFTP drop box (service bankin) – read-only here
+      - bankin:/srv/bank-in:ro
+
+  # SFTP drop box for bank statements (Халк Банка pushes its files here). WISE server only: COMPOSE_PROFILES=bankin and
+  # HALK_SFTP_PASS in /opt/wise/.env; the image is built on the server (`docker compose build bankin`).
+  bankin:
+    profiles: [bankin]
+    build: { context: ./bankin }
+    image: wise-bankin
+    restart: unless-stopped
+    environment: { HALK_SFTP_PASS: "${HALK_SFTP_PASS:-}" }
+    ports: ["2222:22"]
+    volumes: [bankin:/data, bankinkeys:/keys]
 
   caddy:
     image: caddy:2.10-alpine
@@ -124,6 +138,8 @@ services:
 
 volumes:
   pgdata:
+  bankin:
+  bankinkeys:
   s3data:
   caddydata:
   caddyconfig:
