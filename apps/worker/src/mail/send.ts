@@ -5,8 +5,8 @@
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { DEMO_OFF_MSG } from '@wise/core/demo';
-import { files, firms, isDemoFirmId, isDemoUserId, mailLog, type DB, type MailLog } from '@wise/db';
-import type { MailAttachment, Mailer } from './mailer';
+import { files, firmMailbox, firms, isDemoFirmId, isDemoUserId, mailLog, type DB, type MailLog } from '@wise/db';
+import { mailerForBox, type MailAttachment, type Mailer } from './mailer';
 
 /** Job payload of `mail.send`. Either `logId` (row created by the web helper) or the message itself. */
 export interface MailSendData {
@@ -26,6 +26,8 @@ export interface MailDeps {
   mailer: Mailer | null;
   /** Reads an uploaded file (MinIO). Without it, messages with attachments fail. */
   readFile?: (bucketKey: string) => Promise<Buffer>;
+  /** Builds the mailer of a firm's own mailbox (tests pass a mock). */
+  firmMailer?: typeof mailerForBox;
 }
 
 const EMAIL_RE = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/;
@@ -88,9 +90,26 @@ export async function sendLoggedMail(db: DB, d: MailSendData, deps: MailDeps): P
     }
   }
   try {
+    const msg = { to, subject: row.subject, html: row.html, ...(attachments.length ? { attachments } : {}) };
+    // an invoice of a firm with its own mailbox goes out from that mailbox; if it refuses (wrong / revoked app password)
+    // the office's mailbox sends it in the firm's name and the reason is kept on the log row
+    let boxError: string | null = null;
+    if (row.entityType === 'invoice' && row.firmId) {
+      const box = await firmMailbox(db, row.firmId);
+      if (box) {
+        const [f] = await db.select({ name: firms.name }).from(firms).where(eq(firms.id, row.firmId)).limit(1);
+        const own = (deps.firmMailer ?? mailerForBox)(box, f?.name);
+        try {
+          const r = await own.transport.sendMail({ from: own.from, ...msg });
+          return finish(db, row.id, { status: 'sent', error: null, messageId: r.messageId ?? null, attempts, sentAt: new Date() });
+        } catch (e) {
+          boxError = 'Е-поштата на фирмата (' + box.user + ') ја одби пораката – испратено од програмата: ' + ((e as Error).message || String(e)).slice(0, 300);
+        }
+      }
+    }
     const who = await invoiceSender(db, row, deps.mailer.from);
-    const r = await deps.mailer.transport.sendMail({ from: who.from, ...(who.replyTo ? { replyTo: who.replyTo } : {}), to, subject: row.subject, html: row.html, ...(attachments.length ? { attachments } : {}) });
-    return finish(db, row.id, { status: 'sent', error: null, messageId: r.messageId ?? null, attempts, sentAt: new Date() });
+    const r = await deps.mailer.transport.sendMail({ from: who.from, ...(who.replyTo ? { replyTo: who.replyTo } : {}), ...msg });
+    return finish(db, row.id, { status: 'sent', error: boxError, messageId: r.messageId ?? null, attempts, sentAt: new Date() });
   } catch (e) {
     return fail('SMTP: ' + ((e as Error).message || String(e)).slice(0, 500));
   }

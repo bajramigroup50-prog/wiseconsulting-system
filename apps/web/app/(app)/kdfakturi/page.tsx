@@ -22,6 +22,7 @@ import { Hd, dmy } from '@/components/hd';
 import { RowAction } from '@/components/row-action';
 import { issueFeeAction, redeliverFeeAction, remindFeeAction, saveFeeSettings } from './actions';
 import { kdOwnerUser } from '../kdogovori/lib';
+import { currentFirm } from '@/lib/context';
 
 const T = '🧾 Месечна фактура за сметководствени услуги';
 const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -57,6 +58,10 @@ export default async function KdFakturiPage({ searchParams }: { searchParams: Pr
   const issued = await feeRows(db(), { offId: ctx.off.id, periods: months });
   const open = issued.filter((r) => r.remaining > 100);
   const q = (m: string) => `/kdfakturi?m=${m}`;
+  // working in another firm: this page is only the office's invoices to its clients – that firm's own monthly invoices
+  // to its customers are its recurring invoices
+  const cur = await currentFirm(u).catch(() => null);
+  const other = cur && cur.id !== ctx.off.id ? cur : null;
 
   return (
     <>
@@ -65,6 +70,8 @@ export default async function KdFakturiPage({ searchParams }: { searchParams: Pr
         <Link className="btn sm" href={q(rokYmAdd(ym, 1))}>▶</Link>
         <Link className="btn" href="/kdogovori">✍ Договори</Link>
       </Hd>
+      {other && <div className="callout warn">Сега работите во <b>{other.name}</b>. Оваа страница е само за фактурите на канцеларијата (<b>{ctx.off.name}</b>) до клиентите за сметководствени услуги.
+        За месечни фактури од <b>{other.name}</b> до нејзините купувачи (фиксни производи, ден на фактурирање, е-пошта) → <Link className="btn sm pri" href="/periodicni">🔁 Периодични фактури</Link></div>}
       {S.auto && <div className="callout">🤖 Автоматски: фактурите за месецот се издаваат на {S.day === 'L' || !S.day ? 'последниот работен ден' : `${S.day}-ти`} ({dmy(bill)}) во 06:40.</div>}
 
       <ActionForm action={issueFeeAction} className="card" reset={false}>

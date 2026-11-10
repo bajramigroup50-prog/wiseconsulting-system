@@ -19,6 +19,7 @@ import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { Hd, dmy } from '@/components/hd';
 import { FirmForm } from './firm-form';
+import { FirmMailCard } from './mail-card';
 import { openFirm, restoreFirm, unlockFirm } from './actions';
 import { ConfirmButton } from './confirm-button';
 import { firmListSql, isDemoUser } from '@/lib/demo';
@@ -89,6 +90,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
       </Hd>
       {meDemo && <div className="callout warn">🎭 Демо фирми: <b>{nDemo} / {DEMO_MAX_FIRMS}</b>. Новата фирма се зачувува како „ДЕМО – …“ и се брише при ресетирање на демото (секоја ноќ или рачно).</div>}
       {showForm && <FirmForm key={draft?.id ?? 'new'} firm={draft ?? null} fromYearDef={draftFrom} withFee={withFee} feeNote={feeNote} canDelete={admin} canResh={can(u.principal, 'firms')} />}
+      {showForm && draft && !meDemo && <FirmMailCard firmId={draft.id} firmEmail={draft.email} />}
       {showForm && draft && admin && !meDemo && <WipeYearBox firmId={draft.id} firmName={draft.name} year={year} />}
       {!showForm && <>
         <div className="row" style={{ gap: 8, alignItems: 'center', margin: '0 0 8px', flexWrap: 'wrap' }}>

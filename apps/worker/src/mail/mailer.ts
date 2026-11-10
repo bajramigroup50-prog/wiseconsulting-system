@@ -78,3 +78,10 @@ export function sharedMailer(env: Env = process.env): Mailer | null {
   }
   return shared.m;
 }
+
+/** A firm's own mailbox (Фирми → ✉ Е-пошта на фирмата): its invoices go out from its own address. */
+export function mailerForBox(b: { user: string; host: string; port: number; pass: string }, name?: string | null): Mailer {
+  const transport = nodemailer.createTransport({ host: b.host, port: b.port, secure: b.port === 465, auth: { user: b.user, pass: b.pass } });
+  const n = String(name ?? '').replace(/["<>\\\r\n]/g, '').trim();
+  return { transport, from: n ? `"${n}" <${b.user}>` : b.user };
+}
