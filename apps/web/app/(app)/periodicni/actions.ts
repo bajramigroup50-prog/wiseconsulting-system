@@ -3,9 +3,10 @@ import { revalidatePath } from 'next/cache';
 import { and, eq, inArray } from 'drizzle-orm';
 import { r2 } from '@wise/core';
 import { firstLastWorkingDay, isRecEvery, type RecItem } from '@wise/core/office';
-import { audit, importRecurring, issueDueRecurring, items as articles, partners, recurringInvoices } from '@wise/db';
+import { audit, importRecurring, INVOICE_MAIL_JOB, issueDueRecurring, items as articles, partners, recurringInvoices } from '@wise/db';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
+import { enqueue } from '@/lib/jobs';
 import { fdate, fv, isUuid, officeAction, officeError, today } from '@/lib/office';
 
 /**
@@ -81,8 +82,11 @@ export async function runRecurring(): Promise<ActionState> {
   try {
     const { u, firm } = await officeAction('office');
     const r = await issueDueRecurring(db(), { firmId: firm.id, userId: u.id });
+    // the ones sent by e-mail go out now, like the morning job: first a copy to the firm, then the buyer
+    for (const m of r.mail) await enqueue(INVOICE_MAIL_JOB, m);
     revalidatePath('/periodicni');
-    return { ok: r.issued ? `Издадени ${r.issued} фактури (нацрт).` : 'Нема доспеани.' };
+    const drafts = r.issued - r.mail.length;
+    return { ok: r.issued ? `Издадени ${r.issued} фактури${r.mail.length ? ` – ${r.mail.length} се праќаат по е-пошта (прво до фирмата, па до купувачот)` : ''}${drafts > 0 ? `, ${drafts} нацрт за одобрување` : ''}.` : 'Нема доспеани.' };
   } catch (e) { return officeError(e); }
 }
 
