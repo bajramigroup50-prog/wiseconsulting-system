@@ -24,3 +24,23 @@ describe('recurring import: one customer per row with numbered product slots', (
     expect(recWideToLong(S)).toEqual(S);
   });
 });
+
+describe('recurring import: products as columns (quantity under each product)', () => {
+  it('reads the price / VAT rows and one row per customer', () => {
+    const L = recWideToLong([
+      ['Комитент', 'ЕДБ', 'E-mail', 'Телефон', 'Ден за фактурирање', 'Парфем A', 'Парфем B', 'Апарат', 'Парфем C', 'Вкупно месечно со ДДВ'],
+      ['ЦЕНА БЕЗ ДДВ →', '', '', '', '', '1.500,00', 1200, 1000, 900, ''],
+      ['ДДВ % →', '', '', '', '', 18, 18, 18, 5, ''],
+      ['ЦЕНА СО ДДВ →', '', '', '', '', 1770, 1416, 1180, 945, ''],
+      ['ПРИМЕР – Хотел', '', '', '', 1, 1, '', '', '', ''],
+      ['Хотел А', '4030', 'a@b.mk', '070', 1, 2, 1, 'x', 3, 9000],
+      ['Канцеларија Б', '', '', '', 5, 1, '', '', '', 1770],
+    ]);
+    const r = oxRows(L, REC_IMPORT);
+    expect(r.errors).toEqual([]);
+    expect(r.rows.filter((x) => !/^ПРИМЕР/.test(x.partner!)).map((x) => [x.partner, x.item, x.qty, x.price, x.vat, x.day])).toEqual([
+      ['Хотел А', 'Парфем A', '2', '1.500,00', '18', '1'], ['Хотел А', 'Парфем B', '1', '1200', '18', '1'], ['Хотел А', 'Апарат', '1', '1000', '18', '1'], ['Хотел А', 'Парфем C', '3', '900', '5', '1'],
+      ['Канцеларија Б', 'Парфем A', '1', '1.500,00', '18', '5'],
+    ]);
+  });
+});

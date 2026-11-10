@@ -194,7 +194,7 @@ export const CLIENT_IMPORT: readonly OxCol[] = [
 
 export const REC_IMPORT: readonly OxCol[] = [
   { k: 'partner', h: ['Комитент', 'Купувач'], req: true }, { k: 'edb', h: ['ЕДБ'] },
-  { k: 'every', h: ['Се повторува', 'Повторување', 'Период'] }, { k: 'day', h: ['Ден во месецот (1–28 или L)', 'Ден во месецот', 'Ден'] },
+  { k: 'every', h: ['Се повторува', 'Повторување', 'Период'] }, { k: 'day', h: ['Ден во месецот (1–28 или L)', 'Ден во месецот', 'Ден за фактурирање', 'Ден на фактурирање', 'Ден'] },
   { k: 'next', h: ['Следна фактура на', 'Следна'] }, { k: 'end', h: ['Заклучно со', 'Крај'] }, { k: 'dueDays', h: ['Рок на плаќање (дена)', 'Рок'] },
   { k: 'note', h: ['Опис на фактурата', 'Опис'] }, { k: 'item', h: ['Ставка', 'Услуга', 'Производ'], req: true }, { k: 'qty', h: ['Количина', 'Кол.'] },
   { k: 'price', h: ['Цена без ДДВ', 'Цена'], req: true }, { k: 'vat', h: ['ДДВ %', 'ДДВ'] }, { k: 'mail', h: ['Е-пошта (да/не)', 'Прати по е-пошта'] },
@@ -203,11 +203,47 @@ export const REC_IMPORT: readonly OxCol[] = [
 ];
 
 /**
+ * The products as columns (the client's list): row 1 = the customer columns and one column per product (its name as the
+ * header), a row „ЦЕНА БЕЗ ДДВ“ with each product's price and optionally a row „ДДВ %“; below, one customer per row
+ * with the quantity under each product it takes (empty = not taken, „x“ / „да“ = 1). → one row per product, the shape
+ * `REC_IMPORT` reads. A sheet without the price row is returned as it is.
+ */
+export function recMatrixToLong(rows: readonly (readonly OxCell[])[]): OxCell[][] {
+  const first = (r: readonly OxCell[] | undefined) => normH((r ?? []).find((x) => String(x ?? '').trim() !== ''));
+  const pi = rows.findIndex((r, i) => i > 0 && i < 6 && /^цена/.test(first(r)));
+  if (pi < 0) return rows.map((r) => [...r]);
+  const vi = rows.findIndex((r, i) => i > 0 && i < 6 && i !== pi && /^ддв/.test(first(r)));
+  const H = (rows[0] ?? []).map((h) => String(h ?? '').trim());
+  const known = new Set(REC_IMPORT.flatMap((c) => c.h.map(normH)));
+  const prod = H.map((h, i) => i).filter((i) => H[i] && !known.has(normH(H[i])) && !/^вкупно/.test(normH(H[i])) && oxNum(rows[pi]![i]) > 0);
+  const common = H.map((h, i) => i).filter((i) => H[i] && known.has(normH(H[i])));
+  const out: OxCell[][] = [[...common.map((i) => H[i]!), 'Ставка', 'Количина', 'Цена без ДДВ', 'ДДВ %']];
+  rows.forEach((r, j) => {
+    // the header rows (price without / with VAT, VAT %) are not customers
+    if (j === 0 || j === pi || j === vi || (j < 6 && /^(цена|ддв)/.test(first(r)))) return;
+    const base = common.map((i) => r[i] ?? '');
+    if (!base.some((x) => String(x ?? '').trim())) return;
+    let any = false;
+    for (const i of prod) {
+      const c = String(r[i] ?? '').trim();
+      if (!c) continue;
+      const q = oxBool(c) && !(oxNum(c) > 0) ? 1 : oxNum(c);
+      if (!(q > 0)) continue;
+      out.push([...base, H[i]!, q, rows[pi]![i] ?? '', vi >= 0 ? rows[vi]![i] ?? '' : '']);
+      any = true;
+    }
+    if (!any) out.push([...base, '', '', '', '']);
+  });
+  return out;
+}
+
+/**
  * One customer per row with numbered product slots („Производ 1“, „Количина 1“, „Цена без ДДВ 1“, „ДДВ % 1“, … „Производ 5“)
  * → one row per product (the shape `REC_IMPORT` reads); the rows of one customer then make one invoice with all its products.
  * A sheet without numbered columns is returned as it is.
  */
 export function recWideToLong(rows: readonly (readonly OxCell[])[]): OxCell[][] {
+  rows = recMatrixToLong(rows);
   const H = (rows[0] ?? []).map((h) => String(h ?? '').trim());
   const slot = H.map((h) => /^(.*\S)\s+(\d{1,2})$/.exec(h));
   if (!slot.some((m) => m && /^(ставка|производ|услуга)$/i.test(normH(m[1])))) return rows.map((r) => [...r]);
