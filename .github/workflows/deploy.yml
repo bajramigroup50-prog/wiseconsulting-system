@@ -8,6 +8,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      fejkan:
+        description: 'Deploy also to ФЕЈКАН (app.fejkan.com.mk)'
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy
@@ -76,9 +81,10 @@ jobs:
           echo '207.180.254.154 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPqeGMNdNYj383VETrNpx4I6cD+e95pzaD/fAc7nu6sN' > ~/.ssh/known_hosts
           printf '%s\n%s\n%s\n' "$TOKEN" "${{ github.actor }}" "${{ github.sha }}" | ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 wise@207.180.254.154
 
-      # the same program for the other offices, each on its own server and database (brand from that server's .env)
+      # the same program for the other offices, each on its own server and database (brand from that server's .env).
+      # Since 2026-11-10 a push deploys ONLY to WISE; ФЕЈКАН gets a version only by hand (Run workflow → fejkan ✓).
       - name: Deploy ФЕЈКАН АКОНТИНГ (app.fejkan.com.mk)
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fejkan }}
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
