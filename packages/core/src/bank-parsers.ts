@@ -16,6 +16,7 @@
 import { decodeBankBytes } from './bank/text';
 import { byLocalInDoc, byTagInDoc, descendants, parseXml, textOf, type XmlElement } from './bank/xml';
 import { toCents } from './bank/cents';
+import { ISO_PURPOSE, OLD_TO_ISO } from './bank/purpose-codes';
 import { r2 } from './money';
 import { AmbiguousAmountsError, ambExamples, colFormat, parseNumAuto, reconcileFmt, type NumFmt } from './numfmt';
 import { itemCell, prepBankGrid, type BankItem, type BankRole } from './bank/table';
@@ -95,6 +96,21 @@ export const stripYearPrefix = (n: string): string => (/^20\d{2}\d+$/.test(n) &&
  * match), so `?32` names on later lines were lost; here the whole field is used.
  * Legacy 12724 re-saved names keyed by `date|amount` (ambiguous) — unnecessary, names are on the lines.
  */
+const KNOWN_PURPOSE = new Set<string>([...ISO_PURPOSE.map((x) => x[0]), ...Object.keys(OLD_TO_ISO)]);
+
+/**
+ * Payment code (шифра на плаќање, old 3 digits or the ISO 20022 code from 9 Nov 2026) in an MT940 `:86:` field:
+ * `/PURP/GDSV`, `?00` / `?10` holding only the code, or „шифра 930“ in the text. Only a code from the official list is
+ * taken – the booking rules work by it, so a guess would book wrongly.
+ */
+export function mt940Osnov(raw86: string): string {
+  const C: string[] = [];
+  for (const m of raw86.matchAll(/\/PURP\/+(?:CD\/)?([A-Za-z]{4}|\d{3})\b/g)) C.push(m[1]!);
+  for (const m of raw86.matchAll(/\?(?:00|10)\s*([A-Za-z]{4}|\d{3})\s*(?=\?|$)/g)) C.push(m[1]!);
+  for (const m of raw86.matchAll(/(?:шифра|sifra|šifra|osnov|основ)(?:\s+на\s+плаќање)?[\s:.-]*([A-Za-z]{4}|\d{3})\b/gi)) C.push(m[1]!);
+  return C.map((x) => x.toUpperCase()).find((x) => KNOWN_PURPOSE.has(x)) ?? '';
+}
+
 export function parseMT940(input: Uint8Array | string): Statement[] {
   const txt = decodeBankBytes(input).replace(/\r/g, '');
   const out: Statement[] = [];
@@ -144,6 +160,7 @@ export function parseMT940(input: Uint8Array | string): Statement[] {
       let name = '';
       let pur = '';
       let iban: string | undefined;
+      let osnov = '';
       if (has86) {
         const raw = nx.slice(4).replace(/\n/g, '');
         const sf = [...raw.matchAll(/\?(3[23])([^?]*)/g)].map((x) => x[2]).join(' ').trim();
@@ -153,6 +170,7 @@ export function parseMT940(input: Uint8Array | string): Statement[] {
         pur = [...raw.matchAll(/\?(2\d)([^?]*)/g)].map((x) => x[2]).join('').trim() || (raw.match(/\/REMI\/+([^/]+)/i) || [])[1] || '';
         const acc = raw.match(/\?31([^?]*)/);
         if (acc && acc[1]!.trim()) iban = acc[1]!.trim();
+        osnov = mt940Osnov(raw);
         if (name) desc = name + (pur ? ' – ' + pur : '');
       }
       // reference from the :61: line: after amount and the 4-char transaction type
@@ -168,6 +186,7 @@ export function parseMT940(input: Uint8Array | string): Statement[] {
         ref,
         purpose: pur || det,
         desc,
+        ...(osnov ? { osnov } : {}),
       });
       if (cents < 0) st.debit! += -cents;
       else st.credit! += cents;
