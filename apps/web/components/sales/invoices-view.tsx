@@ -300,7 +300,8 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const opSel = kind === 'invoice' && dt === 'invoice' && write && u.role !== 'klient';
   // ЗДДВ чл. 32-а / ослободување: bulk re-marking of invoices issued without VAT (correction right `fix`)
   const vatSel = (kind === 'invoice' || kind === 'credit') && firm.vatRegistered && canDo(u, 'vatMark32', firm.id);
-  const sel = bulkDel || opSel || vatSel;
+  // ticks are always there: „🖨 Печати ги избраните“ is for everybody who sees the list
+  const sel = true;
   const fuel = dt === 'invoice' ? await fuelBannerFor(firm) : null;
   const sg = kind === 'credit' ? -1 : 1;
 
@@ -375,7 +376,7 @@ ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${
       {list.length ? (<>
         {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
 Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
-Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : undefined} />}
+Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={[{ label: '🖨 Печати ги избраните ({n})', href: '/print/docs?ids={ids}' }, ...(opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : [])]} />}
         {/* the ДДВ основ is chosen inside the invoice („ДДВ основ“); here only for many ticked invoices at once */}
         {vatSel && <details className="noprint" style={{ margin: '4px 0' }}><summary className="mini" style={{ cursor: 'pointer' }}>Масовно: ДДВ основ на штиклираните фактури (32-а / чл. 24 / чл. 23)…</summary><VatMarkBar action={markInvoicesVatAction} /></details>}
         <div className="tw"><table className="dense" style={{ fontSize: 12.5 }}>
