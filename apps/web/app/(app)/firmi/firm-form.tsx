@@ -24,6 +24,8 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYe
 }) {
   const [st, action, pending] = useActionState<FirmFormState, FormData>(saveFirm, {});
   const [tab, setTab] = useState<FirmTab>('osn');
+  // not registered for VAT → the VAT period and „ДДВ обврзник од“ do not apply (hidden)
+  const [vatOn, setVatOn] = useState(d?.vatRegistered ?? true);
   const s = (d?.settings ?? {}) as S;
   const formRef = useRef<HTMLFormElement>(null);
   const v = (k: string, def = ''): string => {
@@ -152,7 +154,9 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYe
         )}
         <R k="repro" l="Репро зависност" opts={[['nedef', 'Недефинирано'], ['zav', 'Зависни'], ['nezav', 'Независни']]} def="nedef" />
         <fieldset className="fs"><legend>ДДВ и години</legend>
-          <label className="chk"><input type="checkbox" name="vatRegistered" defaultChecked={d?.vatRegistered ?? true} /> Регистрирана за ДДВ</label>
+          <label className="chk"><input type="checkbox" name="vatRegistered" checked={vatOn} onChange={(e) => setVatOn(e.target.checked)} /> Регистрирана за ДДВ</label>
+          {!vatOn && <p className="note" style={{ margin: '0 0 8px' }}>Фирмата не е ДДВ обврзник – нема даночен период за ДДВ.</p>}
+          <div style={vatOn ? undefined : { display: 'none' }}>
           <label className="fl"><span>Даночен период</span>
             <select name="vatPeriod" defaultValue={d?.vatPeriod ?? 'quarter'}>
               <option value="quarter">Тримесечен (≤ 25 мил.)</option>
@@ -160,6 +164,7 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYe
             </select>
           </label>
           <label className="fl"><span>ДДВ обврзник од</span><input name="vatFrom" type="date" defaultValue={v('vatFrom')} /></label>
+          </div>
           <I k="gdvpYear" l="Година од која плаќа ГДВП" max={4} />
           <I k="curYear" l="Тековна година" def={String(new Date().getFullYear())} max={4} />
           <I k="parent" l="Фирма родител (од минатата година)" />
