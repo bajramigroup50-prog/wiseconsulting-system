@@ -217,7 +217,9 @@ export function firstRecDay(today: string, day: number): string {
   return cur >= today ? cur : recNext(today.slice(0, 8) + '01', 'month', day);
 }
 
-export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], today: string): Promise<OxImportResult> {
+/** `start` (YYYY-MM): invoicing starts in that month at the earliest (data entered in December, first invoices in January). */
+export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], today: string, start?: string | null): Promise<OxImportResult> {
+  const from = start && /^\d{4}-\d{2}$/.test(start) && `${start}-01` > today ? `${start}-01` : today;
   await assertRecurModule(tx, a);
   const M = oxRows(recWideToLong(rows), REC_IMPORT);
   const r: OxImportResult = { added: 0, updated: 0, errors: M.errors };
@@ -227,7 +229,7 @@ export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], tod
     // the template's example row („ПРИМЕР – …“) is never imported
     if (/^\s*пример/i.test(x.partner ?? '')) continue;
     const every = importEvery(x.every), day = importRecDay(x.day);
-    const next = oxDate(x.next) || (day === 'L' ? firstLastWorkingDay(today) : firstRecDay(today, Number(day)));
+    const next = oxDate(x.next) || (day === 'L' ? firstLastWorkingDay(from) : firstRecDay(from, Number(day)));
     const key = [x.partner, dig(x.edb), every, day, next, x.note].join('|');
     const g = G.get(key) ?? { row: x._row, partner: x.partner!, edb: x.edb!, every, day, next, end: oxDate(x.end), due: x.dueDays ? Math.max(0, Math.round(oxNum(x.dueDays))) : 15, note: x.note!,
       // no „send by e-mail“ cell: send when the customer's e-mail is given

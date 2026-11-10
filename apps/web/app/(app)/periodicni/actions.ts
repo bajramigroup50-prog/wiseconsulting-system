@@ -93,7 +93,7 @@ export async function importRecurringAction(_p: ActionState, f: FormData): Promi
     let rows: unknown = [];
     try { rows = JSON.parse(String(f.get('rows') ?? '[]')); } catch { rows = []; }
     const R = (Array.isArray(rows) ? rows : []).filter(Array.isArray) as (string | number | null)[][];
-    const r = await db().transaction((tx) => importRecurring(tx, { firmId: firm.id, userId: u.id, role: u.role }, R, today()));
+    const r = await db().transaction((tx) => importRecurring(tx, { firmId: firm.id, userId: u.id, role: u.role }, R, today(), fv(f, 'start')));
     revalidatePath('/periodicni');
     return { ok: `Додадени ${r.added}, ажурирани ${r.updated}.${r.errors.length ? ' Грешки: ' + r.errors.slice(0, 5).join(' ') : ''}` };
   } catch (e) { return officeError(e); }

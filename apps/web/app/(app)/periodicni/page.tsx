@@ -15,8 +15,8 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteRecurring, importRecurringAction, runRecurring, saveRecurring } from './actions';
 import { oxTemplate, REC_IMPORT } from '@wise/core/industry';
-import { XlsxImport } from '@/components/list-tools';
 import { RecItemFill } from './item-fill';
+import { RecImportBox } from './import-box';
 
 const total = (items: { qty: number; price: number; vat: number }[]) => r2(items.reduce((a, l) => a + l.qty * l.price * (1 + l.vat / 100), 0));
 
@@ -46,7 +46,7 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
         <Link className="btn" href="/periodicni?nov&bulk">👥 За повеќе комитенти</Link>
         <RowAction className="btn" action={runRecurring} label={`🧾 Издади доспеани (${due.length})`} />
       </Hd>
-      <div className="row" style={{ gap: 8, marginBottom: 8 }}><XlsxImport action={importRecurringAction} template={oxTemplate(REC_IMPORT, [['Купувач ДОО', '4030000000000', 'месечно', '1', '01.11.2026', '', 15, 'Сметководствени услуги за {месец}', 'Сметководствени услуги', 1, 6000, 18, 'да']])} templateName="Periodicni_obrazec.xlsx" label="📥 Периодични од Excel" /><a className="btn" href="/forms/Periodicni-po-kupuvac.xlsx" download title="Листа за клиентот: производите и цените еднаш во лист „Производи“; во „Фактурирање“ една компанија во еден ред – количина под секој производ што го зема, ден за фактурирање, е-пошта и телефон. Пополнетата листа се увезува со „📥 Периодични од Excel“">📄 Листа за клиентот (Excel)</a></div>
+      <div className="row" style={{ gap: 8, marginBottom: 8 }}><RecImportBox action={importRecurringAction} firstMonth={td.slice(0, 7)} template={oxTemplate(REC_IMPORT, [['Купувач ДОО', '4030000000000', 'месечно', '1', '01.11.2026', '', 15, 'Сметководствени услуги за {месец}', 'Сметководствени услуги', 1, 6000, 18, 'да']])} /><a className="btn" href="/forms/Periodicni-po-kupuvac.xlsx" download title="Листа за клиентот: производите и цените еднаш во лист „Производи“; во „Фактурирање“ една компанија во еден ред – количина под секој производ што го зема, ден за фактурирање, е-пошта и телефон. Пополнетата листа се увезува со „📥 Периодични од Excel“">📄 Листа за клиентот (Excel)</a></div>
       {(sp.nov !== undefined || e) && (
         <ActionForm action={saveRecurring} reset={false}>
           <h2>{e ? 'Измена' : sp.bulk !== undefined ? '🔁 Месечна фактура за повеќе комитенти' : 'Нова периодична фактура'}</h2>
