@@ -197,6 +197,13 @@ const docOf = async (tx: Tx, id: string) => {
   return r;
 };
 
+/** Statements from the bank connections still waiting for approval, of one firm (the banner on its Изводи page). */
+export async function feedWaitingFor(tx: Pick<Tx, 'select'>, firmId: string): Promise<number> {
+  const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(incomingDocs)
+    .where(and(eq(incomingDocs.source, BANKFEED_SOURCE), eq(incomingDocs.status, 'read'), eq(incomingDocs.firmId, firmId)));
+  return r?.n ?? 0;
+}
+
 /** Pick the firm of a waiting statement (the account was not found, or several firms share it). */
 export async function feedSetFirm(tx: Tx, id: string, firmId: string, userId: string | null): Promise<void> {
   const r = await docOf(tx, id);
