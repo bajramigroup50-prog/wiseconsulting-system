@@ -11,7 +11,7 @@ import { runInvoiceMail } from './invoice-mail';
 
 const pg = drizzle(new PGlite(), { schema });
 const db = pg as unknown as DB;
-let firmId = '', invId = '';
+let firmId = '', invId = '', inv2 = '';
 const sent: OutgoingMail[] = [];
 const mailer: Mailer = { from: 'WISE <office@wise.mk>', transport: { async sendMail(m) { sent.push(m); return { messageId: '<x@test>' }; } } };
 const rendered: PdfInput[] = [];
@@ -20,13 +20,17 @@ const puts: string[] = [];
 beforeAll(async () => {
   await migrate(pg, { migrationsFolder: fileURLToPath(new URL('../../../../packages/db/migrations', import.meta.url)) });
   await seedReference(pg);
-  const [f] = await pg.insert(schema.firms).values({ name: 'Фактура ДОО', edb: '4030000000009' }).returning();
+  const [f] = await pg.insert(schema.firms).values({ name: 'Фактура ДОО', edb: '4030000000009', email: 'firma@example.mk' }).returning();
   firmId = f!.id;
   const [p] = await pg.insert(schema.partners).values({ firmId, name: 'Купувач', code: '1', email: 'kupuvac@example.mk' }).returning();
   const r = await pg.transaction((tx) => saveInvoice(tx as unknown as DB, firmId, {
     kind: 'invoice', date: '2026-05-04', due: '2026-05-19', partnerId: p!.id, lines: [{ name: 'Услуга', qty: 2, price: 500, rate: 18 }],
   }, { userId: null, role: 'acc' }));
   invId = r.id;
+  const r2 = await pg.transaction((tx) => saveInvoice(tx as unknown as DB, firmId, {
+    kind: 'invoice', date: '2026-06-04', due: '2026-06-19', partnerId: p!.id, lines: [{ name: 'Услуга', qty: 1, price: 100, rate: 18 }],
+  }, { userId: null, role: 'acc' }));
+  inv2 = r2.id;
 }, 60_000);
 
 describe('invoice.mail', () => {
@@ -42,7 +46,24 @@ describe('invoice.mail', () => {
     expect(r!.subject).toMatch(/Фактура бр\..*Фактура ДОО/);
     const [f] = await pg.select().from(schema.files).where(eq(schema.files.id, r!.attachments[0]!));
     expect(f).toMatchObject({ firmId, mime: 'application/pdf', status: 'ready' });
-    expect(sent[0]!.attachments).toHaveLength(1);
+    // the invoice and the buyer's financial card
+    expect(sent[0]!.attachments).toHaveLength(2);
+    expect(rendered[1]!.html).toContain('КАРТИЦА НА КУПУВАЧОТ');
+    expect(rendered[1]!.html).toContain('Фактура бр.');
+  });
+  it('an automatically issued invoice goes first to the firm itself, then to the buyer; it carries the earlier debt', async () => {
+    sent.length = 0; rendered.length = 0;
+    const r = await runInvoiceMail(db, { invoiceId: inv2, copyFirm: true, card: false }, {
+      mail: { mailer, readFile: async () => Buffer.from('%PDF') }, render: async (p) => { rendered.push(p); return new Uint8Array([1]); }, store: { put: async () => {} },
+    });
+    expect(sent.map((m) => String(m.to))).toEqual(['firma@example.mk', 'kupuvac@example.mk']);
+    expect(sent[0]!.subject).toMatch(/^Копија: .*Купувач$/);
+    expect(r).toMatchObject({ status: 'sent', to: ['kupuvac@example.mk'] });
+    // the first invoice (1.180,00) is unpaid → printed on the second one
+    expect(rendered[0]!.html).toContain('Неплатени претходни фактури');
+    expect(rendered[0]!.html).toContain('1.180,00');
+    expect(rendered[0]!.html).toContain('1.298,00');
+    expect(sent[1]!.attachments).toHaveLength(1);
   });
   it('uses the given address / subject and ignores a missing document', async () => {
     const r = await runInvoiceMail(db, { invoiceId: invId, to: 'drug@example.mk', subject: 'Нова фактура' }, {

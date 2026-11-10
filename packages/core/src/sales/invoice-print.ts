@@ -59,6 +59,8 @@ export interface InvoicePrintInput {
   from?: { kind: string; number: string } | null;
   /** Dispatch note: the issuing warehouse (`codes`). */
   warehouse?: { code?: string | null; name: string } | null;
+  /** The buyer's earlier unpaid invoices (remaining, MKD) – printed on an invoice as the debt carried over. */
+  debt?: { list: readonly { number: string; date: string; due?: string | null; open: number }[]; total: number } | null;
   /**
    * `<img src>` of a logo / signature / stamp setting value (a `files.id` or a URL). Default: `/api/files/{id}`
    * (web). The worker passes `data:` URIs because its Chromium has no network.
@@ -177,6 +179,11 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
   })();
   const logo = img(S.logo), sign = img(S.sign), stamp = esign ? '' : img(S.stamp);
   const note = S.invNote == null ? INV_NOTE0 : st('invNote');
+  // earlier unpaid invoices of the buyer (firm setting `debtOnInv: false` turns it off)
+  const D = kind === 'invoice' && doc.kind === 'invoice' && S.debtOnInv !== false && p.debt && p.debt.total > 0.005 ? p.debt : null;
+  const debtBlock = (box: Css, pay: number) => D ? `<div${sa({ marginTop: 8, fontSize: 9.8, ...box })}><b>Неплатени претходни фактури:</b> `
+    + D.list.slice(0, 12).map((x) => `бр. ${h(x.number)} од ${dmy(x.date)} – ${fmt(x.open)}`).join('; ') + (D.list.length > 12 ? `; и уште ${D.list.length - 12}` : '')
+    + `<br>Претходен долг: <b>${fmt(D.total)} ден.</b> · Вкупен долг со оваа фактура: <b>${fmt(D.total + pay * (Number(doc.fx) || 1))} ден.</b></div>` : '';
   const td0 = sa({ border: 0, borderBottom: '1px solid #ddd' });
   const head = `<div${sa({ borderTop: `4px solid ${AC}`, paddingTop: 10, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' })}>`
     + `<div${sa({ display: 'flex', gap: 10, alignItems: 'flex-start' })}>${logo ? imgTag(logo, { maxHeight: '22mm', maxWidth: '45mm' }) : ''}`
@@ -276,6 +283,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + `<div${sa({ width: '74mm', ...(M ? {} : { background: soft, borderRadius: 10 }), padding: '8px 12px' })}>${tr('Износ без ДДВ', fmt(T.base))}${tr('ДДВ', fmt(vatAll))}${T.advTotal ? tr('Одбиен аванс', '−' + fmt(T.advTotal)) : ''}`
         + `<div${sa({ borderTop: M ? '1.5px solid #111' : `2px solid ${Acol}`, marginTop: 5, paddingTop: 6, color: M ? '#111' : Acol })}>${tr(kind === 'credit' ? 'ИЗНОС НА ОДОБРЕНИЕТО' : 'ЗА ПЛАЌАЊЕ', fmt(pay) + ' ' + cur, true)}</div></div></div>`
         + (kind === 'invoice' ? `<div${sa({ marginTop: 12, fontSize: 10, ...(M ? { borderTop: '1px solid #ddd', paddingTop: 8 } : { borderLeft: `3px solid ${Acol}`, background: '#fafbfc', padding: '8px 12px', borderRadius: '0 8px 8px 0' }) })}>${lbl('Плаќање')}Жиро сметка <b>${h(st('bank'))}</b>${st('bankName') ? ' · ' + h(st('bankName')) : ''}${doc.due ? ` · рок до <b>${dmy(doc.due)}</b>` : ''} · повикување на број <b>${h(doc.number)}</b></div>` : '')
+        + debtBlock(M ? { borderTop: '1px solid #ddd', paddingTop: 6 } : { borderLeft: '3px solid #c0392b', background: '#fdf3f2', padding: '6px 12px', borderRadius: '0 8px 8px 0' }, pay)
         + (kind === 'credit' ? `<p${sa({ margin: '8px 0 0', fontSize: 10 })}>Ве одобруваме за горенаведениот износ. Одобрението го намалува Вашиот долг по наведената фактура.</p>` : '')
         + (kind === 'proforma' ? `<p${sa({ margin: '8px 0 0', fontSize: 10, color: '#666' })}>Профактурата служи за плаќање однапред и не е даночна фактура.</p>` : '')
         + (doc.note ? `<p${sa({ margin: '8px 0 0', fontSize: 10 })}>${h(doc.note)}</p>` : '')
@@ -302,6 +310,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + (doc.art32 ? `<p${sa({ margin: '6px 0 0' })}><b>* ${h(ART32_NOTE)}.</b> ДДВ ${fmt(vatAll)} ден. го пресметува и плаќа примателот.</p>` : '')
         + (!doc.art32 && vNote ? `<p${sa({ margin: '6px 0 0' })}><b>${h(vNote)}</b></p>` : '')
         + (kind === 'invoice' ? `<p${sa({ margin: '6px 0 0' })}>Плаќање${doc.due ? ' до ' + dmy(doc.due) : ''} на жиро сметка <b>${h(st('bank'))}</b>${st('bankName') ? ' кај ' + h(st('bankName')) : ''}, со повикување на број <b>${h(doc.number)}</b>.</p>` : '')
+        + debtBlock({ border: '1px solid #c0392b', padding: '4px 8px' }, pay)
         + (kind === 'credit' ? `<p${sa({ margin: '6px 0 0' })}>Ве одобруваме за горенаведениот износ. Одобрението го намалува Вашиот долг по наведената фактура. Ве молиме за истиот износ да го намалите претходниот данок.</p>` : '')
         + (kind === 'proforma' ? `<p class="muted"${sa({ margin: '6px 0 0' })}>Профактурата служи за плаќање однапред и не е даночна фактура.</p>` : '')
         + (doc.note ? `<p${sa({ margin: '6px 0 0' })}>${h(doc.note)}</p>` : '')

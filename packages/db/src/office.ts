@@ -411,8 +411,11 @@ export async function sendAutopilotMessage(tx: Tx, key: string, ch: { portal: bo
 
 /** Job that renders an issued invoice as PDF and e-mails it to the buyer (worker `invoice.mail`). */
 export const INVOICE_MAIL_JOB = 'invoice.mail';
-/** Payload of {@link INVOICE_MAIL_JOB}; without `to` the job uses the buyer's e-mail. */
-export interface InvoiceMailRequest { invoiceId: string; to?: string; userId?: string | null }
+/**
+ * Payload of {@link INVOICE_MAIL_JOB}; without `to` the job uses the buyer's e-mail. `copyFirm`: an automatically issued
+ * invoice goes first to the issuing firm itself (its own mailbox / e-mail, a copy with the PDF), then to the buyer.
+ */
+export interface InvoiceMailRequest { invoiceId: string; to?: string; userId?: string | null; copyFirm?: boolean }
 
 /** Where issued recurring invoices go. Phase 3 owns invoices (numbering, posting via `invoiceEntries`). */
 export interface InvoiceDraftSink {
@@ -475,7 +478,7 @@ export async function issueDueRecurring(db: Tx, o: { today?: string; sink?: Invo
           if (!x) break;
           const c = await sink.createDraft(tx, r.firmId, x.invoice, o.userId ?? null, { post: r.mail });
           lastRef = c.ref;
-          if (r.mail) M.push({ invoiceId: c.invoiceId, ...(to ? { to } : {}), userId: o.userId ?? null });
+          if (r.mail) M.push({ invoiceId: c.invoiceId, ...(to ? { to } : {}), userId: o.userId ?? null, copyFirm: true });
           last = x.invoice.date; next = x.next; n++;
           if (x.finished) { active = false; break; }
         }

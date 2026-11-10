@@ -6,9 +6,9 @@
  * Started by the web „Испрати по е-пошта“ form and by the recurring-invoice job. Delivery problems end as a `failed`
  * `mail_log` row (no SMTP, no address, …) like every other message; the job itself does not throw for them.
  */
-import { invoiceMailText, invoicePdfName, invoicePrintHtml } from '@wise/core/sales';
+import { invoiceMailText, invoicePdfName, invoicePrintHtml, partnerCardHtml } from '@wise/core/sales';
 import { PDFDOC_CSS } from '@wise/core/print-css';
-import { files, loadInvoicePrintData, textMailHtml, type DB, type InvoiceMailRequest, type PdfFileLink } from '@wise/db';
+import { files, firmMailboxInfo, loadInvoicePrintData, partnerCardRows, textMailHtml, type DB, type InvoiceMailRequest, type PdfFileLink } from '@wise/db';
 import { inArray } from 'drizzle-orm';
 import { defineJob } from '../job';
 import type { PdfInput } from '../pdf/document';
@@ -20,7 +20,8 @@ import { renderPdfToFile } from './pdf';
 
 export const INVOICE_MAIL = 'invoice.mail';
 
-export interface InvoiceMailData extends InvoiceMailRequest { subject?: string; body?: string }
+/** `card: false` leaves out the buyer's financial card (attached by default to an invoice with a buyer). */
+export interface InvoiceMailData extends InvoiceMailRequest { subject?: string; body?: string; card?: boolean }
 
 export interface InvoiceMailDeps {
   mail: MailDeps;
@@ -60,9 +61,34 @@ export async function runInvoiceMail(db: DB, d: InvoiceMailData, deps: InvoiceMa
   if (!r) return null;
   const { invoice: inv, firm, partner } = r.P;
   const t = invoiceMailText({ kind: inv.kind, advance: inv.advance, number: inv.number, date: inv.date, due: inv.due, total: Number(inv.total), currency: inv.currency, firm });
+  const buyer = (d.to || partner?.email || '').trim();
+  const att = [r.fileId];
+  // the buyer's financial card (customer accounts 12x, this year up to today) as a second PDF – firm setting `cardOnMail: false` turns it off
+  const S = (firm.settings ?? {}) as { cardOnMail?: unknown };
+  if (inv.kind === 'invoice' && partner && d.card !== false && S.cardOnMail !== false) {
+    try {
+      const to = new Date().toISOString().slice(0, 10) > inv.date ? new Date().toISOString().slice(0, 10) : inv.date;
+      const C = await partnerCardRows(db, firm.id, partner.id, to);
+      if (C.rows.length) {
+        const html = partnerCardHtml({ firm: { name: firm.name, address: firm.address, city: firm.city, edb: firm.edb }, partner: { name: partner.name, edb: partner.edb, address: partner.address }, ...C });
+        att.push(await renderPdfToFile(db, { html, css: PDFDOC_CSS, title: `Картица ${partner.name}`.slice(0, 80), firmId: firm.id, userId: d.userId ?? null }, { render: deps.render, store: deps.store }));
+      }
+    } catch { /* the invoice goes without the card */ }
+  }
+  if (d.copyFirm) {
+    // automatically issued invoice: first a copy to the issuing firm itself (its own mailbox, else its e-mail), then the buyer
+    const own = ((await firmMailboxInfo(db, firm.id))?.user || firm.email || '').trim();
+    if (own && own.toLowerCase() !== buyer.toLowerCase()) {
+      await sendLoggedMail(db, {
+        firmId: firm.id, to: own, subject: `Копија: ${t.subject}${partner?.name ? ' – ' + partner.name : ''}`,
+        html: textMailHtml(`Издадена е фактура ${inv.number ?? ''} за ${partner?.name ?? 'купувачот'}${buyer ? ` и се праќа на ${buyer}` : ' (купувачот нема е-пошта – не е пратена)'}.\n\n${d.body || t.body}`),
+        attachments: att, entityType: 'invoice', entityId: inv.id, userId: d.userId ?? null,
+      }, deps.mail);
+    }
+  }
   return sendLoggedMail(db, {
-    firmId: firm.id, to: d.to || partner?.email || '', subject: d.subject || t.subject, html: textMailHtml(d.body || t.body),
-    attachments: [r.fileId], entityType: 'invoice', entityId: inv.id, userId: d.userId ?? null,
+    firmId: firm.id, to: buyer, subject: d.subject || t.subject, html: textMailHtml(d.body || t.body),
+    attachments: att, entityType: 'invoice', entityId: inv.id, userId: d.userId ?? null,
   }, deps.mail);
 }
 

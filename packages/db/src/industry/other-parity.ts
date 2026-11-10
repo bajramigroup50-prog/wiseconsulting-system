@@ -10,7 +10,7 @@
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   accFeeStatus, CLIENT_IMPORT, CONS_BOQ_IMPORT, CONS_PROJECT_IMPORT, effectiveModules, importArrKind, importArrStatus, importEvery, importRecDay, importVat,
-  legalFormForEntity, moduleOverrides, normalizeMods, oxBool, oxDate, oxNum, oxRows, PROFILES, REC_IMPORT, recBulkPlan, TRAVEL_ARR_IMPORT, firmProfiles,
+  legalFormForEntity, moduleOverrides, normalizeMods, oxBool, oxDate, oxNum, oxRows, PROFILES, REC_IMPORT, recBulkPlan, recWideToLong, TRAVEL_ARR_IMPORT, firmProfiles,
   type EntityKind, type OxCell,
 } from '@wise/core/industry';
 import { firstLastWorkingDay, recNext, type RecEvery } from '@wise/core/office';
@@ -29,14 +29,22 @@ export interface OxImportResult { added: number; updated: number; errors: string
 const done = (r: OxImportResult) => r;
 
 /** Partner of an import row: by ЕДБ, then by exact name (case-insensitive), created when missing. */
-async function importPartner(tx: Tx, firmId: string, name: string, edb: string): Promise<string> {
+interface ImpContact { address?: string; city?: string; email?: string; phone?: string }
+
+async function importPartner(tx: Tx, firmId: string, name: string, edb: string, c: ImpContact = {}): Promise<string> {
   const e = dig(edb);
+  let id = '';
   if (e) {
     const [p] = await tx.select({ id: partners.id }).from(partners).where(and(eq(partners.firmId, firmId), sql`regexp_replace(coalesce(${partners.edb}, ''), '\\D', '', 'g') = ${e}`)).limit(1);
-    if (p) return p.id;
+    if (p) id = p.id;
   }
-  const id = await findOrCreatePartner(tx, firmId, name);
+  if (!id) id = await findOrCreatePartner(tx, firmId, name);
   if (e) await tx.update(partners).set({ edb: e }).where(and(eq(partners.id, id), sql`coalesce(${partners.edb}, '') = ''`));
+  // contact data from the import (address, city, e-mail, phone) fills only the empty fields of the card
+  for (const k of ['address', 'city', 'email', 'phone'] as const) {
+    const v = c[k]?.trim();
+    if (v) await tx.update(partners).set({ [k]: v }).where(and(eq(partners.id, id), sql`coalesce(${partners[k]}, '') = ''`));
+  }
   return id;
 }
 
@@ -203,15 +211,19 @@ type RecItemRow = { itemId?: string | null; name: string; qty: number; price: nu
  */
 export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], today: string): Promise<OxImportResult> {
   await assertRecurModule(tx, a);
-  const M = oxRows(rows, REC_IMPORT);
+  const M = oxRows(recWideToLong(rows), REC_IMPORT);
   const r: OxImportResult = { added: 0, updated: 0, errors: M.errors };
-  const G = new Map<string, { row: string; partner: string; edb: string; every: RecEvery; day: string; next: string; end: string; due: number; note: string; mail: boolean; items: RecItemRow[] }>();
+  const G = new Map<string, { row: string; partner: string; edb: string; every: RecEvery; day: string; next: string; end: string; due: number; note: string; mail: boolean; contact: ImpContact; items: RecItemRow[] }>();
   const IT = await tx.select({ id: items.id, name: items.name, unit: items.unit }).from(items).where(eq(items.firmId, a.firmId));
   for (const x of M.rows) {
+    // the template's example row („ПРИМЕР – …“) is never imported
+    if (/^\s*пример/i.test(x.partner ?? '')) continue;
     const every = importEvery(x.every), day = importRecDay(x.day);
     const next = oxDate(x.next) || (day === 'L' ? firstLastWorkingDay(today) : recNext(today.slice(0, 8) + '01', 'month', Number(day)));
     const key = [x.partner, dig(x.edb), every, day, next, x.note].join('|');
-    const g = G.get(key) ?? { row: x._row, partner: x.partner!, edb: x.edb!, every, day, next, end: oxDate(x.end), due: x.dueDays ? Math.max(0, Math.round(oxNum(x.dueDays))) : 15, note: x.note!, mail: oxBool(x.mail), items: [] };
+    const g = G.get(key) ?? { row: x._row, partner: x.partner!, edb: x.edb!, every, day, next, end: oxDate(x.end), due: x.dueDays ? Math.max(0, Math.round(oxNum(x.dueDays))) : 15, note: x.note!,
+      // no „send by e-mail“ cell: send when the customer's e-mail is given
+      mail: x.mail ? oxBool(x.mail) : !!x.email?.trim(), contact: { address: x.address, city: x.city, email: x.email, phone: x.phone }, items: [] };
     const it = IT.find((i) => i.name.toLowerCase() === x.item!.toLowerCase());
     const price = oxNum(x.price);
     if (!(price > 0)) { r.errors.push(`Ред ${x._row}: цената мора да е поголема од 0.`); continue; }
@@ -221,7 +233,7 @@ export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], tod
   for (const g of G.values()) {
     if (!g.items.length) continue;
     try {
-      const partnerId = await importPartner(tx, a.firmId, g.partner, g.edb);
+      const partnerId = await importPartner(tx, a.firmId, g.partner, g.edb, g.contact);
       const [d] = await tx.insert(recurringInvoices).values({
         firmId: a.firmId, partnerId, every: g.every, day: g.day, next: g.next, end: g.end || null, dueDays: g.due, items: g.items, note: g.note || null, active: true, mail: g.mail, createdBy: a.userId,
       }).returning({ id: recurringInvoices.id });

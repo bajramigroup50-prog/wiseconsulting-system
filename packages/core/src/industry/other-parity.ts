@@ -196,9 +196,40 @@ export const REC_IMPORT: readonly OxCol[] = [
   { k: 'partner', h: ['Комитент', 'Купувач'], req: true }, { k: 'edb', h: ['ЕДБ'] },
   { k: 'every', h: ['Се повторува', 'Повторување', 'Период'] }, { k: 'day', h: ['Ден во месецот (1–28 или L)', 'Ден во месецот', 'Ден'] },
   { k: 'next', h: ['Следна фактура на', 'Следна'] }, { k: 'end', h: ['Заклучно со', 'Крај'] }, { k: 'dueDays', h: ['Рок на плаќање (дена)', 'Рок'] },
-  { k: 'note', h: ['Опис на фактурата', 'Опис'] }, { k: 'item', h: ['Ставка', 'Услуга'], req: true }, { k: 'qty', h: ['Количина', 'Кол.'] },
+  { k: 'note', h: ['Опис на фактурата', 'Опис'] }, { k: 'item', h: ['Ставка', 'Услуга', 'Производ'], req: true }, { k: 'qty', h: ['Количина', 'Кол.'] },
   { k: 'price', h: ['Цена без ДДВ', 'Цена'], req: true }, { k: 'vat', h: ['ДДВ %', 'ДДВ'] }, { k: 'mail', h: ['Е-пошта (да/не)', 'Прати по е-пошта'] },
+  // the customer's contact data on the same sheet (filled into a new / empty partner card)
+  { k: 'address', h: ['Адреса'] }, { k: 'city', h: ['Град', 'Место'] }, { k: 'email', h: ['E-mail', 'Email', 'Е-пошта', 'Е-пошта на купувачот'] }, { k: 'phone', h: ['Телефон', 'Тел.'] },
 ];
+
+/**
+ * One customer per row with numbered product slots („Производ 1“, „Количина 1“, „Цена без ДДВ 1“, „ДДВ % 1“, … „Производ 5“)
+ * → one row per product (the shape `REC_IMPORT` reads); the rows of one customer then make one invoice with all its products.
+ * A sheet without numbered columns is returned as it is.
+ */
+export function recWideToLong(rows: readonly (readonly OxCell[])[]): OxCell[][] {
+  const H = (rows[0] ?? []).map((h) => String(h ?? '').trim());
+  const slot = H.map((h) => /^(.*\S)\s+(\d{1,2})$/.exec(h));
+  if (!slot.some((m) => m && /^(ставка|производ|услуга)$/i.test(normH(m[1])))) return rows.map((r) => [...r]);
+  const common = H.map((_, i) => i).filter((i) => !slot[i]);
+  const ks = [...new Set(slot.filter((m): m is RegExpExecArray => !!m).map((m) => Number(m[2])))].sort((a, b) => a - b);
+  const col = (k: number, re: RegExp) => slot.findIndex((m) => !!m && Number(m[2]) === k && re.test(normH(m[1])));
+  const out: OxCell[][] = [[...common.map((i) => H[i]!), 'Ставка', 'Количина', 'Цена без ДДВ', 'ДДВ %']];
+  rows.slice(1).forEach((r) => {
+    const base = common.map((i) => r[i] ?? '');
+    let any = false;
+    for (const k of ks) {
+      const it = col(k, /^(ставка|производ|услуга)$/), name = it >= 0 ? String(r[it] ?? '').trim() : '';
+      if (!name) continue;
+      const q = col(k, /^(количина|кол)$/), p = col(k, /^цена/), v = col(k, /^ддв/);
+      out.push([...base, name, q >= 0 ? r[q] ?? '' : '', p >= 0 ? r[p] ?? '' : '', v >= 0 ? r[v] ?? '' : '']);
+      any = true;
+    }
+    // a customer row without products stays (so the import names the missing product instead of skipping it)
+    if (!any && base.some((x) => String(x ?? '').trim())) out.push([...base, '', '', '', '']);
+  });
+  return out;
+}
 
 /** `every` from an import cell (месечно / тримесечно / полугодишно / годишно). */
 export function importEvery(v: OxCell): 'month' | 'quarter' | 'half' | 'year' {
