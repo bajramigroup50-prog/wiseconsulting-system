@@ -90,7 +90,15 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
               <td><b>{partner}</b></td><td>{r.items.map((i) => <div key={i.name}>{i.name} <span className="mini">{i.qty} × {fmt(i.price)}</span></div>)}</td>
               <td>{REC_EVERY_LBL[r.every as RecEvery] ?? r.every}</td><td>{r.day === 'L' ? 'посл. раб.' : r.day}</td>
               <td style={r.active && r.next && r.next <= td ? { color: 'var(--bad)', fontWeight: 700 } : undefined}>{dmy(r.next)}</td>
-              <td className="n">{fmt(total(r.items))}</td><td>{dmy(r.last)}</td>
+              <td className="n">{fmt(total(r.items))}</td><td style={{ whiteSpace: 'nowrap' }}>{dmy(r.last)}{(() => {
+                // the last issued invoice: open, send, correct – the same buttons as in the outgoing invoices list
+                const inv = /^invoice:([0-9a-f-]{36})$/i.exec(r.lastRef ?? '')?.[1];
+                return inv ? <div className="row" style={{ gap: 4, marginTop: 3 }}>
+                  <Link className="btn sm" href={`/print/doc/${inv}`} target="_blank" title="Преглед и печатење на фактурата">👁 Фактура</Link>
+                  <Link className="btn sm" href={`/print/doc/${inv}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉</Link>
+                  <Link className="btn sm" href={`/izlez?edit=${inv}`} title="Измени ја фактурата">✎</Link>
+                </div> : null;
+              })()}</td>
               <td>{r.active ? <Pill c="good">активна</Pill> : <Pill>неактивна</Pill>}{r.mail && ' ✉'}</td>
               <td style={{ whiteSpace: 'nowrap' }}><Link className="btn sm" href={`/periodicni?id=${r.id}`}>Измени</Link> <RowAction action={deleteRecurring.bind(null, r.id)} label="✕" confirm="Да се избрише дефиницијата?" /></td>
             </tr>
