@@ -209,6 +209,14 @@ type RecItemRow = { itemId?: string | null; name: string; qty: number; price: nu
  * Excel import of recurring invoices: one definition per partner + period + day + next date + description; every
  * row adds an item line.
  */
+/** The first invoicing day on or after today: this month's day when it is still ahead, else next month's. */
+export function firstRecDay(today: string, day: number): string {
+  const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+  const prev = m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, '0')}-01`;
+  const cur = recNext(prev, 'month', day);
+  return cur >= today ? cur : recNext(today.slice(0, 8) + '01', 'month', day);
+}
+
 export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], today: string): Promise<OxImportResult> {
   await assertRecurModule(tx, a);
   const M = oxRows(recWideToLong(rows), REC_IMPORT);
@@ -219,7 +227,7 @@ export async function importRecurring(tx: Tx, a: IndActor, rows: OxCell[][], tod
     // the template's example row („ПРИМЕР – …“) is never imported
     if (/^\s*пример/i.test(x.partner ?? '')) continue;
     const every = importEvery(x.every), day = importRecDay(x.day);
-    const next = oxDate(x.next) || (day === 'L' ? firstLastWorkingDay(today) : recNext(today.slice(0, 8) + '01', 'month', Number(day)));
+    const next = oxDate(x.next) || (day === 'L' ? firstLastWorkingDay(today) : firstRecDay(today, Number(day)));
     const key = [x.partner, dig(x.edb), every, day, next, x.note].join('|');
     const g = G.get(key) ?? { row: x._row, partner: x.partner!, edb: x.edb!, every, day, next, end: oxDate(x.end), due: x.dueDays ? Math.max(0, Math.round(oxNum(x.dueDays))) : 15, note: x.note!,
       // no „send by e-mail“ cell: send when the customer's e-mail is given
