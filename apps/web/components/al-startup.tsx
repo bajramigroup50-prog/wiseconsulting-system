@@ -8,6 +8,8 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { AlItem } from '@wise/core/firms/picker';
 import { alertItems, mailAlerts } from '@/app/(app)/top-actions';
+import { myAlSent } from '@/app/(app)/izvestuvanja/actions';
+import type { AlSent } from '@wise/db';
 import { alLS, alSpeak } from './al-settings';
 
 export { alLS, alSpeak, AlSettings, AlVoiceButton } from './al-settings';
@@ -48,9 +50,34 @@ export function AlStartup() {
     return () => { off = true; clearTimeout(t); };
   }, []);
   useEffect(() => { if (path === '/izvestuvanja') setPop(null); }, [path]);
+  // „📨 Прати на колегите“: the notifications of my firms sent by the administrator – shown once per sending
+  const [sent, setSent] = useState<AlSent | null>(null);
+  useEffect(() => {
+    let off = false;
+    const t = setTimeout(async () => {
+      let r: AlSent | null = null;
+      try { r = await myAlSent(); } catch { return; }
+      if (!off && r && r.at !== alLS.get('sentSeen')) setSent(r);
+    }, 1500);
+    return () => { off = true; clearTimeout(t); };
+  }, []);
+  const seen = () => { if (sent) alLS.set('sentSeen', sent.at); setSent(null); };
   const bad = pop?.filter((a) => a.lvl === 'bad') ?? [], warn = pop?.filter((a) => a.lvl === 'warn') ?? [];
   return (
     <>
+      {sent && (
+        <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) seen(); }}>
+          <div className="card" style={{ maxWidth: 520, width: '100%' }}>
+            <h2>📨 Известувања за твоите фирми</h2>
+            <p><b>{sent.by}</b> ти испрати <b>{sent.n}</b> известувања за фирмите што ги следиш{sent.bad ? <> – од нив <b style={{ color: 'var(--bad)' }}>{sent.bad} итни</b></> : null}.</p>
+            <p className="mini">Контактирај ги клиентите и собери ги документите што недостасуваат, па означи „✓ Во ред“.</p>
+            <div className="row" style={{ gap: 8 }}>
+              <Link className="btn pri" href="/izvestuvanja" onClick={seen}>Отвори ги</Link>
+              <button type="button" className="btn" onClick={seen}>Подоцна</button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && <div className="toast" role="status" style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 950 }}>{toast}</div>}
       {pop && (
         <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) setPop(null); }}>
