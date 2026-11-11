@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { screenPdf, screenXlsx } from '@/lib/pdf-capture';
+import { useExportAllowed } from './export-gate';
 
 export function ScreenExport({ title, sub, selector = '#main', landscape, pdf = true, excel = true, className = 'btn' }: {
   title: string; sub?: string; selector?: string; landscape?: boolean; pdf?: boolean; excel?: boolean; className?: string;
@@ -23,7 +24,9 @@ export function ScreenExport({ title, sub, selector = '#main', landscape, pdf = 
     mo.observe(el, { childList: true, subtree: true });
     return () => mo.disconnect();
   }, [excel, selector]);
+  const allowed = useExportAllowed();
   const name = [title, sub].filter(Boolean).join(' – ');
+  if (!allowed) return null;
   return (
     <span className="noprint row" style={{ gap: 6, display: 'inline-flex' }}>
       {pdf && (

@@ -9,8 +9,11 @@ import { zipFiles } from '@/lib/docx';
 import { getObjectBytes } from '@/lib/storage';
 
 import { todayIso } from '@/lib/fmt';
+import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 export async function GET(req: Request) {
   const u = await getUser();
+  // 🔒 whole-data / bulk exports: only the office owner
+  if (u && !(await isOfficeOwner(u))) return new Response(OWNER_ONLY_MSG, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   const firm = u ? await currentFirm(u) : null;
   if (!u || !firm || !firmAllowed(u.principal, firm.id, firm.ownerId)) return new Response('Forbidden', { status: 403 });
   const ids = new URL(req.url).searchParams.getAll('id').filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 200);

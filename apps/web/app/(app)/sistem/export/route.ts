@@ -5,10 +5,13 @@ import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { viewAllowed } from '@/lib/nav';
 import { backupName } from '@/lib/sysdata';
+import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 
 export async function GET() {
   const u = await getUser();
   if (!u) return new Response('unauthorized', { status: 401 });
+  // 🔒 whole-data / bulk exports: only the office owner
+  if (u && !(await isOfficeOwner(u))) return new Response(OWNER_ONLY_MSG, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   if (!viewAllowed(u.role, 'sistem')) return new Response('forbidden', { status: 403 });
   const firm = await currentFirm(u);
   if (!firm) return new Response('Изберете фирма.', { status: 400 });

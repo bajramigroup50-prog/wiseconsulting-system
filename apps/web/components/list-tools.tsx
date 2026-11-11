@@ -1,4 +1,5 @@
 'use client';
+import { useExportAllowed } from './export-gate';
 /**
  * List / report toolbar for the industry (Дејности) and transport screens — the user's rule "PDF, export and import
  * must not be missing anywhere":
@@ -37,6 +38,8 @@ function download(blob: Blob, name: string) {
 export function ExportXlsx({ name, sheets, rows, label = '⬇ Excel', className = 'btn' }: {
   name: string; sheets?: { name: string; rows: Cell[][] }[]; rows?: Cell[][]; label?: string; className?: string;
 }) {
+  const allowed = useExportAllowed();
+  if (!allowed) return null;
   return (
     <button className={className} type="button" onClick={async () => {
       const S = sheets ?? [{ name: name.replace(/\.xlsx$/i, ''), rows: rows ?? [] }];
@@ -49,6 +52,8 @@ export function ExportXlsx({ name, sheets, rows, label = '⬇ Excel', className 
 export function ListPdf({ target, title, landscape, label = '⬇ PDF', className = 'btn' }: { target: string; title: string; landscape?: boolean; label?: string; className?: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const allowed = useExportAllowed();
+  if (!allowed) return null;
   return (
     <>
       <button type="button" className={className} disabled={busy} title="PDF изработен на серверот (A4)" onClick={async () => {

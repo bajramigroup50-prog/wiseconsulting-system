@@ -34,6 +34,7 @@ import { VersionCheck } from '@/components/version-check';
 import { DesktopPdfGuard } from '@/components/desktop-pdf-guard';
 import { RobotPanel } from '@/components/robot/robot-panel';
 import { buildId } from '@/lib/build-id';
+import { ExportGate } from '@/components/export-gate';
 import { brandLetter, brandName } from '@wise/core';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -87,6 +88,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     // tab / window guard: this page's firm + year go with every post; another tab's switch shows „освежете“
     <FirmGuard firm={firm && { id: firm.id, name: firm.name }} year={year}>
+    <ExportGate allowed={owner}>
     <div className="app">
       <header className="mbar">
         <div className="brand" title={brandName()}><i aria-hidden="true">{brandLetter()}</i><span>{brandName()}</span></div>
@@ -154,6 +156,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <PrintDates />
       {office && !demo && !book && <RobotPanel />}
     </div>
+    </ExportGate>
     </FirmGuard>
   );
 }

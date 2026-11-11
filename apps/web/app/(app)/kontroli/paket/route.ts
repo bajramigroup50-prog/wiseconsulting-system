@@ -10,10 +10,13 @@ import { currentFirm } from '@/lib/context';
 import { db } from '@/lib/db';
 import { kontrolaPkgZip } from '@/lib/kontrola';
 import { getObjectBytes } from '@/lib/storage';
+import { isOfficeOwner, OWNER_ONLY_MSG } from '@/lib/office-owner';
 
 export async function GET(req: Request) {
   const u = await getUser();
   if (!u) return new Response('Unauthorized', { status: 401 });
+  // 🔒 whole-data / bulk exports: only the office owner
+  if (u && !(await isOfficeOwner(u))) return new Response(OWNER_ONLY_MSG, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   if (u.role === 'klient') return new Response('Forbidden', { status: 403 });
   const firm = await currentFirm(u, { check: false });
   if (!firm || !can(u.principal, 'office', firm.id)) return new Response('Forbidden', { status: 403 });
