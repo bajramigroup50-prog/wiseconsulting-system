@@ -11,9 +11,13 @@ import { RowAction } from '@/components/row-action';
 import { db } from '@/lib/db';
 import { MENU_STYLE_LBL, menuStyleOf, type MenuStyle } from '@/lib/menu-style';
 import { setMyMenuStyle } from './actions';
+import { MfaCard } from './mfa-card';
+import { and, eq, ne } from 'drizzle-orm';
+import { mfaRequired, mfaState, users } from '@wise/db';
 
-export default async function LozinkaPage() {
+export default async function LozinkaPage({ searchParams }: { searchParams: Promise<{ mfa?: string }> }) {
   const me = await requireUser();
+  const sp = await searchParams;
   // P40 „Мени: класично / ново“ — each office user chooses their own (klient / teren menus are fixed)
   const office = me.role !== 'klient' && me.role !== 'teren';
   const style = office ? await menuStyleOf(db(), me.id).catch(() => 'new' as const) : null;
@@ -26,6 +30,14 @@ export default async function LozinkaPage() {
         <p className="note">{me.name} · <b>{me.username}</b> · {ROLES[me.role].n}</p>
         <MyPassword />
       </div>
+      {office && !me.principal.demo && await (async () => {
+        const isAdmin = me.role === 'admin';
+        const [st, req] = await Promise.all([mfaState(db(), me.id), mfaRequired(db()).catch(() => false)]);
+        const C = isAdmin ? await db().select({ id: users.id, name: users.name }).from(users)
+          .where(and(eq(users.active, true), eq(users.demo, false), ne(users.role, 'klient'), ne(users.role, 'teren'))) : [];
+        const colleagues = await Promise.all(C.filter((c) => c.id !== me.id).map(async (c) => ({ ...c, on: (await mfaState(db(), c.id)).on })));
+        return <MfaCard on={st.on} at={st.at} codesLeft={st.codesLeft} must={req || sp.mfa === '1'} admin={isAdmin} required={req} colleagues={colleagues} />;
+      })()}
       {style && (
         <div className="card" id="meni">
           <h2>☰ Мени</h2>

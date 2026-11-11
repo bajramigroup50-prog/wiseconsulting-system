@@ -108,3 +108,4 @@ export * from './nalog-delete';
 export * from './firm-wipe';
 export * from './firm-mail';
 export * from './resp-firms';
+export * from './mfa';

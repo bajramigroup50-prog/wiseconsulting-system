@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { eq, sql } from 'drizzle-orm';
-import { audit, users } from '@wise/db';
+import { audit, mfaCheck, mfaRequired, mfaState, users } from '@wise/db';
 import { hashPassword, verifyPassword } from '@wise/db/password';
 import { createSession, destroySession, getUser } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -13,6 +13,9 @@ import { LOGIN_FAIL_MSG, LOGIN_LOCKED_MSG, clientIp, lockedUntil, recordFailure,
  * A real argon2 hash of a random password: unknown / inactive usernames are checked against it, so the answer takes
  * about as long as for a real account and never tells whether the username exists.
  */
+/** The answer that asks the form for the 2nd step (the code), followed by the message to show. */
+const MFA_ASK = '§2FA§';
+
 let dummy: Promise<string> | null = null;
 const dummyHash = () => (dummy ??= hashPassword(randomBytes(24).toString('base64url')));
 
@@ -42,7 +45,21 @@ export async function login(_prev: string, form: FormData): Promise<string> {
     });
     return f.lockedUser || f.lockedIp ? LOGIN_LOCKED_MSG : LOGIN_FAIL_MSG;
   }
+  // 🔐 second step: a code from the phone (or a recovery code) when the user has it on
+  const mfa = await mfaState(db(), u.id);
+  if (mfa.on) {
+    const code = String(form.get('code') ?? '').trim();
+    if (!code) return MFA_ASK + 'Внесете го кодот од апликацијата (Google / Microsoft Authenticator).';
+    const r = await db().transaction((tx) => mfaCheck(tx, u.id, code));
+    if (!r) {
+      const f = await recordFailure(username, ip);
+      await audit(db(), { userId: u.id, action: 'mfaFail', entityType: 'user', entityId: u.id, data: { username, ip, fails: f.userFails } });
+      return f.lockedUser || f.lockedIp ? LOGIN_LOCKED_MSG : MFA_ASK + 'Погрешен или истечен код. Обидете се повторно.';
+    }
+  }
   await resetUser(username);
+  const office = u.role !== 'klient' && u.role !== 'teren' && !u.demo;
+  const mustMfa = office && !mfa.on && await mfaRequired(db()).catch(() => false);
 
   await db().transaction(async (tx) => {
     await tx.update(users).set({
@@ -52,7 +69,7 @@ export async function login(_prev: string, form: FormData): Promise<string> {
     await audit(tx, { userId: u.id, action: 'login', data: res.rehash ? { rehashed: true } : undefined });
   });
   await createSession(u.id);
-  redirect(u.mustChangePassword ? '/lozinka' : '/');
+  redirect(u.mustChangePassword ? '/lozinka' : mustMfa ? '/lozinka?mfa=1#mfa' : '/');
 }
 
 export async function logout(): Promise<void> {
