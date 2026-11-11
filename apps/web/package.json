@@ -18,8 +18,8 @@
     "@wise/db": "workspace:*",
     "docxtemplater": "^3.71.0",
     "drizzle-orm": "^0.45.4",
-    "next": "^16.4.0",
-    "node-forge": "1.4.0",
+    "next": "^16.4.6",
+    "node-forge": "1.4.3",
     "pdfjs-dist": "5.4.296",
     "pg-boss": "^12.37.1",
     "pizzip": "^3.3.0",
@@ -28,7 +28,7 @@
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
     "xlsx": "0.18.5",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
