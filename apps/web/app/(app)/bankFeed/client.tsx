@@ -144,6 +144,7 @@ export function FeedSettings({ feeds, pub, pubRsa }: { feeds: FeedConf[]; pub: s
       </div>
       <div className="callout" style={{ margin: '8px 0' }}>
         <b>🔑 SSH-RSA 4096 клуч</b> – за банките што бараат клуч од тип „ssh-rsa“ со должина 4096 (на пр. Комерцијална банка). Врската сама го пробува клучот што банката го прифаќа.
+        <div style={{ margin: '6px 0' }}><a className="btn sm" href="/print/kbH2h" target="_blank" rel="noreferrer">🖨 Комерцијална: Барање + Договор (Host-to-Host) за избраната фирма</a> <span className="mini">– изберете ја фирмата горе, па печатете; се пополнуваат назив, сметка, управител, IP и клучот.</span></div>
         {pubRsa ? (
           <>
             <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11, background: '#f6f6f6', padding: 8, margin: '6px 0' }}>{pubRsa}</pre>
