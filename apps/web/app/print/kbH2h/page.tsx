@@ -44,7 +44,7 @@ export default async function KbH2h() {
   // the Komercijalna (300…) account: the invoice account or any other account field of the firm (bankAccount, realBank, bank2…)
   const accs = ['bank', 'bankAccount', 'realBank', 'bank2', 'bank3'].map((k) => String(S[k] ?? '').replace(/\D/g, ''));
   const kb = accs.find((a) => a.startsWith('300') && a.length === 15)
-    ?? (JSON.stringify(S).match(/300\d{12}/)?.[0] ?? '');
+    ?? (JSON.stringify(S).match(/\b300\d{12}\b/)?.[0] ?? '');
   const mgr = String(S.signer ?? '').trim();
   const role = String(S.signerRole || 'управител').toLowerCase();
   const resp = String(owner?.name ?? u.name).toUpperCase();
