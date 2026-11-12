@@ -59,6 +59,8 @@ export interface InvoicePrintInput {
   from?: { kind: string; number: string } | null;
   /** Dispatch note: the issuing warehouse (`codes`). */
   warehouse?: { code?: string | null; name: string } | null;
+  /** Payment slip (налог за плаќање) under the invoice: forced on / off; default = the firm setting `paySlip`. */
+  slip?: boolean;
   /** The buyer's earlier unpaid invoices (remaining, MKD) – printed on an invoice as the debt carried over. */
   debt?: { list: readonly { number: string; date: string; due?: string | null; open: number }[]; total: number } | null;
   /**
@@ -179,6 +181,26 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
   })();
   const logo = img(S.logo), sign = img(S.sign), stamp = esign ? '' : img(S.stamp);
   const note = S.invNote == null ? INV_NOTE0 : st('invNote');
+  // ✂ the payment slip under an invoice (КТД, from 9.11.2026): prefilled for the buyer – firm setting `paySlip`
+  const slipOn = kind === 'invoice' && doc.kind === 'invoice' && !doc.advance && (p.slip ?? S.paySlip === true);
+  const paySlip = (pay: number) => {
+    if (!slipOn) return '';
+    const acc = st('bank').replace(/\D/g, '');
+    const iban = acc.length === 15 ? ('MK07' + acc).replace(/(.{4})/g, '$1 ').trim() : st('bank');
+    const box = sa({ border: '1px solid #333', padding: '3px 6px', minHeight: '9mm', verticalAlign: 'top' });
+    const lb = (x: string) => `<div${sa({ fontSize: 7.5, color: '#555', textTransform: 'uppercase', letterSpacing: '.03em' })}>${x}</div>`;
+    const cell = (l: string, v: string, span = 1) => `<td${span > 1 ? ` colspan="${span}"` : ''}${box}>${lb(l)}<div${sa({ fontSize: 10.5, fontWeight: 600 })}>${v}</div></td>`;
+    return `<div${sa({ breakInside: 'avoid', pageBreakInside: 'avoid', marginTop: '10mm' })}>`
+      + `<div${sa({ borderTop: '1.5px dashed #777', margin: '0 0 3mm', position: 'relative', height: 0 })}><span${sa({ position: 'absolute', left: 0, top: -9, background: '#fff', paddingRight: 6, fontSize: 12 })}>✂</span></div>`
+      + `<div${sa({ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' })}><b${sa({ fontSize: 12 })}>НАЛОГ ЗА ПЛАЌАЊЕ – КТД</b><span class="muted"${sa({ fontSize: 8.5 })}>пополнет за фактура бр. ${h(doc.number)}</span></div>`
+      + `<table${sa({ width: '100%', borderCollapse: 'collapse', marginTop: 4, tableLayout: 'fixed' })}><tbody>`
+      + `<tr>${cell('Налогодавач (платител)', h([partner?.name, partner?.address].filter(Boolean).join(', ')), 2)}${cell('Сметка на налогодавач', '&nbsp;')}</tr>`
+      + `<tr>${cell('Примач', h([f.name, f.address].filter(Boolean).join(', ')), 2)}${cell('Сметка на примач (IBAN)', h(iban))}</tr>`
+      + `<tr>${cell('Банка на примач', h(st('bankName')))}${cell('Шифра на плаќање', 'GDSV')}${cell('Износ (МКД)', fmt(pay))}</tr>`
+      + `<tr>${cell('Цел на дознака', h(`Плаќање по фактура бр. ${doc.number} од ${dmy(doc.date)}`), 2)}${cell('Повикување на број (примач)', h(doc.number))}</tr>`
+      + `<tr>${cell('Датум на валута', doc.due ? dmy(doc.due) : '&nbsp;')}${cell('Место и датум', '&nbsp;')}${cell('Потпис на налогодавач', '&nbsp;')}</tr>`
+      + `</tbody></table></div>`;
+  };
   // earlier unpaid invoices of the buyer (firm setting `debtOnInv: false` turns it off)
   const D = kind === 'invoice' && doc.kind === 'invoice' && S.debtOnInv !== false && p.debt && p.debt.total > 0.005 ? p.debt : null;
   const debtBlock = (box: Css, pay: number) => D ? `<div${sa({ marginTop: 8, fontSize: 9.8, ...box })}><b>Неплатени претходни фактури:</b> `
@@ -288,7 +310,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + (kind === 'proforma' ? `<p${sa({ margin: '8px 0 0', fontSize: 10, color: '#666' })}>Профактурата служи за плаќање однапред и не е даночна фактура.</p>` : '')
         + (doc.note ? `<p${sa({ margin: '8px 0 0', fontSize: 10 })}>${h(doc.note)}</p>` : '')
         + (note ? `<div${sa({ marginTop: 10, fontSize: 8.8, color: '#666', lineHeight: 1.45, textAlign: 'justify', whiteSpace: 'pre-line' })}>${lbl('Напомена')}${h(note)}</div>` : '')
-        + sigBlock + `</div>`;
+        + sigBlock + paySlip(pay) + `</div>`;
     } else {
       const extra = [data.payMethod && data.payMethod !== 'Вирман' ? 'Начин на плаќање: ' + data.payMethod : '', data.parity ? 'Паритет: ' + data.parity : '', data.pay1, data.pay2, data.pay3].filter(Boolean);
       const totCell = sa({ background: AC, color: '#fff', fontWeight: 700, fontSize: 11.5 });
@@ -315,7 +337,7 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
         + (kind === 'proforma' ? `<p class="muted"${sa({ margin: '6px 0 0' })}>Профактурата служи за плаќање однапред и не е даночна фактура.</p>` : '')
         + (doc.note ? `<p${sa({ margin: '6px 0 0' })}>${h(doc.note)}</p>` : '')
         + (note ? `<div${sa({ marginTop: 10, fontSize: 10, lineHeight: 1.45, textAlign: 'justify', whiteSpace: 'pre-line' })}><b>НАПОМЕНА:</b><br>${h(note)}</div>` : '')
-        + sigBlock;
+        + sigBlock + paySlip(pay);
     }
   }
   return `<div class="pdfdoc printarea">${body}${legal ? `<div${sa({ marginTop: '18mm', fontSize: 8.5, color: '#555', borderTop: '1px solid #ddd', paddingTop: 4 })}>${legal}</div>` : ''}</div>`;

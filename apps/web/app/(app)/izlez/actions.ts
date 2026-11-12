@@ -185,6 +185,8 @@ export async function saveInvoiceStyle(form: FormData): Promise<void> {
   for (const k of ['logo', 'sign', 'stamp'] as const) { const up = String(form.get(k + 'Up') ?? ''); if (/^[0-9a-f-]{36}$/i.test(up)) { s[k] = up; ch[k] = up; } }
   // legacy `qr` checkbox: QR on the invoice unless switched off
   if (form.has('qr')) { const q = form.get('qr') === '1'; if ((s.qr !== false) !== q) { s.qr = q; ch.qr = q; } }
+  // ✂ payment slip (налог за плаќање) under every invoice
+  if (form.has('paySlip')) { const v = form.getAll('paySlip').includes('1'); if ((s.paySlip === true) !== v) { s.paySlip = v; ch.paySlip = v; } }
   await db().transaction(async (tx) => {
     await tx.update(firms).set({ settings: s }).where(eq(firms.id, firm.id));
     await audit(tx, { userId: u.id, firmId: firm.id, action: 'invStyle', entityType: 'firm', entityId: firm.id, data: ch });

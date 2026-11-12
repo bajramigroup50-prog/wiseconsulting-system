@@ -24,7 +24,7 @@ export async function generateMetadata({ params, searchParams }: { params: Promi
   return { title: d ? invoicePdfName(d.input.kind, d.invoice.number) : 'Документ' };
 }
 
-export default async function PrintDoc({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ k?: string; mail?: string }> }) {
+export default async function PrintDoc({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ k?: string; mail?: string; slip?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
   const u = await requireUser();
@@ -65,7 +65,7 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
       {!invalid && legal.length > 0 && <div className={'callout noprint ' + (blocked ? 'bad' : 'warn')} style={{ margin: '0 0 8px' }}>⚖ {legal.map((i) => i.text).join(' ')}{blocked ? ' (не се испраќа по е-пошта додека не се дополни)' : ''}</div>}
       {mail}
       {doc.kind === 'invoice' && <PodLink firmId={doc.firmId} invoiceId={doc.id} />}
-      <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: invoicePrintHtml(input) }} />
+      <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: invoicePrintHtml(sp.slip === '1' ? { ...input, slip: true } : sp.slip === '0' ? { ...input, slip: false } : input) }} />
     </>
   );
 }
