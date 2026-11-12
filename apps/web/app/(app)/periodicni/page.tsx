@@ -44,6 +44,7 @@ export default async function PeriodicniPage({ searchParams }: { searchParams: P
       <Hd t="🔁 Периодични фактури" sub={`${firm.name} · ${L.length} дефиниции · ${due.length} за издавање`}>
         <Link className="btn pri" href="/periodicni?nov">+ Нова</Link>
         <Link className="btn" href="/periodicni?nov&bulk">👥 За повеќе комитенти</Link>
+        <Link className="btn" href="/periodicni/izvestai">📊 Извештаи</Link>
         <RowAction className="btn" action={runRecurring} label={`🧾 Издади доспеани (${due.length})`} />
       </Hd>
       <div className="row" style={{ gap: 8, marginBottom: 8 }}><RecImportBox action={importRecurringAction} firstMonth={td.slice(0, 7)} template={oxTemplate(REC_IMPORT, [['Купувач ДОО', '4030000000000', 'месечно', '1', '01.11.2026', '', 15, 'Сметководствени услуги за {месец}', 'Сметководствени услуги', 1, 6000, 18, 'да']])} /><a className="btn" href="/forms/Periodicni-po-kupuvac.xlsx" download title="Листа за клиентот: производите и цените еднаш во лист „Производи“; во „Фактурирање“ една компанија во еден ред – до 4 производи избрани од листата (со количина), ден за фактурирање, е-пошта и телефон. Пополнетата листа се увезува со „📥 Периодични од Excel“">📄 Листа за клиентот (Excel)</a></div>
