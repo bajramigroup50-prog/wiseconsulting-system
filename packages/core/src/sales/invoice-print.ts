@@ -49,7 +49,7 @@ export interface InvoicePrintInput {
     name: string; address?: string | null; city?: string | null; phone?: string | null; email?: string | null;
     edb?: string | null; embs?: string | null; vatRegistered: boolean; settings?: Record<string, unknown> | null;
   };
-  partner?: { name?: string | null; address?: string | null; city?: string | null; edb?: string | null } | null;
+  partner?: { name?: string | null; address?: string | null; city?: string | null; edb?: string | null; bankAcc?: string | null; bankName?: string | null } | null;
   lines: readonly InvoicePrintLine[];
   /** Deducted advances (`loadAdvances`) — final invoices only. */
   advances?: readonly AdvanceDeduction[];
@@ -186,7 +186,8 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
   const paySlip = (pay: number) => {
     if (!slipOn) return '';
     const acc = st('bank').replace(/\D/g, '');
-    const iban = acc.length === 15 ? ('MK07' + acc).replace(/(.{4})/g, '$1 ').trim() : st('bank');
+    const grp = (x: string) => { const d = x.replace(/\s/g, ''); return /^\d{15}$/.test(d) ? ('MK07' + d).replace(/(.{4})/g, '$1 ').trim() : d.replace(/(.{4})/g, '$1 ').trim(); };
+    const iban = acc.length === 15 ? grp(acc) : st('bank');
     const box = sa({ border: '1px solid #333', padding: '3px 6px', minHeight: '9mm', verticalAlign: 'top' });
     const lb = (x: string) => `<div${sa({ fontSize: 7.5, color: '#555', textTransform: 'uppercase', letterSpacing: '.03em' })}>${x}</div>`;
     const cell = (l: string, v: string, span = 1) => `<td${span > 1 ? ` colspan="${span}"` : ''}${box}>${lb(l)}<div${sa({ fontSize: 10.5, fontWeight: 600 })}>${v}</div></td>`;
@@ -194,11 +195,11 @@ export function invoicePrintHtml(p: InvoicePrintInput): string {
       + `<div${sa({ borderTop: '1.5px dashed #777', margin: '0 0 3mm', position: 'relative', height: 0 })}><span${sa({ position: 'absolute', left: 0, top: -9, background: '#fff', paddingRight: 6, fontSize: 12 })}>✂</span></div>`
       + `<div${sa({ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' })}><b${sa({ fontSize: 12 })}>НАЛОГ ЗА ПЛАЌАЊЕ – КТД</b><span class="muted"${sa({ fontSize: 8.5 })}>пополнет за фактура бр. ${h(doc.number)}</span></div>`
       + `<table${sa({ width: '100%', borderCollapse: 'collapse', marginTop: 4, tableLayout: 'fixed' })}><tbody>`
-      + `<tr>${cell('Налогодавач (платител)', h([partner?.name, partner?.address].filter(Boolean).join(', ')), 2)}${cell('Сметка на налогодавач', '&nbsp;')}</tr>`
+      + `<tr>${cell('Налогодавач (платител)', h([partner?.name, partner?.address].filter(Boolean).join(', ')), 2)}${cell('Сметка на налогодавач' + (partner?.bankName ? ' · ' + h(partner.bankName) : ''), partner?.bankAcc ? h(grp(partner.bankAcc)) : '&nbsp;')}</tr>`
       + `<tr>${cell('Примач', h([f.name, f.address].filter(Boolean).join(', ')), 2)}${cell('Сметка на примач (IBAN)', h(iban))}</tr>`
       + `<tr>${cell('Банка на примач', h(st('bankName')))}${cell('Шифра на плаќање', 'GDSV')}${cell('Износ (МКД)', fmt(pay))}</tr>`
       + `<tr>${cell('Цел на дознака', h(`Плаќање по фактура бр. ${doc.number} од ${dmy(doc.date)}`), 2)}${cell('Повикување на број (примач)', h(doc.number))}</tr>`
-      + `<tr>${cell('Датум на валута', doc.due ? dmy(doc.due) : '&nbsp;')}${cell('Место и датум', '&nbsp;')}${cell('Потпис на налогодавач', '&nbsp;')}</tr>`
+      + `<tr>${cell('Датум на валута', doc.due ? dmy(doc.due) : '&nbsp;')}${cell('Место и датум', h(partner?.city || f.city || '') + ', ____________')}${cell('Потпис на налогодавач', '&nbsp;')}</tr>`
       + `</tbody></table></div>`;
   };
   // earlier unpaid invoices of the buyer (firm setting `debtOnInv: false` turns it off)

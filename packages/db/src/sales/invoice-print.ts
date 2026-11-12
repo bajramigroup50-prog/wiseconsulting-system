@@ -9,6 +9,7 @@ import type { Tx } from '../audit';
 import { codes, firms, invoiceAdvances, invoiceLines, invoices, items, partners, type Firm, type Invoice, type Partner } from '../schema/index';
 import { documentPayments } from '../bank/open-items';
 import { loadAdvances } from './invoices';
+import { partnerAccounts } from '@wise/core/bank/partner-accounts';
 
 export interface InvoicePrintData {
   invoice: Invoice;
@@ -46,7 +47,7 @@ export async function loadInvoicePrintData(tx: Tx, id: string, k?: string | null
         export: doc.export, currency: doc.currency, fx: doc.fx, note: doc.note, data: (doc.data ?? {}) as Record<string, unknown>,
       },
       firm: { name: f.name, address: f.address, city: f.city, phone: f.phone, email: f.email, edb: f.edb, embs: f.embs, vatRegistered: f.vatRegistered, settings: f.settings },
-      partner: p ? { name: p.name, address: p.address, city: p.city, edb: p.edb } : null,
+      partner: p ? { name: p.name, address: p.address, city: p.city, edb: p.edb, ...buyerAccount(p) } : null,
       lines: L.map(({ l, code }) => ({ name: l.name, qty: l.qty, price: l.price, disc: l.disc, rate: l.rate, unit: l.unit, code: l.code, itemCode: code, account: l.account, vatFix: l.vatFix })),
       advances,
       ref: ref ? { number: ref.number, date: ref.date } : null,
@@ -75,4 +76,13 @@ async function buyerDebt(tx: Tx, doc: Invoice): Promise<InvoicePrintInput['debt'
   } catch {
     return null; // the debt line is a courtesy: the invoice prints without it
   }
+}
+
+/** The buyer's (default) bank account for the payment slip under the invoice. */
+function buyerAccount(p: Partner): { bankAcc?: string; bankName?: string } {
+  try {
+    const A = partnerAccounts({ bankAccount: (p as { bankAccount?: string | null }).bankAccount ?? null, bankName: (p as { bankName?: string | null }).bankName ?? null, data: (p.data ?? null) as Record<string, unknown> | null });
+    const a = A.find((x) => x.def) ?? A[0];
+    return a ? { bankAcc: a.iban || a.acc, ...(a.bank ? { bankName: a.bank } : {}) } : {};
+  } catch { return {}; }
 }
