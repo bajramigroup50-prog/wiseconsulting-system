@@ -38,13 +38,15 @@ const fit = (t: string, w: number, s: number) => Math.max(6, Math.min(s, w / (t.
 export default async function KbH2h() {
   const { u, firm } = await printGuard('bankFeed');
   if (!(await isOfficeOwner(u))) notFound();
-  const S = (firm.settings ?? {}) as { bank?: string; signer?: string; signerRole?: string; short?: string };
+  const S = (firm.settings ?? {}) as Record<string, unknown> & { signer?: string; signerRole?: string };
   const [key, owner] = await Promise.all([feedPublicKey(db(), 'rsa'), officeOwner()]);
   const name = String(firm.name ?? '').replace(/\s+/g, ' ').trim();
-  const acc = String(S.bank ?? '').replace(/\D/g, '');
-  const kb = acc.startsWith('300') && acc.length === 15 ? acc : '';
+  // the Komercijalna (300…) account: the invoice account or any other account field of the firm (bankAccount, realBank, bank2…)
+  const accs = ['bank', 'bankAccount', 'realBank', 'bank2', 'bank3'].map((k) => String(S[k] ?? '').replace(/\D/g, ''));
+  const kb = accs.find((a) => a.startsWith('300') && a.length === 15)
+    ?? (JSON.stringify(S).match(/300\d{12}/)?.[0] ?? '');
   const mgr = String(S.signer ?? '').trim();
-  const role = (S.signerRole || 'управител').toLowerCase();
+  const role = String(S.signerRole || 'управител').toLowerCase();
   const resp = String(owner?.name ?? u.name).toUpperCase();
   const d = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Skopje' }).split('-');
   const req: T[] = [
