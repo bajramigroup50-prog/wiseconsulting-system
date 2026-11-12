@@ -123,10 +123,10 @@ export async function runFeedAction(id: string, test: boolean): Promise<RowResul
   } catch (e) { return fail(e); }
 }
 
-export async function makeKeyAction(renew: boolean): Promise<RowResult> {
+export async function makeKeyAction(renew: boolean, type: 'ed25519' | 'rsa' = 'ed25519'): Promise<RowResult> {
   try {
     const u = await owner();
-    await db().transaction((tx) => ensureFeedKey(tx as unknown as Tx, u.id, renew));
+    await db().transaction((tx) => ensureFeedKey(tx as unknown as Tx, u.id, renew, type === 'rsa' ? 'rsa' : 'ed25519'));
     done();
     return { ok: renew ? 'Нов клуч – испратете го новиот јавен клуч до банката.' : 'Клучот е направен.' };
   } catch (e) { return fail(e); }

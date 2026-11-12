@@ -15,7 +15,7 @@ import { brandCustom } from '@wise/core';
 import { detectIncoming } from '@wise/core/office';
 import type { Statement } from '@wise/core/bank-parsers';
 import {
-  BANKFEED_JOB, feedDue, feedFileSeen, feedNameOk, feedPrivateKey, feedRunResult, feedSha, feedWithSecret, ingestFeedFile, listFeeds,
+  BANKFEED_JOB, feedDue, feedFileSeen, feedNameOk, feedPrivateKeys, feedRunResult, feedSha, feedWithSecret, ingestFeedFile, listFeeds,
   type BankFeed, type DB, type Tx,
 } from '@wise/db';
 import { defineJob } from '../job';
@@ -45,13 +45,25 @@ export async function feedStatements(name: string, bytes: Uint8Array): Promise<{
 
 /* ------------------------------------------------------------------ channels */
 
-export async function sftpItems(f: Feed, key: string | null, seen: Set<string>, listOnly: boolean): Promise<{ items: FeedItem[]; listed: number }> {
+export async function sftpItems(f: Feed, key: string | string[] | null, seen: Set<string>, listOnly: boolean): Promise<{ items: FeedItem[]; listed: number }> {
   const { default: Client } = await import('ssh2-sftp-client');
-  const c = new Client('wise-bank');
-  await c.connect({
-    host: f.host, port: f.port || 22, username: f.username, readyTimeout: 20000,
-    ...(f.password ? { password: f.password } : key ? { privateKey: key } : {}),
-  });
+  // the office keys in turn (ed25519, then RSA-4096 for the banks that accept only ssh-rsa); a password wins
+  const keys = f.password ? [null] : (Array.isArray(key) ? key : [key]).filter((k) => k !== undefined);
+  let c = new Client('wise-bank');
+  for (let i = 0; ; i++) {
+    const k = keys[i] ?? null;
+    try {
+      await c.connect({
+        host: f.host, port: f.port || 22, username: f.username, readyTimeout: 20000,
+        ...(f.password ? { password: f.password } : k ? { privateKey: k } : {}),
+      });
+      break;
+    } catch (e) {
+      if (i + 1 >= keys.length || !/authentication/i.test(String((e as Error)?.message ?? e))) throw e;
+      await c.end().catch(() => undefined);
+      c = new Client('wise-bank');
+    }
+  }
   try {
     const dir = f.path || '.';
     const L = (await c.list(dir)).filter((x) => x.type === '-' && feedNameOk(f.pattern, x.name)).sort((a, b) => a.modifyTime - b.modifyTime);
@@ -114,7 +126,7 @@ async function folderItems(f: Feed, seen: Set<string>, listOnly: boolean): Promi
 export async function fetchFeed(db: DB, f: Feed, listOnly: boolean, channel?: (f: Feed) => Promise<{ items: FeedItem[]; listed: number }>): Promise<{ items: FeedItem[]; listed: number }> {
   const seen = new Set(f.seen ?? []);
   if (channel) return channel(f);
-  if (f.method === 'sftp') return sftpItems(f, f.password ? null : await feedPrivateKey(db), seen, listOnly);
+  if (f.method === 'sftp') return sftpItems(f, f.password ? null : await feedPrivateKeys(db), seen, listOnly);
   if (f.method === 'imap') return imapItems(f, listOnly);
   return folderItems(f, seen, listOnly);
 }

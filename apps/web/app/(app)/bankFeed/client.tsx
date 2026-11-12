@@ -125,8 +125,9 @@ function FeedForm({ f }: { f?: FeedConf }) {
   );
 }
 
-export function FeedSettings({ feeds, pub }: { feeds: FeedConf[]; pub: string }) {
+export function FeedSettings({ feeds, pub, pubRsa }: { feeds: FeedConf[]; pub: string; pubRsa: string }) {
   const [copied, setCopied] = useState(false);
+  const [copiedR, setCopiedR] = useState(false);
   return (
     <div className="card">
       <h2 style={{ fontSize: 16 }}>⚙ Врски со банки <span className="mini">(само сопственикот)</span></h2>
@@ -140,6 +141,16 @@ export function FeedSettings({ feeds, pub }: { feeds: FeedConf[]; pub: string })
             <RowAction action={makeKeyAction.bind(null, true)} label="Нов клуч" confirm="Нов клуч? Стариот престанува да важи – новиот треба повторно да се испрати до банките." showOk />
           </>
         ) : <> <RowAction action={makeKeyAction.bind(null, false)} label="🔑 Направи клуч" className="btn sm pri" showOk /></>}
+      </div>
+      <div className="callout" style={{ margin: '8px 0' }}>
+        <b>🔑 SSH-RSA 4096 клуч</b> – за банките што бараат клуч од тип „ssh-rsa“ со должина 4096 (на пр. Комерцијална банка). Врската сама го пробува клучот што банката го прифаќа.
+        {pubRsa ? (
+          <>
+            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11, background: '#f6f6f6', padding: 8, margin: '6px 0' }}>{pubRsa}</pre>
+            <button className="btn sm" onClick={() => { navigator.clipboard.writeText(pubRsa); setCopiedR(true); }}>{copiedR ? '✓ Копирано' : '📋 Копирај'}</button>{' '}
+            <RowAction action={makeKeyAction.bind(null, true, 'rsa')} label="Нов RSA клуч" confirm="Нов RSA клуч? Стариот престанува да важи – новиот треба повторно да се испрати до банката." showOk />
+          </>
+        ) : <> <RowAction action={makeKeyAction.bind(null, false, 'rsa')} label="🔑 Направи RSA 4096 клуч" className="btn sm pri" showOk /></>}
       </div>
       {feeds.map((f) => (
         <details key={f.id} className="card" style={{ margin: '8px 0' }}>

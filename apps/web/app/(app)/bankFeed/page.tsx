@@ -30,8 +30,8 @@ export default async function BankFeedPage({ searchParams }: { searchParams: Pro
   // the bank connection is the office's own (WISE) server only – not on another installation (Фејкан)
   if (['klient', 'teren', 'view'].includes(u.role) || u.demo || brandCustom()) notFound();
   const own = await isOfficeOwner(u);
-  const [docs, feeds, pub, F] = await Promise.all([
-    feedDocs(db(), { limit: 300 }), listFeeds(db()), own ? feedPublicKey(db()) : Promise.resolve(''),
+  const [docs, feeds, pub, pubRsa, F] = await Promise.all([
+    feedDocs(db(), { limit: 300 }), listFeeds(db()), own ? feedPublicKey(db()) : Promise.resolve(''), own ? feedPublicKey(db(), 'rsa') : Promise.resolve(''),
     db().select({ id: firms.id, name: firms.name, settings: firms.settings }).from(firms).where(and(eq(firms.active, true))).orderBy(asc(firms.name)),
   ]);
   const firmList = F.filter((f) => !isDemoFirm(f)).map((f) => ({ id: f.id, name: f.name }));
@@ -71,7 +71,7 @@ export default async function BankFeedPage({ searchParams }: { searchParams: Pro
       )}
       {fSel && <div className="callout info" style={{ marginBottom: 8 }}>Само изводите на <b>{fName}</b> · <Link href="/bankFeed">сите фирми</Link></div>}
       <FeedList waiting={waiting} decided={decided} firms={firmList} />
-      {own && <FeedSettings feeds={feeds.map((f) => ({ id: f.id, name: f.name, bank: f.bank, method: f.method, host: f.host, port: f.port, username: f.username, path: f.path, pattern: f.pattern, hasPassword: !!f.secret, hold: f.hold, at: f.at, active: f.active, lastRunAt: f.lastRunAt ? skDt(f.lastRunAt) : null, lastOk: f.lastOk, lastResult: f.lastResult }))} pub={pub} />}
+      {own && <FeedSettings feeds={feeds.map((f) => ({ id: f.id, name: f.name, bank: f.bank, method: f.method, host: f.host, port: f.port, username: f.username, path: f.path, pattern: f.pattern, hasPassword: !!f.secret, hold: f.hold, at: f.at, active: f.active, lastRunAt: f.lastRunAt ? skDt(f.lastRunAt) : null, lastOk: f.lastOk, lastResult: f.lastResult }))} pub={pub} pubRsa={pubRsa} />}
     </>
   );
 }

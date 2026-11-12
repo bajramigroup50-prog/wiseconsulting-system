@@ -46,26 +46,46 @@ export function newSshKey(comment = 'WISE-bank'): { pub: string; priv: string } 
   return { pub: `ssh-ed25519 ${blob.toString('base64')} ${comment}`, priv: `-----BEGIN OPENSSH PRIVATE KEY-----\n${b64}-----END OPENSSH PRIVATE KEY-----\n` };
 }
 
-/** The office public key ('' when none was made yet). */
-export async function feedPublicKey(tx: Pick<Tx, 'select'>): Promise<string> {
-  const [r] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, KEY)).limit(1);
+/**
+ * A new RSA-4096 key for the banks that accept only „ssh-rsa“ (Комерцијална): `pub` = „ssh-rsa AAAA… WISE-bank“,
+ * `priv` = the PKCS#1 PEM private key (read by ssh2).
+ */
+export function newRsaKey(comment = 'WISE-bank'): { pub: string; priv: string } {
+  const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 4096, publicExponent: 0x10001 });
+  const j = publicKey.export({ format: 'jwk' }) as { n: string; e: string };
+  const mpint = (b64u: string) => { let b = Buffer.from(b64u, 'base64url'); if (b[0]! & 0x80) b = Buffer.concat([Buffer.from([0]), b]); return sshStr(b); };
+  const blob = Buffer.concat([sshStr('ssh-rsa'), mpint(j.e), mpint(j.n)]);
+  return { pub: `ssh-rsa ${blob.toString('base64')} ${comment}`, priv: String(privateKey.export({ type: 'pkcs1', format: 'pem' })) };
+}
+
+export type FeedKeyType = 'ed25519' | 'rsa';
+const keyName = (t: FeedKeyType) => (t === 'rsa' ? KEY + '.rsa' : KEY);
+
+/** The office public key of a type ('' when none was made yet). */
+export async function feedPublicKey(tx: Pick<Tx, 'select'>, type: FeedKeyType = 'ed25519'): Promise<string> {
+  const [r] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, keyName(type))).limit(1);
   return String((r?.value as { pub?: string } | undefined)?.pub ?? '');
 }
 
-/** The office private key (worker only). */
-export async function feedPrivateKey(tx: Pick<Tx, 'select'>): Promise<string | null> {
-  const [r] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, KEY)).limit(1);
+/** The office private key of a type (worker only). */
+export async function feedPrivateKey(tx: Pick<Tx, 'select'>, type: FeedKeyType = 'ed25519'): Promise<string | null> {
+  const [r] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, keyName(type))).limit(1);
   return openSecret((r?.value as { priv?: string } | undefined)?.priv);
 }
 
+/** Every office private key there is (ed25519 first, then RSA): the SFTP login tries them in turn. */
+export async function feedPrivateKeys(tx: Pick<Tx, 'select'>): Promise<string[]> {
+  return (await Promise.all((['ed25519', 'rsa'] as const).map((t) => feedPrivateKey(tx, t)))).filter((k): k is string => !!k);
+}
+
 /** Make the key once (an existing key is kept unless `renew`). Returns the public key. */
-export async function ensureFeedKey(tx: Tx, userId: string | null, renew = false): Promise<string> {
-  const old = await feedPublicKey(tx);
+export async function ensureFeedKey(tx: Tx, userId: string | null, renew = false, type: FeedKeyType = 'ed25519'): Promise<string> {
+  const old = await feedPublicKey(tx, type);
   if (old && !renew) return old;
-  const k = newSshKey();
+  const k = type === 'rsa' ? newRsaKey() : newSshKey();
   const value = { pub: k.pub, priv: sealSecret(k.priv), at: new Date().toISOString() };
-  await tx.insert(appSettings).values({ key: KEY, value, updatedBy: userId }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date(), updatedBy: userId } });
-  await audit(tx, { userId, firmId: null, action: renew ? 'feedKeyRenew' : 'feedKey', entityType: 'bank_feed', data: {} });
+  await tx.insert(appSettings).values({ key: keyName(type), value, updatedBy: userId }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date(), updatedBy: userId } });
+  await audit(tx, { userId, firmId: null, action: renew ? 'feedKeyRenew' : 'feedKey', entityType: 'bank_feed', data: { type } });
   return k.pub;
 }
 
