@@ -127,7 +127,7 @@ files.{$DOMAIN} {
 		X-Frame-Options DENY
 		-Server
 	}
-	@page path / /index.html
+	@page path / /index.html *.css *.js
 	header @page Cache-Control "no-cache"
 	@private path /tools/* /README.md
 	handle @private {
