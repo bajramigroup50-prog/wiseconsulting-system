@@ -114,13 +114,22 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
           <div className="tw printarea" id="rpt">
             <PrintHead firm={firm} title={def.title.toUpperCase()} sub={sub} />
             <p className="mini noprint">{firm.name} · {def.title} · {sub}</p>
-            <table style={def.dense ? { fontSize: '8.5px' } : undefined}>
+            {/* compact A4 landscape: every column fits, the name on one line, small headers without letter spacing */}
+            <style dangerouslySetInnerHTML={{ __html: `#rpt table.lgT{width:100%;border-collapse:collapse;table-layout:auto}
+#rpt table.lgT th,#rpt table.lgT td{padding:2px 4px;line-height:1.2;vertical-align:middle}
+#rpt table.lgT th{font-size:inherit;letter-spacing:0;text-transform:none;white-space:normal;font-family:inherit}
+#rpt table.lgT{font-size:12px}
+#rpt table.lgT td.nm{min-width:70mm;font-weight:700;color:#111}
+#rpt table.lgT td.n{white-space:nowrap}
+#rpt table.lgT td.cd{font-weight:600;white-space:nowrap}
+@media print{#rpt table.lgT{font-size:8pt}#rpt table.lgT td.nm{min-width:62mm}}` }} />
+            <table className="lgT">
               <thead><tr>{admin && <th className="noprint" style={{ width: 26 }}><CheckAll /></th>}<th>Р.б.</th><th>Шифра</th><th>Назив</th><th>Ед.</th>{def.cols.map((c) => <th key={c.label} className="n">{c.label}</th>)}</tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={r.item.id}>
                     {admin && <td className="noprint"><input type="checkbox" name="lgs" value={r.item.id} form="lgDelForm" /></td>}
-                    <td>{i + 1}</td><td>{r.item.code}</td><td>{r.item.name}</td><td>{r.item.unit}</td>
+                    <td>{i + 1}</td><td className="cd">{r.item.code}</td><td className="nm">{r.item.name}</td><td>{r.item.unit}</td>
                     {def.cols.map((c) => <td key={c.label} className="n" style={c.kind === 'b' ? { minWidth: '22mm' } : undefined}>{fv(c.kind, c.value(r.item, r.s, W))}</td>)}
                   </tr>
                 ))}
