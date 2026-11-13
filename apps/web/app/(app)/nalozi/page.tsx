@@ -223,6 +223,12 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       };
     });
     const ov = one ? ovOf(one) : undefined;
+    // an imported journal of the old program is listed by its own content („Извод бр. 1“), not „Увезен налог 6/1-3“
+    const jName = new Map<string, string>();
+    for (const { l, j } of L) {
+      if (jName.has(j.id) || !/^Увезен налог/i.test(j.description ?? '') || !(l.note || l.doc)) continue;
+      jName.set(j.id, lineText({ description: j.description, doc: l.doc, note: l.note }));
+    }
     /* ---------- the grid („Содржина (книжење) на финансов налог“) ---------- */
     const bankJ = new Set(g.journals.filter((j) => j.sourceType === 'bank_statement').map((j) => j.id));
     const lockWhy = (j: (typeof g.journals)[number]) => (locked(j) ? (j.locked ? 'Налогот е заклучен.' : `Заклучен период (до ${dmy(firm.lockDate)}).`) : '');
@@ -338,7 +344,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     {write && profiles.length > 0 && <td>{(j.sourceType === 'invoice' || j.sourceType === 'purchase') && j.sourceId
                       ? <input type="checkbox" name="j" value={j.id} form="schrep" disabled={locked(j)} aria-label={'Избери ' + (j.description ?? j.number)} title={locked(j) ? 'Заклучен период – не се прекнижува' : undefined} />
                       : null}</td>}
-                    <td>{dmy(j.date)}</td><td>{j.description}{schPill(j)}{!!o?.applied && <> <span className="pill warn" title="Налогот е рачно коригиран и се разликува од документот">🛠 коригиран</span></>}</td><td className="n">{fmt(j.D)}</td>
+                    <td>{dmy(j.date)}</td><td>{jName.get(j.id) ?? j.description}{schPill(j)}{!!o?.applied && <> <span className="pill warn" title="Налогот е рачно коригиран и се разликува од документот">🛠 коригиран</span></>}</td><td className="n">{fmt(j.D)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {canEdit(j) && <Link className="btn sm" href={`/nalozi?edit=${j.id}`}>✎ Корекција</Link>}{' '}
                       {!manualLike(j) && j.sourceType && DOC_SCREEN[j.sourceType] && <Link className="btn sm ghost" href={DOC_SCREEN[j.sourceType]!}>Документ →</Link>}{' '}
