@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202611131740">
+  <link rel="stylesheet" href="styles.css?v=202611131743">
 </head>
 <body>
 
@@ -83,20 +83,9 @@
         <span class="pill"><i></i><span data-i18n="hero.pill">Сметководствена канцеларија во Скопје · над 15 години</span></span>
         <div class="slides" id="heroSlides" aria-live="polite">
           <div class="slide active">
-          <h1 data-i18n="hero.title">Сметководство. Даноци. Плати. <em>Без грижа.</em></h1>
-          <p class="lead" data-i18n="hero.lead">Повеќе од 15 години водиме сметководство, даноци и плати за фирми во Скопје – прецизно, навремено и на вашиот јазик.</p>
+          <h1 data-i18n="hero.title">Сметководството – <em>едноставно</em>.</h1>
+          <p class="lead" data-i18n="hero.lead">Ние се грижиме за книгите, даноците и платите. Вие – за вашиот бизнис.</p>
           </div>
-          <div class="slide">
-            <h2 class="h1" data-i18n="hero.s2t">Вашиот бизнис. <em>Нашите</em> бројки.</h2>
-            <p class="lead" data-i18n="hero.s2l">Книговодство, ДДВ, плати и годишни сметки без стрес: ние се грижиме за роковите и институциите, вие за вашите клиенти.</p>
-          </div>
-          <div class="slide">
-            <h2 class="h1" data-i18n="hero.s3t">Навремено. Точно. <em>Секој месец.</em></h2>
-            <p class="lead" data-i18n="hero.s3l">Пријавите до УЈП, МПИН и годишните сметки ги поднесуваме пред рокот, а новите прописи ги следиме секој ден.</p>
-          </div>
-        </div>
-        <div class="slide-dots" role="tablist" aria-label="Слајдови">
-          <button class="active" aria-label="1"></button><button aria-label="2"></button><button aria-label="3"></button>
         </div>
         <div class="hero-cta">
           <a href="#contact" class="btn btn-light btn-lg" data-i18n="hero.cta">Закажете консултација</a>
@@ -184,20 +173,32 @@
   <!-- PORTAL -->
   <section class="section section-soft" id="portal">
     <div class="container portal">
-      <div class="portal-visual reveal" aria-hidden="true">
-        <div class="phone">
-          <div class="phone-notch"></div>
-          <div class="phone-screen">
-            <div class="ph-head"><span class="logo-box sm">wise</span></div>
-            <div class="ph-card"><small data-i18n="pv.c1">Состојба на сметка</small><b>842.310 ден.</b></div>
-            <div class="ph-list">
-              <div><span data-i18n="pv.l1">Фактури</span><em>124</em></div>
-              <div><span data-i18n="pv.l2">Изводи</span><em>87</em></div>
-              <div><span data-i18n="pv.l3">Плати</span><em>✓</em></div>
-              <div><span data-i18n="pv.l4">ДДВ</span><em>✓</em></div>
+      <div class="portal-visual dash reveal" id="dash" aria-hidden="true">
+        <div class="mock">
+          <div class="mock-bar"><i></i><i></i><i></i><span>WISE · портал</span></div>
+          <div class="mock-body">
+            <div class="mock-head">
+              <div><small data-i18n="mock.hello">Добредојдовте</small><div class="mock-title" data-i18n="mock.title">Преглед на фирмата</div></div>
+              <span class="mock-chip" data-i18n="mock.period">Октомври</span>
             </div>
+            <div class="mock-kpis">
+              <div><small data-i18n="mock.k1">Приходи</small><b class="money" data-to="1284500">1.284.500</b><em class="up">+8,4%</em></div>
+              <div><small data-i18n="mock.k2">Расходи</small><b class="money" data-to="936200">936.200</b><em>−2,1%</em></div>
+            </div>
+            <div class="mock-chart">
+              <svg viewBox="0 0 300 90" preserveAspectRatio="none">
+                <defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2fbf8f" stop-opacity=".35"/><stop offset="1" stop-color="#2fbf8f" stop-opacity="0"/></linearGradient></defs>
+                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8 V90 H0Z" fill="url(#g1)" class="ch-fill"/>
+                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8" fill="none" stroke="#0d5c4a" stroke-width="2.5" class="ch-line" pathLength="100"/>
+              </svg>
+            </div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r1">ДДВ-04 за Q3</span><em data-i18n="mock.s1">Поднесено</em></div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r2">Плати и МПИН</span><em data-i18n="mock.s2">Готово</em></div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r3">Изводи – вкупно 87</span><em data-i18n="mock.s3">Книжени</em></div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r4">Фактури – вкупно 124</span><em data-i18n="mock.s4">Книжени</em></div>
           </div>
         </div>
+        <div class="float f1 dash-toast"><span class="f-ico">✓</span><div><b data-i18n="fl1.t">ДДВ-04 поднесено</b><small data-i18n="fl1.d">е-Даноци · УЈП</small></div></div>
       </div>
       <div class="reveal">
         <span class="eyebrow" data-i18n="portal.eyebrow">Портал за клиенти</span>
@@ -466,8 +467,8 @@
   </div>
 </footer>
 
-<script src="i18n.js?v=202611131740"></script>
-<script src="main.js?v=202611131740"></script>
-<script src="bot.js?v=202611131740"></script>
+<script src="i18n.js?v=202611131743"></script>
+<script src="main.js?v=202611131743"></script>
+<script src="bot.js?v=202611131743"></script>
 </body>
 </html>

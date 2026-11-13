@@ -187,5 +187,22 @@
     }
   })();
 
+  // ---- Animated portal dashboard (plays each time it scrolls into view)
+  (function () {
+    var dash = document.getElementById("dash"); if (!dash) return;
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function money(el) {
+      var end = +el.dataset.to, t0 = null;
+      function step(ts) { if (!t0) t0 = ts; var p = Math.min(1, (ts - t0) / 1600); el.textContent = Math.round(end * (1 - Math.pow(1 - p, 3))).toLocaleString("de-DE"); if (p < 1) requestAnimationFrame(step); }
+      requestAnimationFrame(step);
+    }
+    function play() {
+      dash.classList.remove("dash-play"); void dash.offsetWidth; dash.classList.add("dash-play");
+      if (!reduce) dash.querySelectorAll(".money").forEach(money);
+    }
+    if (reduce || !("IntersectionObserver" in window)) { dash.classList.add("dash-play"); return; }
+    new IntersectionObserver(function (es) { es.forEach(function (x) { if (x.isIntersecting) play(); }); }, { threshold: 0.45 }).observe(dash);
+  })();
+
   document.getElementById("year").textContent = new Date().getFullYear();
 })();
