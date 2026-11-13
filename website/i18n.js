@@ -11,6 +11,7 @@ window.I18N = {
   },
 
   sq: {
+    "hero.t8": "vite përvojë",
     "hero.t5": "formularë zyrtarë",
     "hero.t6": "institucione – lajme çdo ditë",
     "hero.t7": "gjuhë në faqe",
@@ -250,6 +251,7 @@ window.I18N = {
   },
 
   en: {
+    "hero.t8": "years of experience",
     "hero.t5": "official forms",
     "hero.t6": "institutions – daily news",
     "hero.t7": "site languages",
@@ -489,6 +491,7 @@ window.I18N = {
   },
 
   tr: {
+    "hero.t8": "yıllık deneyim",
     "hero.t5": "resmi form",
     "hero.t6": "kurum – her gün haber",
     "hero.t7": "site dili",
