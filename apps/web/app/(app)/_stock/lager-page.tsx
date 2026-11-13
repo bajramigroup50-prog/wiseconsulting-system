@@ -34,10 +34,18 @@ const RETAIL_TPL: Record<'in' | 'pop' | 'nivel', { name: string; rows: (string |
   nivel: { name: 'Lager_maloprodazba_nivelacija.xlsx', rows: [['Шифра', 'Назив', 'Нова МПЦ со ДДВ', 'Баркод'], ['101', 'Кафе 200г', 140, '5310000000017']] },
 };
 
-export type LagerSP = { wh?: string; d?: string; t?: string; q?: string; z?: string; imp?: string };
+export type LagerSP = { wh?: string; d?: string; t?: string; q?: string; z?: string; imp?: string; pp?: string; bez?: string };
 
 export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) {
-  const def = LAGER[view];
+  // „Печатење за попис“: the count sheet – the stock quantity (or none, „без количини“) and empty columns to fill in
+  const pp = sp.pp === '1', bez = pp && sp.bez === '1';
+  const def: (typeof LAGER)[LagerView] = !pp ? LAGER[view] : {
+    title: 'Пописна листа', cols: [
+      ...(bez ? [] : [{ label: 'Количина', kind: 'q' as const, value: (_i: unknown, s: { qty: number }) => s.qty }]),
+      { label: 'Пописна количина', kind: 'b' as const, value: () => '' },
+      ...(bez ? [{ label: 'Забелешка', kind: 'b' as const, value: () => '' }] : [{ label: 'Разлика', kind: 'b' as const, value: () => '' }]),
+    ],
+  } as (typeof LAGER)[LagerView];
   const { u, firm, year, L } = await stockPage(view);
   if (!firm || !L) return <NoFirm t={def.title} />;
   // retail lists: the import goes into a store — preselect the first store (legacy m_lager is store-only)
@@ -57,7 +65,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
   const bcs = await db().select({ itemId: itemBarcodes.itemId, b: itemBarcodes.barcode }).from(itemBarcodes).where(and(eq(itemBarcodes.firmId, firm.id), eq(itemBarcodes.primary, true)));
   const bc = new Map(bcs.map((x) => [x.itemId, x.b]));
   const aoa = lagerExportRows(def.cols, rows.map((r) => ({ code: r.item.code, barcode: bc.get(r.item.id), name: r.item.name, unit: r.item.unit, type: r.item.type, values: def.cols.map((c) => c.value(r.item, r.s, W)) })));
-  const admin = u.role === 'admin' && canDo(u, 'del', firm.id);
+  const admin = !pp && u.role === 'admin' && canDo(u, 'del', firm.id);
   const imp = sp.imp && IMP.some(([k]) => k === sp.imp) ? sp.imp : sp.imp !== undefined ? 'in' : '';
   const isStore = !!wh && L.locations.some((l) => l.id === wh && l.kind === 'store');
   const qs = (p: Record<string, string | undefined>) => '?' + new URLSearchParams(Object.entries({ wh: wh || undefined, d: date, t: type || undefined, q: q || undefined, z: zero ? '1' : undefined, ...p }).filter(([, x]) => x != null) as [string, string][]).toString();
@@ -102,8 +110,13 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
             </select>
           </label>
           <label className="f">Шифра / назив<input name="q" defaultValue={q} /></label>
+          {pp && <><input type="hidden" name="pp" value="1" />{bez && <input type="hidden" name="bez" value="1" />}</>}
           <label className="chk"><input type="checkbox" name="z" value="1" defaultChecked={zero} /> и артикли со нула залиха</label>
           <button className="btn">Прикажи</button>
+          {pp
+            ? <Link className="btn" href={'/' + view + qs({})}>← Лагер листа</Link>
+            : <><button className="btn" name="pp" value="1" title="Пописна листа за печатење: шифра, назив, количина и празни колони за пописот">🖨 Печатење за попис</button>
+              <label className="chk"><input type="checkbox" name="bez" value="1" /> без количини</label></>}
         </div>
         {view === 'g_lagerk' && <p className="note">Скратената лагер листа има празни колони „Пописна количина“ и „Разлика“ за попис.</p>}
         {view[0] === 'm' && <p className="note">Малопродажните вредности се по тековната продажна цена од шифрарникот со ДДВ.</p>}
@@ -121,20 +134,23 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
 #rpt table.lgT{font-size:12px}
 #rpt table.lgT td.nm{min-width:70mm;font-weight:700;color:#111}
 #rpt table.lgT td.n{white-space:nowrap}
+#rpt table.lgT td.nm a:hover{text-decoration:underline!important;color:var(--accent)!important}
 #rpt table.lgT td.cd{font-weight:600;white-space:nowrap}
+#rpt table.lgT.pop td{padding:7px 4px;border-bottom:1px solid #999}
+#rpt table.lgT.pop td.n{border:1px solid #999;min-width:35mm}
 @media print{#rpt table.lgT{font-size:8pt}#rpt table.lgT td.nm{min-width:62mm}}` }} />
-            <table className="lgT">
+            <table className={'lgT' + (pp ? ' pop' : '')}>
               <thead><tr>{admin && <th className="noprint" style={{ width: 26 }}><CheckAll /></th>}<th>Р.б.</th><th>Шифра</th><th>Назив</th><th>Ед.</th>{def.cols.map((c) => <th key={c.label} className="n">{c.label}</th>)}</tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={r.item.id}>
                     {admin && <td className="noprint"><input type="checkbox" name="lgs" value={r.item.id} form="lgDelForm" /></td>}
-                    <td>{i + 1}</td><td className="cd">{r.item.code}</td><td className="nm">{r.item.name}</td><td>{r.item.unit}</td>
+                    <td>{i + 1}</td><td className="cd">{r.item.code}</td><td className="nm"><Link href={`/${kind === 'store' ? 'm' : 'g'}_kartica?i=${r.item.id}${wh ? '&wh=' + wh : ''}`} title="Картица на производот: влезови, излези, кому е продадено" style={{ color: 'inherit', textDecoration: 'none' }}>{r.item.name}</Link></td><td>{r.item.unit}</td>
                     {def.cols.map((c) => <td key={c.label} className="n" style={c.kind === 'b' ? { minWidth: '22mm' } : undefined}>{fv(c.kind, c.value(r.item, r.s, W))}</td>)}
                   </tr>
                 ))}
               </tbody>
-              <tfoot><tr>{admin && <td className="noprint" />}<td colSpan={4}>Вкупно ({rows.length} артикли)</td>{def.cols.map((c) => <td key={c.label} className="n">{c.sum ? fv(c.kind, lagerColumnTotal(rows, c, W)) : ''}</td>)}</tr></tfoot>
+              <tfoot><tr>{admin && <td className="noprint" />}<td colSpan={4}>Вкупно ({rows.length} артикли)</td>{def.cols.map((c) => <td key={c.label} className="n">{c.sum ? fv(c.kind, lagerColumnTotal(rows, c, W)) : c.kind === 'q' && !bez ? fv('q', lagerColumnTotal(rows, { ...c, sum: true }, W)) : ''}</td>)}</tr></tfoot>
             </table>
             {S && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10, marginTop: 10 }}>
@@ -154,7 +170,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
                 </tbody></table>
               </div>
             )}
-            <PrintSig who={[view === 'g_lagerk' ? 'Пописна комисија' : 'Составил', 'Одговорно лице']} />
+            <PrintSig who={[view === 'g_lagerk' || pp ? 'Пописна комисија' : 'Составил', 'Одговорно лице']} />
           </div>
         </>
       ) : <div className="card empty">Нема артикли со залиха за избраниот ден.</div>}

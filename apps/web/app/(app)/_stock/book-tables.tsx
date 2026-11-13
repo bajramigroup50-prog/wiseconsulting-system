@@ -7,22 +7,23 @@ import { dmy, fmt, fq } from '@/lib/fmt';
 
 const neg = (v: number) => (v < 0 ? { color: '#c0392b' } : undefined);
 
-export function KartTable({ k, retail }: { k: ItemCard; retail: boolean }) {
+export function KartTable({ k, retail, who }: { k: ItemCard; retail: boolean; who?: Map<string, { name: string; no: string; href: string }> }) {
   return (
     <table className="kart">
-      <thead><tr><th>Датум</th><th>Документ</th><th className="n">Влез</th><th className="n">Излез</th><th className="n">{retail ? 'МПЦ' : 'Цена'}</th><th className="n">Вредност влез</th><th className="n">Вредност излез</th><th className="n">Состојба</th><th className="n">Вредност</th></tr></thead>
+      <thead><tr><th>Датум</th><th>Документ</th>{who && <th>Комитент (купувач / добавувач)</th>}<th className="n">Влез</th><th className="n">Излез</th><th className="n">{retail ? 'МПЦ' : 'Цена'}</th><th className="n">Вредност влез</th><th className="n">Вредност излез</th><th className="n">Состојба</th><th className="n">Вредност</th></tr></thead>
       <tbody>
         {k.rows.map((r, i) => r.open
-          ? <tr key={i} className="sub"><td>{dmy(k.from)}</td><td>Почетна состојба</td><td /><td /><td /><td /><td /><td className="n">{fq(r.q)}</td><td className="n">{fmt(r.v)}</td></tr>
+          ? <tr key={i} className="sub"><td>{dmy(k.from)}</td><td>Почетна состојба</td>{who && <td />}<td /><td /><td /><td /><td /><td className="n">{fq(r.q)}</td><td className="n">{fmt(r.v)}</td></tr>
           : (
             <tr key={i}>
-              <td>{dmy(r.move.date)}</td><td>{r.move.label || r.move.type}</td>
+              <td>{dmy(r.move.date)}</td><td>{(() => { const w = who?.get(r.move.id); const l = r.move.label || r.move.type; const t = l + (w?.no && !l.includes(w.no) ? ' ' + w.no : ''); return w?.href ? <a href={w.href} target="_blank" rel="noreferrer">{t}</a> : t; })()}</td>
+              {who && <td><b>{who.get(r.move.id)?.name ?? ''}</b></td>}
               <td className="n">{r.in ? fq(r.in) : ''}</td><td className="n">{r.out ? fq(r.out) : ''}</td><td className="n">{fmt(r.price)}</td>
               <td className="n">{r.vin ? fmt(r.vin) : ''}</td><td className="n">{r.vout ? fmt(r.vout) : ''}</td><td className="n">{fq(r.q)}</td><td className="n">{fmt(r.v)}</td>
             </tr>
           ))}
       </tbody>
-      <tfoot><tr><td colSpan={2}>Вкупно</td><td className="n">{fq(k.totals.in)}</td><td className="n">{fq(k.totals.out)}</td><td /><td className="n">{fmt(k.totals.vin)}</td><td className="n">{fmt(k.totals.vout)}</td><td className="n">{fq(k.totals.q)}</td><td className="n">{fmt(k.totals.v)}</td></tr></tfoot>
+      <tfoot><tr><td colSpan={who ? 3 : 2}>Вкупно</td><td className="n">{fq(k.totals.in)}</td><td className="n">{fq(k.totals.out)}</td><td /><td className="n">{fmt(k.totals.vin)}</td><td className="n">{fmt(k.totals.vout)}</td><td className="n">{fq(k.totals.q)}</td><td className="n">{fmt(k.totals.v)}</td></tr></tfoot>
     </table>
   );
 }
