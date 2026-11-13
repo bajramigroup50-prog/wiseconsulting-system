@@ -131,14 +131,14 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
             <style dangerouslySetInnerHTML={{ __html: `#rpt table.lgT{width:100%;border-collapse:collapse;table-layout:auto}
 #rpt table.lgT th,#rpt table.lgT td{padding:2px 4px;line-height:1.2;vertical-align:middle}
 #rpt table.lgT th{font-size:inherit;letter-spacing:0;text-transform:none;white-space:normal;font-family:inherit}
-#rpt table.lgT{font-size:12px}
-#rpt table.lgT td.nm{min-width:70mm;font-weight:700;color:#111}
+#rpt table.lgT{font-size:14px}
+#rpt table.lgT td.nm{min-width:70mm;font-weight:700;color:#111;font-size:15px}
 #rpt table.lgT td.n{white-space:nowrap}
 #rpt table.lgT td.nm a:hover{text-decoration:underline!important;color:var(--accent)!important}
 #rpt table.lgT td.cd{font-weight:600;white-space:nowrap}
 #rpt table.lgT.pop td{padding:7px 4px;border-bottom:1px solid #999}
 #rpt table.lgT.pop td.n{border:1px solid #999;min-width:35mm}
-@media print{#rpt table.lgT{font-size:8pt}#rpt table.lgT td.nm{min-width:62mm}}` }} />
+@media print{#rpt table.lgT{font-size:9pt}#rpt table.lgT td.nm{min-width:62mm;font-size:9.5pt}}` }} />
             <table className={'lgT' + (pp ? ' pop' : '')}>
               <thead><tr>{admin && <th className="noprint" style={{ width: 26 }}><CheckAll /></th>}<th>Р.б.</th><th>Шифра</th><th>Назив</th><th>Ед.</th>{def.cols.map((c) => <th key={c.label} className="n">{c.label}</th>)}</tr></thead>
               <tbody>
