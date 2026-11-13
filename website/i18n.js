@@ -17,7 +17,7 @@ window.I18N = {
     "nav.faq": "Pyetje",
     "nav.cta": "Konsultë falas",
 
-    "hero.pill": "Kontabilitet · Tatime · Paga · Këshillim",
+    "hero.pill": "Partneri juaj i besueshëm për kontabilitet në Shkup",
     "hero.title": "Kontabilitet tek i cili mund të <em>mbështeteni</em>.",
     "hero.lead": "WISE CONSULTING mban kontabilitetin, TVSH-në, pagat dhe llogaritë vjetore për firma të vogla dhe të mesme në Shkup – saktë, në kohë dhe me kujdes të plotë për çdo afat.",
     "hero.cta": "Rezervoni konsultë falas",
@@ -84,7 +84,6 @@ window.I18N = {
     "pv.l2": "Ekstrakte",
     "pv.l3": "Paga",
     "pv.l4": "TVSH",
-    "pv.code": "Kodi i hyrjes",
 
     "process.eyebrow": "Si punojmë",
     "process.title": "Kalimi te WISE në katër hapa të thjeshtë",
@@ -165,7 +164,7 @@ window.I18N = {
     "contact.hours": "Orari i punës",
     "contact.soon": "Së shpejti",
 
-    "footer.about": "Zyrë kontabiliteti nga Shkupi – kontabilitet, tatime, paga dhe këshillim për firma të vogla dhe të mesme.",
+    "footer.about": "Zyrë kontabiliteti nga Shkupi. Saktë, në kohë dhe me besueshmëri – për firma të vogla dhe të mesme.",
     "footer.services": "Shërbimet",
     "footer.company": "Zyra",
     "footer.rights": "Të gjitha të drejtat e rezervuara.",
@@ -183,7 +182,7 @@ window.I18N = {
     "nav.faq": "FAQ",
     "nav.cta": "Free consultation",
 
-    "hero.pill": "Accounting · Tax · Payroll · Advisory",
+    "hero.pill": "Your trusted accounting partner in Skopje",
     "hero.title": "Accounting you can <em>rely on</em>.",
     "hero.lead": "WISE CONSULTING handles bookkeeping, VAT, payroll and annual accounts for small and medium companies in Skopje – accurately, on time and with full care for every deadline.",
     "hero.cta": "Book a free consultation",
@@ -250,7 +249,6 @@ window.I18N = {
     "pv.l2": "Statements",
     "pv.l3": "Payroll",
     "pv.l4": "VAT",
-    "pv.code": "Login code",
 
     "process.eyebrow": "How we work",
     "process.title": "Switching to WISE in four simple steps",
@@ -331,7 +329,7 @@ window.I18N = {
     "contact.hours": "Working hours",
     "contact.soon": "Coming soon",
 
-    "footer.about": "Accounting office from Skopje – accounting, tax, payroll and advisory for small and medium companies.",
+    "footer.about": "Accounting office from Skopje. Accurate, on time and trustworthy – for small and medium companies.",
     "footer.services": "Services",
     "footer.company": "Office",
     "footer.rights": "All rights reserved.",

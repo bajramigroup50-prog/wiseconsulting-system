@@ -114,6 +114,24 @@ files.{$DOMAIN} {
 	}
 }
 
+# Public marketing website (website/ in the repository, mounted read-only). SITE_ADDRS in /opt/wise/.env, e.g.
+# "wiseconsulting.com.mk, www.wiseconsulting.com.mk". Unset (other installs) → only an internal plain-HTTP address
+# that is never published, so no certificate is requested. Static files only: no proxy to the app.
+{$SITE_ADDRS:http://localhost:8099} {
+	root * /srv/website
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+	@page path / /index.html
+	header @page Cache-Control "no-cache"
+	file_server
+}
+
 # Temporary access by IP address before DNS works (self-signed certificate, browser warning).
 # Set IP_HOST=<server ip> in .env to enable; leave it empty in production. File uploads need files.DOMAIN.
 # No client_auth here (tls internal); with DEVICE_CERTS=required the app refuses every request on it (no certificate).
