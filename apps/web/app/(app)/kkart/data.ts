@@ -13,6 +13,8 @@ import { db } from '@/lib/db';
 export type KkSP = { k?: string; sub?: string; p?: string; from?: string; to?: string };
 
 const U = (x: unknown) => String(x ?? '').toUpperCase();
+/** „IZVOD BR 58“, „Извод бр. 58“, „izv.58“ → 58. */
+export const IZVOD_RE = /(?:izvod|извод|izv\.?|изв\.?)\s*(?:br\.?|бр\.?|no\.?)?\s*(\d+)/i;
 
 /** Legacy `kkSod` 12816: the content column by source document. */
 export function kkSod(l: { sourceType: string | null; kind: string; description: string | null; doc: string | null; statementNo?: string | null; note?: string | null }): string {
@@ -24,6 +26,13 @@ export function kkSod(l: { sourceType: string | null; kind: string; description:
   if (l.sourceType === 'invoice') return (/^Одобрение/.test(l.description ?? '') ? 'ОДОБРЕНИЕ БР ' : 'ФАКТУРА БР ') + U(d);
   // a receipt paid in cash (posted Г 1020 „Готовина – фиск. сметка …“) is a fiscal receipt, not an incoming invoice
   if (l.sourceType === 'purchase') return (/^Фискална/i.test(l.description ?? '') || /^Готовина/i.test(l.note ?? '') ? 'ФИСКАЛНА СМЕТКА БР ' : 'ВЛЕЗНА Ф-РА БР ') + U(d);
+  // a nalog imported from the old program: the line's own name (its text / document), not „Увезен налог 6/1-3“
+  if (/^Увезен налог/i.test(l.description ?? '') && (l.note || d)) {
+    // a bank statement line of the old program („IZVOD BR 58“ / „Извод бр. 58“) → „ИЗВОД БР 58 · Ф-РА 15/26“
+    const iz = IZVOD_RE.exec(String(l.note ?? '') + ' ' + d);
+    if (iz) return 'ИЗВОД БР ' + iz[1] + (d && !IZVOD_RE.test(d) ? ' · Ф-РА ' + U(d) : '');
+    return U([d, l.note && l.note !== d ? l.note : ''].filter(Boolean).join(' · '));
+  }
   return U(l.description).replace(/\s+ОД\s+\d{2}\.\d{2}\.\d{4}.*$/, '').replace(/БР\.\s*/, 'БР ');
 }
 
