@@ -45,7 +45,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
   const kind: 'warehouse' | 'store' = view[0] === 'm' ? 'store' : 'warehouse';
   const okLoc = (v: string) => (v === 'main' ? kind === 'warehouse' : L.locations.some((l) => l.id === v && l.kind === kind));
   const wh0 = pickLoc(L, sp.wh);
-  const wh = (wh0 && okLoc(wh0) ? wh0 : '') || (view[0] === 'm' && sp.imp !== undefined ? L.locations.find((l) => l.kind === 'store')?.id ?? '' : '');
+  const wh = (wh0 && okLoc(wh0) ? wh0 : '') || (sp.imp === undefined ? '' : kind === 'store' ? L.locations.find((l) => l.kind === 'store')?.id ?? '' : 'main');
   const date = dateInYear(sp.d, year);
   const type = sp.t && TYPES[sp.t] ? sp.t : '';
   const q = (sp.q ?? '').trim();
@@ -74,7 +74,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
       {imp && (
         <div className="card" style={{ borderColor: 'var(--accent)' }}>
           <div className="hd"><h2>Увоз од Excel / CSV во лагер листа</h2><Link className="btn sm" href={'/' + view + qs({})}>Затвори</Link></div>
-          {!wh && <div className="callout warn">Прво изберете <b>објект</b> (магацин или продавница) горе во филтерот – увозот оди во еден објект.</div>}
+          {!wh && <div className="callout warn">Прво изберете <b>{kind === 'store' ? 'продавница' : 'магацин'}</b> горе во филтерот – увозот оди во еден објект.</div>}
           <fieldset className="fs" style={{ margin: 0 }}><legend>Што се увезува</legend>
             {IMP.map(([k, n]) => (k === 'nivel' && !isStore
               ? <div key={k} className="chk" style={{ display: 'block', margin: '5px 0', opacity: 0.55 }}>○ {n} <small className="mut">(само за продавница)</small></div>
