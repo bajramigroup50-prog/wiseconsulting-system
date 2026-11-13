@@ -5,6 +5,7 @@
  * `ledPdf` 7269), Excel (`nalogXlsx` 7345, `ledCsv` 7259).
  */
 import Link from 'next/link';
+import { lineText } from '@/lib/line-text';
 import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { bankEffKonto, bankName, noPartnerLine, groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
 import type { CustomScheme } from '@wise/core/finance';
@@ -250,7 +251,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       };
     });
     const xl = [['Р.бр.', 'Датум', 'Опис', 'Конто', 'Назив на конто', 'Должи', 'Побарува', 'Документ', 'Дев. должи', 'Дев. побарува', 'Шифра', 'Комитент'],
-      ...L.map(({ l, j, p }, i) => [i + 1, dmy(j.date), (j.description ?? '') + (l.note && l.note !== j.description ? ' – ' + l.note : ''), l.account, names.get(l.account) ?? '',
+      ...L.map(({ l, j, p }, i) => [i + 1, dmy(j.date), (/^Увезен налог/i.test(j.description ?? '') && (l.note || l.doc) ? lineText({ description: j.description, doc: l.doc, note: l.note }) : (j.description ?? '') + (l.note && l.note !== j.description ? ' – ' + l.note : '')), l.account, names.get(l.account) ?? '',
         Number(l.debit), Number(l.credit), l.doc ?? '', devOf(l, 'd'), devOf(l, 'p'), p?.code ?? '', p?.name ?? ''])];
     return (
       <>
