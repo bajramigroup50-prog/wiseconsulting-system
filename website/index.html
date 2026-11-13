@@ -48,6 +48,7 @@
       <a href="#process" data-i18n="nav.process">Како работиме</a>
       <a href="#pricing" data-i18n="nav.pricing">Пакети</a>
       <a href="#about" data-i18n="nav.about">За нас</a>
+      <a href="#tools" data-i18n="nav.tools">Калкулатор</a>
       <a href="#news" data-i18n="nav.news">Вести</a>
       <a href="#faq" data-i18n="nav.faq">Прашања</a>
     </nav>
@@ -65,8 +66,23 @@
     <div class="container hero-inner">
       <div class="hero-text reveal">
         <span class="pill"><i></i><span data-i18n="hero.pill">Ваш доверлив партнер за сметководство во Скопје</span></span>
-        <h1 data-i18n="hero.title">Сметководство на кое можете да се <em>потпрете</em>.</h1>
-        <p class="lead" data-i18n="hero.lead">WISE CONSULTING води книговодство, ДДВ, плати и годишни сметки за мали и средни фирми во Скопје – точно, навремено и со целосна грижа за сите рокови.</p>
+        <div class="slides" id="heroSlides" aria-live="polite">
+          <div class="slide active">
+          <h1 data-i18n="hero.title">Сметководство на кое можете да се <em>потпрете</em>.</h1>
+          <p class="lead" data-i18n="hero.lead">WISE CONSULTING води книговодство, ДДВ, плати и годишни сметки за мали и средни фирми во Скопје – точно, навремено и со целосна грижа за сите рокови.</p>
+          </div>
+          <div class="slide">
+            <h2 class="h1" data-i18n="hero.s2t">Плати и МПИН – <em>навремено</em>, секој месец.</h2>
+            <p class="lead" data-i18n="hero.s2l">Пресметка на плати и придонеси без грешки, МПИН до рок и уредни пријави и одјави на вработените.</p>
+          </div>
+          <div class="slide">
+            <h2 class="h1" data-i18n="hero.s3t">Секогаш <em>информирани</em> за новите прописи.</h2>
+            <p class="lead" data-i18n="hero.s3l">Ги следиме соопштенијата на УЈП, министерствата и Народната банка и ве известуваме за промените што се однесуваат на вашата фирма.</p>
+          </div>
+        </div>
+        <div class="slide-dots" role="tablist" aria-label="Слајдови">
+          <button class="active" aria-label="1"></button><button aria-label="2"></button><button aria-label="3"></button>
+        </div>
         <div class="hero-cta">
           <a href="#contact" class="btn btn-light btn-lg" data-i18n="hero.cta">Закажете консултација</a>
           <a href="#services" class="btn btn-outline-light btn-lg" data-i18n="hero.cta2">Погледнете ги услугите</a>
@@ -279,6 +295,46 @@
     </div>
   </section>
 
+  <!-- TOOLS: salary calculator (rates = packages/core/src/data/payroll-params.json, 2026) + useful links -->
+  <section class="section section-soft" id="tools">
+    <div class="container">
+      <div class="section-head center reveal">
+        <span class="eyebrow" data-i18n="tools.eyebrow">Корисни алатки</span>
+        <h2 data-i18n="tools.title">Пресметајте плата за неколку секунди</h2>
+        <p data-i18n="tools.lead">Калкулатор бруто – нето според стапките и даночното ослободување што важат за 2026 година.</p>
+      </div>
+      <div class="tools">
+        <div class="calc reveal">
+          <div class="calc-mode" role="group">
+            <button type="button" data-mode="gross" class="active" data-i18n="calc.fromGross">Од бруто во нето</button>
+            <button type="button" data-mode="net" data-i18n="calc.fromNet">Од нето во бруто</button>
+          </div>
+          <label class="calc-in"><span id="calcLabel" data-i18n="calc.gross">Бруто плата (ден.)</span>
+            <input id="calcAmount" type="number" inputmode="numeric" min="0" step="1" value="60000"></label>
+          <table class="calc-out">
+            <tr><td data-i18n="calc.grossRow">Бруто плата</td><td id="cGross"></td></tr>
+            <tr><td data-i18n="calc.pio">Пензиско осигурување (19,9%)</td><td id="cPio"></td></tr>
+            <tr><td data-i18n="calc.zdr">Здравствено осигурување (7,5%)</td><td id="cZdr"></td></tr>
+            <tr><td data-i18n="calc.dop">Дополнително здравствено (0,5%)</td><td id="cDop"></td></tr>
+            <tr><td data-i18n="calc.vrab">Осигурување од невработеност (0,1%)</td><td id="cVrab"></td></tr>
+            <tr><td data-i18n="calc.tax">Персонален данок (10%)</td><td id="cTax"></td></tr>
+            <tr class="calc-total"><td data-i18n="calc.netRow">Нето плата</td><td id="cNet"></td></tr>
+          </table>
+          <p class="calc-note" data-i18n="calc.note">Даночно ослободување 10.932 ден. месечно; придонеси од основица меѓу 34.571 и 1.106.256 ден. Пресметката е информативна, за полн месец.</p>
+        </div>
+        <div class="links reveal">
+          <h3 data-i18n="links.title">Корисни линкови</h3>
+          <a href="https://etax.ujp.gov.mk" target="_blank" rel="noopener"><b>е-Даноци</b><span data-i18n="links.etax">Пријави до УЈП</span></a>
+          <a href="https://www.ujp.gov.mk" target="_blank" rel="noopener"><b>УЈП</b><span data-i18n="links.ujp">Управа за јавни приходи</span></a>
+          <a href="https://www.crm.com.mk" target="_blank" rel="noopener"><b data-i18n="links.crmT">Централен регистар</b><span data-i18n="links.crm">Годишни сметки и податоци за фирми</span></a>
+          <a href="https://av.gov.mk" target="_blank" rel="noopener"><b data-i18n="links.avT">АВРСМ</b><span data-i18n="links.av">Пријава и одјава на вработени</span></a>
+          <a href="https://fzo.org.mk" target="_blank" rel="noopener"><b data-i18n="links.fzoT">ФЗОМ</b><span data-i18n="links.fzo">Здравствено осигурување, боледувања</span></a>
+          <a href="https://www.nbrm.mk/kursna_lista.nspx" target="_blank" rel="noopener"><b data-i18n="links.nbT">Курсна листа</b><span data-i18n="links.nb">Народна банка (НБРСМ)</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ABOUT -->
   <section class="section" id="about">
     <div class="container about">
@@ -307,7 +363,9 @@
         </div>
         <p data-i18n="news.lead">Ги следиме официјалните соопштенија наместо вас. Вестите се ажурираат автоматски неколку пати дневно.</p>
       </div>
-      <div class="news-grid" id="newsGrid"></div>
+      <div class="news-filter" id="newsFilter"></div>
+      <div class="news-feed" id="newsGrid"></div>
+      <div class="news-more"><button type="button" class="btn btn-outline" id="newsMore" data-i18n="news.more">Прикажи повеќе</button></div>
       <p class="news-updated"><span data-i18n="news.updated">Последно ажурирање:</span> <span id="newsUpdated"></span></p>
     </div>
   </section>
@@ -345,6 +403,27 @@
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span><div><b data-i18n="contact.email">Е-пошта</b><a href="mailto:info@wiseconsulting.com.mk" class="ci-tel">info@wiseconsulting.com.mk</a><br><a href="mailto:vbkonsalting@hotmail.com" class="ci-tel">vbkonsalting@hotmail.com</a></div></div>
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div><b data-i18n="contact.hours">Работно време</b><span data-i18n="contact.hoursVal">Понеделник – петок, 08:00 – 16:00</span></div></div>
         </div>
+      </div>
+      <div class="offer-wrap reveal">
+          <form class="offer" id="offerForm">
+            <h3 data-i18n="offer.title">Барање за понуда</h3>
+            <div class="row2">
+              <label><span data-i18n="offer.company">Фирма</span><input name="company" required></label>
+              <label><span data-i18n="offer.person">Лице за контакт</span><input name="person" required></label>
+            </div>
+            <div class="row2">
+              <label><span data-i18n="offer.phone">Телефон</span><input name="phone" type="tel" required></label>
+              <label><span data-i18n="offer.activity">Дејност</span><input name="activity"></label>
+            </div>
+            <div class="row3">
+              <label><span data-i18n="offer.employees">Број на вработени</span><input name="employees" type="number" min="0"></label>
+              <label><span data-i18n="offer.docs">Документи месечно</span><input name="docs" type="number" min="0"></label>
+              <label><span data-i18n="offer.vat">ДДВ обврзник</span><select name="vat"><option value="да" data-i18n="offer.yes">Да</option><option value="не" data-i18n="offer.no">Не</option></select></label>
+            </div>
+            <label><span data-i18n="offer.msg">Порака</span><textarea name="msg" rows="3"></textarea></label>
+            <button class="btn btn-light" type="submit" data-i18n="offer.send">Испрати барање</button>
+            <p class="offer-note" data-i18n="offer.note">Барањето се отвора во вашата е-пошта, подготвено за info@wiseconsulting.com.mk.</p>
+          </form>
       </div>
     </div>
   </section>

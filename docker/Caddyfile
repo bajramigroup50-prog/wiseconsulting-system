@@ -130,7 +130,9 @@ files.{$DOMAIN} {
 	@page path / /index.html
 	header @page Cache-Control "no-cache"
 	@private path /tools/* /README.md
-	respond @private 404
+	handle @private {
+		respond 404
+	}
 	# news.json written by cron (website/tools/fetch_news.py) into SITE_DATA_DIR on the host
 	handle_path /data/* {
 		root * /srv/site-data
