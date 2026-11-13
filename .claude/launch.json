@@ -4,8 +4,24 @@
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@wise/web", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@wise/web",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5500",
+        "-d",
+        "website"
+      ],
+      "port": 5500
     }
   ]
 }
