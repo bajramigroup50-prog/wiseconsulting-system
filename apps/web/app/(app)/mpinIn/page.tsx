@@ -9,7 +9,7 @@ import { and, asc, eq, like } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { MPIN_F, mpinPer, mpinReady, mpinWarnings, mpinWhat, type MpinRead, type MpinStat } from '@wise/core/law';
 import { mpinAcks, mpinInbox, mpinPlanFor } from '@wise/db';
-import { currentYear } from '@/lib/context';
+import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { allowedFirms, officePage, today } from '@/lib/office';
@@ -41,7 +41,10 @@ export default async function MpinInPage({ searchParams }: { searchParams: Promi
   const F = await allowedFirms(u);
   const FW = F.filter((f) => can(u.principal, 'write', f.id));
   const fname = new Map(F.map((f) => [f.id, f.name]));
-  const R = await db().select().from(mpinInbox).where(and(eq(mpinInbox.createdBy, u.id), eq(mpinInbox.cleared, false))).orderBy(asc(mpinInbox.createdAt));
+  // inside a firm: only that firm's МПИН (and the ones not yet matched to a firm) – the other firms' are not shown here
+  const inFirm = await currentFirm(u);
+  const R0 = await db().select().from(mpinInbox).where(and(eq(mpinInbox.createdBy, u.id), eq(mpinInbox.cleared, false))).orderBy(asc(mpinInbox.createdAt));
+  const R = inFirm ? R0.filter((r) => r.firmId === inFirm.id || (!r.firmId && r.status !== 'done')) : R0;
   const rows = await Promise.all(R.map(async (r) => {
     const M = r.result as MpinRead | null;
     const firmId = r.firmId && fname.has(r.firmId) ? r.firmId : null;
@@ -57,13 +60,13 @@ export default async function MpinInPage({ searchParams }: { searchParams: Promi
   const Y = String(year);
   const idx = (await db().select().from(mpinAcks).where(and(like(mpinAcks.month, `${Y}-%`), eq(mpinAcks.replaced, false)))).filter((x) => fname.has(x.firmId));
   const q = (sp.q ?? '').toLowerCase(), only = sp.only === '1';
-  const GF = F.filter((f) => (!q || f.name.toLowerCase().includes(q)) && (!only || idx.some((x) => x.firmId === f.id)));
+  const GF = F.filter((f) => (!inFirm || f.id === inFirm.id) && (!q || f.name.toLowerCase().includes(q)) && (!only || idx.some((x) => x.firmId === f.id)));
   const MO = [...Array(12)].map((_, i) => `${Y}-${String(i + 1).padStart(2, '0')}`);
   const cur = today().slice(0, 7);
 
   return (
     <>
-      <Hd t="📥 МПИН од УЈП – прифатени декларации" sub="сите фирми одеднаш"><Link className="btn" href="/plati">← Пресметка на плата</Link></Hd>
+      <Hd t="📥 МПИН од УЈП – прифатени декларации" sub={inFirm ? `само ${inFirm.name} (за сите фирми: Излез од фирмата)` : 'сите фирми одеднаш'}><Link className="btn" href="/plati">← Пресметка на плата</Link></Hd>
       <div className="card">
         <p className="note" style={{ marginTop: 0 }}>Прикачете ги сите вратени PDF од УЈП („Декларација за прием“) одеднаш. Програмата ја чита секоја: <b>ЕДБ и име на обврзникот → фирма</b>, период, бруто, придонеси, персонален данок, број за поднесување. Потоа со едно копче: PDF-от оди во <b>досие → Плати и персонал</b> на секоја фирма, месецот во „Пресметка на плата“ се означува <b>✓ МПИН прифатен</b>, а ако платата не е пресметана во програмот – <b>се отвара налог</b> (бруто / придонеси / данок / нето).</p>
         <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
