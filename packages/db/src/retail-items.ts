@@ -433,7 +433,9 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         if (opened.has(k)) { R.skip.push(`${it.code || ''} ${it.name}: веќе има почетна залиха во овој магацин – не е внесена двапати (прво избришете ја старата)`.trim()); continue; }
         opened.add(k);
       }
-      const cost = has(r, 'cost') ? gn(r, 'cost') : has(r, 'amount') && q ? r2(gn(r, 'amount') / q) : 0;
+      // a wholesale list (Материјално) of the old programs has no purchase price: the item's price without VAT is used
+      const cost = has(r, 'cost') && gn(r, 'cost') > 0 ? gn(r, 'cost') : has(r, 'amount') && q && gn(r, 'amount') > 0 ? r2(gn(r, 'amount') / q)
+        : !isStore ? n(it.price) : 0;
       moves.push({ id: `${srcId}-${i}`, date: o.date, item: it.id, qty: r4(q), value: r2(q * cost), type: t === 'stock' ? 'opening' : 'in', src: 'stock_import-' + srcId, wh: whId(W), label: t === 'stock' ? 'Почетна залиха' : 'Приемница (увоз)', lines: [] });
       if (t === 'in' && isStore && gn(r, 'mpc') > 0) {
         const has0 = L0.ctx.moves.some((m) => m.item === it!.id && whId(m.wh) === whId(W0) && !m.pend && m.date <= o.date);
