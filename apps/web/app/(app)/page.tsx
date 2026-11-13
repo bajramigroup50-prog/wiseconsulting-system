@@ -7,6 +7,7 @@
  * Not ported: legacy `fuelBanner` (14370) needs the fuel VAT rule and fuel item flags, which the server does not keep.
  */
 import Link from 'next/link';
+import { VnesAutopBox } from './vnes/autop-box';
 import { redirect } from 'next/navigation';
 import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { brandName, can, periodOf } from '@wise/core';
@@ -321,6 +322,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           <span className="muted" style={{ fontSize: 12 }}>проверено {apRun[0].startedAt.toLocaleTimeString('mk-MK', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Skopje' })} – отвори →</span>
         </Link>
       )}
+      {/* 🤖 the open autopilot findings of this firm (missing invoices / statements, payments without a document …) –
+          shown to every office colleague as soon as the firm is opened, not only in Преглед на внес */}
+      <VnesAutopBox firmId={f.id} />
       <section className="dash-hero">
         <div>
           <p className="eyebrow">{dstr}</p>
