@@ -63,8 +63,22 @@
   <!-- HERO -->
   <section class="hero">
     <div class="hero-grid" aria-hidden="true"></div>
+    <svg class="skyline" viewBox="0 0 1440 260" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <!-- Vodno with the Millennium Cross -->
+      <path class="sk-far" d="M0 170 C120 150 220 120 330 96 C420 76 470 60 520 58 C580 56 640 78 720 104 C820 136 930 150 1040 140 C1160 128 1300 150 1440 160 V260 H0Z"/>
+      <path class="sk-line" d="M520 58 V22 M508 34 H532"/>
+      <!-- Kale fortress -->
+      <path class="sk-mid" d="M930 260 V170 H950 V150 H966 V170 H1000 V160 H1012 V170 H1050 V140 H1070 V128 H1090 V140 H1110 V170 H1150 V158 H1164 V170 H1200 V150 H1218 V170 H1240 V260Z"/>
+      <!-- city -->
+      <path class="sk-mid" d="M0 260 V214 H40 V196 H70 V220 H110 V186 H140 V206 H180 V176 H200 V170 H214 V176 H232 V214 H270 V198 H300 V222 H340 V204 H380 V216 H420 V260Z"/>
+      <path class="sk-mid" d="M1240 260 V206 H1270 V188 H1300 V214 H1340 V194 H1370 V208 H1400 V198 H1440 V260Z"/>
+      <!-- Stone Bridge over the Vardar -->
+      <path class="sk-near" d="M420 260 V226 H930 V260 H890 C890 246 872 236 852 236 C832 236 814 246 814 260 H776 C776 246 758 236 738 236 C718 236 700 246 700 260 H662 C662 246 644 236 624 236 C604 236 586 246 586 260 H548 C548 246 530 236 510 236 C490 236 472 246 472 260Z"/>
+      <path class="sk-line" d="M420 226 H930 M668 226 V208 H682 V226"/>
+      <path class="sk-water" d="M0 256 H1440"/>
+    </svg>
     <div class="container hero-inner">
-      <div class="hero-text reveal">
+      <div class="hero-text">
         <span class="pill"><i></i><span data-i18n="hero.pill">Ваш доверлив партнер за сметководство во Скопје</span></span>
         <div class="slides" id="heroSlides" aria-live="polite">
           <div class="slide active">
@@ -91,36 +105,10 @@
           <li><b>7</b><span data-i18n="hero.t1">области на услуги</span></li>
           <li><b>24/7</b><span data-i18n="hero.t2">онлајн пристап</span></li>
           <li><b>MK · SQ</b><span data-i18n="hero.t3">работиме на двата јазика</span></li>
+          <li><b>2026</b><span data-i18n="hero.t4">нови стапки и прописи</span></li>
         </ul>
       </div>
 
-      <div class="hero-visual reveal" aria-hidden="true">
-        <div class="mock">
-          <div class="mock-bar"><i></i><i></i><i></i><span>WISE · портал</span></div>
-          <div class="mock-body">
-            <div class="mock-head">
-              <div><small data-i18n="mock.hello">Добредојдовте</small><div class="mock-title" data-i18n="mock.title">Преглед на фирмата</div></div>
-              <span class="mock-chip" data-i18n="mock.period">Октомври</span>
-            </div>
-            <div class="mock-kpis">
-              <div><small data-i18n="mock.k1">Приходи</small><b>1.284.500</b><em class="up">+8,4%</em></div>
-              <div><small data-i18n="mock.k2">Расходи</small><b>936.200</b><em>−2,1%</em></div>
-            </div>
-            <div class="mock-chart">
-              <svg viewBox="0 0 300 90" preserveAspectRatio="none">
-                <defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2fbf8f" stop-opacity=".35"/><stop offset="1" stop-color="#2fbf8f" stop-opacity="0"/></linearGradient></defs>
-                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8 V90 H0Z" fill="url(#g1)"/>
-                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8" fill="none" stroke="#0d5c4a" stroke-width="2.5"/>
-              </svg>
-            </div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r1">ДДВ-04 за Q3</span><em data-i18n="mock.s1">Поднесено</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r2">Плати и МПИН</span><em data-i18n="mock.s2">Готово</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r3">Изводи – вкупно 87</span><em data-i18n="mock.s3">Книжени</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r4">Фактури – вкупно 124</span><em data-i18n="mock.s4">Книжени</em></div>
-          </div>
-        </div>
-        <div class="float f1"><span class="f-ico">✓</span><div><b data-i18n="fl1.t">ДДВ-04 поднесено</b><small data-i18n="fl1.d">е-Даноци · УЈП</small></div></div>
-      </div>
     </div>
   </section>
 
@@ -399,7 +387,7 @@
         </div>
         <div class="cta-info">
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><div><b data-i18n="contact.address">Адреса</b><span data-i18n="contact.city">Скопје, Северна Македонија</span></div></div>
-          <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></span><div><b data-i18n="contact.phone">Телефон</b><a href="tel:+38975288889" class="ci-tel">075 288 889</a></div></div>
+          <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></span><div><b data-i18n="contact.phone">Телефон</b><a href="tel:+38975288889" class="ci-tel">075 288 889</a><br><a href="tel:+38971675538" class="ci-tel">071 675 538</a></div></div>
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span><div><b data-i18n="contact.email">Е-пошта</b><a href="mailto:info@wiseconsulting.com.mk" class="ci-tel">info@wiseconsulting.com.mk</a><br><a href="mailto:vbkonsalting@hotmail.com" class="ci-tel">vbkonsalting@hotmail.com</a></div></div>
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div><b data-i18n="contact.hours">Работно време</b><span data-i18n="contact.hoursVal">Понеделник – петок, 08:00 – 16:00</span></div></div>
         </div>

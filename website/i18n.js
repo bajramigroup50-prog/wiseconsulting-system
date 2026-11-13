@@ -11,6 +11,7 @@ window.I18N = {
   },
 
   sq: {
+    "hero.t4": "normat dhe rregullat e reja",
     "bot.fab": "Na pyesni",
     "bot.title": "Asistenti WISE",
     "bot.sub": "Përgjigje për pyetjet më të shpeshta",
@@ -239,6 +240,7 @@ window.I18N = {
   },
 
   en: {
+    "hero.t4": "latest rates and rules",
     "bot.fab": "Ask us",
     "bot.title": "WISE assistant",
     "bot.sub": "Answers to the most common questions",
@@ -467,6 +469,7 @@ window.I18N = {
   },
 
   tr: {
+    "hero.t4": "güncel oranlar ve kurallar",
     "bot.fab": "Bize sorun",
     "bot.title": "WISE asistanı",
     "bot.sub": "En sık sorulan soruların yanıtları",
