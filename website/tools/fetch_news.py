@@ -210,6 +210,7 @@ def write_atomic(path, data):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.write("\n")
+        os.chmod(tmp, 0o644)  # public file: the web server must be able to read it
         os.replace(tmp, path)
     except BaseException:
         try:

@@ -48,6 +48,7 @@
       <a href="#process" data-i18n="nav.process">Како работиме</a>
       <a href="#pricing" data-i18n="nav.pricing">Пакети</a>
       <a href="#about" data-i18n="nav.about">За нас</a>
+      <a href="#news" data-i18n="nav.news">Вести</a>
       <a href="#faq" data-i18n="nav.faq">Прашања</a>
     </nav>
     <div class="nav-right">
@@ -296,6 +297,21 @@
     </div>
   </section>
 
+  <!-- NEWS: filled from data/news.json (updated on the server by website/tools/fetch_news.py) -->
+  <section class="section" id="news" hidden>
+    <div class="container">
+      <div class="section-head split reveal">
+        <div>
+          <span class="eyebrow" data-i18n="news.eyebrow">Вести од институциите</span>
+          <h2 data-i18n="news.title">Најновото од УЈП, министерствата и Народната банка</h2>
+        </div>
+        <p data-i18n="news.lead">Ги следиме официјалните соопштенија наместо вас. Вестите се ажурираат автоматски неколку пати дневно.</p>
+      </div>
+      <div class="news-grid" id="newsGrid"></div>
+      <p class="news-updated"><span data-i18n="news.updated">Последно ажурирање:</span> <span id="newsUpdated"></span></p>
+    </div>
+  </section>
+
   <!-- FAQ -->
   <section class="section section-soft" id="faq">
     <div class="container faq-wrap">
@@ -322,12 +338,11 @@
         <div class="cta-text">
           <span class="eyebrow light" data-i18n="contact.eyebrow">Контакт</span>
           <h2 data-i18n="contact.title">Да разговараме за вашата фирма</h2>
-          <p data-i18n="contact.lead">Првата консултација е бесплатна и без обврска. Јавете ни се на 075 288 889 или пишете ни на info@wiseconsulting.com.mk.</p>
         </div>
         <div class="cta-info">
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><div><b data-i18n="contact.address">Адреса</b><span data-i18n="contact.city">Скопје, Северна Македонија</span></div></div>
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></span><div><b data-i18n="contact.phone">Телефон</b><a href="tel:+38975288889" class="ci-tel">075 288 889</a></div></div>
-          <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span><div><b data-i18n="contact.email">Е-пошта</b><a href="mailto:info@wiseconsulting.com.mk" class="ci-tel">info@wiseconsulting.com.mk</a></div></div>
+          <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span><div><b data-i18n="contact.email">Е-пошта</b><a href="mailto:info@wiseconsulting.com.mk" class="ci-tel">info@wiseconsulting.com.mk</a><br><a href="mailto:vbkonsalting@hotmail.com" class="ci-tel">vbkonsalting@hotmail.com</a></div></div>
           <div class="ci"><span class="ci-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div><b data-i18n="contact.hours">Работно време</b><span data-i18n="contact.hoursVal">Понеделник – петок, 08:00 – 16:00</span></div></div>
         </div>
       </div>

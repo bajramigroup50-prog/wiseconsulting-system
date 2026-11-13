@@ -129,7 +129,17 @@ files.{$DOMAIN} {
 	}
 	@page path / /index.html
 	header @page Cache-Control "no-cache"
-	file_server
+	@private path /tools/* /README.md
+	respond @private 404
+	# news.json written by cron (website/tools/fetch_news.py) into SITE_DATA_DIR on the host
+	handle_path /data/* {
+		root * /srv/site-data
+		header Cache-Control "no-cache"
+		file_server
+	}
+	handle {
+		file_server
+	}
 }
 
 # Temporary access by IP address before DNS works (self-signed certificate, browser warning).

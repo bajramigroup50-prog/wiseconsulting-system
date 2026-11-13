@@ -16,3 +16,6 @@ packages/db/.pglite/
 *.tsbuildinfo
 test-results/
 playwright-report/
+
+# local preview copy of the server-generated news (website/tools/fetch_news.py)
+website/data/

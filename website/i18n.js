@@ -1,5 +1,8 @@
 // Translations. Macedonian (base) lives directly in index.html, keyed by data-i18n.
 window.I18N = {
+  // texts used only by script (news section) in Macedonian
+  mkExtra: {"news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
+
   meta: {
     mk: "WISE CONSULTING – Сметководствена канцеларија, Скопје",
     sq: "WISE CONSULTING – Zyrë kontabiliteti, Shkup",
@@ -8,6 +11,17 @@ window.I18N = {
   },
 
   sq: {
+    "nav.news": "Lajme",
+    "news.eyebrow": "Lajme nga institucionet",
+    "news.title": "Më të rejat nga DAP, ministritë dhe Banka Popullore",
+    "news.lead": "I ndjekim njoftimet zyrtare në vend tuajin. Lajmet përditësohen automatikisht disa herë në ditë (në maqedonisht, siç i publikojnë institucionet).",
+    "news.updated": "Përditësuar së fundi:",
+    "news.all": "Të gjitha njoftimet →",
+    "src.ujp": "DAP (УЈП)",
+    "src.finance": "Ministria e Financave",
+    "src.avrm": "Agjencia e Punësimit – thirrje",
+    "src.economy": "Ministria e Ekonomisë dhe Punës",
+    "src.nbrm": "Banka Popullore (НБРСМ)",
     "top.loc": "Shkup, Maqedonia e Veriut",
     "top.secure": "Portal i mbrojtur me 2FA",
     "nav.services": "Shërbimet",
@@ -155,7 +169,6 @@ window.I18N = {
 
     "contact.eyebrow": "Kontakt",
     "contact.title": "Të flasim për firmën tuaj",
-    "contact.lead": "Konsulta e parë është falas dhe pa obligim. Na telefononi në 075 288 889 ose na shkruani në info@wiseconsulting.com.mk.",
     "contact.address": "Adresa",
     "contact.city": "Shkup, Maqedonia e Veriut",
     "contact.phone": "Telefoni",
@@ -172,6 +185,17 @@ window.I18N = {
   },
 
   en: {
+    "nav.news": "News",
+    "news.eyebrow": "News from the institutions",
+    "news.title": "The latest from the Revenue Office, ministries and the National Bank",
+    "news.lead": "We follow the official announcements for you. News is updated automatically several times a day (in Macedonian, as published by the institutions).",
+    "news.updated": "Last updated:",
+    "news.all": "All announcements →",
+    "src.ujp": "Public Revenue Office (УЈП)",
+    "src.finance": "Ministry of Finance",
+    "src.avrm": "Employment Agency – open calls",
+    "src.economy": "Ministry of Economy and Labour",
+    "src.nbrm": "National Bank (НБРСМ)",
     "top.loc": "Skopje, North Macedonia",
     "top.secure": "Portal protected with 2FA",
     "nav.services": "Services",
@@ -319,7 +343,6 @@ window.I18N = {
 
     "contact.eyebrow": "Contact",
     "contact.title": "Let's talk about your company",
-    "contact.lead": "The first consultation is free and without obligation. Call us on +389 75 288 889 or write to info@wiseconsulting.com.mk.",
     "contact.address": "Address",
     "contact.city": "Skopje, North Macedonia",
     "contact.phone": "Phone",
@@ -336,6 +359,17 @@ window.I18N = {
   },
 
   tr: {
+    "nav.news": "Haberler",
+    "news.eyebrow": "Kurumlardan haberler",
+    "news.title": "Gelir İdaresi, bakanlıklar ve Merkez Bankası'ndan son haberler",
+    "news.lead": "Resmi duyuruları sizin yerinize takip ediyoruz. Haberler günde birkaç kez otomatik olarak güncellenir (kurumların yayımladığı gibi Makedonca).",
+    "news.updated": "Son güncelleme:",
+    "news.all": "Tüm duyurular →",
+    "src.ujp": "Gelir İdaresi (УЈП)",
+    "src.finance": "Maliye Bakanlığı",
+    "src.avrm": "İstihdam Ajansı – açık çağrılar",
+    "src.economy": "Ekonomi ve Çalışma Bakanlığı",
+    "src.nbrm": "Merkez Bankası (НБРСМ)",
     "top.loc": "Üsküp, Kuzey Makedonya",
     "top.secure": "2FA ile korunan portal",
     "nav.services": "Hizmetler",
@@ -473,7 +507,6 @@ window.I18N = {
     "q6.a": "Portal iki faktörlü giriş (2FA) ve şifreli bağlantı kullanır; veriler günlük yedeklerle saklanır.",
     "contact.eyebrow": "İletişim",
     "contact.title": "Şirketiniz hakkında konuşalım",
-    "contact.lead": "İlk danışmanlık ücretsiz ve yükümlülüksüzdür. Bizi +389 75 288 889 numarasından arayın veya info@wiseconsulting.com.mk adresine yazın.",
     "contact.address": "Adres",
     "contact.city": "Üsküp, Kuzey Makedonya",
     "contact.phone": "Telefon",

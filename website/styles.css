@@ -331,3 +331,17 @@ p { margin: 0 0 1em; }
 .brand-light .logo-sub { color: #f0a25e; }
 @media (max-width: 600px) { .logo-box { font-size: 1.05rem; } }
 .logo-box.sm { font-size: .8rem; padding: 4px 6px 5px 10px; }
+
+/* News from institutions */
+.news-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 22px; }
+.news-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 26px 22px; background: #fff; display: flex; flex-direction: column; }
+.news-card h3 { font-size: 1.02rem; color: var(--brand); padding-bottom: 12px; margin-bottom: 6px; border-bottom: 2px solid var(--brand-50); }
+.news-card ul { list-style: none; margin: 0 0 16px; padding: 0; flex: 1; }
+.news-card li { padding: 10px 0; border-bottom: 1px dashed var(--line); display: grid; gap: 2px; }
+.news-card li:last-child { border-bottom: 0; }
+.news-card time { font-size: .78rem; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.news-card li a { font-size: .93rem; font-weight: 600; line-height: 1.4; }
+.news-card li a:hover { color: var(--brand); text-decoration: underline; }
+.news-all { font-weight: 700; font-size: .88rem; color: var(--brand); }
+.news-updated { margin-top: 22px; color: var(--muted); font-size: .86rem; }
+@media (max-width: 600px) { .news-grid { grid-template-columns: 1fr; } }
