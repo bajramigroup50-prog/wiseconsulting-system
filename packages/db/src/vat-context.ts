@@ -13,6 +13,8 @@ import { schemeProfilesOf } from '@wise/core/scheme-profiles';
 import type { Tx } from './audit';
 import { accounts, appSettings, type Firm } from './schema/index';
 
+/** 1205 „Побарување од купувачи – граѓани“. */
+const CUSTOMER_PERSON_KONTO = '1205';
 export const SCHEMES_SETTINGS_KEY = 'schemes';
 
 type Obj = Record<string, unknown>;
@@ -31,7 +33,7 @@ export function schemeSettingsOf(s: unknown): SchemeSettings {
 }
 
 /** Pure: build the posting context from a firm row and the global scheme settings. */
-export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>, global?: unknown, posPartnerId?: string | null, customerExemptAuto?: string | null): PostingContext {
+export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>, global?: unknown, posPartnerId?: string | null, customerExemptAuto?: string | null, customerPersonAuto?: string | null): PostingContext {
   const s = (firm.settings ?? {}) as Obj;
   return {
     firm: {
@@ -41,6 +43,7 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
       posK: str(s.posK),
       posPartnerId: posPartnerId ?? null,
       customerExemptAuto: customerExemptAuto ?? null,
+      customerPersonAuto: customerPersonAuto ?? null,
       // numbered schemes „Шема 2, 3 …“ (`firms.settings.schemeProfiles`)
       profiles: schemeProfilesOf(s),
     },
@@ -54,7 +57,10 @@ export function vatPostingContext(firm: Pick<Firm, 'vatRegistered' | 'settings'>
  */
 export async function loadVatPostingContext(tx: Tx, firm: Pick<Firm, 'vatRegistered' | 'settings'> & { id?: string }, posPartnerId?: string | null): Promise<PostingContext> {
   const [g] = await tx.select({ v: appSettings.value }).from(appSettings).where(eq(appSettings.key, SCHEMES_SETTINGS_KEY)).limit(1);
-  return vatPostingContext(firm, g?.v ?? null, posPartnerId, await chartHas(tx, firm.id ?? null, CUSTOMER_EXEMPT_KONTO) ? CUSTOMER_EXEMPT_KONTO : null);
+  // one after the other: the same connection (PGlite in dev does not pipeline prepared statements)
+  const ex = await chartHas(tx, firm.id ?? null, CUSTOMER_EXEMPT_KONTO);
+  const pe = await chartHas(tx, firm.id ?? null, CUSTOMER_PERSON_KONTO);
+  return vatPostingContext(firm, g?.v ?? null, posPartnerId, ex ? CUSTOMER_EXEMPT_KONTO : null, pe ? CUSTOMER_PERSON_KONTO : null);
 }
 
 /** A konto is in the firm's effective chart (`effectiveChart`): a firm row that is not hidden, or a global one not hidden by the firm. */

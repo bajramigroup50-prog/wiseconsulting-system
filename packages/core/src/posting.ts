@@ -118,6 +118,8 @@ export interface FirmPostingSettings extends SchemeSettings {
    * old program's marker of these sales; else empty → `customer`.
    */
   customerExemptAuto?: string | null;
+  /** 1205 „Побарување од купувачи – граѓани“ when the firm's chart has it: the receivable of a buyer who is a natural person. */
+  customerPersonAuto?: string | null;
   /**
    * Numbered posting schemes „Шема 2, 3 …“ of the firm (`firms.settings.schemeProfiles`, `scheme-profiles.ts`):
    * override maps over Шема 1 (= this context). A document chooses one (`data.scheme`); {@link withSchemeProfile}.
@@ -173,7 +175,13 @@ export const CUSTOMER_EXEMPT_KONTO = '1200009';
  * {@link exemptReceivable}) `customerExempt` — set in the scheme, else 1200009 when the chart has it, else `customer`.
  * `'-'` switches a separate konto off.
  */
-export function customerAccount(ctx: PostingContext, art32?: boolean, exempt?: boolean, exported?: boolean): string {
+export function customerAccount(ctx: PostingContext, art32?: boolean, exempt?: boolean, exported?: boolean, person?: boolean): string {
+  // a buyer who is a natural person (граѓанин, `isPersonPartner`): `customerPerson`, else 1205 when the chart has it
+  if (person && !art32 && !exported) {
+    const v = schemeRaw(ctx, 'customerPerson');
+    if (typeof v === 'string' && v && v !== '-') return v;
+    if (v !== '-' && ctx.firm.customerPersonAuto) return ctx.firm.customerPersonAuto;
+  }
   // an export invoice („Извозна“, a buyer abroad): the foreign-customer konto (`customerFx`, 1210), like `supplierFx`
   // for suppliers; „-“ in the scheme keeps it on `customer`
   if (exported && !art32) {
@@ -398,6 +406,8 @@ export interface InvoiceDoc {
   items: InvoiceItem[];
   /** Domestic reverse charge (чл. 32-а): no VAT charged. */
   art32?: boolean;
+  /** The buyer is a natural person (receivable on `customerPerson` / 1205). */
+  person?: boolean;
   /** Credit note: every line is posted on the opposite side. */
   credit?: boolean;
   /** Advance invoice: revenue goes to the advances konto. */
@@ -440,7 +450,7 @@ export function invoiceEntries(inv: InvoiceDoc, ctx: PostingContext): JournalLin
   const opts = { nonVat, defaultKonto: schemeValue(ctx, 'revDefault') };
   const c = calcLines(inv.items, inv.art32, opts);
   // ЗДДВ чл. 32-а: the receivable of a reverse-charge invoice on its own konto (1200009); revenue stays as it is
-  const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx), !!inv.export);
+  const cust = customerAccount(ctx, inv.art32, exemptReceivable({ ...inv, vat: c.vat, base: c.base }, ctx), !!inv.export, !!inv.person);
   const L: IL[] = [{ k: cust, d: toC(c.total), p: 0, partner: inv.partner }];
   const m0: Record<string, string> = {};
   // a non-VAT firm: services / products → 7414, goods → 7410 (never the VAT payer's „ослободени од данок“ 74002 / 74102)

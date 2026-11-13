@@ -18,11 +18,11 @@
  * firms whose open items only exist in the ledger (opening balances, imported books).
  */
 import { and, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import { advDeduct, bankPaid, customerAccount, exemptReceivable, ledgerOpenItems, parseLedgerItemId, r2, type DocType, type OpenDoc } from '@wise/core';
+import { advDeduct, bankPaid, customerAccount, exemptReceivable, isPersonPartner, ledgerOpenItems, parseLedgerItemId, r2, type DocType, type OpenDoc } from '@wise/core';
 import type { Tx } from '../audit';
 import { loadLedgerLines } from '../ledger-queries';
 import {
-  bankLines, cashVouchers, compensations, invoiceAdvances, invoices, journals, purchases, supplierCredits, type InvoiceData,
+  bankLines, cashVouchers, compensations, invoiceAdvances, invoices, journals, partners, purchases, supplierCredits, type InvoiceData,
 } from '../schema/index';
 import { loadAdvances } from '../sales/invoices';
 import { cents, den, firmPostingContext, loadFirm } from './context';
@@ -149,11 +149,15 @@ async function loadDocs(tx: Tx, firmId: string, f: DocFilter): Promise<{ invoice
   // is booked there too (`docKonto`), so it closes the invoice on the konto it was posted on
   // — and the same for invoices exempt with the right to deduct (чл. 24) on `customerExempt` (`exemptReceivable`)
   let konto: (i: (typeof I)[number]) => string | undefined = () => undefined;
-  if (I.some((i) => i.art32 || i.export || !num(i.vat))) {
+  // … and the invoices of a natural person (граѓанин) on `customerPerson` (1205)
+  const pPeople = [...new Set(I.map((i) => i.partnerId).filter((x): x is string => !!x))];
+  const PP = new Set(pPeople.length ? (await tx.select({ id: partners.id, name: partners.name, edb: partners.edb, data: partners.data }).from(partners).where(inArray(partners.id, pPeople)))
+    .filter((p) => isPersonPartner(p)).map((p) => p.id) : []);
+  if (I.some((i) => i.art32 || i.export || !num(i.vat) || (i.partnerId && PP.has(i.partnerId)))) {
     const ctx = await firmPostingContext(tx, await loadFirm(tx, firmId));
     const k0 = customerAccount(ctx, false);
     konto = (i) => {
-      const k = customerAccount(ctx, i.art32, exemptReceivable({ art32: i.art32, export: i.export, vatExempt: (i.data as InvoiceData | null)?.vatExempt, vat: num(i.vat), base: num(i.base) }, ctx), !!i.export);
+      const k = customerAccount(ctx, i.art32, exemptReceivable({ art32: i.art32, export: i.export, vatExempt: (i.data as InvoiceData | null)?.vatExempt, vat: num(i.vat), base: num(i.base) }, ctx), !!i.export, !!i.partnerId && PP.has(i.partnerId));
       return k !== k0 ? k : undefined;
     };
   }

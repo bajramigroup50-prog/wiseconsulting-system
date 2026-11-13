@@ -11,7 +11,7 @@
 import { invoiceProdPlan, removeInvoiceProduction, runInvoiceProduction, type InvoiceProductionInput } from './invoice-production';
 import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
-  cogsAccount, invoiceEntries, invoiceVatBases, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount, STOCK_SCHEME_DEFAULTS,
+  cogsAccount, invoiceEntries, invoiceVatBases, isPersonPartner, needsPartner, vbLines, postOut, schemeValue, PostingError as CorePostingError, r2, stockAccount, STOCK_SCHEME_DEFAULTS,
   type AdvanceDeduction, type InvoiceItem, type JournalLine, type StockContext, type StockItem, type StockMove,
 } from '@wise/core';
 import { invoiceLineKonto } from '@wise/core/scheme-profiles';
@@ -233,8 +233,11 @@ async function postInvoice(tx: Tx, f: Firm, inv: Invoice, userId: string | null)
   const ref = inv.refInvoiceId ? (await tx.select().from(invoices).where(eq(invoices.id, inv.refInvoiceId)).limit(1))[0] ?? null : null;
   if (inv.kind === 'invoice' || inv.kind === 'credit') {
     const adv = inv.kind === 'invoice' && !inv.advance ? await loadAdvances(tx, await tx.select().from(invoiceAdvances).where(eq(invoiceAdvances.invoiceId, inv.id)), fx) : [];
+    // a buyer who is a natural person → its receivable on 1205 (`customerPerson`)
+    const [bp] = inv.partnerId ? await tx.select({ name: partners.name, edb: partners.edb, data: partners.data }).from(partners).where(eq(partners.id, inv.partnerId)).limit(1) : [];
+    const person = isPersonPartner(bp ?? null);
     const lines = wrapCore(() => invoiceEntries({
-      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, items: toItems(L, fx), art32: inv.art32, vatExempt: ((inv.data ?? {}) as InvoiceData).vatExempt === 'ded' ? 'ded' : ((inv.data ?? {}) as InvoiceData).vatExempt === 'noded' ? 'noded' : undefined,
+      id: inv.id, date: inv.date, number: inv.number, partner: inv.partnerId ?? undefined, person, items: toItems(L, fx), art32: inv.art32, vatExempt: ((inv.data ?? {}) as InvoiceData).vatExempt === 'ded' ? 'ded' : ((inv.data ?? {}) as InvoiceData).vatExempt === 'noded' ? 'noded' : undefined,
       keepKonto: ((inv.data ?? {}) as InvoiceData).keepKonto === '1',
       credit: inv.kind === 'credit', advance: inv.advance, export: inv.export, advances: adv,
     }, ctx));

@@ -5,6 +5,7 @@ export * from './stock';
 export * from './yearend';
 export * from './vat';
 export * from './posting';
+export * from './partner-person';
 // Name clashes between parallel ports: the root export takes the stock versions; the posting/VAT
 // variants stay reachable via the namespaces below or the `@wise/core/posting` / `@wise/core/vat` subpaths.
 export { costsOf, stockAccount, stockLineValue } from './stock';
