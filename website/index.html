@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202611131743">
+  <link rel="stylesheet" href="styles.css?v=202611131746">
 </head>
 <body>
 
@@ -78,31 +78,52 @@
       <path class="sk-line" d="M420 226 H930 M668 226 V208 H682 V226"/>
       <path class="sk-water" d="M0 256 H1440"/>
     </svg>
-    <div class="container hero-inner">
-      <div class="hero-text">
-        <span class="pill"><i></i><span data-i18n="hero.pill">Сметководствена канцеларија во Скопје · над 15 години</span></span>
-        <div class="slides" id="heroSlides" aria-live="polite">
-          <div class="slide active">
-          <h1 data-i18n="hero.title">Сметководството – <em>едноставно</em>.</h1>
-          <p class="lead" data-i18n="hero.lead">Ние се грижиме за книгите, даноците и платите. Вие – за вашиот бизнис.</p>
+    <div class="container hero-inner banner">
+      <div class="banner-text">
+        <div class="banner-years"><span class="count" data-count="15">15</span><span class="plus">+</span></div>
+        <div class="banner-years-lbl" data-i18n="banner.years">години искуство</div>
+        <div class="banner-line" data-i18n="banner.line">Сметководство · Даноци · Плати</div>
+      </div>
+      <div class="dash hero-dash" id="dash" aria-hidden="true">
+        <div class="mock">
+          <div class="mock-bar"><i></i><i></i><i></i><span>WISE · портал</span></div>
+          <div class="mock-body">
+            <div class="mock-head">
+              <div><small data-i18n="mock.hello">Добредојдовте</small><div class="mock-title" data-i18n="mock.title">Преглед на фирмата</div></div>
+              <span class="mock-chip" data-i18n="mock.period">Октомври</span>
+            </div>
+            <div class="mock-kpis">
+              <div><small data-i18n="mock.k1">Приходи</small><b class="money" data-to="1284500">1.284.500</b><em class="up">+8,4%</em></div>
+              <div><small data-i18n="mock.k2">Расходи</small><b class="money" data-to="936200">936.200</b><em>−2,1%</em></div>
+            </div>
+            <div class="mock-chart">
+              <svg viewBox="0 0 300 90" preserveAspectRatio="none">
+                <defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2fbf8f" stop-opacity=".35"/><stop offset="1" stop-color="#2fbf8f" stop-opacity="0"/></linearGradient></defs>
+                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8 V90 H0Z" fill="url(#g1)" class="ch-fill"/>
+                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8" fill="none" stroke="#0d5c4a" stroke-width="2.5" class="ch-line" pathLength="100"/>
+              </svg>
+            </div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r1">ДДВ-04 за Q3</span><em data-i18n="mock.s1">Поднесено</em></div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r2">Плати и МПИН</span><em data-i18n="mock.s2">Готово</em></div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r3">Изводи – вкупно 87</span><em data-i18n="mock.s3">Книжени</em></div>
+            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r4">Фактури – вкупно 124</span><em data-i18n="mock.s4">Книжени</em></div>
           </div>
         </div>
-        <div class="hero-cta">
-          <a href="#contact" class="btn btn-light btn-lg" data-i18n="hero.cta">Закажете консултација</a>
-          <a href="#services" class="btn btn-outline-light btn-lg" data-i18n="hero.cta2">Погледнете ги услугите</a>
-        </div>
-        <!-- Counters: numbers that are true today. Add clients / years when the office gives them (data-count). -->
-        <ul class="hero-stats">
-          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></span><b><span class="count" data-count="15">15</span>+</b><span data-i18n="hero.t8">години искуство</span></li>
-          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z M9 8h6 M9 12h6 M9 16h3"/></svg></span><b><span class="count" data-count="7">7</span></b><span data-i18n="hero.t1">области на услуги</span></li>
-          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z M9 13l2 2 4-4"/></svg></span><b><span class="count" data-count="52">52</span></b><span data-i18n="hero.t5">официјални обрасци</span></li>
-          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z M8 9h8 M8 13h5"/></svg></span><b><span class="count" data-count="5">5</span></b><span data-i18n="hero.t6">институции – вести секој ден</span></li>
-
-        </ul>
+        <div class="float f1 dash-toast"><span class="f-ico">✓</span><div><b data-i18n="fl1.t">ДДВ-04 поднесено</b><small data-i18n="fl1.d">е-Даноци · УЈП</small></div></div>
       </div>
-
     </div>
   </section>
+  <!-- Quick actions -->
+  <section class="quick">
+    <div class="container quick-grid">
+      <a href="#contact" class="q-tile"><span class="q-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span><b data-i18n="quick.t1">Консултација</b><small data-i18n="quick.d1">Закажете термин</small></a>
+      <a href="#offerForm" class="q-tile"><span class="q-ico"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z M9 9h6 M9 13h6 M9 17h3"/></svg></span><b data-i18n="quick.t2">Понуда</b><small data-i18n="quick.d2">Барање за понуда</small></a>
+      <a href="#tools" class="q-tile"><span class="q-ico"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8 M8 11h2 M12 11h2 M16 11h0 M8 15h2 M12 15h2 M8 18h6"/></svg></span><b data-i18n="quick.t3">Калкулатор</b><small data-i18n="quick.d3">Бруто – нето плата</small></a>
+      <a href="#forms" class="q-tile"><span class="q-ico"><svg viewBox="0 0 24 24"><path d="M4 4h6l2 2h8v14H4z M9 13l2 2 4-4"/></svg></span><b data-i18n="quick.t4">Обрасци</b><small data-i18n="quick.d4">УЈП, ЦРРСМ, АВРСМ, ФЗОМ</small></a>
+      <a href="#news" class="q-tile"><span class="q-ico"><svg viewBox="0 0 24 24"><path d="M4 5h13v14H6a2 2 0 0 1-2-2z M17 8h3v9a2 2 0 0 1-2 2 M8 9h5 M8 13h5"/></svg></span><b data-i18n="quick.t5">Вести</b><small data-i18n="quick.d5">Од институциите</small></a>
+    </div>
+  </section>
+
 
   <!-- INSTITUTIONS STRIP -->
   <section class="strip">
@@ -173,32 +194,20 @@
   <!-- PORTAL -->
   <section class="section section-soft" id="portal">
     <div class="container portal">
-      <div class="portal-visual dash reveal" id="dash" aria-hidden="true">
-        <div class="mock">
-          <div class="mock-bar"><i></i><i></i><i></i><span>WISE · портал</span></div>
-          <div class="mock-body">
-            <div class="mock-head">
-              <div><small data-i18n="mock.hello">Добредојдовте</small><div class="mock-title" data-i18n="mock.title">Преглед на фирмата</div></div>
-              <span class="mock-chip" data-i18n="mock.period">Октомври</span>
+      <div class="portal-visual reveal" aria-hidden="true">
+        <div class="phone">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <div class="ph-head"><span class="logo-box sm">wise</span></div>
+            <div class="ph-card"><small data-i18n="pv.c1">Состојба на сметка</small><b>842.310 ден.</b></div>
+            <div class="ph-list">
+              <div><span data-i18n="pv.l1">Фактури</span><em>124</em></div>
+              <div><span data-i18n="pv.l2">Изводи</span><em>87</em></div>
+              <div><span data-i18n="pv.l3">Плати</span><em>✓</em></div>
+              <div><span data-i18n="pv.l4">ДДВ</span><em>✓</em></div>
             </div>
-            <div class="mock-kpis">
-              <div><small data-i18n="mock.k1">Приходи</small><b class="money" data-to="1284500">1.284.500</b><em class="up">+8,4%</em></div>
-              <div><small data-i18n="mock.k2">Расходи</small><b class="money" data-to="936200">936.200</b><em>−2,1%</em></div>
-            </div>
-            <div class="mock-chart">
-              <svg viewBox="0 0 300 90" preserveAspectRatio="none">
-                <defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2fbf8f" stop-opacity=".35"/><stop offset="1" stop-color="#2fbf8f" stop-opacity="0"/></linearGradient></defs>
-                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8 V90 H0Z" fill="url(#g1)" class="ch-fill"/>
-                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8" fill="none" stroke="#0d5c4a" stroke-width="2.5" class="ch-line" pathLength="100"/>
-              </svg>
-            </div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r1">ДДВ-04 за Q3</span><em data-i18n="mock.s1">Поднесено</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r2">Плати и МПИН</span><em data-i18n="mock.s2">Готово</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r3">Изводи – вкупно 87</span><em data-i18n="mock.s3">Книжени</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r4">Фактури – вкупно 124</span><em data-i18n="mock.s4">Книжени</em></div>
           </div>
         </div>
-        <div class="float f1 dash-toast"><span class="f-ico">✓</span><div><b data-i18n="fl1.t">ДДВ-04 поднесено</b><small data-i18n="fl1.d">е-Даноци · УЈП</small></div></div>
       </div>
       <div class="reveal">
         <span class="eyebrow" data-i18n="portal.eyebrow">Портал за клиенти</span>
@@ -352,6 +361,14 @@
         <h2 data-i18n="about.title">Сметководители кои ги разбираат и бројките и луѓето</h2>
         <p data-i18n="about.p1">WISE CONSULTING е сметководствена канцеларија од Скопје која работи со фирми од различни дејности. Комбинираме искуство, прецизност и модерни алатки, за нашите клиенти секогаш да имаат точни и навремени информации.</p>
         <p data-i18n="about.p2">Работиме на македонски и на албански јазик, а секој клиент има свој одговорен сметководител кој ја познава неговата фирма.</p>
+        <!-- Counters: numbers that are true today. Add clients / years when the office gives them (data-count). -->
+        <ul class="hero-stats about-stats">
+          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></span><b><span class="count" data-count="15">15</span>+</b><span data-i18n="hero.t8">години искуство</span></li>
+          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z M9 8h6 M9 12h6 M9 16h3"/></svg></span><b><span class="count" data-count="7">7</span></b><span data-i18n="hero.t1">области на услуги</span></li>
+          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z M9 13l2 2 4-4"/></svg></span><b><span class="count" data-count="52">52</span></b><span data-i18n="hero.t5">официјални обрасци</span></li>
+          <li><span class="st-ico"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z M8 9h8 M8 13h5"/></svg></span><b><span class="count" data-count="5">5</span></b><span data-i18n="hero.t6">институции – вести секој ден</span></li>
+
+        </ul>
       </div>
       <div class="values reveal">
         <div class="value"><span class="v-ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z M9 12l2 2 4-4"/></svg></span><div><h3 data-i18n="v1.t">Точност</h3><p data-i18n="v1.d">Секоја ставка е проверена, секој рок е испочитуван.</p></div></div>
@@ -467,8 +484,8 @@
   </div>
 </footer>
 
-<script src="i18n.js?v=202611131743"></script>
-<script src="main.js?v=202611131743"></script>
-<script src="bot.js?v=202611131743"></script>
+<script src="i18n.js?v=202611131746"></script>
+<script src="main.js?v=202611131746"></script>
+<script src="bot.js?v=202611131746"></script>
 </body>
 </html>
