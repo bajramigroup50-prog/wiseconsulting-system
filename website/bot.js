@@ -36,6 +36,8 @@
       answer: function () { return plain(t("q5.a")); } },
     { id: "security", label: "q6.q", kw: ["безбед", "сигурн", "2fa", "податоц", "sigur", "të dhën", "te dhen", "secur", "safe", "data", "güven", "guven", "veri"],
       answer: function () { return plain(t("q6.a")); } },
+    { id: "forms", label: "nav.forms", kw: ["образ", "формулар", "ддв-04", "мпин образ", "formular", "formë", "form", "download", "преземи", "shkarko", "indir"],
+      answer: function () { return plain(t("forms.lead")) + "<br>" + link("#forms", "nav.forms"); } },
     { id: "news", label: "nav.news", kw: ["вест", "новост", "ујп", "соопшт", "закон", "lajm", "njoft", "ligj", "news", "law", "announcement", "haber", "duyuru", "yasa"],
       answer: function () { return plain(t("news.lead")) + "<br>" + link("#news", "nav.news"); } },
     { id: "vat", label: "s2.t", kw: ["ддв", "данок", "даноч", "tvsh", "tatim", "vat", "tax", "kdv", "vergi"],

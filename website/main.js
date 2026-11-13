@@ -164,5 +164,28 @@
     start();
   })();
 
+  // ---- Forms tabs
+  document.querySelectorAll(".forms-tabs button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll(".forms-tabs button").forEach(function (x) { x.classList.toggle("active", x === b); });
+      document.querySelectorAll(".forms-panel").forEach(function (p) { p.hidden = p.dataset.panel !== b.dataset.tab; });
+    });
+  });
+
+  // ---- Count-up numbers in the hero
+  (function () {
+    var els = document.querySelectorAll(".count[data-count]");
+    if (!els.length || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    function run(el) {
+      var end = +el.dataset.count, t0 = null, dur = 1400;
+      function step(ts) { if (!t0) t0 = ts; var p = Math.min(1, (ts - t0) / dur); el.textContent = Math.round(end * (1 - Math.pow(1 - p, 3))); if (p < 1) requestAnimationFrame(step); }
+      el.textContent = "0"; requestAnimationFrame(step);
+    }
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (es) { es.forEach(function (x) { if (x.isIntersecting) { run(x.target); io.unobserve(x.target); } }); }, { threshold: 0.6 });
+      els.forEach(function (el) { io.observe(el); });
+    }
+  })();
+
   document.getElementById("year").textContent = new Date().getFullYear();
 })();
