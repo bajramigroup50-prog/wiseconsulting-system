@@ -398,6 +398,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
     const moves: import('@wise/core').StockMove[] = [];
     const sp = new Map<string, number>();
     const locs = await tx.select({ id: codes.id, code: codes.code, name: codes.name }).from(codes).where(and(eq(codes.firmId, a.firmId), inArray(codes.cb, ['warehouse', 'store'])));
+    const opened = new Set(L0.ctx.moves.filter((m) => m.type === 'opening' && !m.pend).map((m) => m.item + '|' + whId(m.wh)));
     let i = 0;
     for (const r of rows) {
       i++;
@@ -425,6 +426,13 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
       } else if (it.type === 'service') { R.skip.push(`${it.name}: услуга – нема залиха`); continue; }
       const whc = gs(r, 'wh');
       const W = t === 'in' ? W0 : whc ? locs.find((l) => String(l.code ?? '') === whc || l.name === whc)?.id ?? null : null;
+      // the opening stock of an item in a warehouse is entered once: a second import (a double click, the same file
+      // again) would double the quantities – it is refused until the first one is deleted
+      if (t === 'stock') {
+        const k = it.id + '|' + whId(W);
+        if (opened.has(k)) { R.skip.push(`${it.code || ''} ${it.name}: веќе има почетна залиха во овој магацин – не е внесена двапати (прво избришете ја старата)`.trim()); continue; }
+        opened.add(k);
+      }
       const cost = has(r, 'cost') ? gn(r, 'cost') : has(r, 'amount') && q ? r2(gn(r, 'amount') / q) : 0;
       moves.push({ id: `${srcId}-${i}`, date: o.date, item: it.id, qty: r4(q), value: r2(q * cost), type: t === 'stock' ? 'opening' : 'in', src: 'stock_import-' + srcId, wh: whId(W), label: t === 'stock' ? 'Почетна залиха' : 'Приемница (увоз)', lines: [] });
       if (t === 'in' && isStore && gn(r, 'mpc') > 0) {

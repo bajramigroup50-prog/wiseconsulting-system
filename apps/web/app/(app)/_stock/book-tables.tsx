@@ -7,12 +7,18 @@ import { dmy, fmt, fq } from '@/lib/fmt';
 
 const neg = (v: number) => (v < 0 ? { color: '#c0392b' } : undefined);
 
+/** The automatic „Почетна состојба“ row is left out when it is 0 and the card has its own opening stock (Почетна залиха). */
+const kartRows = (k: ItemCard) => {
+  const hasOpening = k.rows.some((r) => !r.open && r.move.type === 'opening');
+  return k.rows.filter((r) => !(r.open && hasOpening && Math.abs(r.q) < 1e-9 && Math.abs(r.v) < 0.005));
+};
+
 export function KartTable({ k, retail, who }: { k: ItemCard; retail: boolean; who?: Map<string, { name: string; no: string; href: string }> }) {
   return (
     <table className="kart">
       <thead><tr><th>Датум</th><th>Документ</th>{who && <th>Комитент (купувач / добавувач)</th>}<th className="n">Влез</th><th className="n">Излез</th><th className="n">{retail ? 'МПЦ' : 'Цена'}</th><th className="n">Вредност влез</th><th className="n">Вредност излез</th><th className="n">Состојба</th><th className="n">Вредност</th></tr></thead>
       <tbody>
-        {k.rows.map((r, i) => r.open
+        {kartRows(k).map((r, i) => r.open
           ? <tr key={i} className="sub"><td>{dmy(k.from)}</td><td>Почетна состојба</td>{who && <td />}<td /><td /><td /><td /><td /><td className="n">{fq(r.q)}</td><td className="n">{fmt(r.v)}</td></tr>
           : (
             <tr key={i}>
@@ -31,7 +37,7 @@ export function KartTable({ k, retail, who }: { k: ItemCard; retail: boolean; wh
 export function kartAoa(k: ItemCard, retail: boolean): (string | number)[][] {
   return [
     ['Датум', 'Документ', 'Влез', 'Излез', retail ? 'МПЦ' : 'Цена', 'Вредност влез', 'Вредност излез', 'Состојба', 'Вредност'],
-    ...k.rows.map((r) => (r.open ? [dmy(k.from), 'Почетна состојба', '', '', '', '', '', r.q, r.v] : [dmy(r.move.date), r.move.label || r.move.type, r.in || '', r.out || '', r.price, r.vin || '', r.vout || '', r.q, r.v])),
+    ...kartRows(k).map((r) => (r.open ? [dmy(k.from), 'Почетна состојба', '', '', '', '', '', r.q, r.v] : [dmy(r.move.date), r.move.label || r.move.type, r.in || '', r.out || '', r.price, r.vin || '', r.vout || '', r.q, r.v])),
     ['', 'Вкупно', k.totals.in, k.totals.out, '', k.totals.vin, k.totals.vout, k.totals.q, k.totals.v],
   ];
 }
