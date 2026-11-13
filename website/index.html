@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202611131746">
+  <link rel="stylesheet" href="styles.css?v=202611131751">
 </head>
 <body>
 
@@ -83,6 +83,13 @@
         <div class="banner-years"><span class="count" data-count="15">15</span><span class="plus">+</span></div>
         <div class="banner-years-lbl" data-i18n="banner.years">години искуство</div>
         <div class="banner-line" data-i18n="banner.line">Сметководство · Даноци · Плати</div>
+        <!-- Next tax deadlines: same rules as the WISE program (packages/core/src/office/rokovi.ts, УЈП даночен календар) -->
+        <div class="dl-card" id="deadlines">
+          <div class="dl-head"><span class="dl-live"></span><b data-i18n="dl.title">Следни даночни рокови</b></div>
+          <ul class="dl-list"></ul>
+          <small class="dl-note" data-i18n="dl.note">Според даночниот календар на УЈП. Ако рокот падне за викенд или празник, се поместува на следниот работен ден.</small>
+        </div>
+
       </div>
       <div class="dash hero-dash" id="dash" aria-hidden="true">
         <div class="mock">
@@ -484,8 +491,8 @@
   </div>
 </footer>
 
-<script src="i18n.js?v=202611131746"></script>
-<script src="main.js?v=202611131746"></script>
-<script src="bot.js?v=202611131746"></script>
+<script src="i18n.js?v=202611131751"></script>
+<script src="main.js?v=202611131751"></script>
+<script src="bot.js?v=202611131751"></script>
 </body>
 </html>

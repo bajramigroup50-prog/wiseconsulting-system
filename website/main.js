@@ -44,6 +44,38 @@
     if (d && d.sources) { news = d; renderNews(); }
   }).catch(function () {});
 
+  // ---- Next tax deadlines (rules from the WISE program: МПИН 10th, payments 15th, ДДВ-04 25th, annual 15 March)
+  function easterOrthodox(y) { var a = y % 4, b = y % 7, c = y % 19, d = (19 * c + 15) % 30, e = (2 * a + 4 * b - d + 34) % 7; var mo = Math.floor((d + e + 114) / 31), da = ((d + e + 114) % 31) + 1; var jul = new Date(Date.UTC(y, mo - 1, da)); return new Date(jul.getTime() + 13 * 864e5); }
+  function holidaySet(y) {
+    var s = {}, add = function (d) { s[d.toISOString().slice(0, 10)] = 1; };
+    ["01-01", "01-07", "05-01", "05-24", "08-02", "09-08", "10-11", "10-23", "12-08"].forEach(function (md) { add(new Date(y + "-" + md + "T00:00:00Z")); });
+    var em = easterOrthodox(y); add(new Date(em.getTime() + 864e5)); // Easter Monday
+    return s;
+  }
+  function rollWork(d) {
+    for (var i = 0; i < 10; i++) { var w = d.getUTCDay(), hs = holidaySet(d.getUTCFullYear()); if (w !== 0 && w !== 6 && !hs[d.toISOString().slice(0, 10)]) break; d = new Date(d.getTime() + 864e5); }
+    return d;
+  }
+  function renderDeadlines() {
+    var box = document.getElementById("deadlines"); if (!box) return;
+    var now = new Date(), today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    var list = [];
+    for (var k = 0; k < 3; k++) {
+      var y = today.getUTCFullYear(), mo = today.getUTCMonth() + k;
+      [[10, "dl.mpin", "МПИН"], [15, "dl.pay", "15"], [25, "dl.ddv", "ДДВ"]].forEach(function (r) { list.push({ due: rollWork(new Date(Date.UTC(y, mo, r[0]))), key: r[1], tag: r[2] }); });
+    }
+    [today.getUTCFullYear(), today.getUTCFullYear() + 1].forEach(function (y) { list.push({ due: rollWork(new Date(Date.UTC(y, 2, 15))), key: "dl.year", tag: "ДБ" }); });
+    list = list.filter(function (x) { return x.due >= today; }).sort(function (a, b) { return a.due - b.due; }).slice(0, 3);
+    var html = "";
+    list.forEach(function (x, i) {
+      var n = Math.round((x.due - today) / 864e5);
+      var left = n === 0 ? t("dl.today") : n === 1 ? t("dl.tomorrow") : t("dl.days").replace("{n}", n);
+      var pct = Math.max(6, Math.min(100, 100 - n * 100 / 31));
+      var dd = ("0" + x.due.getUTCDate()).slice(-2) + "." + ("0" + (x.due.getUTCMonth() + 1)).slice(-2) + ".";
+      html += '<li class="' + (n <= 3 ? "urgent" : "") + '"><span class="dl-date"><b>' + dd + "</b></span><span class=\"dl-main\"><span class=\"dl-name\">" + esc(t(x.key)) + '</span><span class="dl-bar"><i style="width:' + pct + '%"></i></span></span><span class="dl-left">' + esc(left) + "</span></li>";
+    });
+    box.querySelector(".dl-list").innerHTML = html;
+  }
   function setLang(lang) {
     if (!dicts[lang]) lang = "mk";
     var d = dicts[lang];
@@ -59,6 +91,7 @@
     try { localStorage.setItem("wise-lang", lang); } catch (e) {}
     currentLang = lang;
     renderNews();
+    renderDeadlines();
   }
 
   document.querySelectorAll(".lang button").forEach(function (b) {
@@ -204,5 +237,6 @@
     new IntersectionObserver(function (es) { es.forEach(function (x) { if (x.isIntersecting) play(); }); }, { threshold: 0.45 }).observe(dash);
   })();
 
+  renderDeadlines();
   document.getElementById("year").textContent = new Date().getFullYear();
 })();

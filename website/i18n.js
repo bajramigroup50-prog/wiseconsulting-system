@@ -1,7 +1,7 @@
 // Translations. Macedonian (base) lives directly in index.html, keyed by data-i18n.
 window.I18N = {
   // texts used only by script (news section) in Macedonian
-  mkExtra: {"bot.fab": "Прашајте нè", "bot.title": "WISE асистент", "bot.sub": "Одговори на најчестите прашања", "bot.hello": "Здраво! Јас сум асистентот на WISE CONSULTING. Изберете тема или напишете го вашето прашање.", "bot.placeholder": "Напишете прашање…", "bot.fallback": "За ова прашање најдобро е да разговарате директно со нашиот тим:", "bot.more": "Имате уште прашања? Изберете тема:", "news.allSrc": "Сите", "news.read": "Прочитај →", "calc.net": "Нето плата (ден.)", "news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
+  mkExtra: {"dl.mpin": "МПИН – пресметка за плата", "dl.pay": "Плаќање придонеси и аконтации", "dl.ddv": "ДДВ-04 – пријава и плаќање", "dl.year": "ДБ / ДБ-ВП и ДЛД-ДБ (годишно)", "dl.today": "денес", "dl.tomorrow": "утре", "dl.days": "уште {n} дена", "bot.fab": "Прашајте нè", "bot.title": "WISE асистент", "bot.sub": "Одговори на најчестите прашања", "bot.hello": "Здраво! Јас сум асистентот на WISE CONSULTING. Изберете тема или напишете го вашето прашање.", "bot.placeholder": "Напишете прашање…", "bot.fallback": "За ова прашање најдобро е да разговарате директно со нашиот тим:", "bot.more": "Имате уште прашања? Изберете тема:", "news.allSrc": "Сите", "news.read": "Прочитај →", "calc.net": "Нето плата (ден.)", "news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
 
   meta: {
     mk: "WISE CONSULTING – Сметководствена канцеларија, Скопје",
@@ -11,6 +11,15 @@ window.I18N = {
   },
 
   sq: {
+    "dl.title": "Afatet e ardhshme tatimore",
+    "dl.note": "Sipas kalendarit tatimor të DAP. Nëse afati bie në fundjavë ose festë, kalon në ditën e parë të punës.",
+    "dl.mpin": "MPIN – llogaritja e pagës",
+    "dl.pay": "Pagesa e kontributeve dhe akontacioneve",
+    "dl.ddv": "ДДВ-04 – deklarimi dhe pagesa",
+    "dl.year": "ДБ / ДБ-ВП dhe ДЛД-ДБ (vjetore)",
+    "dl.today": "sot",
+    "dl.tomorrow": "nesër",
+    "dl.days": "edhe {n} ditë",
     "banner.years": "vite përvojë",
     "banner.line": "Kontabilitet · Tatime · Paga",
     "quick.t1": "Konsultë",
@@ -263,6 +272,15 @@ window.I18N = {
   },
 
   en: {
+    "dl.title": "Upcoming tax deadlines",
+    "dl.note": "According to the Revenue Office tax calendar. A deadline on a weekend or public holiday moves to the next working day.",
+    "dl.mpin": "MPIN – payroll return",
+    "dl.pay": "Contributions and tax advances payment",
+    "dl.ddv": "VAT-04 – return and payment",
+    "dl.year": "ДБ / ДБ-ВП and ДЛД-ДБ (annual)",
+    "dl.today": "today",
+    "dl.tomorrow": "tomorrow",
+    "dl.days": "{n} days left",
     "banner.years": "years of experience",
     "banner.line": "Accounting · Tax · Payroll",
     "quick.t1": "Consultation",
@@ -515,6 +533,15 @@ window.I18N = {
   },
 
   tr: {
+    "dl.title": "Yaklaşan vergi son tarihleri",
+    "dl.note": "Gelir İdaresi vergi takvimine göre. Hafta sonuna veya tatile denk gelen süre bir sonraki iş gününe kayar.",
+    "dl.mpin": "MPIN – bordro beyanı",
+    "dl.pay": "Prim ve vergi avansı ödemesi",
+    "dl.ddv": "KDV-04 – beyan ve ödeme",
+    "dl.year": "ДБ / ДБ-ВП ve ДЛД-ДБ (yıllık)",
+    "dl.today": "bugün",
+    "dl.tomorrow": "yarın",
+    "dl.days": "{n} gün kaldı",
     "banner.years": "yıllık deneyim",
     "banner.line": "Muhasebe · Vergi · Bordro",
     "quick.t1": "Danışmanlık",

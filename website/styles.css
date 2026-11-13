@@ -563,3 +563,23 @@ p { margin: 0 0 1em; }
   .q-tile { padding: 20px 16px; }
   .hero-dash .f1 { display: none; }
 }
+
+/* Next tax deadlines card (hero) */
+.dl-card { margin-top: 30px; max-width: 430px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); border-radius: 18px; padding: 18px 20px 14px; backdrop-filter: blur(6px); text-align: left; }
+.dl-head { display: flex; align-items: center; gap: 10px; color: #fff; margin-bottom: 10px; font-size: .95rem; }
+.dl-live { width: 9px; height: 9px; border-radius: 50%; background: #2fbf8f; box-shadow: 0 0 0 0 rgba(47,191,143,.7); animation: livePulse 1.8s infinite; }
+@keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(47,191,143,.7); } 100% { box-shadow: 0 0 0 10px rgba(47,191,143,0); } }
+.dl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.dl-list li { display: grid; grid-template-columns: 58px 1fr auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.06); transition: background .2s, transform .2s; }
+.dl-list li:hover { background: rgba(255,255,255,.12); transform: translateX(4px); }
+.dl-date b { display: block; font-family: var(--serif); font-size: 1.15rem; color: #fff; text-align: center; }
+.dl-main { display: grid; gap: 6px; min-width: 0; }
+.dl-name { color: #dbe9e4; font-size: .86rem; font-weight: 600; }
+.dl-bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; }
+.dl-bar i { display: block; height: 100%; background: #8fe3c3; border-radius: 4px; animation: barIn 1.2s ease both; }
+@keyframes barIn { from { width: 0 !important; } }
+.dl-left { font-size: .78rem; font-weight: 800; color: #8fe3c3; white-space: nowrap; }
+.dl-list li.urgent .dl-left { color: #f3b27a; }
+.dl-list li.urgent .dl-bar i { background: var(--logo-orange, #e8822a); }
+.dl-note { display: block; margin-top: 10px; color: #8fb0a5; font-size: .72rem; line-height: 1.4; }
+@media (max-width: 600px) { .dl-card { margin: 24px auto 0; } }
