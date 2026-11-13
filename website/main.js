@@ -4,7 +4,7 @@
   // Macedonian is the text written in index.html – keep it as the base dictionary.
   var mk = {};
   nodes.forEach(function (n) { if (!(n.dataset.i18n in mk)) mk[n.dataset.i18n] = n.innerHTML; });
-  var dicts = { mk: mk, sq: window.I18N.sq, en: window.I18N.en };
+  var dicts = { mk: mk, sq: window.I18N.sq, en: window.I18N.en, tr: window.I18N.tr };
   var meta = window.I18N.meta;
 
   function setLang(lang) {
@@ -26,7 +26,7 @@
     b.addEventListener("click", function () { setLang(b.dataset.lang); });
   });
 
-  var start = (location.search.match(/lang=(mk|sq|en)/) || location.hash.match(/lang=(mk|sq|en)/) || [])[1];
+  var start = (location.search.match(/lang=(mk|sq|en|tr)/) || location.hash.match(/lang=(mk|sq|en|tr)/) || [])[1];
   if (!start) { try { start = localStorage.getItem("wise-lang"); } catch (e) {} }
   if (start && start !== "mk") setLang(start);
 

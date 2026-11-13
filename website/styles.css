@@ -322,3 +322,12 @@ p { margin: 0 0 1em; }
 .ci-tel { font-weight: 700; font-size: 1.05rem; color: #fff; }
 .ci-tel:hover { text-decoration: underline; }
 .topbar a.tb-item:hover { color: #fff; }
+
+/* Brand logo (as on the office's Facebook page): orange box "wise", "consulting" below */
+:root { --logo-orange: #e8822a; --logo-dark: #2a2a2a; }
+.logo { display: inline-flex; flex-direction: column; align-items: center; line-height: 1; gap: 4px; }
+.logo-box { background: var(--logo-orange); color: #fff; font-family: var(--sans); font-weight: 600; font-size: 1.22rem; letter-spacing: .2em; padding: 6px 8px 7px 14px; border-radius: 4px; text-transform: lowercase; }
+.logo-sub { color: var(--logo-orange); font-size: .62rem; font-weight: 600; letter-spacing: .32em; text-transform: lowercase; padding-left: .32em; }
+.brand-light .logo-sub { color: #f0a25e; }
+@media (max-width: 600px) { .logo-box { font-size: 1.05rem; } }
+.logo-box.sm { font-size: .8rem; padding: 4px 6px 5px 10px; }
