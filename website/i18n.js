@@ -161,7 +161,7 @@ window.I18N = {
 
     "contact.eyebrow": "Kontakt",
     "contact.title": "Të flasim për firmën tuaj",
-    "contact.lead": "Konsulta e parë është falas dhe pa obligim. Na telefononi në 075 288 889.",
+    "contact.lead": "Konsulta e parë është falas dhe pa obligim. Na telefononi në 075 288 889 ose na shkruani në info@wiseconsulting.com.mk.",
     "contact.address": "Adresa",
     "contact.city": "Shkup, Maqedonia e Veriut",
     "contact.phone": "Telefoni",
@@ -332,7 +332,7 @@ window.I18N = {
 
     "contact.eyebrow": "Contact",
     "contact.title": "Let's talk about your company",
-    "contact.lead": "The first consultation is free and without obligation. Call us on +389 75 288 889.",
+    "contact.lead": "The first consultation is free and without obligation. Call us on +389 75 288 889 or write to info@wiseconsulting.com.mk.",
     "contact.address": "Address",
     "contact.city": "Skopje, North Macedonia",
     "contact.phone": "Phone",
