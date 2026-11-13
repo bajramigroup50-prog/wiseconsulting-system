@@ -30,7 +30,8 @@ export function kkSod(l: { sourceType: string | null; kind: string; description:
   if (/^Увезен налог/i.test(l.description ?? '') && (l.note || d)) {
     // a bank statement line of the old program („IZVOD BR 58“ / „Извод бр. 58“) → „ИЗВОД БР 58 · Ф-РА 15/26“
     const iz = IZVOD_RE.exec(String(l.note ?? '') + ' ' + d);
-    if (iz) return 'ИЗВОД БР ' + iz[1] + (d && !IZVOD_RE.test(d) ? ' · Ф-РА ' + U(d) : '');
+    // the document of the line is an invoice number, not a period („03-2026“) of the old program
+    if (iz) return 'ИЗВОД БР ' + iz[1] + (d && !IZVOD_RE.test(d) && !/^\d{1,2}[-/.]\d{4}$/.test(d) ? ' · Ф-РА ' + U(d) : '');
     return U([d, l.note && l.note !== d ? l.note : ''].filter(Boolean).join(' · '));
   }
   return U(l.description).replace(/\s+ОД\s+\d{2}\.\d{2}\.\d{4}.*$/, '').replace(/БР\.\s*/, 'БР ');
