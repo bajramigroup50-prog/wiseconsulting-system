@@ -5,13 +5,13 @@
  * month) are skipped and counted, like legacy `_lockSkip`. Each document runs in its own savepoint.
  */
 import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm';
-import { scrEntries } from '@wise/core';
+import { isPersonPartner, scrEntries } from '@wise/core';
 import { VAT_SUMMARY_ACCOUNTS, oldVatDocCount } from '@wise/core/repost';
 import { audit, type Tx } from './audit';
 import { postJournal, PostingError } from './posting';
 import { PayrollError, postRun } from './payroll';
 import { loadRegisters, postVoucher } from './bank/cash';
-import { cashVouchers, invoices, journalLines, journals, payrollRuns, purchases, salesDaily, firms, supplierCreditLines, supplierCredits, type Firm } from './schema/index';
+import { cashVouchers, invoices, journalLines, journals, partners, payrollRuns, purchases, salesDaily, firms, supplierCreditLines, supplierCredits, type Firm } from './schema/index';
 import { firmPostingContext, stockLocations } from './sales/context';
 import { repostInvoice } from './sales/invoices';
 import { repostPurchase } from './sales/purchases';
@@ -82,5 +82,30 @@ export async function repostYear(tx: Tx, a: { firmId: string; userId: string | n
   for (const x of S) await one((sp) => repostSupplierCredit(sp, f, x.id, a.userId));
   for (const x of Y) await one((sp) => postRun(sp, { firmId: f.id, runId: x.id, userId: a.userId }));
   await audit(tx, { userId: a.userId, firmId: f.id, action: 'schRepost', data: { year, ...R } });
+  return R;
+}
+
+/**
+ * „👤 Физички лица → 1205“ in one firm: re-post the year's booked invoices whose buyer is a natural person
+ * (`isPersonPartner`) and whose receivable is still on another konto than `customerPerson` (1205 when the chart has
+ * it). Locked periods are skipped (counted), each invoice in its own savepoint; audited `personRepost`.
+ */
+export async function repostPersonInvoices(tx: Tx, a: { firmId: string; userId: string | null }, year: number): Promise<RepostResult & { found: number }> {
+  const [f] = await tx.select().from(firms).where(eq(firms.id, a.firmId)).for('update').limit(1);
+  if (!f) throw new PostingError('firm_not_found', 'Фирмата не постои.');
+  const I = await tx.select({ id: invoices.id, partnerId: invoices.partnerId }).from(invoices)
+    .where(and(eq(invoices.firmId, f.id), eq(invoices.status, 'posted'), gte(invoices.date, `${year}-01-01`), lte(invoices.date, `${year}-12-31`)));
+  const pIds = [...new Set(I.map((i) => i.partnerId).filter((x): x is string => !!x))];
+  const people = new Set(pIds.length ? (await tx.select({ id: partners.id, name: partners.name, edb: partners.edb, data: partners.data }).from(partners).where(inArray(partners.id, pIds)))
+    .filter((p) => isPersonPartner(p)).map((p) => p.id) : []);
+  const todo = I.filter((i) => i.partnerId && people.has(i.partnerId));
+  const R: RepostResult & { found: number } = { n: 0, locked: 0, failed: 0, errors: [], found: todo.length };
+  for (const x of todo) {
+    try { await tx.transaction(async (sp) => { await repostInvoice(sp as unknown as Tx, f, x.id, a.userId); }); R.n++; } catch (e) {
+      if (isRepostLock(e)) R.locked++;
+      else { R.failed++; if (R.errors.length < 5) R.errors.push(e instanceof Error ? e.message : String(e)); }
+    }
+  }
+  if (todo.length) await audit(tx, { userId: a.userId, firmId: f.id, action: 'personRepost', data: { year, ...R } });
   return R;
 }

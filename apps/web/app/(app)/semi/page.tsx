@@ -18,6 +18,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { RepostCallout } from '@/components/repost-callout';
+import { repostPeopleAllAction } from '../_repost/actions';
 import { journalCards } from '@wise/core/sch-journals';
 import { deleteCustomSchemeAction, resetSchemesAction, saveSchemesAction } from './actions';
 import { SchJournals } from './journals-ui';
@@ -73,11 +74,13 @@ export default async function SemiPage({ searchParams }: { searchParams: Promise
     </label>
   );
   const custom = [...(G.custom ?? []), { id: '', name: '', rows: [] } as CustomScheme];
+  const owner = await isOfficeOwner(u);
   return (
     <>
       <Hd t="Шеми за автоматско книжење" sub="конта што програмот ги користи при книжење">
         {ed && <RowAction className="btn" label="Врати стандардни" confirm="Да се вратат стандардните конта (според контниот план) во сите шеми, за сите фирми?" action={resetSchemesAction} />}
         <RepostCallout u={u} firmId={firm.id} year={year} always />
+        {owner && <RowAction className="btn" action={repostPeopleAllAction} label={`👤 Физички лица → 1205 (сите фирми, ${year})`} confirm={`Во сите фирми фактурите од ${year} на купувачи – физички лица да се прекнижат на 1205? Заклучените периоди се прескокнуваат.`} showOk />}
       </Hd>
       <RepostCallout u={u} firmId={firm.id} year={year} />
       {tabs}

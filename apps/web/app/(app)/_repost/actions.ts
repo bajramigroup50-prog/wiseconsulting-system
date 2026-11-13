@@ -6,7 +6,11 @@
  */
 import { revalidatePath } from 'next/cache';
 import { repostResult } from '@wise/core/repost';
-import { dismissRepost, repostYear, requestRepost } from '@wise/db';
+import { dismissRepost, repostPersonInvoices, repostYear, requestRepost } from '@wise/db';
+import { requireUser } from '@/lib/auth';
+import { currentYear } from '@/lib/context';
+import { allowedFirms } from '@/lib/office';
+import { isOfficeOwner } from '@/lib/office-owner';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { sendRepostRuns } from '@/lib/auto-repost';
@@ -42,5 +46,28 @@ export async function dismissRepostAction(due: boolean): Promise<ActionState> {
     await db().transaction((tx) => dismissRepost(tx, { firmId: firm.id, userId: u.id, due }));
     for (const p of PATHS) revalidatePath(p);
     return { ok: 'Затворено.' };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * „👤 Физички лица → 1205 (сите фирми)“ – office owner only: in every firm, the year's invoices of buyers who are natural
+ * persons are re-posted so their receivable is on 1205 (`customerPerson`); locked periods are skipped. One transaction per firm.
+ */
+export async function repostPeopleAllAction(): Promise<ActionState> {
+  try {
+    const u = await requireUser();
+    if (!(await isOfficeOwner(u))) return { error: 'Само сопственикот на канцеларијата.' };
+    const year = await currentYear();
+    const F = await allowedFirms(u);
+    let firmsN = 0, n = 0, locked = 0, failed = 0;
+    const errs: string[] = [];
+    for (const f of F) {
+      const R = await db().transaction((tx) => repostPersonInvoices(tx, { firmId: f.id, userId: u.id }, year));
+      if (R.found) firmsN++;
+      n += R.n; locked += R.locked; failed += R.failed;
+      if (R.errors.length && errs.length < 3) errs.push(`${f.name}: ${R.errors[0]}`);
+    }
+    for (const p of PATHS) revalidatePath(p);
+    return { ok: `Физички лица → 1205: прекнижани ${n} фактури во ${firmsN} фирми${locked ? `, ${locked} во заклучен период (прескокнати)` : ''}${failed ? `, ${failed} не успеаја (${errs.join('; ')})` : ''}.` };
   } catch (e) { return actionError(e); }
 }
