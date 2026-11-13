@@ -14,3 +14,11 @@ describe('import headers in old YU-ASCII / Latin', () => {
     expect(s.qty).toBe(2);
   });
 });
+
+describe('old stock list with in / out', () => {
+  it('maps quantity, in, out, cost and the financial in / out', () => {
+    const H = ['*', 'Шифра', 'Помошна шифра', 'Назив на производ', 'Бренд име', 'Добавувач', 'Е. м.', 'Количина', 'Колич. влез', 'Колич. излез', 'Наб. цена', 'Наб. износ', 'Фин. влез', 'Фин. излез', 'Фин. сост.', 'ВЛ прод. со данок', 'Продажна цена', 'ДДВ %', 'Количина_2', 'Колич. влез_2'];
+    const m = impAuto('in', H);
+    expect([m.code, m.qty, m.inq, m.outq, m.cost, m.vin, m.vout]).toEqual([1, 7, 8, 9, 10, 12, 13]);
+  });
+});

@@ -404,10 +404,14 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
       i++;
       const bc = gs(r, 'barcode').replace(/\D/g, ''), code = gs(r, 'code'), name = gs(r, 'name');
       const q = gn(r, 'qty');
-      if ((!code && !bc && !name) || !q) { R.skip.push((code || bc || name || '?') + ': нема шифра/баркод/количина'); continue; }
+      // the old programs' stock list with the year's movement: „Колич. влез / Колич. излез“ (+ „Фин. влез / Фин. излез“) –
+      // both are entered (one receipt and one issue per item), so the list shows the same in / out / balance as there
+      const io = has(r, 'inq') || has(r, 'outq');
+      const inq = io ? gn(r, 'inq') : 0, outq = io ? gn(r, 'outq') : 0;
+      if ((!code && !bc && !name) || (!q && !(io && (inq || outq)))) { R.skip.push((code || bc || name || '?') + ': нема шифра/баркод/количина'); continue; }
       if (/^(вкупно|total)/i.test(code || name)) continue;
       // an opening stock / receipt is never negative (a minus in the old program's list is a missing receipt there)
-      if (q < 0) { R.skip.push(`${code || bc || name}: негативна количина (${q}) – не е внесена; проверете ја состојбата во стариот програм`); continue; }
+      if (q < 0 && !io) { R.skip.push(`${code || bc || name}: негативна количина (${q}) – не е внесена; проверете ја состојбата во стариот програм`); continue; }
       let it = await findItem(tx, a.firmId, code, bc, t === 'in' ? name : '');
       if (!it) {
         const nm = yuFix(name || code || bc);
@@ -436,7 +440,11 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
       // a wholesale list (Материјално) of the old programs has no purchase price: the item's price without VAT is used
       const cost = has(r, 'cost') && gn(r, 'cost') > 0 ? gn(r, 'cost') : has(r, 'amount') && q && gn(r, 'amount') > 0 ? r2(gn(r, 'amount') / q)
         : !isStore ? n(it.price) : 0;
-      moves.push({ id: `${srcId}-${i}`, date: o.date, item: it.id, qty: r4(q), value: r2(q * cost), type: t === 'stock' ? 'opening' : 'in', src: 'stock_import-' + srcId, wh: whId(W), label: t === 'stock' ? 'Почетна залиха' : 'Приемница (увоз)', lines: [] });
+      if (io) {
+        const vin = has(r, 'vin') ? gn(r, 'vin') : r2(inq * cost), vout = has(r, 'vout') ? gn(r, 'vout') : r2(outq * cost);
+        if (inq) moves.push({ id: `${srcId}-${i}`, date: o.date, item: it.id, qty: r4(inq), value: r2(vin), type: t === 'stock' ? 'opening' : 'in', src: 'stock_import-' + srcId, wh: whId(W), label: 'Влез (пренос од стар програм)', lines: [] });
+        if (outq) moves.push({ id: `${srcId}-${i}-o`, date: o.date, item: it.id, qty: r4(-outq), value: r2(-vout), type: 'sale', src: 'stock_import-' + srcId, wh: whId(W), label: 'Излез (пренос од стар програм)', lines: [] });
+      } else moves.push({ id: `${srcId}-${i}`, date: o.date, item: it.id, qty: r4(q), value: r2(q * cost), type: t === 'stock' ? 'opening' : 'in', src: 'stock_import-' + srcId, wh: whId(W), label: t === 'stock' ? 'Почетна залиха' : 'Приемница (увоз)', lines: [] });
       if (t === 'in' && isStore && gn(r, 'mpc') > 0) {
         const has0 = L0.ctx.moves.some((m) => m.item === it!.id && whId(m.wh) === whId(W0) && !m.pend && m.date <= o.date);
         const cur = n(((it.data as Record<string, unknown>).sp as Record<string, unknown> | undefined)?.[whId(W0)]);
