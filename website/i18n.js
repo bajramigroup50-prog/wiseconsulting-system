@@ -41,8 +41,6 @@ window.I18N = {
     "mock.s4": "Të kontabilizuara",
     "fl1.t": "ДДВ-04 u dorëzua",
     "fl1.d": "e-Tatime · DAP",
-    "fl2.t": "Mbrojtje 2FA",
-    "fl2.d": "Lidhje e enkriptuar",
 
     "strip.label": "Punojmë çdo ditë me",
     "strip.i1": "e-Tatime (DAP)",
@@ -214,8 +212,6 @@ window.I18N = {
     "mock.s4": "Posted",
     "fl1.t": "VAT-04 filed",
     "fl1.d": "e-Tax · PRO",
-    "fl2.t": "2FA protection",
-    "fl2.d": "Encrypted connection",
 
     "strip.label": "We work daily with",
     "strip.i1": "e-Tax (PRO)",
