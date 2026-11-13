@@ -318,3 +318,7 @@ p { margin: 0 0 1em; }
   .phone { width: 240px; }
   .code-card { right: -4px; }
 }
+
+.ci-tel { font-weight: 700; font-size: 1.05rem; color: #fff; }
+.ci-tel:hover { text-decoration: underline; }
+.topbar a.tb-item:hover { color: #fff; }
