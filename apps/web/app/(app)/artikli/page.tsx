@@ -10,7 +10,10 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { deleteItem, deleteItemsAction, itemsToCyrillicAction, setItemActive } from './actions';
-import { isLatinName, latToCyr } from '@wise/core/text/cyr';
+import { hasYuAscii, isLatinName, latToCyr, yuFix } from '@wise/core/text/cyr';
+
+/** The proposed name: old YU-ASCII signs (НАО^АРИ → НАОЧАРИ) fixed, a Latin name in Cyrillic. */
+const cyrName = (s: string) => (isLatinName(yuFix(s)) ? latToCyr(yuFix(s)) : yuFix(s));
 import { ActionForm, Submit } from '@/components/action-form';
 import { fuelItemsRateAction } from '../izlez/actions';
 import { fuelBannerFor, itemUsage, usedList } from '@/lib/sales-parity';
@@ -31,20 +34,20 @@ export default async function ArtikliPage({ searchParams }: { searchParams: Prom
   // „🔤 Латиница → кирилица“: every item / service whose name is in Latin, the proposed Cyrillic name (editable), ticked
   if (sp.cyr !== undefined) {
     const L = (await db().select({ id: items.id, name: items.name, code: items.code }).from(items).where(and(eq(items.firmId, firm.id), svc ? eq(items.type, 'service') : undefined)).orderBy(asc(items.name)))
-      .filter((x) => isLatinName(x.name));
+      .filter((x) => isLatinName(x.name) || hasYuAscii(x.name));
     return (
       <>
-        <Hd t={`${svc ? 'Услуги' : 'Артикли'} – латиница → кирилица`} sub={`${L.length} со назив на латиница`}><Link className="btn" href={base}>← Назад</Link></Hd>
-        <div className="callout info">Предлогот е буква по буква. Марките и странските називи (Coca-Cola, Nivea…) поправете ги во полето или одштиклирајте ги за да останат на латиница; шифрите и броевите (пр. 0,5L, A4) остануваат исти.</div>
+        <Hd t={`${svc ? 'Услуги' : 'Артикли'} – латиница → кирилица`} sub={`${L.length} со назив на латиница или со стари знаци (^ [ ] @)`}><Link className="btn" href={base}>← Назад</Link></Hd>
+        <div className="callout info">Предлогот е буква по буква; старите знаци од DOS-програмите се поправаат (НАО^АРИ → НАОЧАРИ, [ → Ш, @ → Ж). Марките и странските називи (Coca-Cola, Nivea…) поправете ги во полето или одштиклирајте ги за да останат на латиница; шифрите и броевите (пр. 0,5L, A4) остануваат исти.</div>
         {L.length ? (
           <ActionForm action={itemsToCyrillicAction} reset={false}>
             <div className="tw"><table className="dense">
-              <thead><tr><th>✓</th><th>Шифра</th><th>Сега (латиница)</th><th>Ќе биде (кирилица) – може да се поправи</th></tr></thead>
+              <thead><tr><th>✓</th><th>Шифра</th><th>Сега</th><th>Ќе биде (кирилица) – може да се поправи</th></tr></thead>
               <tbody>{L.map((x) => (
                 <tr key={x.id}>
                   <td><input type="checkbox" name="on" value={x.id} defaultChecked aria-label="Претвори" /></td>
                   <td>{x.code}</td><td>{x.name}</td>
-                  <td><input name={'n_' + x.id} defaultValue={latToCyr(x.name)} style={{ width: '100%', minWidth: 280 }} /></td>
+                  <td><input name={'n_' + x.id} defaultValue={cyrName(x.name)} style={{ width: '100%', minWidth: 280 }} /></td>
                 </tr>
               ))}</tbody>
             </table></div>
@@ -99,6 +102,7 @@ export default async function ArtikliPage({ searchParams }: { searchParams: Prom
         {write && <Link className="btn" href={`${base}?${svc ? 't=service&' : ''}cyr`} title="Називите напишани на латиница – во кирилица (со преглед и поправка)">🔤 Латиница → кирилица</Link>}
         {write && <Link className="btn pri" href={`${base}?nov`}>+ Додај</Link>}
       </Hd>
+      {write && rows.some((r) => hasYuAscii(r.name)) && <div className="callout warn">Некои називи имаат стари знаци од DOS-програмите (пр. „НАО^АРИ“ наместо „НАОЧАРИ“). <Link className="btn sm pri" href={`${base}?${svc ? 't=service&' : ''}cyr`}>🔤 Поправи ги називите</Link></div>}
       {fuel && <div className={'callout' + (fuel.warn ? ' warn' : '')} id="fuelBan">⛽ <b>Оваа фирма продава гориво.</b> ДДВ за гориво денес: <b>{fuel.rate}%</b>{fuel.inR && fuel.to ? <> – намалената стапка важи до <b>{fuel.to.split('-').reverse().join('.')}</b>{fuel.left != null ? ` (уште ${fuel.left} ден${fuel.left === 1 ? '' : 'а'})` : ''}, потоа {fuel.else}% освен ако Владата не продолжи</> : null}.{fuel.wrong ? <> <b>{fuel.wrong} артикли гориво</b> се со друга стапка.</> : null} Прилагодете ги и <b>фискалните апарати</b>.{' '}
         {fuel.wrong > 0 && canDo(u, 'settings', firm.id) && <RowAction className="btn sm pri" action={fuelItemsRateAction.bind(null, fuel.rate)} label={`Постави ${fuel.rate}% на артиклите`} confirm={`Да се постави ДДВ ${fuel.rate}% на ${fuel.wrong} артикли гориво?\n\nВажи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />} {see('zakoni') && <Link className="btn sm" href="/zakoni">⚖️ Извор</Link>}</div>}
       {noName > 0 && !svc && <div className="callout warn" id="anBtn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}

@@ -129,12 +129,13 @@ export async function deleteItemsAction(ids: string[]): Promise<ActionState> {
 export async function itemsToCyrillicAction(_p: ActionState, form: FormData): Promise<ActionState> {
   try {
     const { u, firm } = await firmAction('write');
-    const { latToCyr } = await import('@wise/core/text/cyr');
+    const { latToCyr, yuFix, isLatinName } = await import('@wise/core/text/cyr');
+    const cyrName = (s: string) => (isLatinName(yuFix(s)) ? latToCyr(yuFix(s)) : yuFix(s));
     const ids = form.getAll('on').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
     if (!ids.length) return { error: 'Не е избран ниту еден артикл.' };
     const n = await db().transaction(async (tx) => {
       const L = await tx.select({ id: items.id, name: items.name }).from(items).where(and(eq(items.firmId, firm.id), inArray(items.id, ids)));
-      for (const x of L) await tx.update(items).set({ name: String(form.get('n_' + x.id) ?? '').trim().slice(0, 300) || latToCyr(x.name) }).where(eq(items.id, x.id));
+      for (const x of L) await tx.update(items).set({ name: String(form.get('n_' + x.id) ?? '').trim().slice(0, 300) || cyrName(x.name) }).where(eq(items.id, x.id));
       await audit(tx, { userId: u.id, firmId: firm.id, action: 'itemsToCyrillic', entityType: 'item', data: { count: L.length, old: L } });
       return L.length;
     });

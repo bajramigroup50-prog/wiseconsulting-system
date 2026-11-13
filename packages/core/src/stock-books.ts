@@ -123,6 +123,11 @@ export interface LagerQuery {
   q?: string;
   /** Include items with zero stock. */
   zero?: boolean;
+  /**
+   * Without `wh`: only the warehouses (`warehouse`, the main one included – Материјално) or only the stores (`store` –
+   * Малопродажба), so the same stock is never listed in both books.
+   */
+  kind?: 'warehouse' | 'store';
 }
 
 /** Legacy `lagerData` (4924): tracked items with stock at the date, sorted by code (or name), numeric-aware. */
@@ -131,7 +136,9 @@ export function lagerRows(ctx: StockContext, query: LagerQuery): LagerRow[] {
   const its = trackedItems(ctx)
     .filter((i) => (!query.type || i.type === query.type) && (!q || ((i.name ?? '') + ' ' + (i.code || '')).toLowerCase().includes(q)))
     .sort((a, b) => mkCompare(String(a.code || a.name || ''), String(b.code || b.name || '')));
-  const all = stockAtAll(ctx, { date: query.date, wh: query.wh || undefined });
+  const stores = new Set((ctx.locations ?? []).filter((l) => l.kind === 'store').map((l) => l.id));
+  const c2 = !query.wh && query.kind ? { ...ctx, moves: ctx.moves.filter((m) => stores.has(m.wh || 'main') === (query.kind === 'store')) } : ctx;
+  const all = stockAtAll(c2, { date: query.date, wh: query.wh || undefined });
   return its
     .map((item) => ({ item, s: all.get(item.id) ?? emptyStockAt(ctx, item.id) }))
     .filter((r) => query.zero || Math.abs(r.s.qty) > 1e-9);

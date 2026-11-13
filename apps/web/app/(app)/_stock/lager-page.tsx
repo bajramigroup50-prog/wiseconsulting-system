@@ -41,12 +41,16 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
   const { u, firm, year, L } = await stockPage(view);
   if (!firm || !L) return <NoFirm t={def.title} />;
   // retail lists: the import goes into a store — preselect the first store (legacy m_lager is store-only)
-  const wh = pickLoc(L, sp.wh) || (view[0] === 'm' && sp.imp !== undefined ? L.locations.find((l) => l.kind === 'store')?.id ?? '' : '');
+  // Материјално (g_…) lists only the warehouses, Малопродажба (m_…) only the stores: the same stock is never in both
+  const kind: 'warehouse' | 'store' = view[0] === 'm' ? 'store' : 'warehouse';
+  const okLoc = (v: string) => (v === 'main' ? kind === 'warehouse' : L.locations.some((l) => l.id === v && l.kind === kind));
+  const wh0 = pickLoc(L, sp.wh);
+  const wh = (wh0 && okLoc(wh0) ? wh0 : '') || (view[0] === 'm' && sp.imp !== undefined ? L.locations.find((l) => l.kind === 'store')?.id ?? '' : '');
   const date = dateInYear(sp.d, year);
   const type = sp.t && TYPES[sp.t] ? sp.t : '';
   const q = (sp.q ?? '').trim();
   const zero = sp.z === '1';
-  const rows = lagerRows(L.ctx, { date, wh: wh || undefined, type, q, zero });
+  const rows = lagerRows(L.ctx, { date, wh: wh || undefined, type, q, zero, kind });
   const W = wh || undefined;
   const fv = (kind: string, v: number | string) => (v === '' ? '' : kind === 'q' ? fq(v) : kind === 'm' ? fmt(v) : kind === 'b' ? '' : String(v));
   const S = def.summary ? lagerSummary(rows) : null;
@@ -57,7 +61,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
   const imp = sp.imp && IMP.some(([k]) => k === sp.imp) ? sp.imp : sp.imp !== undefined ? 'in' : '';
   const isStore = !!wh && L.locations.some((l) => l.id === wh && l.kind === 'store');
   const qs = (p: Record<string, string | undefined>) => '?' + new URLSearchParams(Object.entries({ wh: wh || undefined, d: date, t: type || undefined, q: q || undefined, z: zero ? '1' : undefined, ...p }).filter(([, x]) => x != null) as [string, string][]).toString();
-  const sub = 'Состојба на ' + dmy(date) + ' · ' + (wh ? L.locName(wh) : 'сите објекти') + (type ? ' · ' + TYPES[type] : '');
+  const sub = 'Состојба на ' + dmy(date) + ' · ' + (wh ? L.locName(wh) : kind === 'store' ? 'сите продавници' : 'сите магацини') + (type ? ' · ' + TYPES[type] : '');
   const fn = `${def.title.replace(/\s+/g, '_')}_${date}`;
   return (
     <>
@@ -77,7 +81,7 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
               : <Link key={k} href={'/' + view + qs({ imp: k })} className="chk" style={{ display: 'block', margin: '5px 0' }}>{imp === k ? '●' : '○'} {n}</Link>))}
           </fieldset>
           <p className="note">Колони (ги препознава сам): <b>Шифра</b> или <b>Баркод</b>, Назив, {imp === 'in' ? <><b>Количина</b>, Набавна цена (или Износ/Вредност), МПЦ со ДДВ</> : imp === 'pop' ? <><b>Пописано</b> (или Количина)</> : <><b>МПЦ</b> (нова продажна цена со ДДВ)</>}. Датум на увозот: {dmy(date)}. Формат на броеви (1.234,56 или 1,234.56) се препознава автоматски. Непознатите шифри при приемница се креираат како нови артикли.</p>
-          {wh && <Importer key={imp + wh} t={imp as 'in' | 'pop' | 'nivel'} locs={locOptions(L).map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} date0={date} wh0={wh}
+          {wh && <Importer key={imp + wh} t={imp as 'in' | 'pop' | 'nivel'} locs={locOptions(L, kind).map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} date0={date} wh0={wh}
             tpl={view[0] === 'm' ? RETAIL_TPL[imp as 'in' | 'pop' | 'nivel'] : undefined} />}
           <p className="mini"><Link href="/artQ">🧹 Анализа на артикли</Link> · за увозна фактура со добавувач, царина и трошоци користете <Link href="/uvozMat">Увоз → Увозна фактура со ставки</Link>.</p>
         </div>
@@ -86,8 +90,8 @@ export async function LagerPage({ view, sp }: { view: LagerView; sp: LagerSP }) 
         <div className="row" style={{ gap: 12, alignItems: 'end' }}>
           <label className="f">Објект
             <select name="wh" defaultValue={wh}>
-              <option value="">Сите објекти</option>
-              {locOptions(L).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              <option value="">{kind === 'store' ? 'Сите продавници' : 'Сите магацини'}</option>
+              {locOptions(L, kind).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </label>
           <label className="f">Состојба на ден<input type="date" name="d" defaultValue={date} /></label>

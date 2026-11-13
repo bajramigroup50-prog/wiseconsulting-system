@@ -6,6 +6,7 @@
 import { nextNumericCode } from './sales/partners-auto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { r2, r4 } from '@wise/core/stock/num';
+import { yuFix } from '@wise/core/text/cyr';
 import { pastPeriodOf, type PastPeriodCtx } from '@wise/core/vat/past-period';
 import {
   artFixName, artRoleFields, eanNextInternal, impItemType, impPurchaseGroups, impYes, type ArtRole, type ImpType,
@@ -276,7 +277,7 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
         let id: string;
         if (ex) { await tx.update(items).set(v).where(eq(items.id, ex.id)); id = ex.id; R.upd++; }
         else {
-          const [c] = await tx.insert(items).values({ vatRate: 18, price: '0', ...v, name, firmId: a.firmId, code: code || await nextCode() }).returning({ id: items.id });
+          const [c] = await tx.insert(items).values({ vatRate: 18, price: '0', ...v, name: yuFix(name), firmId: a.firmId, code: code || await nextCode() }).returning({ id: items.id });
           id = c!.id; R.add++;
         }
         if (bc && !owner) {
@@ -404,9 +405,11 @@ export async function importRows(tx: Tx, a: Actor & { role: string }, t: ImpType
       const q = gn(r, 'qty');
       if ((!code && !bc && !name) || !q) { R.skip.push((code || bc || name || '?') + ': нема шифра/баркод/количина'); continue; }
       if (/^(вкупно|total)/i.test(code || name)) continue;
+      // an opening stock / receipt is never negative (a minus in the old program's list is a missing receipt there)
+      if (q < 0) { R.skip.push(`${code || bc || name}: негативна количина (${q}) – не е внесена; проверете ја состојбата во стариот програм`); continue; }
       let it = await findItem(tx, a.firmId, code, bc, t === 'in' ? name : '');
       if (!it) {
-        const nm = name || code || bc;
+        const nm = yuFix(name || code || bc);
         const mpc = gn(r, 'mpc');
         const [c] = await tx.insert(items).values({
           firmId: a.firmId, code: code || await nextCode(), name: nm, type: 'goods', unit: gs(r, 'unit') || 'ком', vatRate: [0, 5, 10, 18].includes(gn(r, 'rate')) && has(r, 'rate') ? gn(r, 'rate') : 18,

@@ -44,3 +44,28 @@ export function latToCyr(s: string | null | undefined): string {
 
 /** The text has Latin letters and no Cyrillic (a candidate for the conversion). */
 export const isLatinName = (s: string | null | undefined): boolean => /[A-Za-z]/.test(String(s ?? '')) && !/[Ѐ-ӿ]/.test(String(s ?? ''));
+
+/*
+ * Old YU-ASCII (YUSCII) letters from the DOS programs: `^` = Ч, `@` = Ж, `[` = Ш, `]` = Ќ (Ć), `\` = Ѓ (Đ) and the
+ * lower case `~ ` { } |`. „РАМКИ ЗА НАО^АРИ“ → „РАМКИ ЗА НАОЧАРИ“, „PO[TENSKA“ → „POŠTENSKA“. Only a sign between /
+ * next to letters is a letter („[1]“, „a@b.mk“ stay).
+ */
+const YU_CYR: Record<string, string> = { '^': 'Ч', '@': 'Ж', '[': 'Ш', ']': 'Ќ', '\\': 'Ѓ', '~': 'ч', '`': 'ж', '{': 'ш', '}': 'ќ', '|': 'ѓ' };
+const YU_LAT: Record<string, string> = { '^': 'Č', '@': 'Ž', '[': 'Š', ']': 'Ć', '\\': 'Đ', '~': 'č', '`': 'ž', '{': 'š', '}': 'ć', '|': 'đ' };
+const LETTER = /[A-Za-zЀ-ӿ]/;
+
+/** The text has YU-ASCII signs used as letters. */
+export const hasYuAscii = (s: string | null | undefined): boolean => yuFix(s) !== String(s ?? '');
+
+/** YU-ASCII signs → the letters (Cyrillic in a Cyrillic text, else Latin č š ž ć đ). */
+export function yuFix(s: string | null | undefined): string {
+  const t = String(s ?? '');
+  if (!/[\^@[\]\\~`{}|]/.test(t) || /\S+@\S+\.\S+/.test(t)) return t;
+  const M = /[Ѐ-ӿ]/.test(t) ? YU_CYR : YU_LAT;
+  let out = '';
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i]!, m = M[c];
+    out += m && (LETTER.test(t[i - 1] ?? '') || LETTER.test(t[i + 1] ?? '')) ? m : c;
+  }
+  return out;
+}
