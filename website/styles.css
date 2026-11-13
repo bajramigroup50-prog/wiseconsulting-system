@@ -419,3 +419,31 @@ p { margin: 0 0 1em; }
 .news-more { text-align: center; margin-top: 24px; }
 @media (max-width: 980px) { .news-feed { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .news-feed { grid-template-columns: 1fr; } .news-item.featured { grid-column: auto; grid-row: auto; padding: 26px; } .news-item.featured .news-title { font-size: 1.35rem; } }
+
+/* WISE assistant (FAQ bot, no AI) */
+.bot { position: fixed; right: 20px; bottom: 20px; z-index: 80; font-family: var(--sans); }
+.bot-fab { display: flex; align-items: center; gap: 10px; border: 0; cursor: pointer; background: var(--logo-orange, #e8822a); color: #fff; font: 700 .95rem var(--sans); padding: 14px 20px 14px 16px; border-radius: 999px; box-shadow: 0 14px 30px -10px rgba(0,0,0,.45); transition: .2s; }
+.bot-fab:hover { transform: translateY(-2px); }
+.bot-fab svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bot.open .bot-fab { display: none; }
+.bot-panel { width: min(380px, calc(100vw - 32px)); height: min(560px, calc(100vh - 110px)); background: #fff; border-radius: 20px; box-shadow: 0 30px 70px -20px rgba(0,0,0,.45); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); }
+.bot-panel[hidden] { display: none; }
+.bot-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--brand-900); color: #fff; }
+.bot-head b { display: block; font-size: .98rem; }
+.bot-head small { color: #a9c7bd; font-size: .78rem; }
+.bot-close { margin-left: auto; background: rgba(255,255,255,.1); border: 0; color: #fff; width: 32px; height: 32px; border-radius: 50%; font-size: 1.3rem; cursor: pointer; line-height: 1; }
+.bot-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--soft); }
+.bot-msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: .9rem; line-height: 1.5; background: #fff; border: 1px solid var(--line); align-self: flex-start; }
+.bot-msg ul { margin: 6px 0; padding-left: 18px; }
+.bot-msg a { color: var(--brand); font-weight: 700; }
+.bot-msg.from-me { align-self: flex-end; background: var(--brand); color: #fff; border-color: var(--brand); }
+.bot-msg.from-small { background: transparent; border: 0; padding: 2px 4px; color: var(--muted); font-size: .8rem; }
+.bot-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bot-chips button { border: 1px solid rgba(13,92,74,.35); background: #fff; color: var(--brand); border-radius: 999px; padding: 6px 12px; font: 600 .8rem var(--sans); cursor: pointer; }
+.bot-chips button:hover { background: var(--brand); color: #fff; }
+.bot-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: #fff; }
+.bot-form input { flex: 1; border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; font: 400 .92rem var(--sans); }
+.bot-form input:focus { outline: 2px solid rgba(13,92,74,.3); border-color: var(--brand); }
+.bot-form button { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--brand); cursor: pointer; display: grid; place-items: center; }
+.bot-form button svg { width: 18px; height: 18px; fill: #fff; }
+@media (max-width: 600px) { .bot { right: 12px; bottom: 12px; } .bot-fab-label { display: none; } .bot-fab { padding: 14px; } }

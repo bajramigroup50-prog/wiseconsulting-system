@@ -1,7 +1,7 @@
 // Translations. Macedonian (base) lives directly in index.html, keyed by data-i18n.
 window.I18N = {
   // texts used only by script (news section) in Macedonian
-  mkExtra: {"news.allSrc": "Сите", "news.read": "Прочитај →", "calc.net": "Нето плата (ден.)", "news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
+  mkExtra: {"bot.fab": "Прашајте нè", "bot.title": "WISE асистент", "bot.sub": "Одговори на најчестите прашања", "bot.hello": "Здраво! Јас сум асистентот на WISE CONSULTING. Изберете тема или напишете го вашето прашање.", "bot.placeholder": "Напишете прашање…", "bot.fallback": "За ова прашање најдобро е да разговарате директно со нашиот тим:", "bot.more": "Имате уште прашања? Изберете тема:", "news.allSrc": "Сите", "news.read": "Прочитај →", "calc.net": "Нето плата (ден.)", "news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
 
   meta: {
     mk: "WISE CONSULTING – Сметководствена канцеларија, Скопје",
@@ -11,6 +11,13 @@ window.I18N = {
   },
 
   sq: {
+    "bot.fab": "Na pyesni",
+    "bot.title": "Asistenti WISE",
+    "bot.sub": "Përgjigje për pyetjet më të shpeshta",
+    "bot.hello": "Përshëndetje! Jam asistenti i WISE CONSULTING. Zgjidhni një temë ose shkruani pyetjen tuaj.",
+    "bot.placeholder": "Shkruani pyetjen…",
+    "bot.fallback": "Për këtë pyetje është më mirë të flisni drejtpërdrejt me ekipin tonë:",
+    "bot.more": "Keni pyetje të tjera? Zgjidhni një temë:",
     "hero.s2t": "Pagat dhe MPIN – <em>në kohë</em>, çdo muaj.",
     "hero.s2l": "Llogaritja e pagave dhe kontributeve pa gabime, MPIN brenda afatit dhe regjistrime e çregjistrime të rregullta të punonjësve.",
     "hero.s3t": "Gjithmonë <em>të informuar</em> për rregullat e reja.",
@@ -232,6 +239,13 @@ window.I18N = {
   },
 
   en: {
+    "bot.fab": "Ask us",
+    "bot.title": "WISE assistant",
+    "bot.sub": "Answers to the most common questions",
+    "bot.hello": "Hello! I am the WISE CONSULTING assistant. Choose a topic or type your question.",
+    "bot.placeholder": "Type a question…",
+    "bot.fallback": "For this question it is best to talk to our team directly:",
+    "bot.more": "More questions? Choose a topic:",
     "hero.s2t": "Payroll and MPIN – <em>on time</em>, every month.",
     "hero.s2l": "Error-free salary and contribution calculation, MPIN filed on time and tidy employee registrations.",
     "hero.s3t": "Always <em>informed</em> about new regulations.",
@@ -453,6 +467,13 @@ window.I18N = {
   },
 
   tr: {
+    "bot.fab": "Bize sorun",
+    "bot.title": "WISE asistanı",
+    "bot.sub": "En sık sorulan soruların yanıtları",
+    "bot.hello": "Merhaba! Ben WISE CONSULTING asistanıyım. Bir konu seçin veya sorunuzu yazın.",
+    "bot.placeholder": "Sorunuzu yazın…",
+    "bot.fallback": "Bu soru için ekibimizle doğrudan görüşmeniz en iyisidir:",
+    "bot.more": "Başka sorunuz var mı? Bir konu seçin:",
     "hero.s2t": "Bordro ve MPIN – her ay <em>zamanında</em>.",
     "hero.s2l": "Hatasız maaş ve prim hesaplaması, zamanında MPIN ve düzenli çalışan giriş-çıkış bildirimleri.",
     "hero.s3t": "Yeni düzenlemelerden her zaman <em>haberdar</em>.",
