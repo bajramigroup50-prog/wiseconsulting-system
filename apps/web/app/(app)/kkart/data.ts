@@ -27,7 +27,7 @@ export function kkSod(l: { sourceType: string | null; kind: string; description:
   // a receipt paid in cash (posted Г 1020 „Готовина – фиск. сметка …“) is a fiscal receipt, not an incoming invoice
   if (l.sourceType === 'purchase') return (/^Фискална/i.test(l.description ?? '') || /^Готовина/i.test(l.note ?? '') ? 'ФИСКАЛНА СМЕТКА БР ' : 'ВЛЕЗНА Ф-РА БР ') + U(d);
   // a nalog imported from the old program: the line's own name (its text / document), not „Увезен налог 6/1-3“
-  if (/^Увезен налог/i.test(l.description ?? '') && (l.note || d)) {
+  if (/^Увезен налог/i.test(l.description ?? '') && (l.note || d)) {
     // a bank statement line of the old program („IZVOD BR 58“ / „Извод бр. 58“) → „ИЗВОД БР 58 · Ф-РА 15/26“
     const iz = IZVOD_RE.exec(String(l.note ?? '') + ' ' + d);
     // the document of the line is an invoice number, not a period („03-2026“) of the old program

@@ -381,7 +381,7 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
               <td className="n">{mark.has(r.key) ? '✓ ' : ''}{i + 1}</td>
               <td style={{ whiteSpace: 'nowrap' }}>{dmy(r.date)}</td>
               {IZ && <td className="n"><b>{r.izNo}</b></td>}
-              <td className="w">{/^Увезен налог/i.test(r.jdesc) && (r.note || r.doc) ? lineText({ description: r.jdesc, doc: r.doc, note: r.note }) : <>{r.jdesc}{r.note && r.note !== r.jdesc && <><br /><small className="mut">{r.note}</small></>}</>}</td>
+              <td className="w">{/^Увезен налог/i.test(r.jdesc) && (r.note || r.doc) ? lineText({ description: r.jdesc, doc: r.doc, note: r.note }) : <>{r.jdesc}{r.note && r.note !== r.jdesc && <><br /><small className="mut">{r.note}</small></>}</>}</td>
               <td title={names.get(r.account) ?? ''}><button type="button" className="btn sm ghost" style={{ padding: '0 4px', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); openChange(i); }} aria-label={`Промена на ставка ${i + 1}`}><span className="num">{r.account}</span></button></td>
               <td className="n">{fmt(r.debit)}</td><td className="n">{fmt(r.credit)}</td>
               {hasDoc && <td className="w">{r.doc}</td>}
