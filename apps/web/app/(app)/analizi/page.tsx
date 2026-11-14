@@ -30,12 +30,13 @@ export default async function AnaliziPage({ searchParams }: { searchParams: Prom
       <Hd t="Анализи и извештаи" sub="податоци во реално време од книжењата" exp={false}>
         <a className="btn" href={'/print/analizi?t=' + tab + '&p=' + per + (sp.lp ? '&lp=' + sp.lp : '') + (sp.ot ? '&ot=' + sp.ot : '')} target="_blank" rel="noopener">PDF</a>
         <a className="btn" href={'/print/analizi?t=all&p=' + per} target="_blank" rel="noopener" title="Сите анализи во еден извештај">PDF – сите анализи</a>
+        <a className="btn pri" href={'/print/dosie-banka' + (sp.lp || sp.ot ? '?' + [sp.lp ? 'lp=' + encodeURIComponent(sp.lp) : '', sp.ot ? 'ot=' + encodeURIComponent(sp.ot) : ''].filter(Boolean).join('&') : '')} target="_blank" rel="noopener" title="Една страна за банка: биланс, оцена A–E, Altman Z'', паричен тек 13 недели, показатели">🏦 Досие за банка</a>
       </Hd>
       <div className="antabs" role="tablist">
         {AN_TABS.map(([k, t]) => <Link key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} href={href(k)}
           style={{ all: 'unset', cursor: 'pointer', padding: '9px 14px', fontWeight: tab === k ? 600 : 500, color: tab === k ? 'var(--ink)' : 'var(--muted)', borderBottom: `2px solid ${tab === k ? 'var(--accent)' : 'transparent'}`, marginBottom: -1 }}>{t}</Link>)}
       </div>
-      {!['cash', 'health', 'kpi', 'time'].includes(tab) && (
+      {!['cash', 'health', 'kpi', 'bench', 'time'].includes(tab) && (
         <div className="dfilter"><span className="mini">Период:</span>
           {AN_PER.map(([k, t]) => <Link key={k} className={`chip ${per === k ? 'on' : ''}`} href={href(tab, k)}>{t}</Link>)}
           <span className="mini" style={{ marginLeft: 'auto' }}>{r.lab} · {dmy(r.from)} – {dmy(r.to)}</span>

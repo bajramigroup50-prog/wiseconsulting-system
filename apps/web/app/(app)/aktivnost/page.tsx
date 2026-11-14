@@ -90,6 +90,7 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
           <button className="btn pri">Прикажи</button>
           {(od || dd || fu || ff || fa) && <Link className="btn" href="/aktivnost">✕ Исчисти</Link>}
           {owner && <Link className="btn" href="/aktivnost/mesec">📅 Месечен извештај по колега</Link>}
+          {owner && <Link className="btn" href="/aktivnost/profit">💰 Профит по клиент</Link>}
           {owner && <Link className="btn" href={`/produktivnost${od || dd ? `?od=${od || dd}&do=${dd || od}` : ''}`}>📊 Продуктивност</Link>}
         </div>
       </form>

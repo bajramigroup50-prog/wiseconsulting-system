@@ -29,7 +29,7 @@ export default async function AnalizaPrint({ searchParams }: { searchParams: Pro
         <div key={k}>
           {i > 0 && <div className="pb" style={{ breakBefore: 'page' }} />}
           <FirmHead firm={firm} title={'АНАЛИЗА: ' + t.toUpperCase()}
-            sub={`${year} · ${dmy(today)}${['cash', 'health', 'kpi', 'time'].includes(k) ? '' : ` · ${r.lab}: ${dmy(r.from)} – ${dmy(r.to)}`}`} />
+            sub={`${year} · ${dmy(today)}${['cash', 'health', 'kpi', 'bench', 'time'].includes(k) ? '' : ` · ${r.lab}: ${dmy(r.from)} – ${dmy(r.to)}`}`} />
           {bodies[i]}
         </div>
       ))}
