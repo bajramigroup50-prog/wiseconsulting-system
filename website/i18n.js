@@ -11,6 +11,13 @@ window.I18N = {
   },
 
   sq: {
+    "flow.inv": "Fatura",
+    "flow.bank": "Ekstrakte",
+    "flow.pay": "Paga",
+    "flow.ujp": "Tatime",
+    "flow.crr": "Regjistri",
+    "flow.fzo": "Shëndetësi",
+    "flow.avr": "Punësim",
     "dl.title": "Afatet e ardhshme tatimore",
     "dl.note": "Sipas kalendarit tatimor të DAP. Nëse afati bie në fundjavë ose festë, kalon në ditën e parë të punës.",
     "dl.mpin": "MPIN – llogaritja e pagës",
@@ -272,6 +279,13 @@ window.I18N = {
   },
 
   en: {
+    "flow.inv": "Invoices",
+    "flow.bank": "Statements",
+    "flow.pay": "Payroll",
+    "flow.ujp": "Taxes",
+    "flow.crr": "Registry",
+    "flow.fzo": "Health fund",
+    "flow.avr": "Employment",
     "dl.title": "Upcoming tax deadlines",
     "dl.note": "According to the Revenue Office tax calendar. A deadline on a weekend or public holiday moves to the next working day.",
     "dl.mpin": "MPIN – payroll return",
@@ -533,6 +547,13 @@ window.I18N = {
   },
 
   tr: {
+    "flow.inv": "Faturalar",
+    "flow.bank": "Ekstreler",
+    "flow.pay": "Maaşlar",
+    "flow.ujp": "Vergiler",
+    "flow.crr": "Sicil",
+    "flow.fzo": "Sağlık",
+    "flow.avr": "İstihdam",
     "dl.title": "Yaklaşan vergi son tarihleri",
     "dl.note": "Gelir İdaresi vergi takvimine göre. Hafta sonuna veya tatile denk gelen süre bir sonraki iş gününe kayar.",
     "dl.mpin": "MPIN – bordro beyanı",

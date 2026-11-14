@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202611131751">
+  <link rel="stylesheet" href="styles.css?v=202611141110">
 </head>
 <body>
 
@@ -78,46 +78,57 @@
       <path class="sk-line" d="M420 226 H930 M668 226 V208 H682 V226"/>
       <path class="sk-water" d="M0 256 H1440"/>
     </svg>
-    <div class="container hero-inner banner">
-      <div class="banner-text">
-        <div class="banner-years"><span class="count" data-count="15">15</span><span class="plus">+</span></div>
-        <div class="banner-years-lbl" data-i18n="banner.years">години искуство</div>
-        <div class="banner-line" data-i18n="banner.line">Сметководство · Даноци · Плати</div>
+    <div class="container hero-inner flow-hero">
+      <div class="banner-line" data-i18n="banner.line">Сметководство · Даноци · Плати</div>
+      <!-- Animated flow: client documents → WISE → institutions (decorative) -->
+      <div class="flow" id="flow" aria-hidden="true">
+        <svg class="fl-lines fd" viewBox="0 0 1100 440" preserveAspectRatio="none" aria-hidden="true">
+          <path id="fd0" d="M270 100 C380 100 390 220 470 220"/>
+          <path id="fd1" d="M270 220 C380 220 390 220 470 220"/>
+          <path id="fd2" d="M270 340 C380 340 390 220 470 220"/>
+          <path id="fd3" d="M630 220 C710 220 720 70 820 70"/>
+          <path id="fd4" d="M630 220 C710 220 720 170 820 170"/>
+          <path id="fd5" d="M630 220 C710 220 720 270 820 270"/>
+          <path id="fd6" d="M630 220 C710 220 720 370 820 370"/>
+          <circle r="5" class="fl-dot"><animateMotion dur="1.6s" begin="0.00s;fd0m.end+1.4s" id="fd0m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd0"/></animateMotion></circle>
+          <circle r="5" class="fl-dot"><animateMotion dur="1.6s" begin="0.50s;fd1m.end+1.4s" id="fd1m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd1"/></animateMotion></circle>
+          <circle r="5" class="fl-dot"><animateMotion dur="1.6s" begin="1.00s;fd2m.end+1.4s" id="fd2m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd2"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="1.40s;fd3m.end+1.4s" id="fd3m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd3"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="1.85s;fd4m.end+1.4s" id="fd4m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd4"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="2.30s;fd5m.end+1.4s" id="fd5m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd5"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="2.75s;fd6m.end+1.4s" id="fd6m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fd6"/></animateMotion></circle>
+        </svg>
+        <svg class="fl-lines fm" viewBox="0 0 360 640" preserveAspectRatio="none" aria-hidden="true">
+          <path id="fm0" d="M60 97 C60 180 180 160 180 230"/>
+          <path id="fm1" d="M180 97 C180 180 180 160 180 230"/>
+          <path id="fm2" d="M300 97 C300 180 180 160 180 230"/>
+          <path id="fm3" d="M180 370 C180 450 45 440 45 522"/>
+          <path id="fm4" d="M180 370 C180 450 135 440 135 522"/>
+          <path id="fm5" d="M180 370 C180 450 225 440 225 522"/>
+          <path id="fm6" d="M180 370 C180 450 315 440 315 522"/>
+          <circle r="5" class="fl-dot"><animateMotion dur="1.6s" begin="0.00s;fm0m.end+1.4s" id="fm0m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm0"/></animateMotion></circle>
+          <circle r="5" class="fl-dot"><animateMotion dur="1.6s" begin="0.50s;fm1m.end+1.4s" id="fm1m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm1"/></animateMotion></circle>
+          <circle r="5" class="fl-dot"><animateMotion dur="1.6s" begin="1.00s;fm2m.end+1.4s" id="fm2m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm2"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="1.40s;fm3m.end+1.4s" id="fm3m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm3"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="1.85s;fm4m.end+1.4s" id="fm4m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm4"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="2.30s;fm5m.end+1.4s" id="fm5m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm5"/></animateMotion></circle>
+          <circle r="5" class="fl-dot out"><animateMotion dur="1.6s" begin="2.75s;fm6m.end+1.4s" id="fm6m" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"><mpath href="#fm6"/></animateMotion></circle>
+        </svg>
+        <div class="fl-core" style="--l:42.727%;--t:31.818%;--w:14.545%;--h:36.364%;--ml:30.556%;--mt:35.938%;--mw:38.889%;--mh:21.875%"><span class="ring"></span><span class="ring r2"></span><span class="logo-box">wise</span></div>
+        <div class="fl-node fl-src" style="--l:3.636%;--t:15.455%;--w:20.909%;--h:14.545%;--ml:2.222%;--mt:3.906%;--mw:28.889%;--mh:11.25%"><span class="fl-ico"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z M9 9h6 M9 13h6 M9 17h3"/></svg></span><b data-i18n="flow.inv">Фактури</b></div>
+        <div class="fl-node fl-src" style="--l:3.636%;--t:42.727%;--w:20.909%;--h:14.545%;--ml:35.556%;--mt:3.906%;--mw:28.889%;--mh:11.25%"><span class="fl-ico"><svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6 M5 10v8 M9.5 10v8 M14.5 10v8 M19 10v8 M3 21h18"/></svg></span><b data-i18n="flow.bank">Изводи</b></div>
+        <div class="fl-node fl-src" style="--l:3.636%;--t:70%;--w:20.909%;--h:14.545%;--ml:68.889%;--mt:3.906%;--mw:28.889%;--mh:11.25%"><span class="fl-ico"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.3 2.5-5.5 5.5-5.5s5.5 2.2 5.5 5.5 M16 5.5a3 3 0 0 1 0 5.6 M17.5 14.8c1.9.6 3 2.4 3 5.2"/></svg></span><b data-i18n="flow.pay">Плати</b></div>
+        <div class="fl-node fl-dst" style="--l:74.545%;--t:9.091%;--w:23.636%;--h:13.636%;--ml:0.833%;--mt:81.562%;--mw:23.333%;--mh:13.125%;--d:1.6s"><span class="fl-ab">УЈП</span><small data-i18n="flow.ujp">Даноци</small><i class="fl-ok">✓</i></div>
+        <div class="fl-node fl-dst" style="--l:74.545%;--t:31.818%;--w:23.636%;--h:13.636%;--ml:25.833%;--mt:81.562%;--mw:23.333%;--mh:13.125%;--d:2.0500000000000003s"><span class="fl-ab">ЦРРСМ</span><small data-i18n="flow.crr">Регистар</small><i class="fl-ok">✓</i></div>
+        <div class="fl-node fl-dst" style="--l:74.545%;--t:54.545%;--w:23.636%;--h:13.636%;--ml:50.833%;--mt:81.562%;--mw:23.333%;--mh:13.125%;--d:2.5s"><span class="fl-ab">ФЗОМ</span><small data-i18n="flow.fzo">Здравство</small><i class="fl-ok">✓</i></div>
+        <div class="fl-node fl-dst" style="--l:74.545%;--t:77.273%;--w:23.636%;--h:13.636%;--ml:75.833%;--mt:81.562%;--mw:23.333%;--mh:13.125%;--d:2.95s"><span class="fl-ab">АВРСМ</span><small data-i18n="flow.avr">Вработување</small><i class="fl-ok">✓</i></div>
+      </div>
         <!-- Next tax deadlines: same rules as the WISE program (packages/core/src/office/rokovi.ts, УЈП даночен календар) -->
-        <div class="dl-card" id="deadlines">
+        <div class="dl-card dl-row" id="deadlines">
           <div class="dl-head"><span class="dl-live"></span><b data-i18n="dl.title">Следни даночни рокови</b></div>
           <ul class="dl-list"></ul>
           <small class="dl-note" data-i18n="dl.note">Според даночниот календар на УЈП. Ако рокот падне за викенд или празник, се поместува на следниот работен ден.</small>
         </div>
-
-      </div>
-      <div class="dash hero-dash" id="dash" aria-hidden="true">
-        <div class="mock">
-          <div class="mock-bar"><i></i><i></i><i></i><span>WISE · портал</span></div>
-          <div class="mock-body">
-            <div class="mock-head">
-              <div><small data-i18n="mock.hello">Добредојдовте</small><div class="mock-title" data-i18n="mock.title">Преглед на фирмата</div></div>
-              <span class="mock-chip" data-i18n="mock.period">Октомври</span>
-            </div>
-            <div class="mock-kpis">
-              <div><small data-i18n="mock.k1">Приходи</small><b class="money" data-to="1284500">1.284.500</b><em class="up">+8,4%</em></div>
-              <div><small data-i18n="mock.k2">Расходи</small><b class="money" data-to="936200">936.200</b><em>−2,1%</em></div>
-            </div>
-            <div class="mock-chart">
-              <svg viewBox="0 0 300 90" preserveAspectRatio="none">
-                <defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2fbf8f" stop-opacity=".35"/><stop offset="1" stop-color="#2fbf8f" stop-opacity="0"/></linearGradient></defs>
-                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8 V90 H0Z" fill="url(#g1)" class="ch-fill"/>
-                <path d="M0 70 C30 62 45 66 70 52 S120 40 140 46 S190 22 215 28 S265 12 300 8" fill="none" stroke="#0d5c4a" stroke-width="2.5" class="ch-line" pathLength="100"/>
-              </svg>
-            </div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r1">ДДВ-04 за Q3</span><em data-i18n="mock.s1">Поднесено</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r2">Плати и МПИН</span><em data-i18n="mock.s2">Готово</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r3">Изводи – вкупно 87</span><em data-i18n="mock.s3">Книжени</em></div>
-            <div class="mock-row"><span class="dot ok"></span><span data-i18n="mock.r4">Фактури – вкупно 124</span><em data-i18n="mock.s4">Книжени</em></div>
-          </div>
-        </div>
-        <div class="float f1 dash-toast"><span class="f-ico">✓</span><div><b data-i18n="fl1.t">ДДВ-04 поднесено</b><small data-i18n="fl1.d">е-Даноци · УЈП</small></div></div>
-      </div>
     </div>
   </section>
   <!-- Quick actions -->
@@ -491,8 +502,8 @@
   </div>
 </footer>
 
-<script src="i18n.js?v=202611131751"></script>
-<script src="main.js?v=202611131751"></script>
-<script src="bot.js?v=202611131751"></script>
+<script src="i18n.js?v=202611141110"></script>
+<script src="main.js?v=202611141110"></script>
+<script src="bot.js?v=202611141110"></script>
 </body>
 </html>
