@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  abc, aggBy, anDays, anRange, byMonth, byWeekday, cashForecast, cls, customerRisk, dashAgg, dashRange, ratios, salesLines,
+  abc, aggBy, anDays, anRange, byMonth, byWeekday, cashForecast, cls, gradeOf, healthScore, customerRisk, dashAgg, dashRange, ratios, salesLines,
   supplierRows, type AnInvoice,
 } from './analysis';
 
@@ -79,5 +79,35 @@ describe('ratios', () => {
     expect(agg).toEqual({ rev: 1000, exp: 800, res: 200, eg: { 70: 600, 42: 200 } });
     const R = ratios({ balance: { 1000: 500, 1200: 300, 6600: 200, 2200: -400 }, agg, purchases: 800, days: 100 });
     expect([R.cur, R.quick, R.cashR, R.gm, R.nm, R.be, R.dpo]).toEqual([2.5, 2, 1.25, 40, 20, 500, 50]);
+  });
+});
+
+describe('13-week cash flow assumptions and health score', () => {
+  it('collects a share of overdue receivables over 4 weeks and spreads other monthly costs', () => {
+    const F = cashForecast({
+      today: '2026-06-03', start: 0, lateShare: 0.5, otherMonthly: 520,
+      invoices: [{ id: 'b', partner: 'p', date: '2026-04-01', due: '2026-04-15', total: 800, paid: 0 }], purchases: [],
+    });
+    expect(F.lateIn).toBe(800);
+    expect(F.lateExp).toBe(400);
+    expect(F.wk.slice(0, 4).map((w) => w.inLate)).toEqual([100, 100, 100, 100]);
+    expect(F.wk[4]!.inLate).toBe(0);
+    expect(F.wk[0]!.outOther).toBe(120); // 520 × 12 / 52
+    expect(F.wk.at(-1)!.bal).toBe(400 - 13 * 120);
+  });
+  it('grades a healthy and a weak firm', () => {
+    const agg = (rev: number, exp: number) => ({ rev, exp, res: rev - exp, eg: { '70': exp * 0.6, '42': exp * 0.4 } });
+    const good = { '1000': 400, '1200': 300, '6600': 200, '0200': 1000, '2200': -300, '9000': -1500, '9300': -100 };
+    const Rg = ratios({ balance: good, agg: agg(2000, 1700), purchases: 1500, days: 180 });
+    const Hg = healthScore({ balance: good, r: Rg, minBal: 300, avgOut: 50 });
+    expect(Hg.grade).toMatch(/[AB]/);
+    expect(Hg.zZone).toBe('safe');
+    const weak = { '1000': 10, '1200': 900, '0200': 200, '2200': -1500, '9000': -5, '9400': 395 };
+    const Rw = ratios({ balance: weak, agg: agg(1000, 1100), purchases: 1500, days: 180 });
+    const Hw = healthScore({ balance: weak, r: Rw, minBal: -200, avgOut: 100 });
+    expect(Hw.grade).toMatch(/[DE]/);
+    expect(Hw.bad.length).toBeGreaterThan(1);
+    expect(Hw.todo.length).toBeGreaterThan(0);
+    expect(gradeOf(80)).toBe('A'); expect(gradeOf(34)).toBe('E');
   });
 });

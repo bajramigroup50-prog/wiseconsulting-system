@@ -3,7 +3,7 @@
  * `/print/analizi` (legacy `anPdf`: one tab, or every tab in one report).
  */
 import {
-  abc, aggBy, anDays, anRange, byMonth, byWeekday, cashForecast, cls, customerRisk, dashAgg, heatGrid, kfmt, MON,
+  abc, aggBy, anDays, anRange, byMonth, byWeekday, cashForecast, cls, customerRisk, dashAgg, healthScore, heatGrid, kfmt, MON,
   ratios, salesLines, supplierRows, WEEKDAYS, WEEKDAYS_LONG, type Status,
 } from '@wise/core/analysis';
 import { stock } from '@wise/core/stock';
@@ -53,7 +53,10 @@ function AnTable<T>({ cols, rows, csv }: { cols: Col<T>[]; rows: T[]; csv?: stri
 }
 
 
-export async function AnBody({ firm, year, tab, per, today }: { firm: Firm; year: number; tab: string; per: string; today: string }) {
+export async function AnBody({ firm, year, tab, per, today, opt }: { firm: Firm; year: number; tab: string; per: string; today: string; opt?: { lp?: string; ot?: string } }) {
+  // cash-flow assumptions (URL): share of the overdue receivables expected in the next 4 weeks, other monthly costs
+  const lp = [0, 25, 50, 75, 100].includes(Number(opt?.lp)) ? Number(opt!.lp) : 50;
+  const ot = Math.max(0, Math.round(Number(String(opt?.ot ?? '').replace(/[\s.]/g, '').replace(',', '.')) || 0));
   const r = anRange(per, year, today);
   const days = anDays(r, today);
   let body: React.ReactNode = null;
@@ -182,34 +185,103 @@ export async function AnBody({ firm, year, tab, per, today }: { firm: Firm; year
     }
   } else {
     const F = await loadFinance(firm, year, today);
-    if (tab === 'cash') {
+    if (tab === 'cash' || tab === 'health') {
       const D = await loadAnalysis(firm);
-      const C = cashForecast({ today, start: F.start, invoices: D.invDocs, purchases: D.purDocs, vat: F.vat ? { amount: F.vat.amount, due: F.vat.due } : null, payroll: F.payroll, fmt });
+      const C = cashForecast({ today, start: F.start, invoices: D.invDocs, purchases: D.purDocs, vat: F.vat ? { amount: F.vat.amount, due: F.vat.due } : null, payroll: F.payroll, lateShare: lp / 100, otherMonthly: ot, fmt });
       const min = C.wk.reduce((m, w) => (w.bal < m.bal ? { bal: w.bal, from: w.from } : m), { bal: C.start, from: today });
-      const V = [C.start, ...C.wk.map((w) => w.bal)];
-      const W = 1100, H = 260, L0 = 56, T = 16, B = 30, ph = H - T - B;
-      const lo = Math.min(0, ...V), hi = Math.max(1, ...V);
-      const cw = (W - L0 - 12) / (V.length - 1), xx = (i: number) => L0 + i * cw, yy = (v: number) => T + ph - (v - lo) / ((hi - lo) || 1) * ph;
-      body = <>
-        <div className="tiles kpi k4">
-          <Kpi lab="Пари денес" val={fmt(C.start)} sub="банки + благајна" />
-          <Kpi lab="Очекувани приливи (90 д.)" val={fmt(r2(C.wk.reduce((a, w) => a + w.inn, 0)))} sub="по рок на фактурите" />
-          <Kpi lab="Очекувани одливи (90 д.)" val={fmt(r2(C.wk.reduce((a, w) => a + w.out, 0)))} sub="добавувачи, ДДВ, плати" />
-          <Kpi lab="Најниска состојба" val={fmt(min.bal)} sub={`околу ${dmy(min.from)}`} st={min.bal < 0 ? 'bad' : min.bal < C.start * 0.2 ? 'warn' : 'good'} tip="Ако е под нула, ќе недостигаат пари – наплатете или одложете плаќања" />
-        </div>
-        <div className="card dash-chart"><div className="hd"><h2>Прогноза на пари · следни 13 недели</h2><span className="note">задоцнети побарувања {fmt(C.lateIn)} не се вклучени (несигурни)</span></div>
-          <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Прогноза на пари 90 дена">
-            <line x1={L0} x2={W - 8} y1={yy(0)} y2={yy(0)} stroke="var(--muted)" />
-            <text x={L0 - 6} y={yy(hi) + 4} textAnchor="end" fontSize="10.5" fill="var(--muted)">{kfmt(hi)}</text>
-            <text x={L0 - 6} y={yy(lo) + 4} textAnchor="end" fontSize="10.5" fill="var(--muted)">{kfmt(lo)}</text>
-            <path d={V.map((v, i) => `${i ? 'L' : 'M'}${xx(i).toFixed(1)},${yy(v).toFixed(1)}`).join('')} fill="none" stroke="var(--c1)" strokeWidth="2" />
-            {V.map((v, i) => <g key={i}><title>{`${i ? 'Недела од ' + dmy(C.wk[i - 1]!.from) : 'Денес'}: ${fmt(v)}`}</title>
-              <circle cx={xx(i)} cy={yy(v)} r={v < 0 ? 5 : 3.5} fill={v < 0 ? 'var(--bad)' : 'var(--c1)'} stroke="var(--panel)" strokeWidth="2" />
-              {i % 2 === 0 && <text x={xx(i)} y={H - 10} textAnchor="middle" fontSize="10.5" fill="var(--muted)">{i ? dmy(C.wk[i - 1]!.from).slice(0, 5) : 'денес'}</text>}</g>)}
-          </svg>
-        </div>
-        <div className="card"><AnTable csv="prognoza" rows={C.wk} cols={[['Недела од', (w) => dmy(w.from)], ['Приливи', (w) => fmt(w.inn), true, (w) => w.inn], ['Одливи', (w) => fmt(w.out), true, (w) => w.out], ['Вклучено', (w) => w.items.join(', ')], ['Состојба', (w) => <b style={{ color: w.bal < 0 ? 'var(--bad)' : 'inherit' }}>{fmt(w.bal)}</b>, true, (w) => w.bal]]} /></div>
-      </>;
+      const sIn = r2(C.wk.reduce((a, w) => a + w.inn, 0)), sOut = r2(C.wk.reduce((a, w) => a + w.out, 0));
+      if (tab === 'cash') {
+        const V = [C.start, ...C.wk.map((w) => w.bal)];
+        const W = 1100, H = 300, L0 = 60, T = 16, B = 30, ph = H - T - B;
+        const lo = Math.min(0, ...V, ...C.wk.map((w) => -w.out)), hi = Math.max(1, ...V, ...C.wk.map((w) => w.inn));
+        const cw = (W - L0 - 12) / (V.length - 1), xx = (i: number) => L0 + i * cw, yy = (v: number) => T + ph - (v - lo) / ((hi - lo) || 1) * ph;
+        const bw = Math.min(18, cw / 3);
+        const first = C.wk.findIndex((w) => w.bal < 0);
+        body = <>
+          <div className="tiles kpi k4">
+            <Kpi lab="Пари денес" val={fmt(C.start)} sub="банки + благајна" />
+            <Kpi lab="Приливи · 13 недели" val={fmt(sIn)} sub={`по рок на фактурите${C.lateExp ? ` + ${fmt(C.lateExp)} задоцнети` : ''}`} />
+            <Kpi lab="Одливи · 13 недели" val={fmt(sOut)} sub="добавувачи, ДДВ, плати, други" />
+            <Kpi lab="Најниска состојба" val={fmt(min.bal)} sub={first >= 0 ? `под нула од ${dmy(C.wk[first]!.from)}` : `околу ${dmy(min.from)}`} st={min.bal < 0 ? 'bad' : min.bal < C.start * 0.2 ? 'warn' : 'good'} tip="Ако е под нула, ќе недостигаат пари – наплатете или одложете плаќања" />
+          </div>
+          <form className="dfilter" method="get" action="/analizi" style={{ flexWrap: 'wrap', gap: 10 }}>
+            <input type="hidden" name="t" value="cash" />
+            <span className="mini">Претпоставки:</span>
+            <label className="mini">Задоцнети побарувања {fmt(C.lateIn)} – очекувано наплатени во 4 недели{' '}
+              <select name="lp" defaultValue={String(lp)}>{[0, 25, 50, 75, 100].map((x) => <option key={x} value={x}>{x}%</option>)}</select></label>
+            <label className="mini">Други месечни одливи (закуп, рати на кредит …){' '}
+              <input name="ot" inputMode="numeric" defaultValue={ot ? String(ot) : ''} placeholder="0" style={{ width: 110, textAlign: 'right' }} /></label>
+            <button className="btn sm">Пресметај</button>
+          </form>
+          <div className="card dash-chart"><div className="hd"><h2>Паричен тек · следни 13 недели</h2>
+            <div className="legend"><span><i style={{ background: 'var(--good)' }} />приливи</span><span><i style={{ background: 'var(--bad)' }} />одливи</span><span><i style={{ background: 'var(--c1)' }} />состојба</span></div></div>
+            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Паричен тек 13 недели">
+              <line x1={L0} x2={W - 8} y1={yy(0)} y2={yy(0)} stroke="var(--muted)" />
+              <text x={L0 - 6} y={yy(hi) + 4} textAnchor="end" fontSize="10.5" fill="var(--muted)">{kfmt(hi)}</text>
+              <text x={L0 - 6} y={yy(0) + 4} textAnchor="end" fontSize="10.5" fill="var(--muted)">0</text>
+              {lo < 0 && <text x={L0 - 6} y={yy(lo) + 4} textAnchor="end" fontSize="10.5" fill="var(--muted)">{kfmt(lo)}</text>}
+              {C.wk.map((w, i) => { const cx = (xx(i) + xx(i + 1)) / 2; return (
+                <g key={'b' + i}><title>{`Недела од ${dmy(w.from)} · приливи ${fmt(w.inn)} · одливи ${fmt(w.out)}`}</title>
+                  {w.inn > 0 && <rect x={cx - bw - 1} y={yy(w.inn)} width={bw} height={yy(0) - yy(w.inn)} rx="2" fill="var(--good)" opacity=".55" />}
+                  {w.out > 0 && <rect x={cx + 1} y={yy(0)} width={bw} height={yy(-w.out) - yy(0)} rx="2" fill="var(--bad)" opacity=".55" />}</g>); })}
+              <path d={V.map((v, i) => `${i ? 'L' : 'M'}${xx(i).toFixed(1)},${yy(v).toFixed(1)}`).join('')} fill="none" stroke="var(--c1)" strokeWidth="2.5" />
+              {V.map((v, i) => <g key={i}><title>{`${i ? 'Крај на неделата од ' + dmy(C.wk[i - 1]!.from) : 'Денес'}: ${fmt(v)}`}</title>
+                <circle cx={xx(i)} cy={yy(v)} r={v < 0 ? 5 : 3.5} fill={v < 0 ? 'var(--bad)' : 'var(--c1)'} stroke="var(--panel)" strokeWidth="2" />
+                {i % 2 === 0 && <text x={xx(i)} y={H - 10} textAnchor="middle" fontSize="10.5" fill="var(--muted)">{i ? dmy(C.wk[i - 1]!.from).slice(0, 5) : 'денес'}</text>}</g>)}
+            </svg>
+          </div>
+          <div className="card"><div className="hd"><h2>Неделен преглед</h2><span className="note">приливи по рок на излезните фактури; одливи по рок на влезните фактури, ДДВ на рокот, плати на 10-ти</span></div>
+            <AnTable csv="paricen_tek_13_nedeli" rows={C.wk.map((w, i) => ({ ...w, n: i + 1 }))} cols={[
+              ['Нед.', (w) => w.n], ['Од', (w) => dmy(w.from)],
+              ['Наплата по фактури', (w) => fmt(w.inInv), true, (w) => w.inInv],
+              ['Задоцнети', (w) => (w.inLate ? fmt(w.inLate) : ''), true, (w) => w.inLate],
+              ['Добавувачи', (w) => (w.outPur ? fmt(w.outPur) : ''), true, (w) => w.outPur],
+              ['ДДВ', (w) => (w.outVat ? fmt(w.outVat) : ''), true, (w) => w.outVat],
+              ['Плати', (w) => (w.outPay ? fmt(w.outPay) : ''), true, (w) => w.outPay],
+              ['Други', (w) => (w.outOther ? fmt(w.outOther) : ''), true, (w) => w.outOther],
+              ['Нето', (w) => <span style={{ color: w.inn - w.out < 0 ? 'var(--bad)' : 'inherit' }}>{fmt(r2(w.inn - w.out))}</span>, true, (w) => r2(w.inn - w.out)],
+              ['Состојба', (w) => <b style={{ color: w.bal < 0 ? 'var(--bad)' : 'inherit' }}>{fmt(w.bal)}</b>, true, (w) => w.bal]]} />
+          </div>
+        </>;
+      } else {
+        const rg = { from: `${year}-01-01`, to: today.startsWith(String(year)) ? today : `${year}-12-31` };
+        const pur = D.purDocs.filter((p) => p.date >= rg.from && p.date <= rg.to).reduce((a, p) => a + p.total, 0);
+        const R = ratios({ balance: F.balance, agg: dashAgg(F.lines, rg.from, rg.to), purchases: pur, days: anDays(rg, today) });
+        const Hs = healthScore({ balance: F.balance, r: R, minBal: min.bal, avgOut: sOut / 13 });
+        const gc = { A: 'var(--good)', B: '#5aa05a', C: '#d8a400', D: '#e07b20', E: 'var(--bad)' }[Hs.grade];
+        const zl = { safe: 'сигурна зона', grey: 'сива зона', distress: 'зона на ризик' } as const;
+        body = <>
+          <p className="note">Оцена од книговодството за {year} (до денес) и прогнозата на пари за 13 недели (задоцнети побарувања {lp}%). За вас, за сопственикот и за разговор со банка.</p>
+          <div className="card" style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ width: 130, height: 130, borderRadius: 24, background: gc, color: '#fff', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>
+              <div style={{ textAlign: 'center', lineHeight: 1 }}><div style={{ fontSize: 72, fontWeight: 800 }}>{Hs.grade}</div><div style={{ fontSize: 13, marginTop: 4 }}>{Hs.label}</div></div>
+            </div>
+            <div style={{ flex: '1 1 320px' }}>
+              <h2 style={{ margin: '0 0 6px' }}>Финансиско здравје: {Hs.score} / 100</h2>
+              <div style={{ position: 'relative', height: 14, borderRadius: 7, background: 'linear-gradient(90deg,var(--bad) 0%,#e07b20 35%,#d8a400 50%,#5aa05a 65%,var(--good) 80%,var(--good) 100%)' }}>
+                <i style={{ position: 'absolute', left: `calc(${Hs.score}% - 7px)`, top: -4, width: 14, height: 22, borderRadius: 4, background: 'var(--ink)', border: '2px solid var(--panel)' }} />
+              </div>
+              <div className="mini" style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}><span>E &lt;35</span><span>D 35</span><span>C 50</span><span>B 65</span><span>A 80+</span></div>
+              <p className="mini" style={{ margin: '8px 0 0' }}>Altman Z&apos;&apos;: <b>{Hs.z != null ? String(Hs.z).replace('.', ',') : '—'}</b>{Hs.zZone ? ` · ${zl[Hs.zZone]}` : ''} · Вкупен имот {fmt(Hs.ta)} · Капитал {fmt(Hs.equity)} · Обврски {fmt(Hs.liab)}</p>
+            </div>
+          </div>
+          <div className="card"><div className="hd"><h2>Оцена по области</h2></div>
+            <div className="tw"><table>
+              <thead><tr><th>Област</th><th className="n">Вредност</th><th style={{ width: '38%' }}>Поени</th><th className="n">Поени</th><th>Што мери</th></tr></thead>
+              <tbody>{Hs.parts.map((p) => { const pc = p.score == null ? 0 : p.score / p.max * 100; return (
+                <tr key={p.key}><td><b>{p.name}</b></td><td className="n">{p.value}</td>
+                  <td><div style={{ height: 10, borderRadius: 5, background: 'var(--soft)' }}><div style={{ width: `${pc}%`, height: '100%', borderRadius: 5, background: pc >= 70 ? 'var(--good)' : pc >= 45 ? '#d8a400' : 'var(--bad)' }} /></div></td>
+                  <td className="n">{p.score == null ? 'нема податоци' : `${String(p.score).replace('.', ',')} / ${p.max}`}</td><td className="mini">{p.note}</td></tr>); })}</tbody>
+            </table></div>
+          </div>
+          <div className="kgrid">
+            <div className="card"><div className="hd"><h3 style={{ margin: 0 }}>✅ Силни страни</h3></div>{Hs.good.length ? <ul>{Hs.good.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="note">—</p>}</div>
+            <div className="card"><div className="hd"><h3 style={{ margin: 0 }}>⚠️ Ризици</h3></div>{Hs.bad.length ? <ul>{Hs.bad.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="note">Нема посебни ризици.</p>}</div>
+            <div className="card"><div className="hd"><h3 style={{ margin: 0 }}>🎯 Препораки</h3></div>{Hs.todo.length ? <ul>{Hs.todo.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="note">Продолжете така – следете ја прогнозата секоја недела.</p>}</div>
+          </div>
+          <p className="mini">Тежини: ликвидност 25, пари и прогноза 20, профитабилност 20, наплата 15, солвентност 20. Областите без податоци не се сметаат. Оценката е ориентациона и зависи од ажурноста на книжењата.</p>
+        </>;
+      }
     } else {
       const rg = { from: `${year}-01-01`, to: today.startsWith(String(year)) ? today : `${year}-12-31` };
       const D = await loadAnalysis(firm);
