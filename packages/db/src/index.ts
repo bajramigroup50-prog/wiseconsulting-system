@@ -94,6 +94,7 @@ export * from './law-search';
 export * from './client-report';
 export * from './rokovi';
 export * from './incoming';
+export * from './mail-in';
 export * from './fx-nbrm';
 export * from './fee-invoices';
 export * from './robot/index';

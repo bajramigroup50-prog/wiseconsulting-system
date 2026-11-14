@@ -19,6 +19,7 @@ import { demoFirmIds } from './demo/filters';
 import { saveImport } from './bank/import';
 import { fileAlreadyUsed } from './sales/purchases';
 import { OfficeError } from './office';
+import { MAILIN_SOURCE, mailInLearn } from './mail-in';
 
 const IncomingError = OfficeError;
 
@@ -187,5 +188,8 @@ export async function assignIncomingFirm(tx: Tx, a: { id: string; from: string |
   if (n) throw new IncomingError('Датотеката е веќе прикачена на документ – не може да се премести.');
   await tx.update(files).set({ firmId: a.to }).where(eq(files.id, r.fileId));
   await setRow(tx, a.id, { firmId: a.to, status: r.status === 'skipped' ? 'read' : r.status, detect: { ...r.detect, movedFrom: a.from } });
+  // ✉ a mail of the office mailbox given to a firm: mails from this sender go to it from now on (`mail-in.ts`)
+  const mf = (r.detect as { mail?: { from?: string } }).mail?.from;
+  if (r.source === MAILIN_SOURCE && mf) await mailInLearn(tx, mf, a.to, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.to, action: 'inFirm', entityType: 'incoming_doc', entityId: a.id, data: { from: a.from } });
 }

@@ -16,3 +16,4 @@ export * from './office/aml-ufr';
 export * from './office/capture';
 export * from './office/client-report';
 export * from './office/incoming';
+export * from './office/mail-in';
