@@ -37,7 +37,9 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
   const write = canDo(u, 'write', firm.id), del = canDo(u, 'del', firm.id);
   const locs = [...(md === 'warehouse' ? [{ id: 'main', name: 'Главен магацин', kind: 'warehouse' as const }] : []), ...L.locations.filter((l) => l.kind === md)];
   if (md === 'store' && !locs.length) {
-    return <><Hd t={t} /><div className="card empty">Немате регистрирано продавница. Додајте ја во <b>Шифрарник → Сите шифрарници → Продавници</b>, потоа тука се внесуваат приемите за продавницата, а стоката од магацин се пренесува со „Пренос во продавница“.</div></>;
+    return <><Hd t={t} /><div className="card empty">Немате регистрирано продавница. Додајте ја во <b>Шифрарник → Сите шифрарници → Продавници</b>, потоа тука се внесуваат приемите за продавницата, а стоката од магацин се пренесува со „Пренос во продавница“.
+      <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 10 }}><Link className="btn pri" href="/cb_store">+ Додај продавница</Link></div>
+      <p className="mini" style={{ marginTop: 8 }}>„📄 ПЛТ на клиентот“ (клиенти што сами го прават приемниот лист) се отвора тука штом фирмата има продавница.</p></div></>;
   }
   const wh = locs.some((l) => l.id === sp.wh) ? sp.wh! : '';
   const kindOf = (id: string | null) => (!id ? 'warehouse' : L.locations.find((l) => l.id === id)?.kind ?? 'warehouse');
