@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { and, gte } from 'drizzle-orm';
 import { addDays } from '@wise/core/office';
 import { todaySkopje } from '@wise/core/office/dates';
-import { WORK_CAT_LBL, classifyAction, skopjeDayStart, type WorkCat } from '@wise/core/office/productivity';
+import { WORK_CAT_LBL, activeMinutes, classifyAction, fmtMinutes, perActiveHour, skopjeDayStart, type WorkCat } from '@wise/core/office/productivity';
 import { auditLog, users } from '@wise/db';
 import { db } from '@/lib/db';
 import { scopeAuditSql } from '@/lib/demo-office';
@@ -18,16 +18,18 @@ const WD = ['Нед', 'Пон', 'Вто', 'Сре', 'Чет', 'Пет', 'Саб'
 const COL = ['#f28c6b', '#2a9577', '#7f8cf0', '#f2b84b', '#e2574c', '#4fb3c8', '#b98ae6', '#5aa05a'];
 
 export async function ActivityDash({ me, owner }: { me: Me; owner: boolean }) {
-  const td = todaySkopje(), d0 = addDays(td, -13), yd = addDays(td, -1);
+  const td = todaySkopje(), d14 = addDays(td, -13), yd = addDays(td, -1), m0 = td.slice(0, 8) + '01';
+  // from the 1st of the month (the ranking) or 14 days back (the chart), whichever is earlier
+  const d0 = m0 < d14 ? m0 : d14;
   const [R, U] = await Promise.all([
     db().select({ u: auditLog.userId, f: auditLog.firmId, a: auditLog.action, e: auditLog.entityType, d: auditLog.data, at: auditLog.at })
       .from(auditLog).where(and(scopeAuditSql(me), gte(auditLog.at, skopjeDayStart(d0)))).limit(50000),
     db().select({ id: users.id, name: users.name }).from(users),
   ]);
   const UN = new Map(U.map((x) => [x.id, x.name]));
-  const days = Array.from({ length: 14 }, (_, i) => addDays(d0, i));
+  const days = Array.from({ length: 14 }, (_, i) => addDays(d14, i));
   const perDay = new Map(days.map((d) => [d, 0]));
-  type P = { n: number; n14: number; firms: Set<string>; last: Date | null; cats: Map<WorkCat, number> };
+  type P = { n: number; n14: number; firms: Set<string>; last: Date | null; cats: Map<WorkCat, number>; nm: number; tm: number[]; fm: Set<string>; dm: Set<string> };
   const per = new Map<string, P>();
   const T = { n: 0, users: new Set<string>(), firms: new Set<string>(), docs: 0 }, Y = { n: 0, users: new Set<string>(), firms: new Set<string>(), docs: 0 };
   for (const r of R) {
@@ -35,8 +37,11 @@ export async function ActivityDash({ me, owner }: { me: Me; owner: boolean }) {
     const c = classifyAction(r.a, r.e, r.d as Record<string, unknown> | null);
     if (!c || c.byProduct) continue;
     const day = todaySkopje(r.at);
+    const p: P = per.get(r.u) ?? { n: 0, n14: 0, firms: new Set<string>(), last: null, cats: new Map(), nm: 0, tm: [] as number[], fm: new Set<string>(), dm: new Set<string>() };
+    per.set(r.u, p);
+    if (day >= m0) { p.nm++; p.tm.push(r.at.getTime()); if (r.f) p.fm.add(r.f); p.dm.add(day); }
+    if (day < d14) continue;
     perDay.set(day, (perDay.get(day) ?? 0) + 1);
-    const p = per.get(r.u) ?? { n: 0, n14: 0, firms: new Set<string>(), last: null, cats: new Map() };
     p.n14++;
     const S = day === td ? T : day === yd ? Y : null;
     if (S) { S.n++; S.users.add(r.u); if (r.f) S.firms.add(r.f); if (c.verb === 'c') S.docs++; }
@@ -45,12 +50,16 @@ export async function ActivityDash({ me, owner }: { me: Me; owner: boolean }) {
       if (!p.last || r.at > p.last) p.last = r.at;
       p.cats.set(c.cat, (p.cats.get(c.cat) ?? 0) + 1);
     }
-    per.set(r.u, p);
   }
   const ch = (a: number, b: number) => (b ? Math.round((a - b) / b * 100) : null);
   const people = [...per.entries()].map(([id, p]) => ({ id, name: UN.get(id) ?? '(избришан корисник)', ...p }))
     .sort((a, b) => b.n - a.n || b.n14 - a.n14);
   const mx = Math.max(1, ...perDay.values());
+  // 🏆 this month: who works the most / the least (work movements, active time, movements per active hour)
+  const rank = people.filter((p) => p.nm > 0).map((p) => { const min = activeMinutes(p.tm); return { ...p, min, ph: perActiveHour(p.nm, min) }; })
+    .sort((a, b) => b.nm - a.nm);
+  const mxR = Math.max(1, ...rank.map((p) => p.nm));
+  const MNF = ['јануари', 'февруари', 'март', 'април', 'мај', 'јуни', 'јули', 'август', 'септември', 'октомври', 'ноември', 'декември'][+td.slice(5, 7) - 1];
   const hm = (d: Date) => new Intl.DateTimeFormat('mk-MK', { timeZone: 'Europe/Skopje', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
   const ini = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
   const href = (id: string) => (owner ? `/aktivnost?u=${id}&od=${td}&do=${td}` : `/aktivnost?od=${td}&do=${td}`);
@@ -81,6 +90,24 @@ export async function ActivityDash({ me, owner }: { me: Me; owner: boolean }) {
               </Link>); })}</div> : <div className="empty">Нема активност во последните 14 дена.</div>}
         </div>
       </div>
+      {rank.length > 0 && (
+        <div className="card" style={{ borderRadius: 16 }}>
+          <div className="hd"><h2>🏆 Кој колку работи · {MNF}</h2>
+            {owner && <Link className="btn sm" href={`/produktivnost?od=${m0}&do=${td}`}>📊 Детално</Link>}</div>
+          <div className="tw"><table>
+            <thead><tr><th>#</th><th>Колега</th><th style={{ width: '34%' }}>Работни активности</th><th className="n">Активности</th><th className="n">Активно време</th><th className="n">Во час</th><th className="n">Денови</th><th className="n">Фирми</th></tr></thead>
+            <tbody>{rank.map((p, i) => { const last = i === rank.length - 1 && rank.length > 1; return (
+              <tr key={p.id}>
+                <td>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : last ? '🔻' : i + 1}</td>
+                <td><Link className="lnk" href={owner ? `/aktivnost?u=${p.id}&od=${m0}&do=${td}` : '#'}><b>{p.name}</b></Link>{i === 0 && <span className="pill good" style={{ marginLeft: 6 }}>најмногу</span>}{last && <span className="pill bad" style={{ marginLeft: 6 }}>најмалку</span>}</td>
+                <td><div style={{ height: 10, borderRadius: 5, background: 'var(--soft)' }}><div style={{ width: `${p.nm / mxR * 100}%`, height: '100%', borderRadius: 5, background: i === 0 ? '#2a9577' : last ? '#e2574c' : '#f28c6b' }} /></div></td>
+                <td className="n"><b>{p.nm.toLocaleString('mk-MK')}</b></td><td className="n">{fmtMinutes(p.min)}</td>
+                <td className="n">{p.ph != null ? String(p.ph).replace('.', ',') : '—'}</td><td className="n">{p.dm.size}</td><td className="n">{p.fm.size}</td>
+              </tr>); })}</tbody>
+          </table></div>
+          <p className="mini" style={{ margin: '8px 0 0' }}>Се бројат само работни активности (внес, измена, книжење на документи), без најави и автоматски книжења. Активно време = периоди на работа во WISE (пауза над 15 мин. прекинува). „Во час“ = активности по активен час. Ориентационо – не ја мери тежината на работата.</p>
+        </div>
+      )}
     </div>
   );
 }
