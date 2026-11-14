@@ -77,6 +77,9 @@ export const SCH_EXTRA = {
    */
   revServiceNoVat: '7414',
   revGoodsNoVat: '7410',
+  /** ✈️ Службени патувања (`btrip.ts` BT_SCHEME): costs 440x (domestic / abroad), own car, other; advances 143x; employee 241x. */
+  btDnD: '4400', btDnS: '44001', btLodD: '44010', btLodS: '44011', btTrD: '44020', btTrS: '44021', btCar: '4403', btOth: '4406',
+  btAdvD: '1430', btAdvS: '1431', btEmpD: '2410', btEmpS: '2411',
 } as const;
 
 /**

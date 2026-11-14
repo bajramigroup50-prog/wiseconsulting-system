@@ -110,7 +110,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // finance
   'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
   'akart', 'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
-  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pozajmici', 'prenos',
+  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pozajmici', 'prenos',
   // year end
   'zsProc', 'zsDos', 'zsNPO', 'zsTP', 'zsRok', 'zsBel', 'zsKontrola', 'zsXml', 'zs_aop', 'zs_bs', 'zs_bu', 'zs_db', 'zs_de', 'zs_pr', 'zs_skr', 'zs_sp', 'zs_vp',
   'mbyllja', 'vjetore', 'pecati',
@@ -147,7 +147,7 @@ export const DEMO_OFFICE_VIEWS: readonly string[] = [
 
 /** `/print/<x>` documents of the demo firm. */
 export const DEMO_PRINT: readonly string[] = [
-  'analizi', 'bilanc', 'cenovnik', 'ddv04', 'ddv04Prilog', 'ddvKniga', 'ddvKnigi', 'ddvTab', 'dnevnik', 'doc', 'fin', 'firmi', 'kalk', 'kartice', 'kkart', 'metg', 'nalog', 'prenos', 'prodKalk', 'scr',
+  'analizi', 'dosie-banka', 'bilanc', 'cenovnik', 'ddv04', 'ddv04Prilog', 'ddvKniga', 'ddvKnigi', 'ddvTab', 'dnevnik', 'doc', 'fin', 'firmi', 'kalk', 'kartice', 'kkart', 'metg', 'nalog', 'prenos', 'prodKalk', 'scr',
 ];
 
 /** API endpoints a demo user may call (each checks the firm itself; the firm list is the demo firms only). */
@@ -256,7 +256,7 @@ const BOOK_ONLY_LIST: readonly string[] = [
   // ДДВ
   'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
   // payroll (the МПИН of the selected firm is `plati/[month]/mpin`; the all-firms `mpinIn` / `payBatch` stay hidden), travel orders
-  'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pnalozi', 'pnGorivo',
+  'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pnalozi', 'pnGorivo',
   // outgoing / incoming documents and stock (Материјално)
   'skan', 'skanIzlez', 'skanFisk', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
   'normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi', 'kalkG', 'prenosi', 'zaliha', 'profakturi', 'ispratnici', 'g_trg', 'kalkCalc',
@@ -270,7 +270,7 @@ const BOOK_ONLY_LIST: readonly string[] = [
   'sifrarnik', 'partneri', 'artikli', 'uslugiS', 'artNames', 'artQ', 'artKonta', 'barkodi', 'konto', 'tarifi', 'terkovi',
   'cb_cash', 'cb_cenovnik', 'cb_country', 'cb_currency', 'cb_fgroup', 'cb_hall', 'cb_location', 'cb_municipality', 'cb_oe', 'cb_route', 'cb_store', 'cb_vehicle', 'cb_warehouse',
   // tools: imports into the firm, the converter, AI document reading (the AI budget guard still applies)
-  'uvoz', 'konvertor', 'aiCitanje',
+  'uvoz', 'konvertor', 'aiCitanje', 'prevod',
   // „📥 Пристигнати документи“ (UX P7): bookkeeping work — only the files of the colleague's own firms (`lib/incoming-scope.ts`)
   'prist',
   // firm selection (the top-bar picker; the firms are still only the user's own), own password, help
@@ -285,7 +285,7 @@ export const BOOK_ALWAYS_VIEWS: readonly string[] = ['izlezF', 'lozinka', 'pomos
 
 /** `/print/<x>` → the views that print it (any one of them suffices). An unknown print needs the view of its name. */
 const PRINT_VIEWS: Readonly<Record<string, readonly string[]>> = {
-  analizi: ['analizi'], bilanc: ['bilanc'], cenovnik: ['sifrarnik', 'artikli'], ddv04: ['ddv'], ddv04Prilog: ['ddv'], ddv04All: ['ddv04All'], ddvKniga: ['ddv', 'ddvKnigi'],
+  analizi: ['analizi'], 'dosie-banka': ['analizi'], bilanc: ['bilanc'], cenovnik: ['sifrarnik', 'artikli'], ddv04: ['ddv'], ddv04Prilog: ['ddv'], ddv04All: ['ddv04All'], ddvKniga: ['ddv', 'ddvKnigi'],
   ddvKnigi: ['ddvKnigi'], ddvTab: ['ddv', 'ddvTab'], dnevnik: ['nalozi'], nalog: ['nalozi'], kkart: ['kkart', 'akart', 'bilanc'], kartice: ['g_kartica', 'm_kartica', 'zaliha'],
   doc: ['izlez', 'vlez', 'profakturi', 'ispratnici', 'porachki', 'nabavki', 'uslugi', 'odobrenija', 'm_izlez', 'periodicni', 'kasa'],
   kalk: ['kalkG', 'kalkM', 'vlez'], prodKalk: ['prodCost', 'prod'], metg: ['g_trg', 'm_trg'], prenos: ['prenosi'], scr: ['povratDob'],

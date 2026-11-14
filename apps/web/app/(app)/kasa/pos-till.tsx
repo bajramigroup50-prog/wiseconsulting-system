@@ -48,18 +48,21 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
   const [coupon, setCoupon] = useState('');
   const [usePts, setUsePts] = useState(false);
   const [payCard, setPayCard] = useState('');
+  const [find, setFind] = useState('');
   const bcRef = useRef<HTMLInputElement>(null);
   const bridge = useFiscalBridge();
   const router = useRouter();
   const [fBusy, setFBusy] = useState(false);
   const [fMsg, setFMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [unsaved, setUnsaved] = useState<FiscalOutcome['unsaved']>(undefined);
+  /* the scanner field keeps the focus on a computer; on a phone / tablet it would keep popping up the keyboard */
+  const focusBc = () => { if (!matchMedia('(pointer: coarse)').matches) bcRef.current?.focus(); };
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const scanItems = useMemo(() => items.map((i) => ({ ...i, active: true })), [items]);
 
   useEffect(() => {
     if (st.ok) { setCart([]); setCardId(''); setCardQ(''); setCoupon(''); setUsePts(false); setPayCard(''); }
-    setTimeout(() => bcRef.current?.focus(), 30);
+    setTimeout(focusBc, 30);
   }, [st]);
 
   const q = () => Number(String(qty).replace(',', '.')) || 1;
@@ -93,6 +96,13 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
     Object.assign(document.createElement('a'), { href: url, download: `smetka_${Date.now()}.inp` }).click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  /* 📱 touch: search tiles (name / code / barcode), quantity − / +, payment buttons */
+  const found = useMemo(() => {
+    const v = find.trim().toLowerCase();
+    const L = v ? items.filter((i) => i.name.toLowerCase().includes(v) || i.code.toLowerCase().includes(v) || i.barcodes.some((b) => b.includes(v))) : items;
+    return L.slice(0, 30);
+  }, [find, items]);
+  const bump = (i: number, d: number) => setCart((L) => L.flatMap((l, k) => (k !== i ? [l] : l.qty + d > 0 ? [{ ...l, qty: Math.round((l.qty + d) * 1000) / 1000 }] : [])));
   const reset = () => { setCart([]); setCardId(''); setCardQ(''); setCoupon(''); setUsePts(false); setPayCard(''); };
   /** 🧾 sale + fiscal receipt: the sale is recorded first (pending receipt), then printed; fiscalised only on the device's number. */
   const fiscal = async () => {
@@ -106,7 +116,7 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
       const o = await printFiscal(bridge, { fiskId: s.fiskId, receipt: s.receipt }, fiscalResultAction);
       setFMsg({ ok: o.ok, text: o.msg }); setUnsaved(o.unsaved);
       if (order && o.ok) { router.push('/restoran'); return; }
-    } finally { setFBusy(false); router.refresh(); setTimeout(() => bcRef.current?.focus(), 30); }
+    } finally { setFBusy(false); router.refresh(); setTimeout(focusBc, 30); }
   };
   const saveNo = async () => {
     if (!unsaved) return;
@@ -120,7 +130,7 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
     cardNo: card?.no ?? null, coupon: coupon.trim() || null, usePts,
   };
   return (
-    <form action={action} className="card">
+    <form action={action} className="card pos-till">
       <h2>Нова сметка</h2>
       <input type="hidden" name="payload" value={JSON.stringify(payload)} />
       {st.error && <div className="callout bad" role="alert">{st.error}</div>}
@@ -129,21 +139,34 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
       {fMsg && <div className={'callout ' + (fMsg.ok ? 'good' : 'bad')} role="alert" data-testid="fiscal-msg">{fMsg.text}</div>}
       {unsaved && <button type="button" className="btn pri" onClick={saveNo} disabled={fBusy}>Зачувај го бројот {unsaved.result.number}</button>}
       <div className="row" style={{ marginBottom: 8 }}>
-        <input ref={bcRef} id="posBc" value={bc} onChange={(e) => setBc(e.target.value)} placeholder="📷 Скенирај баркод или внеси шифра + Enter" style={{ flex: 1, fontSize: 16 }} autoComplete="off" autoFocus
+        <input ref={bcRef} id="posBc" value={bc} onChange={(e) => setBc(e.target.value)} placeholder="📷 Скенирај баркод или внеси шифра + Enter" style={{ flex: 1, fontSize: 16 }} autoComplete="off"
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scan(); } }} />
       </div>
-      <div className="row">
+      <div className="pos-find">
+        <input id="posFind" type="search" value={find} onChange={(e) => setFind(e.target.value)} placeholder="🔍 Барај артикл (име, шифра)" autoComplete="off" enterKeyHint="search" />
+        <div className="pos-tiles" role="list">
+          {found.map((it) => (
+            <button key={it.id} type="button" role="listitem" className="pos-tile" onClick={() => { add(it, q()); beep(true); }}>
+              <b>{it.name}</b><span>{fmt(it.price)}</span>{it.type && it.type !== 'service' && <small className={it.have > 0 ? '' : 'neg'}>залиха {fq(it.have)}</small>}
+            </button>
+          ))}
+          {!found.length && <div className="mini">Нема таков артикл.</div>}
+        </div>
+      </div>
+      <div className="row pos-sel">
         <select id="posItem" style={{ flex: 1 }} value={sel} onChange={(e) => setSel(e.target.value)}>
           {items.map((i) => <option key={i.id} value={i.id}>{i.name} · {fmt(i.price)}{i.type && i.type !== 'service' ? ' · залиха ' + fq(i.have) : ''}</option>)}
         </select>
-        <input id="posQty" type="number" step="any" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 80 }} />
+        <input id="posQty" type="number" step="any" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 80 }} aria-label="Количина" />
         <button type="button" className="btn" onClick={() => { const it = byId.get(sel); if (it) setCart((c) => [...c, { itemId: it.id, name: it.name, qty: q(), price: it.price, rate: it.rate }]); }}>Додај</button>
       </div>
       <label className="f" style={{ maxWidth: 180 }}>Датум<input type="date" value={D} onChange={(e) => setDate(e.target.value)} /></label>
       {cart.length ? <>
-        <div className="tw"><table><tbody>
+        <div className="tw pos-cart"><table><tbody>
           {cart.map((c, i) => (
-            <tr key={i}><td>{c.name}</td><td className="n">{c.qty} × {fmt(c.price)}</td><td className="n">{fmt(c.qty * c.price)}</td>
+            <tr key={i}><td>{c.name}<div className="mini">{fmt(c.price)}</div></td>
+              <td className="n pos-q"><button type="button" className="btn" aria-label="Една помалку" onClick={() => bump(i, -1)}>−</button><b>{fq(c.qty)}</b><button type="button" className="btn" aria-label="Една повеќе" onClick={() => bump(i, 1)}>+</button></td>
+              <td className="n">{fmt(c.qty * c.price)}</td>
               <td><button type="button" className="btn sm ghost danger" aria-label="Отстрани" onClick={() => setCart((L) => L.filter((_, k) => k !== i))}>✕</button></td></tr>
           ))}
         </tbody><tfoot><tr><td colSpan={2}>Вкупно со ДДВ</td><td className="n">{fmt(tot)}</td><td /></tr></tfoot></table></div>
@@ -159,7 +182,13 @@ export function PosTill({ items, cards, coupons, rules, date, wh, order, initial
           {cp && 'err' in cp && <div className="mini" style={{ color: 'var(--bad)' }}>{cp.err}</div>}
           {x.disc > 0 && <div style={{ marginTop: 6 }}><b>Попуст {fmt(x.disc)}</b> <span className="mini">({x.parts.join(', ')})</span> · <b>За плаќање {fmt(x.pay)}</b></div>}
         </div>
-        <div className="row">
+        <div className="pos-pay" role="group" aria-label="Плаќање">
+          <div className="pos-total"><span>За плаќање</span><b data-testid="pos-pay">{fmt(x.pay)}</b></div>
+          <button type="button" className={'btn' + (payCard === '' ? ' on' : '')} aria-pressed={payCard === ''} onClick={() => setPayCard('')}>💵 Готовина</button>
+          <button type="button" className={'btn' + (payCard !== '' && Number(payCard.replace(',', '.')) >= x.pay ? ' on' : '')} aria-pressed={payCard !== '' && Number(payCard.replace(',', '.')) >= x.pay}
+            onClick={() => setPayCard(String(Math.round(x.pay * 100) / 100))}>💳 Картичка</button>
+        </div>
+        <div className="row pos-acts">
           <label className="f">Од тоа со картичка<input inputMode="decimal" value={payCard} onChange={(e) => setPayCard(e.target.value)} style={{ width: 120 }} /></label>
           <div className="savebar"><button className="btn pri" disabled={pending || fBusy || (!!cp && 'err' in cp)}>Евидентирај продажба</button></div>
           <button type="button" className="btn pri" data-testid="fiscal-sell" disabled={pending || fBusy || (!!cp && 'err' in cp)} onClick={fiscal}
