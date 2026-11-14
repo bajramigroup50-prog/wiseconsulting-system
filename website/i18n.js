@@ -11,6 +11,8 @@ window.I18N = {
   },
 
   sq: {
+    "footer.privacy": "Politika e privatësisë",
+    "offer.privacy": "Si i përpunojmë të dhënat – Politika e privatësisë",
     "flow.fs": "Llogari përfundimtare",
     "flow.adv": "Këshilla tatimore",
     "flow.inv": "Fatura",
@@ -281,6 +283,8 @@ window.I18N = {
   },
 
   en: {
+    "footer.privacy": "Privacy policy",
+    "offer.privacy": "How we process your data – Privacy policy",
     "flow.fs": "Annual accounts",
     "flow.adv": "Tax advice",
     "flow.inv": "Invoices",
@@ -551,6 +555,8 @@ window.I18N = {
   },
 
   tr: {
+    "footer.privacy": "Gizlilik politikası",
+    "offer.privacy": "Verilerinizi nasıl işliyoruz – Gizlilik politikası",
     "flow.fs": "Yıl sonu hesapları",
     "flow.adv": "Vergi danışmanlığı",
     "flow.inv": "Faturalar",

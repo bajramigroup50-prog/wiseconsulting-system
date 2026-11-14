@@ -633,3 +633,7 @@ p { margin: 0 0 1em; }
 @media (prefers-reduced-motion: reduce) { .fl-lines path, .fl-ok, .fl-core .ring { animation: none; } .fl-dot { display: none; } }
 @media (min-width: 981px) { .dl-row .dl-list li { grid-template-columns: 58px 1fr; row-gap: 4px; } .dl-row .dl-left { grid-column: 2; } }
 .fl-src b { white-space: nowrap; } @media (max-width: 700px) { .fl-src b { white-space: normal; line-height: 1.2; } }
+
+.f-privacy { color: inherit; text-decoration: underline; text-underline-offset: 3px; opacity: .85; }
+.f-privacy:hover { opacity: 1; }
+.offer-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
