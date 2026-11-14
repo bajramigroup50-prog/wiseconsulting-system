@@ -50,6 +50,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
   // the AI reading card (also in „Податоци и резервна копија“) on its own page, with the credit check
   ['Систем', 'konvertor', [['aiCitanje', '🤖 AI читање']]],
+  // new: 🌐 DeepL translation of a text or a document (MK / SQ / EN / DE), with the characters used this month
+  ['Систем', 'aiCitanje', [['prevod', '🌐 Превод (DeepL)']]],
   // owner-only: enrolled computers (device certificates, mutual TLS)
   ['Систем', 'greski', [['uredi', '🔐 Уреди (компјутери)']]],
 ];
