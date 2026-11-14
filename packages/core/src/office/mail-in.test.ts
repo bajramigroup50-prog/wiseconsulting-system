@@ -44,6 +44,23 @@ describe('✉ mail → WISE: which firm', () => {
     expect(mailOrigin('shef@agro.mk', 'фактури', 'From: x@y.mk', office)).toBe('shef@agro.mk');
     expect(mailOrigin('vbkonsalting@hotmail.com', 'нешто', 'без адреса', office)).toBe('vbkonsalting@hotmail.com');
   });
+  it('the document itself: anyone can send it for one of our firms', () => {
+    const FA: MailFirm[] = F.map((f) => (f.id === 'travel' ? { ...f, accounts: ['270-0740123001-72'] } : f.id === 'own' ? { ...f, accounts: ['MK07 2700 7043 7160 114'] } : f));
+    const b = { ...base, firms: FA };
+    // a supplier (learned for ТРИМИ) sends an invoice whose buyer is АГРО ФАРМА → АГРО ФАРМА
+    expect(mailMatch({ ...b, from: 'dadikompani@yahoo.com', learned: { 'dadikompani@yahoo.com': 'trimi' }, content: 'Фактура бр. 12 Купувач: АГРО ФАРМА ЕДБ MK4030000000001' })).toEqual({ firmId: 'agro', how: 'doc' });
+    // the client sends its supplier's invoice (both our firms): the sender's firm stays
+    expect(mailMatch({ ...b, from: 'sef@agro.mk', content: 'Продавач 4030000000002 Купувач 4030000000001' })).toEqual({ firmId: 'agro', how: 'email' });
+    // the bank: only the account in the head; the other side's accounts further down do not count
+    const stmt = 'HALKBANK Дневен извод Сметка: 270074012300172 ' + 'x'.repeat(2100) + ' 270070437160114';
+    expect(mailMatch({ ...b, from: 'halkbank.notification@halkbank.mk', content: stmt })).toEqual({ firmId: 'travel', how: 'account' });
+    expect(mailMatch({ ...b, from: 'x@y.mk', content: 'Извод за сметка MK07270070437160114' })).toEqual({ firmId: 'own', how: 'account' });
+    // a supplier's invoice to the office itself
+    expect(mailMatch({ ...b, from: 'x@y.mk', content: 'Купувач БАЈРАМИ ГРОУП ЕДБ 4030999999999' })).toEqual({ firmId: 'own', how: 'doc' });
+    // nothing in the document → the sender rules
+    expect(mailMatch({ ...b, from: 'sef@agro.mk', content: 'скениран' })).toEqual({ firmId: 'agro', how: 'email' });
+    expect(mailMatch({ ...b, from: 'x@y.mk', content: '4030000000001 и 4030000000002' })).toEqual({ firmId: null, candidates: ['agro', 'trimi'] });
+  });
   it('helpers', () => {
     expect(firmKey('АГРО ФАРМА ЛТД ДООЕЛ')).toBe('АГРО ФАРМА');
     expect(firmKey('ДРУШТВО ЗА ТРГОВИЈА СЕМПРА 2023 ДОО')).toBe('СЕМПРА 2023');

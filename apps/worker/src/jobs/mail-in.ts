@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { brandCustom } from '@wise/core';
 import { INCOMING_JOB, mailAddr, mailFileWanted, MAILIN_JOB, mailMatch, mailOrigin, type MailMatch } from '@wise/core/office';
 import { ingestMailFile, mailFileSeen, mailInContext, mailInResult, mailInSecret, type DB, type Tx } from '@wise/db';
+import { pdfTextItems } from '../ai/pdf-text';
 import { defineJob } from '../job';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
 
@@ -55,6 +56,13 @@ async function imapChannel(c: { host: string; port: number; user: string; pass: 
   }
 }
 
+/** The text layer of a PDF attachment (first pages), '' for other files, scans or a broken PDF. */
+async function docText(p: MailPart): Promise<string> {
+  const pdf = /pdf/i.test(p.mime) || /\.pdf$/i.test(p.name);
+  if (!pdf) return '';
+  try { return (await pdfTextItems(p.bytes, 5)).map((i) => i.s).join(' ').slice(0, 50_000); } catch { return ''; }
+}
+
 /** One run. `channel` replaces IMAP in tests. Returns the result line. */
 export async function runMailIn(db: DB, o: { test?: boolean; log?: (m: string) => void; send?: (name: string, data: object) => Promise<unknown>; channel?: MailChannel; store?: ObjectStore } = {}): Promise<string> {
   const log = o.log ?? (() => {});
@@ -78,8 +86,13 @@ export async function runMailIn(db: DB, o: { test?: boolean; log?: (m: string) =
       if (ctx.ownAddr && mailAddr(m.from) === ctx.ownAddr && from === ctx.ownAddr) { own++; continue; }
       const parts = m.parts.filter((p) => mailFileWanted({ name: p.name, mime: p.mime, size: p.bytes.byteLength, inline: p.inline }));
       if (!parts.length) { empty++; continue; }
-      const match: MailMatch = mailMatch({ from, subject: m.subject, text: m.text, fileNames: parts.map((p) => p.name), learned: ctx.learned, userFirms: ctx.userFirms, firms: ctx.firms, ownEdb: ctx.ownEdb });
+      const base = { from, subject: m.subject, text: m.text, fileNames: parts.map((p) => p.name), learned: ctx.learned, userFirms: ctx.userFirms, firms: ctx.firms, ownEdb: ctx.ownEdb };
+      const mailM: MailMatch = mailMatch(base);
+      let match: MailMatch = mailM;
       for (const p of parts) {
+        // the document's own text: it may come from anyone (a supplier, the bank) for one of our firms
+        const content = await docText(p);
+        match = content ? mailMatch({ ...base, content }) : mailM;
         const sha = createHash('sha256').update(p.bytes).digest('hex');
         if (await mailFileSeen(db as unknown as Tx, m.msgId, sha)) { dup++; continue; }
         const fileId = await storeFile(db, o.store ?? s3Store, { firmId: match.firmId, name: p.name, mime: p.mime, ext: extOf(p.name), body: p.bytes });

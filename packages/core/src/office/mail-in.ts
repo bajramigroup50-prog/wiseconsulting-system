@@ -7,6 +7,9 @@
  *   2. the sender is the firm's e-mail or a client user's e-mail of exactly one firm,
  *   3. exactly one firm's ЕДБ in the subject, the text or the file name,
  *   4. exactly one firm's name (without ДООЕЛ / ДОО / Скопје…) in the subject.
+ * Before all that, the attachment's own text (PDF text layer, `content`) is read: a document for one of our firms can
+ * come from anyone (a supplier, the bank, the client's client). One firm's ЕДБ in it (else one firm's bank account)
+ * decides; with several, the sender's firm when it is one of them, else the sender rules apply.
  * Several or none → it waits in the office inbox („изберете фирма“), never guessed.
  */
 
@@ -16,12 +19,13 @@ export const MAILIN_DEFAULT_DAYS = 30;
 /** Files larger than this are skipped (a note on the log). */
 export const MAILIN_MAX_BYTES = 25 * 1024 * 1024;
 
-export type MailMatchHow = 'learned' | 'email' | 'edb' | 'name';
+export type MailMatchHow = 'learned' | 'email' | 'edb' | 'name' | 'doc' | 'account';
 export const MAILIN_HOW: Record<MailMatchHow, string> = {
   learned: 'испраќачот (запаметен)', email: 'е-поштата на фирмата', edb: 'ЕДБ во пораката', name: 'името на фирмата во насловот',
+  doc: 'ЕДБ во самиот документ', account: 'жиро-сметката во документот',
 };
 
-export interface MailFirm { id: string; name: string; edb: string | null; email: string | null; short?: string | null }
+export interface MailFirm { id: string; name: string; edb: string | null; email: string | null; short?: string | null; accounts?: readonly string[] }
 
 /** `"Име" <a@b.mk>` / `a@b.mk` → `a@b.mk` (lower case), '' when there is no address. */
 export function mailAddr(v: string | null | undefined): string {
@@ -42,6 +46,39 @@ export function mailEdbs(text: string): string[] {
   const out = new Set<string>();
   for (const m of String(text).matchAll(/(?:MK)?\s?(\d[\d ]{11,16}\d)/gi)) { const d = m[1]!.replace(/ /g, ''); if (d.length === 13) out.add(d); }
   return [...out];
+}
+
+/** A Macedonian account as 15 digits (`270-0706421701-96`, `MK07 2700 7064 2170 196` → `270070642170196`); '' otherwise. */
+export function acctDigits(v: string | null | undefined): string {
+  let d = String(v ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (/^MK\d{17}$/.test(d)) d = d.slice(4);
+  return /^\d{15}$/.test(d) ? d : '';
+}
+
+/** Every account number of a text (15 digits, with or without dashes / spaces, or an MK IBAN). */
+export function mailAccounts(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of String(text).matchAll(/(?:MK\s?\d{2}[\s-]?)?\d[\d\s-]{13,22}\d/gi)) {
+    const a = acctDigits(m[0]); if (a) out.add(a);
+    const d = m[0].replace(/\D/g, ''); if (d.length === 15) out.add(d);
+  }
+  return [...out];
+}
+
+/** How much of a document's text is its head (the account holder of a statement). */
+export const DOC_HEAD = 2000;
+
+/** The firms a document's own text names: by ЕДБ (never the office's own), else by bank account. */
+export function docFirms(content: string, firms: readonly MailFirm[], ownEdb?: string | null): { ids: string[]; how: 'doc' | 'account' } {
+  const own = edbDigits(ownEdb);
+  const E = new Set(mailEdbs(content).filter((d) => d !== own));
+  const byEdb = [...new Set(firms.filter((f) => { const d = edbDigits(f.edb); return !!d && E.has(d); }).map((f) => f.id))];
+  if (byEdb.length === 1) return { ids: byEdb, how: 'doc' };
+  // the account in the head of the document (a statement lists the other side's accounts further down)
+  const A = new Set(mailAccounts(content.slice(0, DOC_HEAD)));
+  const byAcc = [...new Set(firms.filter((f) => (f.accounts ?? []).some((a) => A.has(acctDigits(a)))).map((f) => f.id))];
+  if (byAcc.length === 1 || !byEdb.length) return { ids: byAcc, how: 'account' };
+  return { ids: byEdb, how: 'doc' };
 }
 
 /* JS `\b` is ASCII only: Cyrillic word edges by look-around */
@@ -87,11 +124,29 @@ export interface MailMatchIn {
   firms: readonly MailFirm[];
   /** the office's own ЕДБ (never a client match: it is on every letter of the office) */
   ownEdb?: string | null;
+  /** the attachment's own text (PDF text layer), when it has one */
+  content?: string;
 }
 
 export type MailMatch = { firmId: string; how: MailMatchHow } | { firmId: null; candidates: string[] };
 
 export function mailMatch(a: MailMatchIn): MailMatch {
+  const bySender = senderMatch(a);
+  if (a.content?.trim()) {
+    const D = docFirms(a.content, a.firms, a.ownEdb);
+    // the sender's firm is named in the document (a client sends its supplier's invoice): keep it
+    if (bySender.firmId && D.ids.includes(bySender.firmId)) return bySender;
+    if (D.ids.length === 1) return { firmId: D.ids[0]!, how: D.how };
+    if ('candidates' in bySender && D.ids.length > 1) return { firmId: null, candidates: [...new Set([...D.ids, ...bySender.candidates])] };
+    // a document for the office itself (a supplier's invoice to БАЈРАМИ ГРОУП): only its ЕДБ, no client's
+    const own = edbDigits(a.ownEdb);
+    const ownFirm = own ? a.firms.find((f) => edbDigits(f.edb) === own) : undefined;
+    if ('candidates' in bySender && !bySender.candidates.length && !D.ids.length && ownFirm && mailEdbs(a.content).includes(own)) return { firmId: ownFirm.id, how: 'doc' };
+  }
+  return bySender;
+}
+
+function senderMatch(a: MailMatchIn): MailMatch {
   const from = mailAddr(a.from);
   const ids = new Set(a.firms.map((f) => f.id));
   const one = (L: Iterable<string>) => { const s = [...new Set([...L].filter((x) => ids.has(x)))]; return s; };

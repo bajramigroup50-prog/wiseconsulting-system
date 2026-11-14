@@ -12,7 +12,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { isDemoFirm } from '@wise/core/demo';
 import { mailAddr, MAILIN_DEFAULT_DAYS, type MailFirm, type MailMatchHow } from '@wise/core/office';
 import { audit, type Tx } from './audit';
-import { appSettings, files, firms, incomingDocs, userFirms, users } from './schema/index';
+import { appSettings, bankAccounts, files, firms, incomingDocs, userFirms, users } from './schema/index';
 import { openSecret, sealSecret } from './social';
 
 export const MAILIN_SOURCE = 'mail';
@@ -126,9 +126,14 @@ export async function mailInContext(tx: Pick<Tx, 'select'>): Promise<MailInConte
   for (const u of U) { const a = mailAddr(u.email); if (a) uf.set(a, [...(uf.get(a) ?? []), u.firmId]); }
   const cfg = await stored(tx);
   const learned = await mailInSenders(tx);
+  // bank accounts of each firm (a bank statement names only the account): the bank account table + the firm's own setting
+  const acc = new Map<string, string[]>();
+  for (const b of await tx.select({ firmId: bankAccounts.firmId, account: bankAccounts.account, iban: bankAccounts.iban }).from(bankAccounts))
+    acc.set(b.firmId, [...(acc.get(b.firmId) ?? []), ...[b.account, b.iban].filter((x): x is string => !!x)]);
+  for (const f of F) { const b = (f.settings as { bankAccount?: string } | null)?.bankAccount; if (b) acc.set(f.id, [...(acc.get(f.id) ?? []), b]); }
   return {
     // the office firm is included (WISE = БАЈРАМИ ГРОУП): its own documents go to it (`mailMatch` keeps its ЕДБ last)
-    firms: F.map((f) => ({ id: f.id, name: f.name, edb: f.edb, email: f.email, short: (f.settings as { short?: string } | null)?.short ?? null })),
+    firms: F.map((f) => ({ id: f.id, name: f.name, edb: f.edb, email: f.email, short: (f.settings as { short?: string } | null)?.short ?? null, accounts: acc.get(f.id) ?? [] })),
     userFirms: uf, learned, ownEdb: office?.edb ?? null, ownAddr: mailAddr(cfg.user), office: [mailAddr(cfg.user), ...(cfg.forwarders ?? [])].filter(Boolean),
   };
 }
