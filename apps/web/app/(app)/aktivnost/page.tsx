@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { isUuid } from '@/lib/office';
 import { firmSideSql, ownerContext, scopeAuditSql, userSideSql } from '@/lib/demo-office';
 import { Hd, dmyHm } from '@/components/hd';
+import { ActivityDash } from './dash';
 
 const LBL: Record<string, string> = {
   login: 'Најава', logout: 'Одјава', loginFail: 'Неуспешна најава', loginLocked: '🔒 Заклучена најава', loginUnlock: '🔓 Отклучена најава', newFirm: 'Нова фирма', saveFirm: 'Промена на фирма',
@@ -70,6 +71,7 @@ export default async function AktivnostPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <Hd t="Дневник на активности" sub="кој што направил" />
+      {pg === 1 && !(od || dd || fu || ff || fa) && <ActivityDash me={me} owner={owner} />}
       <form className="card" method="get">
         <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
           <label className="f" style={{ margin: 0 }}>Од<input type="date" name="od" defaultValue={od} /></label>

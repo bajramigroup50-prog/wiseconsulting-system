@@ -50,6 +50,20 @@ export async function BookHome({ role, f, year, see }: { role: Role; f: Firm; ye
         .where(and(eq(salesDaily.firmId, f.id), sql`${salesDaily.date} between ${y0} and ${y1}`)).orderBy(desc(salesDaily.date)).limit(8),
     ]),
   ]);
+  // documents entered per month (workload, not finances): outgoing / incoming invoices of the year
+  const mon = (t: typeof invoices.date | typeof purchases.date) => sql<string>`substring(${t}::text, 6, 2)`;
+  const [mI, mP] = await Promise.all([
+    safe(db().select({ m: mon(invoices.date), n: sql<number>`count(*)::int` }).from(invoices)
+      .where(and(eq(invoices.firmId, f.id), eq(invoices.kind, 'invoice'), ne(invoices.status, 'draft'), sql`${invoices.date} between ${y0} and ${y1}`)).groupBy(mon(invoices.date)), []),
+    safe(db().select({ m: mon(purchases.date), n: sql<number>`count(*)::int` }).from(purchases)
+      .where(and(eq(purchases.firmId, f.id), ne(purchases.status, 'draft'), sql`${purchases.date} between ${y0} and ${y1}`)).groupBy(mon(purchases.date)), []),
+  ]);
+  const byM = (R: { m: string; n: number }[]) => { const a = Array<number>(12).fill(0); for (const r of R) { const i = +r.m - 1; if (i >= 0 && i < 12) a[i] = r.n; } return a; };
+  const MI = byM(mI), MP = byM(mP);
+  const cm = td.startsWith(String(year)) ? +td.slice(5, 7) - 1 : 11;
+  const chg = (a: number[]) => { const c = a[cm] ?? 0, pr = cm ? a[cm - 1] ?? 0 : 0; return pr ? Math.round((c - pr) / pr * 100) : null; };
+  const MNS = ['Јан', 'Фев', 'Мар', 'Апр', 'Мај', 'Јун', 'Јул', 'Авг', 'Сеп', 'Окт', 'Ное', 'Дек'];
+  const mxM = Math.max(1, ...MI, ...MP);
   const PN = await partnerNames(f.id, [...recent[0].map((x) => x.p), ...recent[1].map((x) => x.p)]);
   const pn = (id: string | null) => (id ? PN.get(id)?.name ?? '' : '');
   const payMiss = (empAct[0]?.n ?? 0) > 0 && !payPm.length;
@@ -72,12 +86,17 @@ export async function BookHome({ role, f, year, see }: { role: Role; f: Firm; ye
   const QV = BOOK_QUICK.filter(([v]) => vis.has(v) && see(v));
   return (
     <div id="bookHome">
-      <section className="dash-hero">
-        <div>
-          <h1>{f.name}</h1>
-          <p className="note"><span className="hchip">ЕДБ {f.edb || '—'}</span><span className="hchip">Деловна {year}</span><span className="hchip">{f.vatRegistered ? 'ДДВ обврзник' : 'Не е ДДВ обврзник'}</span></p>
-        </div>
+      <section className="bh-hero">
+        <div className="bh-hi">{WD[new Date(td + 'T12:00:00Z').getUTCDay()]}, {dmy(td)}</div>
+        <h1>{f.name}</h1>
+        <p><span className="hchip">ЕДБ {f.edb || '—'}</span> <span className="hchip">Деловна {year}</span> <span className="hchip">{f.vatRegistered ? 'ДДВ обврзник' : 'Не е ДДВ обврзник'}</span></p>
       </section>
+      <div className="bh-stats">
+        {see('izlez') && <Stat href="/izlez" g="bh-g1" ic="🧾" t={`Излезни фактури · ${MNS[cm]}`} v={MI[cm] ?? 0} d={chg(MI)} s={`${MI.reduce((x, y) => x + y, 0)} во ${year}`} />}
+        {see('vlez') && <Stat href="/vlez" g="bh-g2" ic="📥" t={`Влезни фактури · ${MNS[cm]}`} v={MP[cm] ?? 0} d={chg(MP)} s={`${MP.reduce((x, y) => x + y, 0)} во ${year}`} />}
+        {see('banka') && <Stat href="/banka" g="bh-g3" ic="🏦" t="Непрокнижени ставки од извод" v={unb[0]?.n ?? 0} hot={(unb[0]?.n ?? 0) > 0} s={(unb[0]?.n ?? 0) ? 'чекаат книжење' : '✓ сите се прокнижени'} />}
+        <Stat href="#bh-chk" g="bh-g4" ic="✅" t="Контрола на книжењето" v={chk.length} hot={chk.length > 0} s={chk.length ? 'за проверка' : '✓ сè е во ред'} />
+      </div>
       {/* 🤖 what is missing in this firm (incoming / outgoing invoices, statements, payments without a document) */}
       <VnesAutopBox firmId={f.id} readOnly />
       <div className="quick q2">
@@ -86,7 +105,7 @@ export async function BookHome({ role, f, year, see }: { role: Role; f: Firm; ye
         ))}
       </div>
       <div className="cols">
-        <div className="card">
+        <div className="card" id="bh-chk">
           <div className="hd"><h2>Контрола на книжењето</h2><span className={`pill ${chk.length ? 'warn' : 'good'}`}>{chk.length ? chk.length + ' за проверка' : '✓ во ред'}</span></div>
           <ul className="todo">{chk.length ? chk.map(([n, t, go]) => <li key={t}><Link className="lnk" href={`/${go}`}><span><b>{t}</b></span><span className="pill warn">{n}</span></Link></li>)
             : <li className="ok">✓ Изводите се средени, нема дупликати или негативна залиха; налозите се во рамнотежа.</li>}</ul>
@@ -98,6 +117,32 @@ export async function BookHome({ role, f, year, see }: { role: Role; f: Firm; ye
           </tbody></table></div> : <div className="empty">Сè уште нема документи.</div>}
         </div>
       </div>
+      {(see('izlez') || see('vlez')) && (
+        <div className="card"><div className="hd"><h2>Внесени документи по месеци · {year}</h2>
+          <div className="legend"><span><i style={{ background: '#f28c6b' }} />излезни</span><span><i style={{ background: '#2a9577' }} />влезни</span></div></div>
+          <div className="bh-bars">{MNS.map((m, i) => (
+            <div key={m} className={`bh-m ${i === cm ? 'bh-cur' : ''}`} title={`${m}: излезни ${MI[i]} · влезни ${MP[i]}`}>
+              <div className="bh-pair">
+                {see('izlez') && <i style={{ height: `${MI[i]! / mxM * 100}%`, background: '#f28c6b' }} />}
+                {see('vlez') && <i style={{ height: `${MP[i]! / mxM * 100}%`, background: '#2a9577' }} />}
+              </div><small>{m}</small></div>))}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+const WD = ['Недела', 'Понеделник', 'Вторник', 'Среда', 'Четврток', 'Петок', 'Сабота'];
+
+/** A stat card in the style of modern admin dashboards: title, big number, change against last month, icon. */
+function Stat({ href, g, ic, t, v, d, s, hot }: { href: string; g: string; ic: string; t: string; v: number; d?: number | null; s: string; hot?: boolean }) {
+  return (
+    <Link href={href} className={`bh-card ${g} ${hot ? 'bh-hot' : ''}`}>
+      <span className="bh-ic" aria-hidden>{ic}</span>
+      <span className="bh-t">{t}</span>
+      <b className="bh-v">{v.toLocaleString('mk-MK')}</b>
+      <span className="bh-s">{d != null && <span className={d >= 0 ? 'bh-up' : 'bh-dn'}>{d >= 0 ? '▲' : '▼'} {Math.abs(d)}% </span>}{d != null ? 'од минатиот месец · ' : ''}{s}</span>
+    </Link>
   );
 }
