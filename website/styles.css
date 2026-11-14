@@ -637,3 +637,10 @@ p { margin: 0 0 1em; }
 .f-privacy { color: inherit; text-decoration: underline; text-underline-offset: 3px; opacity: .85; }
 .f-privacy:hover { opacity: 1; }
 .offer-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Old Bazaar (Чаршија) line drawing behind the hero flow */
+.flow .carsija { position: absolute; left: 50%; bottom: -4%; transform: translateX(-50%); width: 150%; height: auto; pointer-events: none; z-index: 0; }
+.carsija path { fill: none; stroke: rgba(143,227,195,.2); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.fl-lines { z-index: 1; }
+.fl-node, .fl-core { z-index: 2; }
+@media (max-width: 700px) { .flow .carsija { width: 260%; bottom: 14%; } }
