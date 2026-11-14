@@ -108,7 +108,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // finance
   'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
   'akart', 'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
-  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pozajmici', 'prenos',
+  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pozajmici', 'prenos',
   // year end
   'zsProc', 'zsDos', 'zsNPO', 'zsTP', 'zsRok', 'zsBel', 'zsKontrola', 'zsXml', 'zs_aop', 'zs_bs', 'zs_bu', 'zs_db', 'zs_de', 'zs_pr', 'zs_skr', 'zs_sp', 'zs_vp',
   'mbyllja', 'vjetore', 'pecati',
@@ -254,7 +254,7 @@ const BOOK_ONLY_LIST: readonly string[] = [
   // ДДВ
   'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
   // payroll (the МПИН of the selected firm is `plati/[month]/mpin`; the all-firms `mpinIn` / `payBatch` stay hidden), travel orders
-  'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'pnalozi', 'pnGorivo',
+  'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pnalozi', 'pnGorivo',
   // outgoing / incoming documents and stock (Материјално)
   'skan', 'skanIzlez', 'skanFisk', 'uvozMat', 'masovno', 'vlez', 'izlez', 'opomeni', 'uslugi', 'odobrenija', 'povratDob', 'efaktura', 'g_kartica', 'g_lager', 'g_lagerk',
   'normativ', 'prod', 'rasNorm', 'izlezProd', 'mrp', 'prodCost', 'lotovi', 'kalkG', 'prenosi', 'zaliha', 'profakturi', 'ispratnici', 'g_trg', 'kalkCalc',
