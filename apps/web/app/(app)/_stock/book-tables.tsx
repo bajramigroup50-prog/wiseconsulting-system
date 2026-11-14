@@ -9,7 +9,8 @@ const neg = (v: number) => (v < 0 ? { color: '#c0392b' } : undefined);
 
 /** The automatic „Почетна состојба“ row is left out when it is 0 and the card has its own opening stock (Почетна залиха). */
 const kartRows = (k: ItemCard) => {
-  const hasOpening = k.rows.some((r) => !r.open && r.move.type === 'opening');
+  // its own opening stock, or the year carried over from an old program's list (`stock_import-…`)
+  const hasOpening = k.rows.some((r) => !r.open && (r.move.type === 'opening' || String(r.move.src ?? '').startsWith('stock_import-')));
   return k.rows.filter((r) => !(r.open && hasOpening && Math.abs(r.q) < 1e-9 && Math.abs(r.v) < 0.005));
 };
 
