@@ -75,7 +75,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['firmi', 'c', 'newFirm fimpGo fsGo ncCreateFirm legacyImport legacyImportStart newS partnerNew addPartner addSupplier obMkP bkpMkP scanBuyer scanAutoPartner posEnsure accImport importAcc cbNew cbImport cbSeedCity paySifSeed fxImport bankAccountAuto addBankAcct'],
   ['firmi', 'u', 'saveFirm restoreFirm saveS actS tkSave savePartner autoCodes saveAcc resetAcc cbSave fxSave artMerge partnerMerge scanPickPartner scanPartnerId artUnitsGo bkGen anSave anImp artAbbrGo artFmt fuelItemsRate saveBankAcct partnerPrices'],
   ['firmi', 'd', 'delFirm delS scanUndoPartner slDel delAcc cbDelRow fxDel rmBankAcct'],
-  ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend klFoto lnAtt'],
+  ['dokumenti', 'c', 'fileUpload dosSave mzUpload recArchive paArch pkgBuild pkgMail pkgRep tplUse klSend klFoto lnAtt deeplDoc'],
   ['dokumenti', 'u', 'fileLink dosEdit dosMail tplSave fileMove'],
   ['dokumenti', 'd', 'fileUnlink dosDel pkgRm pkgItemRm tplDel batchClear fileDelete'],
   ['ai', 'c', 'aiRead aiClassify scanStart scanDeep scanRetry scanIntoDraft fsRead mpinRead mpinReread pnScan lawAsk inspCodesScan'],

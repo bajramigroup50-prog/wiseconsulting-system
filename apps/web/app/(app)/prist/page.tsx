@@ -29,6 +29,9 @@ import { Hd, dmyHm } from '@/components/hd';
 import { FilePreview } from '@/components/file-preview';
 import { AutoRefresh } from '@/components/sales/scan-upload';
 import { InActions, InUpload, PortalActions } from './client';
+import { deeplConfigured, deeplDocOk, DEEPL_NO_KEY } from '@/lib/deepl';
+import { translationsOf } from '@/lib/deepl-files';
+import { FileTranslateButton } from '../prevod/client';
 
 type SP = { firm?: string; src?: string; st?: string; kind?: string };
 
@@ -122,6 +125,9 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
   const mayUpload = firm ? can(u.principal, 'write', firm.id) : scope.office;
   const heldN = await heldScanCount(db(), ids);
   const past = heldN && firm && ids.includes(firm.id) ? await pastReviewData(u, firm) : null;
+  // 🌐 DeepL: PDF / Word files get „Преведи на македонски“; a translation already made is shown next to its original
+  const TRS = await translationsOf(R.flatMap((r) => r.files.map((f) => f.id)));
+  const deeplNoKey = deeplConfigured() ? undefined : DEEPL_NO_KEY;
   const busy = rows.some((r) => r.status === 'unread' && r.src !== 'portal' && r.src !== 'capture') || rows.some((r) => r.inc?.aiBusy);
 
   return (
@@ -158,7 +164,9 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
                   <td style={{ whiteSpace: 'nowrap' }}>{dmyHm(r.at)}</td>
                   <td>{INCOMING_SOURCES[r.src]}{r.from ? <><br /><small className="mini">{r.from}</small></> : null}</td>
                   <td>{fname(r.firmId)}</td>
-                  <td><div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{r.files.map((f) => <FilePreview key={f.id} id={f.id} name={f.name} mime={f.mime} label={<>👁 {f.name}</>} title={`Преглед: ${f.name}`} />)}</div>
+                  <td><div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{r.files.map((f) => <FilePreview key={f.id} id={f.id} name={f.name} mime={f.mime} label={<>👁 {f.name}</>} title={`Преглед: ${f.name}`} />)}
+                    {r.files.map((f) => (TRS.get(f.id) ?? []).map((t) => <a key={t.id} className="btn sm" href={`/api/files/${t.id}`} target="_blank" rel="noopener" title={t.name}>🌐 {t.lang}</a>))}
+                    {w && u.role !== 'klient' && !u.principal.demo && r.files.filter((f) => deeplDocOk(f.name) && !TRS.get(f.id)?.some((t) => t.lang === 'MK')).map((f) => <FileTranslateButton key={'tr' + f.id} fileId={f.id} label={r.files.length > 1 ? `🌐 ${f.name} → МК` : '🌐 Преведи на македонски'} noKey={deeplNoKey} />)}</div>
                     {r.what && <small className="mini">{r.what}</small>}</td>
                   <td><b>{INCOMING_KINDS[r.kind] ?? r.kind}</b>{r.how && <><br /><small className="mini">({r.how})</small></>}</td>
                   <td><span className={`pill ${PILL[r.status]}`}>{INCOMING_STATUS[r.status]}</span></td>
