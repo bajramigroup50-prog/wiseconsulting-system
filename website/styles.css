@@ -638,9 +638,13 @@ p { margin: 0 0 1em; }
 .f-privacy:hover { opacity: 1; }
 .offer-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 
-/* Old Bazaar (Чаршија) line drawing behind the hero flow */
-.flow .carsija { position: absolute; left: 50%; bottom: -4%; transform: translateX(-50%); width: 150%; height: auto; pointer-events: none; z-index: 0; }
-.carsija path { fill: none; stroke: rgba(143,227,195,.2); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+/* Real photo of the Clock tower (Саат-кула) in the hero's right edge, fading into the green */
+.hero-photo { position: absolute; right: 0; top: 0; bottom: 120px; width: 300px; pointer-events: none; z-index: 0;
+  -webkit-mask-image: linear-gradient(to left, #000 35%, transparent 100%), linear-gradient(to top, transparent 0, #000 30%); -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to left, #000 35%, transparent 100%), linear-gradient(to top, transparent 0, #000 30%); mask-composite: intersect; }
+.hero-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center top; opacity: .55; filter: saturate(.85); }
 .fl-lines { z-index: 1; }
 .fl-node, .fl-core { z-index: 2; }
-@media (max-width: 700px) { .flow .carsija { width: 260%; bottom: 14%; } }
+@media (max-width: 1320px) { .hero-photo { display: none; } }
+.f-credit { display: block; width: 100%; font-size: .72rem; opacity: .6; }
+.f-credit a { color: inherit; text-decoration: underline; }

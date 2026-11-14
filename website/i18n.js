@@ -11,6 +11,7 @@ window.I18N = {
   },
 
   sq: {
+    "footer.photo": "Foto: Kulla e Sahatit, Shkup",
     "footer.privacy": "Politika e privatësisë",
     "offer.privacy": "Si i përpunojmë të dhënat – Politika e privatësisë",
     "flow.fs": "Llogari përfundimtare",
@@ -283,6 +284,7 @@ window.I18N = {
   },
 
   en: {
+    "footer.photo": "Photo: Clock Tower, Skopje",
     "footer.privacy": "Privacy policy",
     "offer.privacy": "How we process your data – Privacy policy",
     "flow.fs": "Annual accounts",
@@ -555,6 +557,7 @@ window.I18N = {
   },
 
   tr: {
+    "footer.photo": "Fotoğraf: Saat Kulesi, Üsküp",
     "footer.privacy": "Gizlilik politikası",
     "offer.privacy": "Verilerinizi nasıl işliyoruz – Gizlilik politikası",
     "flow.fs": "Yıl sonu hesapları",
