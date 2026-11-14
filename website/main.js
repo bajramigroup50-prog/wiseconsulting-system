@@ -168,16 +168,25 @@
   var ca = document.getElementById("calcAmount"); if (ca) ca.addEventListener("input", runCalc);
   runCalc();
 
-  // ---- Offer request: opens the visitor's e-mail app (no server-side form yet)
+  // ---- Offer request: sent to the office's CRM (POST /api/lead, Caddy → app); if that fails, the visitor's e-mail app opens
   var of = document.getElementById("offerForm");
   if (of) of.addEventListener("submit", function (e) {
     e.preventDefault();
-    var f = new FormData(of), lines = [];
+    var f = new FormData(of), lines = [], body = {}, msg = document.getElementById("offerMsg"), btn = of.querySelector("button[type=submit]");
     of.querySelectorAll("label").forEach(function (l) {
       var el = l.querySelector("input,select,textarea"); if (!el) return;
       var v = (f.get(el.name) || "").toString().trim(); if (v) lines.push(l.querySelector("span").textContent + ": " + v);
     });
-    location.href = "mailto:info@wiseconsulting.com.mk?subject=" + encodeURIComponent("Барање за понуда – " + (f.get("company") || "")) + "&body=" + encodeURIComponent(lines.join("\n"));
+    f.forEach(function (v, k) { body[k] = String(v); });
+    body.lang = currentLang;
+    var mail = function () { location.href = "mailto:info@wiseconsulting.com.mk?subject=" + encodeURIComponent("Барање за понуда – " + (f.get("company") || "")) + "&body=" + encodeURIComponent(lines.join("\n")); };
+    var show = function (k) { if (msg) { msg.textContent = t(k); msg.hidden = false; } };
+    if (btn) btn.disabled = true;
+    fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.ok) { show("offer.ok"); of.reset(); } else { show("offer.err"); mail(); } })
+      .catch(function () { show("offer.err"); mail(); })
+      .then(function () { if (btn) btn.disabled = false; });
   });
 
   // ---- Hero slides

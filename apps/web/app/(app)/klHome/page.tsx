@@ -18,6 +18,7 @@ import { NoFirm } from '@/components/no-firm';
 import { hrefFor } from '@/lib/nav';
 import { fmt } from '@/lib/fmt';
 import { KlDashCards } from './kl-dash-cards';
+import { QuickCam } from '../klFoto/quick-cam';
 
 const KIND: Record<string, string> = { purchase: 'Влезна фактура', invoice: 'Излезна фактура', sale: 'Промет', dossier: 'Документ' };
 
@@ -47,9 +48,11 @@ export default async function KlHomePage() {
   return (
     <>
       <Hd t={firm.name || 'Мојата фирма'} sub={`портал за клиенти · ${dmy(td)}`} exp={false} />
-      <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '0 0 12px' }}>
-        <Link className="btn pri" href="/klFoto" style={{ fontSize: 18, padding: '14px 20px', borderRadius: 14 }}>📷 Испрати документ</Link>
-        <Link className="btn" href="/klIzv" style={{ fontSize: 16, padding: '14px 18px', borderRadius: 14 }}>📊 Месечни извештаи</Link>
+      {/* one tap: the camera opens at once, the photos go to „📷 Испрати документ“ (klFoto/quick-cam.tsx) */}
+      <div className="kl-acts">
+        <QuickCam />
+        <Link className="btn" href="/klFoto">🖼 Испрати PDF / од галерија</Link>
+        <Link className="btn" href="/klIzv">📊 Месечни извештаи</Link>
       </div>
       {showSt && (
         <div className="tiles">

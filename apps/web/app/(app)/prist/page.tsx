@@ -14,10 +14,11 @@ import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { inboxClassification } from '@wise/core/ai/classify';
 import {
-  DETECT_HOW, INBOX_ROUTES, INCOMING_KINDS, INCOMING_SOURCES, INCOMING_STATUS, incomingFromCapture, incomingFromClassify,
+  DETECT_HOW, INBOX_ROUTES, MAILIN_HOW, type MailMatchHow, INCOMING_KINDS, INCOMING_SOURCES, INCOMING_STATUS, incomingFromCapture, incomingFromClassify,
   type IncomingKind, type IncomingSource, type IncomingStatus,
 } from '@wise/core/office';
-import { aiDocuments, files, heldScanCount, inboxItems, incomingDocs, mpinInbox, OFFICE_FILE_ENTITY } from '@wise/db';
+import { aiDocuments, files, firms, heldScanCount, inboxItems, incomingDocs, mailInConfig, mailInSenders, mpinInbox, OFFICE_FILE_ENTITY } from '@wise/db';
+import { MailInCard, type MailInView } from './mail-in-card';
 import { pastReviewData } from '@/components/sales/past-review';
 import { booksPage } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -29,6 +30,9 @@ import { Hd, dmyHm } from '@/components/hd';
 import { FilePreview } from '@/components/file-preview';
 import { AutoRefresh } from '@/components/sales/scan-upload';
 import { InActions, InUpload, PortalActions } from './client';
+import { deeplConfigured, deeplDocOk, DEEPL_NO_KEY } from '@/lib/deepl';
+import { translationsOf } from '@/lib/deepl-files';
+import { FileTranslateButton } from '../prevod/client';
 
 type SP = { firm?: string; src?: string; st?: string; kind?: string };
 
@@ -48,7 +52,8 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const { u, firm } = await booksPage('prist');
   const F = await allowedFirms(u);
-  const scope = inboxScope(u, { firmIds: F.map((f) => f.id), restricted: await viewsOf(db(), u), owner: await isOfficeOwner(u) });
+  const isOwner = await isOfficeOwner(u);
+  const scope = inboxScope(u, { firmIds: F.map((f) => f.id), restricted: await viewsOf(db(), u), owner: isOwner });
   // the firm filter: one firm, „сите“ (every firm I may access) or „канцеларија“ (office-wide only)
   const want = sp.firm ?? (firm ? firm.id : 'all');
   const onlyOffice = want === 'office' && scope.office;
@@ -79,12 +84,14 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
 
   const rows: Row[] = [
     ...INC.map(({ r, f }): Row => {
-      const d = r.detect as { proposed?: { id: string; name: string }[]; needsAi?: boolean; import?: { numbers?: string[] } };
+      const d = r.detect as { proposed?: { id: string; name: string }[]; needsAi?: boolean; import?: { numbers?: string[] }; mail?: { from?: string; fromName?: string | null; via?: string | null }; mailHow?: MailMatchHow };
       const ai = r.aiDocId ? AI.find((a) => a.id === r.aiDocId) : undefined;
       const c = ai?.status === 'done' && r.kind === 'unknown' ? inboxClassification(ai.result) : null;
       const kind = c ? incomingFromClassify(c.kind) : (r.kind as IncomingKind);
       return {
         key: 'i' + r.id, at: r.createdAt, src: (r.source as IncomingSource) ?? 'upload', firmId: r.firmId, files: [f], kind,
+        // ✉ from the office mailbox: who sent it and how its firm was found
+        from: d.mail ? [d.mail.fromName, d.mail.from].filter(Boolean).join(' · ') + (d.mail.via ? ` (преку ${d.mail.via})` : '') + (d.mailHow ? ` (фирма: ${MAILIN_HOW[d.mailHow]})` : '') : null,
         how: c ? DETECT_HOW.ai : DETECT_HOW[(r.how ?? 'none') as keyof typeof DETECT_HOW] ?? '', what: c?.what || r.what || '',
         status: r.status as IncomingStatus, result: ai?.status === 'error' ? `AI: ${ai.error ?? 'грешка'}` : r.result,
         link: routeRefLink(r.routeRef, r.route, d.import?.numbers),
@@ -122,6 +129,18 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
   const mayUpload = firm ? can(u.principal, 'write', firm.id) : scope.office;
   const heldN = await heldScanCount(db(), ids);
   const past = heldN && firm && ids.includes(firm.id) ? await pastReviewData(u, firm) : null;
+  // 🌐 DeepL: PDF / Word files get „Преведи на македонски“; a translation already made is shown next to its original
+  const TRS = await translationsOf(R.flatMap((r) => r.files.map((f) => f.id)));
+  const deeplNoKey = deeplConfigured() ? undefined : DEEPL_NO_KEY;
+  // ✉ Е-пошта → WISE: the office mailbox (owner only, never demo)
+  let mailIn: MailInView | null = null;
+  if (isOwner && !u.principal.demo) {
+    const [c, S] = await Promise.all([mailInConfig(db()), mailInSenders(db())]);
+    const sid = [...new Set(Object.values(S))];
+    const FN = sid.length ? new Map((await db().select({ id: firms.id, name: firms.name }).from(firms).where(inArray(firms.id, sid))).map((f) => [f.id, f.name])) : new Map<string, string>();
+    mailIn = { on: c.on, host: c.host, port: c.port, user: c.user, folder: c.folder, days: c.days, hasPass: c.hasPass, forwarders: c.forwarders ?? [], lastRun: c.lastRun ?? null, ok: c.ok ?? null, result: c.result ?? null,
+      senders: Object.entries(S).map(([addr, id]) => ({ addr, firm: FN.get(id) ?? '—' })).sort((a, b) => a.addr.localeCompare(b.addr)) };
+  }
   const busy = rows.some((r) => r.status === 'unread' && r.src !== 'portal' && r.src !== 'capture') || rows.some((r) => r.inc?.aiBusy);
 
   return (
@@ -144,6 +163,7 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
       <AutoRefresh active={busy} />
       {heldN > 0 && !(firm && ids.includes(firm.id)) && <div className="callout warn">⏸ За проверка – минат период: <span className="pill warn">{heldN}</span> документи од минат ДДВ период чекаат одлука. Изберете ја фирмата за да ги видите.</div>}
       {past && past.H.length > 0 && <div className="callout warn">⏸ {past.H.length} прочитани фактури чекаат одобрување – <Link href="/skan/proverka">📋 За физичка проверка – влезни</Link> · <Link href="/skan/proverka?k=sale">излезни</Link>.</div>}
+      {mailIn && <MailInCard c={mailIn} />}
       {mayUpload && <InUpload firmId={firm?.id ?? null} office={scope.office} />}
       <p className="note">Тука е сè што пристигнува: прикачено овде, од клиентите (портал, 📷 телефон), скенирано во <Link href="/skan">Скенирање</Link>, МПИН. Пораките од клиентите се и во <Link href="/klInbox">Пристигнато од клиенти</Link>.</p>
       {R.length ? (
@@ -158,7 +178,9 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
                   <td style={{ whiteSpace: 'nowrap' }}>{dmyHm(r.at)}</td>
                   <td>{INCOMING_SOURCES[r.src]}{r.from ? <><br /><small className="mini">{r.from}</small></> : null}</td>
                   <td>{fname(r.firmId)}</td>
-                  <td><div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{r.files.map((f) => <FilePreview key={f.id} id={f.id} name={f.name} mime={f.mime} label={<>👁 {f.name}</>} title={`Преглед: ${f.name}`} />)}</div>
+                  <td><div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{r.files.map((f) => <FilePreview key={f.id} id={f.id} name={f.name} mime={f.mime} label={<>👁 {f.name}</>} title={`Преглед: ${f.name}`} />)}
+                    {r.files.map((f) => (TRS.get(f.id) ?? []).map((t) => <a key={t.id} className="btn sm" href={`/api/files/${t.id}`} target="_blank" rel="noopener" title={t.name}>🌐 {t.lang}</a>))}
+                    {w && u.role !== 'klient' && !u.principal.demo && r.files.filter((f) => deeplDocOk(f.name) && !TRS.get(f.id)?.some((t) => t.lang === 'MK')).map((f) => <FileTranslateButton key={'tr' + f.id} fileId={f.id} label={r.files.length > 1 ? `🌐 ${f.name} → МК` : '🌐 Преведи на македонски'} noKey={deeplNoKey} />)}</div>
                     {r.what && <small className="mini">{r.what}</small>}</td>
                   <td><b>{INCOMING_KINDS[r.kind] ?? r.kind}</b>{r.how && <><br /><small className="mini">({r.how})</small></>}</td>
                   <td><span className={`pill ${PILL[r.status]}`}>{INCOMING_STATUS[r.status]}</span></td>

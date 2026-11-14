@@ -19,6 +19,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'kdogovori', [['kdfakturi', '🧾 Месечна фактура за сметководствени услуги']]],
   // new, owner-only: everything about one firm in one report (any firm, not the selected one)
   ['Фирми', 'kdfakturi', [['firmIzv', '🗂 Целосен извештај за фирма']]],
+  // new, owner-only: the office's own sales – new clients, pipeline, offers (`/crm`)
+  ['Канцеларија', 'mojzad', [['crm', '🤝 CRM – нови клиенти и понуди']]],
   ['Материјално', 'efaktura', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // dated absences (породилно, боледување, одмор) taken by the monthly payroll by itself
@@ -50,6 +52,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
   // the AI reading card (also in „Податоци и резервна копија“) on its own page, with the credit check
   ['Систем', 'konvertor', [['aiCitanje', '🤖 AI читање']]],
+  // new: 🌐 DeepL translation of a text or a document (MK / SQ / EN / DE), with the characters used this month
+  ['Систем', 'aiCitanje', [['prevod', '🌐 Превод (DeepL)']]],
   // owner-only: enrolled computers (device certificates, mutual TLS)
   ['Систем', 'greski', [['uredi', '🔐 Уреди (компјутери)']]],
 ];

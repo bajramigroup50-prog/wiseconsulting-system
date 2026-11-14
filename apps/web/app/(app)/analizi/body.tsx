@@ -9,6 +9,7 @@ import {
 import { stock } from '@wise/core/stock';
 import type { Firm } from '@wise/db';
 import { loadAnalysis, loadFinance } from '@/lib/analysis';
+import { loadBench } from '@/lib/fin-bench';
 import { dmy, fmt, fq } from '@/lib/fmt';
 import { DownloadCsv } from '@/components/download-csv';
 
@@ -183,6 +184,27 @@ export async function AnBody({ firm, year, tab, per, today, opt }: { firm: Firm;
         </div>
       </>;
     }
+  } else if (tab === 'bench') {
+    const B = await loadBench(firm, year, today);
+    const v = (x: number | null | undefined, unit: string) => (x == null ? '—' : `${String(x).replace('.', ',')}${unit === '%' ? '%' : unit === 'дена' ? ' дена' : ''}`);
+    const PL = { top: ['good', '🟢 во најдобрата четвртина'], mid: ['', '⚪ во средината'], low: ['bad', '🔴 во најслабата четвртина'], '': ['', '—'] } as const;
+    body = !B.activity ? <div className="card empty">Фирмата нема внесена дејност (Фирми → податоци за фирмата → Дејност) – споредбата се прави со другите фирми од истата дејност.</div>
+      : !B.rows ? <div className="card empty">Споредбата не се прикажува: за дејноста „{B.activity}“ има {B.peers} {B.peers === 1 ? 'друга фирма' : 'други фирми'} со книжења во {year} (потребни се најмалку 3, за да остане анонимно).</div>
+      : <>
+        <p className="note">Фирмата споредена анонимно со <b>{B.peers}</b> други фирми од канцеларијата со дејност „{B.activity}“ · книжења {dmy(B.from)} – {dmy(B.to)}. Се прикажуваат само медијана и четвртини – ниту една друга фирма не се гледа поединечно.</p>
+        <div className="card"><div className="hd"><h2>Споредба со дејноста</h2></div>
+          <AnTable csv="sporedba_so_dejnosta" rows={B.rows} cols={[
+            ['Показател', (r) => <b>{r.name}</b>, false, (r) => r.name],
+            ['Оваа фирма', (r) => <b>{v(r.own, r.unit)}</b>, true, (r) => r.own ?? ''],
+            ['Q1 (25%)', (r) => v(r.q?.q1, r.unit), true, (r) => r.q?.q1 ?? ''],
+            ['Медијана', (r) => <b>{v(r.q?.med, r.unit)}</b>, true, (r) => r.q?.med ?? ''],
+            ['Q3 (75%)', (r) => v(r.q?.q3, r.unit), true, (r) => r.q?.q3 ?? ''],
+            ['Фирми', (r) => r.q?.n ?? 0, true, (r) => r.q?.n ?? 0],
+            ['Каде е фирмата', (r) => (r.pos ? <span className={`pill ${PL[r.pos][0]}`}>{PL[r.pos][1]}</span> : '—'), false, (r) => PL[r.pos][1]],
+            ['Подобро е', (r) => <span className="mini">{r.better === 'hi' ? 'повисоко' : 'пониско'}</span>, false, (r) => (r.better === 'hi' ? 'повисоко' : 'пониско')]]} />
+        </div>
+        <p className="mini">Сите фирми се пресметани на ист начин од салдата на сметките за годината (без затворање): маржите од класа 7, DSO од побарувањата (12–14), ликвидноста од класите 1, 2, 3 и 6. Финансиското здравје тука е без прогнозата на пари (таа бара документи од секоја фирма), затоа може малку да се разликува од табот „Финансиско здравје A–E“. Четвртина без податоци за најмалку 3 фирми не се прикажува.</p>
+      </>;
   } else {
     const F = await loadFinance(firm, year, today);
     if (tab === 'cash' || tab === 'health') {

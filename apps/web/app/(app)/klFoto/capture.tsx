@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CAPTURE_JPEG_Q, CAPTURE_KINDS, CAPTURE_MAX_FILES, captureScale, type CaptureKind } from '@wise/core/office';
 import { uploadFile } from '@/lib/upload';
 import { sendCapture } from './actions';
+import { takeHandoff } from './quick-cam';
 
 interface QFile { name: string; type: string; blob: Blob; id?: string }
 interface QItem { cid: string; firmId: string; kind: CaptureKind; note: string; combine: boolean; at: number; files: QFile[]; error?: string }
@@ -115,13 +116,18 @@ export function Capture({ firmId }: { firmId: string }) {
   useEffect(() => {
     void qAll().then((q) => setQueue(q.filter((x) => x.firmId === firmId)));
     void flush();
+    // photos taken with „📷 Фотографирај и испрати документ“ on the client home (quick-cam.tsx)
+    const h = takeHandoff();
+    if (h.length) {
+      void add(h).then(() => setMsg({ t: `📷 ${h.length === 1 ? '1 слика' : h.length + ' слики'} – изберете што праќате и „Испрати“.` }));
+    }
     const on = () => { void flush(); };
     window.addEventListener('online', on);
     const t = setInterval(() => { if (navigator.onLine !== false) void flush(); }, 60_000);
     return () => { window.removeEventListener('online', on); clearInterval(t); };
   }, [firmId, flush]);
 
-  async function add(list: FileList | null) {
+  async function add(list: FileList | File[] | null) {
     if (!list?.length) return;
     setBusy(true); setMsg(null);
     try {

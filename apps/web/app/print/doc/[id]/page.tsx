@@ -15,16 +15,21 @@ import { invoiceLegalCheck, loadInvoicePrintData } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { InvoiceMailForm } from './mail-form';
+import { isInvoiceLang, type InvoiceLang } from '@wise/core/sales/invoice-i18n';
+import { deeplConfigured, DEEPL_NO_KEY } from '@/lib/deepl';
+import { translateInvoiceHtml } from '@/lib/deepl-invoice';
 
 const MAILABLE = ['invoice', 'credit', 'proforma'];
+const TRANSLATABLE: string[] = ['invoice', 'credit', 'proforma'];
 
 /** The print / PDF file name (legacy `docPdf`: Faktura_<number>.pdf). */
-export async function generateMetadata({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ k?: string }> }) {
-  const d = await loadInvoicePrintData(db(), (await params).id, (await searchParams).k);
-  return { title: d ? invoicePdfName(d.input.kind, d.invoice.number) : 'Документ' };
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ k?: string; lang?: string }> }) {
+  const sp = await searchParams;
+  const d = await loadInvoicePrintData(db(), (await params).id, sp.k);
+  return { title: d ? invoicePdfName(d.input.kind, d.invoice.number) + (isInvoiceLang(sp.lang) ? '_' + sp.lang : '') : 'Документ' };
 }
 
-export default async function PrintDoc({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ k?: string; mail?: string; slip?: string }> }) {
+export default async function PrintDoc({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ k?: string; mail?: string; slip?: string; lang?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
   const u = await requireUser();
@@ -56,16 +61,30 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
       <WaPanel phone={String(partner?.phone ?? '').replace(/\D/g, '').replace(/^0/, '389')} text={wa} pdfName={invoicePdfName(input.kind, doc.number)} />
     </>;
   }
+  // 🌐 the invoice in English / German: fixed labels from the dictionary, item names and notes through DeepL (no payment slip)
+  const lang: InvoiceLang | null = isInvoiceLang(sp.lang) && TRANSLATABLE.includes(input.kind) ? sp.lang : null;
+  const html0 = invoicePrintHtml(lang ? { ...input, slip: false } : sp.slip === '1' ? { ...input, slip: true } : sp.slip === '0' ? { ...input, slip: false } : input);
+  const tr = lang ? await translateInvoiceHtml(doc.id, html0, lang, [firm.name, firm.address, firm.city, partner?.name, partner?.address, partner?.city, partner?.bankName, ...(['bankName', 'signer', 'short'] as const).map((k) => String((firm.settings as Record<string, unknown> | null)?.[k] ?? ''))]) : null;
+  const self = (l?: string) => `/print/doc/${doc.id}?${new URLSearchParams({ ...(sp.k ? { k: sp.k } : {}), ...(l ? { lang: l } : {}) })}`;
+  const langBar = TRANSLATABLE.includes(input.kind) && can(u.principal, 'write', doc.firmId) && (
+    <div className="noprint row" style={{ gap: 6, justifyContent: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
+      {lang && <a className="btn sm" href={self()}>🇲🇰 На македонски</a>}
+      {lang !== 'EN' && <a className="btn sm" href={self('EN')} title={deeplConfigured() ? 'Ставките се преведуваат со DeepL' : DEEPL_NO_KEY}>🌐 Фактура на англиски</a>}
+      {lang !== 'DE' && <a className="btn sm" href={self('DE')} title={deeplConfigured() ? 'Ставките се преведуваат со DeepL' : DEEPL_NO_KEY}>🌐 Фактура на германски</a>}
+    </div>
+  );
   return (
     <>
+      {langBar}
+      {tr?.error && <div className="callout warn noprint" style={{ margin: '0 0 8px' }}>🌐 {tr.error}</div>}
       {invalid && <div style={{ border: '2px solid #b00', color: '#b00', padding: '6px 10px', margin: '0 0 8px', fontWeight: 700, textAlign: 'center' }}>
         {cancelled ? 'СТОРНИРАНА ФАКТУРА – НЕ ВАЖИ' : 'НЕКОМПЛЕТНА ФАКТУРА – НЕ Е ЗА ИЗДАВАЊЕ'}
         {!cancelled && <div className="noprint" style={{ fontWeight: 400, textAlign: 'left', marginTop: 4 }}>Недостасуваат задолжителни елементи (ЗДДВ чл. 53 ст. 10): {invalidDocIssues(legal).map((i) => i.text).join(' ')} Дополнете ги (број / датум / ставки) и отворете ја повторно.</div>}
       </div>}
       {!invalid && legal.length > 0 && <div className={'callout noprint ' + (blocked ? 'bad' : 'warn')} style={{ margin: '0 0 8px' }}>⚖ {legal.map((i) => i.text).join(' ')}{blocked ? ' (не се испраќа по е-пошта додека не се дополни)' : ''}</div>}
-      {mail}
+      {!lang && mail}
       {doc.kind === 'invoice' && <PodLink firmId={doc.firmId} invoiceId={doc.id} />}
-      <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: invoicePrintHtml(sp.slip === '1' ? { ...input, slip: true } : sp.slip === '0' ? { ...input, slip: false } : input) }} />
+      <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: tr ? tr.html : html0 }} />
     </>
   );
 }

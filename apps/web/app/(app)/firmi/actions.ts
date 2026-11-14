@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { FIRM_VAT_RATES, firmSettingsFrom, unlockTo } from '@wise/core/firms/firmform';
 import { fyOnDeactivate, fyOnRestore } from '@wise/core/firms/years';
 import { todaySkopje } from '@wise/core/office';
-import { audit, createDemoFirm, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
+import { audit, createDemoFirm, crmLeads, crmNotes, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
 import { hasDemoPrefix, isDemoFirm } from '@wise/core/demo';
@@ -16,6 +16,7 @@ import { isDemoUser } from '@/lib/demo';
 import { FIRM_COOKIE } from '@/lib/context';
 import { db } from '@/lib/db';
 import { selectFirm } from '../actions';
+import { isOfficeOwner } from '@/lib/office-owner';
 import { queueRepostChange } from '@/lib/auto-repost';
 
 const opt = z.string().trim().max(300).transform((s) => s || null);
@@ -89,6 +90,9 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
     redirect('/');
   }
 
+  // 🤝 CRM lead being converted (owner only) — checked before the transaction (no second connection inside it)
+  const crmLead0 = String(form.get('crmLead') ?? '');
+  const crmLead = !id && /^[0-9a-f-]{36}$/i.test(crmLead0) && await isOfficeOwner(u) ? crmLead0 : null;
   const res = await db().transaction(async (tx) => {
     if (id && before) {
       await tx.update(firms).set(v).where(eq(firms.id, id));
@@ -100,6 +104,12 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
     }
     const [f] = await tx.insert(firms).values({ ...v, name: parsed.data.name, ownerId: u.id }).returning();
     await audit(tx, { userId: u.id, firmId: f!.id, action: 'newFirm', entityType: 'firm', entityId: f!.id, data: { name: parsed.data.name } });
+    // 🤝 „Конвертирај во клиент“ (CRM, owner only): the lead is won and linked to the new firm
+    if (crmLead) {
+      const lead = crmLead;
+      const [l] = await tx.update(crmLeads).set({ firmId: f!.id, stage: 'dobien', closedAt: new Date(), nextStep: null, nextDate: null }).where(eq(crmLeads.id, lead)).returning({ id: crmLeads.id });
+      if (l) await tx.insert(crmNotes).values({ leadId: lead, kind: 'stage', text: `✓ Конвертиран во клиент: ${parsed.data.name}`, createdBy: u.id });
+    }
     // legacy saveFirm: a new firm also gets its client-portal profile (klAutoUser) when the user may manage users
     const cred = can(u.principal, 'users') ? await createClientProfile(tx, f!, await takenUsernames(tx), u.id) : null;
     return { id: f!.id, cred };

@@ -40,6 +40,7 @@ import { FirmPicker } from '@/components/firm-picker';
 import { YearPicker } from '@/components/year-picker';
 import { PdfButton } from '@/components/pdf-button';
 import { PrevYearCallout } from '@/components/yearend/prev-year-callout';
+import { CrmHome } from './crm/home';
 import { myViews } from '@/lib/can-see';
 import { BookHome } from './book-home';
 
@@ -305,6 +306,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
     <>
       <LawHome userId={u.id} role={u.role} />
       <PrevYearCallout firmId={f.id} year={year} />
+      <CrmHome />
       {recDue.length > 0 && (
         <div className="callout warn" id="recDueAll">🔁 <b>Месечни фактури за издавање</b> во {recDue.length} фирми:{' '}
           {recDue.map((r) => {

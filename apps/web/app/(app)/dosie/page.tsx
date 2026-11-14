@@ -12,6 +12,9 @@ import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { SendExtras } from '@/components/send-extras';
+import { deeplConfigured, deeplDocOk, DEEPL_NO_KEY } from '@/lib/deepl';
+import { translationFileIds } from '@/lib/deepl-files';
+import { FileTranslateButton } from '../prevod/client';
 import { deleteContact, deleteDossierDoc, mailDossierDocs, saveContact, saveDeadline, saveDossierDoc, setDeadlineDone } from './actions';
 
 type SP = { q?: string; cat?: string; nov?: string; edit?: string; mail?: string; id?: string | string[] };
@@ -35,6 +38,11 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
     db().select().from(clientEntries).where(and(eq(clientEntries.firmId, firm.id), eq(clientEntries.kind, 'dossier'), eq(clientEntries.status, 'pending'))),
   ]);
   const F = await filesOf(OFFICE_FILE_ENTITY.dossier, docs.map((d) => d.id));
+  // 🌐 DeepL: the first original PDF / Word file of a document can be translated to Macedonian (saved next to it)
+  const TR = await translationFileIds([...F.values()].flat().map((x) => x.id));
+  const trOf = (id: string) => (F.get(id) ?? []).find((x) => !TR.has(x.id) && deeplDocOk(x.name));
+  const hasTr = (id: string) => (F.get(id) ?? []).some((x) => TR.has(x.id));
+  const deeplNoKey = deeplConfigured() ? undefined : DEEPL_NO_KEY;
   const write = can(u.principal, 'write', firm.id), office = can(u.principal, 'office', firm.id), del = can(u.principal, 'del', firm.id);
   const byCat = new Map<string, typeof docs>();
   for (const d of docs) byCat.set(d.category, [...(byCat.get(d.category) ?? []), d]);
@@ -136,6 +144,7 @@ export default async function DosiePage({ searchParams }: { searchParams: Promis
                         {F.get(d.id)?.[0] && <a className="btn sm" href={`/api/files/${F.get(d.id)![0]!.id}`} target="_blank" rel="noopener" title="Погледни го документот">👁</a>}
                         <a className="btn sm" href={`/dosie?mail=1&id=${d.id}#mail`} title="Испрати по е-пошта">✉</a>
                         <a className="btn sm" href={`/dosie/wa?id=${d.id}`} title="WhatsApp / Viber">💬</a>
+                        {write && u.role !== 'klient' && trOf(d.id) && !hasTr(d.id) && <FileTranslateButton fileId={trOf(d.id)!.id} label="🌐 Преведи на македонски" noKey={deeplNoKey} />}
                         {write && <a className="btn sm" href={`/dosie?edit=${d.id}`} title="Промени">✎</a>}
                         {del && <RowAction action={deleteDossierDoc.bind(null, d.id)} label="🗑" title="Избриши" confirm={`Да се избрише „${d.title || c}“ од досието?`} />}
                       </td>
