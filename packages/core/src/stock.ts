@@ -39,7 +39,7 @@ export type { RetailAccountKey } from './stock/accounts';
 export { itemById, trackedItems, postingRate, retailPrice, priceAt, vatInGross, retailBreakdown, retailPostingSplit } from './stock/retail';
 export type { RetailBreakdown } from './stock/retail';
 
-export { stock, stockAt, stockAtAll, emptyStockAt, ctxForItem, postOut, postIn, revalueLines, reaverage, issueAccount, retailCostRatio, retailClearLines } from './stock/average';
+export { stock, stockAt, stockAtAll, emptyStockAt, moveIsIn, ctxForItem, postOut, postIn, revalueLines, reaverage, issueAccount, retailCostRatio, retailClearLines } from './stock/average';
 export type {
   StockBalance,
   StockAtBalance,

@@ -17,7 +17,7 @@
  * the wholesale quantity card per item (legacy view `g_trg`).
  */
 import type { StockAtBalance, StockContext, StockItem, StockMove } from './stock';
-import { locationKind, stockAt, stockAtAll, emptyStockAt, trackedItems, whOf, priceAt, retailPrice, itemById, calculationRows } from './stock';
+import { locationKind, stockAt, stockAtAll, emptyStockAt, moveIsIn, trackedItems, whOf, priceAt, retailPrice, itemById, calculationRows } from './stock';
 import type { PurchaseLike } from './stock';
 import { cents, dmy, fromCents, fromQunits, num, qunits, r2, r4 } from './stock/num';
 
@@ -237,13 +237,16 @@ export function itemCard(ctx: StockContext, a: StockBookOptions & { item: StockI
     v += cents(m.value);
     const aq = Math.abs(num(m.qty));
     const val = retail ? r2(aq * rp) : Math.abs(num(m.value));
+    // a storno carried over from an old program („Колич. влез −1.406“) stays in its column, with a minus (`moveIsIn`)
+    const isIn = moveIsIn(m), sg = Math.sign(num(m.qty)) || 1;
+    const sval = retail ? val : num(m.value);
     rows.push({
       move: m,
-      in: num(m.qty) > 0 ? num(m.qty) : 0,
-      out: num(m.qty) < 0 ? -num(m.qty) : 0,
+      in: isIn ? num(m.qty) : 0,
+      out: !isIn ? -num(m.qty) : 0,
       price: aq ? r2(val / aq) : 0,
-      vin: num(m.qty) > 0 ? val : 0,
-      vout: num(m.qty) < 0 ? val : 0,
+      vin: isIn ? (retail ? val * sg : sval) : 0,
+      vout: !isIn ? (retail ? val * -sg : -sval) : 0,
       q: fromQunits(q),
       v: retail ? r2(fromQunits(q) * rp) : fromCents(v),
     });

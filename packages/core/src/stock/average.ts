@@ -103,7 +103,7 @@ export function stockAt(ctx: StockContext, query: StockAtQuery): StockAtBalance 
     const b = cents(m.value);
     q += a;
     v += b;
-    if (a > 0) {
+    if (moveIsIn(m)) {
       iq += a;
       iv += b;
     } else {
@@ -127,6 +127,19 @@ export function stockAt(ctx: StockContext, query: StockAtQuery): StockAtBalance 
  * without moves is absent). For lists of all items (лагер, popis): one `stockAt` per item scanned all moves for
  * every item.
  */
+/**
+ * The side of a move in the in / out columns. A move carried over from an old program's stock list
+ * (`stock_import-…`, „Колич. влез / Колич. излез“) keeps its side even with the other sign: a negative receipt
+ * (storno, e.g. „Колич. влез −1.406“) is a minus in the in column, not an issue – as in the old program's list.
+ */
+export function moveIsIn(m: Pick<StockMove, 'qty' | 'type' | 'src'>): boolean {
+  if (String(m.src ?? '').startsWith('stock_import-')) {
+    if (m.type === 'in' || m.type === 'opening') return true;
+    if (m.type === 'sale') return false;
+  }
+  return Number(m.qty) > 0;
+}
+
 export function stockAtAll(ctx: StockContext, query: Omit<StockAtQuery, 'item'>): Map<string, StockAtBalance> {
   const { wh, date } = query;
   const inclusive = query.inclusive !== false;
@@ -140,7 +153,7 @@ export function stockAtAll(ctx: StockContext, query: Omit<StockAtQuery, 'item'>)
     const b = cents(m.value);
     o.q += a;
     o.v += b;
-    if (a > 0) { o.iq += a; o.iv += b; } else { o.oq -= a; o.ov -= b; }
+    if (moveIsIn(m)) { o.iq += a; o.iv += b; } else { o.oq -= a; o.ov -= b; }
   }
   const out = new Map<string, StockAtBalance>();
   for (const [item, o] of acc) {
