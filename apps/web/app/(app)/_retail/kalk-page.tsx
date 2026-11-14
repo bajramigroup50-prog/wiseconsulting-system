@@ -20,12 +20,14 @@ import { deletePurchaseAction, deletePurchasesCascadeAction, purchaseDeletePrevi
 import { KsAll, KsBar } from '../_stock/kalk-sel';
 import { deleteTransferAction } from '../_stock/actions';
 import { ScanUpload } from '@/components/sales/scan-upload';
+import { PltWindow } from './plt-window';
+import { partnerOptions } from '@/lib/books';
 import { Retail } from '@wise/core';
 import { like } from 'drizzle-orm';
 import { items } from '@wise/db';
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
-export type KalkSP = { wh?: string; q?: string };
+export type KalkSP = { wh?: string; q?: string; plt?: string };
 
 export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: KalkSP }) {
   const view = md === 'store' ? 'kalkM' : 'kalkG';
@@ -71,6 +73,7 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
   const TRs = TR.filter((x) => (md === 'store' ? (!wh || x.toLocationId === wh) && kindOf(x.toLocationId) === 'store' : (!wh || (x.fromLocationId ?? 'main') === wh) && kindOf(x.fromLocationId) === 'warehouse'));
   const SRC = await transferSources(db(), firm.id, TRs);
   const prDel = canDo(u, 'prDel', firm.id);
+  const PO = md === 'store' && sp.plt !== undefined ? await partnerOptions(firm.id) : [];
   const newHref = '/vlez?nov';
   // legacy `purDups` callout of the calculations list: same invoice number and date entered twice, the last saved stays
   const nn = (x: string) => x.toLowerCase().replace(/[^0-9a-zа-шѓќљњџѕј]/gi, '');
@@ -82,8 +85,10 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
       <Hd t={t} sub={md === 'store' ? 'малопродажба' : 'магацин'}>
         {md === 'warehouse' && <Link className="btn" href="/prenosi">Пренос во продавница</Link>}
         <Link className="btn" href="/kalkCalc">Калкулатор</Link>
+        {write && md === 'store' && <Link className="btn" href="/kalkM?plt" title="Клиенти што сами го прават приемниот лист: фактура + нивниот ПЛТ">📄 ПЛТ на клиентот</Link>}
         {write && <Link className="btn pri" href={newHref}>+ Нова калкулација</Link>}
       </Hd>
+      {write && md === 'store' && sp.plt !== undefined && <PltWindow stores={locs.map((l) => ({ id: l.id, name: l.name ?? l.id }))} partners={PO.map((p) => ({ id: p.id, name: p.name }))} today={new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Skopje' })} vatReg={firm.vatRegistered} />}
       {noName > 0 && <div className="callout warn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null, ...(wh && wh !== 'main' ? { warehouseId: wh } : {}) }} small={false} autoOpen={{ back: '/' + view }} batchView={md === 'store' ? '/masovnoM' : '/masovno'}
         label={<><b>📷 Прочитај фактура од PDF</b> — повлечете една или повеќе фактури од добавувач (PDF, JPG, PNG, XML е-фактура) тука или кликнете; калкулацијата се пополнува автоматски.</>} />}

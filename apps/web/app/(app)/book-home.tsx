@@ -1,9 +1,11 @@
 /**
  * 🔒 The dashboard of a book-only colleague („Колегите гледаат само сметководство“): the firm, the bookkeeping
  * shortcuts, the booking checks and the latest documents — only links the route guard lets them open. No firm KPIs,
- * analyses, charts, deadlines, client messages, autopilot, the robot or other users' tasks.
+ * analyses, charts, deadlines, client messages, the chat robot or other users' tasks; the autopilot's „what is missing“
+ * list of the firm is shown (read-only).
  */
 import Link from 'next/link';
+import { VnesAutopBox } from './vnes/autop-box';
 import { and, desc, eq, isNull, lte, ne, sql, inArray } from 'drizzle-orm';
 import { bankLines, employees, invoices, journals, payrollRuns, purchases, salesDaily, type Firm } from '@wise/db';
 import { db } from '@/lib/db';
@@ -76,6 +78,8 @@ export async function BookHome({ role, f, year, see }: { role: Role; f: Firm; ye
           <p className="note"><span className="hchip">ЕДБ {f.edb || '—'}</span><span className="hchip">Деловна {year}</span><span className="hchip">{f.vatRegistered ? 'ДДВ обврзник' : 'Не е ДДВ обврзник'}</span></p>
         </div>
       </section>
+      {/* 🤖 what is missing in this firm (incoming / outgoing invoices, statements, payments without a document) */}
+      <VnesAutopBox firmId={f.id} readOnly />
       <div className="quick q2">
         {QV.map(([v, t, s]) => (
           <Link key={v} href={v === 'izlez' ? '/izlez?nov' : `/${v}`}><span><b>{t}</b><small>{s}</small></span></Link>
