@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './legacy.css';
 import './legacy-injected.css';
+import './mobile.css';
 import { brandName, brandShort } from '@wise/core';
 
 /* per request: the brand is this server's (`BRAND_NAME`), not the one at build time */
