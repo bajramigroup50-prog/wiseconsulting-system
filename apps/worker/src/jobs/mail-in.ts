@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { brandCustom } from '@wise/core';
-import { INCOMING_JOB, mailAddr, mailFileWanted, MAILIN_JOB, mailMatch, type MailMatch } from '@wise/core/office';
+import { INCOMING_JOB, mailAddr, mailFileWanted, MAILIN_JOB, mailMatch, mailOrigin, type MailMatch } from '@wise/core/office';
 import { ingestMailFile, mailFileSeen, mailInContext, mailInResult, mailInSecret, type DB, type Tx } from '@wise/db';
 import { defineJob } from '../job';
 import { s3Store, storeFile, type ObjectStore } from '../storage';
@@ -73,10 +73,12 @@ export async function runMailIn(db: DB, o: { test?: boolean; log?: (m: string) =
     for (const m of ch.messages) {
       last = Math.max(last, m.uid);
       mails++;
-      if (ctx.ownAddr && mailAddr(m.from) === ctx.ownAddr) { own++; continue; }
+      // a forwarded mail (Hotmail → info@, „Fw:“): the client is the sender written in the text
+      const from = mailOrigin(m.from, m.subject, m.text, ctx.office);
+      if (ctx.ownAddr && mailAddr(m.from) === ctx.ownAddr && from === ctx.ownAddr) { own++; continue; }
       const parts = m.parts.filter((p) => mailFileWanted({ name: p.name, mime: p.mime, size: p.bytes.byteLength, inline: p.inline }));
       if (!parts.length) { empty++; continue; }
-      const match: MailMatch = mailMatch({ from: m.from, subject: m.subject, text: m.text, fileNames: parts.map((p) => p.name), learned: ctx.learned, userFirms: ctx.userFirms, firms: ctx.firms, ownEdb: ctx.ownEdb });
+      const match: MailMatch = mailMatch({ from, subject: m.subject, text: m.text, fileNames: parts.map((p) => p.name), learned: ctx.learned, userFirms: ctx.userFirms, firms: ctx.firms, ownEdb: ctx.ownEdb });
       for (const p of parts) {
         const sha = createHash('sha256').update(p.bytes).digest('hex');
         if (await mailFileSeen(db as unknown as Tx, m.msgId, sha)) { dup++; continue; }
@@ -84,13 +86,13 @@ export async function runMailIn(db: DB, o: { test?: boolean; log?: (m: string) =
         const id = await db.transaction((tx) => ingestMailFile(tx as unknown as Tx, {
           fileId, name: p.name, sha, firmId: match.firmId, how: 'how' in match ? match.how : null,
           candidates: 'candidates' in match ? match.candidates.map((x: string) => ({ id: x, name: names.get(x) ?? '' })) : undefined,
-          mail: { from: mailAddr(m.from), fromName: m.fromName, subject: m.subject, date: m.date, msgId: m.msgId, uid: m.uid },
+          mail: { from, fromName: from === mailAddr(m.from) ? m.fromName : null, via: from === mailAddr(m.from) ? null : mailAddr(m.from), subject: m.subject, date: m.date, msgId: m.msgId, uid: m.uid },
         }));
         docs++;
         if (match.firmId) toFirm++; else waiting++;
         await o.send?.(INCOMING_JOB, { id });
       }
-      log(`mail.in: ${m.uid} ${mailAddr(m.from)} „${m.subject.slice(0, 60)}“ → ${match.firmId ? names.get(match.firmId) : 'канцеларија'}`);
+      log(`mail.in: ${m.uid} ${from} „${m.subject.slice(0, 60)}“ → ${match.firmId ? names.get(match.firmId) : 'канцеларија'}`);
     }
     const more = ch.listed > ch.messages.length ? ` (уште ${ch.listed - ch.messages.length} следниот пат)` : '';
     const msg = mails

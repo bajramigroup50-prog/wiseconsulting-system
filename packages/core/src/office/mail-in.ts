@@ -61,6 +61,23 @@ export function mailToCyr(s: string): string {
   return t.replace(/[a-z]/g, (c) => S[c] ?? c).toUpperCase();
 }
 
+/**
+ * The real sender of a forwarded mail: a mail from one of the office's own addresses (Hotmail → info@ forwarding) or
+ * with „Fw:/Fwd:/Пр:“ carries the client's address in its text („From: …“, „Од: …“, „Gönderen: …“, „Nga: …“).
+ * Returns that address, or the sender itself.
+ */
+export function mailOrigin(from: string, subject: string, text: string, office: readonly string[]): string {
+  const f = mailAddr(from);
+  const O = new Set(office.map((x) => mailAddr(x)).filter(Boolean));
+  const fwd = /^\s*((re|aw|odg)\s*:\s*)*(fw|fwd|tr|wg|пр|препрати)\s*:/i.test(subject);
+  if (!O.has(f) && !fwd) return f;
+  for (const m of String(text).matchAll(/^[>\s*]*(?:from|од|oд|gönderen|nga|von|de)\s*:[^\n]*?([^\s<>"',;:]+@[^\s<>"',;]+\.[a-z]{2,})/gimu)) {
+    const a = m[1]!.toLowerCase();
+    if (!O.has(a)) return a;
+  }
+  return f;
+}
+
 export interface MailMatchIn {
   from: string; subject: string; text: string; fileNames: readonly string[];
   /** learned sender → firm id */

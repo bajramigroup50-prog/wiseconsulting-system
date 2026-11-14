@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firmKey, mailAddr, mailEdbs, mailFileWanted, mailMatch, mailToCyr, type MailFirm } from './mail-in';
+import { firmKey, mailOrigin, mailAddr, mailEdbs, mailFileWanted, mailMatch, mailToCyr, type MailFirm } from './mail-in';
 
 const F: MailFirm[] = [
   { id: 'agro', name: 'АГРО ФАРМА ЛТД ДООЕЛ', edb: 'MK4030000000001', email: 'agro@x.mk; sef@agro.mk' },
@@ -33,6 +33,14 @@ describe('✉ mail → WISE: which firm', () => {
     expect(mailMatch({ ...base, from: 'x@y.mk', subject: 'Fwd: Kartici Agro Farma' })).toEqual({ firmId: 'agro', how: 'name' });
     expect(mailMatch({ ...base, from: 'x@y.mk', subject: 'Фактури ТРАВЕЛ СТОРИ октомври' })).toEqual({ firmId: 'travel', how: 'name' });
     expect(mailMatch({ ...base, from: 'x@y.mk', subject: 'Фактури за октомври' }).firmId).toBeNull();
+  });
+  it('a forwarded mail: the client is the sender in the text', () => {
+    const office = ['info@wiseconsulting.com.mk', 'vbkonsalting@hotmail.com'];
+    const t = ['Get Outlook', '________________________________', 'From: Marijana K <Marijana.K@procredit-group.com>', 'Sent: x'].join('\n');
+    expect(mailOrigin('vbkonsalting@hotmail.com', 'Fw: Заклучен лист', t, office)).toBe('marijana.k@procredit-group.com');
+    expect(mailOrigin('tunaliskopje@gmail.com', 'Fwd: фактури', ['---------- Forwarded message ---------', 'Gönderen: Stefkovski <Zoran@telekom.mk>'].join('\n'), office)).toBe('zoran@telekom.mk');
+    expect(mailOrigin('shef@agro.mk', 'фактури', 'From: x@y.mk', office)).toBe('shef@agro.mk');
+    expect(mailOrigin('vbkonsalting@hotmail.com', 'нешто', 'без адреса', office)).toBe('vbkonsalting@hotmail.com');
   });
   it('helpers', () => {
     expect(firmKey('АГРО ФАРМА ЛТД ДООЕЛ')).toBe('АГРО ФАРМА');

@@ -9,7 +9,7 @@ import type { ActionState } from '@/lib/books';
 import { forgetSenderAction, runMailInAction, saveMailInAction } from './mail-in-actions';
 
 export interface MailInView {
-  on: boolean; host: string; port: number; user: string; folder: string; days: number; hasPass: boolean;
+  on: boolean; host: string; port: number; user: string; folder: string; days: number; hasPass: boolean; forwarders: string[];
   lastRun: string | null; ok: boolean | null; result: string | null; senders: { addr: string; firm: string }[];
 }
 
@@ -39,6 +39,7 @@ export function MailInCard({ c }: { c: MailInView }) {
         <label className="f">Лозинка<input name="pass" type="password" autoComplete="new-password" placeholder={c.hasPass ? '•••••• (зачувана)' : 'лозинката на сандачето'} style={{ width: 180 }} /></label>
         <label className="f">Папка<input name="folder" defaultValue={c.folder} style={{ width: 100 }} /></label>
         <label className="f">Прво читање: дена наназад<input name="days" type="number" min={1} max={1095} defaultValue={c.days} style={{ width: 90 }} /></label>
+        <label className="f" title="Наши адреси што препраќаат пошта тука (на пр. Hotmail со правило „Препрати / Redirect“): клиентот се чита од текстот на пораката.">Препраќа и од (наши адреси)<input name="forwarders" defaultValue={c.forwarders.join(', ')} placeholder="vbkonsalting@hotmail.com" style={{ width: 230 }} /></label>
         <label className="chk"><input type="checkbox" name="on" defaultChecked={c.on || !c.host} /> вклучено</label>
         <button className="btn pri" disabled={busy}>Зачувај</button>
       </form>

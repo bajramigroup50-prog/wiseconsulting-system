@@ -23,6 +23,8 @@ export class MailInError extends Error { override name = 'MailInError'; }
 
 export interface MailInConfig {
   on: boolean; host: string; port: number; user: string; folder: string; days: number;
+  /** the office's own addresses that forward mail here (vbkonsalting@hotmail.com → info@): the client is read from the text */
+  forwarders: string[];
   /** the IMAP cursor: UIDVALIDITY of the folder and the last UID read */
   uidValidity?: string | null; lastUid?: number;
   lastRun?: string | null; ok?: boolean | null; result?: string | null;
@@ -30,7 +32,7 @@ export interface MailInConfig {
 }
 type Stored = Omit<MailInConfig, 'hasPass'> & { pass?: string | null };
 
-const DEF: Stored = { on: false, host: '', port: 993, user: '', folder: 'INBOX', days: MAILIN_DEFAULT_DAYS };
+const DEF: Stored = { on: false, host: '', port: 993, user: '', folder: 'INBOX', days: MAILIN_DEFAULT_DAYS, forwarders: [] };
 
 async function stored(tx: Pick<Tx, 'select'>): Promise<Stored> {
   const [r] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, CFG)).limit(1);
@@ -52,7 +54,7 @@ export async function mailInSecret(tx: Pick<Tx, 'select'>): Promise<(MailInConfi
   return { ...s, hasPass: !!s.pass, pass: openSecret(s.pass) };
 }
 
-export interface MailInInput { on: boolean; host: string; port?: number | null; user: string; pass?: string | null; folder?: string; days?: number | null }
+export interface MailInInput { on: boolean; host: string; port?: number | null; user: string; pass?: string | null; folder?: string; days?: number | null; forwarders?: string | null }
 
 /** Save the connection (owner). An empty password keeps the stored one; a changed mailbox / folder starts the cursor again. */
 export async function saveMailIn(tx: Tx, a: MailInInput, userId: string | null): Promise<void> {
@@ -66,7 +68,8 @@ export async function saveMailIn(tx: Tx, a: MailInInput, userId: string | null):
   const moved = old.host !== host || old.user !== user || old.folder !== folder;
   const pass = a.pass ? sealSecret(a.pass) : old.pass ?? null;
   if (a.on && !pass) throw new MailInError('Внесете ја лозинката на сандачето.');
-  const v: Stored = { ...old, on: a.on, host, port, user, folder, days, pass, ...(moved ? { uidValidity: null, lastUid: 0 } : {}) };
+  const forwarders = [...new Set(String(a.forwarders ?? '').split(/[;,\s]+/).map((x) => mailAddr(x)).filter(Boolean))].slice(0, 20);
+  const v: Stored = { ...old, on: a.on, host, port, user, folder, days, pass, forwarders, ...(moved ? { uidValidity: null, lastUid: 0 } : {}) };
   await put(tx, CFG, v, userId);
   await audit(tx, { userId, firmId: null, action: 'mailInSave', entityType: 'app_setting', data: { on: a.on, host, user, folder, days, pass: !!a.pass } });
 }
@@ -94,6 +97,9 @@ export async function mailInSenders(tx: Pick<Tx, 'select'>): Promise<Record<stri
 export async function mailInLearn(tx: Tx, from: string, firmId: string, userId: string | null): Promise<void> {
   const a = mailAddr(from);
   if (!a) return;
+  // the office's own addresses (the mailbox, the forwarders) never belong to one client
+  const c = await stored(tx);
+  if (a === mailAddr(c.user) || (c.forwarders ?? []).includes(a)) return;
   const S = await mailInSenders(tx);
   if (S[a] === firmId) return;
   S[a] = firmId;
@@ -107,7 +113,7 @@ export async function mailInForget(tx: Tx, from: string, userId: string | null):
   await put(tx, SENDERS, S, userId);
 }
 
-export interface MailInContext { firms: MailFirm[]; userFirms: Map<string, string[]>; learned: Record<string, string>; ownEdb: string | null; ownAddr: string }
+export interface MailInContext { firms: MailFirm[]; userFirms: Map<string, string[]>; learned: Record<string, string>; ownEdb: string | null; ownAddr: string; office: string[] }
 
 /** Everything `mailMatch` needs: the real (not demo) active firms, client users' addresses, the learned senders. */
 export async function mailInContext(tx: Pick<Tx, 'select'>): Promise<MailInContext> {
@@ -121,7 +127,7 @@ export async function mailInContext(tx: Pick<Tx, 'select'>): Promise<MailInConte
   const cfg = await stored(tx);
   return {
     firms: F.filter((f) => f.id !== office?.id).map((f) => ({ id: f.id, name: f.name, edb: f.edb, email: f.email, short: (f.settings as { short?: string } | null)?.short ?? null })),
-    userFirms: uf, learned: await mailInSenders(tx), ownEdb: office?.edb ?? null, ownAddr: mailAddr(cfg.user),
+    userFirms: uf, learned: await mailInSenders(tx), ownEdb: office?.edb ?? null, ownAddr: mailAddr(cfg.user), office: [mailAddr(cfg.user), ...(cfg.forwarders ?? [])].filter(Boolean),
   };
 }
 
@@ -129,7 +135,7 @@ export async function mailInContext(tx: Pick<Tx, 'select'>): Promise<MailInConte
 
 export interface MailFileIn {
   fileId: string; name: string; sha: string; firmId: string | null; how?: MailMatchHow | null; candidates?: { id: string; name: string }[];
-  mail: { from: string; fromName?: string | null; subject: string; date: string | null; msgId: string | null; uid: number };
+  mail: { from: string; fromName?: string | null; via?: string | null; subject: string; date: string | null; msgId: string | null; uid: number };
 }
 
 /** This file of this mail is already in the inbox (the same message read again after a restart). */

@@ -84,14 +84,14 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
 
   const rows: Row[] = [
     ...INC.map(({ r, f }): Row => {
-      const d = r.detect as { proposed?: { id: string; name: string }[]; needsAi?: boolean; import?: { numbers?: string[] }; mail?: { from?: string; fromName?: string | null }; mailHow?: MailMatchHow };
+      const d = r.detect as { proposed?: { id: string; name: string }[]; needsAi?: boolean; import?: { numbers?: string[] }; mail?: { from?: string; fromName?: string | null; via?: string | null }; mailHow?: MailMatchHow };
       const ai = r.aiDocId ? AI.find((a) => a.id === r.aiDocId) : undefined;
       const c = ai?.status === 'done' && r.kind === 'unknown' ? inboxClassification(ai.result) : null;
       const kind = c ? incomingFromClassify(c.kind) : (r.kind as IncomingKind);
       return {
         key: 'i' + r.id, at: r.createdAt, src: (r.source as IncomingSource) ?? 'upload', firmId: r.firmId, files: [f], kind,
         // ✉ from the office mailbox: who sent it and how its firm was found
-        from: d.mail ? [d.mail.fromName, d.mail.from].filter(Boolean).join(' · ') + (d.mailHow ? ` (фирма: ${MAILIN_HOW[d.mailHow]})` : '') : null,
+        from: d.mail ? [d.mail.fromName, d.mail.from].filter(Boolean).join(' · ') + (d.mail.via ? ` (преку ${d.mail.via})` : '') + (d.mailHow ? ` (фирма: ${MAILIN_HOW[d.mailHow]})` : '') : null,
         how: c ? DETECT_HOW.ai : DETECT_HOW[(r.how ?? 'none') as keyof typeof DETECT_HOW] ?? '', what: c?.what || r.what || '',
         status: r.status as IncomingStatus, result: ai?.status === 'error' ? `AI: ${ai.error ?? 'грешка'}` : r.result,
         link: routeRefLink(r.routeRef, r.route, d.import?.numbers),
@@ -138,7 +138,7 @@ export default async function PristPage({ searchParams }: { searchParams: Promis
     const [c, S] = await Promise.all([mailInConfig(db()), mailInSenders(db())]);
     const sid = [...new Set(Object.values(S))];
     const FN = sid.length ? new Map((await db().select({ id: firms.id, name: firms.name }).from(firms).where(inArray(firms.id, sid))).map((f) => [f.id, f.name])) : new Map<string, string>();
-    mailIn = { on: c.on, host: c.host, port: c.port, user: c.user, folder: c.folder, days: c.days, hasPass: c.hasPass, lastRun: c.lastRun ?? null, ok: c.ok ?? null, result: c.result ?? null,
+    mailIn = { on: c.on, host: c.host, port: c.port, user: c.user, folder: c.folder, days: c.days, hasPass: c.hasPass, forwarders: c.forwarders ?? [], lastRun: c.lastRun ?? null, ok: c.ok ?? null, result: c.result ?? null,
       senders: Object.entries(S).map(([addr, id]) => ({ addr, firm: FN.get(id) ?? '—' })).sort((a, b) => a.addr.localeCompare(b.addr)) };
   }
   const busy = rows.some((r) => r.status === 'unread' && r.src !== 'portal' && r.src !== 'capture') || rows.some((r) => r.inc?.aiBusy);

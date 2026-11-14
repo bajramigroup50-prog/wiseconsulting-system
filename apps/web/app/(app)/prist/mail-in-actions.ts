@@ -24,7 +24,7 @@ export async function saveMailInAction(_p: ActionState, fd: FormData): Promise<A
     const u = await owner();
     await db().transaction((tx) => saveMailIn(tx, {
       on: fd.get('on') === 'on', host: String(fd.get('host') ?? ''), port: Number(fd.get('port')) || 993, user: String(fd.get('user') ?? ''),
-      pass: String(fd.get('pass') ?? '') || null, folder: String(fd.get('folder') ?? 'INBOX'), days: Number(fd.get('days')) || null,
+      pass: String(fd.get('pass') ?? '') || null, folder: String(fd.get('folder') ?? 'INBOX'), days: Number(fd.get('days')) || null, forwarders: String(fd.get('forwarders') ?? ''),
     }, u.id));
     if (fd.get('on') === 'on') await enqueue(MAILIN_JOB, { test: true });
     revalidatePath('/prist');
