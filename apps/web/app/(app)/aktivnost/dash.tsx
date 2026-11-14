@@ -93,7 +93,7 @@ export async function ActivityDash({ me, owner }: { me: Me; owner: boolean }) {
       {rank.length > 0 && (
         <div className="card" style={{ borderRadius: 16 }}>
           <div className="hd"><h2>🏆 Кој колку работи · {MNF}</h2>
-            {owner && <Link className="btn sm" href={`/produktivnost?od=${m0}&do=${td}`}>📊 Детално</Link>}</div>
+            {owner && <span className="row" style={{ gap: 6 }}><Link className="btn sm pri" href="/aktivnost/mesec">📅 Месечен извештај</Link><Link className="btn sm" href={`/produktivnost?od=${m0}&do=${td}`}>📊 Детално</Link></span>}</div>
           <div className="tw"><table>
             <thead><tr><th>#</th><th>Колега</th><th style={{ width: '34%' }}>Работни активности</th><th className="n">Активности</th><th className="n">Активно време</th><th className="n">Во час</th><th className="n">Денови</th><th className="n">Фирми</th></tr></thead>
             <tbody>{rank.map((p, i) => { const last = i === rank.length - 1 && rank.length > 1; return (
