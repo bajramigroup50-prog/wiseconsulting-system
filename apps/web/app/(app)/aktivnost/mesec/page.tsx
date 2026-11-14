@@ -22,7 +22,7 @@ const T = '📅 Месечен извештај по колега';
 const MN = ['јануари', 'февруари', 'март', 'април', 'мај', 'јуни', 'јули', 'август', 'септември', 'октомври', 'ноември', 'декември'];
 const dm = (d: string) => d.slice(8, 10) + '.' + d.slice(5, 7);
 
-export default async function MesecPage({ searchParams }: { searchParams: Promise<{ m?: string; min?: string }> }) {
+export default async function MesecPage({ searchParams }: { searchParams: Promise<{ m?: string; min?: string; src?: string }> }) {
   const { u, ok } = await ownerGate();
   if (u.role === 'klient' || u.role === 'teren') notFound();
   if (!ok) return <><Hd t={T} exp={false} /><div className="card empty">{OWNER_ONLY_MSG}</div></>;
@@ -34,13 +34,19 @@ export default async function MesecPage({ searchParams }: { searchParams: Promis
   const from = mon + '-01';
   const to = addDays(((y, m) => `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`)(+mon.slice(0, 4), +mon.slice(5, 7)), -1);
   const minN = Math.max(1, Math.min(50, Math.floor(Number(sp.min) || 1)));
-  const [U, F, UF, R] = await Promise.all([
+  // whose firms: „asg“ = delegated in Корисници (user_firms); „auto“ = each firm belongs to the colleague who did the
+  // most work in it in the 3 months before the report month
+  const auto = sp.src === 'auto';
+  const a0 = (() => { let y = +mon.slice(0, 4), m = +mon.slice(5, 7) - 3; while (m < 1) { m += 12; y--; } return `${y}-${String(m).padStart(2, '0')}-01`; })();
+  const [U, F, UF, R, R3] = await Promise.all([
     db().select({ id: users.id, name: users.name, role: users.role, all: users.allFirms }).from(users)
       .where(and(userSideSql(u), eq(users.active, true), ne(users.role, 'klient'))).orderBy(asc(users.name)),
     db().select({ id: firms.id, name: firms.name }).from(firms).where(and(firmSideSql(u), eq(firms.active, true))).orderBy(asc(firms.name)),
     db().select({ u: userFirms.userId, f: userFirms.firmId }).from(userFirms),
     db().select({ u: auditLog.userId, f: auditLog.firmId, a: auditLog.action, e: auditLog.entityType, d: auditLog.data, at: auditLog.at }).from(auditLog)
       .where(and(scopeAuditSql(u), gte(auditLog.at, skopjeDayStart(from)), lt(auditLog.at, skopjeDayStart(addDays(to, 1))))).limit(300000),
+    auto ? db().select({ u: auditLog.userId, f: auditLog.firmId, a: auditLog.action, e: auditLog.entityType, d: auditLog.data }).from(auditLog)
+      .where(and(scopeAuditSql(u), gte(auditLog.at, skopjeDayStart(a0)), lt(auditLog.at, skopjeDayStart(from)))).limit(900000) : Promise.resolve([]),
   ]);
   const FN = new Map(F.map((f) => [f.id, f.name]));
   // work per user per firm
@@ -57,8 +63,21 @@ export default async function MesecPage({ searchParams }: { searchParams: Promis
     work.set(r.u, w);
   }
   const ufs = new Map<string, string[]>();
-  for (const x of UF) if (FN.has(x.f)) ufs.set(x.u, [...(ufs.get(x.u) ?? []), x.f]);
-  const rows = U.map((x) => {
+  if (!auto) {
+    for (const x of UF) if (FN.has(x.f)) ufs.set(x.u, [...(ufs.get(x.u) ?? []), x.f]);
+  } else {
+    // the firm's main colleague of the last 3 months (most work movements)
+    const cnt = new Map<string, Map<string, number>>();
+    for (const r of R3) {
+      if (!r.u || !r.f || !FN.has(r.f)) continue;
+      const c = classifyAction(r.a, r.e, r.d as Record<string, unknown> | null);
+      if (!c || c.byProduct) continue;
+      const m = cnt.get(r.f) ?? new Map<string, number>(); m.set(r.u, (m.get(r.u) ?? 0) + 1); cnt.set(r.f, m);
+    }
+    for (const [fid, m] of cnt) { const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0]![0]; ufs.set(top, [...(ufs.get(top) ?? []), fid]); }
+  }
+  const rows = U.map((x0) => {
+    const x = { ...x0, all: x0.all && !auto };
     const w = work.get(x.id);
     // „сите фирми“: nothing delegated – the firms they worked on are listed, no coverage
     const assigned = x.all ? [...(w?.byF.keys() ?? [])].filter((f) => FN.has(f)) : ufs.get(x.id) ?? [];
@@ -85,6 +104,9 @@ export default async function MesecPage({ searchParams }: { searchParams: Promis
       </Hd>
       <form className="card noprint" method="get" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
         <label className="f" style={{ margin: 0 }}>Месец<select name="m" defaultValue={mon}>{months.map((m) => <option key={m} value={m}>{MN[+m.slice(5, 7) - 1]} {m.slice(0, 4)}</option>)}</select></label>
+        <label className="f" style={{ margin: 0 }}>Чии фирми<select name="src" defaultValue={auto ? 'auto' : 'asg'}>
+          <option value="asg">Според доделувањето (Корисници)</option>
+          <option value="auto">Според работата во последните 3 месеци</option></select></label>
         <label className="f" style={{ margin: 0 }}>Фирмата е „обработена“ со најмалку<select name="min" defaultValue={String(minN)}>{[1, 3, 5, 10, 20].map((x) => <option key={x} value={x}>{x} активности</option>)}</select></label>
         <button className="btn pri">Прикажи</button>
       </form>
@@ -105,7 +127,7 @@ export default async function MesecPage({ searchParams }: { searchParams: Promis
               <td><span className={`pill ${v.k}`}>{v.t}</span></td><td style={{ minWidth: 120, borderBottom: '1px dotted var(--muted)' }} /></tr>); })}
             {!rows.length && <tr><td colSpan={10} className="empty">Нема колеги со делегирани фирми или активност во месецот.</td></tr>}</tbody>
         </table></div>
-        <p className="mini" style={{ margin: '8px 0 0' }}>Делегирани = фирмите доделени на корисникот (Корисници → фирми); „сите фирми“ = сите активни фирми. Обработена = најмалку {minN} работни активности во фирмата во месецот. Предлогот е ориентационен – одлуката за раст или казна е ваша (колоната „Одлука“ за потпис на печатениот извештај).</p>
+        <p className="mini" style={{ margin: '8px 0 0' }}>{auto ? <>Фирми на колегата = фирмите во кои тој работел најмногу во последните 3 месеци ({a0.slice(8, 10)}.{a0.slice(5, 7)}.{a0.slice(0, 4)} – {dm(addDays(from, -1))}); секоја фирма припаѓа на еден колега. Фирма без работа во тие 3 месеци не е доделена никому.</> : <>Делегирани = фирмите доделени на корисникот (Корисници → фирми); со „сите фирми“ нема оценка – изберете „Според работата во последните 3 месеци“.</>} Обработена = најмалку {minN} работни активности во фирмата во месецот. Предлогот е ориентационен – одлуката за раст или казна е ваша (колоната „Одлука“ за потпис на печатениот извештај).</p>
       </div>
       {rows.filter((r) => r.assigned && !r.all).map((r) => {
         const miss = r.firmsRows.filter((f) => f.n < minN);
