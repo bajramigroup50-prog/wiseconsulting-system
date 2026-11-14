@@ -12,7 +12,7 @@
   }
   function plain(html) { var d = document.createElement("div"); d.innerHTML = html; return d.textContent; }
 
-  var CONTACT = '<a href="tel:+38975288889">075 288 889</a> · <a href="tel:+38971675538">071 675 538</a> · <a href="mailto:info@wiseconsulting.com.mk">info@wiseconsulting.com.mk</a>';
+  var CONTACT = '<a href="tel:+38971204123">071 204 123</a> · <a href="tel:+38971675538">071 675 538</a> · <a href="mailto:info@wiseconsulting.com.mk">info@wiseconsulting.com.mk</a>';
   function link(href, key) { return '<a class="bot-link" href="' + href + '">' + plain(t(key)) + " →</a>"; }
 
   var TOPICS = [
@@ -21,7 +21,7 @@
     { id: "price", label: "nav.pricing", kw: ["цен", "чини", "пакет", "колку", "понуд", "çmim", "cmim", "sa kushton", "paket", "ofert", "price", "cost", "how much", "package", "quote", "fiyat", "ücret", "ucret", "teklif"],
       answer: function () { return plain(t("q3.a")) + "<br><br>" + plain(t("pricing.note")).replace(/^\*\s*/, "") + "<br>" + link("#offerForm", "offer.title"); } },
     { id: "contact", label: "contact.eyebrow", kw: ["контакт", "телефон", "адрес", "работно", "време", "е-пошт", "email", "mail", "kontakt", "telefon", "adres", "orar", "contact", "phone", "address", "hours", "open", "iletişim", "iletisim", "saat"],
-      answer: function () { return "<b>" + plain(t("contact.phone")) + ":</b> " + '<a href="tel:+38975288889">075 288 889</a>, <a href="tel:+38971675538">071 675 538</a><br><b>' + plain(t("contact.email")) + ':</b> <a href="mailto:info@wiseconsulting.com.mk">info@wiseconsulting.com.mk</a>, <a href="mailto:vbkonsalting@hotmail.com">vbkonsalting@hotmail.com</a><br><b>' + plain(t("contact.hours")) + ":</b> " + plain(t("contact.hoursVal")) + "<br><b>" + plain(t("contact.address")) + ":</b> " + plain(t("contact.city")); } },
+      answer: function () { return "<b>" + plain(t("contact.phone")) + ":</b> " + '<a href="tel:+38971204123">071 204 123</a>, <a href="tel:+38971675538">071 675 538</a><br><b>' + plain(t("contact.email")) + ':</b> <a href="mailto:info@wiseconsulting.com.mk">info@wiseconsulting.com.mk</a>, <a href="mailto:vbkonsalting@hotmail.com">vbkonsalting@hotmail.com</a><br><b>' + plain(t("contact.hours")) + ":</b> " + plain(t("contact.hoursVal")) + "<br><b>" + plain(t("contact.address")) + ":</b> " + plain(t("contact.city")); } },
     { id: "switch", label: "q1.q", kw: ["премин", "смен", "друг сметковод", "менувам", "kaloj", "ndërro", "nderro", "kontabilist tjetër", "switch", "change account", "another account", "geçiş", "gecis", "değiştir", "degistir"],
       answer: function () { return plain(t("q1.a")) + "<br>" + link("#process", "nav.process"); } },
     { id: "register", label: "s5.t", kw: ["регистрац", "основа", "отвор", "нова фирма", "дооел", "regjistr", "themel", "hap firm", "register", "open a company", "new company", "start a company", "kuruluş", "kurulus", "şirket kur", "sirket kur"],
