@@ -25,8 +25,10 @@ describe('✉ mail → WISE: which firm', () => {
     expect(mailMatch({ ...base, from: 'k@gmail.com', userFirms })).toEqual({ firmId: null, candidates: [] });
     expect(mailMatch({ ...base, from: 'k@gmail.com', userFirms, text: 'ЕДБ: MK 4030000000002' })).toEqual({ firmId: 'trimi', how: 'edb' });
   });
-  it('the office’s own ЕДБ never matches; two ЕДБ → waits with candidates', () => {
-    expect(mailMatch({ ...base, from: 'x@y.mk', text: 'MK4030999999999' }).firmId).toBeNull();
+  it('the office’s own ЕДБ only when no client’s; two ЕДБ → waits with candidates', () => {
+    expect(mailMatch({ ...base, from: 'x@y.mk', text: 'Купувач MK4030999999999' })).toEqual({ firmId: 'own', how: 'edb' });
+    expect(mailMatch({ ...base, from: 'x@y.mk', text: 'MK4030999999999 / клиент 4030000000001' })).toEqual({ firmId: 'agro', how: 'edb' });
+    expect(mailMatch({ ...base, from: 'x@y.mk', subject: 'БАЈРАМИ ГРОУП фактура' }).firmId).toBeNull();
     expect(mailMatch({ ...base, from: 'x@y.mk', text: '4030000000001 и 4030000000002' })).toEqual({ firmId: null, candidates: ['agro', 'trimi'] });
   });
   it('the firm name in the subject, Cyrillic or Latin', () => {

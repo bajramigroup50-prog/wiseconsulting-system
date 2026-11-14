@@ -125,9 +125,11 @@ export async function mailInContext(tx: Pick<Tx, 'select'>): Promise<MailInConte
   const uf = new Map<string, string[]>();
   for (const u of U) { const a = mailAddr(u.email); if (a) uf.set(a, [...(uf.get(a) ?? []), u.firmId]); }
   const cfg = await stored(tx);
+  const learned = await mailInSenders(tx);
   return {
-    firms: F.filter((f) => f.id !== office?.id).map((f) => ({ id: f.id, name: f.name, edb: f.edb, email: f.email, short: (f.settings as { short?: string } | null)?.short ?? null })),
-    userFirms: uf, learned: await mailInSenders(tx), ownEdb: office?.edb ?? null, ownAddr: mailAddr(cfg.user), office: [mailAddr(cfg.user), ...(cfg.forwarders ?? [])].filter(Boolean),
+    // the office firm is included (WISE = БАЈРАМИ ГРОУП): its own documents go to it (`mailMatch` keeps its ЕДБ last)
+    firms: F.map((f) => ({ id: f.id, name: f.name, edb: f.edb, email: f.email, short: (f.settings as { short?: string } | null)?.short ?? null })),
+    userFirms: uf, learned, ownEdb: office?.edb ?? null, ownAddr: mailAddr(cfg.user), office: [mailAddr(cfg.user), ...(cfg.forwarders ?? [])].filter(Boolean),
   };
 }
 

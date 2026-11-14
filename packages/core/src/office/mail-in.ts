@@ -100,16 +100,22 @@ export function mailMatch(a: MailMatchIn): MailMatch {
     const byMail = one([...a.firms.filter((f) => firmAddrs(f.email).includes(from)).map((f) => f.id), ...(a.userFirms.get(from) ?? [])]);
     if (byMail.length === 1) return { firmId: byMail[0]!, how: 'email' };
   }
+  // the office itself (WISE = БАЈРАМИ ГРОУП) is a firm too: its ЕДБ is on every letter the office sends, so it is
+  // only chosen when no client's ЕДБ is in the mail, and never by its name (the signature)
   const own = edbDigits(a.ownEdb);
-  const E = new Set(mailEdbs([a.subject, a.text, ...a.fileNames].join('\n')).filter((d) => d !== own));
-  const byEdb = one(a.firms.filter((f) => { const d = edbDigits(f.edb); return !!d && E.has(d); }).map((f) => f.id));
+  const ownFirm = own ? a.firms.find((f) => edbDigits(f.edb) === own) ?? null : null;
+  const all = mailEdbs([a.subject, a.text, ...a.fileNames].join(' \n '));
+  const E = new Set(all.filter((d) => d !== own));
+  const byEdb = one(a.firms.filter((f) => { const d = edbDigits(f.edb); return !!d && d !== own && E.has(d); }).map((f) => f.id));
   if (byEdb.length === 1) return { firmId: byEdb[0]!, how: 'edb' };
   const subj = ` ${mailToCyr(a.subject).replace(/[^А-ЯЃЌЉЊЏЅЈ0-9]+/gu, ' ')} `;
   const byName = one(a.firms.filter((f) => {
+    if (f.id === ownFirm?.id) return false;
     const k = firmKey(f.short || f.name);
     return !!k && subj.includes(` ${k} `);
   }).map((f) => f.id));
   if (byName.length === 1) return { firmId: byName[0]!, how: 'name' };
+  if (ownFirm && !byEdb.length && !byName.length && all.includes(own)) return { firmId: ownFirm.id, how: 'edb' };
   return { firmId: null, candidates: [...new Set([...byEdb, ...byName])] };
 }
 
