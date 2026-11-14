@@ -22,8 +22,8 @@ const msg = (uid: number, from: string, subject: string, parts: MailMsg['parts']
 
 beforeAll(async () => {
   await migrate(pg, { migrationsFolder: fileURLToPath(new URL('../../../../packages/db/migrations', import.meta.url)) });
-  [{ id: agro }] = await pg.insert(schema.firms).values({ name: 'АГРО ФАРМА ЛТД ДООЕЛ', edb: '4030000000001' }).returning({ id: schema.firms.id });
-  [{ id: trimi }] = await pg.insert(schema.firms).values({ name: 'ТРИМИ МЕТАЛ ДООЕЛ', edb: '4030000000002' }).returning({ id: schema.firms.id });
+  agro = (await pg.insert(schema.firms).values({ name: 'АГРО ФАРМА ЛТД ДООЕЛ', edb: '4030000000001' }).returning({ id: schema.firms.id }))[0]!.id;
+  trimi = (await pg.insert(schema.firms).values({ name: 'ТРИМИ МЕТАЛ ДООЕЛ', edb: '4030000000002' }).returning({ id: schema.firms.id }))[0]!.id;
   await pg.insert(schema.firms).values({ name: 'БАЈРАМИ ГРОУП ДООЕЛ', edb: '4030999999999', settings: { officeFirm: true } });
   const [k] = await pg.insert(schema.users).values({ username: 'k-agro', name: 'Клиент', role: 'klient', passwordHash: 'x', email: 'Shef@Agro.mk' }).returning();
   await pg.insert(schema.userFirms).values({ userId: k!.id, firmId: agro });
