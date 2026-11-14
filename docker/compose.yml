@@ -128,9 +128,13 @@ services:
     restart: unless-stopped
     depends_on: [app, s3]
     ports: ["80:80", "443:443", "443:443/udp"]
-    environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}", ALLOW_IPS: "${ALLOW_IPS:-0.0.0.0/0 ::/0}", DEVICE_CERTS: "${DEVICE_CERTS:-off}" }
+    environment: { DOMAIN: "${DOMAIN}", ACME_EMAIL: "${ACME_EMAIL}", IP_HOST: "${IP_HOST:-localhost}", ALLOW_IPS: "${ALLOW_IPS:-0.0.0.0/0 ::/0}", DEVICE_CERTS: "${DEVICE_CERTS:-off}", SITE_ADDRS: "${SITE_ADDRS:-http://localhost:8099}" }
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # public marketing website (static files, read-only)
+      - ../website:/srv/website:ro
+      # news.json for the website, updated by cron on the host (website/tools/fetch_news.py)
+      - ${SITE_DATA_DIR:-/opt/wise/site-data}:/srv/site-data:ro
       # public half of the device CA only (trust pool for client certificates)
       - ${DEVICE_CA_HOST_DIR:-/opt/wise/ca}/public:/etc/caddy/wise-ca:ro
       - caddydata:/data
