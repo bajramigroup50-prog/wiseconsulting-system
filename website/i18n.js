@@ -11,6 +11,8 @@ window.I18N = {
   },
 
   sq: {
+    "flow.fs": "Llogari përfundimtare",
+    "flow.adv": "Këshilla tatimore",
     "flow.inv": "Fatura",
     "flow.bank": "Ekstrakte",
     "flow.pay": "Paga",
@@ -279,6 +281,8 @@ window.I18N = {
   },
 
   en: {
+    "flow.fs": "Annual accounts",
+    "flow.adv": "Tax advice",
     "flow.inv": "Invoices",
     "flow.bank": "Statements",
     "flow.pay": "Payroll",
@@ -547,6 +551,8 @@ window.I18N = {
   },
 
   tr: {
+    "flow.fs": "Yıl sonu hesapları",
+    "flow.adv": "Vergi danışmanlığı",
     "flow.inv": "Faturalar",
     "flow.bank": "Ekstreler",
     "flow.pay": "Maaşlar",
