@@ -120,7 +120,7 @@ export default async function ProfitPage({ searchParams }: { searchParams: Promi
               <td className="n" style={{ color: r.perHour != null && r.perHour < cost ? 'var(--bad)' : undefined }}>{r.perHour != null ? n0(r.perHour) : '—'}</td>
               <td className="n">{fmt(r.cost)}</td><td className="n"><b style={{ color: r.profit < 0 ? 'var(--bad)' : 'var(--good)' }}>{fmt(r.profit)}</b></td>
               <td className="n">{r.margin != null ? `${String(r.margin).replace('.', ',')}%` : '—'}</td>
-              <td>{r.fee <= 0 ? <span className="pill warn">⚠️ без хонорар</span> : r.loss ? <span className="pill bad">🔻 за поскапување{r.suggest ? ` · предлог ${n0(r.suggest)}/мес.` : ''}</span> : <span className="pill good">✅ профитабилен</span>}</td>
+              <td>{r.fee <= 0 ? <Link className="pill warn" href={`/firmi?edit=${r.id}`} title="Внесете го месечниот хонорар во картичката на фирмата (Хонорар → Месечно без ДДВ)">⚠️ без хонорар – внеси</Link> : r.loss ? <span className="pill bad">🔻 за поскапување{r.suggest ? ` · предлог ${n0(r.suggest)}/мес.` : ''}</span> : <span className="pill good">✅ профитабилен</span>}</td>
             </tr>))}
             {!rows.length && <tr><td colSpan={9} className="empty">Нема клиенти со хонорар или работа во периодот.</td></tr>}</tbody>
           {rows.length > 0 && <tfoot><tr><th>Вкупно</th><th className="n">{fmt(tot.fee)}</th><th className="n">{String(tot.hours).replace('.', ',')}</th><th /><th className="n">{tot.perHour != null ? n0(tot.perHour) : '—'}</th><th className="n">{fmt(tot.cost)}</th><th className="n">{fmt(tot.profit)}</th><th /><th /></tr></tfoot>}
