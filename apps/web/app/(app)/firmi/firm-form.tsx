@@ -17,8 +17,10 @@ import { saveFirm, deleteFirm, type FirmFormState } from './actions';
 
 type S = Record<string, unknown>;
 
-export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYearDef }: {
-  firm: Firm | null; withFee: boolean; feeNote: string; canDelete: boolean; canResh: boolean;
+export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYearDef, prefill, crmLead }: {
+  firm: Firm | null;
+  /** New firm from the CRM („Конвертирај во клиент“): the lead's data as the form's initial values, `crmLead` = its id. */
+  prefill?: Partial<Firm> | null; crmLead?: string | null; withFee: boolean; feeNote: string; canDelete: boolean; canResh: boolean;
   /** First working year computed when „Активна од година“ is empty (creation year / earliest data). */
   fromYearDef: number;
 }) {
@@ -26,10 +28,11 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYe
   const [tab, setTab] = useState<FirmTab>('osn');
   // not registered for VAT → the VAT period and „ДДВ обврзник од“ do not apply (hidden)
   const [vatOn, setVatOn] = useState(d?.vatRegistered ?? true);
-  const s = (d?.settings ?? {}) as S;
+  const src = d ?? (prefill as Firm | null | undefined) ?? null;
+  const s = (src?.settings ?? {}) as S;
   const formRef = useRef<HTMLFormElement>(null);
   const v = (k: string, def = ''): string => {
-    if (k in (d ?? {}) && typeof (d as unknown as S)[k] !== 'object') return String((d as unknown as S)[k] ?? def);
+    if (k in (src ?? {}) && typeof (src as unknown as S)[k] !== 'object') return String((src as unknown as S)[k] ?? def);
     const x = s[k];
     return x == null || x === '' ? def : String(x);
   };
@@ -86,6 +89,7 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYe
   return (
     <form ref={formRef} className="card firmcard" action={action}>
       {d && <input type="hidden" name="id" value={d.id} />}
+      {!d && crmLead && <input type="hidden" name="crmLead" value={crmLead} />}
       <input type="hidden" name="withFee" value={withFee ? '1' : ''} />
       <div className="hd">
         <h2>{d ? 'Промена на податоци на фирмата' : 'Нова фирма'}</h2>
@@ -106,7 +110,7 @@ export function FirmForm({ firm: d, withFee, feeNote, canDelete, canResh, fromYe
         <I k="code" l="Шифра" b />
         <I k="name" l="ИМЕ (целосен назив)" b w ph="на пр. БАЈРАМИ ГРОУП ДООЕЛ" />
         <label className="fl b w"><span>Правна форма / вид</span>
-          <select name="legalForm" defaultValue={d?.legalForm || lfGuess(d?.name ?? '')}>
+          <select name="legalForm" defaultValue={src?.legalForm || lfGuess(src?.name ?? '')}>
             {YE_LEGAL_FORMS.map(([g, L]) => <optgroup key={g} label={g}>{L.map(([val, n]) => <option key={val} value={val}>{n}</option>)}</optgroup>)}
           </select>
         </label>

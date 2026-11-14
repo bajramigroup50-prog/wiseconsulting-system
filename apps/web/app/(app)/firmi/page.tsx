@@ -13,7 +13,7 @@ import { can } from '@wise/core';
 import { DEMO_MAX_FIRMS } from '@wise/core/demo';
 import { FR_F, frList, isFrFilter } from '@wise/core/firms/firmform';
 import { firmActiveIn, firmFromYear, firmToYear } from '@wise/core/firms/years';
-import { demoFirmCount, demoFirmSql, firmFirstDataYears, firmInYearSql, firmLastDataYears, firms } from '@wise/db';
+import { crmLeads, demoFirmCount, demoFirmSql, firmFirstDataYears, firmInYearSql, firmLastDataYears, firms } from '@wise/db';
 import { requireUser } from '@/lib/auth';
 import { currentFirm, currentYear } from '@/lib/context';
 import { db } from '@/lib/db';
@@ -25,7 +25,7 @@ import { ConfirmButton } from './confirm-button';
 import { firmListSql, isDemoUser } from '@/lib/demo';
 import { isOfficeOwner } from '@/lib/office-owner';
 
-type Sp = { q?: string; edit?: string; nova?: string; f?: string; ex?: string; arh?: string; sve?: string };
+type Sp = { q?: string; edit?: string; nova?: string; crm?: string; f?: string; ex?: string; arh?: string; sve?: string };
 
 export default async function FirmiPage({ searchParams }: { searchParams: Promise<Sp> }) {
   const sp = await searchParams;
@@ -67,6 +67,9 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
   const draft = editId ? (await db().select().from(firms).where(eq(firms.id, editId)).limit(1))[0] : undefined;
   const draftFrom = draft ? firmFromYear(draft, (await firmFirstDataYears(db(), [draft.id])).get(draft.id)) : new Date().getFullYear();
   const showForm = (sp.nova !== undefined && can(u.principal, 'newFirm')) || (draft && can(u.principal, 'saveFirm', draft.id));
+  // 🤝 „Конвертирај во клиент“ from the CRM (owner only): the new-firm form prefilled with the lead's data
+  const lead = !draft && sp.crm && /^[0-9a-f-]{36}$/i.test(sp.crm) && await isOfficeOwner(u) ? (await db().select().from(crmLeads).where(eq(crmLeads.id, sp.crm)).limit(1))[0] : undefined;
+  const prefill = lead ? { name: lead.company, edb: lead.edb, address: lead.address, city: lead.city, phone: lead.phone, email: lead.email, activity: lead.activity, settings: Number(lead.fee) ? { accFee: String(Number(lead.fee)) } : {} } : null;
   const office = all.find((f) => (f.settings as { officeFirm?: boolean }).officeFirm) ?? null;
   const ds = (draft?.settings ?? {}) as { officeFirm?: boolean; kdog?: { no?: string } };
   const withFee = !!showForm && u.role !== 'klient' && can(u.principal, 'office') && !ds.officeFirm && office?.id !== draft?.id;
@@ -89,7 +92,7 @@ export default async function FirmiPage({ searchParams }: { searchParams: Promis
           : <Link className="btn pri" href="/firmi?nova">+ Нова фирма</Link>)}
       </Hd>
       {meDemo && <div className="callout warn">🎭 Демо фирми: <b>{nDemo} / {DEMO_MAX_FIRMS}</b>. Новата фирма се зачувува како „ДЕМО – …“ и се брише при ресетирање на демото (секоја ноќ или рачно).</div>}
-      {showForm && <FirmForm key={draft?.id ?? 'new'} firm={draft ?? null} fromYearDef={draftFrom} withFee={withFee} feeNote={feeNote} canDelete={admin} canResh={can(u.principal, 'firms')} />}
+      {showForm && <FirmForm key={draft?.id ?? (lead ? 'crm' + lead.id : 'new')} firm={draft ?? null} prefill={prefill} crmLead={lead?.id ?? null} fromYearDef={draftFrom} withFee={withFee} feeNote={feeNote} canDelete={admin} canResh={can(u.principal, 'firms')} />}
       {showForm && draft && !meDemo && <FirmMailCard firmId={draft.id} firmEmail={draft.email} />}
       {showForm && draft && admin && !meDemo && <WipeYearBox firmId={draft.id} firmName={draft.name} year={year} />}
       {!showForm && <>

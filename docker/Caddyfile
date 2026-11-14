@@ -116,7 +116,7 @@ files.{$DOMAIN} {
 
 # Public marketing website (website/ in the repository, mounted read-only). SITE_ADDRS in /opt/wise/.env, e.g.
 # "wiseconsulting.com.mk, www.wiseconsulting.com.mk". Unset (other installs) → only an internal plain-HTTP address
-# that is never published, so no certificate is requested. Static files only: no proxy to the app.
+# that is never published, so no certificate is requested. Static files only, except POST /api/lead (the offer form → CRM).
 {$SITE_ADDRS:http://localhost:8099} {
 	root * /srv/website
 	encode zstd gzip
@@ -132,6 +132,21 @@ files.{$DOMAIN} {
 	@private path /tools/* /README.md
 	handle @private {
 		respond 404
+	}
+	# The offer request form („Барање за понуда“) → a CRM lead in the app. Only this one POST path reaches the app;
+	# a visitor's own X-Wise-Client-* / forwarded headers are dropped. The app rate-limits by the client IP.
+	handle /api/lead {
+		@post method POST
+		handle @post {
+			request_header -X-Wise-Client-Fp
+			request_header -X-Wise-Client-Serial
+			request_body {
+				max_size 20KB
+			}
+			rewrite * /api/crm/lead
+			reverse_proxy app:3000
+		}
+		respond 405
 	}
 	# news.json written by cron (website/tools/fetch_news.py) into SITE_DATA_DIR on the host
 	handle_path /data/* {

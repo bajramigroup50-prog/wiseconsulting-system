@@ -87,7 +87,7 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['dejnosti', 'u', 'apSave apRem apStatus htSave htCharges htClean htGuests htIn htOut htNoShow htRoomSave rcSave rcOut rcRet rcDepIn rcDepBack woSaveB cvSave cpSave csSave cdSave pcLink pnSaveB pnDep pnDeliv pnRet pnSvcDone frSave frQuickSave frDocSave taSave tbSave fleetSave potDone kcSave entSave'],
   ['dejnosti', 'd', 'apCancel htCancel rcCancel woDel pcUnlink pnlDel frDel frDocDel tbCancel tbPayRm kcDel rtableDel rordDel cnoteDel frdocDel frfuelDel'],
   ['kanc', 'c', 'tNew ncNew ncTask kdUpSigned kdRepMail kdMail klAddRec klAutoUser klMsg klNotePdf alMail apSendOne amlGo amlRepNew amlTrAdd opLog paSend lrPdf inspAtt inspCodeAdd zzIzjUp'],
-  ['kanc', 'u', 'tSave tSt ncSave kdSaveB kdCliSign kdOffSign kdEnd kdToDos kdRecSync klAppr klRej klPwReset klRenameNum ainbDone irGo irArch alAck alUnack apRun apSkip amlSave amlRepSt amlCtl dlSave dlDone fcSave formSaveEmbg inspNa inspOk zzSave zzClose zzSigned zzIzjSign'],
+  ['kanc', 'u', 'tSave tSt ncSave kdSaveB kdCliSign kdOffSign kdEnd kdToDos kdRecSync klAppr klRej klPwReset klRenameNum ainbDone irGo irArch alAck alUnack apRun apSkip amlSave amlRepSt amlCtl dlSave dlDone fcSave formSaveEmbg inspNa inspOk zzSave zzClose zzSigned zzIzjSign crmLead crmLeadDelete'],
   ['kanc', 'd', 'tDel kdDel fcDel lawDel inspCodeRm'],
   // AML / УФР, inspections (kontroli), data protection (ROPA, data-subject requests)
   ['kanc', 'c', 'amlUfrNew amlScan kontrolaNew kontrolaFindingNew kontrolaActionNew kontrolaAiApply kontrolaDraft dsrNew ropaSeed'],

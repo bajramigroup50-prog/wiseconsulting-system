@@ -466,7 +466,9 @@
             </div>
             <label><span data-i18n="offer.msg">Порака</span><textarea name="msg" rows="3"></textarea></label>
             <button class="btn btn-light" type="submit" data-i18n="offer.send">Испрати барање</button>
-            <p class="offer-note" data-i18n="offer.note">Барањето се отвора во вашата е-пошта, подготвено за info@wiseconsulting.com.mk.</p>
+            <input name="hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+            <p class="offer-note" id="offerMsg" role="status" hidden></p>
+            <p class="offer-note" data-i18n="offer.note">Барањето стигнува веднаш до нас; ќе ви се јавиме најдоцна следниот работен ден.</p>
             <p class="offer-note"><a href="privacy.html" data-i18n="offer.privacy">Како ги обработуваме податоците – Политика на приватност</a></p>
           </form>
       </div>

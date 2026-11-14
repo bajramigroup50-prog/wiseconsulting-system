@@ -4,7 +4,7 @@ import { NAV, NAV_LBL, navFlat, viewAllowed } from './nav';
 describe('office menu items (legacy runtime NAV patches)', () => {
   it('adds autopilot and ISO first in Канцеларија and the compliance screens after formation', () => {
     const k = navFlat(NAV.find(([g]) => g === 'Канцеларија')![1]).map(([id]) => id);
-    expect(k).toEqual(['autop', 'iso', 'ifac', 'kanc', 'mojzad', 'baranja', 'osnovanje', 'tpl', 'aml', 'zzlp']);
+    expect(k).toEqual(['autop', 'iso', 'ifac', 'kanc', 'mojzad', 'crm', 'baranja', 'osnovanje', 'tpl', 'aml', 'zzlp']);
     const f = navFlat(NAV.find(([g]) => g === 'Фирми')![1]).map(([id]) => id);
     expect(f.indexOf('insp')).toBe(f.indexOf('zatvoranje') + 1);
     expect(NAV_LBL.autop).toBe('🤖 Автопилот');

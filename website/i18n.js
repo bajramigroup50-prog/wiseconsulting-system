@@ -1,7 +1,7 @@
 // Translations. Macedonian (base) lives directly in index.html, keyed by data-i18n.
 window.I18N = {
   // texts used only by script (news section) in Macedonian
-  mkExtra: {"dl.mpin": "МПИН – пресметка за плата", "dl.pay": "Плаќање придонеси и аконтации", "dl.ddv": "ДДВ-04 – пријава и плаќање", "dl.year": "ДБ / ДБ-ВП и ДЛД-ДБ (годишно)", "dl.today": "денес", "dl.tomorrow": "утре", "dl.days": "уште {n} дена", "bot.fab": "Прашајте нè", "bot.title": "WISE асистент", "bot.sub": "Одговори на најчестите прашања", "bot.hello": "Здраво! Јас сум асистентот на WISE CONSULTING. Изберете тема или напишете го вашето прашање.", "bot.placeholder": "Напишете прашање…", "bot.fallback": "За ова прашање најдобро е да разговарате директно со нашиот тим:", "bot.more": "Имате уште прашања? Изберете тема:", "news.allSrc": "Сите", "news.read": "Прочитај →", "calc.net": "Нето плата (ден.)", "news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
+  mkExtra: {"dl.mpin": "МПИН – пресметка за плата", "dl.pay": "Плаќање придонеси и аконтации", "dl.ddv": "ДДВ-04 – пријава и плаќање", "dl.year": "ДБ / ДБ-ВП и ДЛД-ДБ (годишно)", "dl.today": "денес", "dl.tomorrow": "утре", "dl.days": "уште {n} дена", "bot.fab": "Прашајте нè", "bot.title": "WISE асистент", "bot.sub": "Одговори на најчестите прашања", "bot.hello": "Здраво! Јас сум асистентот на WISE CONSULTING. Изберете тема или напишете го вашето прашање.", "bot.placeholder": "Напишете прашање…", "bot.fallback": "За ова прашање најдобро е да разговарате директно со нашиот тим:", "bot.more": "Имате уште прашања? Изберете тема:", "offer.ok": "Ви благодариме! Барањето е примено – ќе ви се јавиме најдоцна следниот работен ден.", "offer.err": "Барањето не може да се испрати автоматски – се отвора вашата е-пошта.", "news.allSrc": "Сите", "news.read": "Прочитај →", "calc.net": "Нето плата (ден.)", "news.all": "Сите соопштенија →", "src.ujp": "УЈП", "src.finance": "Министерство за финансии", "src.avrm": "АВРСМ – огласи за мерки", "src.economy": "Министерство за економија и труд", "src.nbrm": "Народна банка (НБРСМ)"},
 
   meta: {
     mk: "WISE CONSULTING – Сметководствена канцеларија, Скопје",
@@ -109,7 +109,9 @@ window.I18N = {
     "offer.no": "Jo",
     "offer.msg": "Mesazhi",
     "offer.send": "Dërgo kërkesën",
-    "offer.note": "Kërkesa hapet në e-mailin tuaj, e gatshme për info@wiseconsulting.com.mk.",
+    "offer.note": "Kërkesa na arrin menjëherë; ju kontaktojmë më së voni ditën e ardhshme të punës.",
+    "offer.ok": "Faleminderit! Kërkesa u pranua – ju kontaktojmë më së voni ditën e ardhshme të punës.",
+    "offer.err": "Kërkesa nuk mund të dërgohej automatikisht – po hapet e-maili juaj.",
     "nav.news": "Lajme",
     "news.eyebrow": "Lajme nga institucionet",
     "news.title": "Më të rejat nga DAP, ministritë dhe Banka Popullore",
@@ -382,7 +384,9 @@ window.I18N = {
     "offer.no": "No",
     "offer.msg": "Message",
     "offer.send": "Send request",
-    "offer.note": "The request opens in your e-mail app, addressed to info@wiseconsulting.com.mk.",
+    "offer.note": "Your request reaches us at once; we will contact you by the next working day.",
+    "offer.ok": "Thank you! Your request has been received – we will contact you by the next working day.",
+    "offer.err": "The request could not be sent automatically – your e-mail app is opening.",
     "nav.news": "News",
     "news.eyebrow": "News from the institutions",
     "news.title": "The latest from the Revenue Office, ministries and the National Bank",
@@ -655,7 +659,9 @@ window.I18N = {
     "offer.no": "Hayır",
     "offer.msg": "Mesaj",
     "offer.send": "Talebi gönder",
-    "offer.note": "Talep, info@wiseconsulting.com.mk adresine hazır olarak e-posta uygulamanızda açılır.",
+    "offer.note": "Talebiniz bize hemen ulaşır; en geç bir sonraki iş günü sizinle iletişime geçeriz.",
+    "offer.ok": "Teşekkürler! Talebiniz alındı – en geç bir sonraki iş günü sizinle iletişime geçeceğiz.",
+    "offer.err": "Talep otomatik gönderilemedi – e-posta uygulamanız açılıyor.",
     "nav.news": "Haberler",
     "news.eyebrow": "Kurumlardan haberler",
     "news.title": "Gelir İdaresi, bakanlıklar ve Merkez Bankası'ndan son haberler",

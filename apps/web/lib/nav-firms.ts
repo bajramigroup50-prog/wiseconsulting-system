@@ -19,6 +19,8 @@ const ADD: [string, string, NavItem[]][] = [
   ['Фирми', 'kdogovori', [['kdfakturi', '🧾 Месечна фактура за сметководствени услуги']]],
   // new, owner-only: everything about one firm in one report (any firm, not the selected one)
   ['Фирми', 'kdfakturi', [['firmIzv', '🗂 Целосен извештај за фирма']]],
+  // new, owner-only: the office's own sales – new clients, pipeline, offers (`/crm`)
+  ['Канцеларија', 'mojzad', [['crm', '🤝 CRM – нови клиенти и понуди']]],
   ['Материјално', 'efaktura', [['opomeni', '⏰ Неплатени фактури и опомени'], ['mailhist', '📜 Историја на праќања']]],
   ['Финансово', 'plati', [['payBatch', '👥 Плати – сите фирми (автоматски)']]],
   // dated absences (породилно, боледување, одмор) taken by the monthly payroll by itself
