@@ -402,3 +402,5 @@ th.amt-od,th.amt-pr{color:inherit}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bh-card.bh-hot{background:linear-gradient(135deg,#3a221c,var(--panel));border-color:#6b3a2c}}
 :root[data-theme="dark"] .bh-card.bh-hot{background:linear-gradient(135deg,#3a221c,var(--panel));border-color:#6b3a2c}
 @media (prefers-reduced-motion:reduce){.bh-card,#bookHome .quick a{animation:none;transition:none}}
+/* shown only on paper / in the PDF (cleanClone keeps it): e.g. the file names behind the 👁 buttons of the archive */
+.onprint{display:none}@media print{.onprint{display:inline!important}}

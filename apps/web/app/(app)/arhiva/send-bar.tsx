@@ -6,6 +6,19 @@
  */
 import { useEffect, useState } from 'react';
 
+/** One tick per row serves everything: download / print / send (`data-files`) and, on deletable rows, the
+ * delete / move / read bar (`data-sel-g="ar"`, `ArBulk`). */
+function tickAll(on: boolean) {
+  for (const x of document.querySelectorAll<HTMLInputElement>('input[data-arsel]')) x.checked = on;
+  document.dispatchEvent(new Event('change'));
+  document.dispatchEvent(new Event('wise-sel'));
+}
+
+/** ☑ in the table head: all rows on / off. */
+export function ArSelAll() {
+  return <input type="checkbox" aria-label="Избери ги сите" title="Избери ги сите" onChange={(e) => tickAll(e.target.checked)} />;
+}
+
 const picked = () => [...document.querySelectorAll<HTMLInputElement>('input[data-arsel]:checked')];
 
 export function ArSendBar({ firm }: { firm: string }) {
@@ -17,7 +30,7 @@ export function ArSendBar({ firm }: { firm: string }) {
     document.addEventListener('change', f);
     return () => document.removeEventListener('change', f);
   }, []);
-  const ids = () => picked().map((x) => x.value).join(',');
+  const ids = () => picked().map((x) => x.dataset.files ?? '').filter(Boolean).join(',');
   const names = () => picked().map((x) => x.dataset.arsel ?? '').filter(Boolean);
   const qs = () => 'f=' + encodeURIComponent(ids());
   const need = () => { if (!n) { setMsg('Штиклирајте документи (кутичката лево).'); return false; } setMsg(''); return true; };
@@ -36,9 +49,9 @@ export function ArSendBar({ firm }: { firm: string }) {
     window.location.href = '/arhiva/zip?' + qs();
     setMsg('WhatsApp е отворен – прикачете го преземениот ZIP со 📎.');
   };
-  const all = (on: boolean) => { for (const x of document.querySelectorAll<HTMLInputElement>('input[data-arsel]')) x.checked = on; setN(on ? document.querySelectorAll('input[data-arsel]').length : 0); };
+  const all = (on: boolean) => tickAll(on);
   return (
-    <div className="card noprint" style={{ position: 'sticky', top: 0, zIndex: 5, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div className="card noprint" style={{ position: 'sticky', top: 0, zIndex: 5, display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <b>Избрани: {n}</b>
       <button type="button" className="btn sm ghost" onClick={() => all(true)}>☑ сите</button>
       <button type="button" className="btn sm ghost" onClick={() => all(false)}>☐ ниеден</button>

@@ -52,7 +52,8 @@ export function ArBulk({ firms, del, move, book, read, group = 'ar' }: { firms: 
   useEffect(() => {
     const f = () => setN(ticked(group).length);
     document.addEventListener('wise-sel', f);
-    return () => document.removeEventListener('wise-sel', f);
+    document.addEventListener('change', f);
+    return () => { document.removeEventListener('wise-sel', f); document.removeEventListener('change', f); };
   }, [group]);
   const run = (ask: string, f: (ids: string[]) => Promise<Res>) => {
     const ids = ticked(group);
@@ -69,7 +70,7 @@ export function ArBulk({ firms, del, move, book, read, group = 'ar' }: { firms: 
   const t = firms.find((f) => f.id === to);
   return (
     <div className="row noprint" style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)', padding: '6px 0', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <span className="mini">Штиклирајте (☑ горе = сите) и:</span>
+      <span className="mini">Штиклираните (кутичката лево, ☑ горе = сите):</span>
       {book && <button type="button" className="btn pri" disabled={!n || pending} onClick={() => run('Да се прокнижат избраните ({n}) во налогот на нивниот период?', book)}>✓ Книжи ги избраните ({n})</button>}
       {read && <span className="row" style={{ gap: 6, alignItems: 'center' }}>
         <select value={rk} onChange={(e) => setRk(e.target.value as 'purchase' | 'cash' | 'sale')} style={{ width: 'auto' }} aria-label="Читај како">
