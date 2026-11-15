@@ -5,7 +5,7 @@
  * `ledPdf` 7269), Excel (`nalogXlsx` 7345, `ledCsv` 7259).
  */
 import Link from 'next/link';
-import { lineText } from '@/lib/line-text';
+import { isImportedDesc, lineText } from '@/lib/line-text';
 import { and, asc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { bankEffKonto, bankName, noPartnerLine, groupNalozi, lineTotals, NAL_DEF, nalCode, bankNalCode, type NalDefKey } from '@wise/core';
 import type { CustomScheme } from '@wise/core/finance';
@@ -344,7 +344,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     {write && profiles.length > 0 && <td>{(j.sourceType === 'invoice' || j.sourceType === 'purchase') && j.sourceId
                       ? <input type="checkbox" name="j" value={j.id} form="schrep" disabled={locked(j)} aria-label={'Избери ' + (j.description ?? j.number)} title={locked(j) ? 'Заклучен период – не се прекнижува' : undefined} />
                       : null}</td>}
-                    <td>{dmy(j.date)}</td><td>{jName.get(j.id) ?? j.description}{schPill(j)}{!!o?.applied && <> <span className="pill warn" title="Налогот е рачно коригиран и се разликува од документот">🛠 коригиран</span></>}</td><td className="n">{fmt(j.D)}</td>
+                    <td>{dmy(j.date)}</td><td>{jName.get(j.id) ?? (isImportedDesc(j.description) ? titleOf(g) : j.description)}{schPill(j)}{!!o?.applied && <> <span className="pill warn" title="Налогот е рачно коригиран и се разликува од документот">🛠 коригиран</span></>}</td><td className="n">{fmt(j.D)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {canEdit(j) && <Link className="btn sm" href={`/nalozi?edit=${j.id}`}>✎ Корекција</Link>}{' '}
                       {!manualLike(j) && j.sourceType && DOC_SCREEN[j.sourceType] && <Link className="btn sm ghost" href={DOC_SCREEN[j.sourceType]!}>Документ →</Link>}{' '}
@@ -553,7 +553,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                 <tr key={l.id}>
                   <td><Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(j.number)}`}>бр. {j.number}</Link></td><td>{dmy(j.date)}</td>
                   <td><span className="pill">{kindLbl(j.kind)}</span></td>
-                  <td>{j.description}{l.doc ? ' · ' + l.doc : ''}</td><td><span className="num">{l.account}</span> {kn.get(l.account) ?? ''}{p ? ' · ' + p : ''}</td>
+                  <td>{isImportedDesc(j.description) ? lineText({ description: j.description, doc: l.doc, note: l.note }) : <>{j.description}{l.doc ? ' · ' + l.doc : ''}</>}</td><td><span className="num">{l.account}</span> {kn.get(l.account) ?? ''}{p ? ' · ' + p : ''}</td>
                   <td className="n">{Number(l.debit) ? fmt(l.debit) : ''}</td><td className="n">{Number(l.credit) ? fmt(l.credit) : ''}</td>
                 </tr>))}</tbody>
               <tfoot><tr><td colSpan={5}>Вкупно</td><td className="n">{fmt(hits.reduce((s, h) => s + Number(h.l.debit), 0))}</td><td className="n">{fmt(hits.reduce((s, h) => s + Number(h.l.credit), 0))}</td></tr></tfoot>

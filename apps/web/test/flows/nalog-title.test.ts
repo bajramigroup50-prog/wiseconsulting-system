@@ -47,7 +47,9 @@ describe('✎ Назив на налог', () => {
     expect(await page({ n: '1/3' })).toContain('✎ Назив');
     const h = await page({ n: '1/3', naziv: '' });
     expect(h).toContain('aria-label="Назив на налогот"');
-    expect(h).toContain('placeholder="Увезен налог 1/3"');
+    expect(h).toContain('placeholder="ИЗЛЕЗНИ ФАКТУРИ"');
+    // an imported nalog is never shown as „Увезен налог …“
+    expect(h).not.toContain('Увезен налог');
   });
 
   it('renaming shows the name in the list, the heading, the print and the CSV; other year / number unaffected', async () => {
@@ -55,21 +57,22 @@ describe('✎ Назив на налог', () => {
     expect(await rename('1/3', 'ДДВ 01-03')).toEqual({ redirect: '/nalozi?n=1%2F3' });
     const list = await page();
     expect(list).toContain('ДДВ 01-03');
-    expect(list).toContain('Увезен налог 1/4-6');
+    expect(list).toContain('ИЗЛЕЗНИ ФАКТУРИ');
+    expect(list).not.toContain('Увезен налог');
     expect(list).not.toContain('Увезен налог 1/3<');
     expect(await page({ n: '1/3' })).toContain('ДДВ 01-03 ·');
     const p = await print('1/3');
     expect(p).toContain('ДДВ 01-03');
     expect(p).not.toContain('УВЕЗЕН НАЛОГ 1/3</div>');
-    expect(await print('1/4-6')).toContain('УВЕЗЕН НАЛОГ 1/4-6');
+    expect(await print('1/4-6')).toContain('ИЗЛЕЗНИ ФАКТУРИ');
     const c = await csv();
     expect(c).toContain('Назив на налог');
     expect(c).toMatch(/1\/3;ДДВ 01-03;/);
-    expect(c).toMatch(/1\/4-6;Увезен налог 1\/4-6;/);
+    expect(c).toMatch(/1\/4-6;ИЗЛЕЗНИ ФАКТУРИ;/);
     // the same number in 2025 keeps its own title
     useYear(2025);
-    expect(await page()).toContain('Увезен налог 1/3');
-    expect(await print('1/3')).toContain('УВЕЗЕН НАЛОГ 1/3');
+    expect(await page()).toContain('ИЗЛЕЗНИ ФАКТУРИ');
+    expect(await print('1/3')).toContain('ИЗЛЕЗНИ ФАКТУРИ');
     useYear(2026);
     const a = await pg.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'nalTitle'));
     expect(a.at(-1)!.data).toEqual({ year: 2026, number: '1/3', from: null, to: 'ДДВ 01-03' });
@@ -86,9 +89,9 @@ describe('✎ Назив на налог', () => {
   it('an empty name brings back the automatic title', async () => {
     jar.set('wc_sess', owner);
     await rename('1/3', '');
-    expect(await page()).toContain('Увезен налог 1/3');
-    expect(await print('1/3')).toContain('УВЕЗЕН НАЛОГ 1/3');
-    expect(await csv()).toMatch(/1\/3;Увезен налог 1\/3;/);
+    expect(await page()).toContain('ИЗЛЕЗНИ ФАКТУРИ');
+    expect(await print('1/3')).toContain('ИЗЛЕЗНИ ФАКТУРИ');
+    expect(await csv()).toMatch(/1\/3;ИЗЛЕЗНИ ФАКТУРИ;/);
   });
 
   it('an imported nalog opens in the manual editor with its lines and its name (not an empty document correction)', async () => {

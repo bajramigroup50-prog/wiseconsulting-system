@@ -23,8 +23,10 @@ export function nalogTitler(o: { settings: unknown; year: number; nal: NalogSett
   const auto = (g: TitleGroup): string => {
     const h = collectiveHead(g.journals);
     if (h) return h.description ?? '';
-    if (g.journals.length === 1) return g.journals[0]!.description ?? '';
     const c = g.no.includes('/') ? g.no.split('/')[0]! : '';
+    // a nalog imported from the old program is named by its kind (2/1-3 → ВЛЕЗНИ ФАКТУРИ), never „Увезен налог 2/1-3“
+    if (g.journals.some((j) => /^Увезен налог/i.test(j.description ?? ''))) return codeTitle.get(c) ?? 'Налог ' + g.no;
+    if (g.journals.length === 1) return g.journals[0]!.description ?? '';
     return codeTitle.get(c) ?? `${g.journals[0]?.description ?? ''} (+${g.journals.length - 1})`;
   };
   return {

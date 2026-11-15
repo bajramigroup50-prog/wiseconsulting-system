@@ -7,7 +7,9 @@
  */
 import { notFound } from 'next/navigation';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { journalLines, journals, loadBankAccounts, nalTitleOf, partners } from '@wise/db';
+import { firmNalogSettings, journalLines, journals, loadBankAccounts, nalTitleOf, partners } from '@wise/db';
+import { isImportedDesc, lineText } from '@/lib/line-text';
+import { nalogTitler } from '@/lib/nalog-title';
 import { mergeBankHeads } from '@/lib/nalog-grid';
 import { db } from '@/lib/db';
 import { fmt } from '@/lib/fmt';
@@ -33,7 +35,8 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
   const L0 = await db().select({ l: journalLines, j: { id: journals.id, date: journals.date, description: journals.description, kind: journals.kind, meta: journals.meta, sourceType: journals.sourceType }, p: { id: partners.id, code: partners.code, name: partners.name } })
     .from(journalLines).innerJoin(journals, eq(journals.id, journalLines.journalId)).leftJoin(partners, eq(partners.id, journalLines.partnerId))
     .where(inArray(journalLines.journalId, J.map((j) => j.id))).orderBy(asc(journals.date), asc(journals.createdAt), asc(journalLines.lineNo));
-  const bankK = new Set((await loadBankAccounts(db(), firm.id)).map((a) => a.konto));
+  const banksT = await loadBankAccounts(db(), firm.id);
+  const bankK = new Set(banksT.map((a) => a.konto));
   // the two head lines of a statement (Σ приливи / Σ одливи on the bank konto) print as one line
   const L = mergeBankHeads(L0.map((x) => ({ account: x.l.account, debit: Number(x.l.debit), credit: Number(x.l.credit), partnerId: x.l.partnerId, note: x.l.note, currency: x.l.currency, amountCur: x.l.amountCur == null ? null : Number(x.l.amountCur), journalId: x.j.id })),
     (x) => L0.find((y) => y.j.id === x.journalId)?.j.sourceType === 'bank_statement', bankK)
@@ -52,6 +55,7 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
   const custom = nalTitleOf(firm.settings, year, n);
   const label = custom ? custom : t ? t.slice(0, 120)
     : bankJ.length ? 'Изводи' + (bankName.length === 1 ? ' – ' + bankName[0] : '')
+    : isImportedDesc(J[0]!.description) ? nalogTitler({ settings: firm.settings, year, nal: firmNalogSettings(firm), banks: banksT }).title({ no: n, journals: J })
     : J.length === 1 ? J[0]!.description ?? '' : (J[0]!.description ?? '') + ` и уште ${J.length - 1}`;
   const izb = (x: (typeof L)[number]) => {
     if (x.j.kind !== 'bank') return '';
@@ -76,7 +80,7 @@ export default async function PrintNalog({ searchParams }: { searchParams: Promi
               <td className="n">{i + 1}</td><td>{d8(x.j.date)}</td><td style={{ textAlign: 'center' }}>{izb(x)}</td><td>{x.l.account}</td>
               <td className="n">{fmt(x.l.debit)}</td><td className="n">{fmt(x.l.credit)}</td>
               <td>{x.p ? ((x.p.code ? x.p.code + ' ' : '') + x.p.name).slice(0, 34) : ''}</td>
-              <td style={{ whiteSpace: 'normal' }}>{nalogContent(x.j.description ?? '').slice(0, 90)}</td>
+              <td style={{ whiteSpace: 'normal' }}>{(isImportedDesc(x.j.description) ? lineText({ description: x.j.description, doc: x.l.doc, note: x.l.note }) : nalogContent(x.j.description ?? '')).slice(0, 90)}</td>
               <td style={{ whiteSpace: 'normal' }}>{x.l.doc ?? ''}{x.l.note && x.l.note !== x.j.description ? <> <small>{x.l.note.slice(0, 40)}</small></> : null}</td>
               {showDev && <><td className="n">{x.dD ? fmt(x.dD) : ''}</td><td className="n">{x.dP ? fmt(x.dP) : ''}</td><td>{x.l.currency && x.l.currency !== 'MKD' ? x.l.currency : ''}</td></>}
             </tr>

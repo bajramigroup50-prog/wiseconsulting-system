@@ -16,7 +16,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 
 const T = '🔎 Контрола на комитенти';
-const SRC: Record<string, string> = { bank_statement: '🏦 Извод', purchase: '📥 Влезна фактура', invoice: '🧾 Излезна фактура', pdd: '👤 Пресметка (бонус / закуп)', cash_voucher: '💶 Благајна', opening: 'Почетна состојба', import: 'Увезен налог', payroll: 'Плата' };
+const SRC: Record<string, string> = { bank_statement: '🏦 Извод', purchase: '📥 Влезна фактура', invoice: '🧾 Излезна фактура', pdd: '👤 Пресметка (бонус / закуп)', cash_voucher: '💶 Благајна', opening: 'Почетна состојба', import: '📒 Налог (стара програма)', payroll: 'Плата' };
 
 export default async function KontrolaKomPage() {
   const { firm, year } = await booksPage('kontrolaKom');
