@@ -8,8 +8,25 @@ const isPdf = (x: Item) => /pdf/i.test(x.mime) || /\.pdf$/i.test(x.name);
 const CSS = `@page{size:A4;margin:8mm}.ap{font-family:Arial,sans-serif}
 .ap-bar{position:sticky;top:0;background:#fff;padding:8px 0;display:flex;gap:10px;align-items:center;border-bottom:1px solid #ddd;margin-bottom:10px}
 .ap-page{position:relative;width:fit-content;max-width:100%;page-break-after:always;break-after:page;margin:0 auto 16px;break-inside:avoid}.ap-page:last-child{page-break-after:auto}
-.ap-stamp{display:table;margin:0 0 1.5mm auto;max-width:100%;border:1px solid #b00;border-radius:3px;color:#b00;font-weight:700;font-size:6.5pt;line-height:1.2;padding:1px 5px;text-align:right}
-.ap-img{max-width:100%;max-height:272mm;display:block;margin:0 auto}@media print{.ap-bar{display:none}}`;
+.ap-stamp{width:fit-content;max-width:72mm;margin:0 0 1.5mm auto;border:1.5px solid #b00;border-radius:4px;color:#b00;font-size:6.5pt;line-height:1.25;padding:2px 6px;text-align:center}.ap-stamp b{display:block;font-size:8pt;letter-spacing:.5px}.ap-stamp span{display:block;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ap-img{max-width:100%;max-height:262mm;display:block;margin:0 auto}@media print{.ap-bar{display:none}}`;
+
+/** The stamp as a small box: „АРХИВСКИ ПРИМЕРОК“ / firm · printed on / the document (· page). */
+function stampBox(stamp: string, label: string): HTMLDivElement {
+  const [head, ...rest] = stamp.split(' · ');
+  const box = document.createElement('div');
+  box.className = 'ap-stamp';
+  const b = document.createElement('b'); b.textContent = head ?? '';
+  const l2 = document.createElement('span'); l2.textContent = rest.join(' · ');
+  const l3 = document.createElement('span'); l3.textContent = label;
+  box.append(b, l2, l3);
+  return box;
+}
+
+function Stamp({ stamp, label }: { stamp: string; label: string }) {
+  const [head, ...rest] = stamp.split(' · ');
+  return <div className="ap-stamp"><b>{head}</b><span>{rest.join(' · ')}</span><span>{label}</span></div>;
+}
 
 function PdfPages({ item, stamp, onDone }: { item: Item; stamp: string; onDone: () => void }) {
   const box = useRef<HTMLDivElement>(null);
@@ -30,9 +47,7 @@ function PdfPages({ item, stamp, onDone }: { item: Item; stamp: string; onDone: 
           await page.render({ canvas: c, canvasContext: c.getContext('2d')!, viewport: vp }).promise;
           const wrap = document.createElement('div');
           wrap.className = 'ap-page';
-          const head = document.createElement('div');
-          head.className = 'ap-stamp';
-          head.textContent = `${stamp} · ${item.label} · стр. ${p}/${doc.numPages}`;
+          const head = stampBox(stamp, `${item.label} · стр. ${p}/${doc.numPages}`);
           const img = document.createElement('img');
           img.src = c.toDataURL('image/jpeg', 0.9);
           img.className = 'ap-img';
@@ -46,7 +61,7 @@ function PdfPages({ item, stamp, onDone }: { item: Item; stamp: string; onDone: 
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div ref={box}>
-      {err && <div className="ap-page"><div className="ap-stamp">{stamp} · {item.label}</div><p>PDF-от не може да се прикаже за печатење ({err}) – <a href={`/api/files/${item.id}`} target="_blank" rel="noreferrer">отворете го</a>.</p></div>}
+      {err && <div className="ap-page"><Stamp stamp={stamp} label={item.label} /><p>PDF-от не може да се прикаже за печатење ({err}) – <a href={`/api/files/${item.id}`} target="_blank" rel="noreferrer">отворете го</a>.</p></div>}
     </div>
   );
 }
@@ -64,7 +79,7 @@ export function ArchPrint({ items, stamp }: { items: Item[]; stamp: string }) {
       {items.map((x) => (isPdf(x)
         ? <PdfPages key={x.id} item={x} stamp={stamp} onDone={() => setLeft((n) => n - 1)} />
         // eslint-disable-next-line @next/next/no-img-element
-        : <div key={x.id} className="ap-page"><div className="ap-stamp">{stamp} · {x.label}</div><img className="ap-img" src={`/api/files/${x.id}`} alt={x.name} /></div>))}
+        : <div key={x.id} className="ap-page"><Stamp stamp={stamp} label={x.label} /><img className="ap-img" src={`/api/files/${x.id}`} alt={x.name} /></div>))}
     </div>
   );
 }
