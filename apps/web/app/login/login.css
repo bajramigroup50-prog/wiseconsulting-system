@@ -1,0 +1,32 @@
+/* Најава – design „Б“: dark green, large brand letter, the form on a light card (login/page.tsx, login-form.tsx) */
+.lg-wrap{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px calc(24px + env(safe-area-inset-bottom));
+  background:radial-gradient(circle at 20% 12%,#1d8b72 0,#0d5b4b 42%,#062f27 100%);color:#fff;font-family:var(--f-body,'IBM Plex Sans',Segoe UI,sans-serif)}
+.lg-top{text-align:center}
+.lg-letter{font:700 76px/1 var(--f-display,'Onest',Segoe UI,sans-serif);letter-spacing:1px}
+.lg-name{font:700 24px var(--f-display,'Onest',Segoe UI,sans-serif);margin-top:6px;letter-spacing:.3px}
+.lg-date{opacity:.82;margin:4px 0 22px;font-size:15px;min-height:20px}
+.lg-card{width:100%;max-width:400px;background:#ffffffee;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:20px;padding:24px 22px;color:#101828;box-shadow:0 20px 50px #0004}
+.lg-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.lg-head h1{margin:0;font:700 22px var(--f-display,'Onest',Segoe UI,sans-serif);color:#101828}
+.lg-lang{display:flex;gap:6px}
+.lg-lang button{padding:4px 10px;border-radius:8px;border:1px solid #d0d5dd;background:#fff;font-weight:700;font-size:12px;cursor:pointer;color:#344054}
+.lg-lang button.on{background:#0d5b4b;border-color:#0d5b4b;color:#fff}
+.lg-f{display:block;font-size:13px;color:#475467;margin:10px 0 0}
+.lg-f input{display:block;width:100%;margin-top:5px;padding:12px 13px;border:1px solid #d0d5dd;border-radius:11px;font-size:16px;background:#fff;color:#101828}
+.lg-f input:focus{outline:2px solid #0d5b4b;outline-offset:0;border-color:#0d5b4b}
+.lg-pass{position:relative;display:block}.lg-pass input{padding-right:46px}
+.lg-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);margin-top:2px;width:38px;height:38px;border:0;background:none;font-size:18px;cursor:pointer;color:#667085}
+.lg-caps{margin-top:6px;font-size:12px;color:#b54708}
+.lg-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:12px 0 2px;flex-wrap:wrap}
+.lg-chk{display:flex;align-items:center;gap:6px;font-size:13px;color:#475467;cursor:pointer}.lg-chk input{width:18px;height:18px;accent-color:#0d5b4b}
+.lg-link{border:0;background:none;padding:0;color:#0d5b4b;font-weight:700;font-size:13px;cursor:pointer;text-align:right}
+.lg-forgot{margin-top:8px;padding:9px 11px;border-radius:10px;background:#e6f2ef;color:#0d5b4b;font-size:13px}
+.lg-code{font-size:22px!important;letter-spacing:.3em;text-align:center}
+.lg-msg{min-height:20px;margin:10px 0 8px;font-size:13px;color:#b42318}.lg-msg.info{color:#344054}
+.lg-btn{display:block;width:100%;padding:14px;border:0;border-radius:12px;background:#0d5b4b;color:#fff;font-weight:700;font-size:16px;cursor:pointer}
+.lg-btn:hover{background:#0b4f41}.lg-btn:disabled{opacity:.7}
+.lg-btn.ghost{background:none;color:#0d5b4b;margin-top:6px}
+.lg-mini{display:block;font-size:12px;color:#667085;margin-top:6px}
+.lg-rules{margin:12px 0 0;line-height:1.45}
+.lg-safe{margin-top:18px;font-size:12px;opacity:.75}
+@media (max-width:420px){.lg-letter{font-size:64px}.lg-card{padding:20px 16px}}
