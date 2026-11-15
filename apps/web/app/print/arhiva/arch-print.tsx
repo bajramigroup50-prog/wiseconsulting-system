@@ -7,9 +7,9 @@ const isPdf = (x: Item) => /pdf/i.test(x.mime) || /\.pdf$/i.test(x.name);
 
 const CSS = `@page{size:A4;margin:8mm}.ap{font-family:Arial,sans-serif}
 .ap-bar{position:sticky;top:0;background:#fff;padding:8px 0;display:flex;gap:10px;align-items:center;border-bottom:1px solid #ddd;margin-bottom:10px}
-.ap-page{page-break-after:always;break-after:page;margin:0 0 16px}.ap-page:last-child{page-break-after:auto}
-.ap-stamp{border:2px solid #b00;color:#b00;font-weight:700;font-size:10pt;padding:3px 8px;margin:0 0 4px;display:inline-block}
-.ap-img{max-width:100%;max-height:265mm;display:block;margin:0 auto}@media print{.ap-bar{display:none}}`;
+.ap-page{position:relative;width:fit-content;max-width:100%;page-break-after:always;break-after:page;margin:0 auto 16px;break-inside:avoid}.ap-page:last-child{page-break-after:auto}
+.ap-stamp{display:table;margin:0 0 1.5mm auto;max-width:100%;border:1px solid #b00;border-radius:3px;color:#b00;font-weight:700;font-size:6.5pt;line-height:1.2;padding:1px 5px;text-align:right}
+.ap-img{max-width:100%;max-height:272mm;display:block;margin:0 auto}@media print{.ap-bar{display:none}}`;
 
 function PdfPages({ item, stamp, onDone }: { item: Item; stamp: string; onDone: () => void }) {
   const box = useRef<HTMLDivElement>(null);
