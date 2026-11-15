@@ -1,0 +1,19 @@
+{
+  "name": "wise-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WISE CONSULTING – Android / iPhone app (Capacitor shell around app.wiseconsulting.com.mk)",
+  "scripts": {
+    "sync": "cap sync",
+    "assets": "capacitor-assets generate --iconBackgroundColor #0d5b4b --iconBackgroundColorDark #0d5b4b --splashBackgroundColor #0d5b4b --splashBackgroundColorDark #0d5b4b"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.2"
+  }
+}
