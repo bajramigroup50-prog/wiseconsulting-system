@@ -105,6 +105,7 @@ export * from './demo/reset';
 export * from './demo/firms';
 export * from './automation/index';
 export * from './nalog-titles';
+export * from './firm-defaults';
 export * from './nalog-delete';
 export * from './firm-wipe';
 export * from './firm-mail';

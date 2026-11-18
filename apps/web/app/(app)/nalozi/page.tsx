@@ -474,6 +474,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               {(Object.keys(NAL_DEF) as NalDefKey[]).map((k) => (
                 <label className="mini" key={k}>{NAL_DEF[k][1].toLowerCase()} <input name={'nc_' + k} defaultValue={nalCode(k, S)} style={{ width: 70 }} /></label>
               ))}
+              {u.role === 'admin' && <label className="mini" title="Нумерирањето и периодот важат за сите фирми на канцеларијата и за фирмите што ќе се отворат"><input type="checkbox" name="all" value="1" /> за сите фирми (и новите)</label>}
               <button className="btn sm pri">Зачувај</button>
               <span className="note">Промената важи за новите налози; веќе книжените го задржуваат својот број.</span>
             </form>

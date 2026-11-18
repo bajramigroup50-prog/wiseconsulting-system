@@ -16,6 +16,7 @@ import {
   bookStatementLines, deleteJournal, journalLines, journals, nalogPeriod, previewSuggestions, type LineSuggestion,
   saveBankKonta, moveTransitLines, repostStatementsLayout, setBankAccountKonto, type AccountRepost, type LockedStatement,
   pendingReads, dismissReads, linkBankAccountNumber, createStatementAccount, bulkDeleteStatements, bulkDeleteStatementsPlan, type Tx,
+  applyBankKontaDefaults,
 } from '@wise/db';
 import { BANK_KONTA_FIELDS } from '@wise/core';
 import { statementsFromRead } from '@wise/core/ai/bank';
@@ -653,6 +654,12 @@ export async function saveBankKontaAction(_p: FormState, form: FormData): Promis
     const layout = form.get('layout') === 'line' ? 'line' : 'sum';
     await saveBankKonta(tx, { firmId: firm.id, userId: u.id, input, layout });
     who = { u: u.id, firm: firm.id, year };
+    // „за сите фирми (и новите)“ – admin only
+    if (form.get('all') === '1') {
+      if (u.role !== 'admin' || u.principal.demo) throw fail('За сите фирми може само администраторот.');
+      const n = await applyBankKontaDefaults(tx, u.id, input);
+      return `Контата за изводи се зачувани за сите ${n} фирми (и за новите). Важат за новите книжења.`;
+    }
     return 'Контата за изводи се зачувани. Важат за новите книжења; постоечките ставки / налози префрлете ги со копчињата подолу.';
   });
   // UX Phase 3 (P31): background re-post of the statements (owner switch) or the „Прекнижи“ suggestion

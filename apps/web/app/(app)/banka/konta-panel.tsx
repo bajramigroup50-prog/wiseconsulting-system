@@ -12,7 +12,7 @@ import { BankForm } from '@/components/bank-form';
 import { RowAction } from '@/components/row-action';
 import { moveTransitAction, repostLayoutAction, saveBankAccountAction, saveBankKontaAction, setBankAccountKontoAction, setBankAccountKontoFormAction } from './actions';
 
-export async function KontaPanel({ firmId, year, chart, fx }: { firmId: string; year: number; chart: ChartEntry[]; fx: boolean }) {
+export async function KontaPanel({ firmId, year, chart, fx, admin }: { firmId: string; year: number; chart: ChartEntry[]; fx: boolean; admin?: boolean }) {
   const [P, mv, own, AK] = await Promise.all([
     db().transaction((tx) => bankKontaPanel(tx, firmId)),
     db().transaction((tx) => moveTransitLines(tx, { firmId, userId: null, year, dry: true })),
@@ -68,7 +68,9 @@ export async function KontaPanel({ firmId, year, chart, fx }: { firmId: string; 
             <option value="line">по ставка – до секоја ставка</option>
           </select>
         </label>
-        <div className="row" style={{ width: '100%' }}><button className="btn pri">Зачувај</button>
+        <div className="row" style={{ width: '100%' }}>
+          {admin && <label className="mini" title="Пополнетите конта важат за сите фирми на канцеларијата и за фирмите што ќе се отворат (празните не се менуваат)"><input type="checkbox" name="all" value="1" /> за сите фирми (и новите)</label>}
+          <button className="btn pri">Зачувај</button>
           <span className="note">Празно поле = стандардното конто (шема / контен план). Секое конто мора да постои во контниот план.</span></div>
       </BankForm>
 

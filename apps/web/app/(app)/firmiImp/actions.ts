@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 import { can } from '@wise/core';
 import { fimpFind, fimpParse, fimpPatch, fimpToFirm, type FimpRecord } from '@wise/core/firms/firmimp';
 import type { KlCred } from '@wise/core/firms/klprofili';
-import { audit, firms, realFirmSql } from '@wise/db';
+import { audit, firms, realFirmSql, applyFirmDefaults } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { db } from '@/lib/db';
@@ -70,6 +70,7 @@ export async function importFirms(recs: FimpRecord[], opts: { ddv: boolean; prof
           settings, ownerId: u.id,
         }).returning();
         ex.push(f!);
+        await applyFirmDefaults(tx, f!.id);
         await audit(tx, { userId: u.id, firmId: f!.id, action: 'newFirm', entityType: 'firm', entityId: f!.id, data: { name: f!.name, source: 'fimp' } });
         n++;
         if (profiles) { const c = await createClientProfile(tx, f!, used, u.id); if (c) creds.push(c); }

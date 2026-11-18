@@ -8,6 +8,7 @@ import type { OvRow } from '@wise/core/finpar';
 import {
   audit, bankAccounts, createLineKonto, deleteJournal, journalOverrideState, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
   resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal, type NalogDeleteResult,
+  applyNalogDefaults,
 } from '@wise/db';
 import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
 import { actorOf } from '@/lib/sales';
@@ -209,6 +210,10 @@ export async function saveNalogSettings(form: FormData): Promise<void> {
   const codes: Record<string, string> = {};
   for (const [k, v] of form.entries()) if (k.startsWith('nc_') && String(v).trim()) codes[k.slice(3)] = String(v).trim().slice(0, 12);
   Object.assign(s, { nalogMode: mode, nalogPer: per, nalPayPer: pay, nalCodes: codes });
+  // „за сите фирми (и новите)“ – admin only: the numbering of every firm of the office
+  if (form.get('all') === '1' && u.role === 'admin' && !u.principal.demo) {
+    await db().transaction((tx) => applyNalogDefaults(tx as never, u.id, { nalogMode: mode, nalogPer: per, nalPayPer: pay }));
+  }
   await db().transaction(async (tx) => {
     await tx.update(firms).set({ settings: s }).where(eq(firms.id, firm.id));
     await audit(tx, { userId: u.id, firmId: firm.id, action: 'saveNalCodes', entityType: 'firm', entityId: firm.id, data: { nalogMode: mode, nalogPer: per, nalPayPer: pay, nalCodes: codes } });

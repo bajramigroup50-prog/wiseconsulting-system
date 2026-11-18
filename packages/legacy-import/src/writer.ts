@@ -25,8 +25,7 @@ import {
   levellingDocs, missingAccounts, partners, paymentOrders, payrollEmp, payrollLines, payrollRuns, postJournal, productionOrders,
   purchaseCosts, purchaseStockLines, purchaseVatGroups, purchases, recurringInvoices, rentRentals, salesDaily, serviceContracts,
   stockCounts, stockMoves, supplierCreditLines, supplierCredits, transfers, travelArrangements, travelBookings, updateJournal,
-  userFirms, users, vatPeriods, yearClosings, realFirmSql, type Tx,
-} from '@wise/db';
+  userFirms, users, vatPeriods, yearClosings, realFirmSql, type Tx, applyFirmDefaults } from '@wise/db';
 import { LEGACY_COLS, collectionCounts, type LDoc, type LegacyBundle, type LegacyFirmBackup, type LegacyUser } from './format';
 import { compareTrialBalances, legacyLedger, trialBalanceOf, type LegacySource, type TbDiff, type TbRow } from './ledger';
 import * as M from './map';
@@ -274,6 +273,7 @@ class FirmImport {
     } else {
       const [f] = await this.tx.insert(firms).values(base).returning({ id: firms.id });
       firmId = f!.id;
+      await applyFirmDefaults(this.tx as never, firmId);
     }
     await globalIds.set('firm', firm.id, firmId);
     this.firmId = firmId;

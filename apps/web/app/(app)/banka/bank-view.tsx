@@ -273,7 +273,7 @@ export async function BankView({ fx, sp }: { fx: boolean; sp: BankSP }) {
           <p className="note">За девизна сметка изберете валута (EUR, USD…) и посебно конто. Износите се внесуваат во валута, а во денари се пресметуваат по курсот на изводот; разликата при плаќање на фактура оди на курсни разлики (4810 / 7810). Секоја банка има свое аналитичко конто. Сметка со изводи не може да се отстрани.</p>
         </div>
       )}
-      {(sp.banks || !BK.length) && canDo(u, 'settings', firm.id) && <KontaPanel firmId={firm.id} year={year} chart={chart} fx={fx} />}
+      {(sp.banks || !BK.length) && canDo(u, 'settings', firm.id) && <KontaPanel firmId={firm.id} year={year} chart={chart} fx={fx} admin={u.role === 'admin' && !u.principal.demo} />}
       {sp.banks && canDo(u, 'settings', firm.id) && await (async () => {
         // UX Phase 3: the owner's „автоматски“ switches per firm (OFF by default — the program only proposes)
         const owner = await isOfficeOwner(u);

@@ -12,7 +12,7 @@ import { can } from '@wise/core';
 import { nkdProfiles, suggestedModules } from '@wise/core/industry';
 import type { KlCred } from '@wise/core/firms/klprofili';
 import { FS_CAT, fsDig, fsDup, fsNorm, otherNkd } from '@wise/core/firms/resh';
-import { audit, dossierDocs, fileLinks, files, firmReshReads, firms, formationCases, OFFICE_FILE_ENTITY, realFirmSql } from '@wise/db';
+import { audit, dossierDocs, fileLinks, files, firmReshReads, firms, formationCases, OFFICE_FILE_ENTITY, realFirmSql, applyFirmDefaults } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { db } from '@/lib/db';
@@ -86,6 +86,7 @@ export async function saveResh(_p: ReshResult, f: FormData): Promise<ReshResult>
       const mods = suggestedModules(nkdProfiles(nkd));
       const [n] = await tx.insert(firms).values({ ...cols, vatPeriod: 'quarter', mods, settings, ownerId: u.id }).returning({ id: firms.id });
       fid = n!.id;
+      await applyFirmDefaults(tx, fid);
       await audit(tx, { userId: u.id, firmId: fid, action: 'newFirm', entityType: 'firm', entityId: fid, data: { name, source: 'firmiResh' } });
       log.push(`✓ Фирмата „${name}“ е регистрирана во листата на фирми`);
       log.push(`✓ Модули според шифрата ${nkd || '—'}: ${mods.length ? mods.join(', ') : 'само основни'}`);

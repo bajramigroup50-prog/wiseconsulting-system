@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { isNcStatus, LEGAL_FORMS, NC_CHECK, NF, sharesOk, taskTransition, type Founder } from '@wise/core/office';
-import { audit, firms, formationCases, getOfficeProfile, officeTasks } from '@wise/db';
+import { audit, firms, formationCases, getOfficeProfile, officeTasks, applyFirmDefaults } from '@wise/db';
 import { Forbidden, requireCan } from '@/lib/auth';
 import type { ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -84,6 +84,7 @@ export async function createFirmFromFormation(id: string): Promise<ActionState> 
         activity: [d.nkd, d.activity].filter(Boolean).join(' ') || null, vatRegistered: false,
         settings: { nkd: d.nkd, regDate: fdateStr(d.regDate), manager: (c.managers[0] as { name?: string } | undefined)?.name, short: d.short },
       }).returning({ id: firms.id });
+      await applyFirmDefaults(tx, fm!.id);
       await tx.update(formationCases).set({ firmId: fm!.id, status: 'created' }).where(eq(formationCases.id, id));
       await audit(tx, { userId: u.id, firmId: fm!.id, action: 'ncCreateFirm', entityType: 'firm', entityId: fm!.id, data: { formation: id, name: c.name } });
       return null;

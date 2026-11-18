@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { FIRM_VAT_RATES, firmSettingsFrom, unlockTo } from '@wise/core/firms/firmform';
 import { fyOnDeactivate, fyOnRestore } from '@wise/core/firms/years';
 import { todaySkopje } from '@wise/core/office';
-import { audit, createDemoFirm, crmLeads, crmNotes, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm } from '@wise/db';
+import { audit, createDemoFirm, crmLeads, crmNotes, deleteDemoFirm, DemoFirmError, DemoResetError, firms, type NewFirm, applyFirmDefaults } from '@wise/db';
 import { createClientProfile, takenUsernames } from '@/lib/client-profiles';
 import { can } from '@wise/core';
 import { hasDemoPrefix, isDemoFirm } from '@wise/core/demo';
@@ -103,6 +103,7 @@ export async function saveFirm(_prev: FirmFormState, form: FormData): Promise<Fi
       return { id, cred: null };
     }
     const [f] = await tx.insert(firms).values({ ...v, name: parsed.data.name, ownerId: u.id }).returning();
+    await applyFirmDefaults(tx, f!.id);
     await audit(tx, { userId: u.id, firmId: f!.id, action: 'newFirm', entityType: 'firm', entityId: f!.id, data: { name: parsed.data.name } });
     // 🤝 „Конвертирај во клиент“ (CRM, owner only): the lead is won and linked to the new firm
     if (crmLead) {
