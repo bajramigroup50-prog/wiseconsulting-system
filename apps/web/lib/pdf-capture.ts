@@ -36,6 +36,7 @@ export function cleanClone(el: HTMLElement, opts: { dropHeader?: boolean } = {})
     const d = dst[i];
     if (!d) return;
     const st = view?.getComputedStyle(s);
+    if (s.classList.contains('onprint')) { d.style.display = 'inline'; return; }
     if (st && st.display === 'none' && !(s.closest('details:not([open])'))) { drop.push(d); return; }
     if (s instanceof HTMLDetailsElement && !s.open) {
       for (const ch of Array.from(d.children)) if (ch.tagName !== 'SUMMARY') drop.push(ch);

@@ -23,6 +23,13 @@ function fit(): void {
       /* still too wide: let the long text cells wrap (amounts stay on one line) */
       if (t.scrollWidth > W + 1) for (const c of cells) if (!c.classList.contains('n')) c.style.wordBreak = 'break-word';
     }
+    /* fixed-width columns (table-layout:fixed): an amount longer than its cell (−1.661.406,89) is shrunk in that cell
+       only, instead of running over the next column */
+    for (const c of Array.from(doc.querySelectorAll<HTMLElement>('td, th'))) {
+      if (c.scrollWidth <= c.clientWidth + 1 || getComputedStyle(c).whiteSpace !== 'nowrap') continue;
+      let fs = parseFloat(getComputedStyle(c).fontSize) || 10;
+      for (let i = 0; i < 12 && c.scrollWidth > c.clientWidth + 1 && fs > 6; i++) { fs = Math.max(6, fs - 0.5); c.style.fontSize = fs + 'px'; }
+    }
   }
 }
 

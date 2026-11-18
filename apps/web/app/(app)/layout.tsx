@@ -32,6 +32,7 @@ import { NavBack } from '@/components/nav-back';
 import { TopBar } from '@/components/top-bar';
 import { VersionCheck } from '@/components/version-check';
 import { PwaSetup } from '@/components/pwa-setup';
+import { PrintScreen } from '@/components/print-screen';
 import { DesktopPdfGuard } from '@/components/desktop-pdf-guard';
 import { RobotPanel } from '@/components/robot/robot-panel';
 import { buildId } from '@/lib/build-id';
@@ -106,6 +107,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <VersionCheck build={buildId()} />
         {/* 📲 installable app: service worker (static files only) + „Додај на почетен екран“ on phones */}
         <PwaSetup />
+        <PrintScreen />
         {/* desktop app: files / PDFs / prints open in their own window, never over the program */}
         <DesktopPdfGuard />
         <TopBar

@@ -104,14 +104,57 @@ export interface SocialSettings {
   /** Uploaded logo (data: URL, ≤ 300 KB); null = the WISE mark. */
   logo: string | null;
   connectedAt: string | null;
+  /** Also post the website's news (`news.json` of wiseconsulting.com.mk) automatically (`social.web`). */
+  web: boolean;
+  /** At most this many website news a day (one per run, runs every 2 h from 08:40 to 20:40). */
+  webPerDay: number;
+  /** When `web` was switched on; the job marks everything already on the site then as seen (never the old backlog). */
+  webSince: string | null;
+  /** The `webSince` the job already marked the backlog for. */
+  webSeeded: string | null;
 }
 
-export const SOCIAL_DEFAULTS: SocialSettings = { appId: '', appSecret: null, pages: [], pageId: null, auto: false, perDay: 1, since: null, logo: null, connectedAt: null };
+export const SOCIAL_DEFAULTS: SocialSettings = { appId: '', appSecret: null, pages: [], pageId: null, auto: false, perDay: 1, since: null, logo: null, connectedAt: null, web: false, webPerDay: 4, webSince: null, webSeeded: null };
+export const WEB_PER_DAY_MAX = 7;
 
 export function socialNormalize(v: Partial<SocialSettings> | null | undefined): SocialSettings {
   const x = { ...SOCIAL_DEFAULTS, ...(v ?? {}) };
-  return { ...x, pages: Array.isArray(x.pages) ? x.pages : [], perDay: x.perDay === 2 ? 2 : 1, auto: !!x.auto };
+  const wpd = Math.round(Number(x.webPerDay));
+  return { ...x, pages: Array.isArray(x.pages) ? x.pages : [], perDay: x.perDay === 2 ? 2 : 1, auto: !!x.auto, web: !!x.web, webPerDay: wpd >= 1 && wpd <= WEB_PER_DAY_MAX ? wpd : 4 };
 }
 
 /** The page posts go to (the chosen one, else the only one with Instagram). */
 export const socialPage = (s: SocialSettings) => s.pages.find((p) => p.id === s.pageId) ?? (s.pages.length === 1 ? s.pages[0] : undefined);
+
+/** One news item of the public website (`website/tools/fetch_news.py` → `news.json`): institution, title, link, date. */
+export interface WebNews { inst: string; title: string; url: string; date: string | null }
+
+/** The items of `news.json` (`{ sources: [{ name, items: [{ title, url, date }] }] }`), newest first, each link once. */
+export function webNewsItems(json: unknown): WebNews[] {
+  const src = (json as { sources?: unknown } | null)?.sources;
+  if (!Array.isArray(src)) return [];
+  const seen = new Set<string>();
+  const out: WebNews[] = [];
+  for (const s of src as { name?: unknown; items?: unknown }[]) {
+    if (!Array.isArray(s?.items)) continue;
+    for (const it of s.items as { title?: unknown; url?: unknown; date?: unknown }[]) {
+      const title = String(it?.title ?? '').trim();
+      const url = String(it?.url ?? '').trim();
+      if (!title || !/^https:\/\//.test(url) || seen.has(url)) continue;
+      seen.add(url);
+      const date = typeof it.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(it.date) ? it.date : null;
+      out.push({ inst: String(s.name ?? '').trim() || 'Вест', title, url, date });
+    }
+  }
+  return out.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+}
+
+/** A website news item as a card / caption item (the institution's link is the source). */
+export const webAsNews = (w: WebNews): SocialNews => ({ inst: w.inst, title: w.title, date: w.date, urls: [w.url] });
+
+/** Caption of a website news item: the usual one + where all the news are. */
+export function webCaption(w: WebNews): string {
+  const c = caption(webAsNews(w));
+  const site = brandSite();
+  return site ? c.replace(/\n(#)/, `\n📰 Сите вести: ${site}\n$1`) : c;
+}

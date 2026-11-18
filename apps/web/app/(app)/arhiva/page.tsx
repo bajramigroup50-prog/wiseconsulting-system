@@ -15,7 +15,7 @@ import { bankAccounts, firmNalogSettings } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { nalogTitler } from '@/lib/nalog-title';
-import { ArSendBar } from './send-bar';
+import { ArSelAll, ArSendBar } from './send-bar';
 import { requireUser } from '@/lib/auth';
 import { archRows, nalogDocs, registerRows } from '@/lib/archive';
 import { currentFirm, currentYear } from '@/lib/context';
@@ -23,7 +23,6 @@ import { dmy, fmt } from '@/lib/fmt';
 import { Hd } from '@/components/hd';
 import { FilePreview } from '@/components/file-preview';
 import { RowAction } from '@/components/row-action';
-import { SelAll, SelBox } from '@/components/sales/bulk-select';
 import { allowedFirms } from '@/lib/office';
 import { arBookPending, arDel, arFileDel, arFileMove, arReadFiles } from './actions';
 import { ArBulk, ArMoveOne } from './file-tools';
@@ -174,16 +173,15 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
         <div className="tw" id="arList">
           {tools && <ArBulk firms={moveTo} book={write && R.some((r) => r.pend) ? arBookPending : undefined} read={write && R.some((r) => r.loose) ? arReadFiles : undefined} del={del ? arFileDel : undefined} />}
           <table>
-            <thead><tr><th title="Избери за преземање / печатење / праќање">✓</th>{tools && <th><SelAll group="ar" /></th>}<th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
+            <thead><tr><th title="Избери за преземање / печатење / праќање / бришење"><ArSelAll /></th><th>Датум</th><th>Вид</th><th>Број</th><th>Комитент</th><th className="n">Износ</th><th>Налог</th><th>Документи</th><th>Чувај до</th><th></th></tr></thead>
             <tbody>
               {R.map((r) => (
                 <tr key={r.key}>
-                  <td><input type="checkbox" value={r.files.map((x) => x.id).join(',')} data-arsel={[r.kind, r.no, r.pn, r.date ? dmy(r.date) : ''].filter(Boolean).join(' · ')} aria-label="Избери" /></td>
-                  {tools && <td>{delOk(r) && <SelBox id={selId(r)} group="ar" />}</td>}
+                  <td><input type="checkbox" value={tools && delOk(r) ? selId(r) : ''} data-sel-g={tools && delOk(r) ? 'ar' : undefined} data-files={r.files.map((x) => x.id).join(',')} data-arsel={[r.kind, r.no, r.pn, r.date ? dmy(r.date) : ''].filter(Boolean).join(' · ')} aria-label="Избери" /></td>
                   <td>{r.date ? dmy(r.date) : ''}</td><td>{r.kind}{r.note && <div className="mini">{r.note}</div>}</td><td>{r.no}</td><td>{r.pn}</td>
                   <td className="n">{r.amt != null ? fmt(r.amt) : ''}</td>
                   <td>{r.nalog && <Link className="btn sm ghost" href={`/nalozi?n=${encodeURIComponent(r.nalog)}`}>{r.nalog}</Link>}</td>
-                  <td><div className="row" style={{ gap: 4 }}>{r.files.map((x) => <FilePreview key={x.id} id={x.id} name={x.name} mime={x.mime} label={<>👁 {archFileLabel(x)}</>} title={`Преглед: ${x.name}`} />)}</div></td>
+                  <td><div className="row" style={{ gap: 4 }}>{r.files.map((x) => <FilePreview key={x.id} id={x.id} name={x.name} mime={x.mime} label={<>👁 {archFileLabel(x)}</>} title={`Преглед: ${x.name}`} />)}</div><span className="onprint mini">{r.files.map((x) => archFileLabel(x)).join(', ')}</span></td>
                   <td className="mini">{archKeepUntil(r) ? dmy(archKeepUntil(r)!) : ''}</td>
                   <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                     {r.href && <Link className="btn sm" href={r.href}>Отвори</Link>}

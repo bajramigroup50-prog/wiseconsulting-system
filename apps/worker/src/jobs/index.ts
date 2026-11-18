@@ -31,7 +31,7 @@ import { incomingDetect } from './incoming-detect';
 import { bankFeeds } from './bank-feeds';
 import { mailIn } from './mail-in';
 import { docRead } from './doc-read';
-import { socialPost } from './social';
+import { socialPost, socialWeb } from './social';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -53,6 +53,7 @@ export const JOBS: JobDef<any>[] = [
   lawTexts,
   lawCase,
   socialPost,
+  socialWeb,
   legacyImport,
   firmResh,
   kontrolaAi,

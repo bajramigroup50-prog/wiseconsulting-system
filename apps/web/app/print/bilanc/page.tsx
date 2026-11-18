@@ -111,7 +111,7 @@ export default async function PrintBilanc({ searchParams }: { searchParams: Prom
         <style dangerouslySetInnerHTML={{ __html: page + BBO_CSS + (noCur ? 'table.bbo .tc{display:none}' : '') }} />
         {head}
         <table className="bbo">
-          <colgroup>{(noCur ? ['8%', '27%', '10%', '10%', '10%', '10%', '25%'] : ['7%', '21%', '9%', '9%', '9%', '9%', '9%', '9%', '18%']).map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
+          <colgroup>{(noCur ? ['8%', '24%', '11%', '11%', '11%', '11%', '24%'] : ['7%', '18%', '10%', '10%', '10%', '10%', '10%', '10%', '15%']).map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
           <thead>
             <tr><th rowSpan={2}>Конто</th><th rowSpan={2}>Опис</th><th rowSpan={2}>Почетна<br />состојба</th>{!noCur && <th colSpan={2}>Само од тековна година</th>}<th colSpan={2}>Вкупно од тековна година</th><th rowSpan={2}>Крајно<br />салдо</th><th rowSpan={2}>Комитент</th></tr>
             <tr>{!noCur && <><th>Должи</th><th>Побарува</th></>}<th>Должи</th><th>Побарува</th></tr>

@@ -1,0 +1,19 @@
+{
+  "appId": "mk.com.wiseconsulting.app",
+  "appName": "WISE CONSULTING",
+  "webDir": "www",
+  "server": {
+    "url": "https://app.wiseconsulting.com.mk",
+    "allowNavigation": ["app.wiseconsulting.com.mk"],
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "backgroundColor": "#0d5b4b",
+    "allowMixedContent": false
+  },
+  "ios": {
+    "backgroundColor": "#0d5b4b",
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}

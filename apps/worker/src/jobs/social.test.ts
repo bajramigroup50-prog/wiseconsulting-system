@@ -4,7 +4,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { patchSocialSettings, schema, sealSecret, socialPostList, type DB } from '@wise/db';
-import { runSocialPost } from './social';
+import { runSocialPost, runSocialWeb } from './social';
 
 process.env.S3_SECRET_KEY ||= 'test-secret';
 const pg = drizzle(new PGlite(), { schema });
@@ -80,5 +80,28 @@ describe('social.post', () => {
     expect([a, b].sort()).toEqual(['already posted', 'posted']);
     expect(m.calls.filter((c) => c.includes('/photos')).length).toBe(1);
     expect(await runSocialPost(db, { lawId: n!.id }, () => {}, deps(m.f))).toBe('already posted');
+  });
+});
+
+describe('social.web (the website news)', () => {
+  const file = (urls: string[]) => async () => ({ sources: [{ id: 'ujp', name: 'УЈП', items: urls.map((u, i) => ({ title: 'Вест ' + u, url: 'https://www.ujp.gov.mk/' + u, date: `2026-11-${String(10 + i).padStart(2, '0')}` })) }] });
+
+  it('off until switched on; then the backlog is only marked seen, new items go out one per run, newest first, once', async () => {
+    const m = meta();
+    expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: file(['a', 'b']) })).toBe('web off');
+    await patchSocialSettings(db, { web: true, webPerDay: 2, webSince: '2026-11-18T08:00:00Z', webSeeded: null }, null);
+    expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: file(['a', 'b']) })).toBe('seeded');
+    expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: file(['a', 'b']) })).toBe('nothing new');
+    expect(m.calls).toEqual([]);
+    const news = file(['a', 'b', 'c', 'd', 'e']);
+    expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: news })).toBe('posted');
+    const [p] = await socialPostList(db);
+    expect(p).toMatchObject({ status: 'posted', title: 'Вест e', inst: 'УЈП', newsUrl: 'https://www.ujp.gov.mk/e' });
+    expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: news })).toBe('posted');
+    expect((await socialPostList(db))[0]).toMatchObject({ title: 'Вест d' });
+    // the daily limit (2); the skipped backlog is not listed
+    expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: news })).toBe('daily limit');
+    expect((await socialPostList(db, 100)).some((x) => x.title === 'Вест a')).toBe(false);
+    expect(m.calls.filter((c) => c.includes('/photos')).length).toBe(2);
   });
 });
