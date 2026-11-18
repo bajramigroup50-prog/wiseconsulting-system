@@ -4,7 +4,7 @@
  * Graph API Explorer; the server turns it into a long-lived token and the page tokens (they do not expire), sealed.
  */
 import { revalidatePath } from 'next/cache';
-import { GRAPH, type SocialSettings } from '@wise/core/social/post';
+import { GRAPH, WEB_PER_DAY_MAX, type SocialSettings } from '@wise/core/social/post';
 import { audit, getSocialSettings, lawChanges, markSocialDeleted, openSecret, patchSocialSettings, sealSecret, socialPosts } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import type { RowResult } from '@/components/row-action';
@@ -70,9 +70,13 @@ export async function socialPrefs(_p: RowResult, f: FormData): Promise<RowResult
   const pageId = String(f.get('pageId') ?? '');
   const auto = f.get('auto') === 'on';
   const perDay = f.get('perDay') === '2' ? 2 : 1;
-  const p: Partial<SocialSettings> = { auto, perDay, ...(s.pages.some((x) => x.id === pageId) ? { pageId } : {}) };
+  const web = f.get('web') === 'on';
+  const wpd = Number(f.get('webPerDay'));
+  const webPerDay = Number.isInteger(wpd) && wpd >= 1 && wpd <= WEB_PER_DAY_MAX ? wpd : s.webPerDay;
+  const p: Partial<SocialSettings> = { auto, perDay, web, webPerDay, ...(s.pages.some((x) => x.id === pageId) ? { pageId } : {}) };
   // switching on posts only news found from now on – never the old backlog
   if (auto && !s.auto) p.since = new Date().toISOString();
+  if (web && !s.web) p.webSince = new Date().toISOString();
   const logo = f.get('logo');
   if (logo instanceof File && logo.size > 0) {
     if (logo.size > 300_000) return { error: 'Логото е преголемо (најмногу 300 KB).' };
@@ -82,10 +86,11 @@ export async function socialPrefs(_p: RowResult, f: FormData): Promise<RowResult
   if (f.get('logoReset') === 'on') p.logo = null;
   await db().transaction(async (tx) => {
     await patchSocialSettings(tx, p, u.id);
-    await audit(tx, { userId: u.id, action: 'socialPrefs', entityType: 'app_settings', entityId: 'social', data: { auto, perDay, pageId: p.pageId ?? s.pageId, logo: p.logo === undefined ? 'same' : p.logo ? 'new' : 'wise' } });
+    await audit(tx, { userId: u.id, action: 'socialPrefs', entityType: 'app_settings', entityId: 'social', data: { auto, perDay, web, webPerDay, pageId: p.pageId ?? s.pageId, logo: p.logo === undefined ? 'same' : p.logo ? 'new' : 'wise' } });
   });
   revalidatePath(PATH);
-  return { ok: auto ? `Автоматско објавување: вклучено (${perDay} дневно, 09:00${perDay === 2 ? ' и 15:00' : ''}).` : 'Автоматско објавување: исклучено.' };
+  return { ok: (auto ? `Законски новости: вклучено (${perDay} дневно, 09:00${perDay === 2 ? ' и 15:00' : ''}).` : 'Законски новости: исклучено.')
+    + (web ? ` Вести од веб-страницата: вклучено (до ${webPerDay} дневно).` : ' Вести од веб-страницата: исклучено.') };
 }
 
 export async function socialPostNow(lawId: string): Promise<RowResult> {

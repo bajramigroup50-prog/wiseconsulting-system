@@ -3,8 +3,8 @@
  * The worker job reads ONLY `law_changes` (public news) through `nextSocialNews`: nothing of the firms ever goes out.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
-import { socialNormalize, type SocialNews, type SocialSettings } from '@wise/core/social/post';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { socialNormalize, type SocialNews, type SocialSettings, type WebNews } from '@wise/core/social/post';
 import { appSettings, lawChanges, socialPosts } from './schema/index';
 import type { Tx } from './audit';
 
@@ -93,16 +93,48 @@ export async function claimSocialPost(tx: Q, lawId: string): Promise<boolean> {
   return r.length > 0;
 }
 
-/** Posts sent today (Skopje), for the per-day limit. */
-export async function socialPostsToday(tx: Q): Promise<number> {
+/** Law news posts sent today (Skopje), for the per-day limit (`web` = the website news posts instead). */
+export async function socialPostsToday(tx: Q, web = false): Promise<number> {
   const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(socialPosts)
-    .where(sql`${socialPosts.postedAt} is not null and (${socialPosts.postedAt} at time zone 'Europe/Skopje')::date = (now() at time zone 'Europe/Skopje')::date`);
+    .where(and(web ? isNotNull(socialPosts.newsUrl) : isNotNull(socialPosts.lawId),
+      sql`${socialPosts.postedAt} is not null and (${socialPosts.postedAt} at time zone 'Europe/Skopje')::date = (now() at time zone 'Europe/Skopje')::date`));
   return r?.n ?? 0;
 }
 
+/** Website news: mark the links already on the site as seen (`skipped`) – switching on never posts the backlog. */
+export async function seedWebNews(tx: Q, items: readonly WebNews[]): Promise<void> {
+  if (!items.length) return;
+  await tx.insert(socialPosts).values(items.map((w) => ({ newsUrl: w.url, newsTitle: w.title, newsInst: w.inst, status: 'skipped' as const })))
+    .onConflictDoNothing();
+}
+
+/** The newest website news item never posted, tried or skipped (the list is newest first). */
+export async function nextWebNews(tx: Q, items: readonly WebNews[]): Promise<WebNews | null> {
+  if (!items.length) return null;
+  const known = await tx.select({ u: socialPosts.newsUrl }).from(socialPosts).where(inArray(socialPosts.newsUrl, items.map((w) => w.url)));
+  const k = new Set(known.map((r) => r.u));
+  return items.find((w) => !k.has(w.url)) ?? null;
+}
+
+/** Claim a website news item (`pending`) exactly once – like `claimSocialPost`. */
+export async function claimWebPost(tx: Q, w: WebNews): Promise<boolean> {
+  const r = await tx.insert(socialPosts).values({ newsUrl: w.url, newsTitle: w.title, newsInst: w.inst, status: 'pending' })
+    .onConflictDoUpdate({ target: socialPosts.newsUrl, set: { status: 'pending', error: null }, setWhere: sql`${socialPosts.status} in ('failed', 'deleted')` })
+    .returning({ id: socialPosts.id });
+  return r.length > 0;
+}
+
+export async function recordWebPost(tx: Q, url: string, p: { status: 'posted' | 'partial' | 'failed'; fbPostId?: string | null; igMediaId?: string | null; igLink?: string | null; error?: string | null }): Promise<void> {
+  await tx.update(socialPosts).set({ status: p.status, fbPostId: p.fbPostId ?? null, igMediaId: p.igMediaId ?? null, igLink: p.igLink ?? null, error: p.error ? p.error.slice(0, 1000) : null, postedAt: p.status === 'failed' ? null : new Date() })
+    .where(eq(socialPosts.newsUrl, url));
+}
+
+/** The posts (law and website news), newest first; the skipped backlog is not listed. */
 export async function socialPostList(tx: Q, limit = 50) {
-  return tx.select({ id: socialPosts.id, lawId: socialPosts.lawId, status: socialPosts.status, fbPostId: socialPosts.fbPostId, igLink: socialPosts.igLink, error: socialPosts.error, postedAt: socialPosts.postedAt, createdAt: socialPosts.createdAt, title: lawChanges.title, inst: lawChanges.inst })
-    .from(socialPosts).innerJoin(lawChanges, eq(lawChanges.id, socialPosts.lawId)).orderBy(desc(socialPosts.createdAt)).limit(limit);
+  return tx.select({ id: socialPosts.id, lawId: socialPosts.lawId, newsUrl: socialPosts.newsUrl, status: socialPosts.status, fbPostId: socialPosts.fbPostId, igLink: socialPosts.igLink, error: socialPosts.error, postedAt: socialPosts.postedAt, createdAt: socialPosts.createdAt,
+    title: sql<string>`coalesce(${lawChanges.title}, ${socialPosts.newsTitle}, '')`, inst: sql<string>`coalesce(${lawChanges.inst}, ${socialPosts.newsInst}, '')` })
+    .from(socialPosts).leftJoin(lawChanges, eq(lawChanges.id, socialPosts.lawId)).where(ne(socialPosts.status, 'skipped'))
+    .orderBy(desc(socialPosts.createdAt)).limit(limit);
 }
 
 export async function markSocialDeleted(tx: Q, id: string): Promise<void> {

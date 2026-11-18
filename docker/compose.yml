@@ -113,6 +113,8 @@ services:
     volumes:
       # statement files the banks push to the SFTP drop box (service bankin) – read-only here
       - bankin:/srv/bank-in:ro
+      # the public website's news.json (host cron, website/tools/fetch_news.py) – 📣 social.web posts new items
+      - ${SITE_DATA_DIR:-/opt/wise/site-data}:/srv/site-data:ro
 
   # SFTP drop box for bank statements (Халк Банка pushes its files here). WISE server only: COMPOSE_PROFILES=bankin and
   # HALK_SFTP_PASS in /opt/wise/.env; the image is built on the server (`docker compose build bankin`).

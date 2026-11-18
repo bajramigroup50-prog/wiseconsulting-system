@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 import { desc, eq } from 'drizzle-orm';
 import { LAW_INST } from '@wise/core/law';
 import { todaySkopje } from '@wise/core/office/dates';
-import { SOCIAL_SCOPES, cardHtml, caption, socialPage } from '@wise/core/social/post';
+import { SOCIAL_SCOPES, WEB_PER_DAY_MAX, cardHtml, caption, socialPage } from '@wise/core/social/post';
 import { getSocialSettings, lawChanges, nextSocialNews, socialPostList } from '@wise/db';
 import { ActionForm, Submit } from '@/components/action-form';
 import { Hd } from '@/components/hd';
@@ -41,9 +41,9 @@ export default async function DrustveniPage() {
     <>
       <Hd t={T} sub="Новостите на роботот (само јавни законски промени) – автоматски на Facebook и Instagram" exp={false} />
       <div className={`callout ${page ? (s.auto ? 'good' : 'warn') : 'bad'}`}>
-        {page ? <>Поврзано: <b>{page.name}</b>{page.igName ? <> + Instagram <b>@{page.igName}</b></> : ' (без Instagram)'} · автоматско објавување: <b>{s.auto ? `вклучено, ${s.perDay} дневно` : 'исклучено'}</b></>
+        {page ? <>Поврзано: <b>{page.name}</b>{page.igName ? <> + Instagram <b>@{page.igName}</b></> : ' (без Instagram)'} · законски новости: <b>{s.auto ? `вклучено, ${s.perDay} дневно` : 'исклучено'}</b> · вести од веб: <b>{s.web ? `вклучено, до ${s.webPerDay} дневно` : 'исклучено'}</b></>
           : <>Не е поврзано. Пополнете ги трите полиња подолу.</>}
-        <div className="mini" style={{ marginTop: 4 }}>🔒 Се објавуваат само јавните новости на роботот (УЈП, Службен весник…). Ништо од фирмите, книгите или лицата.</div>
+        <div className="mini" style={{ marginTop: 4 }}>🔒 Се објавуваат само јавните новости на роботот (УЈП, Службен весник…) и вестите од веб-страницата. Ништо од фирмите, книгите или лицата.</div>
       </div>
 
       <ActionForm action={socialConnect} className="card" reset={false}>
@@ -67,12 +67,15 @@ export default async function DrustveniPage() {
           <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'end' }}>
             <label className="f" style={{ margin: 0 }}>Страница<select name="pageId" defaultValue={page?.id}>{s.pages.map((p) => <option key={p.id} value={p.id}>{p.name}{p.igName ? ` + @${p.igName}` : ''}</option>)}</select></label>
             <label className="f" style={{ margin: 0 }}>Колку дневно<select name="perDay" defaultValue={String(s.perDay)}><option value="1">1 (09:00)</option><option value="2">2 (09:00 и 15:00)</option></select></label>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" name="auto" defaultChecked={s.auto} /> <b>Објавувај автоматски</b></label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" name="auto" defaultChecked={s.auto} /> <b>Објавувај автоматски</b> (законски новости)</label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" name="web" defaultChecked={s.web} /> <b>Објавувај ги и вестите од веб-страницата</b></label>
+            <label className="f" style={{ margin: 0 }}>Вести од веб – најмногу дневно<select name="webPerDay" defaultValue={String(s.webPerDay)}>{Array.from({ length: WEB_PER_DAY_MAX }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
             <label className="f" style={{ margin: 0 }}>Лого на картичката (PNG/JPG/SVG, до 300 KB)<input type="file" name="logo" accept="image/png,image/jpeg,image/svg+xml,image/webp" /></label>
             {s.logo && <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" name="logoReset" /> врати го WISE знакот</label>}
             <Submit>Зачувај</Submit>
           </div>
-          <p className="mini" style={{ marginBottom: 0 }}>При вклучување се објавуваат само новостите што роботот ќе ги најде од тој момент – старите не.</p>
+          <p className="mini" style={{ marginBottom: 0 }}>При вклучување се објавуваат само новостите што роботот ќе ги најде од тој момент – старите не.
+            Вестите од веб-страницата (УЈП, министерства, АВРМ, НБРМ…) одат сами, без преглед: по една на секои 2 часа (08:40–20:40), најновата прво, секоја само еднаш.</p>
         </ActionForm>
       )}
 
@@ -104,7 +107,7 @@ export default async function DrustveniPage() {
         {P.length ? <div className="tw"><table className="dense">
           <thead><tr><th>Време</th><th>Новост</th><th>Статус</th><th>Линкови</th><th /></tr></thead>
           <tbody>{P.map((x) => (
-            <tr key={x.id}><td>{dt(x.postedAt ?? x.createdAt)}</td><td>{LAW_INST[x.inst] ?? x.inst}: {x.title}</td>
+            <tr key={x.id}><td>{dt(x.postedAt ?? x.createdAt)}</td><td>{x.newsUrl ? '🌐 ' : ''}{LAW_INST[x.inst] ?? x.inst}: {x.newsUrl ? <a href={x.newsUrl} target="_blank" rel="noreferrer">{x.title}</a> : x.title}</td>
               <td><span className={`pill ${ST[x.status]?.[1] ?? ''}`}>{ST[x.status]?.[0] ?? x.status}</span>{x.error && <div className="mini">{x.error}</div>}</td>
               <td>{x.fbPostId && <a href={`https://www.facebook.com/${x.fbPostId}`} target="_blank" rel="noreferrer">Facebook</a>} {x.igLink && <a href={x.igLink} target="_blank" rel="noreferrer">Instagram</a>}</td>
               <td>{x.status !== 'deleted' && x.fbPostId && <RowAction action={socialDelete.bind(null, x.id)} label="🗑" title="Избриши од Facebook" confirm="Да се избрише објавата од Facebook? (Instagram се брише рачно во апликацијата.)" showOk />}</td></tr>
