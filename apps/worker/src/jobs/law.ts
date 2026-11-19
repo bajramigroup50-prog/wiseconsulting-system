@@ -9,6 +9,8 @@
  * the new links are stored as entries „⚠ да се потврди“. A failing page is recorded on `law_sources.error` and does not
  * stop the others.
  */
+import { get as httpsGet } from 'node:https';
+import { rootCertificates } from 'node:tls';
 import { desc, eq } from 'drizzle-orm';
 import { LAW_SOURCES, lawAskPrompt, lawLinks, lawMailHtml, lawNewLinks, lawNorm, lawPageText, lawRaw, lawRobotPrompt, type LawEntry, type LawSource } from '@wise/core/law';
 import { todaySkopje } from '@wise/core/office';
@@ -20,16 +22,65 @@ import { readContent } from '../ai/read-document';
 import { AiBudgetError } from '../ai/budget';
 import { sendQueuedMail } from './reminders';
 import { weeklyLawTexts } from './law-texts';
+import { LAW_EXTRA_CA } from './law-ca';
 
 export type Fetcher = (url: string) => Promise<string>;
 
-/** Default page fetch: 30 s timeout, HTML only. */
-export const fetchPage: Fetcher = async (url) => {
-  const r = await fetch(url, { signal: AbortSignal.timeout(30_000), headers: { 'user-agent': 'Mozilla/5.0 (WISE law robot)', accept: 'text/html,*/*;q=0.5' } });
+const UA = { 'user-agent': 'Mozilla/5.0 (WISE law robot)', accept: 'text/html,*/*;q=0.5' };
+/** TLS errors of a site that sends an incomplete certificate chain (only the leaf). */
+const CHAIN_ERR = /UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT_LOCALLY/;
+const errCode = (e: unknown) => String((e as { cause?: { code?: string } }).cause?.code ?? (e as { code?: string }).code ?? '');
+
+/** HTTPS GET with Node's roots plus `LAW_EXTRA_CA` (missing intermediates), following up to 5 redirects. */
+function getWithExtraCa(url: string, left = 5): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = httpsGet(url, { headers: UA, ca: [...rootCertificates, ...LAW_EXTRA_CA], timeout: 30_000 }, (res) => {
+      const st = res.statusCode ?? 0;
+      if (st >= 300 && st < 400 && res.headers.location) {
+        res.resume();
+        if (left <= 0) return reject(new Error('too many redirects'));
+        return resolve(getWithExtraCa(new URL(res.headers.location, url).toString(), left - 1));
+      }
+      if (st < 200 || st >= 300) { res.resume(); return reject(new Error(`HTTP ${st}`)); }
+      const ct = String(res.headers['content-type'] ?? '');
+      if (ct && !/html|text/i.test(ct)) { res.resume(); return resolve(''); }
+      res.setEncoding('utf8');
+      let body = '';
+      res.on('data', (c: string) => { body += c; });
+      res.on('end', () => resolve(body));
+      res.on('error', reject);
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
+/** One try: 30 s timeout, HTML only; an incomplete certificate chain is retried with the bundled intermediates. */
+async function fetchOnce(url: string): Promise<string> {
+  let r: Response;
+  try {
+    r = await fetch(url, { signal: AbortSignal.timeout(30_000), headers: UA });
+  } catch (e) {
+    if (CHAIN_ERR.test(errCode(e))) return await getWithExtraCa(url);
+    throw e;
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const ct = r.headers.get('content-type') ?? '';
   if (ct && !/html|text/i.test(ct)) return '';
   return await r.text();
+}
+
+/** Default page fetch: up to 3 tries (wait 5 s, then 15 s) when the site answers 5xx / 429 or the network fails. */
+export const fetchPage: Fetcher = async (url) => {
+  const waits = [5_000, 15_000];
+  for (let i = 0; ; i++) {
+    try { return await fetchOnce(url); } catch (e) {
+      const m = (e as Error).message;
+      const retry = /^HTTP (5\d\d|429)$/.test(m) || !/^HTTP /.test(m);
+      if (!retry || i >= waits.length) throw e;
+      await new Promise((r) => setTimeout(r, waits[i]));
+    }
+  }
 };
 
 const MAX_NEW = 15, MAX_PAGES = 10;
