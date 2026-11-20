@@ -110,7 +110,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // finance
   'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
   'akart', 'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
-  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pozajmici', 'prenos',
+  'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pozajmici', 'donacii', 'prenos',
   // year end
   'zsProc', 'zsDos', 'zsNPO', 'zsTP', 'zsRok', 'zsBel', 'zsKontrola', 'zsXml', 'zs_aop', 'zs_bs', 'zs_bu', 'zs_db', 'zs_de', 'zs_pr', 'zs_skr', 'zs_sp', 'zs_vp',
   'mbyllja', 'vjetore', 'pecati',
@@ -252,7 +252,7 @@ export const BOOK_ONLY_MSG = 'Немате пристап до овој дел �
 const BOOK_ONLY_LIST: readonly string[] = [
   // Финансово: statements and banks, cash, payment orders, the journal (+ dnevnik print), cards, reconciliation, trial balance
   'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes',
-  'akart', 'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'kamati', 'izvestai',
+  'akart', 'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'donacii', 'kamati', 'izvestai',
   // ДДВ
   'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
   // payroll (the МПИН of the selected firm is `plati/[month]/mpin`; the all-firms `mpinIn` / `payBatch` stay hidden), travel orders
@@ -294,7 +294,7 @@ const PRINT_VIEWS: Readonly<Record<string, readonly string[]>> = {
 /** `/print/fin/<doc>` (`app/print/fin/[doc]`). */
 const FIN_PRINT: Readonly<Record<string, readonly string[]>> = {
   kartici: ['kartici'], sinteticka: ['kartici'], potvrda: ['kartici'], ios: ['kartici', 'analitika', 'akart'], analitika: ['analitika'], pkartica: ['analitika'],
-  poobjekti: ['poobjekti'], pdd: ['pdd'], pozajmica: ['pozajmici'],
+  poobjekti: ['poobjekti'], pdd: ['pdd'], pozajmica: ['pozajmici'], donacija: ['donacii'], donPotvrda: ['donacii'],
 };
 /** API endpoints of a restricted colleague: the shared ones, the firm list (picker), the UBL e-invoice, the device check. */
 const BOOK_API: readonly string[] = [...SHARED_API, '/api/firms', '/api/ubl', '/api/device-check'];

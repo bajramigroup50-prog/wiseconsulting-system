@@ -9,6 +9,7 @@
  * - `poobjekti`  — `ACT.poObjPdf`
  * - `pdd`        — `pddPdfHTML` 8355
  * - `pozajmica`  — `lnPdf` / `lnDoc` 16708 (loan contract)
+ * - `donacija` / `donPotvrda` — donation / sponsorship contract and the confirmation of the realised donation
  */
 import { Fragment } from 'react';
 import { notFound } from 'next/navigation';
@@ -17,8 +18,9 @@ import {
 } from '@wise/core/finance';
 import { and, eq, inArray } from 'drizzle-orm';
 import { pddTypes, type PddType } from '@wise/core/finance';
-import { effectiveChart, journals, loans, partners, pddPayments, purchases, type Firm } from '@wise/db';
+import { bankAccounts, bankLines, bankStatements, donations, effectiveChart, journals, loans, partners, pddPayments, purchases, type Firm } from '@wise/db';
 import { LoanContract } from '../../../(app)/pozajmici/contract';
+import { DonationConfirmation, DonationContract } from '../../../(app)/donacii/contract';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { finLines, isDate, lineText, partnerMap, srchMatch, today } from '@/lib/finance';
@@ -37,7 +39,7 @@ import { viewAllowed } from '@/lib/nav';
 export const metadata = { title: 'Печатење' };
 
 type SP = KcSP & { all?: string; bal?: string; id?: string; /** ios: „Девизен ИОС“ */ cur?: string; /** potvrda: difference found by the card reconciliation (legacy `recDocHTML` opt.diff) */ diff?: string };
-const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'kartici', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd', pozajmica: 'pozajmici' };
+const VIEW: Record<string, string> = { kartici: 'kartici', sinteticka: 'kartici', potvrda: 'kartici', ios: 'kartici', analitika: 'analitika', pkartica: 'analitika', poobjekti: 'poobjekti', pdd: 'pdd', pozajmica: 'pozajmici', donacija: 'donacii', donPotvrda: 'donacii' };
 
 export default async function PrintFin({ params, searchParams }: { params: Promise<{ doc: string }>; searchParams: Promise<SP> }) {
   const { doc } = await params;
@@ -55,6 +57,7 @@ export default async function PrintFin({ params, searchParams }: { params: Promi
     case 'poobjekti': return <Poobjekti firm={firm} year={year} sp={sp} />;
     case 'pdd': return <Pdd firm={firm} year={year} sp={sp} />;
     case 'pozajmica': return <Pozajmica firm={firm} year={year} sp={sp} />;
+    case 'donacija': case 'donPotvrda': return <Donacija firm={firm} year={year} sp={sp} conf={doc === 'donPotvrda'} />;
   }
   notFound();
 }
@@ -279,4 +282,20 @@ async function Pozajmica({ firm, sp }: P) {
   if (!l) notFound();
   const [p] = l.partnerId ? await db().select().from(partners).where(eq(partners.id, l.partnerId)).limit(1) : [];
   return <div className="pdfdoc"><LoanContract l={l} firm={firm} partner={p} /></div>;
+}
+
+/** Donation / sponsorship contract, or the confirmation of the realised donation (with the linked statement lines). */
+async function Donacija({ firm, sp, conf }: P & { conf: boolean }) {
+  if (!sp.id || !/^[0-9a-f-]{36}$/i.test(sp.id)) notFound();
+  const [d] = await db().select().from(donations).where(and(eq(donations.id, sp.id), eq(donations.firmId, firm.id))).limit(1);
+  if (!d || (conf && !d.confDate)) notFound();
+  const [[p], A, L] = await Promise.all([
+    d.partnerId ? db().select().from(partners).where(eq(partners.id, d.partnerId)).limit(1) : Promise.resolve([]),
+    db().select({ account: bankAccounts.account, cur: bankAccounts.cur }).from(bankAccounts).where(and(eq(bankAccounts.firmId, firm.id), eq(bankAccounts.active, true))).orderBy(bankAccounts.sort),
+    d.moveIds.length ? db().select({ date: bankLines.date, amount: bankLines.amount, no: bankStatements.number }).from(bankLines).innerJoin(bankStatements, eq(bankStatements.id, bankLines.statementId))
+      .where(and(eq(bankLines.firmId, firm.id), inArray(bankLines.id, d.moveIds))).orderBy(bankLines.date) : Promise.resolve([]),
+  ]);
+  const acct = (A.find((a) => a.cur === 'MKD') ?? A[0])?.account ?? '';
+  const moves = L.map((l) => ({ date: l.date, amt: Math.abs(Number(l.amount)), src: 'Извод бр. ' + (l.no ?? '') }));
+  return <div className="pdfdoc">{conf ? <DonationConfirmation d={d} firm={firm} partner={p} firmAcct={acct} moves={moves} /> : <DonationContract d={d} firm={firm} partner={p} firmAcct={acct} />}</div>;
 }

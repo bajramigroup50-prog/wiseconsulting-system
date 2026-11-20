@@ -41,6 +41,7 @@ export const REPORT_GROUPS: readonly (readonly [string, readonly ReportEntry[]])
     { view: 'bkAdv', label: 'Плаќања без фактура', desc: 'аванси и уплати неповрзани со фактура' },
     { view: 'kamati', label: 'Казнена камата', desc: 'камата за задоцнети фактури' },
     { view: 'pozajmici', label: 'Позајмици и заеми', desc: 'договори, отплати, салдо' },
+    { view: 'donacii', label: 'Донации и спонзорства', desc: 'договори, потврди, вкупно по донатор' },
   ]],
   ['ДДВ и даноци', [
     { view: 'ddv', label: 'ДДВ-04', desc: 'периоди, пријава и прилог' },

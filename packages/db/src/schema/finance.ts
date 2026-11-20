@@ -65,5 +65,52 @@ export const loans = pgTable('loans', {
 /** `file_links.entity_type` of a signed loan contract scan. */
 export const LOAN_FILE_ENTITY = 'loan';
 
+/**
+ * Donation / sponsorship contract (Закон за донации и спонзорства во јавните дејности) and its confirmation
+ * („Потврда за примена донација / спонзорство“, `conf*`). `role` `received`: the firm (здружение, фондација, клуб) is
+ * the recipient; `given`: the firm is the donor / sponsor. The money moves are statement lines (`moveIds` =
+ * bank_lines.id); an in-kind donation is booked by its own nalog (`journalId`, sourceType `donation`).
+ */
+export const donations = pgTable('donations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  firmId: uuid('firm_id').notNull().references(() => firms.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'donation' | 'sponsorship'>().notNull(),
+  role: text('role').$type<'received' | 'given'>().notNull(),
+  partnerId: uuid('partner_id').references(() => partners.id, { onDelete: 'restrict' }),
+  partnerName: text('partner_name'),
+  number: text('number'),
+  date: date('date').notNull(),
+  place: text('place'),
+  amount: money('amount').notNull(),
+  /** In kind (goods / services) instead of money; `inKindDesc` lists them. */
+  inKind: boolean('in_kind').notNull().default(false),
+  inKindDesc: text('in_kind_desc'),
+  purpose: text('purpose'),
+  /** Public-interest area (спорт, култура, …). */
+  area: text('area'),
+  /** Sponsorship: what the recipient does for the sponsor (name / logo on jerseys, banners, media…). */
+  counter: text('counter'),
+  /** Deadline for the payment / delivery. */
+  termDate: date('term_date'),
+  cash: boolean('cash').notNull().default(false),
+  signed: boolean('signed').notNull().default(false),
+  konto: text('konto'),
+  moveIds: jsonb('move_ids').$type<string[]>().notNull().default([]),
+  /** Confirmation of the realised donation / sponsorship. */
+  confNumber: text('conf_number'),
+  confDate: date('conf_date'),
+  /** Realised amount (money received / value of the goods handed over). */
+  confAmount: money('conf_amount'),
+  confNote: text('conf_note'),
+  /** Nalog of an in-kind donation (`postJournal` sourceType `donation`). */
+  journalId: uuid('journal_id'),
+  createdBy: by('created_by'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index('donations_firm_date_idx').on(t.firmId, t.date)]);
+
+export const DONATION_FILE_ENTITY = 'donation';
+
 export type PddPayment = typeof pddPayments.$inferSelect;
 export type Loan = typeof loans.$inferSelect;
+export type Donation = typeof donations.$inferSelect;

@@ -10,6 +10,7 @@ import type { NavGroup, NavItem } from './nav-data';
 const ADD: [string, string | null, NavItem[]][] = [
   ['Финансово', 'kartici', [['recFree', '🔍 Споредба на две картици']]],
   ['Финансово', null, [['pozajmici', '🤝 Позајмици и заеми (договори)']]],
+  ['Финансово', null, [['donacii', '🎁 Донации и спонзорства']]],
   ['Фирми', 'mpinIn', [['efPrep', '🧾 е-Фактура – подготовка']]],
   ['Шифрарник', 'konto', [['tarifi', 'Даночни тарифи'], ['terkovi', 'Теркови за книжење']]],
 ];

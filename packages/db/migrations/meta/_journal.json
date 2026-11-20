@@ -330,6 +330,13 @@
       "when": 1794998378266,
       "tag": "0046_social_web",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795172355347,
+      "tag": "0047_donations",
+      "breakpoints": true
     }
   ]
 }
