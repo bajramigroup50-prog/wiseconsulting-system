@@ -4,7 +4,8 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { patchSocialSettings, schema, sealSecret, socialPostList, type DB } from '@wise/db';
-import { runSocialPost, runSocialWeb } from './social';
+import { webCaption } from '@wise/core/social/post';
+import { runNewsSq, runSocialPost, runSocialWeb } from './social';
 
 process.env.S3_SECRET_KEY ||= 'test-secret';
 const pg = drizzle(new PGlite(), { schema });
@@ -103,5 +104,46 @@ describe('social.web (the website news)', () => {
     expect(await runSocialWeb(db, () => {}, { ...deps(m.f), webNews: news })).toBe('daily limit');
     expect((await socialPostList(db, 100)).some((x) => x.title === 'Вест a')).toBe(false);
     expect(m.calls.filter((c) => c.includes('/photos')).length).toBe(2);
+  });
+});
+
+describe('news.sq (the website news in Albanian)', () => {
+  const file = (urls: string[]) => async () => ({ sources: [{ id: 'finance', name: 'Министерство за финансии', items: urls.map((u, i) => ({ title: 'Вест ' + u, url: 'https://finance.gov.mk/' + u, date: `2026-11-${String(10 + i).padStart(2, '0')}` })) }] });
+  const tr = (calls: string[][]) => async (t: string[]) => { calls.push(t); return t.map((x) => x.replace('Вест', 'Lajm')); };
+
+  it('translates only the new titles, keeps the known ones and drops those gone from the site', async () => {
+    const calls: string[][] = [];
+    let saved: Record<string, string> | null = null;
+    const r = await runNewsSq(() => {}, {
+      webNews: file(['a', 'b']),
+      sqTitles: async () => ({ 'https://finance.gov.mk/a': 'Lajm a (i vjetër)', 'https://finance.gov.mk/x': 'jo më' }),
+      translate: tr(calls),
+      saveSq: async (t) => { saved = t; },
+    });
+    expect(r).toBe('translated 1');
+    expect(calls).toEqual([['Вест b']]);
+    expect(saved).toEqual({ 'https://finance.gov.mk/a': 'Lajm a (i vjetër)', 'https://finance.gov.mk/b': 'Lajm b' });
+  });
+
+  it('does nothing without the AI or when everything is translated', async () => {
+    expect(await runNewsSq(() => {}, { webNews: file(['a']), translate: null })).toBe('ai off');
+    const save = async () => { throw new Error('must not save'); };
+    expect(await runNewsSq(() => {}, { webNews: file(['a']), sqTitles: async () => ({ 'https://finance.gov.mk/a': 'Lajm a' }), translate: tr([]), saveSq: save })).toBe('up to date');
+  });
+});
+
+describe('social.web in two languages', () => {
+  it('puts the Albanian title in the caption and on the card; a failed translation still posts in Macedonian', async () => {
+    const m = meta();
+    let html = '';
+    const d = { ...deps(m.f), png: async (h: string) => { html = h; return new Uint8Array([1]); } };
+    const news = async () => ({ sources: [{ id: 'ujp', name: 'УЈП', items: [{ title: 'Нов рок за ДДВ-04', url: 'https://www.ujp.gov.mk/sq1', date: '2026-11-30' }, { title: 'Втора вест', url: 'https://www.ujp.gov.mk/sq2', date: '2026-11-29' }] }] });
+    await patchSocialSettings(db, { webPerDay: 7 }, null);
+    expect(await runSocialWeb(db, () => {}, { ...d, webNews: news, sqTitles: async () => ({}), translate: async () => ['Afat i ri për ДДВ-04'] })).toBe('posted');
+    expect(html).toContain('Afat i ri për ДДВ-04');
+    expect(webCaption({ inst: 'УЈП', title: 'Нов рок', url: 'https://www.ujp.gov.mk/sq1', date: null, titleSq: 'Afat i ri' })).toMatch(/🔔 УЈП: Нов рок\n\n🇦🇱 Afat i ri\n/);
+    expect(await runSocialWeb(db, () => {}, { ...d, webNews: news, sqTitles: async () => ({}), translate: async () => { throw new Error('AI down'); } })).toBe('posted');
+    expect(html).toContain('Втора вест');
+    expect(html).not.toContain('Afat i ri');
   });
 });

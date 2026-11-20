@@ -127,7 +127,14 @@ export function socialNormalize(v: Partial<SocialSettings> | null | undefined): 
 export const socialPage = (s: SocialSettings) => s.pages.find((p) => p.id === s.pageId) ?? (s.pages.length === 1 ? s.pages[0] : undefined);
 
 /** One news item of the public website (`website/tools/fetch_news.py` → `news.json`): institution, title, link, date. */
-export interface WebNews { inst: string; title: string; url: string; date: string | null }
+export interface WebNews {
+  inst: string;
+  title: string;
+  url: string;
+  date: string | null;
+  /** The title in Albanian (worker job `news.sq` → `news-sq.json`); posts and the website show it beside the Macedonian one. */
+  titleSq?: string | null;
+}
 
 /** The items of `news.json` (`{ sources: [{ name, items: [{ title, url, date }] }] }`), newest first, each link once. */
 export function webNewsItems(json: unknown): WebNews[] {
@@ -150,11 +157,13 @@ export function webNewsItems(json: unknown): WebNews[] {
 }
 
 /** A website news item as a card / caption item (the institution's link is the source). */
-export const webAsNews = (w: WebNews): SocialNews => ({ inst: w.inst, title: w.title, date: w.date, urls: [w.url] });
+export const webAsNews = (w: WebNews): SocialNews => ({ inst: w.inst, title: w.title, what: w.titleSq?.trim() || null, date: w.date, urls: [w.url] });
 
 /** Caption of a website news item: the usual one + where all the news are. */
 export function webCaption(w: WebNews): string {
-  const c = caption(webAsNews(w));
+  const n = webAsNews(w);
+  // the Albanian title (when there is one) right under the Macedonian one
+  const c = caption({ ...n, what: n.what ? `🇦🇱 ${n.what}` : null });
   const site = brandSite();
   return site ? c.replace(/\n(#)/, `\n📰 Сите вести: ${site}\n$1`) : c;
 }

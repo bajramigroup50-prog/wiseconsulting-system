@@ -8,7 +8,7 @@
   var dicts = { mk: mk, sq: window.I18N.sq, en: window.I18N.en, tr: window.I18N.tr };
   var meta = window.I18N.meta;
 
-  var currentLang = "mk", news = null;
+  var currentLang = "mk", news = null, newsSq = {};
   function t(key) { var d = dicts[currentLang] || mk; return d[key] != null ? d[key] : mk[key]; }
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function fmtDate(iso) { var p = (iso || "").split("-"); return p.length === 3 ? p[2] + "." + p[1] + "." + p[0] : ""; }
@@ -30,7 +30,7 @@
     list.slice(0, newsShown).forEach(function (x, i) {
       html += '<a class="news-item' + (i === 0 ? " featured" : "") + '" href="' + esc(safeUrl(x.it.url)) + '" target="_blank" rel="noopener">' +
         '<span class="news-meta"><span class="news-src src-' + esc(x.src.id) + '">' + esc(t("src." + x.src.id) || x.src.name) + '</span><time>' + esc(fmtDate(x.it.date)) + "</time></span>" +
-        '<span class="news-title">' + esc(x.it.title) + '</span><span class="news-read">' + esc(t("news.read")) + "</span></a>";
+        '<span class="news-title">' + esc((currentLang === "sq" && newsSq[x.it.url]) || x.it.title) + '</span><span class="news-read">' + esc(t("news.read")) + "</span></a>";
     });
     grid.innerHTML = html;
     var more = document.getElementById("newsMore");
@@ -42,6 +42,10 @@
   }
   fetch("data/news.json", { cache: "no-cache" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
     if (d && d.sources) { news = d; renderNews(); }
+  }).catch(function () {});
+  // Albanian titles of the news (written by the WISE worker, job news.sq): { titles: { url: title } }
+  fetch("data/news-sq.json", { cache: "no-cache" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+    if (d && d.titles) { newsSq = d.titles; if (news) renderNews(); }
   }).catch(function () {});
 
   // ---- Next tax deadlines (rules from the WISE program: МПИН 10th, payments 15th, ДДВ-04 25th, annual 15 March)
