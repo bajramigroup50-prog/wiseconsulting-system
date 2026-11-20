@@ -1,0 +1,458 @@
+[
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДДВ-04 Даночна пријава на данокот на додадена вредност",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0967/sl.79_DDV-04_30.03.2022.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_ddv_04_danocna_prijava_n"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДДВ-01 Пријава за регистрација за данокот на додадена вредност",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0962/DDV-01_Prijava_279_19_04.01.2020_1_web.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_ddv_01_prijava_za_regist"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДДВ-01Б Пријава за отповикување на регистрација за данокот на додадена вредност",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0096/DDV-01B_2025.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_ddv_01b_prijava_za_otpov"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДДВ-ИПДО Извештај за извршени промети на добра и услуги за кои даночен должник е даночниот обврзник кон кого е извршен прометот",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0625/DDV-IPDO_Izvestaj_315-20_31.12.2020.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_ddv_ipdo_izvestaj_za_izv"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДБ Даночен биланс за оданочување на добивка",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0121/DB_Bilans_6-2020_11.01.2020_web.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_db_danocen_bilans_za_oda"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДБ-ВП Даночен биланс на вкупен приход",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0127/DB-VP_Bilans_174-14_01.01.2015.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_db_vp_danocen_bilans_na_"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДД-ИД Пресметка на данок на исплатена дивиденда и друга распределба од добивката",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0302/DD-ID_Presmetka.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_dd_id_presmetka_na_danok"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "МПИН Месечна пресметка за интегрирана наплата",
+  "url": "https://www.ujp.gov.mk/mk/obrasci/opis/81",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДЛД-ГДП Годишна даночна пријава за утврдување на данокот на личен доход",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/1264/Prijava_DLD-GDP_101-2020_15.04.2020.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_dld_gdp_godisna_danocna_"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "ДЛД-ДБ Годишен даночен биланс за утврдување на данокот на доход од вршење на самостојна дејност",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/1221/DLD-DB_271_19_27.12.2019.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_dld_db_godisen_danocen_b"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "УЈП-РДО Пријава за регистрација на даночен обврзник",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/0093/UJP-RDO.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "Б/УПД Барање за издавање на уверение на даноци, придонеси и други јавни давачки",
+  "url": "https://www.ujp.gov.mk/files/attachment/0000/1398/B-UPD.pdf",
+  "kind": "PDF",
+  "form": "i_ujp_b_upd_baranje_za_izdavan"
+ },
+ {
+  "inst": "ujp",
+  "code": "",
+  "name": "Сите обрасци на официјалната страница",
+  "url": "https://www.ujp.gov.mk/mk/obrasci/pregled",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "ПО Пријава за упис на основање на субјект во Трговскиот регистар и Регистарот на други правни лица",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/1d35717c-e6e6-ea11-a82f-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "ПП Пријава за упис на промена кај субјект во Трговски регистар и Регистарот на други правни лица",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/72fe349b-1be9-ea11-a82f-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "ППЗ Пријава за упис на промена кај субјект во Трговскиот регистар и Регистарот на други правни лица (ППЗ образец)",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/cf528f17-1fe9-ea11-a82f-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "ПСП Пријава за упис на статусна промена во Трговскиот регистар и Регистарот на други правни лица",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/e14eafb4-1fe9-ea11-a82f-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "ПБ Пријава за упис на бришење на субјектите запишани во Трговскиот регистар и Регистарот на други правни лица",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/8e56d994-18e9-ea11-a82f-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "ЗП Заверен потпис",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/7dafb1a7-75e6-ea11-a82f-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "Трговски друштва - годишни сметки - пропратно писмо",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/b821e2d8-8ebf-ea11-a82b-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "Биланс на состојба - нефинансиски сектор",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/426d747f-28c0-ea11-a82b-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "Биланс на успех нефинансиски сектор",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/6c532e1d-28c0-ea11-a82b-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "СПД Структура на приходи на дејност - СПД нефинансиски сектор",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/6c764966-8fbf-ea11-a82b-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "Известување за немање деловна активност",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/3814a54d-8abf-ea11-a82b-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "Барање за издавање на потврди / информации, Тип 1 (ЕШС, ПКД, Годишни Сметки)",
+  "url": "https://www.crm.com.mk/CRMPublicPortalApi/api/files/a57badf8-23d5-ea11-a82c-000d3a28d0e4",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "crm",
+  "code": "",
+  "name": "Сите обрасци на официјалната страница",
+  "url": "https://www.crm.com.mk/mk/za-tsrrsm/korisni-informatsii/obrastsi-i-formulari",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "М1/М2 Пријава/одјава во работен однос (електронски, систем е-Работа)",
+  "url": "https://e-rabota.av.gov.mk/",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Упатство за користење на е-работа",
+  "url": "https://av.gov.mk/content/Documents/AVRM_Upatstvo_e_Rabota.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Овластување на овластено лице со список на лица кои ги пријавува во работен однос",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/Ovlastuvanje%20prijava%20novo.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Овластување на овластено лице со список на лица кои ги одјавува од работен однос",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/Ovlastuvanje%20odjava%2023.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Овластување на овластено лице со список на лица кои ги одјавува од работен однос поради деловни причини (технолошки вишок)",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/Odjava%20tehnoloski.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "ППР ППР - образец (pdf)",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.pdf",
+  "kind": "PDF",
+  "form": "i_avrsm_ppr_ppr_obrazec_pdf"
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "ППР ППР - образец (word)",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Овластување за пријавување на практикант/и",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/Prijava%20praktikant.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Овластување за одјавување на практиканти/и",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/Odjava%20praktikant.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "",
+  "name": "Сите обрасци на официјалната страница",
+  "url": "https://av.gov.mk/obrasci.nspx",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "ЗО-1 Пријава / Одјава / Промена за задолжително здравствено осигурување",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/261001-1.nemedicinski-obrasci-zo1.xls",
+  "kind": "XLS",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Н1 Барање за надоместок на плата поради болест/нега",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.10.-obrazec-n1-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Н2 Барање за надоместок на плата поради бременост и раѓање",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.11.-obrazec-n2-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Н3 Барање за надоместок на плата поради повреда на работа/професионална болест",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.12.-obrazec-n3-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Н4 Барање за надоместок на плата поради бременост и раѓање во висина од 50% од утврдениот надоместок поради враќање на работа",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.13.-obrazec-n4-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Н5 Барање за надоместок на плата поради отсуство од работа за родителство на таткото/посвоителот на детето",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.14.-obrazec-n5-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "БП Барање за издавање на потврда од евиденциите за задолжително здравствено осигурување",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.15.-obrazec-bp-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Д1 Барање за издавање на двојазичен образец за работници упатени на привремена работа во држава со која РМ има склучено (преземено) Договор за социјално осигурување",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/10.10-obrazec-d1-mkd.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Одлука за утврдување на обрасците предвидени во правилникот за содржината и начинот на остварување на правата и обврските од задолжителното здравствено осигурување (247/2025)",
+  "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/261021-3.-odluka-za-utvrduvanje-na-obrascite-od-pravilnikot-za-pravata-247-od-2025.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fzo",
+  "code": "",
+  "name": "Сите обрасци на официјалната страница",
+  "url": "https://fzo.org.mk/osigurenici/obrasci",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "Барање потврда за платени придонеси",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2016/01/Baranje-potvrda-za-plateni-pridonesi.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "Барање уверение - податоци од матична евиденција",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2016/01/Baranje-Uverenie-podatoci-od-maticna-evidencija.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "Барање за својство на осигуреник",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2016/01/Baranje-za-svojstvo-na-osigurenik.pdf",
+  "kind": "PDF",
+  "form": "i_piom_baranje_za_svojstvo_na_o"
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "Барање записник за неплатени придонеси",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2016/01/Baranje-zapisnik-za-neplateni-pridonesi.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "Барање за пресметка и плаќање на придонес за ПИО",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2016/01/BARANJE-ZA-PRESMETKA-I-PLAKJANJE-NA-PRIDONES-ZA-PIO.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "А1 Образец А1 - Општи податоци и опис на работите на работното место на работникот",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2024/01/MKD-OBRAZEC-A1.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "П3 Барање за остварување право на старосна пензија",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2023/09/%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86-%D0%9F3-%D0%91%D0%B0%D1%80%D0%B0%D1%9A%D0%B5-%D0%B7%D0%B0-%D1%81%D1%82%D0%B0%D1%80%D0%BE%D1%81%D0%BD%D0%B0-%D0%BF%D0%B5%D0%BD%D0%B7%D0%B8%D1%98%D0%B0.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "П5 Барање за остварување право на инвалидска пензија",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2023/09/%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86-%D0%9F5-%D0%91%D0%B0%D1%80%D0%B0%D1%9A%D0%B5-%D0%B7%D0%B0-%D0%B8%D0%BD%D0%B2%D0%B0%D0%BB%D0%B8%D0%B4%D1%81%D0%BA%D0%B0-%D0%BF%D0%B5%D0%BD%D0%B7%D0%B8%D1%98%D0%B0.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "П4 Барање за остварување право на семејна пензија",
+  "url": "https://www.piom.com.mk/wp-content/uploads/2023/09/%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86-%D0%9F4-%D0%91%D0%B0%D1%80%D0%B0%D1%9A%D0%B5-%D0%B7%D0%B0-%D1%81%D0%B5%D0%BC%D0%B5%D1%98%D0%BD%D0%B0-%D0%BF%D0%B5%D0%BD%D0%B7%D0%B8%D1%98%D0%B0.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "М-4 Електронско М-4 (упатства и програма за контрола)",
+  "url": "https://www.piom.com.mk/informacii/obvrznici-za-dostavuvanje-na-podatoci/elektronsko-m-4/",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "fpiom",
+  "code": "",
+  "name": "Сите обрасци на официјалната страница",
+  "url": "https://www.piom.com.mk/informacii/formulari/",
+  "kind": "WEB",
+  "form": null
+ }
+]
