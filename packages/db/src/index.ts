@@ -112,3 +112,5 @@ export * from './firm-mail';
 export * from './resp-firms';
 export * from './mfa';
 export * from './btrip';
+export * from './fx-reval';
+export * from './deferrals';

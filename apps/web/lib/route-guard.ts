@@ -108,7 +108,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // firms / start
   'firmi', 'izlezF', 'lozinka', 'pomos', 'kontroli', 'zakon', 'insp', 'lawrep', 'dosie', 'paket', 'moduli',
   // finance
-  'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
+  'banka', 'banke', 'devizni', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kursRaz', 'razgr', 'kartici', 'recFree', 'recon', 'bkAdv', 'bkPick', 'bkUnl',
   'akart', 'kkart', 'analitika', 'poobjekti', 'bilanc', 'bbPart', 'ddv', 'ddvKnigi', 'ddvTab', 'plati', 'vraboteni', 'payPredlog', 'payGod', 'payM4', 'pdd',
   'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pozajmici', 'donacii', 'prenos',
   // year end
@@ -251,7 +251,7 @@ export const BOOK_ONLY_MSG = 'Немате пристап до овој дел �
  */
 const BOOK_ONLY_LIST: readonly string[] = [
   // Финансово: statements and banks, cash, payment orders, the journal (+ dnevnik print), cards, reconciliation, trial balance
-  'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes',
+  'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kursRaz', 'razgr',
   'akart', 'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'donacii', 'kamati', 'izvestai',
   // ДДВ
   'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
