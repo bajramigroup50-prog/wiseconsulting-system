@@ -20,6 +20,7 @@ import { saveImport } from './bank/import';
 import { fileAlreadyUsed } from './sales/purchases';
 import { OfficeError } from './office';
 import { MAILIN_SOURCE, mailInLearn } from './mail-in';
+import { instFromFile, startInstReads } from './institutions';
 
 const IncomingError = OfficeError;
 
@@ -151,6 +152,10 @@ export async function routeIncoming(tx: Tx, a: { id: string; firmId: string; rou
     const [d] = await tx.insert(aiDocuments).values({ firmId: a.firmId, fileId: f.id, kind: T.ai, createdBy: a.userId, options: { incomingId: r.id } }).returning({ id: aiDocuments.id });
     out.aiDocIds.push(d!.id);
     out.ref = `ai_document:${d!.id}`;
+  } else if (T.inst) {
+    const id = await instFromFile(tx, { firmId: a.firmId, fileId: f.id, fileName: f.name, userId: a.userId, received: r.createdAt.toISOString().slice(0, 10), source: r.source === MAILIN_SOURCE ? 'mail' : 'incoming', incomingId: r.id });
+    out.aiDocIds.push(...await startInstReads(tx, { firmId: a.firmId, userId: a.userId, id, fileIds: [f.id] }));
+    out.ref = `inst_item:${id}`;
   } else if (T.mpin) {
     const [m] = await tx.insert(mpinInbox).values({ fileId: f.id, name: f.name, firmId: a.firmId, createdBy: a.userId }).returning({ id: mpinInbox.id });
     out.mpinRowIds.push(m!.id);

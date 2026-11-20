@@ -6,6 +6,7 @@
  * raising a false alarm. FIX(#10): legacy swapped the global `S.data`/`S.fid`/`S.year` (`alWith`) to evaluate
  * another firm; here every firm is an explicit argument.
  */
+import { instFindings, type InstFindItem } from './institutions';
 import { r2 } from '../money';
 import type { LedgerLine } from '../ledger';
 import { PP_TAX } from '../bank/pp';
@@ -16,7 +17,7 @@ export const AL_DDV_LIMIT = 2_000_000;
 /** Legacy `AP_CASH_LIMIT` ≈ 1.000 € (FIX(#18): derived from the office EUR rate, default 61.5). */
 export const apCashLimit = (eurRate = 61.5) => Math.round(1000 * eurRate);
 
-export const AL_CATS = ['Изводи', 'Влезни фактури', 'Пресметки', 'Излезни фактури', 'ДДВ', 'Плати', 'Благајна', 'Залиха', 'Документи', 'Наплата', 'Фискални'] as const;
+export const AL_CATS = ['Изводи', 'Влезни фактури', 'Пресметки', 'Излезни фактури', 'ДДВ', 'Плати', 'Благајна', 'Залиха', 'Документи', 'Наплата', 'Фискални', 'Институции'] as const;
 
 export const AL_DESC: Record<string, string> = {
   'Изводи': 'Броевите на изводите одат по ред; месец без извод; последниот извод постар од 35 дена.',
@@ -29,6 +30,7 @@ export const AL_DESC: Record<string, string> = {
   'Залиха': 'Артикли со негативна количина – продадено повеќе од примено.',
   'Документи': 'Документи во досието со „Важи до“ истечено или истекува за 30 дена; документи од клиентот што чекаат одобрување.',
   'Наплата': 'Излезни фактури ненаплатени повеќе од 90 дена по валута.',
+  'Институции': 'Барања, решенија, опомени и записници од институциите (УЈП, инспекторати, фондови…) чиј рок истекол или истекува за 7 дена.',
   'Комитенти': 'Ставки на конта на купувачи / добавувачи (12, 22) без комитент – не се гледаат во картиците и ИОС.',
 };
 
@@ -87,6 +89,8 @@ export interface FirmSnapshot {
     absences: readonly { name: string; code: string; kind: string; from: string; to: string }[];
     orders: readonly { name: string; creditor: string; caseNo?: string; rest: number; due: number; waiting: number }[];
   } | null;
+  /** Open items of „🏛 Институции“ (requests / decisions with a deadline; null = not available). */
+  inst?: readonly InstFindItem[] | null;
   /** Signature used in client messages. */
   officeName?: string;
 }
@@ -167,6 +171,8 @@ export function alCompute(S: FirmSnapshot): Finding[] {
   const td = S.today, y = td.slice(0, 4);
   const L = S.ledger.filter((l) => l.date.startsWith(y));
   const pn = (id: string, d: string) => S.partnerNames[id] ?? d;
+
+  for (const x of instFindings(S.inst ?? [], td)) add(x.lvl, 'Институции', x.txt, 'institucii');
 
   if (S.pendingClient) add('warn', 'Документи', `${S.pendingClient} документи/пораки од клиентот чекаат преглед и одобрување`, 'klInbox');
 

@@ -147,7 +147,7 @@ export const isClientEntryKind = (k: unknown): k is ClientEntryKind => typeof k 
 /** Inbox routing targets (legacy `IR_K` / `irRoute`). */
 export const INBOX_ROUTES = {
   purchase: 'Влезна фактура', sale: 'Излезна фактура', bank: 'Извод', fisk: 'Фискален / Z извештај', payroll: 'Плата',
-  employee: 'Вработен', cash: 'Благајна', stock: 'Залиха', travel: 'Патен налог', dossier: 'Досие',
+  employee: 'Вработен', cash: 'Благајна', stock: 'Залиха', travel: 'Патен налог', dossier: 'Досие', inst: 'Институција (барање / решение)',
 } as const;
 export type InboxRoute = keyof typeof INBOX_ROUTES;
 
@@ -160,7 +160,7 @@ export type InboxRoute = keyof typeof INBOX_ROUTES;
  * `mpin`: legacy v453 `irRoute` 14104 — a payroll file a client sent is read as an МПИН into the all-firms list
  * (`/mpinIn`); when it turns out not to be an МПИН it is archived in the dossier under `dossier` (legacy fallback `irArch`).
  */
-export const INBOX_ROUTE_TARGET: Readonly<Record<InboxRoute, { ai?: 'purchase' | 'sale'; dossier?: string; mpin?: boolean; go: string | null }>> = {
+export const INBOX_ROUTE_TARGET: Readonly<Record<InboxRoute, { ai?: 'purchase' | 'sale'; dossier?: string; mpin?: boolean; inst?: boolean; go: string | null }>> = {
   purchase: { ai: 'purchase', go: '/skan' },
   sale: { ai: 'sale', go: '/skan?k=sale' },
   bank: { dossier: 'Банкарски документи', go: '/banka' },
@@ -171,4 +171,6 @@ export const INBOX_ROUTE_TARGET: Readonly<Record<InboxRoute, { ai?: 'purchase' |
   stock: { dossier: 'Магацински документи', go: '/g_lager' },
   travel: { dossier: 'Патни налози и гориво', go: null },
   dossier: { dossier: 'Друго', go: '/dosie' },
+  /** 🏛 a request / decision / notice of an institution → an item of `/institucii` (the file is read for its deadline and payment). */
+  inst: { inst: true, go: '/institucii' },
 };

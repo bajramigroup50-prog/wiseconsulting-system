@@ -22,6 +22,7 @@ export function routeRefLink(ref: string | null | undefined, route?: string | nu
   if (t === 'ai_document') return route === 'sale' ? { href: '/skan?k=sale', label: '🧾 Преглед (излезни)' } : { href: '/skan', label: '🧾 Преглед на скенирани' };
   if (t === 'dossier_doc') return { href: '/dosie', label: '🗂 Досие' };
   if (t === 'mpin_inbox') return { href: '/mpinIn', label: '🧮 МПИН' };
+  if (t === 'inst_item') return { href: '/institucii', label: '🏛 Институции' };
   if (t === 'bank_import') return numbers?.length ? { href: `/nalozi?n=${encodeURIComponent(numbers[0]!)}`, label: `📒 Налог ${numbers.join(', ')}` } : { href: '/banka', label: '🏦 Изводи' };
   return null;
 }

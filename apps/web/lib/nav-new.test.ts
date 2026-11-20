@@ -62,7 +62,7 @@ describe('new menu (P40 „ново“)', () => {
     expect(F.filter((x) => x[0] === '-').length).toBeGreaterThanOrEqual(3);
     expect(all(NEW)).not.toContain('izlezF');
     // the top-level Фирми list is short now (was 29 items)
-    expect(F.filter((x) => x[0] !== '-').length).toBeLessThan(21); // 20 with 📥 Пристигнати документи (UX P7)
+    expect(F.filter((x) => x[0] !== '-').length).toBeLessThan(22); // 20 with 📥 Пристигнати документи (UX P7), 21 with 🏛 Институции
   });
   it('P15 Корисници only in Систем', () => {
     expect(count(NEW, 'korisnici')).toBe(1);

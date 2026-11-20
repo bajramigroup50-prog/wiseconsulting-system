@@ -17,6 +17,7 @@ import { lineText, pdfLines, type PdfItem, type PdfLine } from '@wise/core/noai/
 import { classifyText, classifyUbl } from '@wise/core/noai/classify';
 import { invoicesFromPdf } from '@wise/core/noai/purchase';
 import { kontrolaFromPdf, kontrolaFromText } from '@wise/core/noai/kontrola';
+import { instFromText } from '@wise/core/office/institutions';
 import type { ScanResult } from '@wise/core/sales';
 import { pdfTextItems } from './pdf-text';
 import { docxText } from './docx-text';
@@ -37,6 +38,7 @@ const OB_MAX_PAGES = 300;
 /** Free read of one file for a kind; null when this kind / file cannot be read without AI. */
 export async function freeRead(kind: string, file: { name: string; mime: string }, bytes: Uint8Array, o: { ownEdb?: string | null } = {}): Promise<unknown | null> {
   if (kind === 'kontrola') return kontrolaFree(file, bytes);
+  if (kind === 'inst') return instFree(file, bytes);
   if (kind === 'classify') return classifyFree(file, bytes, o);
   // fiscal reports / fiscal receipts as text PDF or text export: only a read whose checks pass (./free-docs.ts)
   if (kind === 'fisk' || kind === 'blg') return (await freeDocRead(kind, file, bytes)).result;
@@ -88,7 +90,7 @@ export function freeAccepted(kind: string, r: unknown): boolean {
 }
 
 /** Kinds that have a free reader (the others need AI). */
-export const FREE_KINDS: ReadonlySet<string> = new Set(['bank', 'ob', 'purchase', 'sale', 'kontrola', 'classify', 'fisk', 'blg']);
+export const FREE_KINDS: ReadonlySet<string> = new Set(['bank', 'ob', 'purchase', 'sale', 'kontrola', 'classify', 'fisk', 'blg', 'inst']);
 
 /** Office inbox classification (kind `classify`) from the text: title words / UBL seller (`@wise/core/noai/classify`). */
 async function classifyFree(file: { name: string; mime: string }, bytes: Uint8Array, o: { ownEdb?: string | null }): Promise<unknown | null> {
@@ -108,6 +110,15 @@ async function kontrolaFree(file: { name: string; mime: string }, bytes: Uint8Ar
   return null;
 }
 
+/** An institution's document (kind `inst`): number, dates, deadline, amount, payment details from the text. */
+async function instFree(file: { name: string; mime: string }, bytes: Uint8Array): Promise<unknown | null> {
+  let t = '';
+  if (isPdf(file)) t = (await lines(bytes)).map(lineText).join('\n');
+  else if (isDocx(file)) t = docxText(bytes) ?? '';
+  else if (/\.txt$/i.test(file.name) || file.mime === 'text/plain') t = new TextDecoder('utf-8').decode(bytes);
+  return t.trim() ? instFromText(t) : null;
+}
+
 const isDocx = (f: { name: string; mime: string }) => /\.docx$/i.test(f.name) || f.mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 /** Files the model cannot take (Word / plain text of an act): read only by the free reader, even when AI is available. */
-export const freeOnlyFile = (kind: string, f: { name: string; mime: string }): boolean => kind === 'kontrola' && (isDocx(f) || /\.txt$/i.test(f.name));
+export const freeOnlyFile = (kind: string, f: { name: string; mime: string }): boolean => (kind === 'kontrola' || kind === 'inst') && (isDocx(f) || /\.txt$/i.test(f.name));

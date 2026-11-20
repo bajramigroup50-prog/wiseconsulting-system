@@ -39,6 +39,7 @@ export const ROK_TYPES = {
   doc: { n: 'Истекува документ / лиценца', link: 'dosie', verified: true },
   kdog: { n: 'Договор за сметководствени услуги', link: 'kdogovori', verified: true },
   firm: { n: 'Рок на фирмата', link: 'dosie', verified: true },
+  inst: { n: 'Барање / рок од институција', link: 'institucii', verified: true },
 } as const;
 export type RokType = keyof typeof ROK_TYPES;
 export const ROK_TYPE_IDS = Object.keys(ROK_TYPES) as RokType[];
@@ -63,6 +64,8 @@ export const ROK_SRC: Partial<Record<RokType, string>> = {
 export interface RokEmployee { id: string; name: string; start: string | null; end: string | null; m1Date: string | null }
 export interface RokDoc { id: string; title: string; validTo: string }
 export interface RokManual { id: string; title: string; due: string; done: boolean; note?: string | null }
+/** An item of „🏛 Институции“ with a deadline (`done` = answered / paid / closed). */
+export interface RokInst { id: string; title: string; due: string; done: boolean }
 
 /** Firm facts the generator needs. */
 export interface RokFirm {
@@ -78,6 +81,8 @@ export interface RokFirm {
   /** Accounting-service contract end (owner's calendar only). */
   contract?: { no: string; end: string } | null;
   manual?: readonly RokManual[];
+  /** Deadlines of the institutions' requests / decisions (`inst_items`). */
+  inst?: readonly RokInst[];
 }
 
 export interface Rok {
@@ -112,7 +117,7 @@ export const rokMonthName = (ym: string): string => `${MON_MK[Number(ym.slice(5,
 function mk(f: RokFirm, type: RokType, period: string, legal: string, title: string, extra: Partial<Rok> = {}): Rok {
   const T = ROK_TYPES[type];
   // statutory dates move to the next working day; documents / contracts / agreed dates stay as entered
-  const roll = !['doc', 'kdog', 'firm', 'm1', 'm2'].includes(type);
+  const roll = !['doc', 'kdog', 'firm', 'inst', 'm1', 'm2'].includes(type);
   return { key: `${type}:${period}`, firmId: f.id, type, title, period, due: roll ? rollToWorkday(legal) : legal, legal, link: T.link, verified: T.verified, ...extra };
 }
 
@@ -160,6 +165,7 @@ export function rokGenerate(f: RokFirm, from: string, to: string): Rok[] {
   for (const d of f.docs ?? []) push(mk(f, 'doc', d.id, d.validTo, `Истекува: ${d.title}`, { key: `doc:${d.id}` }));
   if (f.contract?.end) push(mk(f, 'kdog', f.contract.no || f.contract.end, f.contract.end, `Истекува договорот за сметководствени услуги ${f.contract.no}`.trim(), { key: `kdog:${f.contract.no || f.contract.end}` }));
   for (const d of f.manual ?? []) push(mk(f, 'firm', d.id, d.due, d.title, { key: `firm:${d.id}`, done: d.done, note: d.note ?? undefined }));
+  for (const d of f.inst ?? []) push(mk(f, 'inst', d.id, d.due, d.title, { key: `inst:${d.id}`, done: d.done }));
   return R.sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title));
 }
 

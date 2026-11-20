@@ -23,6 +23,7 @@ import { FS_PROMPT } from '@wise/core/firms/resh';
 import { ZM_PROMPT } from '@wise/core/yearend/zm-import';
 import { OS_PROMPT } from '@wise/core/yearend/assets-io';
 import { KONTROLA_PROMPT } from '@wise/core/compliance';
+import { INST_PROMPT } from '@wise/core/office/institutions';
 import { items, type AiDocKind, type AiDocument, type Firm, type Tx } from '@wise/db';
 import type { AiTier } from './client';
 import { BANK_CLASSIFY_PROMPT, BANK_MULTI_NOTE, BANK_PROMPT, BLG_PAGES_ADD, BLG_PROMPT, FISK_PAGES_NOTE, BOM_PROMPT, CLASSIFY_PROMPT, EMP_PROMPT, FISK_PROMPT, FK_SIMPLE, IMP_ADD, IMP_PROMPT, OB_PROMPT, PUR_BANK_ADD, PUR_PROMPT, REC_PROMPT, SCR_PROMPT } from './prompts';
@@ -41,6 +42,7 @@ export const RESULT_KINDS: ReadonlySet<AiDocKind> = new Set<AiDocKind>(['blg', '
   'zm',
   'kontrola',
   'os',
+  'inst',
 ]);
 
 type Content = { blocks: Anthropic.ContentBlockParam[]; extra: string };
@@ -164,6 +166,11 @@ export async function readResultKind(db: Tx, doc: AiDocument, f: Firm, today = t
     case 'kontrola': {
       // compliance: the inspection record / decision → structured findings (the office reviews them before use)
       const r = await readContent<unknown>({ ...base, prompt: KONTROLA_PROMPT, tier: 'complex', maxTokens: 12000 }, content);
+      return { result: r.data, model: r.model };
+    }
+    case 'inst': {
+      // a document of a state institution → institution, number, deadline, amount and payment details (`/institucii`)
+      const r = await readContent<unknown>({ ...base, prompt: INST_PROMPT, tier: 'default', maxTokens: 2000 }, content);
       return { result: r.data, model: r.model };
     }
     case 'os': {

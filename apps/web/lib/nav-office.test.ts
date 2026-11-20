@@ -6,7 +6,9 @@ describe('office menu items (legacy runtime NAV patches)', () => {
     const k = navFlat(NAV.find(([g]) => g === 'Канцеларија')![1]).map(([id]) => id);
     expect(k).toEqual(['autop', 'iso', 'ifac', 'kanc', 'mojzad', 'crm', 'baranja', 'osnovanje', 'tpl', 'aml', 'zzlp']);
     const f = navFlat(NAV.find(([g]) => g === 'Фирми')![1]).map(([id]) => id);
-    expect(f.indexOf('insp')).toBe(f.indexOf('zatvoranje') + 1);
+    expect(f.indexOf('institucii')).toBe(f.indexOf('zatvoranje') + 1);
+    expect(f.indexOf('insp')).toBe(f.indexOf('institucii') + 1);
+    expect(NAV_LBL.institucii).toBe('🏛 Институции – барања и плаќања');
     expect(NAV_LBL.autop).toBe('🤖 Автопилот');
   });
   it('client portal views: allowed for klient, office screens not', () => {

@@ -13,7 +13,7 @@ import { todaySkopje } from '@wise/core/office';
 import { feeAutoPeriod } from '@wise/core/firms/kdfee';
 import {
   dispatchReminders, dispatchRokReminders, FEE_DELIVER_JOB, feeContext, feeInvoices, feePortalItem, issueFeeInvoices, OFFICE_FILE_ENTITY, rokWindow,
-  noteRokoviRun, runFeeReminders, runNbrm, syncRokovi, textMailHtml, type DB,
+  matchInstPayments, noteRokoviRun, runFeeReminders, runNbrm, syncRokovi, textMailHtml, type DB,
 } from '@wise/db';
 import { eq } from 'drizzle-orm';
 import { defineJob } from '../job';
@@ -48,13 +48,15 @@ export const rokoviJob = defineJob<{ today?: string }>({
   cron: '10 7 * * *',
   async run(data, ctx) {
     const today = data?.today ?? todaySkopje();
+    // 🏛 institutions: finished reads applied, amounts paid according to the bank statements (before the calendar is built)
+    const ip = await matchInstPayments(ctx.db, { today }).catch((e) => { ctx.log(`inst payments: ${String(e)}`); return null; });
     const s = await syncRokovi(ctx.db, rokWindow(today));
     // P42: „Освежено автоматски: денес 07:10“ on /rokovi (best effort: never fails the job)
     await noteRokoviRun(ctx.db).catch((e) => ctx.log(`last run not noted: ${String(e)}`));
     const r = await dispatchRokReminders(ctx.db, { today, mail: canMail() });
     const d = await dispatchReminders(ctx.db);
     const m = await sendQueuedMail(ctx, d.mailIds);
-    ctx.log(`firms ${s.firms}, deadlines ${s.rows} (auto done ${s.autoDone}, undone ${s.autoUndone}, gone ${s.gone}); reminders colleague ${r.colleague}, client ${r.client}; delivered ${d.sent}, e-mails ${d.mailIds.length} (queued ${m})`);
+    ctx.log(`${ip ? `inst paid ${ip.paid}/${ip.checked}; ` : ''}firms ${s.firms}, deadlines ${s.rows} (auto done ${s.autoDone}, undone ${s.autoUndone}, gone ${s.gone}); reminders colleague ${r.colleague}, client ${r.client}; delivered ${d.sent}, e-mails ${d.mailIds.length} (queued ${m})`);
   },
 });
 

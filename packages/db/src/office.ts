@@ -33,11 +33,13 @@ import { saveInvoice } from './sales/invoices';
 import { fileAlreadyUsed, savePurchase } from './sales/purchases';
 import { saveSalesDay } from './stock-docs';
 import { vatDueEstimate } from './vat-estimate';
+import { instFromFile, startInstReads } from './institutions';
 import {
   aiDocuments, appSettings, autopilotFindings, autopilotMessages, autopilotMetrics, autopilotRuns, clientEntries, dossierDocs, employees, fileLinks, files,
   firmDeadlines, firms, inboxItems, invoices, officeCounters, officeTasks, partners, payrollRuns, recurringInvoices, reminders,
   salesDaily, users, vatPeriods, journals, journalLines, OFFICE_FILE_ENTITY,
   mpinInbox,
+  instItems,
 } from './schema/index';
 
 /* ---------------- Numbering (FIX #8) ---------------- */
@@ -271,6 +273,10 @@ export async function buildFirmSnapshot(
     noPartnerKontos: await effectiveChart(tx, firmId).then((C) => C.filter((c) => /^(12|22)/.test(c.code) && NO_PARTNER_KONTO_RE.test(c.name ?? '')).map((c) => c.code)).catch(() => []),
     invoices, employees: emps, payrollMonths: pm, vatClosedPeriods: vat, fiscalDays: fisk, vatEstimate,
     payEvents: await officePayEvents(tx, firmId, today).catch(() => null),
+    // „🏛 Институции“: open requests / decisions (their deadlines → Известувања)
+    inst: await tx.select({ id: instItems.id, inst: instItems.inst, instName: instItems.instName, type: instItems.type, refNo: instItems.refNo, subject: instItems.subject,
+      status: instItems.status, due: instItems.due, amount: instItems.amount, paidOn: instItems.paidOn })
+      .from(instItems).where(and(eq(instItems.firmId, firmId), inArray(instItems.status, ['new', 'work']))).catch(() => null),
     // the inspection looks at the people currently employed
     inspEmployees: emps ? emps.filter((e) => e.active) : null, eurRate: o.eurRate, officeName: o.officeName,
     inspLoans: await (async () => {
@@ -684,6 +690,15 @@ export async function routeInboxFiles(tx: Tx, a: { itemId: string; firmId: strin
       out.aiDocIds.push(d!.id);
     }
     out.ref = out.aiDocIds.length ? `ai_document:${out.aiDocIds.join(',')}` : null;
+  } else if (T.inst && F.length) {
+    // 🏛 one item per file, each read for the institution / deadline / amount
+    const ids: string[] = [];
+    for (const f of F) {
+      const id = await instFromFile(tx, { firmId: a.firmId, fileId: f.id, fileName: f.name, userId: a.userId, received: i.createdAt.toISOString().slice(0, 10), source: 'incoming' });
+      ids.push(id);
+      out.aiDocIds.push(...await startInstReads(tx, { firmId: a.firmId, userId: a.userId, id, fileIds: [f.id] }));
+    }
+    out.ref = `inst_item:${ids.join(',')}`;
   } else if (T.mpin && F.length) {
     // legacy v453 irRoute: the payroll file is read as an МПИН into the all-firms list, already assigned to this firm
     const R = await tx.insert(mpinInbox).values(F.map((f) => ({ fileId: f.id, name: f.name, firmId: a.firmId, createdBy: a.userId }))).returning({ id: mpinInbox.id });

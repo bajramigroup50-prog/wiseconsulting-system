@@ -13,7 +13,8 @@ import {
 import { BankIsoForm } from './bank-iso';
 import { LivePpPreview } from './live-preview';
 import { ppExportRows } from '@wise/core/bank/fin-parity';
-import { getBankIso, getOfficeProfile, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate, officeProfileForFirm } from '@wise/db';
+import { getBankIso, getOfficeProfile, instItems, orderSuggestions, payerOf, paymentOrders, ppRecipients, vatDueEstimate, officeProfileForFirm } from '@wise/db';
+import { instOrderDraft, instOrderRef } from '@wise/core/office/institutions';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt, todayIso } from '@/lib/fmt';
@@ -27,7 +28,7 @@ import { batchPpAction, deletePpAction, savePpAction, savePpCalAction } from './
 import { PpIbanToggle, PpRecipientPicker } from './recipient-picker';
 import { PpTaxSelect, type PpTaxTpl } from './tax-select';
 
-type SP = { nov?: string; edit?: string; tax?: string; ref?: string; made?: string; miss?: string };
+type SP = { nov?: string; edit?: string; tax?: string; ref?: string; made?: string; miss?: string; inst?: string };
 const KINDS: PpKind[] = ['pp30', 'pp50', 'pp10'];
 
 export default async function PpNalPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -70,6 +71,10 @@ export default async function PpNalPage({ searchParams }: { searchParams: Promis
       draft = ppNew('pp30', today, payer, { recip: s.recip, recipAcc: s.recipAcc, recipBank: s.recipBank, purpose: 'Плаќање по фактура бр. ' + s.refCredit, amount: s.amount, code: newPayments(today) ? isoOfBank('220', payer.account, bankIso) || 'GDSV' : '930', refCredit: s.refCredit, nacin: ppNacin(payer.account, s.recipAcc) });
       refId = s.refId; refIds = [s.refId];
     }
+  } else if (sp.inst && /^[0-9a-f-]{36}$/i.test(sp.inst)) {
+    // 🏛 an institution's request / decision with an amount (`/institucii`): КТБ to the Budget or КТД to its account
+    const [it] = await db().select().from(instItems).where(and(eq(instItems.id, sp.inst), eq(instItems.firmId, firm.id))).limit(1);
+    if (it) { draft = instOrderDraft(it, payer, today); refId = instOrderRef(it.id); }
   } else if (sp.nov && KINDS.includes(sp.nov as PpKind)) draft = ppNew(sp.nov as PpKind, today, payer);
   // new orders from 09.11.2026 (КТД / КТБ / ВГ): the accounts are shown as IBAN МК07… right away (the box is ticked)
   if (draft && !editId && ppIbanOn(draft.date)) draft = ppApplyIban(draft, true);

@@ -6,9 +6,9 @@ const ids = (g: string) => navFlat(NAV.find(([x]) => x === g)![1]).map(([id]) =>
 // „класично“ menu (legacy order, unchanged); in the „ново“ menu the five law screens are one „⚖ Закони“ item with
 // tabs (P8, `lib/nav-new.test.ts`, `lib/nav-hubs.test.ts`) — the view ids and their access rules stay the same.
 describe('Фирми law / УЈП items (legacy runtime NAV inserts)', () => {
-  it('Фирми: … izvestuvanja, zakoni, lawAi, zatvoranje, insp, lawrep, ujpZakoni, mpinIn', () => {
+  it('Фирми: … izvestuvanja, zakoni, lawAi, zatvoranje, institucii, insp, lawrep, ujpZakoni, mpinIn', () => {
     const f = ids('Фирми');
-    expect(f.slice(f.indexOf('izvestuvanja'), f.indexOf('izvestuvanja') + 8)).toEqual(['izvestuvanja', 'zakoni', 'lawAi', 'zatvoranje', 'insp', 'lawrep', 'ujpZakoni', 'mpinIn']);
+    expect(f.slice(f.indexOf('izvestuvanja'), f.indexOf('izvestuvanja') + 9)).toEqual(['izvestuvanja', 'zakoni', 'lawAi', 'zatvoranje', 'institucii', 'insp', 'lawrep', 'ujpZakoni', 'mpinIn']);
     expect(NAV_LBL.ujpZakoni).toBe('📚 Закони на УЈП (синхронизирано)');
     expect(f[f.indexOf('izvestuvanja') + 1]).toBe('zakoni');
     expect(NAV_LBL.zakoni).toBe('⚖️ Законски промени');

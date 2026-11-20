@@ -26,6 +26,8 @@ import { getOfficeProfile, officeFirmOf, OfficeError } from './office';
 import { realFirmSql, realUserSql } from './demo/filters';
 import { loadPayScheme } from './payroll';
 import { firmEntity } from './yearend';
+import { instDeadlineRows } from './institutions';
+import { instOpen, instTitle } from '@wise/core/office/institutions';
 import {
   annualStatements, appSettings, bankLines, bankStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
 } from './schema/index';
@@ -64,6 +66,7 @@ export async function loadRokFirms(db: Tx, o: { from: string; to: string; firmId
       .from(serviceContracts).where(and(inArray(serviceContracts.firmId, ids), gte(serviceContracts.end, o.from), lte(serviceContracts.end, o.to))),
     db.select().from(firmDeadlines).where(and(inArray(firmDeadlines.firmId, ids), gte(firmDeadlines.due, o.from), lte(firmDeadlines.due, o.to))),
   ]);
+  const I = await instDeadlineRows(db, { firmIds: ids, from: o.from, to: o.to });
   const O = await getOfficeProfile(db);
   // the real office firm (real firms only) and the 🎭 demo office firm: neither has a contract with itself
   const offs = new Set([officeFirmOf(F, O)?.id, officeFirmOf(F, null, { demo: true })?.id].filter(Boolean));
@@ -78,6 +81,7 @@ export async function loadRokFirms(db: Tx, o: { from: string; to: string; firmId
       // the office firm has no contract with itself; the contract rows are shown only on the owner's calendar
       contract: k && !offs.has(f.id) ? { no: k.number, end: k.end! } : null,
       manual: M.filter((m) => m.firmId === f.id).map((m) => ({ id: m.id, title: m.title, due: m.due, done: m.done, note: m.note })),
+      inst: I.filter((i) => i.firmId === f.id && i.due).map((i) => ({ id: i.id, title: instTitle(i), due: i.due!, done: !instOpen(i.status) })),
     };
   });
 }
@@ -172,8 +176,8 @@ export async function syncRokovi(db: Tx, o: { from: string; to: string; firmIds?
         // the payment evidence of an automatic „done“ stays (re-checked below); so does the clean-up note (its undo finds the rows by it)
         note: sql`case when ${rokovi.done} and ${rokovi.auto} and left(coalesce(${rokovi.note}, ''), ${ROK_PAID_NOTE.length}) = ${ROK_PAID_NOTE} then ${rokovi.note}
           when ${rokovi.done} and not ${rokovi.auto} and ${rokovi.note} = ${ROK_CLEAN_NOTE} then ${rokovi.note} else excluded.note end`,
-        // a manual firm deadline keeps its done flag in `firm_deadlines` (the dossier); everything else keeps the stored status
-        done: sql`case when ${rokovi.type} = 'firm' then excluded.done else ${rokovi.done} end`,
+        // a manual firm deadline keeps its done flag in `firm_deadlines` (the dossier), an institution's item in `inst_items`; everything else keeps the stored status
+        done: sql`case when ${rokovi.type} in ('firm', 'inst') then excluded.done else ${rokovi.done} end`,
       },
     });
   }

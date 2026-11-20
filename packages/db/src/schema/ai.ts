@@ -50,7 +50,9 @@ export type AiDocKind = 'purchase' | 'sale' | 'blg' | 'emp' | 'scr' | 'bank' | '
   /** Inspection record / decision → findings (compliance module, `KONTROLA_PROMPT`). */
   | 'kontrola'
   /** Fixed-asset register of the old program (PDF / image) → the register import (`OS_PROMPT`). */
-  | 'os';
+  | 'os'
+  /** A document of a state institution (request, decision, notice…) → the item on `/institucii` (`INST_PROMPT`). */
+  | 'inst';
 export type AiDocStatus = 'queued' | 'reading' | 'done' | 'error' | 'saved';
 
 /** One invoice found in a read document, prepared for the review UI. */

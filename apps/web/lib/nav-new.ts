@@ -40,7 +40,7 @@ const FIRM_MORE = ['firmiImp', 'firmiResh', 'moduli'];
 const FIRM_BLOCKS: readonly (readonly string[])[] = [
   ['home', 'robot', 'prist'],
   ['firmi', '>' + FIRM_MORE_LABEL],
-  ['izvestuvanja', 'zatvoranje', 'insp', 'kontroli', 'zakoni', 'lawAi', 'ujpZakoni', 'lawrep', 'zakon', 'rokovi', 'zsRok', 'mpinIn', 'efPrep'],
+  ['izvestuvanja', 'institucii', 'zatvoranje', 'insp', 'kontroli', 'zakoni', 'lawAi', 'ujpZakoni', 'lawrep', 'zakon', 'rokovi', 'zsRok', 'mpinIn', 'efPrep'],
   ['klPortal', 'klInbox', 'klProfili', 'mesIzv'],
   ['kdogovori', 'kdfakturi', 'firmIzv'],
 ];

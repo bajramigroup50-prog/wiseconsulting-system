@@ -34,7 +34,7 @@ import { splitInvoicePdf } from '../ai/split';
 import { defineJob } from '../job';
 import { AI_ERR_BLOCKING, AI_ERR_MSG, aiBlockedMsg, aiProviderError, type AiErrCode } from '@wise/core/ai/errors';
 import { runAiPing, shouldAutoPing } from './ai-ping';
-import { clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
+import { applyInstReads, clearAiFailure, getAiSettings, noteAiFailure } from '@wise/db';
 import { aiConfigured, AiUnavailableError } from '../ai/client';
 import { FREE_FIRST_KINDS, FREE_KINDS, freeAccepted, freeOnlyFile, freeRead, NOAI_MODEL } from '../ai/free-read';
 import { KONTROLA_SCAN_MSG } from '@wise/core/noai/kontrola';
@@ -202,6 +202,8 @@ export async function runReadDocument(db: Tx, docId: string, log: (m: string) =>
       });
       await db.update(aiDocuments).set({ status: 'done', result, drafts: [], model }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading')));
       log(`${docId}: ${doc.kind} read via ${model}`);
+      // 🏛 an institution's document: the blank fields of its item are filled right away
+      if (doc.kind === 'inst') await applyInstReads(db, { firmIds: [doc.firmId] }).catch((e) => log(`${docId}: inst apply failed: ${String(e)}`));
       return;
     }
     if (!doc.fileId) throw new Error('Датотеката не е пронајдена.');

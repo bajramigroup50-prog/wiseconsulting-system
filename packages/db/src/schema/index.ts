@@ -36,3 +36,4 @@ export * from './demo';
 export * from './bankfeed';
 export * from './docreads';
 export * from './crm';
+export * from './institutions';
