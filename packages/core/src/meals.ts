@@ -114,3 +114,29 @@ export function monthSummary(B: readonly { id: string; members: number }[], L: r
 
 /** Cost of one portion for the month (food cost ÷ portions), 0 when nothing was served. */
 export const costPerPortion = (cost: number, portions: number): number => (portions > 0 ? Math.round((cost / portions) * 100) / 100 : 0);
+
+/**
+ * Summary of the register (always shown in the report, also before any meal is ticked): families / persons, members,
+ * breakdown by place and by nationality (largest first, „—“ = not entered), and how many have a phone / ЕМБГ / consent.
+ */
+export function registerSummary(B: readonly { members: number; place?: string | null; nationality?: string | null; phone?: string | null; embg?: string | null; consentDate?: string | null }[]) {
+  const group = (k: (b: (typeof B)[number]) => string | null | undefined) => {
+    const M = new Map<string, { n: number; members: number }>();
+    for (const b of B) {
+      const key = clean(k(b)) || '—';
+      const x = M.get(key) ?? { n: 0, members: 0 };
+      x.n++; x.members += Math.max(1, b.members || 1);
+      M.set(key, x);
+    }
+    return [...M].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'mk'));
+  };
+  return {
+    families: B.length,
+    members: B.reduce((s, b) => s + Math.max(1, b.members || 1), 0),
+    byPlace: group((b) => b.place),
+    byNat: group((b) => b.nationality),
+    phone: B.filter((b) => clean(b.phone)).length,
+    embg: B.filter((b) => clean(b.embg)).length,
+    consent: B.filter((b) => b.consentDate).length,
+  };
+}

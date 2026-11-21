@@ -53,3 +53,17 @@ describe('🍲 meals', () => {
     expect(klAllowedViews({ on: { obr: true } }, [])).not.toContain('obroci');
   });
 });
+
+describe('registerSummary', () => {
+  it('counts families, members, places, nationalities and filled fields', async () => {
+    const { registerSummary } = await import('./meals');
+    const S = registerSummary([
+      { members: 5, place: 'Шуто Оризари', nationality: 'Shqiptar', phone: '070', embg: '1501968450045' },
+      { members: 3, place: 'Шуто Оризари ', nationality: 'Rom', consentDate: '2026-11-20' },
+      { members: 0, place: '', nationality: 'Shqiptar' },
+    ]);
+    expect(S).toMatchObject({ families: 3, members: 9, phone: 1, embg: 1, consent: 1 });
+    expect(S.byPlace).toEqual([{ name: 'Шуто Оризари', n: 2, members: 8 }, { name: '—', n: 1, members: 1 }]);
+    expect(S.byNat[0]).toEqual({ name: 'Shqiptar', n: 2, members: 6 });
+  });
+});

@@ -6,7 +6,7 @@
  * screen when the office switches on the section „Корисници и оброци“.
  */
 import Link from 'next/link';
-import { costPerPortion, MEALS, monthSummary } from '@wise/core/meals';
+import { costPerPortion, MEALS, monthSummary, registerSummary } from '@wise/core/meals';
 import { withoutConsent } from '@wise/core/npo';
 import { consentFiles, listBeneficiaries, listMembers, mealLogsBetween, npoMovements } from '@wise/db';
 import { db } from '@/lib/db';
@@ -41,7 +41,7 @@ function period(sp: { p?: string; m?: string; q?: string; od?: string; do?: stri
   return { from: `${my}-${String(mn).padStart(2, '0')}-01`, to: `${my}-${String(mn).padStart(2, '0')}-${lastDay(my, mn)}`, label: `${String(mn).padStart(2, '0')}.${my}` };
 }
 
-export default async function Obroci({ searchParams }: { searchParams: Promise<{ t?: string; d?: string; id?: string; nov?: string; p?: string; m?: string; q?: string; od?: string; do?: string; all?: string; nc?: string; sog?: string; pr?: string; nd?: string }> }) {
+export default async function Obroci({ searchParams }: { searchParams: Promise<{ t?: string; d?: string; id?: string; nov?: string; p?: string; m?: string; q?: string; od?: string; do?: string; all?: string; sm?: string; nc?: string; sog?: string; pr?: string; nd?: string }> }) {
   const sp = await searchParams;
   const g = await industryPage('obroci', T);
   if (g.blocked) return g.blocked;
@@ -224,13 +224,16 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   const [L, M] = await Promise.all([mealLogsBetween(db(), firm.id, P.from, P.to), npoMovements(db(), firm.id, P.from, P.to)]);
   const S = monthSummary(all.map((b) => ({ id: b.id, members: b.members })), L);
   const byId = new Map(all.map((b) => [b.id, b]));
-  const rows = S.rows.filter((r) => r.meals > 0).sort((a, b) => (byId.get(a.id)?.no ?? 1e9) - (byId.get(b.id)?.no ?? 1e9));
+  const name = (id: string) => byId.get(id)?.name ?? '';
+  // every active family (0 meals too, so an imported register never looks empty); inactive ones only when they ate in the period; `sm=1` = only with meals
+  const onlyMeals = sp.sm === '1';
+  const rows = S.rows.filter((r) => (onlyMeals ? r.meals > 0 : r.meals > 0 || byId.get(r.id)?.active)).sort((a, b) => (byId.get(a.id)?.no ?? 1e9) - (byId.get(b.id)?.no ?? 1e9) || name(a.id).localeCompare(name(b.id), 'mk'));
+  const RS = registerSummary(all.filter((b) => b.active));
   const exp = M.filter((x) => x.account.startsWith('4')), inc = M.filter((x) => x.account.startsWith('7'));
   const expTot = exp.reduce((s, x) => s + x.debit - x.credit, 0), incTot = inc.reduce((s, x) => s + x.credit - x.debit, 0);
   const days = new Set(L.map((x) => x.date)).size;
   const [y, mo] = D.split('-').map(Number) as [number, number];
   const ym = sp.m ?? `${y}-${String(mo).padStart(2, '0')}`, yq = sp.q ?? `${y}-Q${Math.ceil(mo / 3)}`;
-  const name = (id: string) => byId.get(id)?.name ?? '';
   return (
     <>
       <Hd t={'🍲 ' + T} sub={`извештај · ${P.label}`} exp={false} excel={false}>
@@ -248,8 +251,10 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
         <label className="f">Квартал<select name="q" defaultValue={yq}>{[y - 1, y].flatMap((yy) => [1, 2, 3, 4].map((q) => `${yy}-Q${q}`)).map((v) => <option key={v} value={v}>{v.replace('-Q', ' – ')}. кв.</option>)}</select></label>
         <label className="f">Од<input type="date" name="od" defaultValue={sp.od ?? P.from} /></label>
         <label className="f">До<input type="date" name="do" defaultValue={sp.do ?? P.to} /></label>
+        <label className="chk"><input type="checkbox" name="sm" value="1" defaultChecked={onlyMeals} /> само со оброци</label>
         <button className="btn pri">Прикажи</button>
       </form>
+      {!L.length && <div className="callout warn" style={{ marginTop: 8 }}>Нема означени оброци во периодот – означете ги во <Link href="/obroci">📋 Дневна листа</Link>.</div>}
       <div id="obrociRep">
         <h2 style={{ margin: '10px 0 4px' }}>{firm.name} – корисници и оброци, {P.label}</h2>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
@@ -262,6 +267,24 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
           <span className="pill">Трошок по порција: <b>{fmt(costPerPortion(expTot, S.tot.portions))}</b> ден.</span>
         </div>
 
+        <h3>Регистар на корисници (активни)</h3>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
+          <span className="pill">Семејства / лица: <b>{RS.families}</b></span>
+          <span className="pill">Вкупно членови: <b>{RS.members}</b></span>
+          <span className="pill">Со телефон: <b>{RS.phone}</b></span>
+          <span className="pill">Со ЕМБГ: <b>{RS.embg}</b></span>
+          <Link className={'pill' + (RS.consent < RS.families ? ' warn' : ' good')} href="/obroci?t=k&nc=1">Со согласност: <b>{RS.consent}</b> / {RS.families}</Link>
+        </div>
+        <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {([['Место / населба', RS.byPlace], ['Националност', RS.byNat]] as const).map(([t, G]) => (
+            <table key={t} className="dense" style={{ minWidth: 300 }}>
+              <thead><tr><th>{t}</th><th className="n">Семејства</th><th className="n">Членови</th></tr></thead>
+              <tbody>{G.map((g) => <tr key={g.name}><td>{g.name}</td><td className="n">{g.n}</td><td className="n">{g.members}</td></tr>)}
+                {!G.length && <tr><td colSpan={3} className="muted">Регистарот е празен – увезете го во 👪 Корисници.</td></tr>}</tbody>
+            </table>
+          ))}
+        </div>
+
         <h3>Оброци по корисник</h3>
         <table className="dense">
           <thead><tr><th>Бр.</th><th>Корисник</th><th className="n">Чл.</th><th className="n">Денови</th>{MEALS.map(([k, n]) => <th key={k} className="n">{n}</th>)}<th className="n">Оброци</th><th className="n">Порции</th><th>Потпис</th></tr></thead>
@@ -269,7 +292,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
             {rows.map((r) => (
               <tr key={r.id}><td>{byId.get(r.id)?.no ?? ''}</td><td>{name(r.id)}</td><td className="n">{byId.get(r.id)?.members ?? 1}</td><td className="n">{r.days}</td><td className="n">{r.b}</td><td className="n">{r.l}</td><td className="n">{r.d}</td><td className="n">{r.meals}</td><td className="n">{r.portions}</td><td style={{ minWidth: 110 }} /></tr>
             ))}
-            {!rows.length && <tr><td colSpan={10} className="muted">Нема евидентирани оброци во периодот.</td></tr>}
+            {!rows.length && <tr><td colSpan={10} className="muted">{onlyMeals ? 'Нема евидентирани оброци во периодот.' : 'Нема активни корисници.'}</td></tr>}
           </tbody>
           <tfoot><tr className="tot"><td /><td>Вкупно</td><td /><td className="n">{days}</td><td className="n">{S.tot.b}</td><td className="n">{S.tot.l}</td><td className="n">{S.tot.d}</td><td className="n">{S.tot.meals}</td><td className="n">{S.tot.portions}</td><td /></tr></tfoot>
         </table>
