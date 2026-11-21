@@ -60,7 +60,7 @@ describe('Излез – Helix panel and keys', () => {
   it('has the panel, menu and bottom bar of the old program; ↑ ↓ select (the last row first, ▸), F10 opens the lines, Del deletes', async () => {
     view();
     const P = $('aside[aria-label="Акции на прегледот"]')!;
-    expect([...P.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Ent)', 'Бришење (Del)', 'Испрати е-Фактура',
+    expect([...P.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Ent)', 'Бришење (Del)', 'Испрати е-Фактура', '👁 Види фактура / PDF', '✉ Испрати по е-пошта',
       'Наплати (F4)', 'Масовна наплата', 'Масовна наплата на курсни разлики', 'Книга на фактури (F2)', 'Спецификација по комитенти (F3)', 'Промет по производи (F6)', 'Парагон', 'Промет', 'Прегл. по налози']);
     expect([...P.querySelectorAll('legend')].map((l) => l.textContent)).toEqual(['Комерцијално', 'Продажба']);
     expect([...document.querySelectorAll('[data-hx-menu] summary')].map((x) => x.textContent)).toEqual(['Специјални опции', 'Корекција за наплата', 'Прегледи', 'Безбедност', 'Сортирање', 'Копирање', 'Печатење', 'Останато', 'Е-Фактура']);
@@ -180,12 +180,13 @@ describe('Влез – Helix controls', () => {
   it('panel, menu and bottom bar of „Преглед на влезни калкулации“ map to WISE screens', async () => {
     const { vlezHelix } = await import('./vlez-list-keys');
     const c = vlezHelix(true, false);
-    expect(c.groups.flatMap((g) => g.items.map((b) => b.label + (b.key ? ` (${b.key})` : '')))).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Enter)', 'Бришење (Delete)',
+    expect(c.groups.flatMap((g) => g.items.map((b) => b.label + (b.key ? ` (${b.key})` : '')))).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Enter)', '📎 Документ (скен / PDF)', '👁 Калкулација', 'Бришење (Delete)',
       'Наплати (F4)', 'Масовна наплата', 'Книга на фактури (F2)', 'Спецификација по комитенти (F3)', 'Набавени производи (F6)', 'Преглед по налози', 'По документи']);
     expect(c.groups[0]!.items[0]!.act).toHaveProperty('off');
     // Ins stays with the page's „Податоци за малопродажна калкулација“ dialog
     expect(c.groups[0]!.items[2]).toMatchObject({ act: { href: '/vlez?hnov' } });
     expect(c.groups[0]!.items[2]!.key).toBeUndefined();
+    expect(c.groups[0]!.items[4]).toMatchObject({ act: { row: 'a[data-att]' } });
     expect(c.menu.map((m) => m.label)).toEqual(['Специјални опции', 'Корекција за наплати', 'Безбедност', 'Сортирање', 'Копирање', 'Останато', 'Е-Фактура']);
     expect(c.bottom.map((b) => `${b.label} ${b.key}`)).toEqual(['Прекнижување F5', 'Главна книга F7', 'Филтер F11', 'Освежување на податоците F1']);
     expect(c.groups[1]!.items.find((b) => b.key === 'F2')!.act).toEqual({ href: '/ddvKnigi?t=in' });

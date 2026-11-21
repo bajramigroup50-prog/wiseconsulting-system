@@ -23,6 +23,8 @@ export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[
         // the Ins key belongs to the page's „Податоци за малопродажна калкулација“ dialog
         { label: 'Нова (Ins)', act: canWrite ? { href: '/vlez?hnov' } : { off: ro }, cls: 'pri', title: 'Нова калкулација: заглавје, па ставки' },
         { label: 'Промена', key: 'Enter', act: { row: 'a[data-open]' }, title: 'Отвори ја избраната калкулација' },
+        { label: '📎 Документ (скен / PDF)', act: { row: 'a[data-att]' }, title: 'Скенираниот документ / PDF на избраната фактура' },
+        { label: '👁 Калкулација', act: { row: 'a[data-print]' }, title: 'Калкулација на избраната (печатење / PDF)' },
         { label: 'Бришење', key: 'Delete', act: { row: '[data-del] button' }, cls: 'danger', title: 'Избриши ја избраната калкулација (со налогот и приемот)' },
       ] },
       { title: 'Комерцијално', items: [
@@ -62,6 +64,8 @@ export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[
       { label: 'Останато', items: [
         { label: '💶 Фискални сметки – готовина 1020', act: { href: '/vlez?vid=k' } },
         { label: 'Сите влезни документи', act: { href: '/vlez?vid=all' } },
+        { label: '📎 Документ (скен / PDF) на избраната', act: { row: 'a[data-att]' } },
+        { label: '👁 Калкулација на избраната', act: { row: 'a[data-print]' } },
         { label: 'Печати ја листата', act: { fn: 'print' } },
         { label: 'Сите извештаи', act: { href: '/izvestai' } },
       ] },

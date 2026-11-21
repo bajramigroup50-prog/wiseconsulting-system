@@ -174,10 +174,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const LOCS = await locationOptions(firm.id);
   // the columns of the Helix list with their share of the width (fits next to the panel, no side scrolling)
   const VXC: [string, number, string?, string?][] = [
-    ['*', 14, 'Тековен ред ▸ / означени *'], ['☑', 20], ['Број', 44], ['Налог', 38], ['По документ', 64], ['Комитент', 0], ['Од м.', 26, 'Од магацин (шифра)'], ['Од магацин', 50], ['Од пр.', 26, 'Од продавница (шифра)'], ['Од прод.', 40, 'Од продавница'],
-    ['Датум', 72], ['Валута', 72], ['Д/У', 22, 'Домашна / Увозна'], ['Терк', 26], ['За наплата', 82, undefined, 'n'], ['Напла­тено', 78, 'Наплатено', 'n'], ['За напл. (дев.)', 66, 'За наплата (девизи)', 'n'],
-    ['Напл. (дев.)', 62, 'Наплатено (девизи)', 'n'], ['Ком. шиф.', 36, 'Шифра на комитентот'], ['Увоз', 40, 'Врска за увоз (ЕЦД)'], ['Закл.', 26, 'Заклучен (во заклучен период)'],
-    ['Дат. фак.', 72, 'Датум на фактура'], ['Вид', 56], ['', 28],
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['☑', 20], ['Број', 44], ['Налог', 44], ['По документ', 62], ['Комитент', 200], ['Од м.', 30, 'Од магацин (шифра)'], ['Од магацин', 58], ['Од пр.', 30, 'Од продавница (шифра)'], ['Од прод.', 46, 'Од продавница'],
+    ['Датум', 72], ['Валута', 72], ['Д/У', 28, 'Домашна / Увозна'], ['Терк', 36], ['За наплата', 82, undefined, 'n'], ['Наплатено', 78, undefined, 'n'], ['За напл. (дев.)', 70, 'За наплата (девизи)', 'n'],
+    ['Напл. (дев.)', 66, 'Наплатено (девизи)', 'n'], ['Ком. шиф.', 38, 'Шифра на комитентот'], ['Увоз', 40, 'Врска за увоз (ЕЦД)'], ['Закл.', 42, 'Заклучен (во заклучен период)'],
+    ['Дат. фак.', 72, 'Датум на фактура'], ['Вид', 60], ['', 100],
   ];
   const LOC = new Map(LOCS.map((l) => [l.id, l]));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
@@ -217,9 +217,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
 
   return (
     <>
-      <Hd t="Влезни фактури" sub={String(year)}>
+      <div className="hx-hd"><Hd t="Влезни фактури" sub={String(year)}>
         {write && <KalkNewKeys data={await kalkDialogData(firm.id, year)} today={dflt} />}
-      </Hd>
+      </Hd></div>
       {noName > 0 && <div className="callout warn" id="anBtn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       {sp.saved && <div className="callout good">Влезната фактура е зачувана и прокнижена.{J.get(sp.saved) && <> Налог бр. <Link href={`/nalozi?n=${encodeURIComponent(J.get(sp.saved)!)}`}>{J.get(sp.saved)}</Link>.</>} {sp.w && sp.w.split(' | ').map((w, k) => <span key={k}><br />⚠ {w}</span>)}</div>}
       {sp.px !== undefined && write && <PxImport locations={locs} partners={P} items={I} vatFirm={firm.vatRegistered} konto={{ warehouse: schemeValue(await firmPostingContext(db(), firm), 'stock'), store: schemeValue(await firmPostingContext(db(), firm), 'retailStock') }} closeHref="/vlez" imp0={sp.px === 'imp'} />}
@@ -294,8 +294,13 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
                 <td>{p.status === 'pending' && <span className="pill warn">⏳ чека одобрување </span>}{p.cash && <span className="pill info">готовина </span>}{p.art32 && <span className="pill info">Чл. 32-а </span>}{p.scanned && <span className="pill good">скенирана </span>}{nStock.get(p.id) ? <span className="pill">на залиха </span> : null}
                   {att.filter((a) => a.e === p.id).map((a) => <a key={a.id} className="pill info" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer">📎 {a.name.slice(0, 20)}</a>)}
                   {!att.some((a) => a.e === p.id) && <span className="pill warn">без документ</span>}{p.status === 'pending' ? null : <> <PayPill paid={pm.paid} total={pm.due} /></>}</td>
-                <td className="hx-a"><details className="hx-act"><summary className="btn sm" title="Акции на фактурата">⋯</summary><div>
+                <td className="hx-a">
+                  {att.filter((a) => a.e === p.id).slice(0, 1).map((a) => <a key={a.id} className="btn sm" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" title={`Скенираниот документ / PDF: ${a.name}`} data-att>📎</a>)}
+                  {nStock.get(p.id) ? <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank" title="Калкулација (печатење / PDF)" data-print>👁</Link> : null}
+                  {write && <Link className="btn sm" href={`/vlez?edit=${p.id}`} title="Содржина / измени">✎</Link>}
+                  <details className="hx-act"><summary className="btn sm" title="Други акции на фактурата">⋯</summary><div>
                   {write ? <Link className="btn sm" href={`/vlez?edit=${p.id}`} data-open>✎ Содржина / измени</Link> : nStock.get(p.id) ? <Link href={`/print/kalk/${p.id}`} target="_blank" data-open hidden>Калкулација</Link> : null}
+                  {att.filter((a) => a.e === p.id).map((a) => <a key={a.id} className="btn sm" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer">📎 {a.name.slice(0, 28)}</a>)}
                   {del && <span data-del><RowAction action={deletePurchaseAction.bind(null, p.id, true)} preview={purchaseDeletePreviewAction.bind(null, [p.id])} label="Избриши" title="Избриши ја фактурата" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура бр. ${p.number || ''} од ${dmy(p.date)} (${name ?? p.supplierName ?? ''}, ${fmt(p.total)} ден.)?\nЌе се избрише и налогот и приемот на залиха.`} /></span>}
                   {nStock.get(p.id) ? <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калкулација</Link> : null}
                   {J.get(p.id) && <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(J.get(p.id)!)}`}>Налог бр. {J.get(p.id)}</Link>}
