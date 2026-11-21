@@ -20,7 +20,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, '.inst-forms')
 W = 745  # rendered page width in px (the existing WISE forms use 745 × 1053)
 INST = {'ujp': 'УЈП', 'crm': 'ЦРСМ', 'avrsm': 'АВРМ', 'fzom': 'ФЗО', 'piom': 'ПИОМ'}
-INST_ID = {'ujp': 'ujp', 'crm': 'crm', 'avrsm': 'avrm', 'fzom': 'fzo', 'piom': 'fpiom'}
+INST_ID = {'ujp': 'ujp', 'crm': 'crm', 'avrsm': 'avrm', 'fzom': 'fzo', 'piom': 'fpiom', 'dit': 'dit'}
 
 def links():
     html = open(os.path.join(ROOT, 'website', 'index.html'), encoding='utf8').read()
@@ -307,7 +307,7 @@ def main():
             req = urllib.request.Request(m['url'], headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             open(pdf, 'wb').write(urllib.request.urlopen(req, timeout=60).read())
         forms.append({'id': m['id'], 'inst': m['inst'], 'name': m['name'], 'form': True, 'pages': render_pages(pdf, m['id'], m['pages']), 'fields': m['fields'], 'url': m['url']})
-        catalog.append({'inst': m['grp'], 'code': m['code'], 'name': m['name'], 'url': m['url'], 'kind': 'PDF', 'form': m['id']})
+        catalog.append({'inst': INST_ID.get(m['grp'], m['grp']), 'code': m['code'], 'name': m['name'], 'url': m['url'], 'kind': 'PDF', 'form': m['id']})
         print(f"{m['id']:28} MANUAL {len(m['fields'])} fields")
     data = os.path.join(ROOT, 'packages', 'core', 'src', 'data')
     for f in forms:
