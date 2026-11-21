@@ -17,6 +17,7 @@ import { AutoStatus } from '@/components/auto-status';
 import { Hd } from '@/components/hd';
 import { ExportXlsx, ListPdf } from '@/components/list-tools';
 import { RowAction } from '@/components/row-action';
+import { WaQuick } from '@/components/wa-send';
 import { reminderDoneAction, reminderMailAction, saveAutoConfigAction } from '../servis/actions';
 
 const fq = (v: number) => v.toLocaleString('de-DE');
@@ -55,7 +56,7 @@ export default async function Potsetnici() {
               <td>{dmy(x.last.date)}{x.last.km ? ` · ${fq(x.last.km)} км` : ''}<div className="mini">{x.last.nextNote}</div></td>
               <td>{x.late ? <span className="pill bad">поминат</span> : <span className="pill warn">наскоро</span>} <span className="mini">{x.why}</span></td>
               <td style={{ whiteSpace: 'nowrap' }}>
-                {ph && <a className="btn sm" href={`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+                {ph && <WaQuick href={`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`} phone={ph} text={msg} firmId={firm.id} purpose="rok" vars={{ firma: firm.name, ime: p?.name ?? '', opis: `сервис – ${x.v.plate}`, rok: x.last.nextNote ?? '' }} confirm={`Да се испрати потсетник на WhatsApp ${p?.phone ?? ''}?`} />}
                 {g.write && p?.email && <RowAction className="btn sm" action={reminderMailAction.bind(null, x.v.id)} confirm={`Да се испрати потсетник на ${p.email}?`} label="✉ Е-пошта" />}
                 {g.write && <RowAction className="btn sm" action={reminderDoneAction.bind(null, x.v.id)} label="✓ Контактиран" />}
                 {g.write && <Link className="btn sm pri" href={`/servis?id=new&veh=${x.v.id}`}>+ Налог</Link>}

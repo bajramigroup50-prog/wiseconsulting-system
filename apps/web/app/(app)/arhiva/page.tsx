@@ -168,7 +168,7 @@ export default async function ArhivaPage({ searchParams }: { searchParams: Promi
           <button className="btn">Барај</button>
         </div>
       </form>}
-      {(view === 'list' || sp.nal) && R.length > 0 && <ArSendBar firm={firm.name} />}
+      {(view === 'list' || sp.nal) && R.length > 0 && <ArSendBar firm={firm.name} firmId={firm.id} phone={firm.phone ?? ''} />}
       {(view === 'list' || sp.nal) && (R.length ? (
         <div className="tw" id="arList">
           {tools && <ArBulk firms={moveTo} book={write && R.some((r) => r.pend) ? arBookPending : undefined} read={write && R.some((r) => r.loose) ? arReadFiles : undefined} del={del ? arFileDel : undefined} />}

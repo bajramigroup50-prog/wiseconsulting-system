@@ -28,6 +28,8 @@ export function publicPath(p: string): boolean {
     || p === '/api/version'
     // 🌐 the public website's offer request → a CRM lead (the route guards itself: honeypot, rate limit, caps)
     || p === '/api/crm/lead'
+    // 💬 WhatsApp Cloud API webhook (Meta; the route checks the signature / verify token itself)
+    || p === '/api/whatsapp/webhook'
     // 🎭 the demo link (`app/demo/[token]`): signs in as the demo user only (token checked and rate-limited there)
     || p.startsWith('/demo/')
     // public/forms assets and root-level static files only (a dotted segment deeper down is not a free pass)
