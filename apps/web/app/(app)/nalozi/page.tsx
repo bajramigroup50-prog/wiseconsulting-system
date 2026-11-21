@@ -39,7 +39,7 @@ import { NalogGrid, type GridJournal, type GridRow } from './nalog-grid';
 import { ListKeys } from './list-keys';
 import { mergeBankHeads } from '@/lib/nalog-grid';
 
-type SP = { n?: string; pr?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string; fast?: string; sort?: string; sint?: string };
+type SP = { n?: string; pr?: string; nov?: string; edit?: string; q?: string; cfg?: string; izv?: string; uvoz?: string; naziv?: string; fast?: string; sort?: string; sint?: string; imp?: string };
 const KIND_LBL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(NAL_DEF).map(([k, v]) => [k, v[1]])), bank: 'ИЗВОД', manual: 'РАЧЕН НАЛОГ', bbimp: 'БРУТО БИЛАНС', pos: 'POS ПРОВИЗИЈА',
 };
@@ -190,7 +190,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     const bankOfCode = banks.find((b) => bankNalCode(b.id, S.banks) === prefix || (b.nal && b.nal === prefix));
     const isIzv = IZ || !!bankOfCode || /извод/i.test(title);
     const empty = L.length === 0;
-    const showImport = write && (isIzv || (empty && sp.uvoz !== undefined));
+    // „Импорт“ inside the nalog (like the old program): the chosen import is booked INTO this nalog
+    const imp = sp.imp === 'vlez' || sp.imp === 'izlez' || sp.imp === 'kasa' || sp.imp === 'izvod' ? sp.imp : '';
+    const showImport = write && (isIzv || imp === 'izvod' || (empty && sp.uvoz !== undefined));
     const inNal = await db().select({ id: bankStatements.id }).from(bankStatements)
       .where(and(eq(bankStatements.firmId, firm.id), sql`${bankStatements.meta}->>'nalog' = ${g.no}`, sql`${bankStatements.date} between ${from} and ${to}`));
     const stAll = [...new Set([...stIds, ...inNal.map((x) => x.id)])];
@@ -312,23 +314,47 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               nalog={{ number: g.no, emptyId: one && empty && manualLike(one) ? one.id : null, chart: chart.map((a) => [a.code, a.name]), partners: impP.map((p) => ({ id: p.id, name: p.name })) }} />
           </div>
         )}
-        {/* scan the documents of this nalog (the cash nalog 1020/7-9: receipts paid in cash) — read, approved on
-            „За физичка проверка“ and posted INTO this nalog */}
-        {write && !isIzv && !g.journals.some(locked) && (() => {
+        {/* „Импорт“ menu of the opened nalog: incoming / outgoing invoices (scan, PDF, photo), cash receipts (благајна),
+            bank statements – read, approved and booked INTO this nalog */}
+        {write && !g.journals.some(locked) && (() => {
           const cashNal = /^10[2-5]\d*$/.test(g.no.split('/')[0] ?? '');
+          const base = `/nalozi?n=${encodeURIComponent(g.no)}`;
+          const tab = (k: string, label: string) => imp === k
+            ? <Link key={k} className="btn sm pri" href={base} aria-pressed="true">{label}</Link>
+            : <Link key={k} className="btn sm" href={`${base}&imp=${k}#imp-nalog`}>{label}</Link>;
           return (
-            <div className="card noprint" id="sken-nalog">
-              <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: cashNal, nalogNo: g.no }}
-                  label={<><b>📷 Скенирај документи во овој налог</b> — {cashNal ? 'сметки / фискални платени во готово (трошок + ДДВ / благајна)' : 'влезни фактури'}; се читаат, ги одобрувате на листата и се книжат во налог бр. {g.no}</>} />
-                <Link className="btn" href="/skan/proverka">📋 За физичка проверка – влезни</Link>
+            <div className="card noprint" id="imp-nalog">
+              <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b>Импорт во налог бр. {g.no}:</b>
+                {tab('vlez', '📷 Влезни фактури')}
+                {tab('izlez', '🧾 Излезни фактури')}
+                {tab('kasa', '💵 Благајна – сметки во готово')}
+                {!isIzv && tab('izvod', '🏦 Изводи')}
+                <Link className="btn sm" href={`/uvoz?t=journal&nal=${encodeURIComponent(g.no)}`} title="Ставки на налог од Excel / CSV / PDF (стара програма, друг сметководител) – се книжат во овој налог">📊 Excel / CSV / PDF ставки</Link>
               </div>
-              {/* the firm's own sales invoices into this nalog (a nalog „Излезни фактури 1-6“) – read as sales, posted here */}
-              {!cashNal && <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
-                <ScanUpload firmId={firm.id} small opts={{ kind: 'sale', batchId: null, nalogNo: g.no }}
-                  label={<><b>🧾 Скенирај излезни фактури во овој налог</b> — фактурите што фирмата ги издала; се читаат, ги одобрувате и се книжат во налог бр. {g.no}</>} />
-                <Link className="btn" href="/skan/proverka?k=sale">📋 За физичка проверка – излезни</Link>
-              </div>}
+              <p className="mini" style={{ margin: '6px 0 0' }}>Се книжат во својот налог (по видот и периодот): <Link href="/uvoz?t=purchases">Excel влезни фактури</Link> · <Link href="/uvoz?t=invoices">Excel излезни фактури</Link> · <Link href="/efaktura">е-Фактура (XML)</Link> · <Link href="/blagajna">Благајна – налози</Link> · <Link href="/uvoz">сите увози</Link></p>
+              {imp === 'vlez' && (
+                <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                  <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: cashNal, nalogNo: g.no }}
+                    label={<><b>📷 Влезни фактури</b> — PDF, слика, скен или е-фактура (XML); се читаат, ги одобрувате на листата и се книжат во налог бр. {g.no}</>} />
+                  <Link className="btn" href="/skan/proverka">📋 За физичка проверка – влезни</Link>
+                </div>
+              )}
+              {imp === 'izlez' && (
+                <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                  <ScanUpload firmId={firm.id} small opts={{ kind: 'sale', batchId: null, nalogNo: g.no }}
+                    label={<><b>🧾 Излезни фактури</b> — фактурите што фирмата ги издала; се читаат, ги одобрувате и се книжат во налог бр. {g.no}</>} />
+                  <Link className="btn" href="/skan/proverka?k=sale">📋 За физичка проверка – излезни</Link>
+                </div>
+              )}
+              {imp === 'kasa' && (
+                <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                  <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: true, nalogNo: g.no }}
+                    label={<><b>💵 Сметки / фискални платени во готово</b> — трошок + ДДВ на благајна (1020); се читаат, ги одобрувате и се книжат во налог бр. {g.no}</>} />
+                  <Link className="btn" href="/blagajna">💵 Благајна</Link>
+                </div>
+              )}
+              {!imp && <p className="mini" style={{ margin: '6px 0 0' }}>Изберете што увезувате – документите се читаат (без AI за PDF со текст), ги одобрувате и се книжат токму во овој налог.{cashNal ? ' Ова е налог на благајна: влезните фактури се книжат како платени во готово.' : ''}</p>}
             </div>
           );
         })()}

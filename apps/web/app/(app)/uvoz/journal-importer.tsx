@@ -30,7 +30,7 @@ async function sha256(f: File): Promise<string> {
   } catch { return ''; }
 }
 
-export function JournalImporter({ year, batches, canDel }: { year: number; batches: JiBatch[]; canDel: boolean }) {
+export function JournalImporter({ year, batches, canDel, nalogNo }: { year: number; batches: JiBatch[]; canDel: boolean; /** „Импорт“ inside an opened nalog: the rows without a nalog go into this number */ nalogNo?: string }) {
   const router = useRouter();
   const [rows, setRows] = useState<unknown[][] | null>(null);
   const [file, setFile] = useState('');
@@ -63,7 +63,7 @@ export function JournalImporter({ year, batches, canDel }: { year: number; batch
       if (!R.length) { setMsg({ error: 'Датотеката е празна или форматот не е препознаен.' }); return; }
       const h = jiHeaderRow(R);
       setRows(R); setFile(f.name); setHash(await sha256(f)); setHi(h); setMap(impAuto('journal', R[h] ?? [])); setDecSel(''); setCreate(false);
-      setNal(jiNameDefault(f.name)); setMode('journal'); setSkipOpening(false);
+      setNal(nalogNo ? { type: '', no: nalogNo } : jiNameDefault(f.name)); setMode('journal'); setSkipOpening(false);
     } catch { setMsg({ error: 'Датотеката не може да се прочита.' }); }
   };
 

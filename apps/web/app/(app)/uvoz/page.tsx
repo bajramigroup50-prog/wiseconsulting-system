@@ -18,7 +18,7 @@ import { schemeLabel, schemeProfilesOf } from '@wise/core/scheme-profiles';
 
 const MAIN: ImpType[] = ['partners', 'items', 'employees', 'purchases', 'invoices', 'stock', 'journal'];
 
-export default async function UvozPage({ searchParams }: { searchParams: Promise<{ t?: string; wh?: string; back?: string }> }) {
+export default async function UvozPage({ searchParams }: { searchParams: Promise<{ t?: string; wh?: string; back?: string; nal?: string }> }) {
   const sp = await searchParams;
   const { u, firm, year } = await booksPage('uvoz');
   if (!firm) return <NoFirm t="Увоз од Excel / CSV / XML" />;
@@ -37,7 +37,7 @@ export default async function UvozPage({ searchParams }: { searchParams: Promise
         <p className="note" style={{ margin: '8px 0 0' }}>{IMP_T[t].note}</p>
         <p className="note" style={{ margin: '4px 0 0' }}>Електронски фактури (UBL XML од е-Фактура) се внесуваат директно во <b>Влез</b> или <b>Масовно внесување</b> – без читање, со точни износи.</p>
       </div>
-      {write && t === 'journal' ? <JournalImporter year={year} batches={await listJournalImports(db(), firm.id, year)} canDel={canDo(u, 'nalDel', firm.id)} />
+      {write && t === 'journal' ? <JournalImporter year={year} batches={await listJournalImports(db(), firm.id, year)} canDel={canDo(u, 'nalDel', firm.id)} nalogNo={sp.nal && sp.nal.length <= 40 ? sp.nal : undefined} />
         : write ? <Importer key={t} t={t} locs={locs} schemes={schemeProfilesOf(firm.settings).map((p, _i, A) => ({ no: p.no, label: schemeLabel(p.no, A) }))} date0={today.startsWith(String(year)) ? today : `${year}-01-01`} wh0={locs.some((l) => l.id === sp.wh) ? sp.wh! : t === 'nivel' ? locs.find((l) => l.kind === 'store')?.id ?? '' : 'main'} />
         : <div className="card empty">Немате право за увоз.</div>}
     </>
