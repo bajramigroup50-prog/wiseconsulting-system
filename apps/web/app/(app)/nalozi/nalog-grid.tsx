@@ -299,7 +299,11 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
     const G = R.filter((_, k) => k !== i);
     const D = new Set(dirty).add(j.id);
     setR(G); setOv(O); setDirty(D); setSel(Math.max(0, Math.min(i, G.length - 1)));
-    await saveJournals(G, D, O);
+    const ok = await saveJournals(G, D, O);
+    // one line of a balanced pair removed: the nalog is not even, so nothing is saved yet – say so (before, the line
+    // just came back after a refresh)
+    const diff = r2(G.reduce((s2, r) => (r.jid === j.id ? s2 + r.debit - r.credit : s2), 0));
+    if (ok && Math.abs(diff) > 0.004) setMsg({ error: `Ставката е тргната, но налогот не е изедначен (разлика ${fmt(Math.abs(diff))}) – НЕ е зачувано. Додадете ставка (Ins) или избришете ја и спротивната ставка, па се зачувува; „Откажи“ ја враќа.` });
   };
   const analytics = (i: number) => { const g = R[i]; if (g) router.push(`/kkart?k=${encodeURIComponent(g.account)}${g.partnerId ? `&p=${g.partnerId}` : ''}`); };
   const print = (devizen: boolean) => window.open(printHref + (devizen ? '&dev=1' : ''), '_blank', 'noopener');
