@@ -149,7 +149,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
         </div>
         <p className="note">{t('Податоците за социјалната и здравствената состојба се посебна категорија лични податоци – се обработуваат само со изречна писмена согласност. Евиденцијата подолу е пополнета со податоците на здружението; проверете ја и потпишете ја.')}</p>
         <div className="card"><div className="pdfwrap"><FitDoc width="277mm"><div id="zzlpRec" className="pdfdoc land">
-          <ProcessingRecords firm={firm} today={today()} counts={{ benef: act.length, members: M.filter((m) => !m.left).length }} />
+          <ProcessingRecords lang={lang} firm={firm} today={today()} counts={{ benef: act.length, members: M.filter((m) => !m.left).length }} />
         </div></FitDoc></div></div>
       </>
     );

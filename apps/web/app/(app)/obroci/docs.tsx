@@ -81,11 +81,47 @@ export function ConsentDoc({ b, firm }: { b: Pick<MealBeneficiaryRow, 'name' | '
 
 type Act = { name: string; purpose: string; subjects: string; data: string; basis: string; recipients: string; keep: string };
 
-/** „Евиденција на активностите за обработка“ of the association (A4 landscape). */
-export function ProcessingRecords({ firm, today, counts }: { firm: Firm; today: string; counts: { benef: number; members: number; donors?: number } }) {
-  const S = signerOf(firm);
-  const acc = 'сметководствената канцеларија (обработувач, договор за обработка)';
-  const A: Act[] = [
+/** Texts of the records of processing in Macedonian (the official one) or Albanian (the screen's language). */
+function recText(sq: boolean, counts: { benef: number; members: number; donors?: number }) {
+  const acc = sq ? 'zyra e kontabilitetit (përpunues, marrëveshje për përpunim)' : 'сметководствената канцеларија (обработувач, договор за обработка)';
+  const A: Act[] = sq ? [
+    {
+      name: `Përfituesit e kuzhinës popullore (${counts.benef} familje / persona)`,
+      purpose: 'Ndihmë humanitare – racione; evidenca e përfituesve dhe e racioneve; raporte përmbledhëse për donatorët dhe organet',
+      subjects: 'Përfituesit (bartësit e familjeve) dhe anëtarët e familjeve të tyre, përfshirë të miturit',
+      data: 'Emri dhe mbiemri, NUAM, adresa, telefoni, numri i anëtarëve, kombësia; KATEGORI E VEÇANTË: gjendja sociale dhe shëndetësore',
+      basis: 'Pëlqimi i shprehur me shkrim i përfituesit (formulari „Pëlqim për përpunimin e të dhënave personale“)',
+      recipients: `Personat e autorizuar të shoqatës; ${acc}; organet shtetërore vetëm sipas ligjit`,
+      keep: `Gjatë ndihmës + ${CONSENT_KEEP_YEARS} vjet pas racionit të fundit`,
+    },
+    {
+      name: `Anëtarët e shoqatës dhe të organeve (${counts.members})`,
+      purpose: 'Regjistri i anëtarëve dhe i anëtarëve të organeve; thirrja e kuvendit; anëtarësia',
+      subjects: 'Anëtarët, anëtarët e kuvendit, të bordit drejtues / mbikëqyrës, kryetari',
+      data: 'Emri dhe mbiemri, NUAM (opsionale), adresa, telefoni, e-mail, data e anëtarësimit / largimit, organi dhe funksioni',
+      basis: 'Detyrim ligjor (Ligji për shoqatat dhe fondacionet) dhe statuti i shoqatës',
+      recipients: `Organet e shoqatës; ${acc}; Regjistri Qendror dhe organe të tjera sipas ligjit`,
+      keep: 'Përderisa është anëtar dhe 5 vjet pas largimit; procesverbalet – përgjithmonë',
+    },
+    {
+      name: `Donatorët dhe sponsorët${counts.donors ? ` (${counts.donors})` : ''}`,
+      purpose: 'Kontrata donacioni, vërtetime për donacion të pranuar, raporti UJP-IDS/PR, kontabilizimi',
+      subjects: 'Donatorët – persona fizikë dhe personat përgjegjës të personave juridikë',
+      data: 'Emri dhe mbiemri / emërtimi, NUAM / numri tatimor, adresa, telefoni, e-mail, llogaria, shuma / vlera',
+      basis: 'Kontratë dhe detyrim ligjor (Ligji për donacionet dhe sponsorizimet në veprimtaritë publike, rregullat tatimore)',
+      recipients: `${acc}; Drejtoria e të Ardhurave Publike; banka`,
+      keep: 'Sipas afateve të rregullave për kontabilitet dhe tatime',
+    },
+    {
+      name: 'Vullnetarët dhe të punësuarit (nëse ka)',
+      purpose: 'Angazhimi, evidenca e punës, pagat dhe kontributet',
+      subjects: 'Vullnetarët, të punësuarit',
+      data: 'Emri dhe mbiemri, NUAM, adresa, telefoni, llogaria, orari i punës',
+      basis: 'Kontratë dhe detyrim ligjor (marrëdhëniet e punës, vullnetarizmi, tatimet)',
+      recipients: `${acc}; DAP, FPSM, FSSHM, Agjencia e Punësimit`,
+      keep: 'Sipas afateve të rregullave për marrëdhëniet e punës dhe kontabilitetin',
+    },
+  ] : [
     {
       name: `Корисници на народната кујна (${counts.benef} семејства / лица)`,
       purpose: 'Хуманитарна помош – оброци; евиденција на корисниците и оброците; збирни извештаи за донаторите и органите',
@@ -123,27 +159,49 @@ export function ProcessingRecords({ firm, today, counts }: { firm: Firm; today: 
       keep: 'Според роковите на прописите за работни односи и сметководство',
     },
   ];
+  const L = sq ? {
+    title: 'EVIDENCA E AKTIVITETEVE TË PËRPUNIMIT TË TË DHËNAVE PERSONALE', by: `sipas ${LAW_SQ}`, ctrl: 'Kontrolluesi', seat: 'Selia / numri tatimor', tax: 'NUMRI TATIMOR', reg: 'NJAR',
+    contact: 'Kontakti', resp: 'Personi përgjegjës', dpo: 'Oficeri për mbrojtjen e të dhënave personale',
+    head: ['Përmbledhja / aktiviteti', 'Qëllimi', 'Subjektet', 'Kategoritë e të dhënave', 'Baza ligjore', 'Marrësit', 'Afati i ruajtjes'],
+    transferB: 'Transferimi në vende të treta:', transfer: 'nuk ka.', measuresB: 'Masat teknike dhe organizative:',
+    measures: 'të dhënat janë në programin WISE (qasje vetëm me emër përdoruesi dhe fjalëkalim, verifikim me dy faktorë, evidencë e çdo ndryshimi, kopje rezervë ditore); pëlqimet në letër ruhen në dollap të mbyllur; qasje kanë vetëm personat e autorizuar; të dhënat nuk publikohen dhe nuk u jepen donatorëve me emra; pas skadimit të afatit fshihen / asgjësohen me procesverbal.',
+    sign: 'nënshkrimi dhe vula',
+  } : {
+    title: 'ЕВИДЕНЦИЈА НА АКТИВНОСТИТЕ ЗА ОБРАБОТКА НА ЛИЧНИ ПОДАТОЦИ', by: `според ${LAW}`, ctrl: 'Контролор', seat: 'Седиште / ЕДБ', tax: 'ЕДБ', reg: 'ЕМБС',
+    contact: 'Контакт', resp: 'Одговорно лице', dpo: 'Офицер за заштита на лични податоци',
+    head: ['Збирка / активност', 'Цел', 'Субјекти', 'Категории податоци', 'Правен основ', 'Примачи', 'Рок на чување'],
+    transferB: 'Пренос во трети земји:', transfer: 'нема.', measuresB: 'Технички и организациски мерки:',
+    measures: 'податоците се во програмата WISE (пристап само со корисничко име и лозинка, двофакторска проверка, евиденција на секоја промена, дневна резервна копија); хартиените согласности се чуваат во заклучен орман; пристап имаат само овластените лица; податоците не се објавуваат и не се даваат поименично на донаторите; по истекот на рокот се бришат / уништуваат со записник.',
+    sign: 'потпис и печат',
+  };
+  return { A, L };
+}
+
+/** „Евиденција на активностите за обработка“ of the association (A4 landscape), in the screen's language. */
+export function ProcessingRecords({ firm, today, counts, lang = 'mk' }: { firm: Firm; today: string; counts: { benef: number; members: number; donors?: number }; lang?: 'mk' | 'sq' }) {
+  const S = signerOf(firm);
+  const { A, L } = recText(lang === 'sq', counts);
   return (
     <div style={{ fontSize: '9pt', lineHeight: 1.35 }}>
-      <h2 style={{ textAlign: 'center', margin: '0 0 2mm' }}>ЕВИДЕНЦИЈА НА АКТИВНОСТИТЕ ЗА ОБРАБОТКА НА ЛИЧНИ ПОДАТОЦИ</h2>
-      <p style={{ textAlign: 'center', margin: '0 0 4mm' }}>според {LAW}</p>
+      <h2 style={{ textAlign: 'center', margin: '0 0 2mm' }}>{L.title}</h2>
+      <p style={{ textAlign: 'center', margin: '0 0 4mm' }}>{L.by}</p>
       <table className="dense" style={{ width: '100%', marginBottom: '3mm' }}>
         <tbody>
-          <tr><td style={{ width: '28%' }}>Контролор</td><td><b>{firm.name}</b></td></tr>
-          <tr><td>Седиште / ЕДБ</td><td>{addr(firm)} · ЕДБ {firm.edb ?? ''}{firm.embs ? ` · ЕМБС ${firm.embs}` : ''}</td></tr>
-          <tr><td>Контакт</td><td>{[firm.email, firm.phone].filter(Boolean).join(' · ') || line(null)}</td></tr>
-          <tr><td>Одговорно лице</td><td>{S.signer ?? line(null)}{S.signerRole ? ` (${S.signerRole})` : ''}</td></tr>
-          <tr><td>Офицер за заштита на лични податоци</td><td>{line(null)}</td></tr>
+          <tr><td style={{ width: '28%' }}>{L.ctrl}</td><td><b>{firm.name}</b></td></tr>
+          <tr><td>{L.seat}</td><td>{addr(firm)} · {L.tax} {firm.edb ?? ''}{firm.embs ? ` · ${L.reg} ${firm.embs}` : ''}</td></tr>
+          <tr><td>{L.contact}</td><td>{[firm.email, firm.phone].filter(Boolean).join(' · ') || line(null)}</td></tr>
+          <tr><td>{L.resp}</td><td>{S.signer ?? line(null)}{S.signerRole ? ` (${S.signerRole})` : ''}</td></tr>
+          <tr><td>{L.dpo}</td><td>{line(null)}</td></tr>
         </tbody>
       </table>
       <div><table className="dense" style={{ width: '100%' }}>
-        <thead><tr><th>Збирка / активност</th><th>Цел</th><th>Субјекти</th><th>Категории податоци</th><th>Правен основ</th><th>Примачи</th><th>Рок на чување</th></tr></thead>
+        <thead><tr>{L.head.map((h) => <th key={h}>{h}</th>)}</tr></thead>
         <tbody>{A.map((a) => <tr key={a.name}><td><b>{a.name}</b></td><td>{a.purpose}</td><td>{a.subjects}</td><td>{a.data}</td><td>{a.basis}</td><td>{a.recipients}</td><td>{a.keep}</td></tr>)}</tbody>
       </table></div>
-      <p style={{ margin: '3mm 0 1mm' }}><b>Пренос во трети земји:</b> нема. <b>Технички и организациски мерки:</b> податоците се во програмата WISE (пристап само со корисничко име и лозинка, двофакторска проверка, евиденција на секоја промена, дневна резервна копија); хартиените согласности се чуваат во заклучен орман; пристап имаат само овластените лица; податоците не се објавуваат и не се даваат поименично на донаторите; по истекот на рокот се бришат / уништуваат со записник.</p>
+      <p style={{ margin: '3mm 0 1mm' }}><b>{L.transferB}</b> {L.transfer} <b>{L.measuresB}</b> {L.measures}</p>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10mm' }}>
         <div>{firm.city ?? ''}, {dmy(today)}</div>
-        <div style={{ textAlign: 'center', minWidth: '65mm' }}>Одговорно лице<div>{S.signer ?? ''}</div><div style={{ height: '12mm' }} /><div style={{ borderTop: '1px solid #000' }}>потпис и печат</div></div>
+        <div style={{ textAlign: 'center', minWidth: '65mm' }}>{L.resp}<div>{S.signer ?? ''}</div><div style={{ height: '12mm' }} /><div style={{ borderTop: '1px solid #000' }}>{L.sign}</div></div>
       </div>
     </div>
   );

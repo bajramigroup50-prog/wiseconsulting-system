@@ -43,7 +43,7 @@ export const SQ: Readonly<Record<string, string>> = {
   'Без согласност:': 'Pa pëlqim:',
   '🖨 Согласности за сите без согласност': '🖨 Pëlqimet për të gjithë pa pëlqim',
   'Податоците за социјалната и здравствената состојба се посебна категорија лични податоци – се обработуваат само со изречна писмена согласност. Евиденцијата подолу е пополнета со податоците на здружението; проверете ја и потпишете ја.':
-    'Të dhënat për gjendjen sociale dhe shëndetësore janë kategori e veçantë e të dhënave personale – përpunohen vetëm me pëlqim të shprehur me shkrim. Evidenca më poshtë është plotësuar me të dhënat e shoqatës (në maqedonisht, si dokument zyrtar); kontrollojeni dhe nënshkruajeni.',
+    'Të dhënat për gjendjen sociale dhe shëndetësore janë kategori e veçantë e të dhënave personale – përpunohen vetëm me pëlqim të shprehur me shkrim. Evidenca më poshtë është plotësuar me të dhënat e shoqatës (në shqip; me МК del në maqedonisht, si dokument zyrtar); kontrollojeni dhe nënshkruajeni.',
   'без согласност': 'pa pëlqim',
   'Датум на согласноста (избришете го за „без согласност“):': 'Data e pëlqimit (fshijeni për „pa pëlqim“):',
   'Потврди согласност – датум на потпишувањето:': 'Konfirmo pëlqimin – data e nënshkrimit:',
