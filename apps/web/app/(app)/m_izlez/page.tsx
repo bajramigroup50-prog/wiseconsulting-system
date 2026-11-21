@@ -24,9 +24,12 @@ import { FirmHead } from '@/app/print/firm-head';
 import { deleteStockCountAction } from '../_stock/actions';
 import { deleteStoreOutAction } from './actions';
 import { MoEditor, type MoDraft } from './mo-editor';
-import { MoKeys, MoTypeRadios, MoStoreFilter } from './mo-list-tools';
+import { MoKeys } from './mo-list-tools';
+import { HELIX_CSS } from '@/lib/helix-css';
+import { HelixShell, type HxGroup, type HxMenu } from '@/components/helix/helix-shell';
+import { hxBottom, hxCopyOff, hxMainGroup, hxRo, hxSecurity, hxSort } from '@/lib/helix-config';
 
-type SP = { hx?: string; t?: string; wh?: string; nov?: string; id?: string; view?: string; saved?: string };
+type SP = { hx?: string; t?: string; wh?: string; nov?: string; id?: string; view?: string; saved?: string; sort?: string };
 const KINDS: MoutKind[] = ['sale', 'inv', 'ret', 'otp', 'pop'];
 
 export default async function MIzlezPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -120,38 +123,81 @@ export default async function MIzlezPage({ searchParams }: { searchParams: Promi
     return <MoEditor initial={initial} items={items} locs={locOptions(L)} partners={P} k10={kk(/^10/)} k4={kk(/^4/)} k7={kk(/^7/)} />;
   }
 
+  // the Helix list: the type (F7) and the store in the panel / „Магацин“, the documents oldest first (the newest is the current row)
+  const nnum = (x: string) => parseInt(x.replace(/^\D+/, ''), 10) || 0;
+  const shown = [...list].sort((a, b) => sp.sort === 'no' ? nnum(a.number) - nnum(b.number) : sp.sort === 'amt' ? moTotal(T, a.lines) - moTotal(T, b.lines)
+    : a.date < b.date ? -1 : a.date > b.date ? 1 : nnum(a.number) - nnum(b.number));
+  const base = `/m_izlez?t=${T}${W ? '&wh=' + W : ''}`;
+  const MC: [string, number, string?, string?][] = [
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['Број', 80], ['Датум', 72], ['Продавница', 160], [T === 'ret' ? 'Добавувач' : 'Опис', 0], ['Ставки', 50, undefined, 'n'],
+    [T === 'pop' ? 'Разлика (прод. вред.)' : 'Продажна вредност', 110, undefined, 'n'], ['', 100],
+  ];
+  const groups: HxGroup[] = [
+    { items: hxMainGroup({ newAct: T === 'inv' ? { href: '/izlez?nov=1' } : { href: `/m_izlez?t=${T}&nov${W ? '&wh=' + W : ''}` }, newKey: false, hasWh: stores.length > 1, label: 'Нов', write }) },
+    { title: 'Тип (F7)', items: KINDS.map((k) => ({ label: MOUT[k].n, act: { href: `/m_izlez?t=${k}${W ? '&wh=' + W : ''}` }, cls: k === T ? 'pri' : 'ghost', title: MOUT[k].note })) },
+    { items: [
+      { label: '👁 PDF', act: { row: 'a[data-print]' }, title: 'Документот (печатење / PDF)' },
+      { label: '← Влезни калкулации', act: { href: '/kalkM' } },
+    ] },
+    { title: 'Продажба', items: [
+      { label: 'Каса', act: { href: '/kasa' } },
+      { label: 'КДФИ-01 (фискални извештаи)', act: { href: '/kdfi' } },
+      { label: 'Промет (ЕТМ)', act: { href: '/m_trg' } },
+      { label: 'Залиха во продавница', act: { href: '/m_lager' } },
+    ] },
+  ];
+  const menu: HxMenu[] = [
+    { label: 'Специјални опции', items: [
+      { label: '+ Нов документ (цел екран)', act: write && T !== 'inv' ? { href: `/m_izlez?t=${T}&nov${W ? '&wh=' + W : ''}` } : { off: T === 'inv' ? 'Фактурите од продавница се во Излезни фактури.' : hxRo } },
+      { label: 'Нивелација', act: { href: '/nivel' } },
+      { label: 'Влезни калкулации', act: { href: '/kalkM' } },
+    ] },
+    hxSecurity(),
+    hxSort(base),
+    hxCopyOff(),
+    { label: 'Печатење', items: [
+      { label: '👁 PDF на избраниот', act: { row: 'a[data-print]' } },
+      { label: 'Печати ја листата', act: { fn: 'print' } },
+    ] },
+    { label: 'Останато', items: [{ label: 'Сите извештаи', act: { href: '/izvestai' } }] },
+  ];
   return (
     <>
       <MoKeys t={T} write={write} />
-      <Hd t="Излез од продавница" sub="раздолжување на залихата во малопродажба">
-        <Link className="btn" href="/kalkM">← Влезни калкулации</Link>
-        {write && T !== 'inv' && <Link className="btn pri" href={`/m_izlez?t=${T}&nov${W ? '&wh=' + W : ''}`}>+ Нов документ (Ins)</Link>}
-      </Hd>
+      <div className="hx-hd"><Hd t="Излез од продавница" sub="раздолжување на залихата во малопродажба" /></div>
       {sp.saved && <div className="callout good">{MOUT[T].s} {sp.saved} е зачуван(а) и залихата е ажурирана.</div>}
-      <div className="cols" style={{ gridTemplateColumns: '260px 1fr', alignItems: 'start' }}>
-        <div className="card">
-          <MoTypeRadios t={T} wh={W} options={KINDS.map((k) => [k, MOUT[k].n])} />
-          <MoStoreFilter t={T} wh={W} stores={stores.map((s) => [s.id, s.name])} />
-          <p className="note">{MOUT[T].note}</p>
-        </div>
-        <div className="card">{T === 'inv'
-          ? <div className="empty">Фактурите од продавница се во <b>Излезни фактури</b> (со објект = продавница).
-            <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>{write && <Link className="btn pri" href="/izlez?nov=1">+ Нова фактура од продавница</Link>}<Link className="btn" href="/izlez">Листа на фактури</Link></div></div>
-          : list.length ? (
-            <div className="tw"><table>
-              <thead><tr><th>Број</th><th>Датум</th><th>Продавница</th><th>{T === 'ret' ? 'Добавувач' : 'Опис'}</th><th className="n">Ставки</th><th className="n">{T === 'pop' ? 'Разлика (прод. вред.)' : 'Продажна вредност'}</th><th /></tr></thead>
-              <tbody>{list.map((x) => (
-                <tr key={x.id}><td><b>{x.number}</b></td><td>{dmy(x.date)}</td><td>{L.locName(x.wh === 'main' ? null : x.wh)}</td><td>{x.desc}</td>
-                  <td className="n">{x.lines.filter((l) => T !== 'pop' || l.diff).length}</td><td className="n">{fmt(moTotal(T, x.lines))}</td>
-                  <td><div className="row" style={{ flexWrap: 'nowrap' }}>
-                    {write && <Link className="btn sm" href={`/m_izlez?t=${T}&id=${x.id}`}>Измени</Link>}
-                    <Link className="btn sm" href={`/m_izlez?t=${T}&view=${x.id}`}>PDF</Link>
-                    {write && <RowAction action={(isCount ? deleteStockCountAction : deleteStoreOutAction).bind(null, x.id)} label="🗑" title="Избриши" style={{ color: 'var(--bad)' }} confirm={`Да се избрише ${x.number}? Залихата и налогот се враќаат.`} />}
-                  </div></td></tr>
-              ))}</tbody>
-            </table></div>
-          ) : <div className="empty">Нема документи „{MOUT[T].s}“ за {year}.</div>}
-        </div>
+      <div className="hx-list"><style>{HELIX_CSS}</style>
+        <HelixShell tableId="mo-list" groups={groups} menu={menu} bottom={hxBottom('F11')} exitHref="/"
+          wh={{ value: W, options: [{ v: '', label: 'Сите продавници' }, ...stores.map((s) => ({ v: s.id, label: s.name }))] }}
+          head={<div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', margin: '0 0 2px', gap: 10, flexWrap: 'wrap' }} data-testid="mo-firm">
+            <span className="hx-firm">{firm.name}</span><span className="mini muted">Тип (F7): <b>{MOUT[T].n}</b> · {year} · {list.length} док. · {MOUT[T].note}</span></div>}>
+          {T === 'inv'
+            ? <div className="card empty">Фактурите од продавница се во <b>Излезни фактури</b> (со објект = продавница).
+              <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>{write && <Link className="btn pri" href="/izlez?nov=1">+ Нова фактура од продавница</Link>}<Link className="btn" href="/izlez">Листа на фактури</Link></div></div>
+            : list.length ? (
+              <div className="tw"><table id="mo-list" className="dense hx-t">
+                <colgroup>{MC.map((c, k) => <col key={k} style={c[1] ? { width: c[1] } : undefined} />)}</colgroup>
+                <thead><tr>{MC.map(([tt, , ti, cl], k) => <th key={k} title={ti ?? tt} className={cl}>{tt}</th>)}</tr></thead>
+                <tbody>{shown.map((x) => (
+                  <tr key={x.id} data-id={x.id} data-sum={moTotal(T, x.lines)}>
+                    <td className="hx-mk" /><td className="num"><b>{x.number}</b></td><td className="hx-d">{dmy(x.date)}</td><td title={L.locName(x.wh === 'main' ? null : x.wh)}>{L.locName(x.wh === 'main' ? null : x.wh)}</td><td title={x.desc}>{x.desc}</td>
+                    <td className="n">{x.lines.filter((l) => T !== 'pop' || l.diff).length}</td><td className="n">{fmt(moTotal(T, x.lines))}</td>
+                    <td className="hx-a">
+                      <Link className="btn sm" href={`/m_izlez?t=${T}&view=${x.id}`} title="Документот (печатење / PDF)" data-print>👁</Link>
+                      {write && <Link className="btn sm" href={`/m_izlez?t=${T}&id=${x.id}`} title="Измени" data-open>✎</Link>}
+                      {!write && <Link href={`/m_izlez?t=${T}&view=${x.id}`} data-open hidden>👁</Link>}
+                      <details className="hx-act"><summary className="btn sm" title="Други акции">⋯</summary><div>
+                        {write && <Link className="btn sm" href={`/m_izlez?t=${T}&id=${x.id}`}>✎ Измени</Link>}
+                        <Link className="btn sm" href={`/m_izlez?t=${T}&view=${x.id}`}>👁 PDF</Link>
+                        {write && <span data-del><RowAction action={(isCount ? deleteStockCountAction : deleteStoreOutAction).bind(null, x.id)} label="🗑 Избриши" title="Избриши" style={{ color: 'var(--bad)' }} confirm={`Да се избрише ${x.number}? Залихата и налогот се враќаат.`} /></span>}
+                      </div></details>
+                    </td>
+                  </tr>
+                ))}</tbody>
+                <tfoot><tr><td colSpan={6}>Вкупно ({list.length})</td><td className="n">{fmt(list.reduce((a, x) => a + moTotal(T, x.lines), 0))}</td><td /></tr></tfoot>
+              </table></div>
+            ) : <div className="card empty">Нема документи „{MOUT[T].s}“ за {year}. „Нов (Ins)“ отвора нов.</div>}
+        </HelixShell>
       </div>
     </>
   );

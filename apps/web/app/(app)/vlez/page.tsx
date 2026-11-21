@@ -30,7 +30,7 @@ import { decodeHeader, headerIntoPurchase } from '@/lib/kalk-header';
 import { kalkDialogData } from '@/lib/kalk-header-data';
 import { KalkNewKeys } from '@/components/stock/kalk-header-dialog';
 import { VlezListKeys } from '@/components/sales/vlez-list-keys';
-import { HELIX_CSS } from '@/components/helix/helix-shell';
+import { HELIX_CSS } from '@/lib/helix-css';
 
 type SP = { wh?: string; sort?: string; hx?: string; merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string; kand?: string; vid?: string };
 
