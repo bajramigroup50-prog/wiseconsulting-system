@@ -73,7 +73,7 @@ export function JournalEditor({ initial, title = '', chart: chart0, partners, nu
     <form ref={formRef} action={action} onKeyDown={(e) => { if (e.key === 'Insert' && !fe) { e.preventDefault(); setFe({ i: null }); } }}>
       <input type="hidden" name="payload" value={JSON.stringify(j)} />
       <div className="hd">
-        <h1>{j.id ? 'Корекција на налог ' + j.number : 'Рачен налог за книжење'}{title && <span className="mk">{title}</span>}</h1>
+        <h1>{j.id ? (initial.rows.length ? 'Корекција на налог ' : 'Книжење – налог ') + j.number : 'Рачен налог за книжење'}{title && <span className="mk">{title}</span>}</h1>
         <div className="row">
           <Link className="btn" href={cancelHref}>Откажи (Esc)</Link>
           <button className="btn pri" disabled={pending}>Зачувај (F4)</button>

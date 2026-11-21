@@ -438,7 +438,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         <a className="btn" href="/nalozi/dnevnik">⬇ Excel</a>
         <a className="btn" href="/print/dnevnik" target="_blank" rel="noopener">PDF</a>
         {write && <Link className="btn pri" href="/nalozi?izv" title="Увезете го изводот (PDF / Excel / XML) – налогот се отвора со датум и број според изводот">+ Нов налог – изводи</Link>}
-        {write && <Link className="btn pri" href="/nalozi?nov">+ Рачен налог</Link>}
+        {write && <Link className="btn pri" href="/nalozi?novo" title="Отвори нов налог (број, датум, опис), па „Книжење (F10)“ за ставките">+ Нов налог (Ins)</Link>}
       </Hd>
       {dups.length > 0 && (
         <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -499,10 +499,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
           <span className="mini">Сортирање:</span>
           {sortNo ? <Link className="btn sm" href="/nalozi">по период</Link> : <span className="pill info">по период</span>}
           {sortNo ? <span className="pill info">по број</span> : <Link className="btn sm" href="/nalozi?sort=no">по број</Link>}
-          <span style={{ flex: 1 }} />
-          <ListKeys tableId="nal-list" newHref={write ? '/nalozi?nov' : undefined} />
         </div>
-        <div className="tw" style={{ maxHeight: 'calc(100vh - 140px)', minHeight: 520 }}><table id="nal-list" className="dense fit">
+        <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+        <div className="tw" style={{ flex: 1, minWidth: 0, maxHeight: 'calc(100vh - 140px)', minHeight: 520 }}><table id="nal-list" className="dense fit">
           <thead><tr><th>Датум</th><th>Број</th><th>Статус</th><th className="n">Салдо</th><th>Опис</th><th title="Се зема при затворање на годината">За кл.</th><th title="Прекнижан / непрекнижан">Прекн.</th><th className="n">Ставки</th><th className="n">Должи</th><th className="n">Побарува</th><th></th></tr></thead>
           <tbody>
             {GL.map((g) => {
@@ -515,13 +514,14 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
               const pending = g.journals.some((j) => { const o = ovOf(j); return !!(o && (o.dropped || o.unbalanced)); });
               const zaKl = !g.journals.some((j) => j.sourceType === 'yearClose' || j.kind === 'close');
               return (
-                <tr key={g.no} data-nal={g.no} data-d={D} data-p={P}>
+                <tr key={g.no} data-nal={g.no} data-d={D} data-p={P}
+                  {...(one && manualLike(one) && !locked(one) ? { 'data-jid': one.id, 'data-date': one.date, 'data-desc': titleOf(g), 'data-prek': (one.meta as { prek?: boolean } | null)?.prek === false ? '0' : '1' } : {})}>
                   <td>{dmy(g.date)}</td><td><Link href={href}><b className="num">{g.no}</b></Link></td>
                   <td><span className={`pill ${lk ? '' : !n || Math.abs(D - P) > 0.009 ? 'warn' : 'good'}`}>{status}</span></td>
                   <td className="n" style={Math.abs(D - P) > 0.009 ? { color: 'var(--bad)' } : undefined}>{fmt(D - P)}</td>
                   <td>{titleOf(g)}{one && schPill(one)}{g.journals.some((j) => ovOf(j)?.applied) && <> <span className="pill warn" title="Рачно коригиран – се разликува од документот">🛠</span></>}</td>
                   <td>{zaKl ? 'Да' : 'Не'}</td>
-                  <td>{pending ? <span className="pill warn" title="Документот е изменет по рачната корекција – корекцијата не е применета">Непрекн.</span> : 'Прекн.'}</td>
+                  <td>{pending ? <span className="pill warn" title="Документот е изменет по рачната корекција – корекцијата не е применета">Непрекн.</span> : g.journals.some((j) => (j.meta as { prek?: boolean } | null)?.prek === false) ? <span className="pill">Непрекн.</span> : 'Прекн.'}</td>
                   <td className="n">{n}</td>
                   <td className="n">{fmt(D)}</td><td className="n">{fmt(P)}</td>
                   <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
@@ -529,7 +529,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                     <Link className="btn sm ghost" href={`${href}&sint`} data-sint title="Синтетики (F8): збир по синтетичко конто">Σ</Link>
                     {one && canEdit(one) && <Link className="btn sm" href={`/nalozi?edit=${one.id}`} title="Отвори и измени (корекција)">✎ Измени</Link>}
                     {!one && fix && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(g.no)}`} title="Налог со повеќе документи: корекција по документ">✎ Измени</Link>}
-                    {write && !g.journals.some(locked) && <Link className="btn sm" href={`/nalozi?nov&n=${encodeURIComponent(g.no)}`} data-book title="Нов рачен дел во истиот налог (ист број и период) – F10 „Книжење“">+ Ставки</Link>}
+                    {write && !g.journals.some(locked) && <Link className="btn sm" href={one && manualLike(one) ? `/nalozi?edit=${one.id}&fast` : `/nalozi?nov&n=${encodeURIComponent(g.no)}`} data-book title="Нов рачен дел во истиот налог (ист број и период) – F10 „Книжење“">+ Ставки</Link>}
                     <a className="btn sm" href={`/print/nalog?n=${encodeURIComponent(g.no)}`} target="_blank" rel="noopener">PDF</a>
                     {one && del && manualLike(one) && !locked(one) && <span data-del><RowAction className="btn sm danger" action={deleteJournalAction.bind(null, one.id)} label="🗑 Избриши" title="Избриши го налогот" confirm={`Да се избрише налогот бр. ${g.no}?`} /></span>}
                     {one && del && one.sourceType === 'bank_statement' && one.sourceId && !locked(one) && <span data-del><RowAction className="btn sm danger" action={deleteStatementAction.bind(null, one.sourceId)} label="🗑 Избриши" title="Избриши го изводот и налогот" confirm={`Да се избрише изводот и налогот бр. ${g.no} со сите ставки?`} /></span>}
@@ -542,6 +542,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             {!G.length && <tr><td colSpan={11} className="empty">Нема налози за {year}.</td></tr>}
           </tbody>
         </table></div>
+        <ListKeys tableId="nal-list" canWrite={write} today={todayIso().startsWith(String(year)) ? todayIso() : `${year}-12-31`} />
+        </div>
       </div>
       <p className="note">„Отвори“ го прикажува целиот налог со сите ставки – датум, конто, должи, побарува, комитент, опис, документ и девизи – со рачна корекција (F2). Броевите се доделуваат при книжење и не се менуваат кога подоцна ќе се внесе документ со постар датум. Барањето горе (конто, документ, партнер) ги прикажува поединечните ставки од дневникот.</p>
       {q && (
