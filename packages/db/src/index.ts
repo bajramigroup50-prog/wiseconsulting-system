@@ -115,6 +115,7 @@ export * from './btrip';
 export * from './fx-reval';
 export * from './deferrals';
 export * from './institutions';
+export * from './reclass';
 export * from './meals';
 export * from './npo';
 export * from './whatsapp';

@@ -41,6 +41,8 @@ export const ACT_NEED: Record<string, Perm> = {
   ncNew: 'office', ncSave: 'office', ncTask: 'office', ncCreateFirm: 'office', ncEdit: 'office',
   delFirm: 'firms', newFirm: 'firms', pickNew: 'firms', saveFirm: 'firms',
   closeYear: 'close', doTransfer: 'close', transfer: 'close',
+  // „🔁 Рекнижење во маса“ (year-end corrections over many nalozi): the office owner and the senior accountant only
+  reclass: 'close', reclassUndo: 'close',
   schSave: 'settings', schSaveAll: 'settings', schReset: 'settings', schRepost: 'settings',
   uSave: 'users', uDel: 'users', uNew: 'users', uEdit: 'users',
 };

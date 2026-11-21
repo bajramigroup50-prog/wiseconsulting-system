@@ -53,6 +53,8 @@ const TABLE: readonly (readonly [WorkCat, WorkVerb, string])[] = [
   ['nalozi', 'c', 'saveJ postJournal impJournal kamNote kamRates posFee kompSave lnCreateSel newNalog donSave'],
   ['nalozi', 'u', 'nalSave repostJournal nalOverride nalOverrideReset npSave schRepost schemeRepost lnSave firmYearWipe nalDel nalDocDel nalTitle donConf donBook donAtt'],
   ['nalozi', 'd', 'unpostJournal deleteJournal kompDel lnDel donDel donUnbook'],
+  // 🔁 Рекнижење во маса (one batch, its undo) and the manual items of 💧 Паричен тек – прогноза
+  ['nalozi', 'u', 'reclassBatch reclassUndo cfSave'],
   ['izvodi', 'c', 'importBank importReplace izvSave mbSave addRule pnRun ppSave trClose'],
   ['izvodi', 'u', 'bankKonto bankPartner bkPickSave autoMatch aiClassifyApply bkpFix feeFix contribFix flipBank izvFill numIzv unlinkBank lnLinkBank lnMisK ppPrint bankTransitMove bankRepostLayout bankAcctKonto bankKontaAll'],
   ['izvodi', 'd', 'delBank delStatement undoImp rmRule ppDel'],
@@ -157,7 +159,7 @@ const NOISE = new Set((
  * (their lines still count in the volume).
  */
 const BY_PRODUCT = new Set(['postInvoice', 'postPurchase', 'postStatement', 'postCashVoucher', 'postCompensation', 'postSupplierCredit',
-  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'ddvPost', 'pddPost', 'postImportJournal', 'unpostImportJournal', 'impVatRound']);
+  'postPayroll', 'repostPayroll', 'postMpinAck', 'nalOverrideRepost', 'reclassRepost', 'ddvPost', 'pddPost', 'postImportJournal', 'unpostImportJournal', 'impVatRound']);
 /** Same rule as the journals screen (`fromDocument`): these sources are entered by hand, not from a document. */
 const MANUAL_SOURCES = new Set(['opening', 'bbimp', 'yearClose', 'import']);
 const GENERIC_JOURNAL = new Set(['postJournal', 'repostJournal', 'unpostJournal', 'deleteJournal']);
