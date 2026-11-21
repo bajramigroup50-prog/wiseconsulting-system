@@ -78,7 +78,8 @@ export function LoginForm({ brand, mail }: { brand: string; mail: string }) {
   // „Запамети“: only the user name, in this browser (never the password)
   // „Запамети“: only the user name, in this browser (never the password); saved when it changes
   const remember = (k: boolean, u: string) => store.set(REMEMBER, k && u.trim() ? u.trim() : null);
-  const pickLang = (l: Lang) => { setLang(l); store.set('wise-login-lang', l); };
+  // also the cookie `wise-lang`: the НПО screens (🍲 оброци, членови) open in the same language
+  const pickLang = (l: Lang) => { setLang(l); store.set('wise-login-lang', l); try { document.cookie = `wise-lang=${l}; path=/; max-age=31536000; samesite=lax`; } catch { /* no cookies */ } };
   const capsKey = (e: React.KeyboardEvent<HTMLInputElement>) => setCaps(e.getModifierState?.('CapsLock') ?? false);
 
   return (

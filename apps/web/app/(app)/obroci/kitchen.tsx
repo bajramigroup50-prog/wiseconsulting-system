@@ -19,10 +19,12 @@ import { BankForm } from '@/components/bank-form';
 import { RowAction } from '@/components/row-action';
 import { deleteDonReceiptAction, donReceiptAction, issueMealsAction, mealNormAction } from './actions';
 import { isNpoFirm } from '../donacii/data';
+import { tr, type Lang } from '@/lib/npo-i18n';
 
 const q4 = (x: number) => String(Math.round(x * 1e4) / 1e4).replace('.', ',');
 
-export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm; write: boolean; from: string; to: string; pr?: string; nd?: string }) {
+export async function KitchenTab({ firm, write, from, to, pr, nd, lang = 'mk' }: { firm: Firm; write: boolean; from: string; to: string; pr?: string; nd?: string; lang?: Lang }) {
+  const t = tr(lang);
   const L = await loadStockContext(db(), firm.id);
   const S = mealStockSettings(firm);
   const locs = locOptions(L);
@@ -50,18 +52,18 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
     const rows = [...(E?.lines ?? []), ...Array.from({ length: Math.max(4, 12 - (E?.lines.length ?? 0)) }, () => null)];
     return (
       <div className="card">
-        <h2 style={{ margin: '0 0 6px' }}>{E ? `Приемница на донација ${E.number}` : '+ Приемница на донација во добра'}</h2>
+        <h2 style={{ margin: '0 0 6px' }}>{E ? `${t('Приемница на донација')} ${E.number}` : t('+ Приемница на донација во добра')}</h2>
         <BankForm action={donReceiptAction}>
           <input type="hidden" name="id" value={E?.id ?? ''} />
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <label className="f">Договор за донација<select name="donationId" defaultValue={E?.donationId ?? nd ?? ''}><option value="">— без договор —</option>{D.map((d) => <option key={d.id} value={d.id}>{d.number} · {d.pn ?? ''} · {dmy(d.date)}{d.inKind ? ' · во добра' : ''}</option>)}</select></label>
-            <label className="f">Датум<input type="date" name="date" required defaultValue={E?.date ?? to} /></label>
-            <label className="f">Магацин<select name="wh" defaultValue={E?.locationId ?? S.wh ?? 'main'}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
-            <label className="f" title="Д залиха / П приход од донации во добра (НПО план 731, инаку 7672); празно = без книжење">Конто (приход)<input name="account" defaultValue={E?.account ?? (don?.konto || donKonto('donation', 'received', chart, true))} style={{ width: 90 }} /></label>
-            <label className="f" style={{ minWidth: 260 }}>Забелешка (фактура за донација бр., записник…)<input name="note" defaultValue={E?.note ?? ''} /></label>
+            <label className="f">{t('Договор за донација')}<select name="donationId" defaultValue={E?.donationId ?? nd ?? ''}><option value="">{t('— без договор —')}</option>{D.map((d) => <option key={d.id} value={d.id}>{d.number} · {d.pn ?? ''} · {dmy(d.date)}{d.inKind ? t(' · во добра') : ''}</option>)}</select></label>
+            <label className="f">{t('Датум')}<input type="date" name="date" required defaultValue={E?.date ?? to} /></label>
+            <label className="f">{t('Магацин')}<select name="wh" defaultValue={E?.locationId ?? S.wh ?? 'main'}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+            <label className="f" title={t('Д залиха / П приход од донации во добра (НПО план 731, инаку 7672); празно = без книжење')}>{t('Конто (приход)')}<input name="account" defaultValue={E?.account ?? (don?.konto || donKonto('donation', 'received', chart, true))} style={{ width: 90 }} /></label>
+            <label className="f" style={{ minWidth: 260 }}>{t('Забелешка (фактура за донација бр., записник…)')}<input name="note" defaultValue={E?.note ?? ''} /></label>
           </div>
           <table className="dense" style={{ marginTop: 8 }}>
-            <thead><tr><th>Артикл</th><th className="n">Количина</th><th className="n">Цена (вредност по ед.)</th><th>Лот / серија</th><th>Рок на траење</th></tr></thead>
+            <thead><tr><th>{t('Артикл')}</th><th className="n">{t('Количина')}</th><th className="n">{t('Цена (вредност по ед.)')}</th><th>{t('Лот / серија')}</th><th>{t('Рок на траење')}</th></tr></thead>
             <tbody>{rows.map((l, i) => (
               <tr key={i}>
                 <td><ItemSel name={`l_${i}_item`} v={l?.itemId} /></td>
@@ -72,8 +74,8 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
               </tr>
             ))}</tbody>
           </table>
-          <p className="mini">Вредноста = количина × цена (од фактурата за донација / проценка). Книжење: Д залиха / П приход од донации; лотот и рокот на траење одат во „🏷 Лотови и рок“ (FEFO).</p>
-          <div className="row" style={{ gap: 8 }}><button className="btn pri">Зачувај приемница</button><Link className="btn" href="/obroci?t=z">Откажи</Link></div>
+          <p className="mini">{t('Вредноста = количина × цена (од фактурата за донација / проценка). Книжење: Д залиха / П приход од донации; лотот и рокот на траење одат во „🏷 Лотови и рок“ (FEFO).')}</p>
+          <div className="row" style={{ gap: 8 }}><button className="btn pri">{t('Зачувај приемница')}</button><Link className="btn" href="/obroci?t=z">{t('Откажи')}</Link></div>
         </BankForm>
       </div>
     );
@@ -84,24 +86,24 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
   return (
     <>
       <div className="card">
-        <h2 style={{ margin: '0 0 6px' }}>⚙ Магацин на кујната и норматив по порција</h2>
+        <h2 style={{ margin: '0 0 6px' }}>{t('⚙ Магацин на кујната и норматив по порција')}</h2>
         {write ? (
           <BankForm action={mealNormAction}>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
-              <label className="f">Магацин на кујната<select name="wh" defaultValue={S.wh ?? 'main'}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
-              <label className="f" title="Д трошок на потрошените намирници (НПО план: 400 Потрошени материјали; инаку 4000)">Конто за трошок<input name="konto" defaultValue={S.konto ?? ''} placeholder="4000" style={{ width: 90 }} /></label>
-              <span className="f">Оброци што се даваат
-                <span className="row" style={{ gap: 10 }}>{MEALS.map(([k, n]) => <label key={k} className="chk"><input type="checkbox" name={`kind_${k}`} value="1" defaultChecked={kinds.includes(k)} /> {n}</label>)}</span>
+              <label className="f">{t('Магацин на кујната')}<select name="wh" defaultValue={S.wh ?? 'main'}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+              <label className="f" title={t('Д трошок на потрошените намирници (НПО план: 400 Потрошени материјали; инаку 4000)')}>{t('Конто за трошок')}<input name="konto" defaultValue={S.konto ?? ''} placeholder="4000" style={{ width: 90 }} /></label>
+              <span className="f">{t('Оброци што се даваат')}
+                <span className="row" style={{ gap: 10 }}>{MEALS.map(([k, n]) => <label key={k} className="chk"><input type="checkbox" name={`kind_${k}`} value="1" defaultChecked={kinds.includes(k)} /> {t(n)}</label>)}</span>
               </span>
             </div>
-            <p className="mini">Само означените оброци се во дневната листа, извештаите и издатниците; веќе внесените штикли на другите оброци не се бришат, само не се прикажуваат.</p>
+            <p className="mini">{t('Само означените оброци се во дневната листа, извештаите и издатниците; веќе внесените штикли на другите оброци не се бришат, само не се прикажуваат.')}</p>
             <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginTop: 8 }}>
               {KM.map(([k, n]) => {
                 const L0 = norm[k] ?? [];
                 const rows = [...L0, ...Array.from({ length: Math.max(3, 8 - L0.length) }, () => null)];
                 return (
                   <table key={k} className="dense" style={{ minWidth: 300 }}>
-                    <thead><tr><th colSpan={2}>{n} – за 1 порција</th></tr></thead>
+                    <thead><tr><th colSpan={2}>{t(n)} – {t('за 1 порција')}</th></tr></thead>
                     <tbody>{rows.map((r, i) => (
                       <tr key={i}><td><ItemSel name={`n_${k}_${i}_item`} v={r?.itemId} /></td><td><input name={`n_${k}_${i}_qty`} defaultValue={r ? q4(r.qty) : ''} inputMode="decimal" placeholder="0,15" style={{ width: 70 }} /> {r ? unit(r.itemId) : ''}</td></tr>
                     ))}</tbody>
@@ -109,30 +111,30 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
                 );
               })}
             </div>
-            <p className="mini">Количината е по една порција во единицата мерка на артиклот (на пр. 0,15 kg леб, 0,2 l млеко). Артиклите се од Шифрарник → Артикли (вид материјал / стока).</p>
-            <button className="btn pri">Зачувај норматив</button>
+            <p className="mini">{t('Количината е по една порција во единицата мерка на артиклот (на пр. 0,15 kg леб, 0,2 l млеко). Артиклите се од Шифрарник → Артикли (вид материјал / стока).')}</p>
+            <button className="btn pri">{t('Зачувај норматив')}</button>
           </BankForm>
         ) : (
-          <p className="mini">{KM.map(([k, n]) => `${n}: ${(norm[k] ?? []).map((x) => `${nm(x.itemId)} ${q4(x.qty)} ${unit(x.itemId)}`).join(', ') || '—'}`).join(' · ')}</p>
+          <p className="mini">{KM.map(([k, n]) => `${t(n)}: ${(norm[k] ?? []).map((x) => `${nm(x.itemId)} ${q4(x.qty)} ${unit(x.itemId)}`).join(', ') || '—'}`).join(' · ')}</p>
         )}
       </div>
 
       <div className="card">
-        <h2 style={{ margin: '0 0 6px' }}>📤 Издатница за потрошените намирници (порции × норматив)</h2>
+        <h2 style={{ margin: '0 0 6px' }}>{t('📤 Издатница за потрошените намирници (порции × норматив)')}</h2>
         <form className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
           <input type="hidden" name="t" value="z" />
-          <label className="f">Од<input type="date" name="od" defaultValue={from} /></label>
-          <label className="f">До<input type="date" name="do" defaultValue={to} /></label>
-          <button className="btn">Прикажи</button>
+          <label className="f">{t('Од')}<input type="date" name="od" defaultValue={from} /></label>
+          <label className="f">{t('До')}<input type="date" name="do" defaultValue={to} /></label>
+          <button className="btn">{t('Прикажи')}</button>
         </form>
         {write && (
-          <BankForm action={issueMealsAction} confirm={`Да се издадат намирниците за ${dmy(from)} – ${dmy(to)} (по еден документ за ден)?`}>
+          <BankForm action={issueMealsAction} confirm={`${t('Да се издадат намирниците за периодот (по еден документ за ден)?')} ${dmy(from)} – ${dmy(to)}`}>
             <input type="hidden" name="od" value={from} /><input type="hidden" name="do" value={to} />
-            <button className="btn pri" style={{ marginTop: 6 }}>📤 Издај / ажурирај за периодот</button>
+            <button className="btn pri" style={{ marginTop: 6 }}>{t('📤 Издај / ажурирај за периодот')}</button>
           </BankForm>
         )}
         <table className="dense" style={{ marginTop: 8 }}>
-          <thead><tr><th>Датум</th>{KM.map(([k, n]) => <th key={k} className="n">{n}</th>)}<th>Потребно по норматив</th><th className="n">Издадено (ден.)</th><th>Статус</th></tr></thead>
+          <thead><tr><th>{t('Датум')}</th>{KM.map(([k, n]) => <th key={k} className="n">{t(n)}</th>)}<th>{t('Потребно по норматив')}</th><th className="n">{t('Издадено (ден.)')}</th><th>{t('Статус')}</th></tr></thead>
           <tbody>
             {days.map((d) => {
               const p = P.get(d) ?? { b: 0, l: 0, d: 0 };
@@ -143,45 +145,46 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
                   <td>{dmy(d)}</td>{KM.map(([k]) => <td key={k} className="n">{p[k]}</td>)}
                   <td className="mini">{want.map((w) => `${nm(w.itemId)} ${q4(w.qty)} ${unit(w.itemId)}`).join(', ') || '—'}</td>
                   <td className="n">{had.length ? fmt(issuedV(d)) : ''}</td>
-                  <td>{!want.length && !had.length ? <span className="muted">—</span> : same ? <span className="pill good">✓ издадено</span> : had.length ? <span className="pill warn">сменето – издај повторно</span> : <span className="pill">за издавање</span>}</td>
+                  <td>{!want.length && !had.length ? <span className="muted">—</span> : same ? <span className="pill good">{t('✓ издадено')}</span> : had.length ? <span className="pill warn">{t('сменето – издај повторно')}</span> : <span className="pill">{t('за издавање')}</span>}</td>
                 </tr>
               );
             })}
-            {!days.length && <tr><td colSpan={4 + KM.length} className="muted">Нема оброци во периодот.</td></tr>}
+            {!days.length && <tr><td colSpan={4 + KM.length} className="muted">{t('Нема оброци во периодот.')}</td></tr>}
           </tbody>
-          <tfoot><tr className="tot"><td colSpan={2 + KM.length}>Вкупно издадено</td><td className="n">{fmt([...I.keys()].reduce((s, d) => s + issuedV(d), 0))}</td><td /></tr></tfoot>
+          <tfoot><tr className="tot"><td colSpan={2 + KM.length}>{t('Вкупно издадено')}</td><td className="n">{fmt([...I.keys()].reduce((s, d) => s + issuedV(d), 0))}</td><td /></tr></tfoot>
         </table>
-        <p className="note">Еден документ (издатница) за секој ден; кога ќе се сменат штиклите во дневната листа, издатницата на тој ден се ажурира сама. Заклучен период не се менува. Цената е просечната набавна цена од магацинот.</p>
+        <p className="note">{t('Еден документ (издатница) за секој ден; кога ќе се сменат штиклите во дневната листа, издатницата на тој ден се ажурира сама. Заклучен период не се менува. Цената е просечната набавна цена од магацинот.')}</p>
       </div>
 
       <div className="card">
-        <h2 style={{ margin: '0 0 6px' }}>📥 Приемници на донации во добра</h2>
-        {write && <Link className="btn pri" href="/obroci?t=z&pr=new">+ Приемница на донација</Link>}
+        <h2 style={{ margin: '0 0 6px' }}>{t('📥 Приемници на донации во добра')}</h2>
+        {write && <Link className="btn pri" href="/obroci?t=z&pr=new">{t('+ Приемница на донација')}</Link>}
         <table className="dense" style={{ marginTop: 8 }}>
-          <thead><tr><th>Бр.</th><th>Датум</th><th>Договор / донатор</th><th>Артикли (лот, рок)</th><th className="n">Вредност</th><th>Конто</th>{write && <th />}</tr></thead>
+          <thead><tr><th>{t('Бр.')}</th><th>{t('Датум')}</th><th>{t('Договор / донатор')}</th><th>{t('Артикли (лот, рок)')}</th><th className="n">{t('Вредност')}</th><th>{t('Конто')}</th>{write && <th />}</tr></thead>
           <tbody>
             {R.map((r) => {
               const d = D.find((x) => x.id === r.donationId);
               return (
                 <tr key={r.id}>
-                  <td>{r.number}</td><td>{dmy(r.date)}</td><td>{d ? `${d.number} · ${d.pn ?? ''}` : <span className="muted">без договор</span>}</td>
-                  <td className="mini">{r.lines.map((l) => `${nm(l.itemId)} ${q4(l.qty)} ${unit(l.itemId)}${l.lot ? ` [${l.lot}]` : ''}${l.expiry ? ` до ${dmy(l.expiry)}` : ''}`).join('; ')}</td>
+                  <td>{r.number}</td><td>{dmy(r.date)}</td><td>{d ? `${d.number} · ${d.pn ?? ''}` : <span className="muted">{t('без договор')}</span>}</td>
+                  <td className="mini">{r.lines.map((l) => `${nm(l.itemId)} ${q4(l.qty)} ${unit(l.itemId)}${l.lot ? ` [${l.lot}]` : ''}${l.expiry ? ` ${t('до')} ${dmy(l.expiry)}` : ''}`).join('; ')}</td>
                   <td className="n">{fmt(r.total)}</td><td>{r.account ?? '—'}</td>
-                  {write && <td style={{ whiteSpace: 'nowrap' }}><Link className="btn sm" href={`/obroci?t=z&pr=${r.id}`}>✎</Link> <RowAction label="🗑" title="Избриши" confirm={`Да се избрише приемницата ${r.number} (и нејзиното книжење)?`} action={deleteDonReceiptAction.bind(null, r.id)} /></td>}
+                  {write && <td style={{ whiteSpace: 'nowrap' }}><Link className="btn sm" href={`/obroci?t=z&pr=${r.id}`}>✎</Link> <RowAction label="🗑" title={t('Избриши')} confirm={`${t('Да се избрише приемницата (и нејзиното книжење)?')} ${r.number}`} action={deleteDonReceiptAction.bind(null, r.id)} /></td>}
                 </tr>
               );
             })}
-            {!R.length && <tr><td colSpan={7} className="muted">Нема приемници на донации.</td></tr>}
+            {!R.length && <tr><td colSpan={7} className="muted">{t('Нема приемници на донации.')}</td></tr>}
           </tbody>
         </table>
-        <p className="note">Купените намирници влегуваат преку Влез (фактура од добавувач) или Приемници и издатници во истиот магацин.</p>
+        <p className="note">{t('Купените намирници влегуваат преку Влез (фактура од добавувач) или Приемници и издатници во истиот магацин.')}</p>
       </div>
     </>
   );
 }
 
 /** Stock part of the 📊 report: kitchen warehouse, received / used / left per item, real cost per portion. */
-export async function KitchenReport({ firm, from, to, portions }: { firm: Firm; from: string; to: string; portions: number }) {
+export async function KitchenReport({ firm, from, to, portions, lang = 'mk' }: { firm: Firm; from: string; to: string; portions: number; lang?: Lang }) {
+  const t = tr(lang);
   const S = mealStockSettings(firm);
   const [M, L] = await Promise.all([kitchenMoves(db(), firm.id, S.wh, to), loadStockContext(db(), firm.id)]);
   if (!M.length) return null;
@@ -191,19 +194,19 @@ export async function KitchenReport({ firm, from, to, portions }: { firm: Firm; 
   const rows = K.rows.filter((r) => r.open || r.inQ || r.useQ || r.othQ || r.close).sort((a, b) => nm(a.itemId).localeCompare(nm(b.itemId), 'mk'));
   return (
     <>
-      <h3>Залиха на кујната – примено / потрошено / останато</h3>
+      <h3>{t('Залиха на кујната – примено / потрошено / останато')}</h3>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
-        <span className="pill">Примено: <b>{fmt(K.tot.inV)}</b> ден. (од тоа донации {fmt(K.tot.donV)})</span>
-        <span className="pill warn">Потрошено за оброци: <b>{fmt(K.tot.useV)}</b> ден.</span>
-        <span className="pill">Останато: <b>{fmt(K.tot.closeV)}</b> ден.</span>
-        <span className="pill good">Реален трошок по порција (од залиха): <b>{fmt(K.perPortion)}</b> ден.</span>
+        <span className="pill">{t('Примено:')} <b>{fmt(K.tot.inV)}</b> {t('ден. (од тоа донации')} {fmt(K.tot.donV)})</span>
+        <span className="pill warn">{t('Потрошено за оброци:')} <b>{fmt(K.tot.useV)}</b> {t('ден.')}</span>
+        <span className="pill">{t('Останато:')} <b>{fmt(K.tot.closeV)}</b> {t('ден.')}</span>
+        <span className="pill good">{t('Реален трошок по порција (од залиха):')} <b>{fmt(K.perPortion)}</b> {t('ден.')}</span>
       </div>
       <table className="dense">
-        <thead><tr><th>Артикл</th><th>Ед.</th><th className="n">Почетна</th><th className="n">Примено</th><th className="n">од тоа донации</th><th className="n">За оброци</th><th className="n">Друго издадено</th><th className="n">Останато</th><th className="n">Вредност потрошено</th></tr></thead>
+        <thead><tr><th>{t('Артикл')}</th><th>{t('Ед.')}</th><th className="n">{t('Почетна')}</th><th className="n">{t('Примено')}</th><th className="n">{t('од тоа донации')}</th><th className="n">{t('За оброци')}</th><th className="n">{t('Друго издадено')}</th><th className="n">{t('Останато')}</th><th className="n">{t('Вредност потрошено')}</th></tr></thead>
         <tbody>{rows.map((r) => (
           <tr key={r.itemId}><td>{nm(r.itemId)}</td><td>{un(r.itemId)}</td><td className="n">{q4(r.open)}</td><td className="n">{q4(r.inQ)}</td><td className="n">{r.donQ ? q4(r.donQ) : ''}</td><td className="n">{q4(r.useQ)}</td><td className="n">{r.othQ ? q4(r.othQ) : ''}</td><td className="n">{q4(r.close)}</td><td className="n">{fmt(r.useV)}</td></tr>
         ))}</tbody>
-        <tfoot><tr className="tot"><td colSpan={8}>Вкупно потрошено за оброци</td><td className="n">{fmt(K.tot.useV)}</td></tr></tfoot>
+        <tfoot><tr className="tot"><td colSpan={8}>{t('Вкупно потрошено за оброци')}</td><td className="n">{fmt(K.tot.useV)}</td></tr></tfoot>
       </table>
     </>
   );
