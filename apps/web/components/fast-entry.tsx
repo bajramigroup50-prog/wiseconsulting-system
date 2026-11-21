@@ -121,47 +121,48 @@ export interface FastEntryProps {
 
 /** The look of the old program's „Нова ставка“ window (small, grey-blue, yellow key fields, label left). */
 const HX_CSS = `
-.hx{width:min(900px,100%);background:#eef2f8;border:1px solid #8fa3bd;box-shadow:0 6px 24px rgba(0,0,0,.25);font:12px/1.25 "Segoe UI",Tahoma,Arial,sans-serif;color:#000}
-.hx .hx-title{display:flex;justify-content:space-between;align-items:center;background:#f7f9fc;border-bottom:1px solid #c5d0de;padding:4px 8px;font-size:13px}
-.hx .hx-x{border:0;background:none;color:#1a4f9c;cursor:pointer;font-size:14px}
+.hx{width:min(900px,100%);background:var(--panel);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.18);border-radius:10px;overflow:hidden;font-size:13px;line-height:1.25;color:var(--ink)}
+.hx .hx-title{font-weight:700;color:var(--accent);display:flex;justify-content:space-between;align-items:center;background:var(--bg);border-bottom:1px solid var(--line);padding:4px 8px;font-size:13px}
+.hx .hx-x{border:0;background:none;color:var(--accent);cursor:pointer;font-size:14px}
 .hx .hx-err{background:#fde8e8;color:#a00;padding:3px 8px}.hx .hx-ok{background:#e6f4e6;color:#165c16;padding:3px 8px}
-.hx .hx-body{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,.95fr) minmax(0,.8fr) minmax(0,1.15fr);gap:6px 10px;padding:8px;border:1px solid #c5d0de;margin:6px;background:#eef2f8}
+.hx .hx-body{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,.95fr) minmax(0,.8fr) minmax(0,1.15fr);gap:6px 10px;padding:8px;border:1px solid var(--line);margin:6px;background:var(--panel)}
 .hx .hx-left,.hx .hx-mid,.hx .hx-mid2,.hx .hx-right{display:flex;flex-direction:column;gap:4px;min-width:0}
-.hx .hx-right{border-left:1px solid #c5d0de;padding-left:8px}
+.hx .hx-right{border-left:1px solid var(--line);padding-left:8px}
 .hx .hx-row{display:flex;align-items:center;gap:4px;margin:0;min-width:0}
 .hx .hx-l{width:58px;flex:none;font-size:11.5px;text-align:right;line-height:1.1}
-.hx input,.hx textarea,.hx select{font:12px "Segoe UI",Tahoma,Arial,sans-serif;height:20px;padding:0 3px;border:1px solid #7f8fa6;border-radius:0;background:#fff;min-width:0;box-shadow:none}
+.hx input,.hx textarea,.hx select{font:inherit;font-size:13px;height:24px;padding:0 3px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--ink);min-width:0;box-shadow:none}
 .hx textarea{height:44px;padding:2px 3px;resize:none}
 .hx input[type=radio]{height:auto;width:auto;margin:0 3px 0 0}
 .hx input[type=date]{width:110px}
-.hx .hx-y{background:#fffbd0}
+.hx .hx-y{}
 .hx .hx-n{text-align:right}
-.hx .hx-konto{width:150px;flex:none}.hx .hx-konto input{background:#fffbd0;width:100%}.hx .hx-konto .row{flex-wrap:nowrap;gap:2px!important}.hx .hx-konto button{font-size:0;padding:0 3px;min-width:0;border:1px solid #7f8fa6;border-radius:0;height:20px;background:#f3f5f9}.hx .hx-konto button::before{content:'📋';font-size:12px}
-.hx .hx-name{flex:1;height:20px;border:1px solid #7f8fa6;background:#fff;padding:1px 4px;overflow:hidden;white-space:nowrap}
+.hx .hx-konto{width:150px;flex:none}.hx .hx-konto input{width:100%}.hx .hx-konto .row{flex-wrap:nowrap;gap:2px!important}.hx .hx-konto button{font-size:0;padding:0 3px;min-width:0;border:1px solid var(--line);border-radius:0;height:24px;background:var(--bg)}.hx .hx-konto button::before{content:'📋';font-size:12px}
+.hx .hx-name{flex:1;height:24px;border:1px solid var(--line);background:var(--panel);padding:1px 4px;overflow:hidden;white-space:nowrap}
 .hx .hx-partner{flex:1;min-width:0;max-width:100%}.hx .hx-partner input{width:100%!important;min-width:0!important}.hx .hx-partner > *{max-width:100%}
 .hx .hx-hint{font-size:11px;margin-left:62px;line-height:1.2}
-.hx .hx-amt{display:grid;grid-template-columns:58px 1fr 1fr;gap:2px 6px;align-items:center;border-top:1px solid #c5d0de;padding-top:3px}
+.hx .hx-amt{display:grid;grid-template-columns:58px 1fr 1fr;gap:2px 6px;align-items:center;border-top:1px solid var(--line);padding-top:3px}
 .hx .hx-amt input{font-weight:700;font-size:13px;height:24px}
 .hx .hx-h{font-size:11.5px}.hx .hx-h.c{text-align:center}
-.hx .hx-box{border:1px solid #c5d0de;padding:2px 6px 4px;margin:0;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.hx .hx-box{border:1px solid var(--line);padding:2px 6px 4px;margin:0;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .hx .hx-box legend{font-size:11.5px;padding:0 2px}
 .hx .hx-radio{display:inline-flex;align-items:center;gap:2px;margin:0;font-size:12px}
-.hx .hx-saldo{color:#1a2f8a;font-size:14px;margin-left:8px;min-width:80px;text-align:right;border:1px solid #c5d0de;background:#fff;padding:0 4px}
-.hx .hx-no{border:1px solid #c5d0de;background:#fff;padding:0 4px;margin-left:8px;min-width:40px;text-align:right}
-.hx .hx-btn{font:600 12px "Segoe UI",Tahoma,Arial,sans-serif;padding:3px 10px;background:#f3f5f9;border:1px solid #7f8fa6;border-radius:3px;cursor:pointer;white-space:nowrap}
-.hx .hx-btn:hover{background:#e3e9f3}
-.hx .hx-f8{all:unset;cursor:pointer;color:#1a3d8f;text-decoration:underline dotted}
+.hx .hx-saldo{color:var(--accent);font-size:14px;margin-left:8px;min-width:80px;text-align:right;border:1px solid var(--line);background:var(--panel);padding:0 4px}
+.hx .hx-no{border:1px solid var(--line);background:var(--panel);padding:0 4px;margin-left:8px;min-width:40px;text-align:right}
+.hx .hx-btn{font:inherit;font-weight:600;padding:4px 12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;cursor:pointer;white-space:nowrap}
+.hx .hx-btn:hover{background:var(--accent-soft)}
+.hx .hx-btn.hx-pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.hx .hx-f8{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline dotted}
 .hx-pw-back{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.12)}
-.hx-pw{width:min(620px,96vw);background:#f0f3f8;border:1px solid #5a6f96;box-shadow:0 6px 24px rgba(0,0,0,.3);font:12px "Segoe UI",Tahoma,Arial,sans-serif;color:#000}
-.hx-pw .hx-pw-list{height:min(52vh,420px);overflow:auto;background:#fff;border-top:1px solid #7f8fa6;border-bottom:1px solid #7f8fa6}
+.hx-pw{width:min(620px,96vw);background:var(--panel);border:1px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.3);color:var(--ink)}
+.hx-pw .hx-pw-list{height:min(52vh,420px);overflow:auto;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .hx-pw .hx-pw-h,.hx-pw .hx-pw-r{display:grid;grid-template-columns:90px 1fr;gap:6px;padding:1px 6px;white-space:nowrap}
 .hx-pw .hx-pw-h{position:sticky;top:0;background:var(--line,#e5e7eb);font-weight:600}
 .hx-pw .hx-pw-r{cursor:pointer}
 .hx-pw .hx-pw-r.cur{font-weight:700}
-.hx-pw .hx-pw-r.on{background:var(--accent-bg,#e6f2ee)}
-.hx .hx-docs{border:1px solid #7f8fa6;background:#fff;max-height:160px;overflow:auto}
+.hx-pw .hx-pw-r.on{background:var(--accent-soft)}
+.hx .hx-docs{border:1px solid var(--line);background:var(--panel);max-height:160px;overflow:auto}
 .hx .hx-docs button{display:block;width:100%;text-align:left;border:0;background:none;padding:2px 4px;cursor:pointer}
-.hx .hx-docs button:hover{background:#e3e9f3}
+.hx .hx-docs button:hover{background:var(--accent-soft)}
 @media (max-width:760px){.hx .hx-body{grid-template-columns:1fr 1fr}.hx .hx-right{border-left:0;padding-left:0}}
 `;
 
@@ -374,7 +375,7 @@ export function FastEntry(p: FastEntryProps) {
               <div className="hx-row" style={{ justifyContent: 'flex-end' }}><span>Салдо</span><b className="hx-saldo" data-testid="fe-saldo" style={Math.abs(after) > 0.004 ? { color: '#c00' } : undefined}>{fmt(after)}</b></div>
               <div className="hx-row" style={{ justifyContent: 'flex-end' }}><span>Р.бр.</span><b className="hx-no" data-testid="fe-no">{no}</b></div>
               <div className="hx-row" style={{ justifyContent: 'space-between' }}>
-                <button type="button" className="hx-btn" disabled={busy} onClick={() => void save()}>Во ред (F9)</button>
+                <button type="button" className="hx-btn hx-pri" disabled={busy} onClick={() => void save()}>Во ред (F9)</button>
                 <button type="button" className="hx-btn" onClick={p.onClose}>Излез (Esc)</button>
               </div>
               {p.onDelete && mode !== 'new' && <button type="button" className="hx-btn" disabled={busy} onClick={p.onDelete} style={{ color: '#c00' }}>Избриши ставка</button>}
