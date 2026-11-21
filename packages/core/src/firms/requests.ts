@@ -5,8 +5,10 @@
  */
 import TPL0_JSON from '../data/requests-tpl.json';
 import FORMS0_JSON from '../data/requests-forms.json';
+import INST_FORMS_JSON from '../data/inst-forms.json';
+import INST_LINKS_JSON from '../data/inst-forms-links.json';
 
-export const INST = ['ЦРСМ', 'УЈП', 'АВРМ', 'ФЗО', 'ПИОМ', 'Банка', 'Суд', 'Општина', 'Нотар', 'Друго'] as const;
+export const INST = ['ЦРСМ', 'УЈП', 'АВРМ', 'ФЗО', 'ПИОМ', 'ДПИ', 'ДИТ', 'АХВ', 'ДИЖС', 'МЕ', 'МФ', 'Царина', 'Банка', 'Суд', 'Општина', 'Нотар', 'Друго'] as const;
 
 export interface ReqTpl { id: string; inst: string; name: string; to?: string; title: string; body: string; free?: boolean }
 export interface FormField { k: string; l: string; x: number; y: number; w: number; h: number; t: 't' | 'c' | 'x' | 's' | 'm'; src: string; g?: string; p?: number }
@@ -14,6 +16,14 @@ export interface ReqForm { id: string; inst: string; name: string; form: true; W
 
 export const TPL0: readonly ReqTpl[] = TPL0_JSON as ReqTpl[];
 export const FORMS0: readonly ReqForm[] = FORMS0_JSON as ReqForm[];
+/**
+ * The official forms of the institutions listed on wiseconsulting.com.mk („Обрасци“), made fillable by
+ * `tools/inst-forms/build.py`: the original pages as images, the firm's fields at their boxes (`url` = the original).
+ */
+export const INST_FORMS: readonly (ReqForm & { url: string })[] = INST_FORMS_JSON as (ReqForm & { url: string })[];
+/** The whole list of the site (`inst` = `INSTITUTIONS` id of `@wise/core/office/institutions`): a fillable form (`form`) or a link. */
+export interface InstFormLink { inst: string; code: string; name: string; url: string; kind: 'PDF' | 'DOC' | 'XLS' | 'WEB'; form: string | null }
+export const INST_FORM_LINKS: readonly InstFormLink[] = INST_LINKS_JSON as InstFormLink[];
 
 /** Firm data the templates use (legacy firm fields). */
 export interface ReqFirm { name?: string; short?: string; edb?: string; embs?: string; address?: string; city?: string; bank?: string; bankName?: string; signer?: string; phone?: string; email?: string; activity?: string; nkd?: string; signerEmbg?: string }
@@ -60,6 +70,7 @@ export function fSrcVal(src: string, f: ReqFirm, today: string): string {
   if (src === 'f.addr') return [f.address, f.city].filter(Boolean).join(', ');
   if (src === 'f.nameaddr') return [f.name, f.address, f.city].filter(Boolean).join(', ');
   if (src === 'f.activity') return [f.nkd, f.activity].filter(Boolean).join(' – ');
+  if (src === 'f.actname') return f.activity || '';
   if (src.startsWith('f.')) { const k = src.slice(2); return k === 'sign' ? '1' : String((f as Record<string, unknown>)[k] ?? ''); }
   return src;
 }

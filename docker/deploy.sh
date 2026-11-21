@@ -20,6 +20,11 @@ main() {
 	git merge --ff-only origin/main
 	echo "deploying $(git log --oneline -1)"
 
+	# the worker (uid 1001) writes news-sq.json (Albanian news titles, job news.sq) next to the site's news.json
+	SD=$(grep -s '^SITE_DATA_DIR=' /opt/wise/.env | cut -d= -f2- || true)
+	SD=${SD:-/opt/wise/site-data}
+	mkdir -p "$SD" && chown 1001 "$SD" 2>/dev/null || echo "note: cannot hand $SD to the worker (news.sq will log the error)"
+
 	TOKEN='' USER_='' SHA=''
 	if [ ! -t 0 ]; then
 		read -r TOKEN || true

@@ -11,6 +11,7 @@ import { defineJob } from '../job';
 import { htmlToPng } from '../pdf/render';
 import { objectKey, publicGetUrl, s3Store } from '../storage';
 import { fbPhotoPost, igImagePost } from '../social/graph';
+import { defaultTranslate, fillSq, readSqFile, titleSqFor, writeSqFile, type TranslateFn } from '../social/translate';
 
 export interface SocialDeps {
   fetch?: typeof fetch;
@@ -19,6 +20,12 @@ export interface SocialDeps {
   wait?: (ms: number) => Promise<void>;
   /** The website's news (`news.json`); default: the file the host cron writes (`SITE_NEWS_FILE`). */
   webNews?: () => Promise<unknown>;
+  /** Albanian titles already translated (`news-sq.json`); default: that file next to `news.json`. */
+  sqTitles?: () => Promise<Record<string, string>>;
+  /** Macedonian → Albanian titles; default: the AI (null when no ANTHROPIC_API_KEY – posts stay Macedonian only). */
+  translate?: TranslateFn | null;
+  /** Saves the Albanian titles (`news-sq.json`); default: the file next to `news.json`. */
+  saveSq?: (titles: Record<string, string>) => Promise<void>;
 }
 
 /** Store the card and give Meta a public link to it. */
@@ -97,11 +104,39 @@ export async function runSocialWeb(db: DB, log: (m: string) => void, deps: Socia
   const w = await nextWebNews(db, items);
   if (!w) return 'nothing new';
   if (!(await claimWebPost(db, w))) return 'already posted';
-  const r = await publishCard(s, page, token, webAsNews(w), webCaption(w), deps);
+  // 🇦🇱 the Albanian title on the card and in the caption (from news-sq.json, else translated now)
+  const titleSq = await titleSqFor(w, await (deps.sqTitles ?? readSqFile)(), deps.translate === undefined ? defaultTranslate() : deps.translate);
+  const wq = { ...w, titleSq };
+  const r = await publishCard(s, page, token, webAsNews(wq), webCaption(wq), deps);
   await recordWebPost(db, w.url, r);
   log(`social.web: ${r.status} „${w.title.slice(0, 60)}“${r.error ? ' – ' + r.error : ''}`);
   return r.status;
 }
+
+/**
+ * 🇦🇱 `news.sq`: the website's news titles in Albanian (`news-sq.json`, shown on the site when SQ is picked). Runs after
+ * the host cron refreshes `news.json` (:10 every 2 h); each title is translated once. Without the AI key it does nothing.
+ */
+export async function runNewsSq(log: (m: string) => void, deps: SocialDeps = {}): Promise<string> {
+  const translate = deps.translate === undefined ? defaultTranslate() : deps.translate;
+  if (!translate) return 'ai off';
+  const items: WebNews[] = webNewsItems(await (deps.webNews ?? siteNewsFile)());
+  if (!items.length) return 'no news file';
+  const known = await (deps.sqTitles ?? readSqFile)();
+  const { titles, added } = await fillSq(items, known, translate);
+  const dropped = Object.keys(known).length + added - Object.keys(titles).length;
+  if (!added && !dropped) return 'up to date';
+  await (deps.saveSq ?? ((t) => writeSqFile(t)))(titles);
+  log(`news.sq: ${added} translated`);
+  return `translated ${added}`;
+}
+
+export const newsSq = defineJob({
+  name: 'news.sq',
+  cron: '20 6-20/2 * * *',
+  queue: { retryLimit: 1 },
+  async run(_data, ctx) { await runNewsSq(ctx.log); },
+});
 
 export const socialWeb = defineJob({
   name: 'social.web',

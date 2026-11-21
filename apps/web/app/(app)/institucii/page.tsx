@@ -15,6 +15,8 @@ import {
   isInstId, isInstStatus, type InstDueState, type InstSource,
 } from '@wise/core/office/institutions';
 import { addDays } from '@wise/core/office/dates';
+import { FORMS0, INST_FORM_LINKS, INST_FORMS, TPL0 } from '@wise/core/firms/requests';
+import { INST_LETTER_INST, INST_LETTERS } from '@wise/core/firms/inst-letters';
 import { applyInstReads, INST_FILE_ENTITY, instItems, instReadStates, kontroli, paymentOrders, users, type InstItem } from '@wise/db';
 import { db } from '@/lib/db';
 import { allowedFirms, filesOf, officePage, today } from '@/lib/office';
@@ -28,7 +30,7 @@ import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
 import { instAttach, instDelete, instMatchNow, instSave, instStatus } from './actions';
 
-type SP = { f?: string; st?: string; i?: string; rok?: string; mine?: string; id?: string; nov?: string; q?: string };
+type SP = { f?: string; st?: string; i?: string; rok?: string; mine?: string; id?: string; nov?: string; q?: string; obr?: string };
 const T = '🏛 Институции – барања и плаќања';
 const ACCEPT = 'application/pdf,.pdf,image/jpeg,image/png,image/webp,.docx,.txt';
 const den = (v: string | number | null | undefined) => (v == null || v === '' ? '' : Number(v).toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -178,6 +180,7 @@ export default async function InstituciiPage({ searchParams }: { searchParams: P
       <Hd t={T} sub="барања, решенија, опомени, записници и плаќања од УЈП, министерствата, инспекторатите, фондовите, општините и судовите" exp={false}>
         <Link className="btn pri" href={`/institucii?nov=1${fSel ? '&f=' + fSel : ''}`}>+ Ново / 📄 од скен</Link>
         <RowAction className="btn" action={instMatchNow.bind(null, ids)} label="↻ Провери плаќања во изводите" showOk />
+        <Link className="btn" href={qs({ obr: '1' })}>📄 Барања и обрасци</Link>
         <DownloadCsv name="institucii.csv" rows={csv} />
         <Link className="btn ghost" href="/rokovi">📅 Календар на рокови</Link>
         <Link className="btn ghost" href="/prist">📥 Пристигнати документи</Link>
@@ -197,6 +200,7 @@ export default async function InstituciiPage({ searchParams }: { searchParams: P
         <label className="row" style={{ gap: 4 }}><input type="checkbox" name="mine" value="1" defaultChecked={!!sp.mine} /> само мои</label>
         <button className="btn">Прикажи</button>
       </div></form>
+      <FormsCatalog inst={inst} firmId={fSel ?? (firm && fName.has(firm.id) ? firm.id : F[0]?.id ?? null)} firmName={fName.get(fSel ?? firm?.id ?? '') ?? F[0]?.name ?? ''} open={sp.obr === '1'} />
       {!L.length ? <div className="empty">{all.length ? 'Нема записи за избраните филтри.' : 'Сè уште нема записи. Внесете барање / решение рачно, прикачете скен (AI ги чита рокот и износот), или пратете го документот од „📥 Пристигнати документи“ → „Институција“.'}</div> : (
         <div className="card" style={{ overflowX: 'auto' }}>
           <table className="tbl">
@@ -263,5 +267,54 @@ function ItemForm({ it, fid, staff, uid }: { it?: InstItem; fid: string; staff: 
       <label className="f wide">Белешки<textarea name="note" rows={3} defaultValue={it?.note ?? ''} /></label>
       <Submit>{it ? 'Зачувај' : 'Зачувај (и прочитај го документот)'}</Submit>
     </ActionForm>
+  );
+}
+
+/** `/baranja` institution names → `INSTITUTIONS` ids. */
+const REQ_INST: Record<string, string> = { 'УЈП': 'ujp', 'ЦРСМ': 'crm', 'АВРМ': 'avrm', 'ФЗО': 'fzo', 'ПИОМ': 'fpiom', 'Општина': 'opstina', 'Суд': 'sud', 'Нотар': 'notar', ...INST_LETTER_INST };
+
+/**
+ * „📄 Барања и обрасци по институција“: every form of the site's list (wiseconsulting.com.mk › Обрасци) and of
+ * „Барања и обрасци“ — „✎ Пополни“ opens it filled with the firm's data (name, ЕДБ, ЕМБС, address, phone, e-mail,
+ * activity, the manager as signer, today) for printing / PDF; the others link to the official original.
+ */
+function FormsCatalog({ inst, firmId, firmName, open }: { inst: string; firmId: string | null; firmName: string; open: boolean }) {
+  type Row = { key: string; code: string; name: string; fill: string | null; url: string | null; kind: string };
+  const by = new Map<string, Row[]>();
+  const add = (i: string, r: Row) => by.set(i, [...(by.get(i) ?? []), r]);
+  for (const f of [...FORMS0, ...TPL0, ...INST_LETTERS]) {
+    const i = REQ_INST[f.inst];
+    if (i) add(i, { key: f.id, code: '', name: f.name, fill: f.id, url: null, kind: 'form' in f ? 'образец' : 'барање' });
+  }
+  for (const l of INST_FORM_LINKS) add(l.inst, { key: l.url, code: l.code, name: l.name, fill: l.form, url: l.url, kind: l.kind });
+  const fillable = INST_FORMS.length + FORMS0.length + [...TPL0, ...INST_LETTERS].filter((t) => REQ_INST[t.inst]).length;
+  const list = INSTITUTIONS.filter((x) => (!inst || x.id === inst) && x.id !== 'other');
+  const href = (id: string) => `/baranja?t=${encodeURIComponent(id)}${firmId ? '&src=' + firmId : ''}`;
+  return (
+    <details className="card" open={open || !!inst}>
+      <summary><b>📄 Барања и обрасци по институција</b> <span className="mini">– {fillable} се пополнуваат сами за {firmName || 'избраната фирма'}; другите се линкови до официјалниот образец</span></summary>
+      {list.map((x) => {
+        const R = by.get(x.id) ?? [];
+        return (
+          <div key={x.id} style={{ marginTop: 10 }}>
+            <b>{x.n}</b>
+            {!R.length ? <div className="mini muted">Сè уште нема образец – „Барање (општо)“ на друга институција или „Слободно барање“ во Барања и обрасци.</div> : (
+              <table className="tbl dense" style={{ marginTop: 4 }}><tbody>
+                {R.map((r) => (
+                  <tr key={r.key}>
+                    <td style={{ width: 90 }}>{r.code && <span className="pill">{r.code}</span>}</td>
+                    <td>{r.name}</td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      {r.fill && firmId && <Link className="btn sm pri" href={href(r.fill)}>✎ Пополни</Link>}{' '}
+                      {r.url && <a className="btn sm" href={r.url} target="_blank" rel="noopener noreferrer">↗ {r.fill ? 'Оригинал' : r.kind === 'WEB' ? 'Отвори' : r.kind}</a>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody></table>
+            )}
+          </div>
+        );
+      })}
+    </details>
   );
 }
