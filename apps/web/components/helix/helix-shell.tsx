@@ -104,6 +104,8 @@ export function HelixShell({ tableId, groups, menu, bottom, wh, exitHref, filter
     if ('href' in a) router.push(a.href);
     else if ('row' in a) {
       const el = cur()?.querySelector<HTMLElement>(a.row);
+      // nothing behind the option for this row (e-mail of a draft, a scan that is not attached…): say so, never silently
+      if (!el) { window.alert(!cur() ? 'Нема избран документ – изберете ред во листата (↑ ↓ или клик).' : /mail/.test(a.row) ? 'Е-пошта: само за прокнижена фактура – прво прокнижете ја (✓ Прокнижи).' : /att/.test(a.row) ? 'Избраниот документ нема прикачен скениран документ / PDF.' : /approve/.test(a.row) ? 'Избраниот документ е веќе прокнижен.' : /del/.test(a.row) ? 'Избраниот документ не може да се избрише (немате право или е заклучен).' : 'Оваа опција не е достапна за избраниот документ.'); return; }
       if (el instanceof HTMLAnchorElement) {
         const h = el.getAttribute('href')!;
         if (el.target === '_blank') window.open(h, '_blank'); else if (h.startsWith('/api/')) window.location.href = h; else router.push(h);
