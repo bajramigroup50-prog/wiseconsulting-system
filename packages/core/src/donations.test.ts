@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { donChart, donEntries, donKonto, donKontoKind, donMovesFromBank, donTotals, nextDonNo } from './donations';
+import { donAssetKonto, donChart, donEntries, donKonto, donKontoKind, donMovesFromBank, donTotals, nextDonNo } from './donations';
 
 describe('donations & sponsorships', () => {
   it('default kontos: recipient on the company / NPO chart, donor', () => {
@@ -11,9 +11,23 @@ describe('donations & sponsorships', () => {
     expect(donKonto('sponsorship', 'given')).toBe('4430');
   });
   it('NPO chart only for a non-profit whose chart has 730', () => {
-    expect(donChart(true, ['100', '730', '731'])).toBe('npo');
-    expect(donChart(true, ['1000', '7673'])).toBe('co');
-    expect(donChart(false, ['730'])).toBe('co');
+    expect(donChart(true, { '100': {}, '730': {}, '731': {} })).toBe('npo');
+    expect(donChart(true, { '1000': {}, '7673': {} })).toBe('co');
+    expect(donChart(false, { '730': {} })).toBe('co');
+    expect(donChart(true, null)).toBe('co');
+  });
+  it('NPO chart: the NPO as donor books 450, in-kind goods 310, money through 100', () => {
+    expect(donKonto('donation', 'given', 'npo')).toBe('450');
+    expect(donKonto('sponsorship', 'given', 'npo')).toBe('450');
+    expect(donAssetKonto('received', 'npo')).toBe('310');
+    expect(donAssetKonto('given', 'npo')).toBe('310');
+    expect(donAssetKonto('received')).toBe('3100');
+    expect(donAssetKonto('given')).toBe('6600');
+    expect(donKontoKind('451', 'npo')).toEqual({ role: 'given', kind: 'donation' });
+    expect(donKontoKind('450')).toBeNull();
+    expect(donMovesFromBank([{ id: 'x', date: '2026-03-01', amount: -2000, desc: 'помош', konto: '450' }], 'npo').map((m) => m.role)).toEqual(['given']);
+    expect(donEntries({ kind: 'donation', role: 'received', amount: 10, inKind: true, konto: '731', chart: 'npo' })).toMatchObject([{ account: '310', debit: 10 }, { account: '731', credit: 10 }]);
+    expect(donEntries({ kind: 'donation', role: 'received', amount: 10, inKind: false, konto: '731', chart: 'npo' })[0]!.account).toBe('100');
   });
   it('numbering n/yyyy per year', () => {
     expect(nextDonNo([], '2026')).toBe('1/2026');

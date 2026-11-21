@@ -22,10 +22,9 @@ export async function donData(firm: Firm, year: number) {
   const codes = new Set(chart.map((a) => a.code));
   const kName = new Map(chart.map((a) => [a.code, a.name]));
   const npo = isNpoFirm(firm);
-  // legacy `npoMode`: the firm's own chart (not the global one) contains 730 „Приходи од членарини“
-  const own = [...chart.filter((a) => !a.global).map((a) => a.code), ...Object.keys(((firm.settings ?? {}) as { accounts?: Record<string, unknown> }).accounts ?? {})];
-  const chartMode = donChart(npo, own);
-  const flows: DonMove[] = donMovesFromBank(B.map((b) => ({ ...b, amount: Number(b.amount) })));
+  // the same chart test as the year-end NPO statements: firms.settings.accounts has 730 „Приходи од членарини“
+  const chartMode = donChart(npo, ((firm.settings ?? {}) as { accounts?: Record<string, unknown> }).accounts);
+  const flows: DonMove[] = donMovesFromBank(B.map((b) => ({ ...b, amount: Number(b.amount) })), chartMode);
   const linkedIds = [...new Set(D.flatMap((d) => d.moveIds))];
   const L = linkedIds.length
     ? await db().select({ id: bankLines.id, date: bankLines.date, amount: bankLines.amount, konto: bankLines.konto, partnerId: bankLines.partnerId, desc: bankLines.description, name: bankLines.name, stNo: bankStatements.number })
@@ -39,7 +38,7 @@ export async function donData(firm: Firm, year: number) {
   const fileOf = new Map<string, string[]>();
   for (const f of files) fileOf.set(f.id, [...(fileOf.get(f.id) ?? []), f.fileId]);
   const mkd = A.find((a) => a.cur === 'MKD') ?? A[0];
-  return { list: D, flows, unlinked, lineOf, fileOf, npo, chartMode, codes, kName, firmAcct: mkd?.account ?? '', bankKonto: mkd?.konto ?? '1000' };
+  return { list: D, flows, unlinked, lineOf, fileOf, npo, chartMode, codes, kName, firmAcct: mkd?.account ?? '', bankKonto: mkd?.konto ?? (chartMode === 'npo' ? '100' : '1000') };
 }
 
 /** Realised amount: the confirmation amount, else the booked in-kind value, else the linked statement lines. */

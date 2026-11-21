@@ -30,20 +30,25 @@ export const DON_AREAS: readonly string[] = [
  * Default counter kontos of the booking proposal (the bank / cash / asset side is the other one).
  * Recipient, company chart: 7673 донации во земјата (money), 7672 донации во добра, 7694 спонзорства;
  * recipient, the three-digit NPO chart (Сл. весник 117/05): 731 подароци, донации и други извори.
- * Donor: 4433 донации во земјата, 4430 спонзорства во земјата.
+ * Donor, company chart: 4433 донации во земјата, 4430 спонзорства во земјата; donor on the NPO chart (an NPO that
+ * helps others): 450 помошти и донации на правни субјекти (451 физички лица — chosen in the contract).
  */
 export function donKonto(kind: DonKind, role: DonRole, chart: DonChart = 'co', inKind = false): string {
-  if (role === 'given') return kind === 'sponsorship' ? '4430' : '4433';
+  if (role === 'given') return chart === 'npo' ? '450' : kind === 'sponsorship' ? '4430' : '4433';
   if (chart === 'npo') return '731';
   return kind === 'sponsorship' ? '7694' : inKind ? '7672' : '7673';
 }
 
-/** The firm books on the NPO chart when it is a non-profit and its chart has 730 „Приходи од членарини“. */
-export const donChart = (isNpo: boolean, codes: Iterable<string>): DonChart => {
-  if (!isNpo) return 'co';
-  for (const c of codes) if (c === '730') return 'npo';
-  return 'co';
-};
+/**
+ * The firm books on the NPO chart when it is a non-profit and its chart (`firms.settings.accounts`) has 730
+ * „Приходи од членарини“ — the same test as the year-end NPO statements (`npoChart`), so both use one chart.
+ */
+export const donChart = (isNpo: boolean, accounts: Readonly<Record<string, unknown>> | null | undefined): DonChart =>
+  isNpo && accounts && accounts['730'] ? 'npo' : 'co';
+
+/** Default counter konto of an in-kind donation: materials (recipient) / goods given (donor); NPO chart 310. */
+export const donAssetKonto = (role: DonRole, chart: DonChart = 'co'): string =>
+  chart === 'npo' ? '310' : role === 'received' ? '3100' : '6600';
 
 /** Next number `n/yyyy` within the same kind and year (contracts) — or among the confirmations. */
 export function nextDonNo(existing: readonly { no?: string | null; date?: string | null }[], y: string): string {
@@ -70,9 +75,10 @@ const DON_RE = /донац|донир|спонзор|sponzor|donaci|donacij/i;
 export interface DonBankLine { id: string; date: string; amount: number; desc: string; name?: string | null; konto?: string | null; partnerId?: string | null; osnov?: string | null }
 export interface DonMove { id: string; date: string; partnerId: string; role: DonRole; kind: DonKind; amt: number; konto: string; desc: string }
 
-/** Is the konto a donation / sponsorship konto (income 767x / 7694 / 731, expense 443x)? */
-export function donKontoKind(k: string | null | undefined): { role: DonRole; kind: DonKind } | null {
+/** Is the konto a donation / sponsorship konto (income 767x / 7694 / 731, expense 443x; NPO chart also 450 / 451)? */
+export function donKontoKind(k: string | null | undefined, chart: DonChart = 'co'): { role: DonRole; kind: DonKind } | null {
   k = String(k ?? '');
+  if (chart === 'npo' && /^45[01]$/.test(k)) return { role: 'given', kind: 'donation' };
   if (/^443[01]/.test(k)) return { role: 'given', kind: 'sponsorship' };
   if (/^443/.test(k)) return { role: 'given', kind: 'donation' };
   if (/^7694/.test(k)) return { role: 'received', kind: 'sponsorship' };
@@ -84,12 +90,12 @@ export function donKontoKind(k: string | null | undefined): { role: DonRole; kin
  * Statement lines that are donations / sponsorships: on a donation konto, or with „донација / спонзорство“ in the text.
  * Inflows are received, outflows given.
  */
-export function donMovesFromBank(lines: readonly DonBankLine[]): DonMove[] {
+export function donMovesFromBank(lines: readonly DonBankLine[], chart: DonChart = 'co'): DonMove[] {
   const out: DonMove[] = [];
   for (const b of lines) {
     const amt = +b.amount || 0;
     if (!amt) continue;
-    const kk = donKontoKind(b.konto);
+    const kk = donKontoKind(b.konto, chart);
     const txt = (b.desc || '') + ' ' + (b.name || '');
     if (!kk && !DON_RE.test(txt)) continue;
     const role: DonRole = amt > 0 ? 'received' : 'given';
@@ -106,9 +112,9 @@ export interface DonEntry { account: string; debit: number; credit: number; note
  * Booking proposal of one realised donation: money through the statement (the counter konto of the line) or, in kind,
  * a nalog Д asset / cost (recipient) or Д 443x / П the given goods (donor).
  */
-export function donEntries(d: { kind: DonKind; role: DonRole; amount: number; inKind: boolean; konto: string; bankKonto?: string | null; assetKonto?: string | null; note?: string }): DonEntry[] {
+export function donEntries(d: { kind: DonKind; role: DonRole; amount: number; inKind: boolean; konto: string; bankKonto?: string | null; assetKonto?: string | null; note?: string; chart?: DonChart }): DonEntry[] {
   const a = r2(d.amount), n = d.note ?? DON_KIND_LBL[d.kind];
-  const other = d.inKind ? (d.assetKonto || (d.role === 'received' ? '3100' : '6600')) : (d.bankKonto || '1000');
+  const other = d.inKind ? (d.assetKonto || donAssetKonto(d.role, d.chart)) : (d.bankKonto || (d.chart === 'npo' ? '100' : '1000'));
   return d.role === 'received'
     ? [{ account: other, debit: a, credit: 0, note: n }, { account: d.konto, debit: 0, credit: a, note: n, partner: true }]
     : [{ account: d.konto, debit: a, credit: 0, note: n, partner: true }, { account: other, debit: 0, credit: a, note: n }];

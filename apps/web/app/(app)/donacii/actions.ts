@@ -122,13 +122,14 @@ export async function bookDonationAction(_p: ActionState, f: FormData): Promise<
     if (d.inKind) {
       const other = s(f, 'assetKonto');
       if (!/^\d{3,10}$/.test(other)) return { error: 'Внесете конто за добрата / услугите (спротивно конто).' };
+      if (!known(other)) return { error: `Контото ${other} го нема во контниот план на фирмата – внесете друго спротивно конто за добрата.` };
       const amt = Number(d.confAmount ?? d.amount);
       const date = d.confDate || d.date;
       const note = `${DON_KIND_LBL[d.kind]} во добра, дог. ${d.number ?? ''}`;
       const n = await db().transaction(async (tx) => {
         const j = await postJournal(tx, {
           firmId: firm.id, date, kind: 'manual', description: note, sourceType: 'donation', sourceId: d.id, userId: u.id, auditAction: 'donBook',
-          lines: donEntries({ kind: d.kind, role: d.role, amount: amt, inKind: true, konto, assetKonto: other, note }).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, note: l.note, doc: d.number, partnerId: l.partner ? d.partnerId : null })),
+          lines: donEntries({ kind: d.kind, role: d.role, amount: amt, inKind: true, konto, assetKonto: other, note, chart: D.chartMode }).map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, note: l.note, doc: d.number, partnerId: l.partner ? d.partnerId : null })),
           requirePartner: false,
         });
         await tx.update(donations).set({ journalId: j.id }).where(eq(donations.id, d.id));
