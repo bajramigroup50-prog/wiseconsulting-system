@@ -81,7 +81,9 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             account: l.account, partnerId: l.partnerId ?? '', debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '', doc: l.doc ?? '',
             currency: l.currency, amountCur: l.amountCur == null ? null : String(Number(l.amountCur)), locationId: l.locationId,
           }))
-          : ((j.meta as { rows?: { account: string; partnerId: string | null; note: string; doc: string }[] }).rows ?? []).map((r) => ({ account: r.account, partnerId: r.partnerId ?? '', debit: '', credit: '', note: r.note ?? '', doc: r.doc ?? '' })),
+          // an opened nalog without amounts, or a „Непрекнижан“ one: its lines are on the nalog (`meta.rows`)
+          : ((j.meta as { rows?: { account: string; partnerId: string | null; note: string; doc: string; debit?: string; credit?: string; currency?: string | null; amountCur?: string | null; locationId?: string | null }[] }).rows ?? [])
+            .map((r) => ({ account: r.account, partnerId: r.partnerId ?? '', debit: r.debit ?? '', credit: r.credit ?? '', note: r.note ?? '', doc: r.doc ?? '', currency: r.currency ?? null, amountCur: r.amountCur ?? null, locationId: r.locationId ?? null })),
       };
     }
     // „+ Додај рачни ставки во налогот“ (`?nov&n=1/7-9`): a new manual part of an existing nalog — same number and period
@@ -120,12 +122,19 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
   }
 
   /* ---------- journals of the year ---------- */
-  const J = await db().select({
+  const J0 = await db().select({
     id: journals.id, date: journals.date, kind: journals.kind, number: journals.number, description: journals.description,
     sourceType: journals.sourceType, sourceId: journals.sourceId, periodFrom: journals.periodFrom, periodTo: journals.periodTo, locked: journals.locked, meta: journals.meta,
     D: sql<string>`coalesce(sum(${journalLines.debit}), 0)`, P: sql<string>`coalesce(sum(${journalLines.credit}), 0)`, n: sql<number>`count(${journalLines.id})::int`,
   }).from(journals).leftJoin(journalLines, eq(journalLines.journalId, journals.id)).where(inYear)
     .groupBy(journals.id).orderBy(asc(journals.date), asc(journals.createdAt));
+  // a „Непрекнижан“ nalog has its lines on the nalog (`meta.rows`, outside the ledger): the list shows their sums
+  const J = J0.map((j) => {
+    const m = (j.meta ?? {}) as { prek?: boolean; rows?: { debit?: string; credit?: string }[] };
+    if (m.prek !== false || !m.rows?.length) return j;
+    const R = m.rows.filter((r) => Number(r.debit) || Number(r.credit));
+    return { ...j, n: R.length, D: String(R.reduce((t, r) => t + (Number(r.debit) || 0), 0)), P: String(R.reduce((t, r) => t + (Number(r.credit) || 0), 0)) };
+  });
   const G = groupNalozi(J);
   const manualLike = (j: (typeof J)[number]) => isManualJournal(j.sourceType);
   /** A nalog of one document (invoice, purchase…) — deleted with its document through „🗑 Избриши“ (with a preview). */

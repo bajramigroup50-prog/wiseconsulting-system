@@ -32,6 +32,19 @@ const JournalInput = z.object({
   rows: z.array(Row).max(2000),
 });
 
+/** A „Непрекнижан“ nalog (`meta.prek === false`): its lines stay on the nalog (`meta.rows`), outside the ledger. */
+const isDraft = (meta: unknown) => (meta as { prek?: boolean } | null)?.prek === false;
+interface DraftRow { account: string; partnerId: string | null; debit: string; credit: string; note: string; doc: string; currency?: string | null; amountCur?: string | null; locationId?: string | null }
+const draftRow = (r: { account: string; partnerId?: string | null; debit: string | number; credit: string | number; note?: string | null; doc?: string | null; currency?: string | null; amountCur?: string | number | null; locationId?: string | null }): DraftRow => ({
+  account: r.account, partnerId: r.partnerId || null, debit: Number(r.debit) ? String(Number(r.debit)) : '', credit: Number(r.credit) ? String(Number(r.credit)) : '', note: r.note ?? '', doc: r.doc ?? '',
+  ...(r.currency && r.currency !== 'MKD' && Number(r.amountCur) ? { currency: r.currency, amountCur: String(Math.abs(Number(r.amountCur))) } : {}), ...(r.locationId ? { locationId: r.locationId } : {}),
+});
+const postLine = (r: DraftRow) => ({
+  account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note, doc: r.doc,
+  ...(r.currency && r.currency !== 'MKD' && Number(r.amountCur) ? { currency: r.currency.toUpperCase(), amountCur: Math.abs(Number(r.amountCur)) } : {}),
+  ...(r.locationId ? { locationId: r.locationId } : {}),
+});
+
 /** Kinds whose journals belong to a source document and are edited through that document, not here. */
 const fromDocument = (sourceType: string | null) => !!sourceType && !['opening', 'bbimp', 'yearClose', 'import'].includes(sourceType);
 
@@ -79,6 +92,13 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
       allowEmpty: empty,
       meta: { ...((existing?.meta as Record<string, unknown>) ?? {}), rows: empty ? R.map((r) => ({ account: r.account, partnerId: r.partnerId || null, note: r.note, doc: r.doc })) : undefined },
     };
+    // a „Непрекнижан“ nalog keeps its lines on the nalog only (`meta.rows`): nothing in the ledger, cards or balances
+    // until it is switched to „Прекн. = Да“ (`openNalogAction`), which posts them (balance and partner checks then)
+    if (existing && isDraft(existing.meta)) {
+      input.lines = [];
+      input.allowEmpty = true;
+      input.meta = { ...input.meta, rows: R.map(draftRow) };
+    }
     const res = await db().transaction((tx) => (existing ? updateJournal(tx, existing.id, input) : postJournal(tx, input)));
     target = res.number;
   } catch (e) { return actionError(e); }
@@ -124,11 +144,17 @@ export async function openNalogAction(_p: ActionState, form: FormData): Promise<
     let no = '';
     if (existing) {
       const L = await db().select().from(journalLines).where(eq(journalLines.journalId, existing.id));
+      const meta = (existing.meta as Record<string, unknown>) ?? {};
+      // the nalog's lines: in the ledger (journal_lines) or, for a „Непрекнижан“ one, on the nalog (`meta.rows`)
+      const rows: DraftRow[] = isDraft(meta) ? ((meta.rows as DraftRow[] | undefined) ?? []) : L.length ? L.map((l) => draftRow(l)) : ((meta.rows as DraftRow[] | undefined) ?? []);
+      const withAmt = rows.filter((r) => Number(r.debit) || Number(r.credit));
+      // „Прекн. = Да“ posts the lines (they must balance; 12x / 22x need a partner); „Не“ takes them out of the ledger
       const res = await db().transaction((tx) => updateJournal(tx, existing.id, {
         firmId: firm.id, date, kind: existing.kind, description: description || existing.description || 'Рачен налог', number: number || existing.number,
         periodFrom: existing.periodFrom, periodTo: existing.periodTo, userId: u.id, auditAction: 'nalSave', allowEmpty: true,
-        requirePartner: false, meta: { ...((existing.meta as Record<string, unknown>) ?? {}), prek },
-        lines: L.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId, note: l.note, doc: l.doc, ...(l.currency && l.amountCur ? { currency: l.currency, amountCur: Number(l.amountCur) } : {}), ...(l.locationId ? { locationId: l.locationId } : {}) })),
+        requirePartner: prek && isDraft(meta) && existing.sourceType !== 'import',
+        meta: { ...meta, prek, rows: prek ? (withAmt.length ? undefined : rows) : rows },
+        lines: prek ? withAmt.map(postLine) : [],
       }));
       no = res.number;
     } else {
