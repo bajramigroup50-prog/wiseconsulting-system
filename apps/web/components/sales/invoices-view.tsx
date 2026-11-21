@@ -33,7 +33,7 @@ import { ScanUpload } from './scan-upload';
 import { ScanPartnerNote } from './scan-partner-note';
 import { InvoiceListKeys, type InvHead } from './invoice-list-keys';
 import { DocListKeys } from './doc-list-keys';
-import { HELIX_CSS } from '@/components/helix/helix-shell';
+import { HELIX_CSS } from '@/lib/helix-css';
 
 /** Legacy `payPill` (3723). */
 export function PayPill({ paid, total }: { paid: number; total: number }) {
