@@ -155,10 +155,10 @@ const HX_CSS = `
 .hx-pw{width:min(620px,96vw);background:#f0f3f8;border:1px solid #5a6f96;box-shadow:0 6px 24px rgba(0,0,0,.3);font:12px "Segoe UI",Tahoma,Arial,sans-serif;color:#000}
 .hx-pw .hx-pw-list{height:min(52vh,420px);overflow:auto;background:#fff;border-top:1px solid #7f8fa6;border-bottom:1px solid #7f8fa6}
 .hx-pw .hx-pw-h,.hx-pw .hx-pw-r{display:grid;grid-template-columns:90px 1fr;gap:6px;padding:1px 6px;white-space:nowrap}
-.hx-pw .hx-pw-h{position:sticky;top:0;background:#4a73b5;color:#fff;font-weight:600}
-.hx-pw .hx-pw-r{cursor:pointer;color:#0a2a8a}
+.hx-pw .hx-pw-h{position:sticky;top:0;background:var(--line,#e5e7eb);font-weight:600}
+.hx-pw .hx-pw-r{cursor:pointer}
 .hx-pw .hx-pw-r.cur{font-weight:700}
-.hx-pw .hx-pw-r.on{background:#3d6fd1;color:#fff}
+.hx-pw .hx-pw-r.on{background:var(--accent-bg,#e6f2ee)}
 .hx .hx-docs{border:1px solid #7f8fa6;background:#fff;max-height:160px;overflow:auto}
 .hx .hx-docs button{display:block;width:100%;text-align:left;border:0;background:none;padding:2px 4px;cursor:pointer}
 .hx .hx-docs button:hover{background:#e3e9f3}
