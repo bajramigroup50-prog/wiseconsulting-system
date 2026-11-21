@@ -10,15 +10,16 @@ import { partners, PostingError, type Firm } from '@wise/db';
 import { requireCan, requireUser, Forbidden, type SessionUser } from './auth';
 import { currentFirm, currentYear } from './context';
 import { db } from './db';
-import { viewAllowed } from './nav';
+import { klSectionOpen, viewAllowed } from './nav';
 
 export interface BooksCtx { u: SessionUser; firm: Firm | null; year: number }
 
 /** Page guard: signed in, allowed to open this legacy view; returns the current firm (may be null) and year. */
 export async function booksPage(view: string): Promise<BooksCtx> {
   const u = await requireUser();
-  if (!viewAllowed(u.role, view)) notFound();
   const [firm, year] = await Promise.all([currentFirm(u), currentYear()]);
+  // a client opens the fixed portal views and the sections the office switched on for its firm (`klAllowedViews`)
+  if (!viewAllowed(u.role, view) && !(u.role === 'klient' && klSectionOpen(firm, view))) notFound();
   return { u, firm, year };
 }
 

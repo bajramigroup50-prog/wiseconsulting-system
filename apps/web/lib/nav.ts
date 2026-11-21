@@ -1,3 +1,4 @@
+import { klAllowedViews, type KlConfig } from '@wise/core/office';
 import type { Role } from '@wise/core';
 import { NAV as NAV_DATA, type NavGroup, type NavItem } from './nav-data';
 import { addOfficeNav } from './nav-office';
@@ -64,4 +65,13 @@ export const viewAllowed = (role: Role, id: string): boolean =>
 export function onlyViews(groups: readonly NavGroup[], keep: ReadonlySet<string>): readonly NavGroup[] {
   const pick = (L: readonly NavItem[]): NavItem[] => L.flatMap((x): NavItem[] => (x[0] === '-' ? [x] : x[0] === '>' ? [[x[0], x[1], pick(x[2] ?? [])] as NavItem] : x[0] === 'home' || keep.has(x[0]) ? [x] : []));
   return groups.map(([g, L]) => [g, pick(L)] as NavGroup).filter(([, L]) => L.some((x) => x[0] !== '-' && (x[0] !== '>' || (x[2] ?? []).length > 0)));
+}
+
+/**
+ * A client's own firm has the portal section of this view switched on (`klAllowedViews`: the office's per-firm
+ * toggles and the firm's modules). The static portal menu above is only the base; sections such as 🍲 Корисници и
+ * оброци, Термини or Влезни фактури open through this.
+ */
+export function klSectionOpen(firm: { settings: unknown; mods: readonly string[] | null } | null | undefined, view: string): boolean {
+  return !!firm && klAllowedViews((firm.settings as { kl?: KlConfig } | null)?.kl, firm.mods).includes(view);
 }
