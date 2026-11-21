@@ -355,9 +355,9 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
   const feRow = fe?.mode === 'edit' && fe.idx != null ? R[fe.idx] : undefined;
   const feJ = fe ? J.get(fe.jid) : undefined;
   const feInit: Partial<FastLine> | undefined = fe && feJ ? (feRow ? {
-    konto: feRow.account, content: feRow.note || feRow.jdesc, partnerId: feRow.partnerId, debit: feRow.debit ? String(feRow.debit) : '', credit: feRow.credit ? String(feRow.credit) : '',
+    konto: feRow.account, content: feRow.note || (J.get(feRow.jid)?.mode === 'manual' ? '' : feRow.jdesc), partnerId: feRow.partnerId, debit: feRow.debit ? String(feRow.debit) : '', credit: feRow.credit ? String(feRow.credit) : '',
     doc: feRow.doc, date: feRow.date, stNo: feRow.izNo, cur: feRow.cur, debitCur: feRow.devD ? String(feRow.devD) : '', creditCur: feRow.devP ? String(feRow.devP) : '', meta: feRow.meta ?? {},
-  } : { date: feJ.date, content: feJ.description }) : undefined;
+  } : { date: feJ.date, content: '' }) : undefined;
   const pName = cur ? (cur.pname || '') : '';
 
   return (
