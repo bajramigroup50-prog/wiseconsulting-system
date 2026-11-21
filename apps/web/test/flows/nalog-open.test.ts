@@ -67,4 +67,15 @@ describe('„Нов (Ins)“ → „Податоци за налог“', () => 
     expect((await A.openNalogAction({}, form({ id: j.id, number: 'Т-2', date: '2026-11-21', prek: 'da' }))).error).toMatch(/изедначен/);
     expect(await ledger(j.id)).toHaveLength(0);
   });
+
+  it('„Нова ставка“: документ датум, валута, аванс, ОЕ, Г1 / Г2, тип на трошок, забелешка are kept on the line (not in the sums)', async () => {
+    await A.openNalogAction({}, form({ number: 'Т-3', date: '2026-11-21', prek: 'da' }));
+    const j = await jOf('Т-3');
+    const meta = { docDate: '2026-11-15', due: '2026-12-15', advance: true, oe: '01', store: 'П1', g1: 'А', g2: 'Б', costType: 'Канцелариски', remark: 'по договор', bogus: 'x' };
+    await act(A.saveJournal({}, form({ payload: JSON.stringify({ id: j.id, number: 'Т-3', date: '2026-11-21', description: '', periodFrom: '', periodTo: '', rows: [{ ...rows[0], meta }, rows[1]] }), stay: '1' })));
+    const L = await ledger(j.id);
+    expect(L[0]!.meta).toEqual({ docDate: '2026-11-15', due: '2026-12-15', advance: true, oe: '01', store: 'П1', g1: 'А', g2: 'Б', costType: 'Канцелариски', remark: 'по договор' });
+    expect(L[1]!.meta).toBeNull();
+    expect(L.map((l) => Number(l.debit) - Number(l.credit))).toEqual([500, -500]);
+  });
 });

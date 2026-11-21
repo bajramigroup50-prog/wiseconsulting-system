@@ -34,6 +34,14 @@ export interface FastLine {
   /** Id of the open document closed with F2 (bank: the line is linked to it). */
   docRef: string;
   newKonto: NewKonto;
+  /** The other fields of the old program's „Нова ставка“ (`extra`): kept on the line, never in the sums. */
+  meta: FastMeta;
+}
+
+/** Датум на документот, Валута, Аванс, ОЕ / Продавница / Магацин, Одобрено по документ, Почетна состојба (+ година), Г1, Г2, Тип на трошок, Забелешка. */
+export interface FastMeta {
+  docDate?: string; due?: string; advance?: boolean; opening?: boolean; openingYear?: string;
+  oe?: string; store?: string; warehouse?: string; approvedDoc?: string; g1?: string; g2?: string; costType?: string; remark?: string;
 }
 
 /** An open document of a partner for F2: `side` = the side of `konto` that closes it (customer → П, supplier → Д). */
@@ -41,7 +49,7 @@ export interface OpenDoc { id: string; partnerId: string; no: string; open: numb
 
 export const blankFast = (d: Partial<FastLine> = {}): FastLine => ({
   konto: '', content: '', partnerId: '', stNo: '', acct: '', debit: '', credit: '', debitCur: '', creditCur: '', rate: '', cur: '',
-  date: '', doc: '', docRef: '', newKonto: { mk: false, name: '' }, ...d,
+  date: '', doc: '', docRef: '', newKonto: { mk: false, name: '' }, meta: {}, ...d,
 });
 
 /** Fields kept for the next line after F9 (legacy: датум, извод број, датум на документот, содржина по default). */
@@ -96,6 +104,8 @@ export interface FastEntryProps {
   showStNo?: boolean;
   /** The booking date belongs to the nalog (manual editor) — shown, not edited. */
   dateLocked?: boolean;
+  /** Show the other fields of the old program (документ датум, валута, аванс, ОЕ, продавница, магацин, Г1 / Г2…). */
+  extra?: boolean;
   /** Bank mode: the bank konto (its side is automatic) and the statements to add to. */
   bank?: { konto: string; statements?: { key: string; acct: string; no: string; date: string; label: string }[]; accounts?: { id: string; label: string; konto: string }[] };
   /** Open documents for F2. */
@@ -128,6 +138,7 @@ export function FastEntry(p: FastEntryProps) {
   const box = useRef<HTMLDivElement>(null);
   const kontoRef = useRef<HTMLInputElement>(null);
   const set = (x: Partial<FastLine>) => setL((o) => ({ ...o, ...x }));
+  const setM = (x: Partial<FastMeta>) => setL((o) => ({ ...o, meta: { ...o.meta, ...x } }));
   const k = l.konto.trim().split(/\s/)[0] ?? '';
   const d = amt(l.debit) || 0, c = amt(l.credit) || 0;
   const saldo = typeof p.saldo === 'function' ? p.saldo(l) : p.saldo;
@@ -168,7 +179,7 @@ export function FastEntry(p: FastEntryProps) {
       setPrev(l.content);
       setOk(`✓ Ставка р.бр. ${no} е внесена.`);
       const keep = Object.fromEntries(KEEP.map((f) => [f, l[f]])) as Partial<FastLine>;
-      setL(blankFast({ ...keep, content: defaults.current.content }));
+      setL(blankFast({ ...keep, content: defaults.current.content, meta: l.meta.docDate ? { docDate: l.meta.docDate } : {} }));
       setDocsOpen(false);
       setGen((g) => g + 1);
     } catch (x) {
@@ -215,7 +226,7 @@ export function FastEntry(p: FastEntryProps) {
   return (
     <div className="fe-back" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.28)', zIndex: 60, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 12px', overflowY: 'auto' }}>
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} className="card fe" onKeyDown={onKey}
-        style={{ width: 'min(760px, 100%)', margin: 0, boxShadow: '0 10px 40px rgba(0,0,0,.25)' }}>
+        style={{ width: p.extra ? 'min(900px, 100%)' : 'min(760px, 100%)', margin: 0, boxShadow: '0 10px 40px rgba(0,0,0,.25)' }}>
         <div className="hd" style={{ marginBottom: 6 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
           <span className="row" style={{ gap: 10, alignItems: 'center' }}>
@@ -270,6 +281,34 @@ export function FastEntry(p: FastEntryProps) {
           )}
           <label className="f">Датум на книжење<input type="date" value={l.date} disabled={p.dateLocked} onChange={(e) => set({ date: e.target.value })} aria-label="Датум на книжење" /></label>
           <label className="f">Документ (калк. / ф-ра бр.)<input value={l.doc} onChange={(e) => set({ doc: e.target.value })} aria-label="Документ" maxLength={100} /></label>
+          {p.extra && !bank && (
+            <fieldset className="f wide fe-extra" style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', margin: '4px 0 0', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '6px 12px' }}>
+              <legend className="mini">Дополнително</legend>
+              <label className="f">Датум на документот<input type="date" value={l.meta.docDate ?? ''} onChange={(e) => setM({ docDate: e.target.value })} aria-label="Датум на документот" /></label>
+              <label className="f">Валута (рок)<input type="date" value={l.meta.due ?? ''} onChange={(e) => setM({ due: e.target.value })} aria-label="Валута" /></label>
+              <label className="f">Аванс
+                <span className="row" style={{ gap: 10 }}>
+                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.advance} onChange={() => setM({ advance: false })} style={{ width: 'auto' }} /> Не</label>
+                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.advance} onChange={() => setM({ advance: true })} style={{ width: 'auto' }} /> Да</label>
+                </span>
+              </label>
+              <label className="f">Почетна состојба
+                <span className="row" style={{ gap: 10 }}>
+                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.opening} onChange={() => setM({ opening: false })} style={{ width: 'auto' }} /> Не</label>
+                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.opening} onChange={() => setM({ opening: true })} style={{ width: 'auto' }} /> Да</label>
+                </span>
+              </label>
+              {l.meta.opening && <label className="f">година<input inputMode="numeric" maxLength={4} value={l.meta.openingYear ?? ''} onChange={(e) => setM({ openingYear: e.target.value.replace(/\D/g, '') })} aria-label="Година на почетната состојба" /></label>}
+              <label className="f">ОЕ<input value={l.meta.oe ?? ''} onChange={(e) => setM({ oe: e.target.value })} aria-label="ОЕ" maxLength={40} /></label>
+              <label className="f">Продавница<input value={l.meta.store ?? ''} onChange={(e) => setM({ store: e.target.value })} aria-label="Продавница" maxLength={40} /></label>
+              <label className="f">Магацин<input value={l.meta.warehouse ?? ''} onChange={(e) => setM({ warehouse: e.target.value })} aria-label="Магацин" maxLength={40} /></label>
+              <label className="f">Одобрено по документ<input value={l.meta.approvedDoc ?? ''} onChange={(e) => setM({ approvedDoc: e.target.value })} aria-label="Одобрено по документ" maxLength={60} /></label>
+              <label className="f">Г1<input value={l.meta.g1 ?? ''} onChange={(e) => setM({ g1: e.target.value })} aria-label="Г1" maxLength={40} /></label>
+              <label className="f">Г2<input value={l.meta.g2 ?? ''} onChange={(e) => setM({ g2: e.target.value })} aria-label="Г2" maxLength={40} /></label>
+              <label className="f">Тип на трошок<input value={l.meta.costType ?? ''} onChange={(e) => setM({ costType: e.target.value })} aria-label="Тип на трошок" maxLength={60} /></label>
+              <label className="f" style={{ gridColumn: '1 / -1' }}>Забелешка / Опис<textarea rows={2} value={l.meta.remark ?? ''} onChange={(e) => setM({ remark: e.target.value })} aria-label="Забелешка" maxLength={200} /></label>
+            </fieldset>
+          )}
         </div>
         <datalist id="feKonto">{chart.map(([code, n]) => <option key={code} value={code}>{n}</option>)}</datalist>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>

@@ -372,6 +372,13 @@
       "when": 1795273400475,
       "tag": "0052_meal_inactive",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1795277387771,
+      "tag": "0053_journal_line_meta",
+      "breakpoints": true
     }
   ]
 }

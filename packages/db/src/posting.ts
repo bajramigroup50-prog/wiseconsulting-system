@@ -56,6 +56,34 @@ export interface PostLineInput {
   currency?: string | null;
   amountCur?: number | string | null;
   locationId?: string | null;
+  /** The other fields of „Нова ставка“ (`LineMeta`): kept on the line, never in the sums. */
+  meta?: LineMeta | null;
+}
+
+/** „Нова ставка“ fields of the old program beyond konto / amounts / partner / document / content. */
+export interface LineMeta {
+  /** Датум на документот, Валута (due date). */
+  docDate?: string; due?: string;
+  /** Аванс (Да / Не), Почетна состојба (Да / Не) with its year. */
+  advance?: boolean; opening?: boolean; openingYear?: string;
+  /** ОЕ, Продавница, Магацин (codes as typed). */
+  oe?: string; store?: string; warehouse?: string;
+  /** Одобрено по документ. */
+  approvedDoc?: string;
+  /** Групи Г1 / Г2, Тип на трошок, Забелешка / Опис. */
+  g1?: string; g2?: string; costType?: string; remark?: string;
+}
+const META_KEYS: readonly (keyof LineMeta)[] = ['docDate', 'due', 'advance', 'opening', 'openingYear', 'oe', 'store', 'warehouse', 'approvedDoc', 'g1', 'g2', 'costType', 'remark'];
+/** Only the known fields, trimmed; null when nothing is set. */
+export function cleanLineMeta(m: unknown): LineMeta | null {
+  if (!m || typeof m !== 'object') return null;
+  const o: Record<string, unknown> = {};
+  for (const k of META_KEYS) {
+    const v = (m as Record<string, unknown>)[k];
+    if (typeof v === 'boolean') { if (v) o[k] = true; }
+    else if (typeof v === 'string' && v.trim()) o[k] = v.trim().slice(0, 200);
+  }
+  return Object.keys(o).length ? (o as LineMeta) : null;
 }
 
 export interface PostJournalInput {
@@ -140,7 +168,7 @@ export async function missingAccounts(tx: Tx, firmId: string, codes: readonly st
 
 interface PreparedLine {
   lineNo: number; account: string; debit: string; credit: string; partnerId: string | null;
-  note: string | null; doc: string | null; currency: string | null; amountCur: string | null; locationId: string | null;
+  note: string | null; doc: string | null; currency: string | null; amountCur: string | null; locationId: string | null; meta: LineMeta | null;
 }
 
 async function prepareLines(tx: Tx, firmId: string, input: readonly PostLineInput[], requirePartner: boolean, allowEmpty = false): Promise<{ lines: PreparedLine[]; total: number }> {
@@ -170,6 +198,7 @@ async function prepareLines(tx: Tx, firmId: string, input: readonly PostLineInpu
       lineNo: i + 1, account: l.account, debit: l.d.toFixed(2), credit: l.p.toFixed(2), partnerId: l.partnerId || null,
       note: l.note?.trim() || null, doc: l.doc?.trim() || null, currency: l.currency || null,
       amountCur: l.amountCur == null || l.amountCur === '' ? null : money(l.amountCur).toFixed(2), locationId: l.locationId || null,
+      meta: cleanLineMeta(l.meta),
     })),
   };
 }
@@ -249,7 +278,7 @@ async function writeJournal(tx: Tx, existing: Journal | null, input: PostJournal
     const [j] = await tx.insert(journals).values({ ...header, createdBy: input.userId }).returning({ id: journals.id });
     id = j!.id;
   }
-  if (lines.length) await tx.insert(journalLines).values(lines.map((l) => ({ ...l, journalId: id, firmId: f.id })));
+  if (lines.length) await tx.insert(journalLines).values(lines.map((l) => ({ ...l, meta: l.meta as Record<string, unknown> | null, journalId: id, firmId: f.id })));
   await audit(tx, {
     userId: input.userId, firmId: f.id, action: input.auditAction ?? (existing ? 'repostJournal' : 'postJournal'),
     entityType: 'journal', entityId: id,

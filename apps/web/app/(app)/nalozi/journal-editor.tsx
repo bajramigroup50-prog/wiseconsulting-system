@@ -143,7 +143,7 @@ export function JournalEditor({ initial, title = '', chart: chart0, partners, nu
         ) : <span className="note" style={{ marginLeft: 14 }}>Свои шеми креирате во Систем → Шеми за автоматско книжење → „+ Нова шема“.</span>}
       </div>
       {fe && (
-        <FastEntry key={fe.i ?? 'new'} mode={fe.i == null ? 'new' : 'edit'} chart={chart} partners={partners} fx dateLocked={!!j.id}
+        <FastEntry key={fe.i ?? 'new'} mode={fe.i == null ? 'new' : 'edit'} chart={chart} partners={partners} fx extra dateLocked={!!j.id}
           initial={fe.i == null ? { date: j.date, content: j.description } : rowToFast(j.rows[fe.i]!, j.date)}
           saldo={saldoWithout(fe.i)} no={fe.i == null ? liveRows.length + 1 : fe.i + 1} prevContent={prevContent}
           onSave={saveFast} onClose={() => setFe(null)} />

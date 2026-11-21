@@ -79,11 +79,11 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         rows: L.length
           ? L.map((l) => ({
             account: l.account, partnerId: l.partnerId ?? '', debit: Number(l.debit) ? String(Number(l.debit)) : '', credit: Number(l.credit) ? String(Number(l.credit)) : '', note: l.note ?? '', doc: l.doc ?? '',
-            currency: l.currency, amountCur: l.amountCur == null ? null : String(Number(l.amountCur)), locationId: l.locationId,
+            currency: l.currency, amountCur: l.amountCur == null ? null : String(Number(l.amountCur)), locationId: l.locationId, meta: (l.meta ?? null) as EditorJournal['rows'][number]['meta'],
           }))
           // an opened nalog without amounts, or a „Непрекнижан“ one: its lines are on the nalog (`meta.rows`)
           : ((j.meta as { rows?: { account: string; partnerId: string | null; note: string; doc: string; debit?: string; credit?: string; currency?: string | null; amountCur?: string | null; locationId?: string | null }[] }).rows ?? [])
-            .map((r) => ({ account: r.account, partnerId: r.partnerId ?? '', debit: r.debit ?? '', credit: r.credit ?? '', note: r.note ?? '', doc: r.doc ?? '', currency: r.currency ?? null, amountCur: r.amountCur ?? null, locationId: r.locationId ?? null })),
+            .map((r) => ({ account: r.account, partnerId: r.partnerId ?? '', debit: r.debit ?? '', credit: r.credit ?? '', note: r.note ?? '', doc: r.doc ?? '', currency: r.currency ?? null, amountCur: r.amountCur ?? null, locationId: r.locationId ?? null, meta: ((r as { meta?: unknown }).meta ?? null) as EditorJournal['rows'][number]['meta'] })),
       };
     }
     // „+ Додај рачни ставки во налогот“ (`?nov&n=1/7-9`): a new manual part of an existing nalog — same number and period
@@ -262,7 +262,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         key: P0.map((x) => x.l.id).join('+'), ids: P0.map((x) => x.l.id), jid: j.id, date: j.date, izNo: j.kind === 'bank' ? izNo(j.meta) : '',
         jdesc: j.description ?? '', note: l.note ?? '', account: l.account, debit: Math.round(d * 100) / 100, credit: Math.round(c * 100) / 100, doc: l.doc ?? '',
         devD: P0.reduce((s0, x) => s0 + devOf(x.l, 'd'), 0), devP: P0.reduce((s0, x) => s0 + devOf(x.l, 'p'), 0), cur: l.currency ?? '', amountCur: l.amountCur == null ? null : Number(l.amountCur),
-        locationId: l.locationId, partnerId: p?.id ?? '', pcode: p?.code ?? '', pname: p?.name ?? '',
+        locationId: l.locationId, meta: (l.meta ?? null) as GridRow['meta'], partnerId: p?.id ?? '', pcode: p?.code ?? '', pname: p?.name ?? '',
         head: ix.length > 1 || (bankJ.has(j.id) && impAccts.some((a) => a.konto === l.account) && !l.partnerId && /^Извод/.test(l.note ?? '')),
         src: P0.map((x) => ({ debit: Number(x.l.debit), credit: Number(x.l.credit) })),
       };

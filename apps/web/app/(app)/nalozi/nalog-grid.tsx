@@ -18,7 +18,7 @@ import { lineText } from '@/lib/line-text';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OvRow } from '@wise/core/finpar';
-import { FastEntry, type FastLine } from '@/components/fast-entry';
+import { FastEntry, type FastLine, type FastMeta } from '@/components/fast-entry';
 import { BankManualEntry, type BmeAccount, type BmeStatement } from '@/components/bank-manual-entry';
 import type { PickerPartner } from '@/components/partner-picker';
 import { sums } from '@/lib/nalog-grid';
@@ -35,6 +35,8 @@ export interface GridRow {
   jdesc: string; note: string;
   account: string; debit: number; credit: number; doc: string;
   devD: number; devP: number; cur: string; amountCur: number | null; locationId: string | null;
+  /** The other fields of „Нова ставка“ (manual nalozi). */
+  meta?: FastMeta | null;
   partnerId: string; pcode: string; pname: string;
   /** The automatic bank konto line of a statement (not changed / deleted here). */
   head: boolean;
@@ -135,7 +137,7 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
           id: j.id, number: j.number, date: j.date, description: j.description, periodFrom: j.periodFrom, periodTo: j.periodTo,
           rows: mine.map((r) => ({
             account: r.account, partnerId: r.partnerId, debit: r.debit ? String(r.debit) : '', credit: r.credit ? String(r.credit) : '', note: r.note, doc: r.doc,
-            currency: r.cur || null, amountCur: r.amountCur == null ? null : String(r.amountCur), locationId: r.locationId,
+            currency: r.cur || null, amountCur: r.amountCur == null ? null : String(r.amountCur), locationId: r.locationId, meta: r.meta ?? null,
           })),
         }));
         res = await saveJournal({}, f);
@@ -169,6 +171,7 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
         ? { cur: l.cur, devD: Number(l.debitCur.replace(',', '.')) || 0, devP: Number(l.creditCur.replace(',', '.')) || 0, amountCur: Number(l.debitCur.replace(',', '.')) || Number(l.creditCur.replace(',', '.')) || 0 }
         : {}),
       note: content === g.jdesc && !g.note ? '' : content,
+      meta: Object.keys(l.meta ?? {}).length ? l.meta : null,
     });
     let G = R.slice();
     let O = ov;
@@ -331,7 +334,7 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
   const feJ = fe ? J.get(fe.jid) : undefined;
   const feInit: Partial<FastLine> | undefined = fe && feJ ? (feRow ? {
     konto: feRow.account, content: feRow.note || feRow.jdesc, partnerId: feRow.partnerId, debit: feRow.debit ? String(feRow.debit) : '', credit: feRow.credit ? String(feRow.credit) : '',
-    doc: feRow.doc, date: feRow.date, stNo: feRow.izNo, cur: feRow.cur, debitCur: feRow.devD ? String(feRow.devD) : '', creditCur: feRow.devP ? String(feRow.devP) : '',
+    doc: feRow.doc, date: feRow.date, stNo: feRow.izNo, cur: feRow.cur, debitCur: feRow.devD ? String(feRow.devD) : '', creditCur: feRow.devP ? String(feRow.devP) : '', meta: feRow.meta ?? {},
   } : { date: feJ.date, content: feJ.description }) : undefined;
   const pName = cur ? (cur.pname || '') : '';
 
@@ -410,7 +413,7 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
       </table></div>
       {fe && feJ && (
         <FastEntry key={`${fe.mode}-${fe.jid}-${fe.idx}`} mode={fe.mode} chart={chart} partners={partners} initial={feInit}
-          fx={dev || !!feRow?.cur} fxLocked={feJ.mode === 'override'} dateLocked showStNo={feJ.bank}
+          fx={dev || !!feRow?.cur} fxLocked={feJ.mode === 'override'} dateLocked showStNo={feJ.bank} extra={feJ.mode === 'manual'}
           saldo={jSaldo(fe.jid, fe.idx)} no={fe.idx != null ? fe.idx + 1 : R.length + 1}
           prevContent={[...R].reverse().find((r) => r.jid === fe.jid && r.note)?.note ?? feJ.description}
           onSave={applyLine} onClose={() => setFe(null)} onDelete={fe.idx != null ? () => { const i = fe.idx!; setFe(null); void del(i); } : undefined} />

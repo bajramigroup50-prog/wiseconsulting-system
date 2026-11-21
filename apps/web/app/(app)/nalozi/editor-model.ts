@@ -1,10 +1,12 @@
 /** Journal-editor model shared by the server page and the client editor. */
-import type { FastLine } from '@/components/fast-entry';
+import type { FastLine, FastMeta } from '@/components/fast-entry';
 
 export interface EditorRow {
   account: string; partnerId: string; debit: string; credit: string; note: string; doc: string;
   /** Foreign currency of the line („Во девизи“) and its location — kept when the nalog is saved again. */
   currency?: string | null; amountCur?: string | null; locationId?: string | null;
+  /** The other fields of „Нова ставка“ (документ датум, валута, аванс, ОЕ…). */
+  meta?: FastMeta | null;
 }
 export interface EditorJournal {
   id: string | null; number: string; date: string; description: string; periodFrom: string; periodTo: string; rows: EditorRow[];
@@ -23,7 +25,7 @@ export const isBlankRow = (r: EditorRow) => !Number(String(r.debit).replace(',',
 export const rowToFast = (r: EditorRow, date: string): Partial<FastLine> => {
   const fx = !!r.currency && r.currency !== 'MKD' && !!Number(r.amountCur);
   return {
-    konto: r.account, content: r.note, partnerId: r.partnerId, debit: r.debit, credit: r.credit, doc: r.doc, date,
+    konto: r.account, content: r.note, partnerId: r.partnerId, debit: r.debit, credit: r.credit, doc: r.doc, date, meta: r.meta ?? {},
     ...(fx ? { cur: r.currency!, ...(Number(r.debit) ? { debitCur: String(r.amountCur) } : { creditCur: String(r.amountCur) }) } : {}),
   };
 };
@@ -34,5 +36,6 @@ export const fastToRow = (l: FastLine, keep?: EditorRow): EditorRow => {
   return {
     account: l.konto.trim().split(/\s/)[0] ?? '', partnerId: l.partnerId, debit: l.debit, credit: l.credit, note: l.content, doc: l.doc,
     currency: cur && l.cur ? l.cur : null, amountCur: cur && l.cur ? String(Math.abs(cur)) : null, locationId: keep?.locationId ?? null,
+    meta: Object.keys(l.meta ?? {}).length ? l.meta : null,
   };
 };

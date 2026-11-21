@@ -8,7 +8,7 @@ import type { OvRow } from '@wise/core/finpar';
 import {
   audit, bankAccounts, createLineKonto, deleteJournal, journalOverrideState, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
   resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal, type NalogDeleteResult,
-  applyNalogDefaults, previewNalogNumber, journalLines,
+  applyNalogDefaults, previewNalogNumber, cleanLineMeta, type LineMeta, journalLines,
 } from '@wise/db';
 import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
 import { actorOf } from '@/lib/sales';
@@ -21,6 +21,8 @@ const Row = z.object({
   debit: amount, credit: amount, note: z.string().trim().max(500).optional().default(''), doc: z.string().trim().max(100).optional().default(''),
   // foreign currency / location of the line (kept when a manual nalog is corrected; „Во девизи“ of the fast entry)
   currency: z.string().trim().max(3).nullish(), amountCur: amount.nullish(), locationId: z.string().trim().max(40).nullish(),
+  // the other fields of „Нова ставка“ (cleaned to the known keys by `cleanLineMeta`)
+  meta: z.record(z.string(), z.unknown()).nullish(),
 });
 const JournalInput = z.object({
   id: z.string().nullish().transform((s) => s ?? ''),
@@ -34,15 +36,17 @@ const JournalInput = z.object({
 
 /** A „Непрекнижан“ nalog (`meta.prek === false`): its lines stay on the nalog (`meta.rows`), outside the ledger. */
 const isDraft = (meta: unknown) => (meta as { prek?: boolean } | null)?.prek === false;
-interface DraftRow { account: string; partnerId: string | null; debit: string; credit: string; note: string; doc: string; currency?: string | null; amountCur?: string | null; locationId?: string | null }
-const draftRow = (r: { account: string; partnerId?: string | null; debit: string | number; credit: string | number; note?: string | null; doc?: string | null; currency?: string | null; amountCur?: string | number | null; locationId?: string | null }): DraftRow => ({
+interface DraftRow { account: string; partnerId: string | null; debit: string; credit: string; note: string; doc: string; currency?: string | null; amountCur?: string | null; locationId?: string | null; meta?: LineMeta | null }
+const draftRow = (r: { account: string; partnerId?: string | null; debit: string | number; credit: string | number; note?: string | null; doc?: string | null; currency?: string | null; amountCur?: string | number | null; locationId?: string | null; meta?: unknown }): DraftRow => ({
   account: r.account, partnerId: r.partnerId || null, debit: Number(r.debit) ? String(Number(r.debit)) : '', credit: Number(r.credit) ? String(Number(r.credit)) : '', note: r.note ?? '', doc: r.doc ?? '',
   ...(r.currency && r.currency !== 'MKD' && Number(r.amountCur) ? { currency: r.currency, amountCur: String(Math.abs(Number(r.amountCur))) } : {}), ...(r.locationId ? { locationId: r.locationId } : {}),
+  ...(cleanLineMeta(r.meta) ? { meta: cleanLineMeta(r.meta) } : {}),
 });
 const postLine = (r: DraftRow) => ({
   account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note, doc: r.doc,
   ...(r.currency && r.currency !== 'MKD' && Number(r.amountCur) ? { currency: r.currency.toUpperCase(), amountCur: Math.abs(Number(r.amountCur)) } : {}),
   ...(r.locationId ? { locationId: r.locationId } : {}),
+  meta: r.meta ?? null,
 });
 
 /** Kinds whose journals belong to a source document and are edited through that document, not here. */
@@ -83,6 +87,7 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
         account: r.account, debit: r.debit, credit: r.credit, partnerId: r.partnerId || null, note: r.note, doc: r.doc,
         ...(r.currency && r.currency !== 'MKD' && r.amountCur && Number(r.amountCur) ? { currency: r.currency.toUpperCase(), amountCur: Math.abs(Number(r.amountCur)) } : {}),
         ...(r.locationId ? { locationId: r.locationId } : {}),
+        meta: cleanLineMeta(r.meta),
       })),
       userId: u.id, auditAction: existing ? 'nalSave' : 'saveJ',
       // opening balances may carry 12x/22x rows without a partner (saveOpening allows them); so does a nalog imported

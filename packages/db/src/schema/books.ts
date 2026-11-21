@@ -223,6 +223,12 @@ export const journalLines = pgTable('journal_lines', {
   note: text('note'),
   /** Location (warehouse/store code id) for per-location results (legacy `wh`). */
   locationId: uuid('location_id').references(() => codes.id, { onDelete: 'set null' }),
+  /**
+   * The other fields of the old program's „Нова ставка“ (`LineMeta` in `@wise/db` posting): document date, due date
+   * (валута), advance, ОЕ / store / warehouse, approved by document, opening balance (+ year), groups Г1 / Г2, cost type
+   * and a remark. Informational: the ledger sums never read it.
+   */
+  meta: jsonb('meta').$type<Record<string, unknown>>(),
 }, (t) => [
   index('journal_lines_journal_idx').on(t.journalId),
   index('journal_lines_firm_account_idx').on(t.firmId, t.account),
