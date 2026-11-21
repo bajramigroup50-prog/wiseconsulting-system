@@ -125,7 +125,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // industries
   'hotel', 'hotelSoby', 'hotelKniga', 'servis', 'vozila', 'delovi', 'potsetnici', 'rent', 'flota', 'rentIzv', 'gradba', 'gradbaIzv', 'tura', 'turaIzv',
   'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni', 'porachki', 'nabavki', 'dopolnuvanje', 'pnalozi', 'pnGorivo',
-  'lojalnost', 'restoran', 'kujna',
+  'lojalnost', 'restoran', 'kujna', 'obroci',
   // analyses, fixed assets, interest
   'klDash', 'analizi', 'izvestai', 'os', 'kamati',
   // codebooks of the firm (office-wide rows are read-only for demo, `sifrarnik/actions.ts`)

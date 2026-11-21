@@ -38,6 +38,8 @@ export const INDUSTRY_MODULES: readonly IndustryModule[] = [
   { k: 'tour', n: '✈ Туристичка агенција (аранжмани, патници, ДДВ на маржа)', v: ['tura', 'turaIzv'], p: ['travel'] },
   // Legacy 14651 / 14690: fuel cards (`frGor`) and the transport invoices (`frFak`, v475) belong to the freight module.
   { k: 'frt', n: '🚛 Превоз за трети лица (тури, CMR, дневници, лиценци, картички за гориво)', v: ['frTuri', 'frFak', 'frDnev', 'frGor', 'frDok'], p: ['transport'] },
+  // humanitarian NPOs (народна кујна): register of the families / persons and the daily list of who took which meal
+  { k: 'meals', n: '🍲 Корисници и оброци (хуманитарни здруженија, народна кујна)', v: ['obroci'], p: ['npo'] },
 ];
 
 export const MODULE_KEYS = INDUSTRY_MODULES.map((m) => m.k);
@@ -50,7 +52,7 @@ export const PROFILES: readonly (readonly [string, string])[] = [
   ['wholesale', 'Трговија на големо'], ['retail', 'Трговија на мало'], ['prod', 'Производство'], ['service', 'Услуги'],
   ['construct', 'Градежништво'], ['hotel', 'Хотел / сместување'], ['rest', 'Ресторан / кафе-бар'], ['auto', 'Авто сервис и делови'],
   ['rent', 'Rent-a-car (изнајмување возила)'], ['med', 'Здравство (ординација, клиника, стоматолог)'], ['transport', 'Транспорт и шпедиција'],
-  ['travel', 'Туристичка агенција / тур-оператор'],
+  ['travel', 'Туристичка агенција / тур-оператор'], ['npo', 'Здружение / фондација (непрофитна)'],
 ];
 export const profileName = (k: string) => PROFILES.find((x) => x[0] === k)?.[1] ?? k;
 
@@ -77,6 +79,8 @@ export function nkdProfiles(activity: string | null | undefined): string[] {
   if (d === 56) return ['rest'];
   if (d === 77) return /^77\.1/.test(c) ? ['rent'] : ['service'];
   if (d === 75 || d === 86) return ['med'];
+  // 88 социјална работа без сместување, 94 дејности на организации со членство (здруженија)
+  if (d === 88 || d === 94) return ['npo'];
   if (d >= 53) return ['service'];
   return [];
 }
