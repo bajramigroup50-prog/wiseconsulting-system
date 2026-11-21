@@ -7,6 +7,7 @@
  * F7 Тип (next), F8 Комитент (search), F9 Во ред, Esc Излез, Enter next field; on „Посебни“ `*` / `+` / `-` select all /
  * add / remove the linked earlier (advance) calculations.
  */
+import { NalogPicker } from '@/components/nalog-picker';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { blankHeader, headerHref, headerLocation, KALK_TIPS, type KalkHeader, type KalkTip } from '@/lib/kalk-header';
@@ -128,7 +129,7 @@ export function KalkHeaderDialog({ data, initial, onClose, onDone }: { data: Kal
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '6px 8px', alignItems: 'center', alignContent: 'start' }}>
               {fld('kh_no', 'Калкулација број', <input id="kh_no" ref={R.no} value={h.calcNo} style={Y} placeholder="автоматски" onChange={(e) => { setNoEdited(!!e.target.value); set({ calcNo: e.target.value }); }} />)}
               {fld('kh_oe', 'ОЕ', <input id="kh_oe" value={h.oe} onChange={(e) => set({ oe: e.target.value })} />)}
-              {fld('kh_nal', 'Налог', <input id="kh_nal" value={h.nalog} placeholder="автоматски" onChange={(e) => set({ nalog: e.target.value })} />)}
+              {fld('kh_nal', 'Налог', <NalogPicker id="kh_nal" value={h.nalog} date={h.date} onChange={(v) => set({ nalog: v })} />)}
               {fld('kh_terk', 'Терк', <input id="kh_terk" value={h.terk} onChange={(e) => set({ terk: e.target.value })} />)}
               {fld('kh_wh', 'Во магацин …', <select id="kh_wh" value={h.wh} onChange={(e) => set({ wh: e.target.value })}>
                 <option value="">—</option><option value="main">01 Главен магацин</option>{wh.map((l) => <option key={l.id} value={l.id}>{l.code} {l.name}</option>)}</select>, 3)}

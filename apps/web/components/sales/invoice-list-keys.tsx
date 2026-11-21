@@ -10,6 +10,7 @@
  * saves the header (`saveInvoiceHeadAction`) and a new one opens its lines in the invoice editor. Works on the
  * server-rendered rows (`tr[data-id]` with `data-head` = the header as JSON, `data-paid` / `data-rest` / `data-total`).
  */
+import { NalogPicker } from '@/components/nalog-picker';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CURRENCIES, PAYM } from '@wise/core/sales';
@@ -292,11 +293,7 @@ export function InvoiceHeadDialog({ head, svc, partners, nalozi, schemes, firmNa
         <div data-pane="osn" hidden={tab !== 'osn'} style={{ display: tab === 'osn' ? 'grid' : 'none', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '8px 10px', alignItems: 'center' }}>
           <PField label="Калкул. број (F5)" id="hd_no"><input id="hd_no" ref={noRef} name="number" value={h.number} onChange={(e) => set({ number: e.target.value })} placeholder="празно = следен број" style={yel} /></PField>
           <PField label="Налог" id="hd_nal">
-            <select id="hd_nal" name="nalogNo" value={h.nalogNo} onChange={(e) => set({ nalogNo: e.target.value })}>
-              <option value="">Нов налог (автоматски број)</option>
-              {h.nalogNo && !nalozi.some((n) => n.number === h.nalogNo) && <option value={h.nalogNo}>бр. {h.nalogNo}</option>}
-              {nalozi.map((n) => <option key={n.number} value={n.number}>бр. {n.number}{n.description ? ' · ' + n.description : ''}</option>)}
-            </select>
+            <NalogPicker id="hd_nal" name="nalogNo" value={h.nalogNo} date={h.date} preset={nalozi} onChange={(v) => set({ nalogNo: v })} />
           </PField>
           <PField label="ОЕ" id="hd_oe"><input id="hd_oe" name="oe" value={h.oe} onChange={(e) => set({ oe: e.target.value })} /></PField>
           <PField label="Архивски број" id="hd_arch"><input id="hd_arch" name="archNo" value={h.archNo} onChange={(e) => set({ archNo: e.target.value })} /></PField>
