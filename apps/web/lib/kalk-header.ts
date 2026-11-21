@@ -98,7 +98,7 @@ export function headerPurchaseData(h: KalkHeader): Record<string, string> {
   const o: Record<string, string> = { hxTip: h.tip, hxTn: h.tn, hxVid: h.vid, saldo: h.saldo ? 'Д' : 'Н' };
   const put = (k: string, v: string) => { if (v.trim()) o[k] = v.trim(); };
   // the purchase editor's own fields: Орг. ед. (ОЕ), Терк, Рабат – Редовен, Белешки
-  put('oe', h.oe); put('terk', h.terk); put('hxNalog', h.nalog); put('hxTerkDest', h.terkDest); put('hxStore', h.store);
+  put('oe', h.oe); put('terk', h.terk); put('hxNalog', h.nalog); put('nalogNo', h.nalog); put('hxTerkDest', h.terkDest); put('hxStore', h.store);
   put('hxDispNo', h.dispNo); put('hxArchNo', h.archNo); put('rabReg', h.rabat.replace(',', '.')); put('hxRef', h.ref); put('hxPrilog', h.prilog);
   put('memo', headerNote(h));
   if (h.links.length) o.hxLinks = h.links.join(',');
