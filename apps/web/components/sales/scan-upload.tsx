@@ -15,7 +15,7 @@ import { UploadTarget } from '@/components/firm-guard';
 import { Uvoz } from '@/components/uvoz';
 import { scanStatus, startScans } from '@/app/(app)/skan/actions';
 
-export interface ScanOpts { kind: 'purchase' | 'sale'; batchId: string | null; cash?: boolean; warehouseId?: string; costOnly?: boolean; /** posted into this nalog when approved */ nalogNo?: string; /** outgoing invoices: the VAT article chosen for all of them */ vatRule?: SaleVatRule }
+export interface ScanOpts { kind: 'purchase' | 'sale'; batchId: string | null; cash?: boolean; warehouseId?: string; costOnly?: boolean; /** posted into this nalog when approved */ nalogNo?: string; /** „🤖 Препознај сам“ inside a nalog: incoming or outgoing by the firm's ЕДБ, both posted into `nalogNo` */ auto?: boolean; /** outgoing invoices: the VAT article chosen for all of them */ vatRule?: SaleVatRule }
 
 /** Legacy `scanErr` (4687) for the stored worker errors. */
 export const scanErrText = (e: string | null | undefined) => e || 'Читањето не успеа. Обидете се повторно.';

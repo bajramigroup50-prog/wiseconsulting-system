@@ -50,6 +50,8 @@ export interface GridJournal {
   /** manual = changed directly, override = document correction, none = read-only (locked / no right). */
   mode: 'manual' | 'override' | 'none';
   bank: boolean; number: string; date: string; description: string; periodFrom: string; periodTo: string;
+  /** „Прекн.“ (default) or „Непрекн.“ (`meta.prek === false`). */
+  prek?: boolean;
   /** Why it is read-only. */
   why?: string;
 }
@@ -106,6 +108,10 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
   const [busy, setBusy] = useState(false);
   /** „запомни правило“: a konto changed on a statement line of a bank nalog teaches the bank rule (as in Банка). */
   const [learn, setLearn] = useState(true);
+  /** The header filters of the old program (Комитент / Конто) and „Сортирање“. */
+  const [fK, setFK] = useState('');
+  const [fP, setFP] = useState('');
+  const [sortBy, setSortBy] = useState<'' | 'konto' | 'partner' | 'date' | 'doc'>('');
   const box = useRef<HTMLDivElement>(null);
   const J = useMemo(() => new Map(journals.map((j) => [j.id, j])), [journals]);
   const names = useMemo(() => new Map(chart), [chart]);
@@ -113,10 +119,22 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
   // fresh rows from the server (after a save) replace the local ones when nothing is pending
   useEffect(() => { if (!dirty.size) { setR(rows); setOv({}); } }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // rows shown: the Комитент / Конто filters, in the chosen order (indexes into R stay the row identity)
+  const vis = useMemo(() => {
+    const k = fK.trim(), p = fP.trim().toLowerCase();
+    const V = R.map((_, i) => i).filter((i) => (!k || R[i]!.account.startsWith(k)) && (!p || `${R[i]!.pcode} ${R[i]!.pname}`.toLowerCase().includes(p)));
+    const key = (r: GridRow) => sortBy === 'konto' ? r.account : sortBy === 'partner' ? r.pname : sortBy === 'date' ? r.date : sortBy === 'doc' ? r.doc : '';
+    return sortBy ? [...V].sort((a, b) => key(R[a]!).localeCompare(key(R[b]!), 'mk') || a - b) : V;
+  }, [R, fK, fP, sortBy]);
+  const step = (d: 1 | -1) => setSel((s) => { const i = vis.indexOf(s); const n = vis[Math.max(0, Math.min(vis.length - 1, (i < 0 ? 0 : i) + d))]; return n ?? s; });
+  useEffect(() => { if (vis.length && !vis.includes(sel)) setSel(vis[0]!); }, [vis]); // eslint-disable-line react-hooks/exhaustive-deps
   const cur = R[Math.min(sel, R.length - 1)];
   const dev = R.some((r) => r.devD || r.devP);
   const IZ = journals.some((j) => j.bank);
   const hasDoc = R.some((r) => r.doc);
+  const hasOpen = R.some((r) => r.meta?.opening), hasAppr = R.some((r) => r.meta?.approvedDoc), hasOe = R.some((r) => r.meta?.oe);
+  /** Курс of a foreign-currency line: denars / foreign amount. */
+  const rateOf = (r: GridRow) => { const f = r.devD || r.devP; const m = r.debit || r.credit; return f && m ? (Math.abs(m) / Math.abs(f)).toFixed(4) : ''; };
   const all = sums(R);
   const S = sums(R.filter((r) => mark.has(r.key)));
   const jSaldo = (jid: string, without?: number | null) => r2(R.reduce((s, r, i) => (r.jid === jid && i !== without ? s + r.debit - r.credit : s), 0));
@@ -314,16 +332,16 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
       const tg = (e.target as HTMLElement)?.tagName;
       if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
       const go = (f: () => void) => { e.preventDefault(); f(); };
-      if (e.key === 'ArrowDown') go(() => setSel((s) => Math.min(s + 1, R.length - 1)));
-      else if (e.key === 'ArrowUp') go(() => setSel((s) => Math.max(s - 1, 0)));
+      if (e.key === 'ArrowDown') go(() => step(1));
+      else if (e.key === 'ArrowUp') go(() => step(-1));
       else if (e.key === 'Insert') go(openNew);
       else if (e.key === 'Enter' && tg !== 'BUTTON' && tg !== 'A') go(() => openChange(sel));
       else if (e.key === 'Delete') go(() => void del(sel));
       else if (e.key === 'F3') go(() => analytics(sel));
       else if (e.key === 'F6') go(() => print(true));
       else if (e.key === 'F8' && sintHref) go(() => router.push(sintHref));
-      else if (e.key === '+') go(() => { toggle(sel, true); setSel((s) => Math.min(s + 1, R.length - 1)); });
-      else if (e.key === '-') go(() => { toggle(sel, false); setSel((s) => Math.min(s + 1, R.length - 1)); });
+      else if (e.key === '+') go(() => { toggle(sel, true); step(1); });
+      else if (e.key === '-') go(() => { toggle(sel, false); step(1); });
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
@@ -363,6 +381,16 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
         <span>Налог: <b>{no}</b></span>
         <span>Датум: <b>{dmy(date)}</b></span>
       </div>
+      <div className="row mini noprint" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0' }} data-testid="grid-filters">
+        <label className="row" style={{ gap: 4 }}>Комитент <input value={fP} onChange={(e) => setFP(e.target.value)} placeholder="шифра / назив" style={{ width: 170 }} aria-label="Филтер комитент" /></label>
+        <label className="row" style={{ gap: 4 }}>Конто <input value={fK} onChange={(e) => setFK(e.target.value.replace(/\D/g, ''))} placeholder="пр. 120" style={{ width: 90 }} aria-label="Филтер конто" /></label>
+        <label className="row" style={{ gap: 4 }}>Сортирање
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} style={{ width: 'auto' }} aria-label="Сортирање">
+            <option value="">по р.бр.</option><option value="konto">по конто</option><option value="partner">по комитент</option><option value="date">по датум</option><option value="doc">по документ</option>
+          </select>
+        </label>
+        {(fK || fP) && <span>прикажани {vis.length} од {R.length} <button type="button" className="btn sm ghost" onClick={() => { setFK(''); setFP(''); }}>✕</button></span>}
+      </div>
       {msg && <div className={`callout ${msg.error ? 'bad' : 'good'}`} role={msg.error ? 'alert' : 'status'}>{msg.error ?? msg.ok}</div>}
       {unbalanced.length > 0 && (
         <div className="callout warn row" role="alert" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -375,10 +403,13 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
           <th className="n">Р.бр.</th><th>Датум</th>{IZ && <th className="n">Изв. бр.</th>}<th style={{ minWidth: 180 }}>Содржина</th><th>Конто</th>
           <th className="n">Должи</th><th className="n">Побарува</th>{hasDoc && <th>Документ</th>}
           {dev && <><th className="n">Дев. должи</th><th className="n">Дев. побарува</th><th>Вал.</th></>}
+          {dev && <th className="n">Курс</th>}
           <th>Ком.ш.</th><th>Комитент</th>
+          <th title="Прекнижан / непрекнижан">Прекн/Непрекн.</th>
+          {hasOpen && <th>Поч.сос.</th>}{hasAppr && <th>Одобрен документ</th>}{hasOe && <th>О.ед.</th>}
         </tr></thead>
         <tbody>
-          {R.map((r, i) => (
+          {vis.map((i) => { const r = R[i]!; return (
             <tr key={r.key} data-i={i} aria-selected={i === sel} onClick={() => setSel(i)} onDoubleClick={() => openChange(i)}
               style={{ cursor: 'default', ...(i === sel ? { outline: '2px solid var(--accent)', outlineOffset: -2 } : {}), ...(mark.has(r.key) ? { background: 'var(--warn-bg, #fff7e0)' } : {}), ...(r.added ? { fontStyle: 'italic' } : {}) }}>
               <td className="n">{mark.has(r.key) ? '✓ ' : ''}{i + 1}</td>
@@ -389,24 +420,29 @@ export function NalogGrid({ rows, journals, firmName, no, date, chart, partners,
               <td className="n">{fmt(r.debit)}</td><td className="n">{fmt(r.credit)}</td>
               {hasDoc && <td className="w">{r.doc}</td>}
               {dev && <><td className="n">{fmt(r.devD)}</td><td className="n">{fmt(r.devP)}</td><td>{r.cur && r.cur !== 'MKD' ? r.cur : ''}</td></>}
+              {dev && <td className="n">{rateOf(r)}</td>}
               <td className="num" style={{ color: 'var(--muted)' }}>{r.pcode}</td>
               <td className="w" style={{ maxWidth: 220 }}>{r.pname}</td>
+              <td>{J.get(r.jid)?.prek === false ? <span className="pill">Непрекн.</span> : 'Прекн.'}</td>
+              {hasOpen && <td>{r.meta?.opening ? `Да${r.meta.openingYear ? ' ' + r.meta.openingYear : ''}` : ''}</td>}
+              {hasAppr && <td className="w">{r.meta?.approvedDoc ?? ''}</td>}
+              {hasOe && <td>{r.meta?.oe ?? ''}</td>}
             </tr>
-          ))}
+          ); })}
         </tbody>
         <tfoot data-testid="grid-foot">
           <tr>
             <td colSpan={IZ ? 4 : 3}>Салдо <b>{fmt0(r2(all.D - all.P))}</b> · селекција ({mark.size})</td>
             <td className="mini">ДОЛЖИ / ПОБАРУВА</td>
             <td className="n">{fmt0(S.D)}</td><td className="n">{fmt0(S.P)}</td>
-            <td colSpan={(hasDoc ? 1 : 0) + (dev ? 3 : 0) + 2} className="mini">ВК. ДОЛЖИ <b>{fmt0(all.D)}</b> · ВК. ПОБАРУВА <b>{fmt0(all.P)}</b> ({R.length} ставки)</td>
+            <td colSpan={(hasDoc ? 1 : 0) + (dev ? 4 : 0) + 3 + (hasOpen ? 1 : 0) + (hasAppr ? 1 : 0) + (hasOe ? 1 : 0)} className="mini">ВК. ДОЛЖИ <b>{fmt0(all.D)}</b> · ВК. ПОБАРУВА <b>{fmt0(all.P)}</b> ({R.length} ставки)</td>
           </tr>
           {dev && (
             <tr>
               <td colSpan={IZ ? 4 : 3}>Девизи: салдо <b>{fmt0(r2(all.dD - all.dP))}</b></td>
               <td className="mini">ДОЛЖИ / ПОБАРУВА</td>
               <td className="n">{fmt0(S.dD)}</td><td className="n">{fmt0(S.dP)}</td>
-              <td colSpan={(hasDoc ? 1 : 0) + 3 + 2} className="mini">ВК. ДОЛЖИ <b>{fmt0(all.dD)}</b> · ВК. ПОБАРУВА <b>{fmt0(all.dP)}</b></td>
+              <td colSpan={(hasDoc ? 1 : 0) + 4 + 3 + (hasOpen ? 1 : 0) + (hasAppr ? 1 : 0) + (hasOe ? 1 : 0)} className="mini">ВК. ДОЛЖИ <b>{fmt0(all.dD)}</b> · ВК. ПОБАРУВА <b>{fmt0(all.dP)}</b></td>
             </tr>
           )}
         </tfoot>

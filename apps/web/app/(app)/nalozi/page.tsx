@@ -191,7 +191,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     const isIzv = IZ || !!bankOfCode || /извод/i.test(title);
     const empty = L.length === 0;
     // „Импорт“ inside the nalog (like the old program): the chosen import is booked INTO this nalog
-    const imp = sp.imp === 'vlez' || sp.imp === 'izlez' || sp.imp === 'kasa' || sp.imp === 'izvod' ? sp.imp : '';
+    const imp = sp.imp === 'auto' || sp.imp === 'vlez' || sp.imp === 'izlez' || sp.imp === 'kasa' || sp.imp === 'izvod' ? sp.imp : '';
     const showImport = write && (isIzv || imp === 'izvod' || (empty && sp.uvoz !== undefined));
     const inNal = await db().select({ id: bankStatements.id }).from(bankStatements)
       .where(and(eq(bankStatements.firmId, firm.id), sql`${bankStatements.meta}->>'nalog' = ${g.no}`, sql`${bankStatements.date} between ${from} and ${to}`));
@@ -248,7 +248,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
       const ok = !locked(j) && (man ? (j.kind === 'manual' ? write : fix) && !['opening', 'bbimp', 'yearClose'].includes(j.sourceType ?? '') : fix);
       return {
         id: j.id, mode: !ok ? 'none' : man ? 'manual' : 'override', bank: bankJ.has(j.id), number: j.number, date: j.date, description: j.description ?? '',
-        periodFrom: j.periodFrom ?? '', periodTo: j.periodTo ?? '',
+        periodFrom: j.periodFrom ?? '', periodTo: j.periodTo ?? '', prek: (j.meta as { prek?: boolean } | null)?.prek !== false,
         why: lockWhy(j) || (ok ? '' : man && j.sourceType ? 'Почетната состојба / бруто билансот се менуваат во својот екран (✎ Корекција).' : 'Немате право на корекција на налози.'),
       };
     });
@@ -327,6 +327,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
             <div className="card noprint" id="imp-nalog">
               <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <b>Импорт во налог бр. {g.no}:</b>
+                {tab('auto', '🤖 Препознај сам')}
                 {tab('vlez', '📷 Влезни фактури')}
                 {tab('izlez', '🧾 Излезни фактури')}
                 {tab('kasa', '💵 Благајна – сметки во готово')}
@@ -334,6 +335,14 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                 <Link className="btn sm" href={`/uvoz?t=journal&nal=${encodeURIComponent(g.no)}`} title="Ставки на налог од Excel / CSV / PDF (стара програма, друг сметководител) – се книжат во овој налог">📊 Excel / CSV / PDF ставки</Link>
               </div>
               <p className="mini" style={{ margin: '6px 0 0' }}>Се книжат во својот налог (по видот и периодот): <Link href="/uvoz?t=purchases">Excel влезни фактури</Link> · <Link href="/uvoz?t=invoices">Excel излезни фактури</Link> · <Link href="/efaktura">е-Фактура (XML)</Link> · <Link href="/blagajna">Благајна – налози</Link> · <Link href="/uvoz">сите увози</Link></p>
+              {imp === 'auto' && (
+                <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                  <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, nalogNo: g.no, auto: true }}
+                    label={<><b>🤖 Фактури – програмата препознава сама</b> — влезна или излезна според ЕДБ на фирмата (кој е продавач, кој купувач); се читаат, ги одобрувате и се книжат во налог бр. {g.no}</>} />
+                  <Link className="btn" href="/skan/proverka">📋 Влезни</Link>
+                  <Link className="btn" href="/skan/proverka?k=sale">📋 Излезни</Link>
+                </div>
+              )}
               {imp === 'vlez' && (
                 <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
                   <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: cashNal, nalogNo: g.no }}
