@@ -11,7 +11,7 @@ import INST_LINKS_JSON from '../data/inst-forms-links.json';
 export const INST = ['ЦРСМ', 'УЈП', 'АВРМ', 'ФЗО', 'ПИОМ', 'ДПИ', 'ДИТ', 'АХВ', 'ДИЖС', 'МЕ', 'МФ', 'Царина', 'Банка', 'Суд', 'Општина', 'Нотар', 'Друго'] as const;
 
 export interface ReqTpl { id: string; inst: string; name: string; to?: string; title: string; body: string; free?: boolean }
-export interface FormField { k: string; l: string; x: number; y: number; w: number; h: number; t: 't' | 'c' | 'x' | 's' | 'm'; src: string; g?: string; p?: number }
+export interface FormField { k: string; l: string; x: number; y: number; w: number; h: number; t: 't' | 'c' | 'x' | 's' | 'm'; src: string; g?: string; p?: number; /** printed boxes: one character per box (ЕДБ, ЕМБС…) */ cells?: number }
 export interface ReqForm { id: string; inst: string; name: string; form: true; W?: number; H?: number; pages?: { W: number; H: number }[]; fields: FormField[] }
 
 export const TPL0: readonly ReqTpl[] = TPL0_JSON as ReqTpl[];
@@ -104,6 +104,12 @@ export function formHtml(tp: ReqForm, V: Record<string, string>, opts: { sign?: 
       const st = `position:absolute;left:${x.x / W * 100}%;top:${x.y / H * 100}%;width:${x.w / W * 100}%;height:${x.h / H * 100}%;display:flex;align-items:center;overflow:hidden`;
       if (x.t === 'c' || x.t === 'x') return `<div style="${st};justify-content:center;font-weight:800;font-size:${x.t === 'x' ? 12 : 15}px;overflow:visible">✕</div>`;
       if (x.t === 's') return opts.sign ? `<div style="${st};justify-content:center;overflow:visible"><img src="${esc(opts.sign)}" alt="" style="max-height:${x.h > 30 ? 100 : 260}%;max-width:90%"></div>` : '';
+      if (x.cells && x.cells > 1) {
+        // one character centered in each printed box (digits of ЕДБ / ЕМБС); spaces and dashes of the value are dropped
+        const ch = [...String(v).replace(/[\s-]/g, '')].slice(0, x.cells);
+        const cw = 100 / x.cells;
+        return `<div style="${st};padding:0">${ch.map((c, i) => `<span style="position:absolute;left:${i * cw}%;width:${cw}%;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-family:Arial,sans-serif">${esc(c)}</span>`).join('')}</div>`;
+      }
       if (x.t === 'm') return `<div style="${st};align-items:flex-start;padding:0.3% 0.6%;font-size:10.5px;font-family:Arial,sans-serif;white-space:pre-wrap;line-height:1.35">${esc(v)}</div>`;
       return `<div style="${st};padding-left:0.6%;font-size:10.5px;font-family:Arial,sans-serif;white-space:nowrap">${esc(v)}</div>`;
     }).join('');
