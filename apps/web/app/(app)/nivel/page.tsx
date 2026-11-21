@@ -3,6 +3,7 @@
  * posting 3461 (`levellingEntries`). FIX (LEGACY-MAP §7.4 item 9): numbers are max + 1 per year (legacy count + 1
  * repeated numbers after a delete); quantities come from the corrected `stockAt` (legacy: always 0).
  */
+import { decodeHeader, headerLocation, headerNote } from '@/lib/kalk-header';
 import Link from 'next/link';
 import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 import { levellingDiff, retailOn } from '@wise/core';
@@ -21,7 +22,7 @@ import { RowAction } from '@/components/row-action';
 import { PrintButton } from '@/components/stock-ui';
 import { deleteLevellingAction } from '../_stock/actions';
 
-type SP = { nov?: string; id?: string; view?: string };
+type SP = { hx?: string; nov?: string; id?: string; view?: string };
 
 export default async function NivelPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -62,6 +63,7 @@ export default async function NivelPage({ searchParams }: { searchParams: Promis
   const locs = locOptions(L);
   const stores = locs.filter((l) => l.kind === 'store');
   const today = todayIso();
+  const hx = decodeHeader(sp.hx);
   const bcs = write ? await db().select({ itemId: itemBarcodes.itemId, barcode: itemBarcodes.barcode }).from(itemBarcodes).where(eq(itemBarcodes.firmId, firm.id)) : [];
   const bcOf = new Map<string, string[]>();
   for (const b of bcs) bcOf.set(b.itemId, [...(bcOf.get(b.itemId) ?? []), b.barcode]);
@@ -72,6 +74,7 @@ export default async function NivelPage({ searchParams }: { searchParams: Promis
           initial={edit
             ? { id: edit.id, number: edit.number, date: edit.date, wh: edit.locationId ?? 'main', note: edit.note ?? '', promoTo: '', prices: Object.fromEntries(edit.lines.map((l) => [l.itemId, String(l.new)])),
               qty: Object.fromEntries(edit.lines.map((l) => [l.itemId, l.qty])), old: Object.fromEntries(edit.lines.map((l) => [l.itemId, l.old])) }
+            : hx ? { date: hx.date, wh: headerLocation(hx) || stores[0]?.id || 'main', note: headerNote(hx), promoTo: '', prices: {}, qty: {}, old: {} }
             : { date: today.startsWith(String(year)) ? today : `${year}-12-31`, wh: stores[0]?.id ?? 'main', note: '', promoTo: '', prices: {}, qty: {}, old: {} }} />
       ) : <Hd t="Нивелација" sub="промена на малопродажни цени" />}
       <div className="callout">Нивелацијата се книжи само во објект што се води по продажни цени (шема: малопродажба по продажни цени): Д 6630 / П 6694 / П 6640 за вкупната разлика. Количината е залихата на датумот на нивелацијата.</div>

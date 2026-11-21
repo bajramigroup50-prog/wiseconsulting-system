@@ -25,6 +25,8 @@ import { partnerOptions } from '@/lib/books';
 import { Retail } from '@wise/core';
 import { like } from 'drizzle-orm';
 import { items } from '@wise/db';
+import { kalkDialogData } from '@/lib/kalk-header-data';
+import { KalkNewKeys } from '@/components/stock/kalk-header-dialog';
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 export type KalkSP = { wh?: string; q?: string; plt?: string };
@@ -88,7 +90,9 @@ export async function KalkPage({ md, sp }: { md: 'warehouse' | 'store'; sp: Kalk
         {md === 'warehouse' && <Link className="btn" href="/prenosi">Пренос во продавница</Link>}
         <Link className="btn" href="/kalkCalc">Калкулатор</Link>
         {write && md === 'store' && <Link className="btn" href="/kalkM?plt" title="Клиенти што сами го прават приемниот лист: фактура + нивниот ПЛТ">📄 ПЛТ на клиентот</Link>}
-        {write && <Link className="btn pri" href={newHref}>+ Нова калкулација</Link>}
+        {write && <Link className="btn" href={newHref} title="Директно во влезна фактура, без заглавје">+ Рачен внес</Link>}
+        {write && <KalkNewKeys data={await kalkDialogData(firm.id, year)} today={new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Skopje' })} label="+ Нова калкулација (Ins)"
+          defaults={md === 'store' ? { store: wh || locs[0]?.id || '' } : { wh: wh || 'main' }} />}
       </Hd>
       {write && md === 'store' && sp.plt !== undefined && <PltWindow stores={locs.map((l) => ({ id: l.id, name: l.name ?? l.id }))} partners={PO.map((p) => ({ id: p.id, name: p.name }))} today={new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Skopje' })} vatReg={firm.vatRegistered} />}
       {noName > 0 && <div className="callout warn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}

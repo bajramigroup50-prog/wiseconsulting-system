@@ -3,6 +3,7 @@
  * (потврда на нарачка, `?view=`). An order reserves stock (available = stock − reserved); "Фактура за преостанатото"
  * creates an invoice draft for what is on stock; delivered quantities come from the invoices issued from the order.
  */
+import { decodeHeader, headerNote } from '@/lib/kalk-header';
 import Link from 'next/link';
 import { asc, desc, eq } from 'drizzle-orm';
 import { calcLines, Retail } from '@wise/core';
@@ -19,7 +20,7 @@ import { PrintButton } from '@/components/stock-ui';
 import { cancelOrderAction, orderInvoiceAction } from '../_retail/actions';
 import { OrderEditor } from '../_retail/order-editors';
 
-type SP = { f?: string; id?: string; nov?: string; view?: string; saved?: string };
+type SP = { hx?: string; f?: string; id?: string; nov?: string; view?: string; saved?: string };
 const addDays = (d: string, n: number) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 export default async function PorachkiPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -58,6 +59,8 @@ export default async function PorachkiPage({ searchParams }: { searchParams: Pro
 
   const edit = sp.id ? all.find((o) => o.id === sp.id) : undefined;
   if (write && (sp.nov !== undefined || edit)) {
+    // „Податоци за малопродажна калкулација“ (Helix) → Тип „Нарачка“: the header filled in
+    const hx = !edit ? decodeHeader(sp.hx) : null;
     const st = edit ? stateOf(edit) : 'open';
     const items = await orderItemOptions(db(), L, R.reserved, edit?.lines);
     const dl = edit ? Retail.orderRest(edit.lines, R.deliveries.get(edit.id) ?? {}) : [];
@@ -74,7 +77,8 @@ export default async function PorachkiPage({ searchParams }: { searchParams: Pro
           initial={edit ? {
             id: edit.id, number: edit.number, date: edit.date, partnerId: edit.partnerId ?? '', deliveryDate: edit.deliveryDate ?? '', note: edit.note ?? '',
             lines: edit.lines.map((l, i) => ({ itemId: l.itemId, name: l.name, unit: l.unit ?? '', qty: String(l.qty), price: String(l.price), disc: l.disc ? String(l.disc) : '', rate: l.rate, dl: dl[i]?.dl ?? 0 })),
-          } : { number: '', date: today, partnerId: '', deliveryDate: addDays(today, 2), note: '', lines: [] }} />
+          } : hx ? { number: '', date: hx.date, partnerId: hx.partnerId, deliveryDate: hx.due && hx.due >= hx.date ? hx.due : addDays(hx.date, 2), note: headerNote(hx), lines: [] }
+            : { number: '', date: today, partnerId: '', deliveryDate: addDays(today, 2), note: '', lines: [] }} />
       </>
     );
   }
