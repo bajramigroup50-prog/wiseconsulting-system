@@ -1,6 +1,6 @@
 'use client';
 /**
- * „📥 Периодични од Excel“ with „Фактурирање од месец“: the client's list can be imported in December and invoiced from
+ * „📥 Увоз на Excel листа“ with „Фактурирање од месец“: the client's list can be imported in December and invoiced from
  * January – every customer's first invoice is its invoicing day in that month (or later), never earlier.
  */
 import { useState } from 'react';
@@ -19,7 +19,7 @@ export function RecImportBox({ action, template, firstMonth }: {
         Фактурирање од месец{' '}
         <input type="month" value={start} min={firstMonth} onChange={(e) => setStart(e.target.value || firstMonth)} style={{ width: 150 }} />
       </label>
-      <XlsxImport action={action} template={template} templateName="Periodicni_obrazec.xlsx" label="📥 Периодични од Excel" fields={{ start }} />
+      <XlsxImport action={action} template={template} templateName="Periodicni_obrazec.xlsx" label="📥 Увоз на Excel листа" fields={{ start }} />
     </span>
   );
 }
