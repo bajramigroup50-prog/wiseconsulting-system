@@ -127,7 +127,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni', 'porachki', 'nabavki', 'dopolnuvanje', 'pnalozi', 'pnGorivo',
   'lojalnost', 'restoran', 'kujna',
   // analyses, fixed assets, interest
-  'klDash', 'analizi', 'izvestai', 'os', 'kamati',
+  'klDash', 'analizi', 'paricenTek', 'izvestai', 'os', 'kamati', 'rekniz',
   // codebooks of the firm (office-wide rows are read-only for demo, `sifrarnik/actions.ts`)
   'sifrarnik', 'partneri', 'artikli', 'uslugiS', 'artNames', 'artQ', 'artKonta', 'barkodi', 'konto', 'tarifi', 'terkovi',
   'cb_cash', 'cb_cenovnik', 'cb_country', 'cb_currency', 'cb_fgroup', 'cb_hall', 'cb_location', 'cb_municipality', 'cb_oe', 'cb_route', 'cb_store', 'cb_vehicle', 'cb_warehouse',
@@ -251,7 +251,7 @@ export const BOOK_ONLY_MSG = 'Немате пристап до овој дел �
  */
 const BOOK_ONLY_LIST: readonly string[] = [
   // Финансово: statements and banks, cash, payment orders, the journal (+ dnevnik print), cards, reconciliation, trial balance
-  'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'vnes', 'kursRaz', 'razgr',
+  'banka', 'devizni', 'banke', 'bkPick', 'bkUnl', 'bkAdv', 'blagajna', 'ppNal', 'fiskPer', 'kompenzacii', 'pocetna', 'nalozi', 'rekniz', 'vnes', 'kursRaz', 'razgr',
   'akart', 'kartici', 'kkart', 'recFree', 'recon', 'bilanc', 'bbPart', 'pozajmici', 'donacii', 'kamati', 'izvestai',
   // ДДВ
   'ddv', 'ddvKnigi', 'ddvTab', 'pdd',
