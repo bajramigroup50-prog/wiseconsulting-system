@@ -314,3 +314,31 @@ export async function mergeSurePartnersAction(listed: { main: string; ids: strin
     return errs.length ? { error: `Споени ${g} групи (${n} комитенти); не се споени ${errs.length}: ${errs.slice(0, 3).join('; ')}` } : { ok: `Споени ${g} групи (${n} комитенти).` };
   } catch (e) { return mergeErr(e); }
 }
+
+const QuickPartner = z.object({ name: z.string().trim().min(1, 'Внесете назив.').max(300), code: opt, edb: opt });
+/**
+ * „Нов комитент“ from the F8 window of a nalog's line (the old program's Комитенти): a partner typed by hand, with the
+ * next free шифра when none is given. Returns the new partner so the line picks it at once (no redirect).
+ */
+export async function quickPartnerAction(input: z.input<typeof QuickPartner>): Promise<ActionState & { partner?: { id: string; code: string | null; name: string } }> {
+  try {
+    const { u, firm } = await firmAction('write');
+    const parsed = QuickPartner.safeParse(input);
+    if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Неважечки податоци.' };
+    const v = parsed.data;
+    const partner = await db().transaction(async (tx) => {
+      const codes = await tx.select({ code: partners.code }).from(partners).where(eq(partners.firmId, firm.id));
+      const code = v.code ?? nextCode(codes.map((c) => c.code));
+      if (codes.some((c) => c.code === code)) throw new DupError(`Шифрата ${code} веќе постои. Следна слободна: ${nextCode(codes.map((c) => c.code))}`);
+      const [p] = await tx.insert(partners).values({ firmId: firm.id, name: v.name, code, edb: v.edb })
+        .returning({ id: partners.id, code: partners.code, name: partners.name });
+      await audit(tx, { userId: u.id, firmId: firm.id, action: 'newS', entityType: 'partner', entityId: p!.id, data: { name: v.name, code, from: 'nalog F8' } });
+      return p!;
+    });
+    revalidatePath('/partneri');
+    return { ok: `Комитент ${partner.code} · ${partner.name} е внесен.`, partner };
+  } catch (e) {
+    if (e instanceof DupError) return { error: e.message };
+    return actionError(e);
+  }
+}
