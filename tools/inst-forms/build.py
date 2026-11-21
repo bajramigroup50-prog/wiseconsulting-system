@@ -178,6 +178,9 @@ def acro_fields(pdf, pages):
                 if SIGNER_SEC.search(t): sec = 'signer'; break
             if UJP_SEC.search(label): sec = 'skip'
             f = {'sec': sec, 'k': f'p{pi}_{slug(name) or len(F)}_{len(F)}', 'l': (label or name or 'Поле')[:60], 'x': round(x0 * sc), 'y': round(top * sc), 'w': round((x1 - x0) * sc), 'h': round((bot - top) * sc), 'p': pi}
+            ff = int(a.get('/Ff') or par.get('/Ff') or 0)
+            ml = int(a.get('/MaxLen') or par.get('/MaxLen') or 0)
+            if ft == '/Tx' and ff & (1 << 24) and 1 < ml <= 20: f['cells'] = ml  # a comb field: one character per box
             if ft == '/Btn':
                 f.update({'t': 'x', 'src': ''})
             else:
@@ -250,17 +253,17 @@ MANUAL = [
      'url': 'https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.pdf', 'pages': [0, 1],
      'fields': [
         {'k': 'naziv', 'l': '1. Назив на работодавачот', 'x': 336, 'y': 206, 'w': 384, 'h': 20, 'p': 0, 't': 't', 'src': 'f.name'},
-        {'k': 'embs', 'l': '2. ЕМБС', 'x': 600, 'y': 247, 'w': 120, 'h': 24, 'p': 0, 't': 't', 'src': 'f.embs'},
+        {'k': 'embs', 'l': '2. ЕМБС', 'x': 608, 'y': 239, 'w': 116, 'h': 30, 'p': 0, 't': 't', 'src': 'f.embs', 'cells': 7},
         {'k': 'dejnost', 'l': '4. Шифра и назив на претежната дејност', 'x': 336, 'y': 322, 'w': 384, 'h': 46, 'p': 0, 't': 'm', 'src': 'f.activity'},
         {'k': 'ulica', 'l': '5. Улица и број', 'x': 336, 'y': 391, 'w': 384, 'h': 19, 'p': 0, 't': 't', 'src': 'f.address'},
-        {'k': 'opstina', 'l': '6. Општина', 'x': 336, 'y': 415, 'w': 300, 'h': 24, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'opstina', 'l': '6. Општина', 'x': 336, 'y': 415, 'w': 316, 'h': 24, 'p': 0, 't': 't', 'src': ''},
         {'k': 'mesto', 'l': '7. Населено место', 'x': 336, 'y': 447, 'w': 300, 'h': 24, 'p': 0, 't': 't', 'src': 'f.city'},
         {'k': 'tel', 'l': '8. Телефон', 'x': 336, 'y': 483, 'w': 384, 'h': 19, 'p': 0, 't': 't', 'src': 'f.phone'},
         {'k': 'faks', 'l': '9. Факс', 'x': 336, 'y': 508, 'w': 384, 'h': 18, 'p': 0, 't': 't', 'src': ''},
         {'k': 'email', 'l': '10. Е-маил', 'x': 336, 'y': 532, 'w': 384, 'h': 18, 'p': 0, 't': 't', 'src': 'f.email'},
-        {'k': 'edb', 'l': '11. Единствен даночен број', 'x': 506, 'y': 563, 'w': 214, 'h': 18, 'p': 0, 't': 't', 'src': 'f.edb'},
+        {'k': 'edb', 'l': '11. Единствен даночен број', 'x': 507, 'y': 555, 'w': 217, 'h': 17, 'p': 0, 't': 't', 'src': 'f.edb', 'cells': 13},
         {'k': 'kontakt', 'l': '12. Лице за контакт', 'x': 336, 'y': 597, 'w': 384, 'h': 24, 'p': 0, 't': 't', 'src': 'f.signer'},
-        {'k': 'broj', 'l': '13. Број на барани работници', 'x': 672, 'y': 634, 'w': 48, 'h': 20, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'broj', 'l': '13. Број на барани работници', 'x': 674, 'y': 627, 'w': 50, 'h': 17, 'p': 0, 't': 't', 'src': '', 'cells': 3},
         {'k': 'zanimanje', 'l': '14. Занимање / работно место', 'x': 336, 'y': 666, 'w': 280, 'h': 24, 'p': 0, 't': 't', 'src': ''},
         {'k': 'mesto2', 'l': '15. Населено место (на работното место)', 'x': 336, 'y': 700, 'w': 384, 'h': 22, 'p': 0, 't': 't', 'src': ''},
         {'k': 'raspored', 'l': '18. Распоред на работно време', 'x': 336, 'y': 845, 'w': 384, 'h': 22, 'p': 0, 't': 't', 'src': ''},
