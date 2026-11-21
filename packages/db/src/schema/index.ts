@@ -37,3 +37,5 @@ export * from './bankfeed';
 export * from './docreads';
 export * from './crm';
 export * from './institutions';
+export * from './meals';
+export * from './whatsapp';

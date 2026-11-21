@@ -49,6 +49,9 @@ const ADD: [string, string, NavItem[]][] = [
   ['Архива', 'arhiva', [['priem', '📥 Прием на документи']]],
   // owner-only: the robot's public law news posted to the office's Facebook page / Instagram
   ['Систем', 'avtomatizacii', [['drustveni', '📣 Објави на мрежи']]],
+  // 💬 WhatsApp Business (Cloud API): the conversations of every firm (staff) and the connection settings (owner only)
+  ['Архива', 'priem', [['waInbox', '💬 WhatsApp разговори']]],
+  ['Систем', 'drustveni', [['whatsapp', '💬 WhatsApp (поставки)']]],
   ['Систем', 'uvoz', [['konvertor', '🔄 Конвертор на датотеки']]],
   // the AI reading card (also in „Податоци и резервна копија“) on its own page, with the credit check
   ['Систем', 'konvertor', [['aiCitanje', '🤖 AI читање']]],

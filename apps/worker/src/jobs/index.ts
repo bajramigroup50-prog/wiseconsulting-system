@@ -32,6 +32,7 @@ import { bankFeeds } from './bank-feeds';
 import { mailIn } from './mail-in';
 import { docRead } from './doc-read';
 import { newsSq, socialPost, socialWeb } from './social';
+import { waMedia } from './whatsapp';
 
 /** Registry: one line per job. */
 export const JOBS: JobDef<any>[] = [
@@ -76,4 +77,5 @@ export const JOBS: JobDef<any>[] = [
   bankFeeds,
   mailIn,
   docRead,
+  waMedia,
 ];

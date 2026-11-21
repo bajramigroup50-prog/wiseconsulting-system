@@ -16,7 +16,7 @@ import {
   ROK_SRC, ROK_STATE_LBL, ROK_TYPE_IDS, ROK_TYPES, rokBadgeRange, rokCleanDefault, rokClientDay, rokDays, rokMonthGrid, rokMonthName, rokState, rokYmAdd,
   type RokSettings, type RokType,
 } from '@wise/core/office/rokovi';
-import { rokCleanupLast, rokovi, rokoviLastRun, syncRokovi } from '@wise/db';
+import { firms as firmsT, rokCleanupLast, rokovi, rokoviLastRun, syncRokovi } from '@wise/db';
 import { isDemoUser } from '@/lib/demo';
 import { officeProfileFor, ownerContext } from '@/lib/demo-office';
 import { db } from '@/lib/db';
@@ -28,6 +28,7 @@ import { Hd, dmy } from '@/components/hd';
 import { AutoStatus } from '@/components/auto-status';
 import { hubTabs } from '@/components/hub-tabs';
 import { RowAction } from '@/components/row-action';
+import { WaQuick } from '@/components/wa-send';
 import { markRokAction, saveRokSettings, setRokScopeAction, syncRokAction } from './actions';
 import { RokCleanup } from './cleanup';
 
@@ -66,6 +67,9 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
     rokColleagues(u), rokoviLastRun(db()).catch(() => null),
     canClean ? allowedFirms(u).then((A) => rokCleanupLast(db(), A.map((f) => f.id))).catch(() => null) : null,
   ]);
+  // 💬 the firms' phones for „WhatsApp потсетник“ (shown only while the WhatsApp Cloud API is on)
+  const fids = [...new Set(rows.map((r) => r.firmId))];
+  const phoneOf = new Map(fids.length ? (await db().select({ id: firmsT.id, phone: firmsT.phone }).from(firmsT).where(inArray(firmsT.id, fids))).map((f) => [f.id, f.phone ?? '']) : []);
   const scopeTxt = mine ? 'само мои фирми' : 'сите фирми';
   const qs = (o: Partial<SP>) => '?' + new URLSearchParams(Object.entries({ ...sp, ...o }).filter(([, v]) => v) as [string, string][]).toString();
   const icsQs = new URLSearchParams(Object.entries({ from, to, fid: sp.fid ?? '', uid: sp.uid ?? '', t: sp.t ?? '', st: st === 'all' ? 'open' : st, sc: mine ? 'moi' : '' }).filter(([, v]) => v)).toString();
@@ -94,6 +98,8 @@ export default async function RokoviPage({ searchParams }: { searchParams: Promi
           {r.done
             ? <RowAction action={markRokAction.bind(null, r.id, false)} label="↺" title="Врати како отворено" />
             : <RowAction action={markRokAction.bind(null, r.id, true)} label="✓ Направено" className="btn sm" />}
+          {!r.done && phoneOf.get(r.firmId) && <>{' '}<WaQuick href="" phone={phoneOf.get(r.firmId)} firmId={r.firmId} purpose={r.type === 'inst' ? 'inst' : 'rok'} label="Потсети"
+            text={`Почитувани, Ве потсетуваме: ${r.title} – рок ${dmy(r.due)}.`} vars={{ firma: r.firm, opis: r.title, rok: dmy(r.due) }} confirm={`Потсетник на WhatsApp до ${r.firm}: „${r.title}“ – рок ${dmy(r.due)}?`} /></>}
         </td>
       </tr>
     );

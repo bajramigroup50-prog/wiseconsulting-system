@@ -22,6 +22,8 @@ x-env: &app-env
   TZ: Europe/Skopje
   # the office brand of this server (packages/core/src/brand.ts); empty = WISE CONSULTING
   APP_DOMAIN: ${DOMAIN}
+  # 💬 the public website host(s): the WhatsApp webhook address shown on /whatsapp (Caddy: /api/whatsapp)
+  SITE_ADDRS: ${SITE_ADDRS:-}
   BRAND_NAME: ${BRAND_NAME:-}
   BRAND_SHORT: ${BRAND_SHORT:-}
   BRAND_LETTER: ${BRAND_LETTER:-}

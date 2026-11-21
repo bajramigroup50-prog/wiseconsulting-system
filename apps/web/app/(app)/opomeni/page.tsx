@@ -99,7 +99,8 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
                 <tr key={g.pid}>
                   <td><b>{p.name}</b><div className="mini">{p.phone} · {LV[g.lvlAuto]}</div></td>
                   <td className="n">{fc(g.over)}</td>
-                  <td><WaAllRow pid={g.pid} lvl={g.lvlAuto} href={`https://wa.me/${waPhone(p.phone)}?text=${encodeURIComponent(X.body)}`} viber={`viber://forward?text=${encodeURIComponent(X.body)}`} /></td>
+                  <td><WaAllRow pid={g.pid} lvl={g.lvlAuto} href={`https://wa.me/${waPhone(p.phone)}?text=${encodeURIComponent(X.body)}`} viber={`viber://forward?text=${encodeURIComponent(X.body)}`}
+                    wa={{ phone: waPhone(p.phone), text: X.body, firmId: firm.id, vars: { firma: firm.name, ime: p.name, iznos: fc(g.over) + ' ден.', broj: g.rows.map((r) => r.inv.number).join(', ').slice(0, 200) } }} /></td>
                 </tr>
               );
             })}
@@ -131,7 +132,8 @@ export default async function OpomeniPage({ searchParams }: { searchParams: Prom
                 ))}
               </tbody>
             </table></div>
-            {g.over > 0 && <GroupActions pid={g.pid} lvlAuto={g.lvlAuto} email={p.email ?? ''} phone={waPhone(p.phone)} texts={texts} canMail={write} only={only ? only.join(',') : null} />}
+            {g.over > 0 && <GroupActions pid={g.pid} lvlAuto={g.lvlAuto} email={p.email ?? ''} phone={waPhone(p.phone)} texts={texts} canMail={write} only={only ? only.join(',') : null}
+              firmId={firm.id} vars={{ firma: firm.name, ime: p.name, iznos: fc(g.over) + ' ден.', broj: g.rows.map((r) => r.inv.number).join(', ').slice(0, 200) }} />}
           </div>
         );
       }) : <div className="card empty">✓ Нема достасани неплатени фактури.</div>}
