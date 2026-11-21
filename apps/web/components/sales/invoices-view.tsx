@@ -384,11 +384,11 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   // to the panel without side scrolling; numbers, dates and amounts are never cut (the columns Helix has but WISE keeps
   // no data for – Терк 3, Валидност до, Аларм за гр.план, Испеч. факт., Фискална… – are left out)
   const HXC: [string, number, string?, string?][] = [
-    ['*', 14, 'Тековен ред ▸ / означени *'], ['', 20], ['Број', 70], ['Налог', 38], ['По документ', 52], ['Комитент', 0], ['Прод ав.', 26, 'Продажно место'], ['Во маг.', 24, 'Магацин'],
-    ['Датум', 72], ['Валута', 72], ['Терк', 26, 'Терк (шема) за книжење'], ['Износ од ставки', 82, undefined, 'n'], ['Напл. со аванс', 60, 'Наплатено со аванс', 'n'],
-    ['За наплата', 82, undefined, 'n'], ['Напла­тено', 78, 'Наплатено', 'n'], ['Ком. шиф.', 34, 'Шифра на комитентот'], ['е-Ф.', 24, 'Извезено за е-фактура (UBL)'], ['З', 16, 'Затворена: Н / Д'],
-    ['Рег.', 28, 'Регистрација'], ['Тип калк.', 42, 'Тип калкулација (завршна / авансна)'], ['Ал.', 20, 'Аларм: неплатена по рокот'], ['Тип', 40, 'Тип калк.: стока / услуги'], ['Пр.', 20, 'Приоритет'],
-    ['Статус', 52], ['', 28],
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['', 20], ['Број', 70], ['Налог', 44], ['По документ', 62], ['Комитент', 200], ['Прод. ав.', 44, 'Продажно место'], ['Во маг.', 36, 'Магацин'],
+    ['Датум', 72], ['Валута', 72], ['Терк', 36, 'Терк (шема) за книжење'], ['Износ од ставки', 82, undefined, 'n'], ['Нап. со аванс', 60, 'Наплатено со аванс', 'n'],
+    ['За наплата', 82, undefined, 'n'], ['Наплатено', 78, undefined, 'n'], ['Ком. шиф.', 38, 'Шифра на комитентот'], ['е-Ф.', 34, 'Извезено за е-фактура (UBL)'], ['З', 16, 'Затворена: Н / Д'],
+    ['Рег.', 34, 'Регистрација'], ['Тип калк.', 46, 'Тип калкулација (завршна / авансна)'], ['Ал.', 28, 'Аларм: неплатена по рокот'], ['Тип', 30, 'Тип калк.: стока / услуги'], ['Пр.', 28, 'Приоритет'],
+    ['Статус', 54], ['', 28],
   ];
   const hxView = hx ? (
     <div className="hx-list">
@@ -433,7 +433,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
 
   return (
     <>
-      <Hd t={DT[dt].list} sub={String(year)}>
+      <div className={hx ? 'hx-hd' : undefined}><Hd t={DT[dt].list} sub={String(year)}>
         {!hx && dt === 'invoice' && write && <Link className="btn" href="/skan?k=sale" title="PDF или слики од фактури што клиентот сам ги издал – програмот ги чита и ги внесува">📷 Скенирај фактури (PDF)</Link>}
         {!hx && dt === 'invoice' && write && <Link className="btn" href="/uvoz?t=invoices&back=izlez">Увоз од Excel</Link>}
         {!hx && dt === 'invoice' && settingsOk && <Link className="btn" href={sp.style !== undefined ? view : view + '?style'}>Изглед на фактура…</Link>}
@@ -441,7 +441,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
           ...list.map(({ i, p }) => [i.number, J.get(i.id) ?? '', dmy(i.date), dmy(i.due), p?.name ?? '', p?.code ?? '', Number(i.base), Number(i.vat), Number(i.total), i.currency === 'MKD' ? '' : `${i.currency} ${i.fx}`])]} />}
         {!hx && write && dt === 'invoice' && <Link className="btn" href="/izlez?nov&prod=1" title="Нарачка по мерка: главен производ, калкулација на производство, налог за производство">🏭 Нова фактура од производство</Link>}
         {!hx && write && <Link className="btn pri" href={view + '?nov'}>+ {DT[dt].nova}</Link>}
-      </Hd>
+      </Hd></div>
       {dt === 'invoice' && write && !hx && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
         label={<><b>Прочитај излезна фактура од PDF</b> — повлечете ја фактурата (PDF, JPG, PNG) тука или кликнете. Програмот ги чита купувачот, бројот, датумите и ставките и ја отвора фактурата за проверка.</>} />}
       {sp.saved && <div className="callout good">Документот е зачуван. <Link href={`/print/doc/${sp.saved}`} target="_blank">👁 Преглед / печатење</Link>

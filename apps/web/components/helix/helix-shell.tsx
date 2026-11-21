@@ -29,14 +29,17 @@ export const HELIX_CSS = `
 .hx-list .hx-firm{font-weight:800;font-size:20px;letter-spacing:.2px}
 .hx-list table.hx-t{table-layout:fixed;width:100%;font-size:12px}
 .hx-list table.hx-t th,.hx-list table.hx-t td,.hx-list table.hx-t.dense td,.hx-list table.hx-t.dense th{font-size:11.5px;padding:2px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hx-list table.hx-t thead th,.hx-list table.hx-t.dense thead th{white-space:normal;line-height:1.1;vertical-align:bottom;font-size:10.5px;overflow-wrap:break-word;hyphens:auto;text-overflow:clip}
+.hx-list table.hx-t thead th,.hx-list table.hx-t.dense thead th{white-space:normal;line-height:1.15;vertical-align:bottom;font-size:10.5px;text-transform:none;letter-spacing:0;word-break:normal;overflow-wrap:normal;hyphens:manual;text-overflow:clip}
 .hx-list table.hx-t td.hx-a{overflow:visible}
 .hx-list table.hx-t td .pill{font-size:10.5px;padding:0 4px}
 .hx-list table.hx-t td .btn.sm{padding:1px 5px;font-size:11px}
 .hx-list .hx-act{position:relative;display:inline-block}
 .hx-list .hx-act>summary{list-style:none;cursor:pointer}
 .hx-list .hx-act>div{position:absolute;right:0;z-index:25;background:var(--surface,#fff);border:1px solid var(--line,#ddd);border-radius:6px;padding:4px;display:grid;gap:3px;min-width:170px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
-.hx-list .tw{overflow-x:hidden}
+.hx-list .tw{overflow-x:auto}
+.hx-list .hx-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
+.hx-hd .hd{margin:0 0 2px;padding:0;min-height:0}
+.hx-hd .hd h1{font-size:15px;margin:0;line-height:1.3}
 .hx-list table.hx-t tbody tr[aria-selected=true]{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft,rgba(31,94,255,.08))}
 .hx-list table.hx-t tbody tr.hx-marked{background:var(--warn-bg,#fff7e0)}
 .hx-list table.hx-t td.hx-mk{width:16px;font-weight:700;text-align:center;color:var(--accent)}
@@ -178,8 +181,8 @@ export function HelixShell({ tableId, groups, menu, bottom, wh, exitHref, filter
           </select>
         </div>
       )}
-      <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <div className="hx-row">
+        <div style={{ minWidth: 0 }}>{children}</div>
         <aside className="card hx-panel noprint" aria-label="Акции на прегледот">
           {groups.map((g, gi) => g.title ? (
             <fieldset key={gi}><legend>{g.title}</legend>{g.items.map((b) => B(b))}</fieldset>

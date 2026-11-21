@@ -174,10 +174,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const LOCS = await locationOptions(firm.id);
   // the columns of the Helix list with their share of the width (fits next to the panel, no side scrolling)
   const VXC: [string, number, string?, string?][] = [
-    ['*', 14, 'Тековен ред ▸ / означени *'], ['☑', 20], ['Број', 44], ['Налог', 38], ['По документ', 64], ['Комитент', 0], ['Од м.', 26, 'Од магацин (шифра)'], ['Од магацин', 50], ['Од пр.', 26, 'Од продавница (шифра)'], ['Од прод.', 40, 'Од продавница'],
-    ['Датум', 72], ['Валута', 72], ['Д/У', 22, 'Домашна / Увозна'], ['Терк', 26], ['За наплата', 82, undefined, 'n'], ['Напла­тено', 78, 'Наплатено', 'n'], ['За напл. (дев.)', 66, 'За наплата (девизи)', 'n'],
-    ['Напл. (дев.)', 62, 'Наплатено (девизи)', 'n'], ['Ком. шиф.', 36, 'Шифра на комитентот'], ['Увоз', 40, 'Врска за увоз (ЕЦД)'], ['Закл.', 26, 'Заклучен (во заклучен период)'],
-    ['Дат. фак.', 72, 'Датум на фактура'], ['Вид', 56], ['', 28],
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['☑', 20], ['Број', 44], ['Налог', 44], ['По документ', 62], ['Комитент', 200], ['Од м.', 30, 'Од магацин (шифра)'], ['Од магацин', 58], ['Од пр.', 30, 'Од продавница (шифра)'], ['Од прод.', 46, 'Од продавница'],
+    ['Датум', 72], ['Валута', 72], ['Д/У', 28, 'Домашна / Увозна'], ['Терк', 36], ['За наплата', 82, undefined, 'n'], ['Наплатено', 78, undefined, 'n'], ['За напл. (дев.)', 70, 'За наплата (девизи)', 'n'],
+    ['Напл. (дев.)', 66, 'Наплатено (девизи)', 'n'], ['Ком. шиф.', 38, 'Шифра на комитентот'], ['Увоз', 40, 'Врска за увоз (ЕЦД)'], ['Закл.', 42, 'Заклучен (во заклучен период)'],
+    ['Дат. фак.', 72, 'Датум на фактура'], ['Вид', 60], ['', 28],
   ];
   const LOC = new Map(LOCS.map((l) => [l.id, l]));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
@@ -217,9 +217,9 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
 
   return (
     <>
-      <Hd t="Влезни фактури" sub={String(year)}>
+      <div className="hx-hd"><Hd t="Влезни фактури" sub={String(year)}>
         {write && <KalkNewKeys data={await kalkDialogData(firm.id, year)} today={dflt} />}
-      </Hd>
+      </Hd></div>
       {noName > 0 && <div className="callout warn" id="anBtn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       {sp.saved && <div className="callout good">Влезната фактура е зачувана и прокнижена.{J.get(sp.saved) && <> Налог бр. <Link href={`/nalozi?n=${encodeURIComponent(J.get(sp.saved)!)}`}>{J.get(sp.saved)}</Link>.</>} {sp.w && sp.w.split(' | ').map((w, k) => <span key={k}><br />⚠ {w}</span>)}</div>}
       {sp.px !== undefined && write && <PxImport locations={locs} partners={P} items={I} vatFirm={firm.vatRegistered} konto={{ warehouse: schemeValue(await firmPostingContext(db(), firm), 'stock'), store: schemeValue(await firmPostingContext(db(), firm), 'retailStock') }} closeHref="/vlez" imp0={sp.px === 'imp'} />}
