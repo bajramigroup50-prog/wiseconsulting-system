@@ -116,6 +116,15 @@ def src_of(label, sec):
         if re.search(re_, l): return s_
     return ''
 
+DPI = 200  # print quality: the page is printed on A4 from this image
+
+def save_page(pg, out):
+    """The page as a JPG for printing: 200 dpi, grey when the page has no real colour (smaller, sharper text)."""
+    img = pg.render(scale=DPI / 72).to_pil().convert('RGB')
+    small = img.resize((80, 110))
+    colour = max(max(p) - min(p) for p in small.getdata()) > 40
+    (img if colour else img.convert('L')).save(out, quality=80, optimize=True, progressive=True)
+
 def render(pdf, fid, pages):
     doc = pypdfium2.PdfDocument(pdf)
     dims = []
@@ -123,10 +132,7 @@ def render(pdf, fid, pages):
         pg = doc[i]
         w, h = pg.get_size()
         sc = W / w
-        img = pg.render(scale=sc * 1.4).to_pil()  # sharper image, shown at 100 % width
-        img = img.convert('RGB')
-        out = os.path.join(ROOT, 'apps', 'web', 'public', 'forms', f'{fid}_{i}.jpg')
-        img.save(out, quality=60, optimize=True, progressive=True)
+        save_page(pg, os.path.join(ROOT, 'apps', 'web', 'public', 'forms', f'{fid}_{i}.jpg'))
         dims.append({'W': W, 'H': round(h * sc)})
     return dims
 
@@ -288,8 +294,7 @@ def render_pages(pdf, fid, pages):
         pg = doc[i]
         w, h = pg.get_size()
         sc = W / w
-        img = pg.render(scale=sc * 1.4).to_pil().convert('RGB')
-        img.save(os.path.join(ROOT, 'apps', 'web', 'public', 'forms', f'{fid}_{n}.jpg'), quality=60, optimize=True, progressive=True)
+        save_page(pg, os.path.join(ROOT, 'apps', 'web', 'public', 'forms', f'{fid}_{n}.jpg'))
         dims.append({'W': W, 'H': round(h * sc)})
     return dims
 
