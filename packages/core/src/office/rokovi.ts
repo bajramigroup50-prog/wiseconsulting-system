@@ -40,6 +40,8 @@ export const ROK_TYPES = {
   kdog: { n: 'Договор за сметководствени услуги', link: 'kdogovori', verified: true },
   firm: { n: 'Рок на фирмата', link: 'dosie', verified: true },
   inst: { n: 'Барање / рок од институција', link: 'institucii', verified: true },
+  donids: { n: 'УЈП-ИДС/ПР (примена донација)', link: 'donacii', verified: true },
+  npoReg: { n: 'Регистар на членови (ажурирање)', link: 'clenovi', verified: true },
 } as const;
 export type RokType = keyof typeof ROK_TYPES;
 export const ROK_TYPE_IDS = Object.keys(ROK_TYPES) as RokType[];
@@ -59,6 +61,8 @@ export const ROK_SRC: Partial<Record<RokType, string>> = {
   dzs: 'За проверка: рокот не е потврден од службен извор.',
   m1: 'За проверка: пријавата се поднесува пред почетокот на работата.',
   m2: 'За проверка: одјавата се поднесува при престанок на работниот однос.',
+  donids: 'Закон за донации и спонзорства во јавните дејности, чл. 19: извештајот УЈП-ИДС/ПР се доставува во рок од 30 дена од исполнувањето на договорот.',
+  npoReg: 'Закон за здруженија и фондации: регистарот на членови и на членовите на органите се ажурира најмалку на секои 2 години.',
 };
 
 export interface RokEmployee { id: string; name: string; start: string | null; end: string | null; m1Date: string | null }
@@ -83,6 +87,10 @@ export interface RokFirm {
   manual?: readonly RokManual[];
   /** Deadlines of the institutions' requests / decisions (`inst_items`). */
   inst?: readonly RokInst[];
+  /** УЈП-ИДС/ПР of received donations (due = fulfilment + 30 days, `done` = submitted). */
+  donIds?: readonly RokInst[];
+  /** Associations: date by which the members register must be updated again. */
+  npoReg?: string | null;
 }
 
 export interface Rok {
@@ -117,7 +125,7 @@ export const rokMonthName = (ym: string): string => `${MON_MK[Number(ym.slice(5,
 function mk(f: RokFirm, type: RokType, period: string, legal: string, title: string, extra: Partial<Rok> = {}): Rok {
   const T = ROK_TYPES[type];
   // statutory dates move to the next working day; documents / contracts / agreed dates stay as entered
-  const roll = !['doc', 'kdog', 'firm', 'inst', 'm1', 'm2'].includes(type);
+  const roll = !['doc', 'kdog', 'firm', 'inst', 'm1', 'm2', 'npoReg'].includes(type);
   return { key: `${type}:${period}`, firmId: f.id, type, title, period, due: roll ? rollToWorkday(legal) : legal, legal, link: T.link, verified: T.verified, ...extra };
 }
 
@@ -166,6 +174,8 @@ export function rokGenerate(f: RokFirm, from: string, to: string): Rok[] {
   if (f.contract?.end) push(mk(f, 'kdog', f.contract.no || f.contract.end, f.contract.end, `Истекува договорот за сметководствени услуги ${f.contract.no}`.trim(), { key: `kdog:${f.contract.no || f.contract.end}` }));
   for (const d of f.manual ?? []) push(mk(f, 'firm', d.id, d.due, d.title, { key: `firm:${d.id}`, done: d.done, note: d.note ?? undefined }));
   for (const d of f.inst ?? []) push(mk(f, 'inst', d.id, d.due, d.title, { key: `inst:${d.id}`, done: d.done }));
+  for (const d of f.donIds ?? []) push(mk(f, 'donids', d.id, d.due, d.title, { key: `donids:${d.id}`, done: d.done }));
+  if (f.npoReg) push(mk(f, 'npoReg', f.npoReg, f.npoReg, 'Ажурирање на регистарот на членови и органи (на секои 2 години)'));
   return R.sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title));
 }
 

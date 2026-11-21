@@ -27,9 +27,10 @@ import { realFirmSql, realUserSql } from './demo/filters';
 import { loadPayScheme } from './payroll';
 import { firmEntity } from './yearend';
 import { instDeadlineRows } from './institutions';
+import { donIdsDeadlineRows, npoRegDue } from './npo';
 import { instOpen, instTitle } from '@wise/core/office/institutions';
 import {
-  annualStatements, appSettings, bankLines, bankStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
+  annualStatements, appSettings, bankLines, donations, bankStatements, dossierDocs, employees, firmDeadlines, firms, mpinAcks, reminders, rokovi, serviceContracts, userFirms, users, vatPeriods,
 } from './schema/index';
 
 export interface RokSyncResult { firms: number; rows: number; autoDone: number; autoUndone: number; gone: number }
@@ -67,6 +68,7 @@ export async function loadRokFirms(db: Tx, o: { from: string; to: string; firmId
     db.select().from(firmDeadlines).where(and(inArray(firmDeadlines.firmId, ids), gte(firmDeadlines.due, o.from), lte(firmDeadlines.due, o.to))),
   ]);
   const I = await instDeadlineRows(db, { firmIds: ids, from: o.from, to: o.to });
+  const [DI, NR] = await Promise.all([donIdsDeadlineRows(db, { firmIds: ids, from: o.from, to: o.to }), npoRegDue(db, ids)]);
   const O = await getOfficeProfile(db);
   // the real office firm (real firms only) and the 🎭 demo office firm: neither has a contract with itself
   const offs = new Set([officeFirmOf(F, O)?.id, officeFirmOf(F, null, { demo: true })?.id].filter(Boolean));
@@ -82,6 +84,8 @@ export async function loadRokFirms(db: Tx, o: { from: string; to: string; firmId
       contract: k && !offs.has(f.id) ? { no: k.number, end: k.end! } : null,
       manual: M.filter((m) => m.firmId === f.id).map((m) => ({ id: m.id, title: m.title, due: m.due, done: m.done, note: m.note })),
       inst: I.filter((i) => i.firmId === f.id && i.due).map((i) => ({ id: i.id, title: instTitle(i), due: i.due!, done: !instOpen(i.status) })),
+      donIds: DI.filter((d) => d.firmId === f.id).map(({ id, title, due, done }) => ({ id, title, due, done })),
+      npoReg: NR.get(f.id) ?? null,
     };
   });
 }
@@ -176,8 +180,8 @@ export async function syncRokovi(db: Tx, o: { from: string; to: string; firmIds?
         // the payment evidence of an automatic „done“ stays (re-checked below); so does the clean-up note (its undo finds the rows by it)
         note: sql`case when ${rokovi.done} and ${rokovi.auto} and left(coalesce(${rokovi.note}, ''), ${ROK_PAID_NOTE.length}) = ${ROK_PAID_NOTE} then ${rokovi.note}
           when ${rokovi.done} and not ${rokovi.auto} and ${rokovi.note} = ${ROK_CLEAN_NOTE} then ${rokovi.note} else excluded.note end`,
-        // a manual firm deadline keeps its done flag in `firm_deadlines` (the dossier), an institution's item in `inst_items`; everything else keeps the stored status
-        done: sql`case when ${rokovi.type} in ('firm', 'inst') then excluded.done else ${rokovi.done} end`,
+        // a manual firm deadline keeps its done flag in `firm_deadlines` (the dossier), an institution's item in `inst_items`, the УЈП-ИДС/ПР in `donations.ids_filed`; everything else keeps the stored status
+        done: sql`case when ${rokovi.type} in ('firm', 'inst', 'donids') then excluded.done else ${rokovi.done} end`,
       },
     });
   }
@@ -224,6 +228,8 @@ export async function markRok(tx: Tx, a: { id: string; done: boolean; userId: st
   if (!r || !a.firmAllowed(r.firmId)) throw new OfficeError('Рокот не постои.');
   await tx.update(rokovi).set({ done: a.done, auto: false, doneAt: a.done ? new Date() : null, doneBy: a.done ? a.userId : null }).where(eq(rokovi.id, r.id));
   if (r.type === 'firm') await tx.update(firmDeadlines).set({ done: a.done }).where(and(eq(firmDeadlines.id, r.key.slice(5)), eq(firmDeadlines.firmId, r.firmId)));
+  // УЈП-ИДС/ПР: „✓ Направено“ = submitted today (the donation keeps the date); undo clears it
+  if (r.type === 'donids') await tx.update(donations).set({ idsFiled: a.done ? todaySkopje() : null }).where(and(eq(donations.id, r.key.slice(7)), eq(donations.firmId, r.firmId)));
   await audit(tx, { userId: a.userId, firmId: r.firmId, action: a.done ? 'rokDone' : 'rokOpen', entityType: 'rok', entityId: r.id, data: { key: r.key, title: r.title, due: r.due } });
 }
 

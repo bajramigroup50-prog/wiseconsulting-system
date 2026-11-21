@@ -127,7 +127,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // industries
   'hotel', 'hotelSoby', 'hotelKniga', 'servis', 'vozila', 'delovi', 'potsetnici', 'rent', 'flota', 'rentIzv', 'gradba', 'gradbaIzv', 'tura', 'turaIzv',
   'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni', 'porachki', 'nabavki', 'dopolnuvanje', 'pnalozi', 'pnGorivo',
-  'lojalnost', 'restoran', 'kujna', 'obroci',
+  'lojalnost', 'restoran', 'kujna', 'obroci', 'clenovi',
   // analyses, fixed assets, interest
   'klDash', 'analizi', 'izvestai', 'os', 'kamati',
   // codebooks of the firm (office-wide rows are read-only for demo, `sifrarnik/actions.ts`)
@@ -296,7 +296,7 @@ const PRINT_VIEWS: Readonly<Record<string, readonly string[]>> = {
 /** `/print/fin/<doc>` (`app/print/fin/[doc]`). */
 const FIN_PRINT: Readonly<Record<string, readonly string[]>> = {
   kartici: ['kartici'], sinteticka: ['kartici'], potvrda: ['kartici'], ios: ['kartici', 'analitika', 'akart'], analitika: ['analitika'], pkartica: ['analitika'],
-  poobjekti: ['poobjekti'], pdd: ['pdd'], pozajmica: ['pozajmici'], donacija: ['donacii'], donPotvrda: ['donacii'],
+  poobjekti: ['poobjekti'], pdd: ['pdd'], pozajmica: ['pozajmici'], donacija: ['donacii'], donPotvrda: ['donacii'], idsPr: ['donacii'],
 };
 /** API endpoints of a restricted colleague: the shared ones, the firm list (picker), the UBL e-invoice, the device check. */
 const BOOK_API: readonly string[] = [...SHARED_API, '/api/firms', '/api/ubl', '/api/device-check'];

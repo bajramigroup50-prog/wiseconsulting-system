@@ -8,7 +8,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import { DON_KIND_LBL, donEntries, donKonto, nextDonNo, type DonKind, type DonRole } from '@wise/core/donations';
-import { audit, bankLines, donations, DONATION_FILE_ENTITY, fileLinks, files, partners, postJournal, setLineKonto, unpostSource } from '@wise/db';
+import { audit, bankLines, donations, DONATION_FILE_ENTITY, fileLinks, files, IndustryError, partners, postJournal, savePublicInterest, setDonationIds, setLineKonto, unpostSource } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
 import { db } from '@/lib/db';
 import { isDate } from '@/lib/finance';
@@ -190,6 +190,25 @@ export async function attachDonSignedAction(_p: ActionState, f: FormData): Promi
     return { ok: 'Потпишаниот документ е прикачен.' };
   } catch (e) {
     if (e instanceof Error && e.message === NF) return { error: e.message };
+    return actionError(e);
+  }
+}
+
+/** УЈП-ИДС/ПР: fulfilment date of the contract (the 30-day deadline runs from it) and the date it was submitted. */
+export async function saveIdsAction(_p: ActionState, f: FormData): Promise<ActionState> {
+  try {
+    const { u, firm } = await firmAction('donSave');
+    const fd = s(f, 'fulfilledDate'), fl = s(f, 'idsFiled');
+    if ((fd && !isDate(fd)) || (fl && !isDate(fl))) return { error: 'Невалиден датум.' };
+    await db().transaction(async (tx) => {
+      await setDonationIds(tx, { firmId: firm.id, userId: u.id }, s(f, 'id'), { fulfilledDate: fd || null, idsFiled: fl || null });
+      if (f.has('piNo')) await savePublicInterest(tx, { firmId: firm.id, userId: u.id }, { no: s(f, 'piNo'), date: s(f, 'piDate') || null });
+    });
+    revalidatePath('/donacii');
+    revalidatePath('/rokovi');
+    return { ok: fl ? 'Извештајот УЈП-ИДС/ПР е означен како поднесен.' : 'Зачувано.' };
+  } catch (e) {
+    if (e instanceof IndustryError) return { error: e.message };
     return actionError(e);
   }
 }

@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 import { Retail, stock } from '@wise/core';
-import { partners, productionOrders, purchases, purchaseStockLines, stockLots } from '@wise/db';
+import { donationReceipts, partners, productionOrders, purchases, purchaseStockLines, stockLots } from '@wise/db';
 import { canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { settingsOf } from '@/lib/retail';
@@ -43,9 +43,12 @@ export default async function LotoviPage({ searchParams }: { searchParams: Promi
     const pur = srcIds.length ? await db().select({ id: purchases.id, number: purchases.number, date: purchases.date, pn: partners.name }).from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId)).where(inArray(purchases.id, srcIds)) : [];
     const prIds = [...new Set(lots.filter((l) => l.sourceType === 'production').map((l) => l.sourceId))];
     const pr = prIds.length ? await db().select({ id: productionOrders.id, date: productionOrders.date }).from(productionOrders).where(inArray(productionOrders.id, prIds)) : [];
+    // lots of the donations in kind (🍲 кујна – приемници на донации)
+    const drIds = [...new Set(lots.filter((l) => l.sourceType === 'don_receipt').map((l) => l.sourceId))];
+    const dr = drIds.length ? await db().select({ id: donationReceipts.id, number: donationReceipts.number, date: donationReceipts.date, pn: partners.name }).from(donationReceipts).leftJoin(partners, eq(partners.id, donationReceipts.partnerId)).where(inArray(donationReceipts.id, drIds)) : [];
     const ins = lots.map((l) => {
-      const p = pur.find((x) => x.id === l.sourceId), o = pr.find((x) => x.id === l.sourceId);
-      return { itemId: l.itemId, qty: Number(l.qty), lot: l.lot ?? '', exp: l.expiry, date: p?.date ?? o?.date ?? '', src: p ? 'Влез ' + p.number : 'Производство', pn: p?.pn ?? '' };
+      const p = pur.find((x) => x.id === l.sourceId), o = pr.find((x) => x.id === l.sourceId), g = dr.find((x) => x.id === l.sourceId);
+      return { itemId: l.itemId, qty: Number(l.qty), lot: l.lot ?? '', exp: l.expiry, date: p?.date ?? o?.date ?? g?.date ?? '', src: p ? 'Влез ' + p.number : g ? 'Донација ' + g.number : 'Производство', pn: p?.pn ?? g?.pn ?? '' };
     });
     const B = [...new Set(ins.map((l) => l.itemId))].flatMap((id) => Retail.lotBalance(ins.filter((l) => l.itemId === id), stock(L.ctx, id).qty));
     const q = (sp.q ?? '').toLowerCase().trim();

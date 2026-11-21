@@ -74,6 +74,7 @@ export const KL_SEC: readonly KlSection[] = [
   // compliance module: the client sees only the inspections the office marked „видливо за клиентот“
   ['kontroli', 'Инспекциски контроли и решенија', '🕵', 'kontroli', [], 'Записници, решенија, рокови и мерки – само ако канцеларијата го овозможи'],
   ['obr', 'Корисници и оброци', '🍲', 'obroci', ['npo'], 'Дневна листа: кој дошол и кој оброк го зел'],
+  ['clen', 'Регистар на членови', '🧑‍🤝‍🧑', 'clenovi', ['npo'], 'Членови и органи на здружението (ажурирање на 2 години)'],
 ];
 
 export const KL_BASEC: readonly string[] = ['docs', 'send', 'kdfi', 'metg'];

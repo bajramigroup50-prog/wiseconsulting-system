@@ -161,7 +161,7 @@ export const promotions = pgTable('promotions', {
 export const stockLots = pgTable('stock_lots', {
   id: uuid('id').primaryKey().defaultRandom(),
   firmId: firmId(),
-  sourceType: text('source_type').$type<'purchase' | 'production'>().notNull(),
+  sourceType: text('source_type').$type<'purchase' | 'production' | 'don_receipt'>().notNull(),
   sourceId: uuid('source_id').notNull(),
   lineNo: integer('line_no').notNull().default(0),
   itemId: uuid('item_id').notNull().references(() => items.id, { onDelete: 'cascade' }),
@@ -173,7 +173,7 @@ export const stockLots = pgTable('stock_lots', {
 }, (t) => [
   uniqueIndex('stock_lots_source_uq').on(t.firmId, t.sourceType, t.sourceId, t.lineNo),
   index('stock_lots_item_idx').on(t.firmId, t.itemId),
-  check('stock_lots_source_chk', sql`${t.sourceType} in ('purchase','production')`),
+  check('stock_lots_source_chk', sql`${t.sourceType} in ('purchase','production','don_receipt')`),
 ]);
 
 /* ---------------- write-off of materials without a BOM ---------------- */

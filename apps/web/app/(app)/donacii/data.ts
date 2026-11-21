@@ -3,7 +3,7 @@ import 'server-only';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { donChart, donMovesFromBank, type DonMove } from '@wise/core/donations';
 import { yeEntityOf } from '@wise/core';
-import { bankAccounts, bankLines, bankStatements, donations, effectiveChart, fileLinks, DONATION_FILE_ENTITY, type Donation, type Firm } from '@wise/db';
+import { bankAccounts, bankLines, bankStatements, donationReceipts, donations, effectiveChart, fileLinks, DONATION_FILE_ENTITY, type Donation, type Firm } from '@wise/db';
 import { db } from '@/lib/db';
 
 export type LinkedMove = { id: string; date: string; amt: number; src: string; konto: string | null; partnerId: string | null; desc: string };
@@ -37,10 +37,14 @@ export async function donData(firm: Firm, year: number) {
   const files = D.length ? await db().select({ id: fileLinks.entityId, fileId: fileLinks.fileId }).from(fileLinks).where(and(eq(fileLinks.entityType, DONATION_FILE_ENTITY), inArray(fileLinks.entityId, D.map((d) => d.id)))) : [];
   const fileOf = new Map<string, string[]>();
   for (const f of files) fileOf.set(f.id, [...(fileOf.get(f.id) ?? []), f.fileId]);
+  // goods of a donation in kind received through the kitchen приемници (🍲 /obroci)
+  const RC = D.length ? await db().select({ id: donationReceipts.donationId, t: sql<string>`sum(${donationReceipts.total})` }).from(donationReceipts)
+    .where(and(eq(donationReceipts.firmId, firm.id), inArray(donationReceipts.donationId, D.map((d) => d.id)))).groupBy(donationReceipts.donationId) : [];
+  const recOf = new Map(RC.filter((r) => r.id).map((r) => [r.id!, Number(r.t)]));
   const mkd = A.find((a) => a.cur === 'MKD') ?? A[0];
-  return { list: D, flows, unlinked, lineOf, fileOf, npo, chartMode, codes, kName, firmAcct: mkd?.account ?? '', bankKonto: mkd?.konto ?? (chartMode === 'npo' ? '100' : '1000') };
+  return { list: D, recOf, flows, unlinked, lineOf, fileOf, npo, chartMode, codes, kName, firmAcct: mkd?.account ?? '', bankKonto: mkd?.konto ?? (chartMode === 'npo' ? '100' : '1000') };
 }
 
-/** Realised amount: the confirmation amount, else the booked in-kind value, else the linked statement lines. */
-export const realizedOf = (d: Pick<Donation, 'confAmount' | 'moveIds' | 'inKind' | 'journalId' | 'amount'>, lineOf: Map<string, LinkedMove>) =>
-  d.confAmount != null ? Number(d.confAmount) : d.inKind && d.journalId ? Number(d.amount) : d.moveIds.reduce((s, id) => s + (lineOf.get(id)?.amt ?? 0), 0);
+/** Realised amount: the confirmation amount, else the kitchen receipts of the goods, else the booked in-kind value, else the linked statement lines. */
+export const realizedOf = (d: Pick<Donation, 'id' | 'confAmount' | 'moveIds' | 'inKind' | 'journalId' | 'amount'>, lineOf: Map<string, LinkedMove>, recOf?: Map<string, number>) =>
+  d.confAmount != null ? Number(d.confAmount) : d.inKind && recOf?.get(d.id) ? recOf.get(d.id)! : d.inKind && d.journalId ? Number(d.amount) : d.moveIds.reduce((s, id) => s + (lineOf.get(id)?.amt ?? 0), 0);

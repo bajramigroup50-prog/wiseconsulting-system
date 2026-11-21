@@ -7,7 +7,8 @@
 import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
 import { DON_AREAS, DON_KIND_LBL, DON_LIMIT, donAssetKonto, donEntries, donKonto, donTotals, nextDonNo, type DonKind, type DonRole } from '@wise/core/donations';
-import { partners, type Donation } from '@wise/db';
+import { IDS_DAYS, IDS_STATE_LBL, idsDue, idsFulfilled, idsState } from '@wise/core/npo';
+import { listDonationReceipts, partners, type Donation } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
@@ -17,7 +18,7 @@ import { Hd } from '@/components/hd';
 import { NoFirm } from '@/components/no-firm';
 import { RowAction } from '@/components/row-action';
 import { UploadField } from '@/components/upload-field';
-import { attachDonSignedAction, bookDonationAction, deleteDonationAction, saveConfAction, saveDonationAction, unbookDonationAction } from './actions';
+import { attachDonSignedAction, bookDonationAction, deleteDonationAction, saveConfAction, saveDonationAction, saveIdsAction, unbookDonationAction } from './actions';
 import { DonationConfirmation, DonationContract } from './contract';
 import { donData, realizedOf } from './data';
 
@@ -45,8 +46,12 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
       number: nextDonNo(D.list.filter((x) => x.kind === kind && x.role === role).map((x) => ({ no: x.number, date: x.date })), date.slice(0, 4)),
       date, place: firm.city ?? null, amount: mv ? mv.amt.toFixed(2) : '', inKind: false, inKindDesc: null, purpose: null, area: null, counter: null, termDate: null,
       cash: false, signed: false, konto: mv?.konto || donKonto(kind, role, D.chartMode), moveIds: mv ? [mv.id] : [],
-      confNumber: null, confDate: null, confAmount: null, confNote: null, journalId: null, createdBy: null, createdAt: new Date(), updatedAt: new Date(),
+      confNumber: null, confDate: null, confAmount: null, confNote: null, journalId: null, fulfilledDate: null, idsFiled: null, createdBy: null, createdAt: new Date(), updatedAt: new Date(),
     };
+    const rec = ex ? await listDonationReceipts(db(), firm.id, { donationId: ex.id }) : [];
+    const recTot = rec.reduce((s, r) => s + Number(r.total), 0);
+    const pi = ((firm.settings ?? {}) as { npoPI?: { no?: string | null; date?: string | null } }).npoPI ?? {};
+    const ist = ex ? idsState(ex, td) : 'na';
     const lk = (id: string) => D.lineOf.get(id);
     // statement lines of the year in the same direction (and the ones already linked)
     const B = [
@@ -54,12 +59,12 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
       ...D.flows.filter((r) => r.role === E.role && !E.moveIds.includes(r.id) && (!E.partnerId || !r.partnerId || r.partnerId === E.partnerId) && !D.list.some((x) => x.id !== E.id && x.moveIds.includes(r.id))),
     ];
     const moves = E.moveIds.map((id) => lk(id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ date: x.date, amt: x.amt, src: x.src }));
-    const real = ex ? realizedOf(ex, D.lineOf) : 0;
+    const real = ex ? realizedOf(ex, D.lineOf, D.recOf) : 0;
     const partner = E.partnerId ? pm.get(E.partnerId) : undefined;
     const pdf = (doc: string) => `/print/fin/${doc}?id=${ex?.id}`;
     const konto = E.konto || donKonto(E.kind, E.role, D.chartMode, E.inKind);
     const assetDef = donAssetKonto(E.role, D.chartMode);
-    const prop = donEntries({ kind: E.kind, role: E.role, amount: Number(E.confAmount ?? E.amount) || 0, inKind: E.inKind, konto, bankKonto: D.bankKonto, assetKonto: assetDef, chart: D.chartMode });
+    const prop = donEntries({ kind: E.kind, role: E.role, amount: (E.inKind && recTot ? recTot : Number(E.confAmount ?? E.amount)) || 0, inKind: E.inKind, konto, bankKonto: D.bankKonto, assetKonto: assetDef, chart: D.chartMode });
     return (
       <>
         <Hd t={(ex ? DON_KIND_LBL[E.kind] + ' – договор ' : 'Нов договор – ' + DON_KIND_LBL[E.kind].toLowerCase() + ' ') + (E.number ?? '')} sub={E.role === 'received' ? '📥 фирмата е примател' : '📤 фирмата е донатор / спонзор'}>
@@ -67,6 +72,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
           {ex && <a className="btn" href={pdf('donacija')} target="_blank" rel="noopener">📄 Договор PDF</a>}
           {ex && <a className="btn" href={`/donacii/word?id=${ex.id}`}>Word</a>}
           {ex?.confDate && <a className="btn" href={pdf('donPotvrda')} target="_blank" rel="noopener">🧾 Потврда PDF</a>}
+          {ex && E.role === 'received' && <a className="btn" href={pdf('idsPr')} target="_blank" rel="noopener">📨 УЈП-ИДС/ПР</a>}
         </Hd>
         <ActionForm action={saveDonationAction} reset={false}>
           <input type="hidden" name="id" value={ex?.id ?? ''} />
@@ -123,6 +129,38 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
           </div>
         )}
 
+        {ex && E.role === 'received' && (
+          <div className="card">
+            <h2 style={{ margin: '0 0 6px' }}>📨 Извештај УЈП-ИДС/ПР {ist !== 'na' && <span className={'pill ' + (ist === 'filed' ? 'good' : ist === 'late' ? 'bad' : ist === 'soon' ? 'warn' : '')}>{IDS_STATE_LBL[ist]}</span>}</h2>
+            <p className="muted" style={{ fontSize: 12.5, margin: '0 0 6px' }}>
+              Примателот го доставува до УЈП во рок од {IDS_DAYS} дена од исполнувањето на договорот (чл. 19 од Законот за донации и спонзорства во јавните дејности).
+              {idsFulfilled(E) ? <> Исполнет на {dmy(idsFulfilled(E)!)} → рок до <b>{dmy(idsDue(E)!)}</b>.</> : ' Внесете кога е исполнет договорот (последна испорака / уплата); без тоа се зема датумот на потврдата.'}
+              {' '}Рокот е и во 📅 Календар на рокови.
+            </p>
+            <ActionForm action={saveIdsAction} reset={false}>
+              <input type="hidden" name="id" value={ex.id} />
+              <div className="form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 8 }}>
+                <label className="f">Договорот е исполнет на<input name="fulfilledDate" type="date" defaultValue={E.fulfilledDate ?? ''} placeholder={E.confDate ?? ''} /></label>
+                <label className="f">УЈП-ИДС/ПР поднесен на<input name="idsFiled" type="date" defaultValue={E.idsFiled ?? ''} /></label>
+                <label className="f" title="Прилог 2 на образецот – важи за сите донации на здружението">Решение на МП за јавен интерес бр.<input name="piNo" defaultValue={pi.no ?? ''} /></label>
+                <label className="f">од датум<input name="piDate" type="date" defaultValue={pi.date ?? ''} /></label>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                <a className="btn" href={pdf('idsPr')} target="_blank" rel="noopener">📄 Образец УЈП-ИДС/ПР (PDF)</a>
+                <button className="btn pri">Зачувај</button>
+              </div>
+            </ActionForm>
+            {E.inKind && (
+              <div style={{ marginTop: 8 }}>
+                <b style={{ fontSize: 13 }}>📥 Приемници на добрата ({rec.length}) · {fmt(recTot)} ден.</b>
+                {rec.map((r) => <span key={r.id} className="pill" style={{ marginLeft: 6 }}>{r.number} · {dmy(r.date)} · {fmt(r.total)}</span>)}
+                {' '}<Link className="btn sm" href={`/obroci?t=z&pr=new&nd=${ex.id}`}>+ Приемница (кујна)</Link>
+                {rec.some((r) => r.account) && <p className="mini">Добрата се прокнижени со приемниците (Д залиха / П приход од донации) – не книжете ги повторно со налог.</p>}
+              </div>
+            )}
+          </div>
+        )}
+
         {ex && (
           <div className="card">
             <h2 style={{ margin: '0 0 6px' }}>📒 Предлог за книжење</h2>
@@ -132,7 +170,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
               ))}</tbody></table>
             {!D.codes.has(konto) && ![...D.codes].some((c) => c.startsWith(konto)) && <p className="callout warn">⚠ Контото {konto} го нема во контниот план на фирмата – додадете го (Шифрарник → Конта) или сменете го во договорот.</p>}
             {E.inKind ? (
-              E.journalId
+              rec.some((r) => r.account) && !E.journalId ? <p><span className="pill good">✓ прокнижено преку {rec.filter((r) => r.account).length} приемници ({fmt(recTot)} ден.)</span></p> : E.journalId
                 ? <p className="row" style={{ gap: 8, alignItems: 'center' }}><span className="pill good">✓ прокнижено (налог)</span>{canDo(u, 'donBook', firm.id) && <RowAction label="↩ Избриши го налогот" confirm="Да се избрише налогот на донацијата во добра?" action={unbookDonationAction.bind(null, ex.id)} />}</p>
                 : canDo(u, 'donBook', firm.id) && (
                   <ActionForm action={bookDonationAction} reset={false}>
@@ -179,10 +217,11 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
   const fy = yAll ? null : /^\d{4}$/.test(sp.y ?? '') ? sp.y! : String(year);
   const rows = D.list.filter((d) => (!fy || d.date.startsWith(fy)) && (!sp.kind || d.kind === sp.kind) && (!sp.role || d.role === sp.role) && (!sp.p || d.partnerId === sp.p))
     .sort((a, b) => b.date.localeCompare(a.date));
-  const tot = donTotals(rows.map((d) => ({ id: d.id, kind: d.kind, role: d.role, partnerId: d.partnerId, partnerName: d.partnerId ? pm.get(d.partnerId)?.name ?? '' : d.partnerName, date: d.date, amount: Number(d.amount), realized: realizedOf(d, D.lineOf) })));
+  const tot = donTotals(rows.map((d) => ({ id: d.id, kind: d.kind, role: d.role, partnerId: d.partnerId, partnerName: d.partnerId ? pm.get(d.partnerId)?.name ?? '' : d.partnerName, date: d.date, amount: Number(d.amount), realized: realizedOf(d, D.lineOf, D.recOf) })));
   const years = [...new Set([String(year), ...D.list.map((d) => d.date.slice(0, 4))])].sort().reverse();
   const sum = (r: DonRole) => rows.filter((d) => d.role === r).reduce((s, d) => s + Number(d.amount), 0);
   const noConf = rows.filter((d) => d.role === 'received' && !d.confDate).length;
+  const idsOpen = D.list.filter((d) => ['open', 'soon', 'late'].includes(idsState(d, td))).length;
   const usedP = [...new Set(D.list.map((d) => d.partnerId).filter((x): x is string => !!x))].map((id) => pm.get(id)).filter((p): p is NonNullable<typeof p> => !!p);
   return (
     <>
@@ -199,7 +238,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
         <button className="btn">Филтрирај</button>
       </form>
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '6px 0' }}>
-        {([['📥 Примени (договорено)', fmt(sum('received'))], ['📤 Дадени (договорено)', fmt(sum('given'))], ['🧾 Примени без потврда', String(noConf)], ['⛔ Уплати без договор', String(D.unlinked.length)]] as const).map(([t, n]) => (
+        {([['📥 Примени (договорено)', fmt(sum('received'))], ['📤 Дадени (договорено)', fmt(sum('given'))], ['🧾 Примени без потврда', String(noConf)], ['⛔ Уплати без договор', String(D.unlinked.length)], ['📨 УЈП-ИДС/ПР за поднесување', String(idsOpen)]] as const).map(([t, n]) => (
           <div key={t} className="card" style={{ flex: 1, minWidth: 180, margin: 0 }}><div className="muted" style={{ fontSize: 12.5 }}>{t}</div><div style={{ fontSize: 22, fontWeight: 700 }}>{n}</div></div>
         ))}
       </div>
@@ -214,10 +253,10 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
         </details>
       )}
       <div className="card tw"><table className="dense">
-        <thead><tr><th>Бр.</th><th>Вид</th><th>Донатор → примател</th><th>Датум</th><th>Намена</th><th className="n">Износ</th><th className="n">Реализирано</th><th>Потврда</th><th>Договор</th><th /></tr></thead>
+        <thead><tr><th>Бр.</th><th>Вид</th><th>Донатор → примател</th><th>Датум</th><th>Намена</th><th className="n">Износ</th><th className="n">Реализирано</th><th>Потврда</th><th>УЈП-ИДС/ПР</th><th>Договор</th><th /></tr></thead>
         <tbody>{rows.length ? rows.map((d) => {
           const pn = d.partnerId ? pm.get(d.partnerId)?.name ?? '—' : d.partnerName ?? '—';
-          const real = realizedOf(d, D.lineOf);
+          const real = realizedOf(d, D.lineOf, D.recOf);
           return (
             <tr key={d.id}>
               <td>{d.number}</td>
@@ -226,6 +265,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
               <td>{dmy(d.date)}</td><td className="mini">{[d.purpose, d.area].filter(Boolean).join(' · ').slice(0, 60)}</td>
               <td className="n">{fmt(d.amount)}</td><td className="n">{real ? fmt(real) : '—'}</td>
               <td>{d.confDate ? <a href={`/print/fin/donPotvrda?id=${d.id}`} target="_blank" rel="noopener" className="pill good">✓ {d.confNumber}</a> : <span className="pill warn">нема</span>}</td>
+              <td>{(() => { const st = idsState(d, td); if (st === 'na') return ''; const due = idsDue(d); return <a href={`/print/fin/idsPr?id=${d.id}`} target="_blank" rel="noopener" className={'pill ' + (st === 'filed' ? 'good' : st === 'late' ? 'bad' : st === 'soon' ? 'warn' : '')} title={due ? `Рок: ${dmy(due)}` : 'Внесете кога е исполнет договорот'}>{st === 'filed' ? `✓ ${dmy(d.idsFiled!)}` : due ? `${IDS_STATE_LBL[st]} · до ${dmy(due)}` : IDS_STATE_LBL[st]}</a>; })()}</td>
               <td>{d.signed ? <span className="pill good">✓ потпишан</span> : <span className="pill warn">непотпишан</span>}{(D.fileOf.get(d.id) ?? []).map((f) => <a key={f} href={`/api/files/${f}`} target="_blank" rel="noopener" title="Прилог"> 📎</a>)}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {write && <Link className="btn sm" href={`/donacii?ed=${d.id}`}>✎</Link>}{' '}
@@ -235,7 +275,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
               </td>
             </tr>
           );
-        }) : <tr><td colSpan={10} className="muted">Нема договори за донации / спонзорства{fy ? ` во ${fy}` : ''}.</td></tr>}</tbody>
+        }) : <tr><td colSpan={11} className="muted">Нема договори за донации / спонзорства{fy ? ` во ${fy}` : ''}.</td></tr>}</tbody>
       </table></div>
       {tot.length > 0 && (
         <div className="card tw">

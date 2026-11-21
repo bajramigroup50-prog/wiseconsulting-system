@@ -39,7 +39,7 @@ export const INDUSTRY_MODULES: readonly IndustryModule[] = [
   // Legacy 14651 / 14690: fuel cards (`frGor`) and the transport invoices (`frFak`, v475) belong to the freight module.
   { k: 'frt', n: '🚛 Превоз за трети лица (тури, CMR, дневници, лиценци, картички за гориво)', v: ['frTuri', 'frFak', 'frDnev', 'frGor', 'frDok'], p: ['transport'] },
   // humanitarian NPOs (народна кујна): register of the families / persons and the daily list of who took which meal
-  { k: 'meals', n: '🍲 Корисници и оброци (хуманитарни здруженија, народна кујна)', v: ['obroci'], p: ['npo'] },
+  { k: 'meals', n: '🍲 Корисници и оброци (хуманитарни здруженија, народна кујна)', v: ['obroci', 'clenovi'], p: ['npo'] },
 ];
 
 export const MODULE_KEYS = INDUSTRY_MODULES.map((m) => m.k);

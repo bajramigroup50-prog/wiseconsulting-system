@@ -104,6 +104,10 @@ export const donations = pgTable('donations', {
   confNote: text('conf_note'),
   /** Nalog of an in-kind donation (`postJournal` sourceType `donation`). */
   journalId: uuid('journal_id'),
+  /** Contract fulfilled (last delivery / payment) — the УЈП-ИДС/ПР is due 30 days later (ЗДС чл. 19). */
+  fulfilledDate: date('fulfilled_date'),
+  /** УЈП-ИДС/ПР submitted. */
+  idsFiled: date('ids_filed'),
   createdBy: by('created_by'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

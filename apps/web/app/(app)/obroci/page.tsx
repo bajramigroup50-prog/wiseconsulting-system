@@ -7,7 +7,8 @@
  */
 import Link from 'next/link';
 import { costPerPortion, MEALS, monthSummary } from '@wise/core/meals';
-import { listBeneficiaries, mealLogsBetween, npoMovements } from '@wise/db';
+import { withoutConsent } from '@wise/core/npo';
+import { consentFiles, listBeneficiaries, listMembers, mealLogsBetween, npoMovements } from '@wise/db';
 import { db } from '@/lib/db';
 import { dmy, fmt } from '@/lib/fmt';
 import { industryPage, today } from '@/lib/industry';
@@ -15,8 +16,11 @@ import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
 import { PdfButton } from '@/components/pdf-button';
 import { XlsxButton } from '@/components/vp-tools';
-import { importBenefAction, saveBenefAction } from './actions';
+import { UploadField } from '@/components/upload-field';
+import { consentAction, importBenefAction, saveBenefAction } from './actions';
 import { DayList } from './day-list';
+import { ConsentDoc, ProcessingRecords } from './docs';
+import { KitchenReport, KitchenTab } from './kitchen';
 
 const T = 'Корисници и оброци';
 const isIso = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -37,12 +41,12 @@ function period(sp: { p?: string; m?: string; q?: string; od?: string; do?: stri
   return { from: `${my}-${String(mn).padStart(2, '0')}-01`, to: `${my}-${String(mn).padStart(2, '0')}-${lastDay(my, mn)}`, label: `${String(mn).padStart(2, '0')}.${my}` };
 }
 
-export default async function Obroci({ searchParams }: { searchParams: Promise<{ t?: string; d?: string; id?: string; nov?: string; p?: string; m?: string; q?: string; od?: string; do?: string; all?: string }> }) {
+export default async function Obroci({ searchParams }: { searchParams: Promise<{ t?: string; d?: string; id?: string; nov?: string; p?: string; m?: string; q?: string; od?: string; do?: string; all?: string; nc?: string; sog?: string; pr?: string; nd?: string }> }) {
   const sp = await searchParams;
   const g = await industryPage('obroci', T);
   if (g.blocked) return g.blocked;
   const { firm, write } = g;
-  const tab = sp.t === 'k' ? 'k' : sp.t === 'i' ? 'i' : 'd';
+  const tab = sp.t === 'k' || sp.t === 'i' || sp.t === 'z' || sp.t === 'e' ? sp.t : 'd';
   const D = isIso(sp.d) ? sp.d! : today();
   const B = await listBeneficiaries(db(), firm.id, tab === 'k' && sp.all === '1');
   const Tabs = (
@@ -50,6 +54,9 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
       <Link className={'btn' + (tab === 'd' ? ' pri' : '')} href={`/obroci?d=${D}`}>📋 Дневна листа</Link>
       <Link className={'btn' + (tab === 'k' ? ' pri' : '')} href="/obroci?t=k">👪 Корисници ({B.filter((b) => b.active).length})</Link>
       <Link className={'btn' + (tab === 'i' ? ' pri' : '')} href="/obroci?t=i">📊 Извештаи</Link>
+      <Link className={'btn' + (tab === 'z' ? ' pri' : '')} href="/obroci?t=z">🥫 Кујна – залиха</Link>
+      <Link className={'btn' + (tab === 'e' ? ' pri' : '')} href="/obroci?t=e">🔒 Лични податоци</Link>
+      <Link className="btn" href="/clenovi">🧑‍🤝‍🧑 Регистар на членови</Link>
     </div>
   );
 
@@ -76,14 +83,86 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   }
 
   // ---- register
+  if (tab === 'k' && sp.sog) {
+    // printable consent of one beneficiary, or of everyone still without a consent (`sog=all`)
+    const one = sp.sog !== 'all' ? B.find((b) => b.id === sp.sog) ?? (await listBeneficiaries(db(), firm.id, true)).find((b) => b.id === sp.sog) : null;
+    const list = one ? [one] : withoutConsent(B);
+    const F = one ? await consentFiles(db(), [one.id]) : new Map<string, string[]>();
+    return (
+      <>
+        <Hd t={'🍲 ' + T} sub={one ? `согласност за лични податоци · ${one.name}` : `согласности за ${list.length} корисници без согласност`} exp={false} excel={false}>
+          <PdfButton selector="#consentDocs" title={one ? `Согласност ${one.name}` : 'Согласности'} />
+          <Link className="btn" href="/obroci?t=k">← Регистар</Link>
+        </Hd>
+        {Tabs}
+        {one && write && (
+          <div className="card">
+            <BankForm action={consentAction}>
+              <input type="hidden" name="id" value={one.id} />
+              <div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+                <label className="f">Датум на потпишаната согласност<input type="date" name="consentDate" defaultValue={one.consentDate ?? ''} /></label>
+                <UploadField firmId={firm.id} label="📎 Скенирана потпишана согласност" accept="application/pdf,image/*" />
+                <button className="btn pri">Зачувај</button>
+                {(F.get(one.id) ?? []).map((f, i) => <a key={f} className="btn sm" href={`/api/files/${f}`} target="_blank" rel="noopener">📎 {i + 1}</a>)}
+              </div>
+              <p className="mini">Испечатете ја, корисникот ја потпишува, внесете го датумот и прикачете ја скенираната. Празен датум = без согласност.</p>
+            </BankForm>
+          </div>
+        )}
+        <div className="pdfwrap"><div id="consentDocs">
+          {list.map((b, i) => <div key={b.id} className="pdfdoc" style={{ margin: '0 auto 8mm', ...(i ? { breakBefore: 'page' as const } : {}) }}><ConsentDoc b={b} firm={firm} /></div>)}
+          {!list.length && <p className="muted">Сите активни корисници имаат согласност.</p>}
+        </div></div>
+      </>
+    );
+  }
+
+  if (tab === 'e') {
+    const [all, M] = await Promise.all([listBeneficiaries(db(), firm.id, true), listMembers(db(), firm.id)]);
+    const act = all.filter((b) => b.active), no = withoutConsent(all);
+    return (
+      <>
+        <Hd t={'🍲 ' + T} sub="лични податоци (ЗЗЛП) · согласности и евиденција на активности за обработка" exp={false} excel={false}>
+          <PdfButton selector="#zzlpRec" title={`Евиденција на активности за обработка – ${firm.name}`} landscape />
+        </Hd>
+        {Tabs}
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
+          <span className="pill">Активни корисници: <b>{act.length}</b></span>
+          <span className="pill good">Со согласност: <b>{act.length - no.length}</b></span>
+          <Link className={'pill' + (no.length ? ' bad' : '')} href="/obroci?t=k&nc=1">Без согласност: <b>{no.length}</b></Link>
+          {no.length > 0 && <Link className="btn sm" href="/obroci?t=k&sog=all">🖨 Согласности за сите без согласност</Link>}
+        </div>
+        <p className="note">Податоците за социјалната и здравствената состојба се посебна категорија лични податоци – се обработуваат само со изречна писмена согласност. Евиденцијата подолу е пополнета со податоците на здружението; проверете ја и потпишете ја.</p>
+        <div className="card"><div className="pdfwrap"><div id="zzlpRec" className="pdfdoc" style={{ margin: '0 auto', width: '277mm' }}>
+          <ProcessingRecords firm={firm} today={today()} counts={{ benef: act.length, members: M.filter((m) => !m.left).length }} />
+        </div></div></div>
+      </>
+    );
+  }
+
+  if (tab === 'z') {
+    const P = period({ ...sp, p: sp.od && sp.do ? 'r' : sp.p }, D);
+    return (
+      <>
+        <Hd t={'🍲 ' + T} sub="кујна – залиха, норматив, издатници и приемници на донации" exp={false} excel={false} />
+        {Tabs}
+        <KitchenTab firm={firm} write={write} from={P.from} to={P.to} pr={sp.pr} nd={sp.nd} />
+      </>
+    );
+  }
+
   if (tab === 'k') {
     const E = sp.id ? B.find((b) => b.id === sp.id) : null;
+    const BB = sp.nc === '1' ? withoutConsent(B) : B;
+    const noC = withoutConsent(B).length;
     const showForm = write && (!!E || sp.nov === '1');
     return (
       <>
         <Hd t={'🍲 ' + T} sub="регистар на семејства / лица">
           {write && <Link className="btn pri" href="/obroci?t=k&nov=1">+ Нов корисник</Link>}
           {sp.all === '1' ? <Link className="btn" href="/obroci?t=k">Само активни</Link> : <Link className="btn" href="/obroci?t=k&all=1">Прикажи и неактивни</Link>}
+          {sp.nc === '1' ? <Link className="btn" href="/obroci?t=k">Сите</Link> : <Link className="btn" href="/obroci?t=k&nc=1">Без согласност ({noC})</Link>}
+          {noC > 0 && <Link className="btn" href="/obroci?t=k&sog=all">🖨 Согласности (празни)</Link>}
         </Hd>
         {Tabs}
         {showForm && (
@@ -107,7 +186,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
           </div>
         )}
         {write && (
-          <details className="card">
+          <details className="card" open={!B.length}>
             <summary>⬆ Увоз од Excel (регистарот на здружението)</summary>
             <p className="mini">Колони: Nr. · Emri dhe Mbiemri · Anëtarë · Nacionaliteti · Përshkrimi / Gjendja · Numri Amë · Vendbanimi · Kontakt (или на македонски). Постоечките (ист ЕМБГ, или исто име) се ажурираат, новите се додаваат.</p>
             <BankForm action={importBenefAction}>
@@ -120,18 +199,19 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
         )}
         <div id="obrociReg">
           <table className="dense">
-            <thead><tr><th>Бр.</th><th>Име и презиме</th><th className="n">Чл.</th><th>Нац.</th><th>ЕМБГ</th><th>Место</th><th>Телефон</th><th>Опис / состојба</th>{write && <th />}</tr></thead>
+            <thead><tr><th>Бр.</th><th>Име и презиме</th><th className="n">Чл.</th><th>Нац.</th><th>ЕМБГ</th><th>Место</th><th>Телефон</th><th>Опис / состојба</th><th>Согласност</th>{write && <th />}</tr></thead>
             <tbody>
-              {B.map((b) => (
+              {BB.map((b) => (
                 <tr key={b.id} style={b.active ? undefined : { opacity: 0.55 }}>
                   <td>{b.no ?? ''}</td><td>{b.name}{!b.active && ' (неактивен)'}</td><td className="n">{b.members}</td><td>{b.nationality ?? ''}</td>
                   <td>{b.embg ?? ''}</td><td>{b.place ?? ''}</td><td>{b.phone ?? ''}</td><td className="mini">{b.note ?? ''}</td>
+                  <td><Link href={`/obroci?t=k&sog=${b.id}`} className={'pill' + (b.consentDate ? ' good' : ' bad')} title="Образец за согласност (mk / sq), датум и скен">{b.consentDate ? `✓ ${dmy(b.consentDate)}` : 'без согласност'}</Link></td>
                   {write && <td><Link className="btn sm" href={`/obroci?t=k&id=${b.id}${sp.all === '1' ? '&all=1' : ''}`}>✎</Link></td>}
                 </tr>
               ))}
-              {!B.length && <tr><td colSpan={9} className="muted">Нема корисници – додајте ги или увезете го Excel регистарот.</td></tr>}
+              {!BB.length && <tr><td colSpan={10} className="muted">Нема корисници – додајте ги или увезете го Excel регистарот.</td></tr>}
             </tbody>
-            <tfoot><tr className="tot"><td /><td>Вкупно {B.length} семејства / лица</td><td className="n">{B.reduce((s, b) => s + b.members, 0)}</td><td colSpan={write ? 6 : 5} /></tr></tfoot>
+            <tfoot><tr className="tot"><td /><td>Вкупно {BB.length} семејства / лица</td><td className="n">{BB.reduce((s, b) => s + b.members, 0)}</td><td colSpan={write ? 7 : 6} /></tr></tfoot>
           </table>
         </div>
       </>
@@ -209,6 +289,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
             <tfoot><tr className="tot"><td /><td>Вкупно приходи</td><td className="n">{fmt(incTot)}</td></tr></tfoot>
           </table>
         </div>
+        <KitchenReport firm={firm} from={P.from} to={P.to} portions={S.tot.portions} />
         <p className="note">Разлика приходи – расходи: <b>{fmt(incTot - expTot)}</b> ден. Износите се од прокнижените налози (без почетна состојба и затворање). Трошок по порција = вкупни расходи ÷ порции.</p>
       </div>
     </>
