@@ -103,6 +103,7 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
         { label: 'По број', act: { href: view + '?sort=no' } },
         { label: 'По датум', act: { href: view + '?sort=date' } },
         { label: 'По комитент', act: { href: view + '?sort=p' } },
+        { label: 'По износ', act: { href: view + '?sort=amt' } },
       ] },
       { label: 'Копирање', items: [], off: COPY_OFF },
       { label: 'Печатење', items: [
@@ -115,8 +116,8 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
         { label: 'Сите извештаи', act: { href: '/izvestai' } },
       ] },
       { label: 'Е-Фактура', items: [
-        { label: 'Е-Фактура (UBL извоз / увоз)', act: { href: '/efaktura' } },
-        { label: 'XML на избраната фактура', act: { row: 'a[data-ubl]' } },
+        { label: 'Испрати: XML (UBL) на избраната фактура', act: { row: 'a[data-ubl]' } },
+        { label: 'Извоз на повеќе фактури (ZIP) / увоз на XML', act: { href: '/efaktura' } },
       ] },
     ],
     bottom: [
@@ -129,9 +130,10 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
   };
 }
 
-export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners, nalozi, schemes, nextNumber, firmName, wh, filterId, head, children }: {
+export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners, nalozi, schemes, nextNumber, firmName, wh, filterId, head, children, menuExtra, filter, filterOpen }: {
   tableId: string; canWrite: boolean; today: string; svc: boolean; view: string; partners: PartnerOpt[]; nalozi: NalogOpt[]; schemes: SchemeOpt[];
   nextNumber: string; firmName: string; wh?: HxWh | null; filterId?: string; head?: React.ReactNode; children?: React.ReactNode;
+  menuExtra?: Record<string, React.ReactNode>; filter?: React.ReactNode; filterOpen?: boolean;
 }) {
   const router = useRouter();
   const [dlg, setDlg] = useState<InvHead | null>(null);
@@ -157,7 +159,7 @@ export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners,
 
   return (
     <>
-      <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head}>{children}</HelixShell>
+      <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head} menuExtra={menuExtra} filter={filter} filterOpen={filterOpen}>{children}</HelixShell>
       {dlg && <InvoiceHeadDialog key={dlg.id || 'new'} head={dlg} svc={svc} partners={partners} nalozi={nalozi} schemes={schemes} firmName={firmName}
         onClose={() => setDlg(null)}
         onDone={(id, isNew) => {

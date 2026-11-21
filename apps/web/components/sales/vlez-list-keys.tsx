@@ -56,15 +56,16 @@ export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[
         { label: 'По датум', act: { href: '/vlez?sort=date' } },
         { label: 'По број', act: { href: '/vlez?sort=no' } },
         { label: 'По комитент', act: { href: '/vlez?sort=p' } },
+        { label: 'По износ', act: { href: '/vlez?sort=amt' } },
       ] },
+      { label: 'Копирање', items: [], off: 'Копирање на влезна калкулација во нова уште не постои во WISE.' },
       { label: 'Останато', items: [
         { label: '💶 Фискални сметки – готовина 1020', act: { href: '/vlez?vid=k' } },
         { label: 'Сите влезни документи', act: { href: '/vlez?vid=all' } },
         { label: 'Печати ја листата', act: { fn: 'print' } },
         { label: 'Сите извештаи', act: { href: '/izvestai' } },
       ] },
-      { label: 'Копирање', items: [], off: 'Копирање на влезна калкулација во нова уште не постои во WISE.' },
-      { label: 'Е-Фактура', items: [{ label: 'Е-Фактура (увоз на UBL)', act: { href: '/efaktura' } }] },
+      { label: 'Е-Фактура', items: [{ label: 'Увоз на е-фактура (UBL XML)', act: { href: '/efaktura' } }] },
     ],
     bottom: [
       { label: 'Прекнижување', key: 'F5', act: { href: '/rekniz' }, title: 'Рекнижење во маса' },
@@ -75,8 +76,9 @@ export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[
   };
 }
 
-export function VlezListKeys({ tableId, canWrite, wh, filterId, head, children }: {
+export function VlezListKeys({ tableId, canWrite, wh, filterId, head, children, menuExtra, filter, filterOpen }: {
   tableId: string; canWrite: boolean; wh?: HxWh | null; filterId?: string; head?: React.ReactNode; children?: React.ReactNode;
+  menuExtra?: Record<string, React.ReactNode>; filter?: React.ReactNode; filterOpen?: boolean;
 }) {
   const [pay, setPay] = useState<HTMLTableRowElement | null>(null);
   const cfg = useMemo(() => vlezHelix(canWrite, !!wh && wh.options.length > 2), [canWrite, wh]);
@@ -87,7 +89,7 @@ export function VlezListKeys({ tableId, canWrite, wh, filterId, head, children }
   }, []);
   return (
     <>
-      <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head}>{children}</HelixShell>
+      <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head} menuExtra={menuExtra} filter={filter} filterOpen={filterOpen}>{children}</HelixShell>
       {pay && <PayDialog tr={pay} title="Плаќање – фактура" onClose={() => setPay(null)} links={[
         { label: '💳 Платен налог (ПП30)', href: '/ppNal', pri: true, title: 'Платен налог за добавувачот' },
         { label: '🏦 Поврзи со извод (банка)', href: '/banka' },

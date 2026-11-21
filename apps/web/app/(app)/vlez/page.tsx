@@ -168,9 +168,17 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const list = rows.filter(({ p, name }) => (!q || `${p.number} ${p.calcNo ?? ''} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && byWh(p.warehouseId) && (sp.kand !== '1' || isKand(p)) && (vid !== 'f' || !p.cash) && (vid !== 'k' || p.cash));
   if (sp.sort === 'no') list.sort((a, b) => (parseInt((a.p.calcNo ?? a.p.number).replace(/^\D+/, ''), 10) || 0) - (parseInt((b.p.calcNo ?? b.p.number).replace(/^\D+/, ''), 10) || 0));
   else if (sp.sort === 'p') list.sort((a, b) => (a.name ?? a.p.supplierName ?? '').localeCompare(b.name ?? b.p.supplierName ?? '', 'mk'));
+  else if (sp.sort === 'amt') list.sort((a, b) => Number(a.p.total) - Number(b.p.total));
   // by date, the newest last (the current row) – as in the old program
   else list.sort((a, b) => (a.p.date < b.p.date ? -1 : a.p.date > b.p.date ? 1 : 0));
   const LOCS = await locationOptions(firm.id);
+  // the columns of the Helix list with their share of the width (fits next to the panel, no side scrolling)
+  const VXC: [string, number, string?, string?][] = [
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['☑', 20], ['Број', 44], ['Налог', 38], ['По документ', 64], ['Комитент', 0], ['Од м.', 26, 'Од магацин (шифра)'], ['Од магацин', 50], ['Од пр.', 26, 'Од продавница (шифра)'], ['Од прод.', 40, 'Од продавница'],
+    ['Датум', 72], ['Валута', 72], ['Д/У', 22, 'Домашна / Увозна'], ['Терк', 26], ['За наплата', 82, undefined, 'n'], ['Напла­тено', 78, 'Наплатено', 'n'], ['За напл. (дев.)', 66, 'За наплата (девизи)', 'n'],
+    ['Напл. (дев.)', 62, 'Наплатено (девизи)', 'n'], ['Ком. шиф.', 36, 'Шифра на комитентот'], ['Увоз', 40, 'Врска за увоз (ЕЦД)'], ['Закл.', 26, 'Заклучен (во заклучен период)'],
+    ['Дат. фак.', 72, 'Датум на фактура'], ['Вид', 56], ['', 28],
+  ];
   const LOC = new Map(LOCS.map((l) => [l.id, l]));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
   const ids = list.map((r) => r.p.id);
@@ -210,27 +218,13 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   return (
     <>
       <Hd t="Влезни фактури" sub={String(year)}>
-        {write && <Link className="btn" href="/uvoz?t=purchases&back=vlez">Увоз од Excel</Link>}
-        {write && <Link className="btn" href={sp.px !== undefined ? '/vlez' : '/vlez?px'}>📥 Фактура со ставки од Excel</Link>}
-        <DownloadCsv name={`Vlez_${year}.csv`} label="Excel" rows={[['Датум', 'Бр.', 'Добавувач', 'ЕДБ', 'Основица', 'ДДВ', 'Вкупно', 'Налог'], ...list.map(({ p, name, edb }) => [dmy(p.date), p.number, name ?? p.supplierName ?? '', edb ?? p.supplierEdb ?? '', Number(p.base), Number(p.art32 ? 0 : p.vat), Number(p.total), J.get(p.id) ?? ''])]} />
-        {write && <Link className="btn" href="/vlez?imp">+ Увозна (девизна)</Link>}
-        {write && <Link className="btn" href="/vlez?nov">+ Рачен внес</Link>}
         {write && <KalkNewKeys data={await kalkDialogData(firm.id, year)} today={dflt} />}
       </Hd>
       {noName > 0 && <div className="callout warn" id="anBtn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       {sp.saved && <div className="callout good">Влезната фактура е зачувана и прокнижена.{J.get(sp.saved) && <> Налог бр. <Link href={`/nalozi?n=${encodeURIComponent(J.get(sp.saved)!)}`}>{J.get(sp.saved)}</Link>.</>} {sp.w && sp.w.split(' | ').map((w, k) => <span key={k}><br />⚠ {w}</span>)}</div>}
       {sp.px !== undefined && write && <PxImport locations={locs} partners={P} items={I} vatFirm={firm.vatRegistered} konto={{ warehouse: schemeValue(await firmPostingContext(db(), firm), 'stock'), store: schemeValue(await firmPostingContext(db(), firm), 'retailStock') }} closeHref="/vlez" imp0={sp.px === 'imp'} />}
-      {write && <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null }} small autoOpen={{ back: '/vlez' }} batchView="/masovno"
-        label={<><b>Прочитај фактура од PDF</b> — повлечете една или повеќе фактури (PDF, JPG, PNG) тука или кликнете. Програмот ги чита добавувачот, бројот, датумот и износите по стапка, и ја прикачува оригиналната фактура.</>} />}
       {DUPS.length > 0 && del && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><span><b>Дупликати:</b> {DUPS.length} фактури се внесени двапати ({[...new Set(DUPS.map((p) => p.number))].slice(0, 5).join(', ')}). Се задржува последно зачуваната.</span>
         <RowAction className="btn danger" action={deletePurchasesCascadeAction.bind(null, DUPS.map((p) => p.id))} preview={purchaseDeletePreviewAction.bind(null, DUPS.map((p) => p.id))} label={`Избриши ${DUPS.length} дупликати`} confirm={`Ќе се избришат ${DUPS.length} дупликати (иста фактура со ист број и датум). Се задржува последно зачуваната. Продолжи?`} /></div>}
-      {/* incoming invoices (supplier 2200) and fiscal receipts paid in cash (1020) apart */}
-      <div className="row noprint" style={{ gap: 6, margin: '0 0 8px', flexWrap: 'wrap' }}>
-        <Link className={`btn ${vid === 'f' ? 'pri' : ''}`} href="/vlez">📄 Фактури (добавувачи) · {rows.filter(({ p }) => !p.cash).length}</Link>
-        <Link className={`btn ${vid === 'k' ? 'pri' : ''}`} href="/vlez?vid=k">💶 Фискални сметки – готовина 1020 · {rows.filter(({ p }) => p.cash).length}</Link>
-        <Link className={`btn ${vid === 'all' ? 'pri' : ''}`} href="/vlez?vid=all">Сите · {rows.length}</Link>
-      </div>
-      <form className="row" style={{ gap: 8, margin: '0 0 8px' }}>{vid !== 'f' && <input type="hidden" name="vid" value={vid} />}<input name="q" id="vlez-q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {wrongCash.length > 0 && write && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <span>↩ <b>{wrongCash.length}</b> фактури (со вашата фирма како купувач – вода, струја, добавувачи) се префрлени во готово (1020) по грешка.</span>
         <RowAction className="btn pri" action={unsetPurchasesCashAction.bind(null, wrongCash)} label={`↩ Врати ги на добавувач – 2200 (${wrongCash.length})`} confirm={`Да се вратат ${wrongCash.length} фактури на добавувач (2200)? Фискалните сметки остануваат во готово.`} showOk />
@@ -239,15 +233,35 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         <span>{sp.kand === '1' ? <>Прикажани се само скенираните сметки до 10.000 ден. книжени на добавувач (2200). Штиклирајте ги (☑ горе = сите) и „💶 Платено во готово – 1020“.</> : <>🔎 <b>{nKand}</b> скенирани документи до 10.000 ден. се книжени на добавувач (2200) – можеби се фискални сметки платени во готово.</>}</span>
         <Link className="btn sm" href={sp.kand === '1' ? '/vlez' : '/vlez?kand=1'}>{sp.kand === '1' ? '← Сите' : 'Прикажи ги'}</Link>
       </div>}
-      {list.length ? (<>
-        {write && <BulkBar label="💶 Платено во готово – 1020 ({n})" btnClass="btn" busy="Се прекнижува…" confirm="Избраните {n} се фискални сметки платени во готово? Се прекнижуваат: Г 1020 наместо 2200." action={setPurchasesCashAction} />}
-        {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesCascadeAction} preview={purchaseDeletePreviewAction} />}
-        <div className="hx-list"><style>{HELIX_CSS}</style>
+      <div className="hx-list"><style>{HELIX_CSS}</style>
         <VlezListKeys tableId="vlez-list" canWrite={write} filterId="vlez-q"
           wh={{ value: whSel, options: [{ v: '', label: 'Сите магацини' }, { v: 'main', label: '01 Главен магацин' }, ...LOCS.map((l) => ({ v: l.id, label: `${l.code ?? ''} ${l.name}${l.kind === 'store' ? ' (продавница)' : ''}` }))] }}
           head={<div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', margin: '2px 0 4px' }} data-testid="vlez-firm">
-            <span className="hx-firm">{firm.name}</span><span className="mini muted">Преглед на влезни калкулации · {year}</span></div>}>
-        <div className="tw"><table id="vlez-list" className="dense hx-t" style={{ fontSize: 12.5 }}><thead><tr><th title="Тековен ред ▸ / означени *">*</th>{del && <th style={{ width: 26 }}><SelAll /></th>}<th>Број</th><th>Налог</th><th>По документ</th><th>Комитент</th><th>Од м.</th><th>Од магацин</th><th>Од пр.</th><th>Од продавница</th><th>Датум</th><th>Валута</th><th title="Домашна / Увозна">Д/У</th><th>Терк</th><th className="n">За наплата</th><th className="n">Наплатено</th><th className="n">За наплата (дев.)</th><th className="n">Наплатено (дев.)</th><th>Комитент</th><th title="Во WISE нема ваков податок">Од Продав.</th><th title="ЕЦД / царинска декларација">Врска за увоз</th><th title="Во заклучен период">Заклучен</th><th>Датум на фактура</th><th>Вид</th><th></th></tr></thead>
+            <span className="hx-firm">{firm.name}</span><span className="mini muted">Преглед на влезни калкулации · {year} · {list.length} од {rows.length}</span></div>}
+          filterOpen={!!(sp.q || vid !== 'f' || sp.sort || sp.kand)}
+          filter={<>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <Link className={`btn sm ${vid === 'f' ? 'pri' : ''}`} href="/vlez">📄 Фактури (добавувачи) · {rows.filter(({ p }) => !p.cash).length}</Link>
+        <Link className={`btn sm ${vid === 'k' ? 'pri' : ''}`} href="/vlez?vid=k">💶 Фискални сметки – готовина 1020 · {rows.filter(({ p }) => p.cash).length}</Link>
+        <Link className={`btn sm ${vid === 'all' ? 'pri' : ''}`} href="/vlez?vid=all">Сите · {rows.length}</Link>
+      </div>
+      <form className="row" style={{ gap: 8 }}>{vid !== 'f' && <input type="hidden" name="vid" value={vid} />}<input name="q" id="vlez-q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn sm">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
+          </>}
+          menuExtra={{
+            ...(write ? { 'Специјални опции': <ScanUpload firmId={firm.id} opts={{ kind: 'purchase', batchId: null }} small autoOpen={{ back: '/vlez' }} batchView="/masovno"
+        label={<><b>Прочитај фактура од PDF</b> — повлечете една или повеќе фактури (PDF, JPG, PNG) тука или кликнете.</>} /> } : {}),
+            'Останато': <>
+        <DownloadCsv name={`Vlez_${year}.csv`} label="Excel (листата)" rows={[['Датум', 'Бр.', 'Добавувач', 'ЕДБ', 'Основица', 'ДДВ', 'Вкупно', 'Налог'], ...list.map(({ p, name, edb }) => [dmy(p.date), p.number, name ?? p.supplierName ?? '', edb ?? p.supplierEdb ?? '', Number(p.base), Number(p.art32 ? 0 : p.vat), Number(p.total), J.get(p.id) ?? ''])]} />
+              {list.length > 0 && <><span className="mini">Штиклираните (☑) фактури:</span>
+        {write && <BulkBar label="💶 Платено во готово – 1020 ({n})" btnClass="btn" busy="Се прекнижува…" confirm="Избраните {n} се фискални сметки платени во готово? Се прекнижуваат: Г 1020 наместо 2200." action={setPurchasesCashAction} />}
+        {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesCascadeAction} preview={purchaseDeletePreviewAction} />}
+              </>}
+            </>,
+          }}>
+        {list.length ? <>
+        <div className="tw"><table id="vlez-list" className="dense hx-t">
+          <colgroup>{VXC.filter((c) => del || c[0] !== '☑').map((c, k) => <col key={k} style={c[1] ? { width: c[1] } : undefined} />)}</colgroup>
+          <thead><tr>{VXC.filter((c) => del || c[0] !== '☑').map(([t, , ti, cl], k) => <th key={k} title={ti ?? t} className={cl}>{t === '☑' ? <SelAll /> : t}</th>)}</tr></thead>
           <tbody>{list.map(({ p, name, code }) => {
             const x = fxInfo(p);
             const pm = payOf(p.id, p.total);
@@ -259,10 +273,10 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
               <tr key={p.id} data-id={p.id} data-no={p.calcNo || p.number} data-pname={name ?? p.supplierName ?? ''} data-pid={p.partnerId ?? ''} data-total={pm.due} data-paid={pm.paid} data-rest={pm.rest} data-sum={pm.due}>
                 <td className="hx-mk" />
                 {del && <td><SelBox id={p.id} /></td>}
-                <td className="num" style={{ whiteSpace: 'nowrap' }}><b>{p.calcNo ?? ''}</b></td>
+                <td className="num"><b>{p.calcNo ?? ''}</b></td>
                 <td className="num">{J.get(p.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(p.id)!)}`}>{J.get(p.id)}</Link> : ''}</td>
-                <td>{p.number}</td>
-                <td style={{ minWidth: 170, maxWidth: 260, whiteSpace: 'normal' }}>{p.partnerId ? <Link href={`/akart?k=22&pid=${p.partnerId}`} title="Финансиска картица на добавувачот">{name ?? p.supplierName}</Link> : name ?? p.supplierName}</td>
+                <td title={p.number}>{p.number}</td>
+                <td title={name ?? p.supplierName ?? ''}>{p.partnerId ? <Link href={`/akart?k=22&pid=${p.partnerId}`} title="Финансиска картица на добавувачот">{name ?? p.supplierName}</Link> : name ?? p.supplierName}</td>
                 <td>{!L ? '01' : L.kind === 'warehouse' ? L.code : ''}</td><td>{!L ? 'Главен магацин' : L.kind === 'warehouse' ? L.name : ''}</td>
                 <td>{L?.kind === 'store' ? L.code : ''}</td><td>{L?.kind === 'store' ? L.name : ''}</td>
                 <td className="hx-d">{dmy(p.date)}</td>
@@ -274,24 +288,24 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
                 <td className="n" title={x ? `Курс ${x.fx} · ${fmt(x.den)} ден.` : undefined}>{x ? <>{fmt(x.fa)} <small>{x.cur}</small>{!x.ok && <span className="pill bad" title={`Збир на ставките ${fmt(x.st)} ≠ износ во девизи ${fmt(x.fa)}`}> ставки {fmt(x.st)}</span>}</> : ''}</td>
                 <td className="n">{x ? fmt(fxPaid) : ''}</td>
                 <td className="num">{code ?? ''}</td>
-                <td />
                 <td>{s('ecd')}</td>
                 <td>{firm.lockDate && p.date <= firm.lockDate ? 'Д' : 'Н'}</td>
                 <td className="hx-d">{dmy(p.docDate)}</td>
-                <td style={{ whiteSpace: 'nowrap' }}>{p.status === 'pending' && <span className="pill warn">⏳ чека одобрување </span>}{p.cash && <span className="pill info">готовина </span>}{p.art32 && <span className="pill info">Чл. 32-а </span>}{p.scanned && <span className="pill good">скенирана </span>}{nStock.get(p.id) ? <span className="pill">на залиха </span> : null}
+                <td>{p.status === 'pending' && <span className="pill warn">⏳ чека одобрување </span>}{p.cash && <span className="pill info">готовина </span>}{p.art32 && <span className="pill info">Чл. 32-а </span>}{p.scanned && <span className="pill good">скенирана </span>}{nStock.get(p.id) ? <span className="pill">на залиха </span> : null}
                   {att.filter((a) => a.e === p.id).map((a) => <a key={a.id} className="pill info" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer">📎 {a.name.slice(0, 20)}</a>)}
                   {!att.some((a) => a.e === p.id) && <span className="pill warn">без документ</span>}{p.status === 'pending' ? null : <> <PayPill paid={pm.paid} total={pm.due} /></>}</td>
-                <td><div className="row" style={{ flexWrap: 'nowrap' }}>
-                  {write ? <Link className="btn sm" href={`/vlez?edit=${p.id}`} data-open>Измени</Link> : nStock.get(p.id) ? <Link href={`/print/kalk/${p.id}`} target="_blank" data-open hidden>Калкулација</Link> : null}
+                <td className="hx-a"><details className="hx-act"><summary className="btn sm" title="Акции на фактурата">⋯</summary><div>
+                  {write ? <Link className="btn sm" href={`/vlez?edit=${p.id}`} data-open>✎ Содржина / измени</Link> : nStock.get(p.id) ? <Link href={`/print/kalk/${p.id}`} target="_blank" data-open hidden>Калкулација</Link> : null}
                   {del && <span data-del><RowAction action={deletePurchaseAction.bind(null, p.id, true)} preview={purchaseDeletePreviewAction.bind(null, [p.id])} label="Избриши" title="Избриши ја фактурата" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура бр. ${p.number || ''} од ${dmy(p.date)} (${name ?? p.supplierName ?? ''}, ${fmt(p.total)} ден.)?\nЌе се избрише и налогот и приемот на залиха.`} /></span>}
                   {nStock.get(p.id) ? <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калкулација</Link> : null}
+                  {J.get(p.id) && <Link className="btn sm" href={`/nalozi?n=${encodeURIComponent(J.get(p.id)!)}`}>Налог бр. {J.get(p.id)}</Link>}
                   {write && u.role !== 'klient' && p.status === 'pending' && <RowAction className="btn sm pri" action={approvePurchaseAction.bind(null, p.id)} label="✓ Одобри" />}
-                </div></td>
+                </div></details></td>
               </tr>);
           })}</tbody>
-          <tfoot><tr><td colSpan={del ? 14 : 13}>Вкупно ({list.length}) · основица {fmt(T.b)} · ДДВ {fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td className="n">{fmt(T.pd)}</td><td className="n">{[...fxBy].map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td colSpan={8} /></tr></tfoot></table></div>
-        </VlezListKeys></div></>
-      ) : <div className="card empty">Сè уште нема влезни фактури за {year}.</div>}
+          <tfoot><tr><td colSpan={del ? 14 : 13} title={`Основица ${fmt(T.b)} · ДДВ ${fmt(T.v)}`}>Вкупно ({list.length}) · основица {fmt(T.b)} · ДДВ {fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td className="n">{fmt(T.pd)}</td><td className="n">{[...fxBy].map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td colSpan={7} /></tr></tfoot></table></div>
+        </> : <div className="card empty">{rows.length ? 'Нема документи за овој филтер.' : `Сè уште нема влезни фактури за ${year}.`}</div>}
+        </VlezListKeys></div>
     </>
   );
 }

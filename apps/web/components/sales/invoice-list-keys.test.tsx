@@ -57,7 +57,7 @@ const sel = () => [...document.querySelectorAll('tr[data-id]')].findIndex((r) =>
 const btn = (t: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === t)!;
 
 describe('Излез – Helix panel and keys', () => {
-  it('has the panel, menu and bottom bar of the old program; ↑ ↓ select (the last row first, ▸), F10 opens the lines, Del deletes', () => {
+  it('has the panel, menu and bottom bar of the old program; ↑ ↓ select (the last row first, ▸), F10 opens the lines, Del deletes', async () => {
     view();
     const P = $('aside[aria-label="Акции на прегледот"]')!;
     expect([...P.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Ent)', 'Бришење (Del)', 'Испрати е-Фактура',
@@ -84,6 +84,7 @@ describe('Излез – Helix panel and keys', () => {
     key(window, 'F5');
     expect(push).toHaveBeenLastCalledWith('/rekniz');
     key(window, 'F12');
+    await flush();
     expect(document.activeElement?.id).toBe('q');
     (document.activeElement as HTMLElement).blur();
     key(window, 'Escape');
@@ -185,7 +186,7 @@ describe('Влез – Helix controls', () => {
     // Ins stays with the page's „Податоци за малопродажна калкулација“ dialog
     expect(c.groups[0]!.items[2]).toMatchObject({ act: { href: '/vlez?hnov' } });
     expect(c.groups[0]!.items[2]!.key).toBeUndefined();
-    expect(c.menu.map((m) => m.label)).toEqual(['Специјални опции', 'Корекција за наплати', 'Безбедност', 'Сортирање', 'Останато', 'Копирање', 'Е-Фактура']);
+    expect(c.menu.map((m) => m.label)).toEqual(['Специјални опции', 'Корекција за наплати', 'Безбедност', 'Сортирање', 'Копирање', 'Останато', 'Е-Фактура']);
     expect(c.bottom.map((b) => `${b.label} ${b.key}`)).toEqual(['Прекнижување F5', 'Главна книга F7', 'Филтер F11', 'Освежување на податоците F1']);
     expect(c.groups[1]!.items.find((b) => b.key === 'F2')!.act).toEqual({ href: '/ddvKnigi?t=in' });
   });
