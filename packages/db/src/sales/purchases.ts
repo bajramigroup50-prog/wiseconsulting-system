@@ -86,6 +86,12 @@ async function nextCalcNo(tx: Tx, firmId: string, wh: string | null, whCode: str
   return String(mx + 1).padStart(4, '0') + ' ' + (whCode || '01');
 }
 
+/** „Калкулација број“ of the Helix header dialog: the number the next stock purchase in `wh` (null = Главен магацин) gets on `date`. */
+export async function previewCalcNo(tx: Tx, firmId: string, wh: string | null, date: string): Promise<string> {
+  const locs = wh ? await stockLocations(tx, firmId) : [];
+  return nextCalcNo(tx, firmId, wh, wh ? locs.find((l) => l.id === wh)?.code ?? '' : '01', date, null);
+}
+
 /**
  * Auto-create items for stock lines that name an article not in the catalogue (legacy `createMissingItems`, 4424):
  * code sequence from 1000, sale price = cost × (1 + default margin, 25%). FIX (LEGACY-MAP 3.4 item 3): no hard-coded

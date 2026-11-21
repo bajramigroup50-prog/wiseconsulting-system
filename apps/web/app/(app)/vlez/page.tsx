@@ -26,8 +26,11 @@ import { PxImport } from '@/components/sales/px-import';
 import { BulkBar, SelAll, SelBox } from '@/components/sales/bulk-select';
 import { scanEditorHref, scanQueue } from '@/lib/scan-queue';
 import { fuelRuleNow } from '@/lib/sales-parity';
+import { decodeHeader, headerIntoPurchase } from '@/lib/kalk-header';
+import { kalkDialogData } from '@/lib/kalk-header-data';
+import { KalkNewKeys } from '@/components/stock/kalk-header-dialog';
 
-type SP = { merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string; kand?: string; vid?: string };
+type SP = { hx?: string; merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string; kand?: string; vid?: string };
 
 export default async function VlezPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -107,6 +110,14 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       back = sp.back && sp.back.startsWith('/') ? sp.back : '/skan';
       const Q = await scanQueue(firm.id, doc.id, idx);
       if (Q && (Q.batchId || Q.rest)) queue = { batch: !!Q.batchId, name: Q.name, rest: Q.rest, skipHref: Q.next ? await scanEditorHref(firm.id, Q.next, back) : null, listHref: back };
+    } else if (sp.nov !== undefined) {
+      // „Податоци за малопродажна калкулација“ (Helix): the header entered in the dialog, the lines follow here
+      const hx = decodeHeader(sp.hx);
+      if (hx) {
+        init = headerIntoPurchase(init, hx);
+        if (hx.tip === 'disp') title = 'Прием по испратница' + (hx.dispNo ? ' бр. ' + hx.dispNo : '');
+        scanInfo = 'Заглавјето е од „Податоци за малопродажна калкулација“' + (hx.links.length ? ` (поврзани ${hx.links.length} калкулации)` : '') + ' – внесете ги ставките и „Зачувај и книжи“.';
+      }
     }
     const [fuelRule, closedP] = await Promise.all([
       fuelRuleNow(),
@@ -192,7 +203,8 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         {write && <Link className="btn" href={sp.px !== undefined ? '/vlez' : '/vlez?px'}>📥 Фактура со ставки од Excel</Link>}
         <DownloadCsv name={`Vlez_${year}.csv`} label="Excel" rows={[['Датум', 'Бр.', 'Добавувач', 'ЕДБ', 'Основица', 'ДДВ', 'Вкупно', 'Налог'], ...list.map(({ p, name, edb }) => [dmy(p.date), p.number, name ?? p.supplierName ?? '', edb ?? p.supplierEdb ?? '', Number(p.base), Number(p.art32 ? 0 : p.vat), Number(p.total), J.get(p.id) ?? ''])]} />
         {write && <Link className="btn" href="/vlez?imp">+ Увозна (девизна)</Link>}
-        {write && <Link className="btn pri" href="/vlez?nov">+ Рачен внес</Link>}
+        {write && <Link className="btn" href="/vlez?nov">+ Рачен внес</Link>}
+        {write && <KalkNewKeys data={await kalkDialogData(firm.id, year)} today={dflt} />}
       </Hd>
       {noName > 0 && <div className="callout warn" id="anBtn" style={{ margin: '6px 0' }}>{noName} артикли се само со шифра („Артикл …“). <Link className="btn sm pri" href="/artNames">✎ Внеси називи</Link></div>}
       {sp.saved && <div className="callout good">Влезната фактура е зачувана и прокнижена.{J.get(sp.saved) && <> Налог бр. <Link href={`/nalozi?n=${encodeURIComponent(J.get(sp.saved)!)}`}>{J.get(sp.saved)}</Link>.</>} {sp.w && sp.w.split(' | ').map((w, k) => <span key={k}><br />⚠ {w}</span>)}</div>}

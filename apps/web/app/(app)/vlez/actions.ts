@@ -7,7 +7,7 @@ import { eq, inArray } from 'drizzle-orm';
 import {
   setPurchasesCash, unsetPurchasesCash,
   approvePurchase, assertTransferRemovable, audit, createMissingItems, deletePurchase, dependentLabel, dependentTransfers, draftSourceFiles, ensurePartner, firms,
-  loadAiDocument, markDraftSaved, partners, savePurchase, transfers, type PurchaseInput,
+  loadAiDocument, markDraftSaved, partners, previewCalcNo, savePurchase, transfers, type PurchaseInput,
   PostingError,
 } from '@wise/db';
 import { actionError, firmAction, type ActionState } from '@/lib/books';
@@ -224,5 +224,15 @@ export async function unsetPurchasesCashAction(ids: string[]): Promise<ActionSta
     const sk = skipped.length ? ` Не се променети ${skipped.length}: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '…' : ''}.` : '';
     revalidatePath('/', 'layout');
     return n ? { ok: `${n} фактури се вратени на добавувач (2200).${sk}` } : { error: `Нема што да се врати.${sk}` };
+  } catch (e) { return actionError(e); }
+}
+
+/** „Калкулација број“ of „Податоци за малопродажна калкулација“: the next number of the object (`main` / '' = Главен магацин) on `date`. */
+export async function nextCalcNoAction(wh: string, date: string): Promise<{ no?: string; error?: string }> {
+  try {
+    const { firm } = await firmAction('write');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Внесете датум.' };
+    const W = wh && wh !== 'main' ? wh.slice(0, 40) : null;
+    return { no: await db().transaction((tx) => previewCalcNo(tx, firm.id, W, date)) };
   } catch (e) { return actionError(e); }
 }

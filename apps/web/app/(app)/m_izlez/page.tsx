@@ -6,6 +6,7 @@
  * (ПРОДАЖБА / ПАРАГОН, ПОВРАТНИЦА, ЗАПИСНИК ЗА ОТПИС, ЗАПИСНИК ОД КОНТРОЛЕН ПОПИС).
  * Sales / returns: `store_outs` (`saveStoreOut`); counts / write-offs: `stock_counts` (`saveStockCount`).
  */
+import { decodeHeader, headerLocation, headerNote } from '@/lib/kalk-header';
 import Link from 'next/link';
 import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import { priceAt } from '@wise/core';
@@ -25,7 +26,7 @@ import { deleteStoreOutAction } from './actions';
 import { MoEditor, type MoDraft } from './mo-editor';
 import { MoKeys, MoTypeRadios, MoStoreFilter } from './mo-list-tools';
 
-type SP = { t?: string; wh?: string; nov?: string; id?: string; view?: string; saved?: string };
+type SP = { hx?: string; t?: string; wh?: string; nov?: string; id?: string; view?: string; saved?: string };
 const KINDS: MoutKind[] = ['sale', 'inv', 'ret', 'otp', 'pop'];
 
 export default async function MIzlezPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -113,6 +114,9 @@ export default async function MIzlezPage({ searchParams }: { searchParams: Promi
       ? { id: e.id, kind: T as MoDraft['kind'], number: e.number, date: e.date, wh: e.wh, partnerId: e.partnerId ?? '', ref: e.ref ?? '', konto: e.account ?? e.k1 ?? '', konto2: e.k2 ?? '7690', note: e.note ?? '',
         lines: e.lines.map((l) => (T === 'pop' ? { itemId: l.itemId, qty: '', cnt: String(l.cnt ?? '') } : { itemId: l.itemId, qty: String(l.qty ?? ''), price: String(l.price ?? '') })) }
       : { kind: T as MoDraft['kind'], number: '', date: today.startsWith(String(year)) ? today : `${year}-12-31`, wh: W || stores[0]!.id, partnerId: '', ref: '', konto: T === 'sale' ? '1009' : '4690', konto2: '7690', note: '', lines: [] };
+    // „Податоци за малопродажна калкулација“ (Helix) → Тип „Парагон“ / „Контролен попис“: the header filled in
+    const hx = !e ? decodeHeader(sp.hx) : null;
+    if (hx) Object.assign(initial, { date: hx.date, partnerId: hx.partnerId, ref: hx.doc, note: headerNote(hx), ...(stores.some((x) => x.id === headerLocation(hx)) ? { wh: headerLocation(hx) } : {}) });
     return <MoEditor initial={initial} items={items} locs={locOptions(L)} partners={P} k10={kk(/^10/)} k4={kk(/^4/)} k7={kk(/^7/)} />;
   }
 
