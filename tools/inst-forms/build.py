@@ -19,8 +19,8 @@ import pdfplumber, pypdf, pypdfium2
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, '.inst-forms')
 W = 745  # rendered page width in px (the existing WISE forms use 745 × 1053)
-INST = {'ujp': 'УЈП', 'crm': 'ЦРСМ', 'avrsm': 'АВРМ', 'fzom': 'ФЗО', 'piom': 'ПИОМ'}
-INST_ID = {'ujp': 'ujp', 'crm': 'crm', 'avrsm': 'avrm', 'fzom': 'fzo', 'piom': 'fpiom', 'dit': 'dit'}
+INST = {'ujp': 'УЈП', 'crm': 'ЦРСМ', 'avrsm': 'АВРМ', 'fzom': 'ФЗО', 'piom': 'ПИОМ', 'dpi': 'ДПИ', 'me': 'МЕ'}
+INST_ID = {'ujp': 'ujp', 'crm': 'crm', 'avrsm': 'avrm', 'fzom': 'fzo', 'piom': 'fpiom', 'dit': 'dit', 'dpi': 'dpi', 'me': 'me'}
 
 def links():
     html = open(os.path.join(ROOT, 'website', 'index.html'), encoding='utf8').read()
@@ -39,6 +39,31 @@ def links():
             out.append({'grp': p.group(1), 'code': c, 'name': name, 'url': unescape(h), 'kind': kind, 'all': 'Сите обрасци' in name})
     return out
 
+ME_PAGE = 'https://www.economy.gov.mk/mk-MK/dokumenti/formulari'
+
+def me_links():
+    """The forms page of the Ministry of Economy and Labour: the МТУ applications (to ДПИ) and the ministry's own forms."""
+    req = urllib.request.Request(ME_PAGE, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    html = urllib.request.urlopen(req, timeout=60).read().decode('utf8')
+    out = []
+    for h, t in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.S):
+        t = re.sub(r'<[^>]+>|\s+', ' ', unescape(t)).strip()
+        ext = re.search(r'\.(pdf|docx?|xlsx?)$', h, re.I)
+        if not ext or re.search(r'правилник', t, re.I) or t in ('МТУ',): continue
+        kind = {'pdf': 'PDF', 'doc': 'DOC', 'docx': 'DOC', 'xls': 'XLS', 'xlsx': 'XLS'}[ext.group(1).lower()]
+        t = re.sub(r'\s*(\.?pdf|\.docx?|>>>)\s*$', '', t, flags=re.I).strip()
+        mtu = re.match(r'ДПИ\s*-\s*Пријава за\s*-\s*МТУ\s*-?\s*(.*)$', t)
+        if mtu:
+            what = re.sub(r'\s*-\s*', ' ', mtu.group(1)).replace('MK', '').replace('МК', '').strip()
+            al = bool(re.search(r'A[LЛ]|АL', t))
+            what = re.sub(r'(A[LЛ]|АL)', '', what).strip()
+            out.append({'grp': 'dpi', 'code': 'МТУ', 'name': f"Пријава за минимални технички услови – {what}{' (МК / АЛ)' if al else ''}", 'url': h, 'kind': kind, 'all': False})
+        else:
+            if t in ('БАРАЊЕ', 'ИЗЈАВА'): t = t.capitalize() + ' (стручен испит за идентификација)'
+            out.append({'grp': 'me', 'code': '', 'name': t[:1] + t[1:].lower() if t.isupper() else t, 'url': h, 'kind': kind, 'all': False})
+    out.append({'grp': 'me', 'code': '', 'name': 'Сите обрасци на официјалната страница', 'url': ME_PAGE, 'kind': 'WEB', 'all': True})
+    return out
+
 def unescape(s):
     import html as H
     return H.unescape(s)
@@ -46,7 +71,7 @@ def unescape(s):
 def slug(s):
     t = {'а':'a','б':'b','в':'v','г':'g','д':'d','ѓ':'gj','е':'e','ж':'z','з':'z','ѕ':'dz','и':'i','ј':'j','к':'k','л':'l','љ':'lj','м':'m','н':'n','њ':'nj','о':'o','п':'p','р':'r','с':'s','т':'t','ќ':'kj','у':'u','ф':'f','х':'h','ц':'c','ч':'c','џ':'dz','ш':'s'}
     s = ''.join(t.get(c, c) for c in s.lower())
-    return re.sub(r'[^a-z0-9]+', '_', s).strip('_')[:24]
+    return re.sub(r'[^a-z0-9]+', '_', s).strip('_')[:30]
 
 # label → firm source (in the firm's own section); order matters (the first match wins)
 RULES = [
@@ -268,14 +293,96 @@ def render_pages(pdf, fid, pages):
         dims.append({'W': W, 'H': round(h * sc)})
     return dims
 
+
+BLANK_RULES = [
+    (r'под која фирма', 'f.name', 'any'),
+    (r'податоци за одговорното лице|одговорно лице', 'f.signer', 'any'),
+    (r'назив на фирмата|назив на (правното лице|подносител|работодавач)|^назив', 'f.name', 'firm'),
+    (r'ембс|матичен број', 'f.embs', 'firm'),
+    (r'даночен број|едб', 'f.edb', 'firm'),
+    (r'жиро сметка|трансакциска сметка', 'f.bank', 'firm'),
+    (r'банка депонент|^банка', 'f.bankName', 'firm'),
+    (r'име и презиме', 'f.signer', 'any'),
+    (r'ембг', 'f.signerEmbg', 'any'),
+    (r'тел\.?$|телефон', 'f.phone', 'any'),
+    (r'e-?mail|е-?пошта', 'f.email', 'any'),
+    (r'шифра', 'f.nkd', 'firm'),
+    (r'опис', 'f.actname', 'firm'),
+    (r'ул\.?$|улица|адреса|седиште', 'f.address', 'firm'),
+    (r'место$|^место|град$', 'f.city', 'firm'),
+]
+
+def blank_fields(pdf, pages):
+    """Fill-in-the-blank forms („Назив: ________“): every run of underscores gets the firm value named by the text
+    right before it (or by the line above when the run starts the line); the numbered item it is in decides whether
+    the address / place is the firm's („Седиште на фирмата“) or a person's (left empty)."""
+    pl = pdfplumber.open(pdf)
+    F = []
+    for pi in range(pages):
+        pg = pl.pages[pi]
+        pw = float(pg.width); sc = W / pw
+        chars = sorted(pg.chars, key=lambda c: (round(c['top'] / 3), c['x0']))
+        lines = []
+        for c in chars:
+            if lines and abs(lines[-1][-1]['top'] - c['top']) < 3: lines[-1].append(c)
+            else: lines.append([c])
+        sec, item = 'firm', ''
+        prev_text = ''
+        used = set()
+        for L in lines:
+            L = sorted(L, key=lambda c: c['x0'])
+            text = ''.join(c['text'] for c in L)
+            m = re.match(r'^\s*(\d{1,2})\.\s*(.*)', text)
+            if m:
+                item = m.group(2).lower()
+                sec = ('signer' if re.search(r'овластено лице|одговорно|застапување|управител', item)
+                       else 'skip' if re.search(r'регистерск|суд|заверка', item)
+                       else 'firm')
+            # runs of underscores on the line
+            runs, cur = [], []
+            for c in L:
+                if c['text'] == '_':
+                    if cur and c['x0'] - cur[-1]['x1'] > 3: runs.append(cur); cur = []
+                    cur.append(c)
+                elif cur: runs.append(cur); cur = []
+            if cur: runs.append(cur)
+            for r in runs:
+                x0, x1 = r[0]['x0'], r[-1]['x1']
+                if x1 - x0 < 25: continue
+                full = ''.join(c['text'] for c in L if c['x1'] <= x0 + 0.5 and c['text'] != '_').strip()
+                before = re.split(r'[,;]', full)[-1].strip() if full else ''
+                cands = [before, full] if full else [prev_text]
+                src = ''
+                for lab in cands:
+                    lab = re.sub(r'^\d{1,2}\.\s*', '', lab.strip().lower().rstrip(':').strip())
+                    if sec == 'skip' or not lab or re.fullmatch(r'бр\.?|дата', lab): break
+                    for re_, s_, where in BLANK_RULES:
+                        if re.search(re_, lab):
+                            if not (where == 'firm' and sec == 'signer' and s_ in ('f.address', 'f.city', 'f.name')): src = s_
+                            break
+                    if src: break
+                if not src or (src, item, pi) in used: continue
+                used.add((src, item, pi))
+                bot = max(c['bottom'] for c in r)
+                F.append({'k': f'p{pi}_{slug(src)}_{len(F)}', 'l': (before or prev_text)[:60] or src, 'x': round(x0 * sc), 'y': round((bot - 13) * sc), 'w': round((x1 - x0) * sc), 'h': round(12 * sc), 'p': pi, 't': 't', 'src': src})
+            stripped = text.replace('_', '').strip()
+            if stripped: prev_text = re.split(r'[,;]', stripped)[-1]
+    # one value per firm source per item is enough when a label repeats on continuation lines
+    return F
+
 def main():
-    L = links()
+    L = links() + me_links()
     forms, catalog = [], []
+    seen = set()
     os.makedirs(os.path.join(ROOT, 'apps', 'web', 'public', 'forms'), exist_ok=True)
     for n, x in enumerate(L):
         if x['all']:
             catalog.append({'inst': INST_ID[x['grp']], 'code': '', 'name': 'Сите обрасци на официјалната страница', 'url': x['url'], 'kind': 'WEB', 'form': None}); continue
         fid = f"i_{x['grp']}_{slug(x['code'] or x['name'])}"
+        if x['grp'] in ('dpi', 'me'):
+            fid = f"i_{x['grp']}_{slug(x['code'] + ' ' + x['name'].split('–')[-1])}"[:40]
+        while fid in seen: fid += '_2'
+        seen.add(fid)
         if fid in {m['id'] for m in MANUAL}: continue  # placed by hand below
         entry = {'inst': INST_ID[x['grp']], 'code': x['code'], 'name': x['name'], 'url': x['url'], 'kind': x['kind'], 'form': None}
         pdf = os.path.join(SRC, f"{fid}.pdf")
@@ -292,7 +399,7 @@ def main():
                 if len(r.pages) > 8 or not has_text:
                     pass  # a gazette / instructions or a scan: link only
                 else:
-                    F = acro_fields(pdf, pages) if r.get_fields() else text_fields(pdf, pages)
+                    F = acro_fields(pdf, pages) if r.get_fields() else (blank_fields(pdf, pages) if '____' in (r.pages[0].extract_text() or '') else text_fields(pdf, pages))
                     if any(f['src'] for f in F):
                         dims = render(pdf, fid, pages)
                         forms.append({'id': fid, 'inst': INST[x['grp']], 'name': (f"{x['code']} – " if x['code'] else '') + x['name'], 'form': True, 'pages': dims, 'fields': F, 'url': x['url']})
