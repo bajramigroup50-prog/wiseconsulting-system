@@ -90,7 +90,7 @@ export default async function ParicenTekPage({ searchParams }: { searchParams: P
     <>
       <Hd t="💧 Паричен тек – прогноза" sub={`${firm.name} · ${o.horizon} дена од ${dmy(today)}`} exp={false}>
         <a className="btn" href={'/paricenTek/xlsx' + qs(sp, {})} title="Секој ден, неделите и ставките во Excel">⬇ Excel</a>
-        <PdfButton title={`Paricen_tek_${o.horizon}_dena`} landscape />
+        <PdfButton selector="#cfArea" title={`Paricen_tek_${o.horizon}_dena`} landscape />
         {!portal && <Link className="btn ghost" href="/analizi?t=cash" title="13-неделниот паричен тек и финансиското здравје">Анализи · 13 недели</Link>}
       </Hd>
 
@@ -110,7 +110,7 @@ export default async function ParicenTekPage({ searchParams }: { searchParams: P
         <button className="btn sm">Пресметај</button>
       </form>
 
-      <div id="printArea">
+      <div id="cfArea">
         <div className="tiles kpi k4">
           <Tile lab="Пари денес" val={fmt(P.start)} sub={`${C.banks.length} сметки${o.cash && C.cash ? ` + благајна ${fmt(C.cash)}` : ''}`} />
           <Tile lab={`Приливи · ${o.horizon} дена`} val={fmt(P.inn)} sub="купувачи по рок, рачни" st="good" />

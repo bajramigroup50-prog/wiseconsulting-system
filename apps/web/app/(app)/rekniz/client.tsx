@@ -3,11 +3,13 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { RcChange, RcLine } from '@wise/core/reclass';
+import { fmt } from '@/lib/fmt';
 import { PartnerPicker, type PickerPartner } from '@/components/partner-picker';
 import { applyAction, previewAction, type RcPreviewState } from './actions';
 
 type Line = RcLine & { partner: string; locked: boolean };
-const f2 = (n: number) => n.toLocaleString('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// the hand-made mk format (toLocaleString differs between Node and the browser → hydration mismatch)
+const f2 = fmt;
 const dmy = (d: string) => d.split('-').reverse().join('.');
 const PATH: Record<string, string> = { manual: 'рачен налог', doc: 'корекција на документ', bank: 'преку изводот' };
 

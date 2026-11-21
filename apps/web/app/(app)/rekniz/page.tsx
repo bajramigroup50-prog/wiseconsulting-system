@@ -106,7 +106,8 @@ export default async function ReknizPage({ searchParams }: { searchParams: Promi
               return (
                 <tr key={b.id}>
                   <td>{dmyHm(b.at)}</td><td>{uName(b.userId)}</td>
-                  <td>{from && b.change.account ? `${from} → ` : ''}{rcLabel(b.change, (k) => `${k} ${kName.get(k) ?? ''}`.trim(), (id) => (id ? pName.get(id) ?? '?' : ''))}</td>
+                  <td>{from && b.change.account ? <>конто {from} → <b>{b.change.account}</b> {kName.get(b.change.account) ?? ''}{b.change.partnerId !== undefined ? `, комитент → ${b.change.partnerId ? pName.get(b.change.partnerId) ?? '?' : 'без комитент'}` : ''}</>
+                    : rcLabel(b.change, (k) => `${k} ${kName.get(k) ?? ''}`.trim(), (id) => (id ? pName.get(id) ?? '?' : ''))}</td>
                   <td className="n">{b.items.length}{b.blocked ? <span className="mini"> (+{b.blocked} прескокнати)</span> : null}</td>
                   <td className="n">{b.journals}</td><td className="n">{fmt(sum)}</td>
                   <td>{b.undone ? <span className="pill">вратено {dmyHm(b.undone.at)}{b.undone.skipped ? ` · ${b.undone.skipped} прескокнати` : ''}</span> : <span className="pill good">применето</span>}</td>
