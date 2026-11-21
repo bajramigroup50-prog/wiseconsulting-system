@@ -215,6 +215,27 @@ def text_fields(pdf, pages):
 # Forms placed by hand (a scanned form in the Official Gazette, no text to anchor on): coordinates in px of the
 # 745-wide page image. ДИТ „Известување за вршење на работа во недела“ (Правилник, Сл. весник 299/2021, Прилог).
 MANUAL = [
+    {'id': 'i_avrsm_ppr_ppr_obrazec_pdf', 'grp': 'avrsm', 'inst': 'АВРМ', 'code': 'ППР', 'name': 'Пријава за потреба од работник',
+     'url': 'https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.pdf', 'pages': [0, 1],
+     'fields': [
+        {'k': 'naziv', 'l': '1. Назив на работодавачот', 'x': 336, 'y': 206, 'w': 384, 'h': 20, 'p': 0, 't': 't', 'src': 'f.name'},
+        {'k': 'embs', 'l': '2. ЕМБС', 'x': 600, 'y': 247, 'w': 120, 'h': 24, 'p': 0, 't': 't', 'src': 'f.embs'},
+        {'k': 'dejnost', 'l': '4. Шифра и назив на претежната дејност', 'x': 336, 'y': 322, 'w': 384, 'h': 46, 'p': 0, 't': 'm', 'src': 'f.activity'},
+        {'k': 'ulica', 'l': '5. Улица и број', 'x': 336, 'y': 391, 'w': 384, 'h': 19, 'p': 0, 't': 't', 'src': 'f.address'},
+        {'k': 'opstina', 'l': '6. Општина', 'x': 336, 'y': 415, 'w': 300, 'h': 24, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'mesto', 'l': '7. Населено место', 'x': 336, 'y': 447, 'w': 300, 'h': 24, 'p': 0, 't': 't', 'src': 'f.city'},
+        {'k': 'tel', 'l': '8. Телефон', 'x': 336, 'y': 483, 'w': 384, 'h': 19, 'p': 0, 't': 't', 'src': 'f.phone'},
+        {'k': 'faks', 'l': '9. Факс', 'x': 336, 'y': 508, 'w': 384, 'h': 18, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'email', 'l': '10. Е-маил', 'x': 336, 'y': 532, 'w': 384, 'h': 18, 'p': 0, 't': 't', 'src': 'f.email'},
+        {'k': 'edb', 'l': '11. Единствен даночен број', 'x': 506, 'y': 563, 'w': 214, 'h': 18, 'p': 0, 't': 't', 'src': 'f.edb'},
+        {'k': 'kontakt', 'l': '12. Лице за контакт', 'x': 336, 'y': 597, 'w': 384, 'h': 24, 'p': 0, 't': 't', 'src': 'f.signer'},
+        {'k': 'broj', 'l': '13. Број на барани работници', 'x': 672, 'y': 634, 'w': 48, 'h': 20, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'zanimanje', 'l': '14. Занимање / работно место', 'x': 336, 'y': 666, 'w': 280, 'h': 24, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'mesto2', 'l': '15. Населено место (на работното место)', 'x': 336, 'y': 700, 'w': 384, 'h': 22, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'raspored', 'l': '18. Распоред на работно време', 'x': 336, 'y': 845, 'w': 384, 'h': 22, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'plata', 'l': '19. Паричен износ на основна плата', 'x': 336, 'y': 876, 'w': 384, 'h': 22, 'p': 0, 't': 't', 'src': ''},
+        {'k': 'casovi', 'l': '21. Работно време (часови неделно)', 'x': 385, 'y': 968, 'w': 150, 'h': 18, 'p': 0, 't': 't', 'src': ''},
+     ]},
     {'id': 'i_dit_nedela', 'grp': 'dit', 'inst': 'ДИТ', 'code': '', 'name': 'Известување за вршење на работа во недела (Сл. весник 299/2021)',
      'url': 'https://localeconomy.gazibaba.gov.mk/wp-content/uploads/2023/12/pravilnik-izvestuvanje-nedela-299-21.pdf', 'pages': [1, 2, 3],
      'fields': [
@@ -255,6 +276,7 @@ def main():
         if x['all']:
             catalog.append({'inst': INST_ID[x['grp']], 'code': '', 'name': 'Сите обрасци на официјалната страница', 'url': x['url'], 'kind': 'WEB', 'form': None}); continue
         fid = f"i_{x['grp']}_{slug(x['code'] or x['name'])}"
+        if fid in {m['id'] for m in MANUAL}: continue  # placed by hand below
         entry = {'inst': INST_ID[x['grp']], 'code': x['code'], 'name': x['name'], 'url': x['url'], 'kind': x['kind'], 'form': None}
         pdf = os.path.join(SRC, f"{fid}.pdf")
         if x['kind'] == 'PDF' and not os.path.exists(pdf):
