@@ -1,14 +1,14 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { needsPartner } from '@wise/core';
 import type { OvRow } from '@wise/core/finpar';
 import {
   audit, bankAccounts, createLineKonto, deleteJournal, journalOverrideState, deleteNalogParts, firms, isIsoDate, isManualJournal, journals, nalogPartLine, NalTitleError, PostingError, postJournal, previewNalogDelete,
   resetJournalOverride, saveJournalOverride, setNalogTitle, syncFirmBanks, updateJournal, type NalogDeleteResult,
-  applyNalogDefaults,
+  applyNalogDefaults, previewNalogNumber, journalLines,
 } from '@wise/db';
 import { actionError, canDo, firmAction, type ActionState } from '@/lib/books';
 import { actorOf } from '@/lib/sales';
@@ -86,6 +86,61 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
   // the nalog grid („Промена (Enter)“) saves in place and refreshes itself
   if (form.get('stay') === '1') return { ok: target };
   redirect(`/nalozi?n=${encodeURIComponent(target)}`);
+}
+
+/** „Број на налог (F5)“ of the „Нов налог“ dialog: the number the new nalog would get on `date`. */
+export async function nextNalogNumberAction(date: string): Promise<{ no?: string; error?: string }> {
+  try {
+    const { firm } = await firmAction('write');
+    if (!isIsoDate(date)) return { error: 'Внесете датум.' };
+    return { no: await db().transaction((tx) => previewNalogNumber(tx, firm.id, date)) };
+  } catch (e) { return actionError(e); }
+}
+
+/**
+ * „Нов (Ins)“ → „Податоци за налог“ → „Во ред (F9)“ (like the old program): the nalog is OPENED first – number, date,
+ * „Прекнижен / Непрекнижен“, description – without lines; the lines come with „Книжење (F10)“. „Промена (Ent)“ of an
+ * opened manual nalog changes the same header data (`id`).
+ */
+export async function openNalogAction(_p: ActionState, form: FormData): Promise<ActionState & { no?: string }> {
+  try {
+    const id = String(form.get('id') ?? '').trim() || null;
+    const number = String(form.get('number') ?? '').trim();
+    const date = String(form.get('date') ?? '').trim();
+    const description = String(form.get('description') ?? '').trim();
+    const prek = form.get('prek') !== 'ne';
+    if (!isIsoDate(date)) return { error: 'Внесете датум на налогот.' };
+    if (number.length > 30) return { error: 'Бројот на налогот е предолг.' };
+    const existing = id ? (await db().select().from(journals).where(eq(journals.id, id)).limit(1))[0] : undefined;
+    if (id && !existing) return { error: 'Налогот не постои.' };
+    const { u, firm } = await firmAction('write');
+    if (existing && (existing.firmId !== firm.id || !isManualJournal(existing.sourceType))) return { error: 'Податоците се менуваат само на рачен налог.' };
+    const yr = date.slice(0, 4);
+    if (number && !existing) {
+      const [dup] = await db().select({ id: journals.id }).from(journals)
+        .where(and(eq(journals.firmId, firm.id), eq(journals.number, number), sql`${journals.date} between ${yr + '-01-01'} and ${yr + '-12-31'}`)).limit(1);
+      if (dup) return { error: `Налог бр. ${number} веќе постои за ${yr} – изберете го во листата и „Книжење (F10)“, или внесете друг број (F5 = следен број).` };
+    }
+    let no = '';
+    if (existing) {
+      const L = await db().select().from(journalLines).where(eq(journalLines.journalId, existing.id));
+      const res = await db().transaction((tx) => updateJournal(tx, existing.id, {
+        firmId: firm.id, date, kind: existing.kind, description: description || existing.description || 'Рачен налог', number: number || existing.number,
+        periodFrom: existing.periodFrom, periodTo: existing.periodTo, userId: u.id, auditAction: 'nalSave', allowEmpty: true,
+        requirePartner: false, meta: { ...((existing.meta as Record<string, unknown>) ?? {}), prek },
+        lines: L.map((l) => ({ account: l.account, debit: l.debit, credit: l.credit, partnerId: l.partnerId, note: l.note, doc: l.doc, ...(l.currency && l.amountCur ? { currency: l.currency, amountCur: Number(l.amountCur) } : {}), ...(l.locationId ? { locationId: l.locationId } : {}) })),
+      }));
+      no = res.number;
+    } else {
+      const res = await db().transaction((tx) => postJournal(tx, {
+        firmId: firm.id, date, kind: 'manual', description: description || 'Рачен налог', number: number || null, userId: u.id, auditAction: 'saveJ',
+        allowEmpty: true, lines: [], meta: { rows: [], prek, opened: true },
+      }));
+      no = res.number;
+    }
+    revalidatePath('/nalozi');
+    return { ok: `Налогот бр. ${no} е отворен – изберете „Книжење (F10)“ за ставките.`, no };
+  } catch (e) { return actionError(e); }
 }
 
 /** Delete one journal (legacy `nalDel`, needs `del`). Journals created from documents are removed with their document. */

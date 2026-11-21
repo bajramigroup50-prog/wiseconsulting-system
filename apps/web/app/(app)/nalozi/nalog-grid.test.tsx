@@ -12,7 +12,7 @@ import { bankLineOf, mergeBankHeads, sums } from '@/lib/nalog-grid';
 
 const push = vi.fn();
 const refresh = vi.fn();
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh, replace() {} }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh, replace() {} }), useSearchParams: () => new URLSearchParams() }));
 const ovRows: OvRow[] = [
   { i: 0, account: '1200', debit: 1180, credit: 0, partnerId: 'k', note: '', doc: '15', del: false },
   { i: 1, account: '7600', debit: 0, credit: 1000, partnerId: null, note: '', doc: '15', del: false },
@@ -25,6 +25,8 @@ vi.mock('./actions', () => ({
   saveOverrideAction: (j: string, r: unknown, s?: boolean) => saveOverride(j, r, s),
   saveJournal: (p: unknown, f: FormData) => saveJournal(p, f),
   createKontoAction: async () => ({ ok: '' }),
+  nextNalogNumberAction: async () => ({ no: '00127' }),
+  openNalogAction: async () => ({}),
 }));
 const delBank = vi.fn(async (_id: number) => ({ ok: 'Избришано.' }));
 vi.mock('./statement-actions', () => ({ deleteNalogBankLineAction: (id: number) => delBank(id), massCloseAction: async () => ({ ok: '' }), massClosePreviewAction: async () => ({ n: 0, text: '' }) }));
@@ -228,22 +230,43 @@ describe('bank nalog', () => {
 });
 
 describe('nalog list keys', () => {
-  it('↑ ↓ / Enter open / Ins new / + selection sums', () => {
+  it('↑ ↓ / Enter open / Ins = „Податоци за налог“ / + selection sums / the panel buttons', async () => {
     mount(createElement('div', null,
       createElement('table', { id: 'nal-list' }, createElement('tbody', null,
         createElement('tr', { 'data-nal': '1/1-3', 'data-d': 100, 'data-p': 100 }, createElement('td', null, createElement('a', { href: '/nalozi?n=1%2F1-3', 'data-open': '' }, 'Отвори'))),
-        createElement('tr', { 'data-nal': '2/1-3', 'data-d': 50, 'data-p': 40 }, createElement('td', null, createElement('a', { href: '/nalozi?n=2%2F1-3', 'data-open': '' }, 'Отвори'), createElement('a', { href: '/nalozi?n=2%2F1-3&sint', 'data-sint': '' }, 'Σ'))),
+        createElement('tr', { 'data-nal': '2/1-3', 'data-d': 50, 'data-p': 40 }, createElement('td', null, createElement('a', { href: '/nalozi?n=2%2F1-3', 'data-open': '' }, 'Отвори'), createElement('a', { href: '/nalozi?n=2%2F1-3&sint', 'data-sint': '' }, 'Σ'), createElement('a', { href: '/nalozi?nov&n=2%2F1-3', 'data-book': '' }, '+'))),
+        createElement('tr', { 'data-nal': '00126', 'data-d': 0, 'data-p': 0, 'data-jid': 'j1', 'data-date': '2026-11-20', 'data-desc': 'ИЗВОДИ', 'data-prek': '1' }, createElement('td', null, createElement('a', { href: '/nalozi?n=00126', 'data-open': '' }, 'Отвори'))),
       )),
-      createElement(LK.ListKeys, { tableId: 'nal-list', newHref: '/nalozi?nov' })));
+      createElement(LK.ListKeys, { tableId: 'nal-list', canWrite: true, today: '2026-11-21' })));
+    // the Helix panel
+    const btn = (t: string) => [...document.querySelectorAll('aside button')].find((b) => b.textContent === t);
+    expect(['Книжење (F10)', 'Нов (Ins)', 'Промена (Ent)', 'Бришење (Del)'].every((t) => btn(t))).toBe(true);
     key(window, 'ArrowDown');
     key(window, 'Enter');
     expect(push).toHaveBeenLastCalledWith('/nalozi?n=2%2F1-3');
     key(window, 'F8');
     expect(push).toHaveBeenLastCalledWith('/nalozi?n=2%2F1-3&sint');
-    key(window, 'Insert');
-    expect(push).toHaveBeenLastCalledWith('/nalozi?nov');
+    key(window, 'F10');
+    expect(push).toHaveBeenLastCalledWith('/nalozi?nov&n=2%2F1-3');
     key(window, '+');
     expect($('[data-testid=list-sel]')!.textContent).toContain('Селекција 1');
     expect($('[data-testid=list-sel]')!.textContent).toContain('10,00');
+    // Ins: the dialog „Податоци за налог“ (no navigation)
+    const n = push.mock.calls.length;
+    key(window, 'Insert');
+    expect($('[role=dialog]')!.textContent).toContain('Податоци за налог');
+    expect($('[role=dialog]')!.textContent).toContain('Во ред (F9)');
+    expect(($('#nd_date') as HTMLInputElement).value).toBe('2026-11-21');
+    expect(push.mock.calls.length).toBe(n);
+    // F5 = the next number
+    await act(async () => { $('[role=dialog]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true })); await new Promise((r) => setTimeout(r, 0)); });
+    expect(($('#nd_no') as HTMLInputElement).value).toBe('00127');
+    // Esc closes it
+    act(() => { $('#nd_no')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect($('[role=dialog]')).toBeNull();
+    // Промена (Ent) on a manual nalog: its header data in the dialog
+    key(window, 'Enter');
+    expect(($('#nd_no') as HTMLInputElement).value).toBe('00126');
+    expect(($('#nd_desc') as HTMLInputElement).value).toBe('ИЗВОДИ');
   });
 });

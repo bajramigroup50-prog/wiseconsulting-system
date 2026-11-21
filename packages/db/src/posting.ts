@@ -176,6 +176,21 @@ async function prepareLines(tx: Tx, firmId: string, input: readonly PostLineInpu
 
 const yearOf = (date: string) => date.slice(0, 4);
 
+/**
+ * The number a new nalog of `kind` dated `date` would get (the „Број на налог (F5)“ suggestion of the „Нов налог“
+ * dialog) — the same rule as `assignNumber`, without taking it: the real number is assigned when the nalog is saved.
+ */
+export async function previewNalogNumber(tx: Tx, firmId: string, date: string, kind = 'manual'): Promise<string> {
+  const f = await loadFirm(tx, firmId);
+  const settings = firmNalogSettings(f);
+  const n = nalogNumber({ kind, date, settings, vatPeriod: f.vatPeriod === 'month' ? 'month' : 'quarter' });
+  if (n.no) return n.no;
+  const y = yearOf(date);
+  const used = await tx.select({ n: journals.number }).from(journals)
+    .where(and(eq(journals.firmId, f.id), sql`${journals.date} between ${y + '-01-01'} and ${y + '-12-31'}`));
+  return nextCounter(used.map((r) => r.n), settings.nalogMode === 'doc' ? 0 : MANUAL_COUNTER_BASE);
+}
+
 async function assignNumber(tx: Tx, f: Firm, input: PostJournalInput, keep: Journal | null): Promise<string> {
   if (input.number?.trim()) return input.number.trim();
   const settings = firmNalogSettings(f);
