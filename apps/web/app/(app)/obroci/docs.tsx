@@ -19,18 +19,12 @@ const line = (v: string | null | undefined, w = 60) => v || <span style={{ displ
 
 function Two({ mk, sq }: { mk: React.ReactNode; sq: React.ReactNode }) {
   return (
-    <div className="npo2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6mm', breakInside: 'avoid', margin: '2mm 0' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6mm', breakInside: 'avoid', margin: '2mm 0' }}>
       <div>{mk}</div>
       <div style={{ fontStyle: 'italic' }}>{sq}</div>
     </div>
   );
 }
-
-/**
- * On a narrow screen (phone, portal) the documents fit the width: the two languages one under the other, the wide
- * table of the records scrolls by itself instead of the whole page being cut. Never on paper / in the PDF (A4 is wider).
- */
-export const NPO_DOC_CSS = `@media screen and (max-width: 720px){.npoDoc .npo2{grid-template-columns:1fr!important}.npoDoc .npoTw{overflow-x:auto}.npoDoc .sigs{flex-wrap:wrap;gap:6mm}}`;
 
 /** One beneficiary's consent (A4, both languages side by side). */
 export function ConsentDoc({ b, firm }: { b: Pick<MealBeneficiaryRow, 'name' | 'embg' | 'place' | 'phone' | 'members' | 'consentDate'>; firm: Firm }) {
@@ -76,7 +70,7 @@ export function ConsentDoc({ b, firm }: { b: Pick<MealBeneficiaryRow, 'name' | '
         mk={<><b>Изјава.</b> Со потписот потврдувам дека сум информиран/а за горенаведеното и <b>изречно се согласувам</b> Здружението да ги обработува моите лични податоци и податоците на членовите на моето семејство (и за малолетните членови, како родител / старател), вклучувајќи ги податоците за социјалната и здравствената состојба, за целта од точка 1.</>}
         sq={<><b>Deklaratë.</b> Me nënshkrimin konfirmoj se jam informuar për sa më sipër dhe <b>pajtohem shprehimisht</b> që Shoqata t’i përpunojë të dhënat e mia personale dhe të dhënat e anëtarëve të familjes sime (edhe për anëtarët e mitur, si prind / kujdestar), përfshirë të dhënat për gjendjen sociale dhe shëndetësore, për qëllimin nga pika 1.</>}
       />
-      <div className="sigs" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10mm', breakInside: 'avoid' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10mm', breakInside: 'avoid' }}>
         <div>Место и датум / <i>Vendi dhe data</i>:<br />{firm.city ?? ''}, {b.consentDate ? dmy(b.consentDate) : line(null, 30)}</div>
         <div style={{ textAlign: 'center', minWidth: '65mm' }}>Корисник / <i>Përfituesi</i><div style={{ height: '14mm' }} /><div style={{ borderTop: '1px solid #000' }}>потпис / <i>nënshkrimi</i></div></div>
         <div style={{ textAlign: 'center', minWidth: '55mm' }}>За Здружението / <i>Për Shoqatën</i><div>{S.signer ?? ''}</div><div style={{ height: '10mm' }} /><div style={{ borderTop: '1px solid #000' }}>потпис и печат</div></div>
@@ -142,12 +136,12 @@ export function ProcessingRecords({ firm, today, counts }: { firm: Firm; today: 
           <tr><td>Офицер за заштита на лични податоци</td><td>{line(null)}</td></tr>
         </tbody>
       </table>
-      <div className="npoTw"><table className="dense" style={{ width: '100%', minWidth: '180mm' }}>
+      <div><table className="dense" style={{ width: '100%' }}>
         <thead><tr><th>Збирка / активност</th><th>Цел</th><th>Субјекти</th><th>Категории податоци</th><th>Правен основ</th><th>Примачи</th><th>Рок на чување</th></tr></thead>
         <tbody>{A.map((a) => <tr key={a.name}><td><b>{a.name}</b></td><td>{a.purpose}</td><td>{a.subjects}</td><td>{a.data}</td><td>{a.basis}</td><td>{a.recipients}</td><td>{a.keep}</td></tr>)}</tbody>
       </table></div>
       <p style={{ margin: '3mm 0 1mm' }}><b>Пренос во трети земји:</b> нема. <b>Технички и организациски мерки:</b> податоците се во програмата WISE (пристап само со корисничко име и лозинка, двофакторска проверка, евиденција на секоја промена, дневна резервна копија); хартиените согласности се чуваат во заклучен орман; пристап имаат само овластените лица; податоците не се објавуваат и не се даваат поименично на донаторите; по истекот на рокот се бришат / уништуваат со записник.</p>
-      <div className="sigs" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10mm' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10mm' }}>
         <div>{firm.city ?? ''}, {dmy(today)}</div>
         <div style={{ textAlign: 'center', minWidth: '65mm' }}>Одговорно лице<div>{S.signer ?? ''}</div><div style={{ height: '12mm' }} /><div style={{ borderTop: '1px solid #000' }}>потпис и печат</div></div>
       </div>
