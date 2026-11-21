@@ -43,24 +43,34 @@ const flush = () => act(async () => { for (let i = 0; i < 5; i++) await new Prom
 const PARTNERS = [{ id: 'p1', code: '0007', name: 'КУПУВАЧ ДОО', edb: '4030000000001' }, { id: 'p2', code: '0008', name: 'ДРУГ ДОО' }];
 const delA = vi.fn();
 const tr = (id: string, no: string, o: Record<string, string> = {}) => h('tr', {
-  key: id, 'data-inv': id, 'data-no': no, 'data-pname': 'КУПУВАЧ ДОО', 'data-pid': 'p1', 'data-total': '2360', 'data-paid': '1000', 'data-rest': '1360',
+  key: id, 'data-id': id, 'data-sum': '2360', 'data-no': no, 'data-pname': 'КУПУВАЧ ДОО', 'data-pid': 'p1', 'data-total': '2360', 'data-paid': '1000', 'data-rest': '1360',
   'data-head': JSON.stringify({ ...LK.blankHead('2026-11-01', no), id, partnerId: 'p1', refDoc: 'НАР-' + no, days: '10', due: '2026-11-11', grp1: 'Г' }), ...o,
-}, h('td', null, no), h('td', null,
+}, h('td', { className: 'hx-mk' }), h('td', null, no), h('td', null,
   h('a', { href: `/izlez?edit=${id}`, 'data-open': '' }, '✎'),
   h('a', { href: `/api/ubl/${id}`, 'data-ubl': '' }, 'XML'),
   h('span', { 'data-del': '' }, h('button', { type: 'button', onClick: () => delA(id) }, '🗑'))));
-const view = (rows = [tr('a', '1'), tr('b', '2'), tr('c', '3', { 'data-prod': '1' })]) => mount(h('div', null,
-  h('table', { id: 'inv-list' }, h('tbody', null, ...rows)),
-  h(LK.InvoiceListKeys, { tableId: 'inv-list', canWrite: true, today: '2026-11-21', svc: false, view: '/izlez', partners: PARTNERS, nalozi: [{ number: '1041', description: 'Излезни 11/2026' }], schemes: [], nextNumber: '4', firmName: 'ТЕСТ ДООЕЛ' })));
-const sel = () => [...document.querySelectorAll('tr[data-inv]')].findIndex((r) => r.getAttribute('aria-selected') === 'true');
+const view = (rows = [tr('a', '1'), tr('b', '2'), tr('c', '3', { 'data-prod': '1' })]) => mount(h(LK.InvoiceListKeys, {
+  tableId: 'inv-list', canWrite: true, today: '2026-11-21', svc: false, view: '/izlez', partners: PARTNERS, nalozi: [{ number: '1041', description: 'Излезни 11/2026' }], schemes: [], nextNumber: '4', firmName: 'ТЕСТ ДООЕЛ',
+  filterId: 'q', wh: { value: '', options: [{ v: '', label: 'Сите магацини' }, { v: 'main', label: '01 Главен магацин' }] },
+}, h('input', { id: 'q' }), h('table', { id: 'inv-list' }, h('tbody', null, ...rows))));
+const sel = () => [...document.querySelectorAll('tr[data-id]')].findIndex((r) => r.getAttribute('aria-selected') === 'true');
 const btn = (t: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === t)!;
 
 describe('Излез – Helix panel and keys', () => {
-  it('has the panel of the old program; ↑ ↓ select (the last row first), F10 opens the lines, Del deletes', () => {
+  it('has the panel, menu and bottom bar of the old program; ↑ ↓ select (the last row first, ▸), F10 opens the lines, Del deletes', () => {
     view();
-    const P = $('aside[aria-label="Излезни фактури – акции"]')!;
-    expect([...P.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Содржина (F10)', 'Нов (Ins)', 'Промена (Ent)', 'Бришење (Del)', 'Испрати е-Фактура', 'Наплати (F4)', 'Книга на фактури (F2)', 'Префрлање во книга на излези (F8)']);
+    const P = $('aside[aria-label="Акции на прегледот"]')!;
+    expect([...P.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Ent)', 'Бришење (Del)', 'Испрати е-Фактура',
+      'Наплати (F4)', 'Масовна наплата', 'Масовна наплата на курсни разлики', 'Книга на фактури (F2)', 'Спецификација по комитенти (F3)', 'Промет по производи (F6)', 'Парагон', 'Промет', 'Прегл. по налози']);
+    expect([...P.querySelectorAll('legend')].map((l) => l.textContent)).toEqual(['Комерцијално', 'Продажба']);
+    expect([...document.querySelectorAll('[data-hx-menu] summary')].map((x) => x.textContent)).toEqual(['Специјални опции', 'Корекција за наплата', 'Прегледи', 'Безбедност', 'Сортирање', 'Копирање', 'Печатење', 'Останато', 'Е-Фактура']);
+    // no copy in WISE yet: shown, disabled, with the reason
+    expect([...document.querySelectorAll('[data-hx-menu] summary')].find((x) => x.textContent === 'Копирање')!.getAttribute('aria-disabled')).toBe('true');
+    expect(document.body.textContent).toContain('Прекнижување (F5)');
+    expect(document.body.textContent).toContain('Главна книга (F7)');
+    expect(document.body.textContent).toContain('F1 - Освежување на податоците');
     expect(sel()).toBe(2);
+    expect(document.querySelectorAll('td.hx-mk')[2]!.textContent).toBe('▸');
     key(window, 'ArrowUp'); key(window, 'ArrowUp');
     expect(sel()).toBe(0);
     key(window, 'ArrowDown');
@@ -71,6 +81,29 @@ describe('Излез – Helix panel and keys', () => {
     expect(delA).toHaveBeenCalledWith('b');
     key(window, 'F2');
     expect(push).toHaveBeenLastCalledWith('/ddvKnigi?t=out');
+    key(window, 'F5');
+    expect(push).toHaveBeenLastCalledWith('/rekniz');
+    key(window, 'F12');
+    expect(document.activeElement?.id).toBe('q');
+    (document.activeElement as HTMLElement).blur();
+    key(window, 'Escape');
+    expect(push).toHaveBeenLastCalledWith('/');
+  });
+
+  it('Селекција: + marks and moves down, * all / none, F only the marked; the sum of the marked', () => {
+    view();
+    key(window, 'Home');
+    key(window, '+');
+    key(window, '+');
+    expect(document.querySelectorAll('tr.hx-marked')).toHaveLength(2);
+    expect($('[data-testid=hx-sel]')!.textContent).toContain('4.720,00');
+    key(window, 'F');
+    expect([...document.querySelectorAll<HTMLTableRowElement>('tr[data-id]')].map((r) => r.hidden)).toEqual([false, false, true]);
+    key(window, 'F');
+    key(window, '*');
+    expect(document.querySelectorAll('tr.hx-marked')).toHaveLength(0);
+    key(window, '*');
+    expect(document.querySelectorAll('tr.hx-marked')).toHaveLength(3);
   });
 
   it('F4 „Наплати“ shows за наплата / наплатено / останува and where to record the payment', () => {
@@ -139,5 +172,21 @@ describe('Излез – Helix panel and keys', () => {
     key(window, 'Enter');
     expect($('[role=dialog]')).toBeNull();
     expect(push).toHaveBeenLastCalledWith('/izlez?edit=c');
+  });
+});
+
+describe('Влез – Helix controls', () => {
+  it('panel, menu and bottom bar of „Преглед на влезни калкулации“ map to WISE screens', async () => {
+    const { vlezHelix } = await import('./vlez-list-keys');
+    const c = vlezHelix(true, false);
+    expect(c.groups.flatMap((g) => g.items.map((b) => b.label + (b.key ? ` (${b.key})` : '')))).toEqual(['Смени магацин', 'Содржина (F10)', 'Нова (Ins)', 'Промена (Enter)', 'Бришење (Delete)',
+      'Наплати (F4)', 'Масовна наплата', 'Книга на фактури (F2)', 'Спецификација по комитенти (F3)', 'Набавени производи (F6)', 'Преглед по налози', 'По документи']);
+    expect(c.groups[0]!.items[0]!.act).toHaveProperty('off');
+    // Ins stays with the page's „Податоци за малопродажна калкулација“ dialog
+    expect(c.groups[0]!.items[2]).toMatchObject({ act: { href: '/vlez?hnov' } });
+    expect(c.groups[0]!.items[2]!.key).toBeUndefined();
+    expect(c.menu.map((m) => m.label)).toEqual(['Специјални опции', 'Корекција за наплати', 'Безбедност', 'Сортирање', 'Останато', 'Копирање', 'Е-Фактура']);
+    expect(c.bottom.map((b) => `${b.label} ${b.key}`)).toEqual(['Прекнижување F5', 'Главна книга F7', 'Филтер F11', 'Освежување на податоците F1']);
+    expect(c.groups[1]!.items.find((b) => b.key === 'F2')!.act).toEqual({ href: '/ddvKnigi?t=in' });
   });
 });

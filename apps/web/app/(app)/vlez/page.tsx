@@ -29,8 +29,10 @@ import { fuelRuleNow } from '@/lib/sales-parity';
 import { decodeHeader, headerIntoPurchase } from '@/lib/kalk-header';
 import { kalkDialogData } from '@/lib/kalk-header-data';
 import { KalkNewKeys } from '@/components/stock/kalk-header-dialog';
+import { VlezListKeys } from '@/components/sales/vlez-list-keys';
+import { HELIX_CSS } from '@/components/helix/helix-shell';
 
-type SP = { hx?: string; merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string; kand?: string; vid?: string };
+type SP = { wh?: string; sort?: string; hx?: string; merged?: string; px?: string; nov?: string; imp?: string; edit?: string; scan?: string; i?: string; back?: string; saved?: string; w?: string; q?: string; prevSaved?: string; kand?: string; vid?: string };
 
 export default async function VlezPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -140,7 +142,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
 
 
   const q = (sp.q ?? '').toLowerCase().trim();
-  const rows = await db().select({ p: purchases, name: partners.name, edb: partners.edb }).from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
+  const rows = await db().select({ p: purchases, name: partners.name, edb: partners.edb, code: partners.code }).from(purchases).leftJoin(partners, eq(partners.id, purchases.partnerId))
     .where(and(eq(purchases.firmId, firm.id), sql`${purchases.date} between ${String(year) + '-01-01'} and ${String(year) + '-12-31'}`)).orderBy(desc(purchases.date));
   // „🔎 Можни фискални сметки на 2200“: scanned small purchases booked against the supplier – receipts paid in cash
   // read as invoices (fuel, parking, tolls, a restaurant); tick them and „💶 Платено во готово – 1020“
@@ -160,7 +162,16 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
   const wrongCash = rows.filter(({ p }) => p.cash && toCash.has(p.id) && scanRead.has(p.id) && !receiptRead(p.id)).map(({ p }) => p.id);
   // invoices and fiscal receipts apart: the invoices by default, the receipts on their own tab, „Сите“ on request
   const vid = sp.vid === 'k' || sp.vid === 'all' ? sp.vid : 'f';
-  const list = rows.filter(({ p, name }) => (!q || `${p.number} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && (sp.kand !== '1' || isKand(p)) && (vid !== 'f' || !p.cash) && (vid !== 'k' || p.cash));
+  // „Магацин“ / „Сортирање“ of the Helix list: '' = all, 'main' = the main warehouse, otherwise a location
+  const whSel = sp.wh === 'main' || (sp.wh && /^[0-9a-f-]{36}$/i.test(sp.wh)) ? sp.wh : '';
+  const byWh = (w: string | null) => !whSel || (whSel === 'main' ? !w : w === whSel);
+  const list = rows.filter(({ p, name }) => (!q || `${p.number} ${p.calcNo ?? ''} ${name ?? p.supplierName ?? ''}`.toLowerCase().includes(q)) && byWh(p.warehouseId) && (sp.kand !== '1' || isKand(p)) && (vid !== 'f' || !p.cash) && (vid !== 'k' || p.cash));
+  if (sp.sort === 'no') list.sort((a, b) => (parseInt((a.p.calcNo ?? a.p.number).replace(/^\D+/, ''), 10) || 0) - (parseInt((b.p.calcNo ?? b.p.number).replace(/^\D+/, ''), 10) || 0));
+  else if (sp.sort === 'p') list.sort((a, b) => (a.name ?? a.p.supplierName ?? '').localeCompare(b.name ?? b.p.supplierName ?? '', 'mk'));
+  // by date, the newest last (the current row) – as in the old program
+  else list.sort((a, b) => (a.p.date < b.p.date ? -1 : a.p.date > b.p.date ? 1 : 0));
+  const LOCS = await locationOptions(firm.id);
+  const LOC = new Map(LOCS.map((l) => [l.id, l]));
   const J = new Map((await db().select({ s: journals.sourceId, n: journals.number }).from(journals).where(and(eq(journals.firmId, firm.id), eq(journals.sourceType, 'purchase')))).map((x) => [x.s, x.n]));
   const ids = list.map((r) => r.p.id);
   const att = ids.length ? await db().select({ e: fileLinks.entityId, id: files.id, name: files.name }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
@@ -219,7 +230,7 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
         <Link className={`btn ${vid === 'k' ? 'pri' : ''}`} href="/vlez?vid=k">💶 Фискални сметки – готовина 1020 · {rows.filter(({ p }) => p.cash).length}</Link>
         <Link className={`btn ${vid === 'all' ? 'pri' : ''}`} href="/vlez?vid=all">Сите · {rows.length}</Link>
       </div>
-      <form className="row" style={{ gap: 8, margin: '0 0 8px' }}>{vid !== 'f' && <input type="hidden" name="vid" value={vid} />}<input name="q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
+      <form className="row" style={{ gap: 8, margin: '0 0 8px' }}>{vid !== 'f' && <input type="hidden" name="vid" value={vid} />}<input name="q" id="vlez-q" defaultValue={sp.q ?? ''} placeholder="🔍 Број или добавувач…" style={{ width: 260 }} /><button className="btn">Барај</button><span className="note">{list.length} од {rows.length}</span></form>
       {wrongCash.length > 0 && write && <div className="callout warn row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <span>↩ <b>{wrongCash.length}</b> фактури (со вашата фирма како купувач – вода, струја, добавувачи) се префрлени во готово (1020) по грешка.</span>
         <RowAction className="btn pri" action={unsetPurchasesCashAction.bind(null, wrongCash)} label={`↩ Врати ги на добавувач – 2200 (${wrongCash.length})`} confirm={`Да се вратат ${wrongCash.length} фактури на добавувач (2200)? Фискалните сметки остануваат во готово.`} showOk />
@@ -231,29 +242,55 @@ export default async function VlezPage({ searchParams }: { searchParams: Promise
       {list.length ? (<>
         {write && <BulkBar label="💶 Платено во готово – 1020 ({n})" btnClass="btn" busy="Се прекнижува…" confirm="Избраните {n} се фискални сметки платени во готово? Се прекнижуваат: Г 1020 наместо 2200." action={setPurchasesCashAction} />}
         {del && <BulkBar label={`🗑 Избриши избрани ({n})`} confirm={`Да се избришат {n} влезни фактури заедно со нивните налози и прием на залиха?\nОва не може да се врати.`} action={deletePurchasesCascadeAction} preview={purchaseDeletePreviewAction} />}
-        <div className="tw"><table><thead><tr>{del && <th style={{ width: 30 }}><SelAll /></th>}<th>Датум</th><th>Бр.</th><th>Добавувач</th><th>Вид</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Вкупно</th><th className="n">Девизен износ</th><th className="n">Платено</th><th className="n">Останува</th><th>Плаќање</th><th></th></tr></thead>
-          <tbody>{list.map(({ p, name }) => {
+        <div className="hx-list"><style>{HELIX_CSS}</style>
+        <VlezListKeys tableId="vlez-list" canWrite={write} filterId="vlez-q"
+          wh={{ value: whSel, options: [{ v: '', label: 'Сите магацини' }, { v: 'main', label: '01 Главен магацин' }, ...LOCS.map((l) => ({ v: l.id, label: `${l.code ?? ''} ${l.name}${l.kind === 'store' ? ' (продавница)' : ''}` }))] }}
+          head={<div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', margin: '2px 0 4px' }} data-testid="vlez-firm">
+            <span className="hx-firm">{firm.name}</span><span className="mini muted">Преглед на влезни калкулации · {year}</span></div>}>
+        <div className="tw"><table id="vlez-list" className="dense hx-t" style={{ fontSize: 12.5 }}><thead><tr><th title="Тековен ред ▸ / означени *">*</th>{del && <th style={{ width: 26 }}><SelAll /></th>}<th>Број</th><th>Налог</th><th>По документ</th><th>Комитент</th><th>Од м.</th><th>Од магацин</th><th>Од пр.</th><th>Од продавница</th><th>Датум</th><th>Валута</th><th title="Домашна / Увозна">Д/У</th><th>Терк</th><th className="n">За наплата</th><th className="n">Наплатено</th><th className="n">За наплата (дев.)</th><th className="n">Наплатено (дев.)</th><th>Комитент</th><th title="Во WISE нема ваков податок">Од Продав.</th><th title="ЕЦД / царинска декларација">Врска за увоз</th><th title="Во заклучен период">Заклучен</th><th>Датум на фактура</th><th>Вид</th><th></th></tr></thead>
+          <tbody>{list.map(({ p, name, code }) => {
             const x = fxInfo(p);
+            const pm = payOf(p.id, p.total);
+            const L = p.warehouseId ? LOC.get(p.warehouseId) : undefined;
+            const PD = (p.data ?? {}) as Record<string, unknown>;
+            const s = (k: string) => (typeof PD[k] === 'string' ? (PD[k] as string) : '');
+            const fxPaid = x && Number(p.fx) ? Math.round((pm.paid / Number(p.fx)) * 100) / 100 : 0;
             return (
-              <tr key={p.id}>
+              <tr key={p.id} data-id={p.id} data-no={p.calcNo || p.number} data-pname={name ?? p.supplierName ?? ''} data-pid={p.partnerId ?? ''} data-total={pm.due} data-paid={pm.paid} data-rest={pm.rest} data-sum={pm.due}>
+                <td className="hx-mk" />
                 {del && <td><SelBox id={p.id} /></td>}
-                <td>{dmy(p.date)}</td><td>{p.number}</td><td>{p.partnerId ? <Link href={`/akart?k=22&pid=${p.partnerId}`} title="Финансиска картица на добавувачот">{name ?? p.supplierName}</Link> : name ?? p.supplierName}</td>
-                <td>{p.status === 'pending' && <span className="pill warn">⏳ чека одобрување </span>}{p.cash && <span className="pill info">готовина </span>}{p.imp && <span className="pill info">увозна </span>}{p.art32 && <span className="pill info">Чл. 32-а </span>}{p.scanned && <span className="pill good">скенирана </span>}{nStock.get(p.id) ? <span className="pill">на залиха </span> : null}
+                <td className="num" style={{ whiteSpace: 'nowrap' }}><b>{p.calcNo ?? ''}</b></td>
+                <td className="num">{J.get(p.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(p.id)!)}`}>{J.get(p.id)}</Link> : ''}</td>
+                <td>{p.number}</td>
+                <td style={{ minWidth: 170, maxWidth: 260, whiteSpace: 'normal' }}>{p.partnerId ? <Link href={`/akart?k=22&pid=${p.partnerId}`} title="Финансиска картица на добавувачот">{name ?? p.supplierName}</Link> : name ?? p.supplierName}</td>
+                <td>{!L ? '01' : L.kind === 'warehouse' ? L.code : ''}</td><td>{!L ? 'Главен магацин' : L.kind === 'warehouse' ? L.name : ''}</td>
+                <td>{L?.kind === 'store' ? L.code : ''}</td><td>{L?.kind === 'store' ? L.name : ''}</td>
+                <td className="hx-d">{dmy(p.date)}</td>
+                <td className="hx-d" style={pm.rest > 0.009 && p.due && p.due < today ? { fontWeight: 700 } : undefined}>{dmy(p.due)}</td>
+                <td>{p.imp ? 'У' : 'Д'}</td>
+                <td className="num">{s('terk') || String(PD.scheme ?? 1)}</td>
+                <td className="n"><b>{fmt(pm.due)}</b></td>
+                <td className="n">{fmt(pm.paid)}</td>
+                <td className="n" title={x ? `Курс ${x.fx} · ${fmt(x.den)} ден.` : undefined}>{x ? <>{fmt(x.fa)} <small>{x.cur}</small>{!x.ok && <span className="pill bad" title={`Збир на ставките ${fmt(x.st)} ≠ износ во девизи ${fmt(x.fa)}`}> ставки {fmt(x.st)}</span>}</> : ''}</td>
+                <td className="n">{x ? fmt(fxPaid) : ''}</td>
+                <td className="num">{code ?? ''}</td>
+                <td />
+                <td>{s('ecd')}</td>
+                <td>{firm.lockDate && p.date <= firm.lockDate ? 'Д' : 'Н'}</td>
+                <td className="hx-d">{dmy(p.docDate)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{p.status === 'pending' && <span className="pill warn">⏳ чека одобрување </span>}{p.cash && <span className="pill info">готовина </span>}{p.art32 && <span className="pill info">Чл. 32-а </span>}{p.scanned && <span className="pill good">скенирана </span>}{nStock.get(p.id) ? <span className="pill">на залиха </span> : null}
                   {att.filter((a) => a.e === p.id).map((a) => <a key={a.id} className="pill info" href={`/api/files/${a.id}`} target="_blank" rel="noreferrer">📎 {a.name.slice(0, 20)}</a>)}
-                  {!att.some((a) => a.e === p.id) && <span className="pill warn">без документ</span>}</td>
-                <td className="n">{fmt(p.base)}</td><td className="n">{fmt(p.art32 ? 0 : p.vat)}</td><td className="n">{fmt(p.total)}</td>
-                {x ? <td className="n" title={`Курс ${x.fx} · ${fmt(x.den)} ден.`}>{fmt(x.fa)} <small className="mut">{x.cur}</small>{x.fx ? <><br /><small className="mut">× {x.fx}</small></> : <><br /><small style={{ color: 'var(--bad)' }}>нема курс</small></>}{!x.ok && <><br /><span className="pill bad" title={`Збир на ставките ${fmt(x.st)} ≠ износ во девизи ${fmt(x.fa)}`}>ставки {fmt(x.st)}</span></>}</td> : <td className="n mut">—</td>}
-                {(() => { const pm = payOf(p.id, p.total); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && p.due && p.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td><td>{p.status === 'pending' ? null : <PayPill paid={pm.paid} total={pm.due} />}</td></>; })()}
+                  {!att.some((a) => a.e === p.id) && <span className="pill warn">без документ</span>}{p.status === 'pending' ? null : <> <PayPill paid={pm.paid} total={pm.due} /></>}</td>
                 <td><div className="row" style={{ flexWrap: 'nowrap' }}>
-                  {write && <Link className="btn sm" href={`/vlez?edit=${p.id}`}>Измени</Link>}
-                  {del && <RowAction action={deletePurchaseAction.bind(null, p.id, true)} preview={purchaseDeletePreviewAction.bind(null, [p.id])} label="Избриши" title="Избриши ја фактурата" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура бр. ${p.number || ''} од ${dmy(p.date)} (${name ?? p.supplierName ?? ''}, ${fmt(p.total)} ден.)?\nЌе се избрише и налогот и приемот на залиха.`} />}
+                  {write ? <Link className="btn sm" href={`/vlez?edit=${p.id}`} data-open>Измени</Link> : nStock.get(p.id) ? <Link href={`/print/kalk/${p.id}`} target="_blank" data-open hidden>Калкулација</Link> : null}
+                  {del && <span data-del><RowAction action={deletePurchaseAction.bind(null, p.id, true)} preview={purchaseDeletePreviewAction.bind(null, [p.id])} label="Избриши" title="Избриши ја фактурата" className="btn sm ghost danger" confirm={`Да се избрише влезната фактура бр. ${p.number || ''} од ${dmy(p.date)} (${name ?? p.supplierName ?? ''}, ${fmt(p.total)} ден.)?\nЌе се избрише и налогот и приемот на залиха.`} /></span>}
                   {nStock.get(p.id) ? <Link className="btn sm" href={`/print/kalk/${p.id}`} target="_blank">Калкулација</Link> : null}
-                  <Link className="btn sm" href={J.get(p.id) ? `/nalozi?n=${encodeURIComponent(J.get(p.id)!)}` : '#'}>Налог бр. {J.get(p.id) ?? '—'}</Link>
                   {write && u.role !== 'klient' && p.status === 'pending' && <RowAction className="btn sm pri" action={approvePurchaseAction.bind(null, p.id)} label="✓ Одобри" />}
                 </div></td>
               </tr>);
           })}</tbody>
-          <tfoot><tr><td colSpan={del ? 5 : 4}>Вкупно ({list.length})</td><td className="n">{fmt(T.b)}</td><td className="n">{fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td className="n">{[...fxBy].map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td className="n">{fmt(T.pd)}</td><td className="n">{fmt(T.r)}</td><td colSpan={2} /></tr></tfoot></table></div></>
+          <tfoot><tr><td colSpan={del ? 14 : 13}>Вкупно ({list.length}) · основица {fmt(T.b)} · ДДВ {fmt(T.v)}</td><td className="n">{fmt(T.t)}</td><td className="n">{fmt(T.pd)}</td><td className="n">{[...fxBy].map(([c, v]) => <div key={c}>{fmt(v)} {c}</div>)}</td><td colSpan={8} /></tr></tfoot></table></div>
+        </VlezListKeys></div></>
       ) : <div className="card empty">Сè уште нема влезни фактури за {year}.</div>}
     </>
   );

@@ -1,18 +1,20 @@
 'use client';
 /**
- * „Преглед на услужни калкулации“ (Материјално › Излез) like the old program (Helix): the panel on the right with
- * „Содржина (F10)“ · „Нов (Ins)“ · „Промена (Ent)“ · „Бришење (Del)“ · „Испрати е-Фактура“ · „Наплати (F4)“ ·
- * „Книга на фактури (F2)“ · „Префрлање во книга на излези (F8)“, and the keyboard: ↑ ↓ select a row, Ins = Нов,
- * Enter = Промена, Del = Бришење (the row's own „🗑“ with its confirm), F10 = Содржина (the lines of the invoice).
+ * „Преглед на излезни калкулации“ (Материјално › Излез) like the old program (Helix), on `HelixShell`: the menu bar,
+ * „Магацин“, the panel Смени магацин · Содржина (F10) · Нова (Ins) · Промена (Ent) · Бришење (Del) · Испрати
+ * е-Фактура · Комерцијално (Наплати F4, Масовна наплата, Масовна наплата на курсни разлики, Книга на фактури F2,
+ * Спецификација по комитенти F3, Промет по производи F6) · Продажба (Парагон, Промет, Прегл. по налози), and the
+ * bottom bar (Селекција * + - F, Прекнижување F5, Главна книга F7, Филтер F12, F1 освежување, Излез Esc).
  *
- * „Нов (Ins)“ / „Промена (Ent)“ open the dialog „Нова услужна калкулација“ (tabs Основно / Дополнително): „Во ред (F9)“
+ * „Нова (Ins)“ / „Промена (Ent)“ open the dialog „Нова услужна калкулација“ (tabs Основно / Дополнително): „Во ред (F9)“
  * saves the header (`saveInvoiceHeadAction`) and a new one opens its lines in the invoice editor. Works on the
- * server-rendered rows (`tr[data-inv]` with `data-head` = the header as JSON, `data-paid` / `data-rest` / `data-total`).
+ * server-rendered rows (`tr[data-id]` with `data-head` = the header as JSON, `data-paid` / `data-rest` / `data-total`).
  */
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CURRENCIES, PAYM } from '@wise/core/sales';
 import { nextInvoiceNumberAction, saveInvoiceHeadAction } from '@/app/(app)/izlez/head-actions';
+import { HelixShell, type HxBtn, type HxGroup, type HxMenu, type HxWh } from '@/components/helix/helix-shell';
 
 const nf = new Intl.NumberFormat('mk-MK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -42,102 +44,118 @@ export interface PartnerOpt { id: string; code: string | null; name: string; edb
 export interface NalogOpt { number: string; description: string }
 export interface SchemeOpt { no: number; label: string }
 
-export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners, nalozi, schemes, nextNumber, firmName }: {
+const COPY_OFF = 'Копирање на фактура во нова уште не постои во WISE – користете „Во фактура“ од профактура / испратница.';
+
+/** The Helix controls of Излез mapped to WISE (exported for the tests). */
+export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { groups: HxGroup[]; menu: HxMenu[]; bottom: HxBtn[] } {
+  const ro = 'Немате право на внес во оваа фирма.';
+  return {
+    groups: [
+      { items: [
+        { label: 'Смени магацин', act: hasWh ? { fn: 'wh' } : { off: 'Фирмата нема посебни магацини / продавници (Шифрарник › Магацини).' } },
+        { label: 'Содржина', key: 'F10', act: { row: 'a[data-open]' }, title: 'Ставките (содржината) на избраната фактура' },
+        { label: 'Нова', key: 'Insert', act: canWrite ? { ev: 'neu' } : { off: ro }, cls: 'pri', title: 'Нова услужна калкулација: заглавје, па ставки' },
+        { label: 'Промена', key: 'Enter', act: { ev: 'change' }, title: 'Податоци (заглавје) на избраната фактура' },
+        { label: 'Бришење', key: 'Delete', act: { row: '[data-del] button' }, cls: 'danger', title: 'Избриши ја избраната фактура' },
+      ] },
+      { items: [{ label: 'Испрати е-Фактура', act: { row: 'a[data-ubl]' }, title: 'UBL е-фактура (XML) на избраната фактура – за Е-ФАКТУРА (WISE не ја праќа сам до УЈП)' }] },
+      { title: 'Комерцијално', items: [
+        { label: 'Наплати', key: 'F4', act: { ev: 'pay' }, title: 'Наплата на избраната фактура: извод, каса, компензација, картица' },
+        { label: 'Масовна наплата', act: { href: '/banka' }, title: 'Изводи: приливите автоматски се поврзуваат со фактурите' },
+        { label: 'Масовна наплата на курсни разлики', act: { href: '/kursRaz' }, title: 'Курсни разлики на девизните побарувања' },
+        { label: 'Книга на фактури', key: 'F2', act: { href: '/ddvKnigi?t=out' }, title: 'Книга на излезни фактури (ДДВ)' },
+        { label: 'Спецификација по комитенти', key: 'F3', act: { href: '/analitika' }, title: 'Аналитика / ИОС по комитенти' },
+        { label: 'Промет по производи', key: 'F6', act: { href: '/analizi' }, title: 'Анализи: продажба по производи' },
+      ] },
+      { title: 'Продажба', items: [
+        { label: 'Парагон', act: { href: '/m_izlez' }, title: 'Излез од продавница (парагон блок)' },
+        { label: 'Промет', act: { href: '/g_trgv' }, title: 'Евиденција во трговијата на големо (ЕТ)' },
+        { label: 'Прегл. по налози', act: { href: '/nalozi' }, title: 'Налози за книжење' },
+      ] },
+    ],
+    menu: [
+      { label: 'Специјални опции', items: [
+        { label: '📷 Скенирај фактури (PDF)', act: { href: '/skan?k=sale' } },
+        { label: 'Увоз од Excel', act: { href: `/uvoz?t=invoices&back=${view.slice(1)}` } },
+        { label: '🏭 Нова фактура од производство', act: canWrite ? { href: '/izlez?nov&prod=1' } : { off: ro } },
+        { label: 'Периодични фактури', act: { href: '/periodicni' } },
+        { label: 'Изглед на фактура…', act: { href: view + '?style' } },
+      ] },
+      { label: 'Корекција за наплата', items: [
+        { label: 'Одобрение кон избраната фактура', act: { row: 'a[data-cr]' } },
+        { label: 'Книжни одобренија', act: { href: '/odobrenija' } },
+        { label: 'Компензации', act: { href: '/kompenzacii' } },
+        { label: 'Опомени', act: { href: '/opomeni' } },
+      ] },
+      { label: 'Прегледи', items: [
+        { label: 'Книга на излезни фактури', act: { href: '/ddvKnigi?t=out' } },
+        { label: 'Аналитика по комитенти (ИОС)', act: { href: '/analitika' } },
+        { label: 'Анализи и извештаи', act: { href: '/analizi' } },
+        { label: 'Сите извештаи', act: { href: '/izvestai' } },
+      ] },
+      { label: 'Безбедност', items: [
+        { label: 'Евиденција на активности', act: { href: '/aktivnost' } },
+        { label: 'Корисници и права', act: { href: '/korisnici' } },
+      ] },
+      { label: 'Сортирање', items: [
+        { label: 'По број', act: { href: view + '?sort=no' } },
+        { label: 'По датум', act: { href: view + '?sort=date' } },
+        { label: 'По комитент', act: { href: view + '?sort=p' } },
+      ] },
+      { label: 'Копирање', items: [], off: COPY_OFF },
+      { label: 'Печатење', items: [
+        { label: 'Преглед / печатење на избраната', act: { row: 'a[data-print]' } },
+        { label: 'Печати ја листата', act: { fn: 'print' } },
+      ] },
+      { label: 'Останато', items: [
+        { label: 'Профактури', act: { href: '/profakturi' } },
+        { label: 'Испратници', act: { href: '/ispratnici' } },
+        { label: 'Сите извештаи', act: { href: '/izvestai' } },
+      ] },
+      { label: 'Е-Фактура', items: [
+        { label: 'Е-Фактура (UBL извоз / увоз)', act: { href: '/efaktura' } },
+        { label: 'XML на избраната фактура', act: { row: 'a[data-ubl]' } },
+      ] },
+    ],
+    bottom: [
+      { label: 'Прекнижување', key: 'F5', act: { href: '/rekniz' }, title: 'Рекнижење во маса' },
+      { label: 'Главна книга', key: 'F7', act: { href: '/kartici' }, title: 'Картици на конта (главна книга)' },
+      { label: 'Филтер', key: 'F12', act: { fn: 'filter' }, title: 'Барање по број, комитент или шифра' },
+      { label: 'Останати опции', act: { href: '/izvestai' }, cls: 'ghost', title: 'Сите извештаи и опции' },
+      { label: 'Освежување на податоците', key: 'F1', act: { fn: 'refresh' } },
+    ],
+  };
+}
+
+export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners, nalozi, schemes, nextNumber, firmName, wh, filterId, head, children }: {
   tableId: string; canWrite: boolean; today: string; svc: boolean; view: string; partners: PartnerOpt[]; nalozi: NalogOpt[]; schemes: SchemeOpt[];
-  nextNumber: string; firmName: string;
+  nextNumber: string; firmName: string; wh?: HxWh | null; filterId?: string; head?: React.ReactNode; children?: React.ReactNode;
 }) {
   const router = useRouter();
-  const [sel, setSel] = useState(0);
   const [dlg, setDlg] = useState<InvHead | null>(null);
   const [pay, setPay] = useState<HTMLTableRowElement | null>(null);
-  const rows = () => [...(document.getElementById(tableId)?.querySelectorAll<HTMLTableRowElement>('tr[data-inv]') ?? [])];
-
-  // the row just saved (`?saved=`) is the selected one; otherwise the last (newest) row
-  useEffect(() => {
-    const R = rows();
-    const want = new URLSearchParams(window.location.search).get('saved');
-    const i = want ? R.findIndex((tr) => tr.dataset.inv === want) : -1;
-    setSel(i >= 0 ? i : Math.max(R.length - 1, 0));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const cfg = useMemo(() => izlezHelix(view, canWrite, !!wh && wh.options.length > 2), [view, canWrite, wh]);
 
   useEffect(() => {
-    const R = rows();
-    R.forEach((tr, i) => {
-      tr.setAttribute('aria-selected', String(i === sel));
-      tr.style.outline = i === sel ? '2px solid var(--accent)' : '';
-      tr.style.outlineOffset = '-2px';
-    });
-    R[sel]?.scrollIntoView?.({ block: 'nearest' });
-  });
-
-  const cur = () => rows()[sel];
-  const follow = (q: string) => { const a = cur()?.querySelector<HTMLAnchorElement>(q); if (a) router.push(a.getAttribute('href')!); };
-  const act = {
-    lines: () => follow('a[data-open]'),
-    neu: () => { if (canWrite) setDlg(blankHead(today, nextNumber)); },
-    change: () => {
-      const tr = cur();
+    const openRow = (tr: HTMLTableRowElement | null) => { const a = tr?.querySelector<HTMLAnchorElement>('a[data-open]'); if (a) router.push(a.getAttribute('href')!); };
+    const neu = () => { if (canWrite) setDlg(blankHead(today, nextNumber)); };
+    const change = (e: Event) => {
+      const tr = (e as CustomEvent<HTMLTableRowElement | null>).detail;
       if (!tr) return;
       // a production / cancelled invoice (or no right to write): the invoice itself
-      if (!canWrite || tr.dataset.prod || tr.dataset.canc || !tr.dataset.head) { follow('a[data-open]'); return; }
-      try { setDlg({ ...blankHead(today), ...(JSON.parse(tr.dataset.head) as Partial<InvHead>) }); } catch { follow('a[data-open]'); }
-    },
-    del: () => cur()?.querySelector<HTMLButtonElement>('[data-del] button, button[data-del]')?.click(),
-    ef: () => { const a = cur()?.querySelector<HTMLAnchorElement>('a[data-ubl]'); if (a) window.location.href = a.getAttribute('href')!; },
-    pay: () => { const tr = cur(); if (tr) setPay(tr); },
-    book: () => router.push('/ddvKnigi?t=out'),
-    // „Префрлање во книга на излези“: a draft / pending invoice is booked (then it is in the output VAT book), a booked one
-    // already is – the book opens
-    toBook: () => {
-      const b = cur()?.querySelector<HTMLButtonElement>('[data-approve] button, button[data-approve]');
-      if (b) b.click(); else router.push('/ddvKnigi?t=out');
-    },
-  };
-
-  useEffect(() => {
-    const tb = document.getElementById(tableId);
-    const click = (e: MouseEvent) => {
-      const tr = (e.target as HTMLElement).closest?.('tr[data-inv]');
-      if (tr) setSel(rows().indexOf(tr as HTMLTableRowElement));
+      if (!canWrite || tr.dataset.prod || tr.dataset.canc || !tr.dataset.head) { openRow(tr); return; }
+      try { setDlg({ ...blankHead(today), ...(JSON.parse(tr.dataset.head) as Partial<InvHead>) }); } catch { openRow(tr); }
     };
-    const dbl = (e: MouseEvent) => { if ((e.target as HTMLElement).closest?.('tr[data-inv]') && !(e.target as HTMLElement).closest('a,button,input')) act.change(); };
-    tb?.addEventListener('click', click);
-    tb?.addEventListener('dblclick', dbl);
-    const k = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || dlg || pay) return; // the dialogs have their own keys
-      const tg = (e.target as HTMLElement)?.tagName;
-      if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
-      const R = rows();
-      const go = (f: () => void) => { e.preventDefault(); f(); };
-      if (e.key === 'ArrowDown') go(() => setSel((s) => Math.min(s + 1, R.length - 1)));
-      else if (e.key === 'ArrowUp') go(() => setSel((s) => Math.max(s - 1, 0)));
-      else if (e.key === 'Insert') go(act.neu);
-      else if (e.key === 'Enter' && tg !== 'BUTTON' && tg !== 'A' && tg !== 'SUMMARY') go(act.change);
-      else if (e.key === 'Delete') go(act.del);
-      else if (e.key === 'F10') go(act.lines);
-      else if (e.key === 'F4') go(act.pay);
-      else if (e.key === 'F2') go(act.book);
-      else if (e.key === 'F8') go(act.toBook);
-    };
-    window.addEventListener('keydown', k);
-    return () => { window.removeEventListener('keydown', k); tb?.removeEventListener('click', click); tb?.removeEventListener('dblclick', dbl); };
-  });
+    const payE = (e: Event) => { const tr = (e as CustomEvent<HTMLTableRowElement | null>).detail; if (tr) setPay(tr); };
+    window.addEventListener('hx:neu', neu);
+    window.addEventListener('hx:change', change);
+    window.addEventListener('hx:pay', payE);
+    return () => { window.removeEventListener('hx:neu', neu); window.removeEventListener('hx:change', change); window.removeEventListener('hx:pay', payE); };
+  }, [canWrite, today, nextNumber, router]);
 
   return (
     <>
-      <aside className="card inv-panel noprint" aria-label="Излезни фактури – акции" style={{ position: 'sticky', top: 70, alignSelf: 'flex-start', display: 'flex', flexDirection: 'column', gap: 8, padding: 10, minWidth: 170 }}>
-        <button type="button" className="btn" onClick={act.lines} title="Ставките (содржината) на избраната фактура">Содржина (F10)</button>
-        <span style={{ height: 10 }} />
-        {canWrite && <button type="button" className="btn pri" onClick={act.neu} title="Нова услужна калкулација: заглавје, па ставки">Нов (Ins)</button>}
-        <button type="button" className="btn" onClick={act.change} title="Податоци (заглавје) на избраната фактура">Промена (Ent)</button>
-        <button type="button" className="btn danger" onClick={act.del} title="Избриши ја избраната фактура">Бришење (Del)</button>
-        <span style={{ height: 10 }} />
-        <button type="button" className="btn" onClick={act.ef} title="UBL е-фактура (XML) на избраната фактура – за Е-ФАКТУРА">Испрати е-Фактура</button>
-        <button type="button" className="btn" onClick={act.pay} title="Наплата на избраната фактура: извод, компензација, каса, картица">Наплати (F4)</button>
-        <button type="button" className="btn" onClick={act.book} title="Книга на излезни фактури (ДДВ)">Книга на фактури (F2)</button>
-        <button type="button" className="btn" onClick={act.toBook} title="Нацрт / внесена фактура: се книжи и влегува во книгата на излезни фактури; книжена: се отвора книгата">Префрлање во книга на излези (F8)</button>
-        <span className="mini" style={{ marginTop: 6, lineHeight: 1.4 }}>↑ ↓ избор · Enter промена · двоен клик промена</span>
-      </aside>
+      <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head}>{children}</HelixShell>
       {dlg && <InvoiceHeadDialog key={dlg.id || 'new'} head={dlg} svc={svc} partners={partners} nalozi={nalozi} schemes={schemes} firmName={firmName}
         onClose={() => setDlg(null)}
         onDone={(id, isNew) => {
@@ -146,13 +164,21 @@ export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners,
           if (isNew) router.push(`${view}?edit=${id}&drafted=1`);
           else { router.push(`${view}?saved=${id}`); router.refresh(); }
         }} />}
-      {pay && <PayDialog tr={pay} onClose={() => setPay(null)} />}
+      {pay && <PayDialog tr={pay} onClose={() => setPay(null)} links={[
+        { label: '🏦 Наплата преку извод (банка)', href: '/banka', pri: true, title: 'Приливот од изводот се поврзува со фактурата (автоматски или рачно)' },
+        { label: '💵 Наплата во готово (благајна)', href: '/blagajna' },
+        { label: '↔ Компензација', href: '/kompenzacii' },
+        ...(pay.dataset.pid ? [{ label: '📒 Картица на купувачот', href: `/akart?k=12&pid=${pay.dataset.pid}` }] : []),
+        ...(Number(pay.dataset.rest) > 0.009 ? [{ label: '⏰ Опомена', href: `/opomeni?ids=${pay.dataset.id}` }] : []),
+      ]} />}
     </>
   );
 }
 
-/** „Наплати (F4)“: what is paid / left on the selected invoice and where the payment is recorded in WISE. */
-function PayDialog({ tr, onClose }: { tr: HTMLTableRowElement; onClose: () => void }) {
+export interface PayLink { label: string; href: string; pri?: boolean; title?: string }
+
+/** „Наплати (F4)“: what is paid / left on the selected document and where the payment is recorded in WISE. */
+export function PayDialog({ tr, onClose, links, title = 'Наплата – фактура', cur }: { tr: HTMLTableRowElement; onClose: () => void; links: PayLink[]; title?: string; cur?: string }) {
   const d = tr.dataset;
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => { ref.current?.focus(); }, []);
@@ -160,25 +186,22 @@ function PayDialog({ tr, onClose }: { tr: HTMLTableRowElement; onClose: () => vo
     <div role="dialog" aria-modal="true" aria-label="Наплата на фактура" onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'F4') { e.preventDefault(); onClose(); } }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <div className="card" style={{ width: 'min(480px, 94vw)', padding: 16, margin: 0 }}>
-        <h2 style={{ marginTop: 0 }}>Наплата – фактура {d.no}</h2>
+        <h2 style={{ marginTop: 0 }}>{title} {d.no}</h2>
         <p style={{ margin: '0 0 10px' }}>{d.pname}</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '4px 16px' }} data-testid="pay-sums">
-          <span>За наплата</span><b className="n">{nf.format(Number(d.total) || 0)}</b>
+          <span>За наплата</span><b className="n">{nf.format(Number(d.total) || 0)}{cur ? ' ' + cur : ''}</b>
           <span>Наплатено</span><b className="n">{nf.format(Number(d.paid) || 0)}</b>
           <span>Останува</span><b className="n" style={Number(d.rest) > 0.009 ? { color: 'var(--bad)' } : undefined}>{nf.format(Number(d.rest) || 0)}</b>
         </div>
         <div style={{ display: 'grid', gap: 6, marginTop: 14 }}>
-          <a className="btn pri" href="/banka" title="Приливот од изводот се поврзува со фактурата (автоматски или рачно)">🏦 Наплата преку извод (банка)</a>
-          <a className="btn" href="/blagajna" title="Уплата во готово – благајна">💵 Наплата во готово (благајна)</a>
-          <a className="btn" href="/kompenzacii" title="Пребивање на побарување и обврска">↔ Компензација</a>
-          {d.pid && <a className="btn" href={`/akart?k=12&pid=${d.pid}`}>📒 Картица на купувачот</a>}
-          {Number(d.rest) > 0.009 && <a className="btn" href={`/opomeni?ids=${d.inv}`}>⏰ Опомена</a>}
+          {links.map((l) => <a key={l.href} className={'btn' + (l.pri ? ' pri' : '')} href={l.href} title={l.title}>{l.label}</a>)}
         </div>
         <div className="row" style={{ marginTop: 14 }}><button ref={ref} type="button" className="btn" style={{ flex: 1 }} onClick={onClose}>Излез (Esc)</button></div>
       </div>
     </div>
   );
 }
+
 
 const PField = ({ label, id, children, span }: { label: string; id?: string; children: React.ReactNode; span?: number }) => (
   <>
