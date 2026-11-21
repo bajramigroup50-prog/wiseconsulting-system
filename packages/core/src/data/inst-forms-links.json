@@ -250,14 +250,6 @@
  {
   "inst": "avrm",
   "code": "",
-  "name": "ППР ППР - образец (pdf)",
-  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.pdf",
-  "kind": "PDF",
-  "form": "i_avrsm_ppr_ppr_obrazec_pdf"
- },
- {
-  "inst": "avrm",
-  "code": "",
   "name": "ППР ППР - образец (word)",
   "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.docx",
   "kind": "DOC",
@@ -454,6 +446,14 @@
   "url": "https://www.piom.com.mk/informacii/formulari/",
   "kind": "WEB",
   "form": null
+ },
+ {
+  "inst": "avrm",
+  "code": "ППР",
+  "name": "Пријава за потреба од работник",
+  "url": "https://av.gov.mk/content/%D0%9E%D0%B1%D1%80%D0%B0%D1%81%D1%86%D0%B8/PPR%2024%20word.pdf",
+  "kind": "PDF",
+  "form": "i_avrsm_ppr_ppr_obrazec_pdf"
  },
  {
   "inst": "dit",
