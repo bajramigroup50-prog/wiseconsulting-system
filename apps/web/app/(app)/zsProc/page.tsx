@@ -4,7 +4,13 @@
  * one screen: phase bar, the year's status and the phase gate.
  */
 import Link from 'next/link';
-import { YE_ENTITY_NAMES } from '@wise/core';
+import { YE_ENTITY_NAMES, YE_ENTITY_VIEWS } from '@wise/core';
+
+const NE_NAME: Record<string, string> = {
+  zsNPO: 'Годишна сметка – непрофитни организации', zsTP: 'Годишна сметка – ТП / самостојна дејност', zs_bu: 'Биланс на успех',
+  zs_bs: 'Биланс на состојба', zs_db: 'Даночен биланс (ДБ)', zs_vp: 'Годишен данок ДБ-ВП', zs_de: 'Државна евиденција',
+  zs_sp: 'Структура по приходи на дејност', zs_skr: 'Скратен биланс на успех', zs_aop: 'А О П',
+};
 import { canDo } from '@/lib/books';
 import { dmy, fmt } from '@/lib/fmt';
 import { phaseDone, yePage } from '@/lib/yearend';
@@ -34,7 +40,8 @@ function Card({ t, ok, href, children }: { t: string; ok: boolean | null; href: 
 
 const ST: Record<string, string> = { draft: 'нацрт', ready: 'подготвена', submitted: 'поднесена', accepted: 'прифатена (увезена од ЦРМ)' };
 
-export default async function ZsProcPage() {
+export default async function ZsProcPage({ searchParams }: { searchParams: Promise<{ ne?: string }> }) {
+  const ne = (await searchParams).ne ?? '';
   const c = await yePage('zsProc');
   if (!c) return <NoFirm t="Завршна сметка" />;
   const { L, u, firm, year, findings } = c;
@@ -66,6 +73,12 @@ export default async function ZsProcPage() {
   return (
     <>
       <ZsHead id="zsProc" t="Завршна сметка – по фази" year={year} ent={ent} done={phaseDone(L)} />
+      {ne && NE_NAME[ne] && (
+        <div className="callout warn" role="status">
+          „{NE_NAME[ne]}“ не е за оваа фирма: таа е <b>{YE_ENTITY_NAMES[ent]}</b>. Овој образец е за: {(YE_ENTITY_VIEWS[ne] ?? []).map((e) => YE_ENTITY_NAMES[e]).join(' / ')}.
+          {' '}Ако видот на субјектот не е точен, сменете го во <Link href="/moduli">Фирми → 🧩 Модули по дејност → Вид на субјект</Link>.
+        </div>
+      )}
       <PrevYearCallout firmId={firm.id} year={year} />
       <NotClosedNote closed={L.Y.closed} year={year} />
       {canDo(u, 'closeYear', firm.id) && (

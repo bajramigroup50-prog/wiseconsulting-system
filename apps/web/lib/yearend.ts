@@ -4,7 +4,7 @@ import 'server-only';
  * bar data. Every year-end sub-view (`zsKontrola`, `zs_db`, `mbyllja`, `zs_bs`, …) is reached from the menu item
  * `zsProc`, so it is guarded with that view id.
  */
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { yeViewFor } from '@wise/core';
 import { effectiveChart, loadYear, yearFindings, type LoadedYear } from '@wise/db';
 import { booksPage, type BooksCtx } from './books';
@@ -29,7 +29,9 @@ export async function yePage(view: string, guardView = ZS_MENU_VIEW): Promise<(Y
   const ctx = await booksPage(guardView);
   if (!ctx.firm) return null;
   const L = await loadYear(db(), ctx.firm.id, ctx.year);
-  if (!yeViewFor(view, L.ent)) notFound();
+  // a form of another entity type (Годишна сметка – НПО on a ДООЕЛ, ДБ on a ТП…): explain it on the year-end page
+  // instead of a bare 404 (the menu lists every form, like the old program)
+  if (!yeViewFor(view, L.ent)) redirect(`/zsProc?ne=${encodeURIComponent(view)}`);
   const findings = await yearFindings(db(), L, todayMk());
   return { ...ctx, firm: ctx.firm, L, findings };
 }
