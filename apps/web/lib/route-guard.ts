@@ -115,7 +115,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   'cb_city', 'cb_paysif', 'cb_position', 'dogovori', 'patNal', 'pozajmici', 'donacii', 'prenos',
   // year end
   'zsProc', 'zsDos', 'zsNPO', 'zsTP', 'zsRok', 'zsBel', 'zsKontrola', 'zsXml', 'zs_aop', 'zs_bs', 'zs_bu', 'zs_db', 'zs_de', 'zs_pr', 'zs_skr', 'zs_sp', 'zs_vp',
-  'mbyllja', 'vjetore', 'pecati',
+  'mbyllja', 'raspored', 'vjetore', 'pecati',
   // archive
   'arhiva', 'arNewNav',
   // goods / production

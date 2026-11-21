@@ -62,7 +62,7 @@ export default async function MbylljaPage() {
           <tr><td>{srcTxt} {srcHref && <Link className="btn sm" href={srcHref}>Отвори</Link>}</td><td /></tr>
           {plan.taxSource === 'db' && <tr><td>Даночна основа (АОП 49)</td><td className="n">{fmt(plan.before.co.db.base)}</td></tr>}
           <tr><td>Данок {npoChart ? '(810 / 245)' : '(8100 / 2330)'}</td><td className="n">{fmt(plan.tax)}</td></tr>
-          <tr className="sub"><td colSpan={2}>Чекор 3 · Нето резултатот се пренесува во класа 9</td></tr>
+          <tr className="sub" id="raspored"><td colSpan={2}>Чекор 3 · Нето резултатот се пренесува во класа 9</td></tr>
           <tr className="tot"><td>{plan.net >= 0 ? `Нето добивка → ${npoChart ? '970 Вишок на приходи' : '951 Добивка од тековната година'}` : `Нето загуба → ${npoChart ? '092 Недостиг на приходи' : '961 Загуба за тековната година'}`}</td><td className="n">{fmt(plan.net)}</td></tr>
         </tbody></table></div>
         <div className="card"><h2>Со еден клик</h2>
