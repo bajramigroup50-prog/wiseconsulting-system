@@ -51,6 +51,9 @@ export const HELIX_CSS = `
 .hx-list .hx-menu summary[aria-disabled=true]{color:var(--muted,#888);cursor:default}
 .hx-list .hx-menu .hx-dd{position:absolute;z-index:30;left:0;top:100%;background:var(--surface,#fff);border:1px solid var(--line,#ddd);border-radius:6px;padding:4px;display:grid;gap:2px;min-width:230px;max-width:min(520px,90vw);box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .hx-list .hx-menu .hx-dd .hx-x{border-top:1px solid var(--line,#ddd);padding-top:6px;margin-top:4px;display:grid;gap:6px}
+.hx-list .hx-menu .hx-dd .hx-sep{border-top:1px solid var(--line,#ddd)!important;margin-top:3px;padding-top:5px}
+.hx-list .hx-menu .hx-dd{max-height:75vh;overflow:auto}
+.hx-list .hx-menu .hx-dd > *{text-align:left;justify-content:flex-start}
 .hx-list .hx-filter{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 6px}
 .hx-list .hx-filter form{margin:0!important}
 .hx-list .hx-panel{position:sticky;top:70px;align-self:flex-start;display:flex;flex-direction:column;gap:6px;padding:10px;min-width:150px;max-width:165px}

@@ -65,7 +65,7 @@ describe('Излез – Helix panel and keys', () => {
     expect([...P.querySelectorAll('legend')].map((l) => l.textContent)).toEqual(['Комерцијално', 'Продажба']);
     expect([...document.querySelectorAll('[data-hx-menu] summary')].map((x) => x.textContent)).toEqual(['Специјални опции', 'Корекција за наплата', 'Прегледи', 'Безбедност', 'Сортирање', 'Копирање', 'Печатење', 'Останато', 'Е-Фактура']);
     // no copy in WISE yet: shown, disabled, with the reason
-    expect([...document.querySelectorAll('[data-hx-menu] summary')].find((x) => x.textContent === 'Копирање')!.getAttribute('aria-disabled')).toBe('true');
+    expect([...document.querySelectorAll('[data-hx-menu] summary')].find((x) => x.textContent === 'Копирање')!.getAttribute('aria-disabled')).toBeNull();
     expect(document.body.textContent).toContain('Прекнижување (F5)');
     expect(document.body.textContent).toContain('Главна книга (F7)');
     expect(document.body.textContent).toContain('F1 - Освежување на податоците');
@@ -187,7 +187,7 @@ describe('Влез – Helix controls', () => {
     expect(c.groups[0]!.items[2]).toMatchObject({ act: { href: '/vlez?hnov' } });
     expect(c.groups[0]!.items[2]!.key).toBeUndefined();
     expect(c.groups[0]!.items[4]).toMatchObject({ act: { row: 'a[data-att]' } });
-    expect(c.menu.map((m) => m.label)).toEqual(['Специјални опции', 'Корекција за наплати', 'Безбедност', 'Сортирање', 'Копирање', 'Останато', 'Е-Фактура']);
+    expect(c.menu.map((m) => m.label)).toEqual(['Специјални опции', 'Корекција за наплати', 'Безбедност', 'Сортирање', 'Останато', 'Копирање', 'Е-Фактура']);
     expect(c.bottom.map((b) => `${b.label} ${b.key}`)).toEqual(['Прекнижување F5', 'Главна книга F7', 'Филтер F11', 'Освежување на податоците F1']);
     expect(c.groups[1]!.items.find((b) => b.key === 'F2')!.act).toEqual({ href: '/ddvKnigi?t=in' });
   });

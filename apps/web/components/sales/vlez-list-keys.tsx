@@ -15,6 +15,8 @@ import { PayDialog } from './invoice-list-keys';
 /** The Helix controls of Влез mapped to WISE (exported for the tests). */
 export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[]; menu: HxMenu[]; bottom: HxBtn[] } {
   const ro = 'Немате право на внес во оваа фирма.';
+  const NOT = 'Оваа опција од старата програма уште ја нема во WISE.';
+  const LOCK = 'Во WISE се заклучува по период (Затворање / заклучување) – документите во заклучен период не се менуваат.';
   return {
     groups: [
       { items: [
@@ -39,37 +41,65 @@ export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[
     ],
     menu: [
       { label: 'Специјални опции', items: [
-        { label: '+ Увозна (девизна)', act: canWrite ? { href: '/vlez?imp' } : { off: ro } },
+        { label: 'Масовно книжење на селектирани калкулации', act: { href: '/rekniz' } },
+        { label: 'Масовно доделување на терк и налог', act: { off: NOT } },
+        { label: 'Масовно доделување на организациона единица', act: { off: NOT } },
+        { label: 'Направи нарачка од предвидување', act: { href: '/porachki' } },
+        { label: 'Печатење книга на влезни фактури', act: { href: '/ddvKnigi?t=in' } },
+        { label: 'Импорт на влезни калкулации од ексел Девизни', act: canWrite ? { href: '/vlez?px=imp' } : { off: ro } },
+        { label: 'Масовно печатење на откупни белешки', act: { off: NOT } },
+        { label: 'Експорт во ексел образец 13', act: { off: NOT } },
+        { label: 'Импорт на влезни калкулации од Ексел', act: { href: '/uvoz?t=purchases&back=vlez' } },
+        { label: 'Префрлање во трговска книга материјално (селектирани)', act: { href: '/g_trgv' } },
+        { label: '+ Увозна (девизна)', act: canWrite ? { href: '/vlez?imp' } : { off: ro }, cls: 'hx-sep' },
         { label: '+ Рачен внес', act: canWrite ? { href: '/vlez?nov' } : { off: ro } },
         { label: '📥 Фактура со ставки од Excel', act: canWrite ? { href: '/vlez?px' } : { off: ro } },
-        { label: 'Увоз од Excel', act: { href: '/uvoz?t=purchases&back=vlez' } },
         { label: '📷 Масовно скенирање', act: { href: '/masovno' } },
       ] },
       { label: 'Корекција за наплати', items: [
-        { label: 'Компензации', act: { href: '/kompenzacii' } },
+        { label: 'Корекција за наплати за селектирани калкулации', act: { ev: 'pay' }, title: 'Плаќање на избраната калкулација (F4)' },
+        { label: 'Корекција за наплатено за селектирани калкулации', act: { href: '/banka' }, title: 'Плаќањата се поврзуваат од изводите / касата' },
+        { label: 'Компензации', act: { href: '/kompenzacii' }, cls: 'hx-sep' },
         { label: 'Повратница до добавувач', act: { href: '/povratDob' } },
         { label: 'Платни налози', act: { href: '/ppNal' } },
       ] },
       { label: 'Безбедност', items: [
-        { label: 'Евиденција на активности', act: { href: '/aktivnost' } },
-        { label: 'Корисници и права', act: { href: '/korisnici' } },
+        { label: 'Отклучување на една калкулација', act: { href: '/zatvoranje' }, title: LOCK },
+        { label: 'Заклучување на селектираните калкулации', act: { href: '/zatvoranje' }, title: LOCK },
+        { label: 'Масовно отклучување на селектирани калкулации', act: { href: '/zatvoranje' }, title: LOCK },
+        { label: 'Отклучување на калкулација обработена од страна на книговодител', act: { href: '/zatvoranje' }, title: LOCK },
+        { label: 'Масовно отклучување на калкулации обработени од страна на книговодител', act: { href: '/zatvoranje' }, title: LOCK },
+        { label: 'Евиденција на активности', act: { href: '/aktivnost' }, cls: 'hx-sep' },
       ] },
       { label: 'Сортирање', items: [
-        { label: 'По датум', act: { href: '/vlez?sort=date' } },
-        { label: 'По број', act: { href: '/vlez?sort=no' } },
-        { label: 'По комитент', act: { href: '/vlez?sort=p' } },
+        { label: 'Сортирање по датум', act: { href: '/vlez?sort=date' } },
+        { label: 'Сортирање по број', act: { href: '/vlez?sort=no' } },
+        { label: 'По комитент', act: { href: '/vlez?sort=p' }, cls: 'hx-sep' },
         { label: 'По износ', act: { href: '/vlez?sort=amt' } },
       ] },
-      { label: 'Копирање', items: [], off: 'Копирање на влезна калкулација во нова уште не постои во WISE.' },
       { label: 'Останато', items: [
-        { label: '💶 Фискални сметки – готовина 1020', act: { href: '/vlez?vid=k' } },
-        { label: 'Сите влезни документи', act: { href: '/vlez?vid=all' } },
-        { label: '📎 Документ (скен / PDF) на избраната', act: { row: 'a[data-att]' } },
+        { label: 'Масовно печатење на влезни калкулации (селектирани)', act: { fn: 'print' } },
+        { label: 'Број на влезни калкулации', act: { href: '/vlez?vid=all' } },
+        { label: 'Избор на увоз', act: canWrite ? { href: '/vlez?imp' } : { off: ro } },
+        { label: 'Печатење на евиденција за откуп', act: { off: NOT } },
+        { label: 'Печатење на потврда за откуп', act: { off: NOT } },
+        { label: '💶 Фискални сметки – готовина 1020', act: { href: '/vlez?vid=k' }, cls: 'hx-sep' },
         { label: '👁 Калкулација на избраната', act: { row: 'a[data-print]' } },
-        { label: 'Печати ја листата', act: { fn: 'print' } },
-        { label: 'Сите извештаи', act: { href: '/izvestai' } },
       ] },
-      { label: 'Е-Фактура', items: [{ label: 'Увоз на е-фактура (UBL XML)', act: { href: '/efaktura' } }] },
+      { label: 'Копирање', items: [
+        { label: 'Префрлање во книга на влезни ф-ри (селектирани)', act: { href: '/ddvKnigi?t=in' } },
+        { label: 'Копирање на калкулацијата во излез', act: { off: NOT } },
+        { label: 'Спојување на селектираните калкулации', act: { off: NOT } },
+        { label: 'Копирање во малопродажба (K)', act: { href: '/m_izlez' } },
+        { label: 'Префрлање во ЕТ (F8)', act: { href: '/g_trgv' } },
+        { label: 'Копирање на Увоз во малопродажба', act: { off: NOT } },
+        { label: 'Бришење на селектираните калкулации', act: { off: 'Штиклирајте ги калкулациите и избришете ги од менито / „⋯“ на редот.' }, cls: 'hx-sep' },
+      ] },
+      { label: 'Е-Фактура', items: [
+        { label: 'Преземи PDF документ', act: { row: 'a[data-print]' } },
+        { label: 'Отвори PDF документ за калкулација', act: { row: 'a[data-att]' } },
+        { label: 'Увоз на е-фактура (UBL XML)', act: { href: '/efaktura' }, cls: 'hx-sep' },
+      ] },
     ],
     bottom: [
       { label: 'Прекнижување', key: 'F5', act: { href: '/rekniz' }, title: 'Рекнижење во маса' },

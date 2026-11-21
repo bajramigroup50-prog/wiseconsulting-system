@@ -324,6 +324,10 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const hxLocs = await locationOptions(firm.id);
   const hxLoc = new Map(hxLocs.map((l) => [l.id, l]));
   const D = (i: Invoice) => (i.data ?? {}) as InvoiceData & Record<string, unknown>;
+  // „Сортирање по документ / наплатено / приоритет“ of the Helix menu
+  if (sp.sort === 'doc') shown.sort((a, b) => String(D(a.i).refDoc ?? '').localeCompare(String(D(b.i).refDoc ?? ''), 'mk') || nn(a.i.number) - nn(b.i.number));
+  else if (sp.sort === 'paid') shown.sort((a, b) => payOf(b.i).paid - payOf(a.i).paid || nn(a.i.number) - nn(b.i.number));
+  else if (sp.sort === 'prio') shown.sort((a, b) => String(D(a.i).prio ?? '').localeCompare(String(D(b.i).prio ?? ''), 'mk') || nn(a.i.number) - nn(b.i.number));
   const ds = (i: Invoice, k: string) => { const v = D(i)[k]; return typeof v === 'string' ? v : ''; };
   const procOf = (i: Invoice) => ds(i, 'procDate') || (i.createdAt instanceof Date ? i.createdAt.toISOString().slice(0, 10) : '');
   const headOf = (i: Invoice): InvHead => {
