@@ -89,7 +89,10 @@ describe('year-end reference data equals the legacy constants', () => {
   it('NPO forms, chart, scheme and company map', () => {
     expect(NPO_ACC).toEqual(rt.get('NPO_ACC'));
     expect(NPO_SCH).toEqual(rt.get('NPO_SCH'));
-    expect(NPO_CO).toEqual(rt.get('NPO_CO'));
+    // FIX (2026-11-21, office decision): an NPO on the company chart reports sponsorships 7694 in AOP 244
+    // (членарини, подароци, донации и други извори) — legacy left them in AOP 247 „Други приходи“.
+    const co = rt.get('NPO_CO') as Record<string, string>;
+    expect(NPO_CO).toEqual({ ...co, '244': co['244'] + ',7694', '247': co['247']!.replace('!7690', '!7690,!7694') });
     const norm = (R: unknown[][]) => R.map((r) => (r[3] === undefined || r[3] === null ? r.slice(0, 3) : [r[0], r[1], r[2], r[3], r[4], r[5] ?? '']));
     expect(NPO_BS).toEqual(norm(rt.get('NPO_BS')));
     expect(NPO_PR).toEqual(norm(rt.get('NPO_PR')));

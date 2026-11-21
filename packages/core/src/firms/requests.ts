@@ -108,10 +108,12 @@ export function formHtml(tp: ReqForm, V: Record<string, string>, opts: { sign?: 
         // one character centered in each printed box (digits of ЕДБ / ЕМБС); spaces and dashes of the value are dropped
         const ch = [...String(v).replace(/[\s-]/g, '')].slice(0, x.cells);
         const cw = 100 / x.cells;
-        return `<div style="${st};padding:0">${ch.map((c, i) => `<span style="position:absolute;left:${i * cw}%;width:${cw}%;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-family:Arial,sans-serif">${esc(c)}</span>`).join('')}</div>`;
+        return `<div style="${st};padding:0">${ch.map((c, i) => `<span style="position:absolute;left:${i * cw}%;width:${cw}%;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;font-family:Arial,sans-serif">${esc(c)}</span>`).join('')}</div>`;
       }
-      if (x.t === 'm') return `<div style="${st};align-items:flex-start;padding:0.3% 0.6%;font-size:10.5px;font-family:Arial,sans-serif;white-space:pre-wrap;line-height:1.35">${esc(v)}</div>`;
-      return `<div style="${st};padding-left:0.6%;font-size:10.5px;font-family:Arial,sans-serif;white-space:nowrap">${esc(v)}</div>`;
+      if (x.t === 'm') return `<div style="${st};align-items:flex-start;padding:0.3% 0.6%;font-size:11.5px;font-weight:600;font-family:Arial,sans-serif;white-space:pre-wrap;line-height:1.3">${esc(v)}</div>`;
+      // a long value shrinks to its box (the page is ~720 px wide on screen and on A4), never cut at the edge
+      const fit = Math.max(7, Math.min(12, (x.w / W) * 700 / (String(v).length * 0.68)));
+      return `<div style="${st};padding-left:0.6%;font-size:${fit.toFixed(1)}px;font-weight:600;font-family:Arial,sans-serif;white-space:nowrap">${esc(v)}</div>`;
     }).join('');
     return `<div style="position:relative;width:100%;line-height:1;${pi < PG.length - 1 ? 'page-break-after:always;break-after:page;margin-bottom:10px' : ''}"><img src="${esc((opts.base ?? '') + formBg(tp, pi))}" alt="" style="width:100%;display:block">${fields}</div>`;
   }).join('');
