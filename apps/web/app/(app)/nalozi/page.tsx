@@ -191,7 +191,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
     const isIzv = IZ || !!bankOfCode || /извод/i.test(title);
     const empty = L.length === 0;
     // „Импорт“ inside the nalog (like the old program): the chosen import is booked INTO this nalog
-    const imp = sp.imp === 'auto' || sp.imp === 'vlez' || sp.imp === 'izlez' || sp.imp === 'kasa' || sp.imp === 'izvod' ? sp.imp : '';
+    const imp = sp.imp === 'auto' || sp.imp === 'vlez' || sp.imp === 'izlez' || sp.imp === 'kasa' || sp.imp === 'malo' || sp.imp === 'izvod' ? sp.imp : '';
     const showImport = write && (isIzv || imp === 'izvod' || (empty && sp.uvoz !== undefined));
     const inNal = await db().select({ id: bankStatements.id }).from(bankStatements)
       .where(and(eq(bankStatements.firmId, firm.id), sql`${bankStatements.meta}->>'nalog' = ${g.no}`, sql`${bankStatements.date} between ${from} and ${to}`));
@@ -331,6 +331,7 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                 {tab('vlez', '📷 Влезни фактури')}
                 {tab('izlez', '🧾 Излезни фактури')}
                 {tab('kasa', '💵 Благајна – сметки во готово')}
+                {tab('malo', '🏪 Малопродажба')}
                 {!isIzv && tab('izvod', '🏦 Изводи')}
                 <Link className="btn sm" href={`/uvoz?t=journal&nal=${encodeURIComponent(g.no)}`} title="Ставки на налог од Excel / CSV / PDF (стара програма, друг сметководител) – се книжат во овој налог">📊 Excel / CSV / PDF ставки</Link>
               </div>
@@ -362,6 +363,16 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
                   <ScanUpload firmId={firm.id} small opts={{ kind: 'purchase', batchId: null, cash: true, nalogNo: g.no }}
                     label={<><b>💵 Сметки / фискални платени во готово</b> — трошок + ДДВ на благајна (1020); се читаат, ги одобрувате и се книжат во налог бр. {g.no}</>} />
                   <Link className="btn" href="/blagajna">💵 Благајна</Link>
+                </div>
+              )}
+              {imp === 'malo' && (
+                <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }} data-testid="imp-malo">
+                  <b>🏪 Малопродажба</b> — продавница, ПЛТ, нивелација, дневен промет (фискални извештаи):
+                  <Link className="btn" href="/fiskPer">🧾 Дневен промет – фискални / Z извештаи</Link>
+                  <Link className="btn" href="/masovnoM">📷 Влезни фактури во продавница (скен / PDF)</Link>
+                  <Link className="btn" href="/uvozMalo">📊 Приемница / ПЛТ / попис од Excel</Link>
+                  <Link className="btn" href="/nivel">🏷 Нивелација</Link>
+                  <Link className="btn" href="/m_izlez">🛒 Излез од продавница</Link>
                 </div>
               )}
               {!imp && <p className="mini" style={{ margin: '6px 0 0' }}>Изберете што увезувате – документите се читаат (без AI за PDF со текст), ги одобрувате и се книжат токму во овој налог.{cashNal ? ' Ова е налог на благајна: влезните фактури се книжат како платени во готово.' : ''}</p>}
