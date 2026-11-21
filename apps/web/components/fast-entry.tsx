@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { needsPartner } from '@wise/core';
 import { KontoInput, type NewKonto } from './konto-field';
 import { PartnerPicker, type PickerPartner } from './partner-picker';
+import { PartnerWindow } from './partner-window';
 
 export interface FastLine {
   konto: string; content: string; partnerId: string;
@@ -118,8 +119,59 @@ export interface FastEntryProps {
   title?: string;
 }
 
+/** The look of the old program's „Нова ставка“ window (small, grey-blue, yellow key fields, label left). */
+const HX_CSS = `
+.hx{width:min(900px,100%);background:#eef2f8;border:1px solid #8fa3bd;box-shadow:0 6px 24px rgba(0,0,0,.25);font:12px/1.25 "Segoe UI",Tahoma,Arial,sans-serif;color:#000}
+.hx .hx-title{display:flex;justify-content:space-between;align-items:center;background:#f7f9fc;border-bottom:1px solid #c5d0de;padding:4px 8px;font-size:13px}
+.hx .hx-x{border:0;background:none;color:#1a4f9c;cursor:pointer;font-size:14px}
+.hx .hx-err{background:#fde8e8;color:#a00;padding:3px 8px}.hx .hx-ok{background:#e6f4e6;color:#165c16;padding:3px 8px}
+.hx .hx-body{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,.95fr) minmax(0,.8fr) minmax(0,1.15fr);gap:6px 10px;padding:8px;border:1px solid #c5d0de;margin:6px;background:#eef2f8}
+.hx .hx-left,.hx .hx-mid,.hx .hx-mid2,.hx .hx-right{display:flex;flex-direction:column;gap:4px;min-width:0}
+.hx .hx-right{border-left:1px solid #c5d0de;padding-left:8px}
+.hx .hx-row{display:flex;align-items:center;gap:4px;margin:0;min-width:0}
+.hx .hx-l{width:58px;flex:none;font-size:11.5px;text-align:right;line-height:1.1}
+.hx input,.hx textarea,.hx select{font:12px "Segoe UI",Tahoma,Arial,sans-serif;height:20px;padding:0 3px;border:1px solid #7f8fa6;border-radius:0;background:#fff;min-width:0;box-shadow:none}
+.hx textarea{height:44px;padding:2px 3px;resize:none}
+.hx input[type=radio]{height:auto;width:auto;margin:0 3px 0 0}
+.hx input[type=date]{width:110px}
+.hx .hx-y{background:#fffbd0}
+.hx .hx-n{text-align:right}
+.hx .hx-konto{width:150px;flex:none}.hx .hx-konto input{background:#fffbd0;width:100%}.hx .hx-konto .row{flex-wrap:nowrap;gap:2px!important}.hx .hx-konto button{font-size:0;padding:0 3px;min-width:0;border:1px solid #7f8fa6;border-radius:0;height:20px;background:#f3f5f9}.hx .hx-konto button::before{content:'📋';font-size:12px}
+.hx .hx-name{flex:1;height:20px;border:1px solid #7f8fa6;background:#fff;padding:1px 4px;overflow:hidden;white-space:nowrap}
+.hx .hx-partner{flex:1;min-width:0;max-width:100%}.hx .hx-partner input{width:100%!important;min-width:0!important}.hx .hx-partner > *{max-width:100%}
+.hx .hx-hint{font-size:11px;margin-left:62px;line-height:1.2}
+.hx .hx-amt{display:grid;grid-template-columns:58px 1fr 1fr;gap:2px 6px;align-items:center;border-top:1px solid #c5d0de;padding-top:3px}
+.hx .hx-amt input{font-weight:700;font-size:13px;height:24px}
+.hx .hx-h{font-size:11.5px}.hx .hx-h.c{text-align:center}
+.hx .hx-box{border:1px solid #c5d0de;padding:2px 6px 4px;margin:0;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.hx .hx-box legend{font-size:11.5px;padding:0 2px}
+.hx .hx-radio{display:inline-flex;align-items:center;gap:2px;margin:0;font-size:12px}
+.hx .hx-saldo{color:#1a2f8a;font-size:14px;margin-left:8px;min-width:80px;text-align:right;border:1px solid #c5d0de;background:#fff;padding:0 4px}
+.hx .hx-no{border:1px solid #c5d0de;background:#fff;padding:0 4px;margin-left:8px;min-width:40px;text-align:right}
+.hx .hx-btn{font:600 12px "Segoe UI",Tahoma,Arial,sans-serif;padding:3px 10px;background:#f3f5f9;border:1px solid #7f8fa6;border-radius:3px;cursor:pointer;white-space:nowrap}
+.hx .hx-btn:hover{background:#e3e9f3}
+.hx .hx-f8{all:unset;cursor:pointer;color:#1a3d8f;text-decoration:underline dotted}
+.hx-pw-back{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.12)}
+.hx-pw{width:min(620px,96vw);background:#f0f3f8;border:1px solid #5a6f96;box-shadow:0 6px 24px rgba(0,0,0,.3);font:12px "Segoe UI",Tahoma,Arial,sans-serif;color:#000}
+.hx-pw .hx-pw-list{height:min(52vh,420px);overflow:auto;background:#fff;border-top:1px solid #7f8fa6;border-bottom:1px solid #7f8fa6}
+.hx-pw .hx-pw-h,.hx-pw .hx-pw-r{display:grid;grid-template-columns:90px 1fr;gap:6px;padding:1px 6px;white-space:nowrap}
+.hx-pw .hx-pw-h{position:sticky;top:0;background:#4a73b5;color:#fff;font-weight:600}
+.hx-pw .hx-pw-r{cursor:pointer;color:#0a2a8a}
+.hx-pw .hx-pw-r.cur{font-weight:700}
+.hx-pw .hx-pw-r.on{background:#3d6fd1;color:#fff}
+.hx .hx-docs{border:1px solid #7f8fa6;background:#fff;max-height:160px;overflow:auto}
+.hx .hx-docs button{display:block;width:100%;text-align:left;border:0;background:none;padding:2px 4px;cursor:pointer}
+.hx .hx-docs button:hover{background:#e3e9f3}
+@media (max-width:760px){.hx .hx-body{grid-template-columns:1fr 1fr}.hx .hx-right{border-left:0;padding-left:0}}
+`;
+
 export function FastEntry(p: FastEntryProps) {
-  const { mode, chart, partners, bank } = p;
+  const { mode, chart, bank } = p;
+  /** Partners typed by hand in the F8 window („Нов комитент“) join the list at once. */
+  const [added, setAdded] = useState<PickerPartner[]>([]);
+  const partners = useMemo(() => (added.length ? [...p.partners, ...added] : p.partners), [p.partners, added]);
+  const [pw, setPw] = useState(false);
+  const [pk, setPk] = useState(0);
   const C = useMemo(() => chart.map(([code, name]) => ({ code, name })), [chart]);
   const codes = useMemo(() => new Set(chart.map(([c]) => c)), [chart]);
   const names = useMemo(() => new Map(chart), [chart]);
@@ -214,6 +266,7 @@ export function FastEntry(p: FastEntryProps) {
       e.preventDefault(); p.onClose();
     } else if (e.key === 'F8') {
       e.preventDefault();
+      if (helix) { setPw(true); return; } // the old program's „Комитенти“ window
       const inp = box.current?.querySelector<HTMLInputElement>('input[role=combobox]');
       inp?.focus(); inp?.select();
     } else if (e.key === 'F5') { e.preventDefault(); if (prev) set({ content: prev }); }
@@ -230,8 +283,111 @@ export function FastEntry(p: FastEntryProps) {
   const st = bank?.statements ?? [];
   const stKey = st.find((s) => s.acct === l.acct && s.date === l.date)?.key ?? '';
 
+  if (helix) {
+    const lab = (t: React.ReactNode, el: React.ReactNode, w?: number) => (
+      <label className="hx-row"><span className="hx-l" style={w ? { width: w } : undefined}>{t}</span>{el}</label>
+    );
+    return (
+      <div className="fe-back" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.08)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', padding: 10 }}>
+        <style>{HX_CSS}</style>
+        <div ref={box} role="dialog" aria-modal="true" aria-label={title} className="fe hx" onKeyDown={onKey}>
+          <div className="hx-title"><span>{title}</span><button type="button" className="hx-x" onClick={p.onClose} aria-label="Затвори">«</button></div>
+          {err && <div className="hx-err" role="alert">{err}</div>}
+          {ok && !err && <div className="hx-ok" role="status">{ok}</div>}
+          <div className="hx-body fe-f">
+            <div className="hx-left">
+              <div className="hx-row"><span className="hx-l"><b>Конто</b></span>
+                <span className="hx-konto"><KontoInput key={'k' + gen} chart={C} value={l.konto} onChange={(v) => set({ konto: v })} nk={l.newKonto} onNk={(n) => set({ newKonto: n })} list="feKonto" inputRef={kontoRef} /></span>
+                <span className="hx-name">{k && names.get(k) ? names.get(k) : ''}</span>
+              </div>
+              <div className="hx-row"><span className="hx-l">Содржина<br />(/Фактура број)</span>
+                <input className="hx-y" value={l.content} onChange={(e) => set({ content: e.target.value })} aria-label="Содржина" maxLength={500} style={{ flex: 1 }} />
+              </div>
+              <div className="hx-row"><span className="hx-l"><button type="button" className="hx-f8" onClick={() => setPw(true)} title="Комитенти – листа, избор или нов рачно">Комитент<br />(F8)</button></span>
+                <span className="hx-partner"><PartnerPicker key={'p' + gen + '.' + pk} partners={partners} value={l.partnerId} onChange={(id) => set({ partnerId: id })} invalid={needsPartner(k)} /></span>
+              </div>
+              <div className="hx-hint">F5- Претходна содржина<br />F2- Затворање по документ</div>
+              {pw && (
+                <PartnerWindow partners={partners} value={l.partnerId}
+                  onClose={() => { setPw(false); setTimeout(() => box.current?.querySelector<HTMLInputElement>('.hx-partner input')?.focus(), 0); }}
+                  onPick={(x, isNew) => {
+                    if (isNew) setAdded((a) => [...a, x]);
+                    set({ partnerId: x.id }); setPk((n) => n + 1); setPw(false);
+                    // on to the amounts, like Enter after the partner
+                    setTimeout(() => { const inp = box.current?.querySelector<HTMLInputElement>('.hx-partner input'); if (inp) next(inp); }, 0);
+                  }} />
+              )}
+              {docsOpen && (
+                <div role="listbox" aria-label="Отворени документи" className="hx-docs">
+                  {pDocs.length ? pDocs.slice(0, 50).map((x) => (
+                    <button key={x.id} type="button" role="option" aria-selected={l.docRef === x.id} onClick={() => pickDoc(x)}>{x.label}</button>
+                  )) : <span>Нема отворени документи{l.partnerId ? ' за овој комитент' : ''}.</span>}
+                </div>
+              )}
+              {lab('Извод број', <input className="hx-y" value={l.stNo} onChange={(e) => set({ stNo: e.target.value })} aria-label="Извод број" style={{ width: 120 }} disabled={!p.showStNo} />)}
+              <div className="hx-amt">
+                <span className="hx-h"><b>Во денари</b></span><span className="hx-h c"><b>Должи</b></span><span className="hx-h c"><b>Побарува</b></span>
+                <span /><input className="hx-y hx-n" inputMode="decimal" value={l.debit} onChange={(e) => set({ debit: e.target.value })} aria-label="Должи" placeholder="0.00" />
+                <input className="hx-y hx-n" inputMode="decimal" value={l.credit} onChange={(e) => set({ credit: e.target.value })} aria-label="Побарува" placeholder="0.00" />
+                <span className="hx-h">Во девизи</span><span className="hx-h c">Должи</span><span className="hx-h c">Побарува</span>
+                <span /><input className="hx-n" inputMode="decimal" value={l.debitCur} disabled={p.fxLocked} onChange={(e) => set({ debitCur: e.target.value })} aria-label="Девизи должи" placeholder="0.000000" />
+                <input className="hx-n" inputMode="decimal" value={l.creditCur} disabled={p.fxLocked} onChange={(e) => set({ creditCur: e.target.value })} aria-label="Девизи побарува" placeholder="0.000000" />
+              </div>
+              <div className="hx-row">
+                <span className="hx-l" style={{ width: 'auto' }}>Курс</span><input className="hx-n" inputMode="decimal" value={l.rate} disabled={p.fxLocked} onChange={(e) => set({ rate: e.target.value })} aria-label="Курс" placeholder="0.00" style={{ width: 90 }} />
+                <span className="hx-l" style={{ width: 'auto', marginLeft: 30 }}>Валута</span><input value={l.cur} disabled={p.fxLocked} onChange={(e) => set({ cur: e.target.value.toUpperCase().slice(0, 3) })} aria-label="Валута" style={{ width: 46 }} />
+              </div>
+            </div>
+            <div className="hx-mid">
+              <fieldset className="hx-box">
+                {lab('Датум на книжење', <input className="hx-y" type="date" value={l.date} disabled={p.dateLocked} onChange={(e) => set({ date: e.target.value })} aria-label="Датум на книжење" />, 64)}
+                {lab('Валута', <input type="date" value={l.meta.due ?? ''} onChange={(e) => setM({ due: e.target.value })} aria-label="Валута рок" />, 64)}
+              </fieldset>
+              <fieldset className="hx-box"><legend>Аванс</legend>
+                <label className="hx-radio"><input type="radio" checked={!l.meta.advance} onChange={() => setM({ advance: false })} /> Не</label>
+                <label className="hx-radio" style={{ marginLeft: 40 }}><input type="radio" checked={!!l.meta.advance} onChange={() => setM({ advance: true })} /> Да</label>
+              </fieldset>
+              {lab('Одобрено по документ', <input value={l.meta.approvedDoc ?? ''} onChange={(e) => setM({ approvedDoc: e.target.value })} aria-label="Одобрено по документ" maxLength={60} style={{ width: 100 }} />, 70)}
+              {lab('Документ (/Калкул.бр.)', <input value={l.doc} onChange={(e) => set({ doc: e.target.value })} aria-label="Документ" maxLength={100} style={{ width: 100 }} />, 70)}
+            </div>
+            <div className="hx-mid2">
+              {lab('ОЕ', <input value={l.meta.oe ?? ''} onChange={(e) => setM({ oe: e.target.value })} aria-label="ОЕ" maxLength={40} style={{ width: 64 }} />, 72)}
+              {lab('Датум на документот', <input type="date" value={l.meta.docDate ?? ''} onChange={(e) => setM({ docDate: e.target.value })} aria-label="Датум на документот" style={{ width: 64 }} />, 72)}
+              {lab('Продавница', <input value={l.meta.store ?? ''} onChange={(e) => setM({ store: e.target.value })} aria-label="Продавница" maxLength={40} style={{ width: 64 }} />, 72)}
+              {lab('Магацин', <input value={l.meta.warehouse ?? ''} onChange={(e) => setM({ warehouse: e.target.value })} aria-label="Магацин" maxLength={40} style={{ width: 64 }} />, 72)}
+            </div>
+            <div className="hx-right">
+              <div className="hx-row" style={{ justifyContent: 'space-between' }}>
+                <fieldset className="hx-box" style={{ margin: 0 }}><legend>Почетна состојба</legend>
+                  <label className="hx-radio"><input type="radio" checked={!l.meta.opening} onChange={() => setM({ opening: false })} /> Не</label>
+                  <label className="hx-radio"><input type="radio" checked={!!l.meta.opening} onChange={() => setM({ opening: true })} /> Да</label>
+                </fieldset>
+                <input inputMode="numeric" maxLength={4} value={l.meta.openingYear ?? ''} onChange={(e) => setM({ openingYear: e.target.value.replace(/\D/g, '') })} aria-label="Година на почетната состојба" placeholder="година" style={{ width: 56 }} disabled={!l.meta.opening} />
+              </div>
+              <div className="hx-row">
+                <span className="hx-l" style={{ width: 'auto' }}>Г1</span><input value={l.meta.g1 ?? ''} onChange={(e) => setM({ g1: e.target.value })} aria-label="Г1" maxLength={40} style={{ width: 64 }} />
+                <span className="hx-l" style={{ width: 'auto' }}>Г2</span><input value={l.meta.g2 ?? ''} onChange={(e) => setM({ g2: e.target.value })} aria-label="Г2" maxLength={40} style={{ width: 64 }} />
+              </div>
+              {lab('Тип на трошок', <input value={l.meta.costType ?? ''} onChange={(e) => setM({ costType: e.target.value })} aria-label="Тип на трошок" maxLength={60} style={{ width: 110 }} />, 'auto' as unknown as number)}
+              <span className="hx-l" style={{ width: 'auto' }}>Забелешка / Опис</span>
+              <textarea rows={2} value={l.meta.remark ?? ''} onChange={(e) => setM({ remark: e.target.value })} aria-label="Забелешка" maxLength={200} />
+              <div className="hx-row" style={{ justifyContent: 'flex-end' }}><span>Салдо</span><b className="hx-saldo" data-testid="fe-saldo" style={Math.abs(after) > 0.004 ? { color: '#c00' } : undefined}>{fmt(after)}</b></div>
+              <div className="hx-row" style={{ justifyContent: 'flex-end' }}><span>Р.бр.</span><b className="hx-no" data-testid="fe-no">{no}</b></div>
+              <div className="hx-row" style={{ justifyContent: 'space-between' }}>
+                <button type="button" className="hx-btn" disabled={busy} onClick={() => void save()}>Во ред (F9)</button>
+                <button type="button" className="hx-btn" onClick={p.onClose}>Излез (Esc)</button>
+              </div>
+              {p.onDelete && mode !== 'new' && <button type="button" className="hx-btn" disabled={busy} onClick={p.onDelete} style={{ color: '#c00' }}>Избриши ставка</button>}
+            </div>
+          </div>
+          <datalist id="feKonto">{chart.map(([code, n]) => <option key={code} value={code}>{n}</option>)}</datalist>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fe-back" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.28)', zIndex: 60, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 12px', overflowY: 'auto' }}>
+    <div className="fe-back" style={{ position: 'fixed', inset: 0, background: helix ? 'rgba(0,0,0,.12)' : 'rgba(0,0,0,.28)', zIndex: 60, display: 'flex', alignItems: helix ? 'flex-end' : 'flex-start', justifyContent: helix ? 'flex-start' : 'center', padding: helix ? '12px' : '6vh 12px', overflowY: 'auto' }}>
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} className="card fe" onKeyDown={onKey}
         style={{ width: p.extra ? 'min(1000px, 100%)' : 'min(760px, 100%)', margin: 0, boxShadow: '0 10px 40px rgba(0,0,0,.25)' }}>
         <div className="hd" style={{ marginBottom: 6 }}>
@@ -243,50 +399,7 @@ export function FastEntry(p: FastEntryProps) {
         </div>
         {err && <div className="callout bad" role="alert" style={{ margin: '4px 0' }}>{err}</div>}
         {ok && !err && <div className="callout good" role="status" style={{ margin: '4px 0' }}>{ok}</div>}
-        {helix ? (
-          <div className="fe-f fe-helix" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.8fr) minmax(0,1.1fr) minmax(0,1.7fr) minmax(0,1.1fr)', gap: '5px 14px', alignItems: 'center' }}>
-            {cell('Конто', <KontoInput key={'k' + gen} chart={C} value={l.konto} onChange={(v) => set({ konto: v })} nk={l.newKonto} onNk={(n) => set({ newKonto: n })} list="feKonto" inputRef={kontoRef} />)}
-            <span className="mini" style={{ gridColumn: 'span 2', alignSelf: 'center' }}>{k && names.get(k) ? <b>{names.get(k)}</b> : ''}</span>
-            <span className="row mini" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>Поч. состојба
-              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.opening} onChange={() => setM({ opening: false })} style={{ width: 'auto' }} /> Не</label>
-              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.opening} onChange={() => setM({ opening: true })} style={{ width: 'auto' }} /> Да</label>
-              {l.meta.opening && <input inputMode="numeric" maxLength={4} value={l.meta.openingYear ?? ''} onChange={(e) => setM({ openingYear: e.target.value.replace(/\D/g, '') })} aria-label="Година на почетната состојба" placeholder="година" style={{ width: 64 }} />}
-            </span>
-            {cell(<>Содржина <small className="mut">(F5, F2)</small></>, <input value={l.content} onChange={(e) => set({ content: e.target.value })} aria-label="Содржина" maxLength={500} />, 'span 2')}
-            {cell(<>Комитент <small className="mut">(F8)</small></>, <PartnerPicker key={'p' + gen} partners={partners} value={l.partnerId} onChange={(id) => set({ partnerId: id })} invalid={needsPartner(k)} />, 'span 2')}
-            {docsOpen && (
-              <div role="listbox" aria-label="Отворени документи" style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 6, padding: 4, maxHeight: 200, overflowY: 'auto' }}>
-                {pDocs.length ? pDocs.slice(0, 50).map((x) => (
-                  <button key={x.id} type="button" role="option" aria-selected={l.docRef === x.id} className="btn sm ghost" style={{ display: 'block', width: '100%', textAlign: 'left' }} onClick={() => pickDoc(x)}>{x.label}</button>
-                )) : <span className="mut">Нема отворени документи{l.partnerId ? ' за овој комитент' : ''}.</span>}
-              </div>
-            )}
-            {cell('Во денари Должи', <input inputMode="decimal" value={l.debit} onChange={(e) => set({ debit: e.target.value })} style={{ textAlign: 'right', background: 'var(--warn-bg, #fffbe0)' }} aria-label="Должи" />)}
-            {cell('Побарува', <input inputMode="decimal" value={l.credit} onChange={(e) => set({ credit: e.target.value })} style={{ textAlign: 'right', background: 'var(--warn-bg, #fffbe0)' }} aria-label="Побарува" />)}
-            {cell('Датум на книжење', <input type="date" value={l.date} disabled={p.dateLocked} onChange={(e) => set({ date: e.target.value })} aria-label="Датум на книжење" />)}
-            {cell('ОЕ', <input value={l.meta.oe ?? ''} onChange={(e) => setM({ oe: e.target.value })} aria-label="ОЕ" maxLength={40} />)}
-            {cell('Во девизи Должи', <input inputMode="decimal" value={l.debitCur} disabled={p.fxLocked} onChange={(e) => set({ debitCur: e.target.value })} style={{ textAlign: 'right' }} aria-label="Девизи должи" />)}
-            {cell('Побарува', <input inputMode="decimal" value={l.creditCur} disabled={p.fxLocked} onChange={(e) => set({ creditCur: e.target.value })} style={{ textAlign: 'right' }} aria-label="Девизи побарува" />)}
-            {cell('Датум на документот', <input type="date" value={l.meta.docDate ?? ''} onChange={(e) => setM({ docDate: e.target.value })} aria-label="Датум на документот" />)}
-            {cell('Продавница', <input value={l.meta.store ?? ''} onChange={(e) => setM({ store: e.target.value })} aria-label="Продавница" maxLength={40} />)}
-            {cell('Курс', <input inputMode="decimal" value={l.rate} disabled={p.fxLocked} onChange={(e) => set({ rate: e.target.value })} style={{ textAlign: 'right' }} aria-label="Курс" />)}
-            {cell('Валута', <input value={l.cur} disabled={p.fxLocked} onChange={(e) => set({ cur: e.target.value.toUpperCase().slice(0, 3) })} aria-label="Валута" placeholder="EUR" />)}
-            {cell('Валута (рок)', <input type="date" value={l.meta.due ?? ''} onChange={(e) => setM({ due: e.target.value })} aria-label="Валута рок" />)}
-            {cell('Магацин', <input value={l.meta.warehouse ?? ''} onChange={(e) => setM({ warehouse: e.target.value })} aria-label="Магацин" maxLength={40} />)}
-            {p.showStNo ? cell('Извод број', <input value={l.stNo} onChange={(e) => set({ stNo: e.target.value })} aria-label="Извод број" />) : <span />}
-            <span className="row mini" style={{ gap: 8, alignItems: 'center' }}>Аванс
-              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.advance} onChange={() => setM({ advance: false })} style={{ width: 'auto' }} /> Не</label>
-              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.advance} onChange={() => setM({ advance: true })} style={{ width: 'auto' }} /> Да</label>
-            </span>
-            {cell('Одобрено по документ', <input value={l.meta.approvedDoc ?? ''} onChange={(e) => setM({ approvedDoc: e.target.value })} aria-label="Одобрено по документ" maxLength={60} />)}
-            {cell('Г1', <input value={l.meta.g1 ?? ''} onChange={(e) => setM({ g1: e.target.value })} aria-label="Г1" maxLength={40} />)}
-            {cell('Документ (калк. бр.)', <input value={l.doc} onChange={(e) => set({ doc: e.target.value })} aria-label="Документ" maxLength={100} />, 'span 2')}
-            {cell('Тип на трошок', <input value={l.meta.costType ?? ''} onChange={(e) => setM({ costType: e.target.value })} aria-label="Тип на трошок" maxLength={60} />)}
-            {cell('Г2', <input value={l.meta.g2 ?? ''} onChange={(e) => setM({ g2: e.target.value })} aria-label="Г2" maxLength={40} />)}
-            {cell('Забелешка / Опис', <input value={l.meta.remark ?? ''} onChange={(e) => setM({ remark: e.target.value })} aria-label="Забелешка" maxLength={200} />, '1 / -1')}
-          </div>
-        ) : (
-          <div className="form fe-f" style={{ gap: '6px 12px' }}>
+        <div className="form fe-f" style={{ gap: '6px 12px' }}>
           {bank && st.length > 0 && (
             <label className="f wide">Извод
               <select value={stKey} onChange={(e) => { const s = st.find((x) => x.key === e.target.value); if (s) set({ acct: s.acct, date: s.date, stNo: s.no }); }}>
@@ -332,7 +445,6 @@ export function FastEntry(p: FastEntryProps) {
           <label className="f">Датум на книжење<input type="date" value={l.date} disabled={p.dateLocked} onChange={(e) => set({ date: e.target.value })} aria-label="Датум на книжење" /></label>
           <label className="f">Документ (калк. / ф-ра бр.)<input value={l.doc} onChange={(e) => set({ doc: e.target.value })} aria-label="Документ" maxLength={100} /></label>
         </div>
-        )}
         <datalist id="feKonto">{chart.map(([code, n]) => <option key={code} value={code}>{n}</option>)}</datalist>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
           <span className="mini" data-testid="fe-hint">
