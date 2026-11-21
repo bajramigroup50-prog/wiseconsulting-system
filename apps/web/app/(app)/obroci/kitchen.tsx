@@ -6,7 +6,7 @@
  */
 import Link from 'next/link';
 import { and, asc, eq } from 'drizzle-orm';
-import { MEALS } from '@wise/core/meals';
+import { MEALS, mealKindsOf } from '@wise/core/meals';
 import { kitchenReport, mealConsumption, portionsByDay } from '@wise/core/npo';
 import { donKonto, donChart } from '@wise/core/donations';
 import {
@@ -34,7 +34,9 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
     listDonationReceipts(db(), firm.id), db().select({ id: donations.id, number: donations.number, date: donations.date, inKind: donations.inKind, pn: partners.name, konto: donations.konto })
       .from(donations).leftJoin(partners, eq(partners.id, donations.partnerId)).where(and(eq(donations.firmId, firm.id), eq(donations.role, 'received'))).orderBy(asc(donations.date)),
   ]);
-  const P = portionsByDay(B, Lg);
+  const kinds = mealKindsOf(firm.settings);
+  const KM = MEALS.filter(([k]) => kinds.includes(k));
+  const P = portionsByDay(B, Lg.filter((x) => kinds.includes(x.meal as never)));
   const days = [...new Set([...P.keys(), ...I.keys()])].sort();
   const chart = donChart(isNpoFirm(firm), ((firm.settings ?? {}) as { accounts?: Record<string, unknown> }).accounts);
   const ItemSel = ({ name, v }: { name: string; v?: string }) => (
@@ -88,9 +90,13 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
               <label className="f">Магацин на кујната<select name="wh" defaultValue={S.wh ?? 'main'}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
               <label className="f" title="Д трошок на потрошените намирници (НПО план: 400 Потрошени материјали; инаку 4000)">Конто за трошок<input name="konto" defaultValue={S.konto ?? ''} placeholder="4000" style={{ width: 90 }} /></label>
+              <span className="f">Оброци што се даваат
+                <span className="row" style={{ gap: 10 }}>{MEALS.map(([k, n]) => <label key={k} className="chk"><input type="checkbox" name={`kind_${k}`} value="1" defaultChecked={kinds.includes(k)} /> {n}</label>)}</span>
+              </span>
             </div>
+            <p className="mini">Само означените оброци се во дневната листа, извештаите и издатниците; веќе внесените штикли на другите оброци не се бришат, само не се прикажуваат.</p>
             <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginTop: 8 }}>
-              {MEALS.map(([k, n]) => {
+              {KM.map(([k, n]) => {
                 const L0 = norm[k] ?? [];
                 const rows = [...L0, ...Array.from({ length: Math.max(3, 8 - L0.length) }, () => null)];
                 return (
@@ -107,7 +113,7 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
             <button className="btn pri">Зачувај норматив</button>
           </BankForm>
         ) : (
-          <p className="mini">{MEALS.map(([k, n]) => `${n}: ${(norm[k] ?? []).map((x) => `${nm(x.itemId)} ${q4(x.qty)} ${unit(x.itemId)}`).join(', ') || '—'}`).join(' · ')}</p>
+          <p className="mini">{KM.map(([k, n]) => `${n}: ${(norm[k] ?? []).map((x) => `${nm(x.itemId)} ${q4(x.qty)} ${unit(x.itemId)}`).join(', ') || '—'}`).join(' · ')}</p>
         )}
       </div>
 
@@ -126,7 +132,7 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
           </BankForm>
         )}
         <table className="dense" style={{ marginTop: 8 }}>
-          <thead><tr><th>Датум</th>{MEALS.map(([k, n]) => <th key={k} className="n">{n}</th>)}<th>Потребно по норматив</th><th className="n">Издадено (ден.)</th><th>Статус</th></tr></thead>
+          <thead><tr><th>Датум</th>{KM.map(([k, n]) => <th key={k} className="n">{n}</th>)}<th>Потребно по норматив</th><th className="n">Издадено (ден.)</th><th>Статус</th></tr></thead>
           <tbody>
             {days.map((d) => {
               const p = P.get(d) ?? { b: 0, l: 0, d: 0 };
@@ -134,16 +140,16 @@ export async function KitchenTab({ firm, write, from, to, pr, nd }: { firm: Firm
               const same = want.length === had.length && want.every((w) => had.some((h) => h.itemId === w.itemId && Math.abs(h.qty - w.qty) < 1e-4));
               return (
                 <tr key={d}>
-                  <td>{dmy(d)}</td><td className="n">{p.b}</td><td className="n">{p.l}</td><td className="n">{p.d}</td>
+                  <td>{dmy(d)}</td>{KM.map(([k]) => <td key={k} className="n">{p[k]}</td>)}
                   <td className="mini">{want.map((w) => `${nm(w.itemId)} ${q4(w.qty)} ${unit(w.itemId)}`).join(', ') || '—'}</td>
                   <td className="n">{had.length ? fmt(issuedV(d)) : ''}</td>
                   <td>{!want.length && !had.length ? <span className="muted">—</span> : same ? <span className="pill good">✓ издадено</span> : had.length ? <span className="pill warn">сменето – издај повторно</span> : <span className="pill">за издавање</span>}</td>
                 </tr>
               );
             })}
-            {!days.length && <tr><td colSpan={7} className="muted">Нема оброци во периодот.</td></tr>}
+            {!days.length && <tr><td colSpan={4 + KM.length} className="muted">Нема оброци во периодот.</td></tr>}
           </tbody>
-          <tfoot><tr className="tot"><td colSpan={5}>Вкупно издадено</td><td className="n">{fmt([...I.keys()].reduce((s, d) => s + issuedV(d), 0))}</td><td /></tr></tfoot>
+          <tfoot><tr className="tot"><td colSpan={2 + KM.length}>Вкупно издадено</td><td className="n">{fmt([...I.keys()].reduce((s, d) => s + issuedV(d), 0))}</td><td /></tr></tfoot>
         </table>
         <p className="note">Еден документ (издатница) за секој ден; кога ќе се сменат штиклите во дневната листа, издатницата на тој ден се ажурира сама. Заклучен период не се менува. Цената е просечната набавна цена од магацинот.</p>
       </div>

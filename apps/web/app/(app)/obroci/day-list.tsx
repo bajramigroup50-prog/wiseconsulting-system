@@ -7,9 +7,11 @@ import { useMemo, useState, useTransition } from 'react';
 import { bulkMealAction, toggleMealAction } from './actions';
 
 type Row = { id: string; no: number | null; name: string; members: number; place: string | null };
-const MEALS = [['b', 'Појадок'], ['l', 'Ручек'], ['d', 'Вечера']] as const;
+const ALL = [['b', 'Појадок'], ['l', 'Ручек'], ['d', 'Вечера']] as const;
 
-export function DayList({ rows, date, taken, write }: { rows: Row[]; date: string; taken: string[]; write: boolean }) {
+export function DayList({ rows, date, taken, write, kinds = ['b', 'l', 'd'] }: { rows: Row[]; date: string; taken: string[]; write: boolean; kinds?: string[] }) {
+  // only the meal kinds the firm serves
+  const MEALS = ALL.filter(([k]) => kinds.includes(k));
   const [on, setOn] = useState(() => new Set(taken));
   const [q, setQ] = useState('');
   const [err, setErr] = useState('');
@@ -76,7 +78,7 @@ export function DayList({ rows, date, taken, write }: { rows: Row[]; date: strin
               ))}
             </tr>
           ))}
-          {!L.length && <tr><td colSpan={7} className="mk">Нема корисници{q ? ' за пребарувањето' : ' – додајте ги во „Корисници“ или увезете го Excel регистарот'}.</td></tr>}
+          {!L.length && <tr><td colSpan={4 + MEALS.length} className="mk">Нема корисници{q ? ' за пребарувањето' : ' – додајте ги во „Корисници“ или увезете го Excel регистарот'}.</td></tr>}
         </tbody>
       </table>
     </>

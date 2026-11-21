@@ -178,6 +178,8 @@ export interface MealStockSettings {
   /** Expense account of the consumption (Д), default 400 on the NPO chart / 4000. */
   konto?: string | null;
   norm?: MealNorms;
+  /** Meal kinds the firm serves (`mealKindsOf`); missing = all three. */
+  kinds?: MealKind[];
 }
 
 /** Clean the normatives typed in the form (positive quantities, one row per item and meal). */

@@ -140,3 +140,13 @@ export function registerSummary(B: readonly { members: number; place?: string | 
     consent: B.filter((b) => b.consentDate).length,
   };
 }
+
+/**
+ * The meal kinds the firm serves (`firms.settings.meals.kinds`, e.g. only ['l'] = ручек); default all three. The daily
+ * list, the reports and the kitchen use only these; ticks of the other kinds stay in the database, hidden.
+ */
+export function mealKindsOf(settings: unknown): MealKind[] {
+  const k = ((settings ?? {}) as { meals?: { kinds?: unknown } }).meals?.kinds;
+  const L = Array.isArray(k) ? MEALS.map(([m]) => m).filter((m) => k.includes(m)) : [];
+  return L.length ? L : MEALS.map(([m]) => m);
+}
