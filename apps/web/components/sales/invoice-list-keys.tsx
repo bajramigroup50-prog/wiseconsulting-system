@@ -11,6 +11,7 @@
  * server-rendered rows (`tr[data-id]` with `data-head` = the header as JSON, `data-paid` / `data-rest` / `data-total`).
  */
 import { NalogPicker } from '@/components/nalog-picker';
+import { MassAssignDialog } from './mass-assign-dialog';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CURRENCIES, PAYM } from '@wise/core/sales';
@@ -83,10 +84,10 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
     menu: [
       { label: 'Специјални опции', items: [
         { label: 'Масовно книжење', act: { href: '/rekniz' }, title: 'Рекнижење во маса (нацртите се прокнижуваат со ✓ на редот)' },
-        { label: 'Масовно доделување на терк и налог', act: { off: NOT } },
-        { label: 'Масовно доделување на комитент', act: { off: NOT } },
+        { label: 'Масовно доделување на терк и налог', act: canWrite ? { ev: 'mass-nalog' } : { off: ro } },
+        { label: 'Масовно доделување на комитент', act: canWrite ? { ev: 'mass-partner' } : { off: ro } },
         { label: 'Масовно доделување на тип на калкулација', act: { off: NOT } },
-        { label: 'Масовно доделување на датум и валута', act: { off: NOT } },
+        { label: 'Масовно доделување на датум и валута', act: canWrite ? { ev: 'mass-date' } : { off: ro } },
         { label: 'Структурен увид', act: { href: '/analizi' }, cls: 'hx-sep' },
         { label: 'Масовно прекнижување на селектирани калкулации во сите магацини', act: { href: '/rekniz' } },
         { label: 'Образец за месечна евиденција на отпад од пакување', act: { off: NOT } },
@@ -217,6 +218,7 @@ export function InvoiceListKeys({ tableId, canWrite, today, svc, view, partners,
   return (
     <>
       <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head} menuExtra={menuExtra} filter={filter} filterOpen={filterOpen}>{children}</HelixShell>
+      {canWrite && <MassAssignDialog tableId={tableId} kind="invoice" partners={partners} schemes={schemes} today={today} />}
       {dlg && <InvoiceHeadDialog key={dlg.id || 'new'} head={dlg} svc={svc} partners={partners} nalozi={nalozi} schemes={schemes} firmName={firmName}
         onClose={() => setDlg(null)}
         onDone={(id, isNew) => {

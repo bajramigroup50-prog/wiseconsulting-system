@@ -8,6 +8,7 @@
  * „Нова (Ins)“ is the header dialog „Податоци за малопродажна калкулација“ of the page (`KalkNewKeys`, which owns the
  * Ins key; the button opens it with `?hnov`). Rows: `tr[data-id]` with `data-total` / `data-paid` / `data-rest`.
  */
+import { MassAssignDialog } from './mass-assign-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import { HelixShell, type HxBtn, type HxGroup, type HxMenu, type HxWh } from '@/components/helix/helix-shell';
 import { PayDialog } from './invoice-list-keys';
@@ -42,7 +43,8 @@ export function vlezHelix(canWrite: boolean, hasWh: boolean): { groups: HxGroup[
     menu: [
       { label: 'Специјални опции', items: [
         { label: 'Масовно книжење на селектирани калкулации', act: { href: '/rekniz' } },
-        { label: 'Масовно доделување на терк и налог', act: { off: NOT } },
+        { label: 'Масовно доделување на терк и налог', act: canWrite ? { ev: 'mass-nalog' } : { off: ro } },
+        { label: 'Масовно доделување на датум и валута', act: canWrite ? { ev: 'mass-date' } : { off: ro } },
         { label: 'Масовно доделување на организациона единица', act: { off: NOT } },
         { label: 'Направи нарачка од предвидување', act: { href: '/porachki' } },
         { label: 'Печатење книга на влезни фактури', act: { href: '/ddvKnigi?t=in' } },
@@ -124,6 +126,7 @@ export function VlezListKeys({ tableId, canWrite, wh, filterId, head, children, 
   return (
     <>
       <HelixShell tableId={tableId} groups={cfg.groups} menu={cfg.menu} bottom={cfg.bottom} wh={wh} exitHref="/" filterId={filterId} head={head} menuExtra={menuExtra} filter={filter} filterOpen={filterOpen}>{children}</HelixShell>
+      {canWrite && <MassAssignDialog tableId={tableId} kind="purchase" today={new Date().toISOString().slice(0, 10)} />}
       {pay && <PayDialog tr={pay} title="Плаќање – фактура" onClose={() => setPay(null)} links={[
         { label: '💳 Платен налог (ПП30)', href: '/ppNal', pri: true, title: 'Платен налог за добавувачот' },
         { label: '🏦 Поврзи со извод (банка)', href: '/banka' },
