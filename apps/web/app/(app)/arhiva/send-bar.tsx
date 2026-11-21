@@ -5,6 +5,7 @@
  * message with the list, the ZIP downloads).
  */
 import { useEffect, useState } from 'react';
+import { WaSendBox, useWaApi } from '@/components/wa-send';
 
 /** One tick per row serves everything: download / print / send (`data-files`) and, on deletable rows, the
  * delete / move / read bar (`data-sel-g="ar"`, `ArBulk`). */
@@ -21,7 +22,8 @@ export function ArSelAll() {
 
 const picked = () => [...document.querySelectorAll<HTMLInputElement>('input[data-arsel]:checked')];
 
-export function ArSendBar({ firm }: { firm: string }) {
+export function ArSendBar({ firm, firmId, phone = '' }: { firm: string; firmId?: string; phone?: string }) {
+  const api = useWaApi();
   const [n, setN] = useState(0);
   const [to, setTo] = useState('');
   const [msg, setMsg] = useState('');
@@ -61,6 +63,10 @@ export function ArSendBar({ firm }: { firm: string }) {
       <button type="button" className="btn" onClick={gmail}>✉ Gmail</button>
       <button type="button" className="btn" style={{ borderColor: '#25D366' }} onClick={wa}>💬 WhatsApp / Viber</button>
       {msg && <span className="note">{msg}</span>}
+      {/* 💬 Cloud API on: the ticked files go straight from WISE to the client's WhatsApp */}
+      {api && <div style={{ flexBasis: '100%' }}><WaSendBox phone={phone} getText={text} hideText firmId={firmId} purpose="dokument" vars={{ firma: firm, opis: 'документи од архивата' }}
+        files={() => { if (!n) throw new Error('Штиклирајте документи (кутичката лево).'); return ids().split(',').map((x) => x.trim()).filter(Boolean).slice(0, 10); }}
+        label="💬 Испрати ги избраните од WISE (WhatsApp)" /></div>}
     </div>
   );
 }

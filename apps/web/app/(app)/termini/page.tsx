@@ -12,6 +12,7 @@ import { dmy, fmt } from '@/lib/fmt';
 import { industryPage, today } from '@/lib/industry';
 import { BankForm } from '@/components/bank-form';
 import { Hd } from '@/components/hd';
+import { WaQuick } from '@/components/wa-send';
 import { RowAction } from '@/components/row-action';
 import { apptStepAction, saveApptAction, saveApptConfigAction } from './actions';
 
@@ -64,7 +65,7 @@ export default async function Termini({ searchParams }: { searchParams: Promise<
         {E.id && write && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span style={{ flex: 1 }} />
           {E.status !== 'cancel' && !E.invoiceId && !E.salesDayId && <RowAction className="btn ghost" action={apptStepAction.bind(null, E.id, 'cancel')} confirm="Да се откаже терминот?" label="Откажи термин" />}
           {(E.phone || E.email) && <RowAction className="btn" action={apptStepAction.bind(null, E.id, 'rem')} label={E.remindAt ? '🔔 Потсетник (повторно)' : '🔔 Потсетник'} />}
-          {E.phone && <><a className="btn" href={apptWaLink(E.phone, apptReminder(E, C.res.find((y) => y.id === E.res)?.name ?? '', firm))} target="_blank" rel="noopener noreferrer">WhatsApp</a><RowAction className="btn sm ghost" action={apptStepAction.bind(null, E.id, 'remwa')} label="✓ Потсетен (WhatsApp)" /></>}
+          {E.phone && <><WaQuick className="btn" href={apptWaLink(E.phone, apptReminder(E, C.res.find((y) => y.id === E.res)?.name ?? '', firm))} phone={E.phone} text={apptReminder(E, C.res.find((y) => y.id === E.res)?.name ?? '', firm)} firmId={firm.id} purpose="rok" vars={{ firma: firm.name, ime: E.client ?? '', opis: E.svc || 'термин', rok: `${E.date} ${E.time}` }} /><RowAction className="btn sm ghost" action={apptStepAction.bind(null, E.id, 'remwa')} label="✓ Потсетен (WhatsApp)" /></>}
           {Number(E.price) > 0 && !E.invoiceId && !E.salesDayId && <><RowAction className="btn" action={apptStepAction.bind(null, E.id, 'till')} label="💶 Наплати на каса" /><RowAction className="btn" action={apptStepAction.bind(null, E.id, 'inv')} label="🧾 Фактура" /></>}
           {inv && <span className="pill good">Фактура {inv}</span>}{E.salesDayId && <span className="pill good">наплатено на каса</span>}
         </div>}

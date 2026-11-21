@@ -2,12 +2,18 @@
 /** Per-customer letter controls: level (legacy `data-oplv` select), e-mail compose, WhatsApp / Viber, PDF. */
 import { useActionState, useState, useTransition } from 'react';
 import type { RowResult } from '@/components/row-action';
+import type { WaVar } from '@wise/core/whatsapp/wa';
+import { WaQuick, WaSendBox } from '@/components/wa-send';
 import { logDunning, sendDunning } from './actions';
 
 const LV = ['1. Опомена', '2. Опомена', 'Последна опомена пред тужба'];
 
-export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail, only = null }: {
+type Vars = Partial<Record<WaVar, string>>;
+
+export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail, only = null, firmId, vars }: {
   pid: string; lvlAuto: number; email: string; phone: string; texts: { subj: string; body: string }[]; canMail: boolean;
+  /** 💬 WhatsApp Cloud API: the firm and the template variables (amount, invoices…) */
+  firmId?: string; vars?: Vars;
   /** Legacy `opOnly`: comma-separated invoice ids ticked in Излез (the letter covers only those). */
   only?: string | null;
 }) {
@@ -52,6 +58,7 @@ export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail, only 
           <b>💬 {LV[lvl]}</b>
           <label className="f">Телефон (со 389)<input value={ph} onChange={(e) => setPh(e.target.value)} /></label>
           <label className="f">Порака<textarea rows={10} value={waText} onChange={(e) => setWaText(e.target.value)} /></label>
+          <WaSendBox phone={ph} hidePhone getText={() => waText} hideText firmId={firmId} purpose="opomena" vars={{ ...vars, opis: LV[lvl] }} onSent={() => log('WhatsApp')} label={`💬 Испрати ја опомената од WISE`} />
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             <a className="btn pri" href={`https://wa.me/${ph.replace(/\D/g, '')}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer" style={{ background: '#25D366', borderColor: '#25D366', textDecoration: 'none' }}>Отвори WhatsApp</a>
             <a className="btn pri" href={`viber://forward?text=${encodeURIComponent(waText)}`} style={{ background: '#7360F2', borderColor: '#7360F2', textDecoration: 'none' }}>Отвори Viber</a>
@@ -65,12 +72,15 @@ export function GroupActions({ pid, lvlAuto, email, phone, texts, canMail, only 
 }
 
 /** Legacy `opWaAll`: one row per customer with a phone; WhatsApp cannot be sent automatically, the user clicks each. */
-export function WaAllRow({ pid, lvl, href, viber }: { pid: string; lvl: number; href: string; viber: string }) {
+export function WaAllRow({ pid, lvl, href, viber, wa }: { pid: string; lvl: number; href: string; viber: string; wa?: { phone: string; text: string; firmId: string; vars: Vars } }) {
   const [pending, start] = useTransition();
   const [done, setDone] = useState('');
   return (
     <span style={{ whiteSpace: 'nowrap' }}>
-      <a className="btn sm pri" href={href} target="_blank" rel="noopener noreferrer" style={{ background: '#25D366', borderColor: '#25D366', textDecoration: 'none' }}>Отвори WhatsApp</a>{' '}
+      {/* 💬 with the Cloud API on: sent straight from WISE (and remembered); else the wa.me link */}
+      {wa ? <WaQuick href={href} phone={wa.phone} text={wa.text} firmId={wa.firmId} purpose="opomena" vars={{ ...wa.vars, opis: LV[lvl] }} label="WhatsApp" className="btn sm pri"
+        onSent={() => start(async () => { const r = await logDunning(pid, lvl, 'WhatsApp'); setDone(r.error ?? '✓'); })} />
+        : <a className="btn sm pri" href={href} target="_blank" rel="noopener noreferrer" style={{ background: '#25D366', borderColor: '#25D366', textDecoration: 'none' }}>Отвори WhatsApp</a>}{' '}
       <a className="btn sm" href={viber}>Viber</a>{' '}
       <button type="button" className="btn sm" disabled={pending || !!done} onClick={() => start(async () => { const r = await logDunning(pid, lvl, 'WhatsApp/Viber'); setDone(r.error ?? '✓'); })}>{done || '✓ Испратено'}</button>
     </span>

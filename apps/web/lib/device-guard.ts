@@ -27,7 +27,8 @@ export const deviceMode = (v: string | undefined | null): DeviceMode => {
 
 /** Paths never refused: the container health check (127.0.0.1, no Caddy). */
 // the public website's offer form (proxied by Caddy from the website, visitors never have a device certificate)
-export const deviceFreePath = (p: string) => p === '/api/health' || p === '/api/crm/lead';
+// and Meta's WhatsApp webhook (signed with the app secret, checked by the route)
+export const deviceFreePath = (p: string) => p === '/api/health' || p === '/api/crm/lead' || p === '/api/whatsapp/webhook';
 
 export interface DeviceRow { id: string; status: string; firmId: string | null; name: string }
 

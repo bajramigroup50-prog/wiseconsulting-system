@@ -115,3 +115,7 @@ export * from './btrip';
 export * from './fx-reval';
 export * from './deferrals';
 export * from './institutions';
+export * from './whatsapp';
+export * from './whatsapp-send';
+export * from './whatsapp-graph';
+export * from './whatsapp-sig';
