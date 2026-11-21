@@ -6,7 +6,7 @@ import { isMealKind, parseRegister } from '@wise/core/meals';
 import { StockDocError, setConsentMany, deleteDonationReceipt, importBeneficiaries, issueMealDays, reissueIfIssued, saveBeneficiary, saveDonationReceipt, saveMealStockSettings, setConsent, setMeal, setMealsBulk, type IssueResult } from '@wise/db';
 import { MEALS } from '@wise/core/meals';
 import { dmy } from '@/lib/fmt';
-import { indRun, num, str } from '@/lib/industry';
+import { indRun, num, str, today } from '@/lib/industry';
 import type { FormState } from '@/components/bank-form';
 
 const P = ['/obroci'];
@@ -22,7 +22,7 @@ export async function saveBenefAction(_p: FormState, f: FormData): Promise<FormS
     await saveBeneficiary(tx, a, {
       id: str(f.get('id')) || null, no: num(f.get('no')), name: str(f.get('name')), members: num(f.get('members')) ?? 1,
       nationality: str(f.get('nationality')), embg: str(f.get('embg')), place: str(f.get('place')), phone: str(f.get('phone')),
-      note: str(f.get('note')), active: f.get('active') !== 'off',
+      note: str(f.get('note')), active: f.get('active') !== 'off', inactiveFrom: f.get('active') === 'off' ? iso(str(f.get('inactiveFrom'))) || null : null, today: today(),
       ...(f.has('consentDate') ? { consentDate: iso(str(f.get('consentDate'))) || null } : {}),
     });
     return 'Корисникот е зачуван.';

@@ -6,7 +6,7 @@
  * screen when the office switches on the section „Корисници и оброци“.
  */
 import Link from 'next/link';
-import { costPerPortion, MEALS, mealKindsOf, monthSummary, registerSummary } from '@wise/core/meals';
+import { benefOnDay, costPerPortion, MEALS, mealKindsOf, monthSummary, registerSummary } from '@wise/core/meals';
 import { withoutConsent } from '@wise/core/npo';
 import { consentFiles, listBeneficiaries, listMembers, mealLogsBetween, npoMovements } from '@wise/db';
 import { db } from '@/lib/db';
@@ -53,7 +53,9 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   const KM = MEALS.filter(([k]) => kinds.includes(k));
   const tab = sp.t === 'k' || sp.t === 'i' || sp.t === 'z' || sp.t === 'e' ? sp.t : 'd';
   const D = isIso(sp.d) ? sp.d! : today();
-  const B = await listBeneficiaries(db(), firm.id, tab === 'k' && sp.all === '1');
+  const B0 = await listBeneficiaries(db(), firm.id, tab === 'd' || (tab === 'k' && sp.all === '1'));
+  // the daily list keeps a person until the day before „неактивен од“
+  const B = tab === 'd' ? B0.filter((b) => benefOnDay(b, D)) : B0;
   const Tabs = (
     <div className="row" style={{ gap: 6, margin: '6px 0 10px' }}>
       <Link className={'btn' + (tab === 'd' ? ' pri' : '')} href={`/obroci?d=${D}`}>📋 Дневна листа</Link>
@@ -188,6 +190,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
                 <label className="f">Телефон<input name="phone" defaultValue={E?.phone ?? ''} /></label>
                 <label className="f" title="Датум на потпишаната согласност за лични податоци; празно = без согласност">Согласност (датум)<input type="date" name="consentDate" defaultValue={E ? E.consentDate ?? '' : ''} /></label>
                 {E && <label className="f">Статус<select name="active" defaultValue={E.active ? 'on' : 'off'}><option value="on">активен</option><option value="off">неактивен (не доаѓа повеќе)</option></select></label>}
+                {E && <label className="f" title="Првиот ден кога веќе не доаѓа (до претходниот ден е во дневната листа); празно = од денес. Важи само за статус „неактивен“.">Неактивен од<input type="date" name="inactiveFrom" defaultValue={E.inactiveFrom ?? ''} /></label>}
               </div>
               <label className="f" style={{ display: 'block', marginTop: 6 }}>Опис / состојба<textarea name="note" rows={2} defaultValue={E?.note ?? ''} style={{ width: '100%' }} /></label>
               <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn pri">Зачувај</button><Link className="btn" href="/obroci?t=k">Откажи</Link></div>
@@ -216,20 +219,21 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
         {dupNo.size > 0 && <div className="callout warn">⚠ Двоен број во регистарот: {[...dupNo].sort((a, b) => a - b).join(', ')} – проверете ги и сменете го бројот преку ✎ (не се менува автоматски).</div>}
         <div id="obrociReg">
           <table className="dense">
-            <thead><tr>{write && <th className="noprint"><SelAll form="consentBulk" /></th>}<th>Бр.</th><th>Име и презиме</th><th className="n">Чл.</th><th>Нац.</th><th>ЕМБГ</th><th>Место</th><th>Телефон</th><th>Опис / состојба</th><th>Согласност</th>{write && <th />}</tr></thead>
+            <thead><tr>{write && <th className="noprint"><SelAll form="consentBulk" /></th>}<th>Бр.</th><th>Име и презиме</th><th className="n">Чл.</th><th>Нац.</th><th>ЕМБГ</th><th>Место</th><th>Телефон</th><th>Опис / состојба</th><th>Неактивен од</th><th>Согласност</th>{write && <th />}</tr></thead>
             <tbody>
               {BB.map((b) => (
                 <tr key={b.id} style={b.active ? undefined : { opacity: 0.55 }}>
                   {write && <td className="noprint"><input type="checkbox" name="sel" value={b.id} form="consentBulk" aria-label={b.name} /></td>}
                   <td>{b.no ?? ''}{b.no != null && dupNo.has(b.no) && <span className="pill warn" title="Истиот број го има и друг корисник"> двоен број</span>}</td><td>{b.name}{!b.active && ' (неактивен)'}</td><td className="n">{b.members}</td><td>{b.nationality ?? ''}</td>
                   <td>{b.embg ?? ''}</td><td>{b.place ?? ''}</td><td>{b.phone ?? ''}</td><td className="mini">{b.note ?? ''}</td>
+                  <td>{b.inactiveFrom ? dmy(b.inactiveFrom) : ''}</td>
                   <td><ConsentPill id={b.id} date={b.consentDate} write={write} /></td>
                   {write && <td><Link className="btn sm" href={`/obroci?t=k&id=${b.id}${sp.all === '1' ? '&all=1' : ''}`}>✎</Link></td>}
                 </tr>
               ))}
-              {!BB.length && <tr><td colSpan={11} className="muted">Нема корисници – додајте ги или увезете го Excel регистарот.</td></tr>}
+              {!BB.length && <tr><td colSpan={12} className="muted">Нема корисници – додајте ги или увезете го Excel регистарот.</td></tr>}
             </tbody>
-            <tfoot><tr className="tot">{write && <td className="noprint" />}<td /><td>Вкупно {BB.length} семејства / лица</td><td className="n">{BB.reduce((s, b) => s + b.members, 0)}</td><td colSpan={write ? 7 : 6} /></tr></tfoot>
+            <tfoot><tr className="tot">{write && <td className="noprint" />}<td /><td>Вкупно {BB.length} семејства / лица</td><td className="n">{BB.reduce((s, b) => s + b.members, 0)}</td><td colSpan={write ? 8 : 7} /></tr></tfoot>
           </table>
         </div>
       </>
@@ -246,7 +250,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   const name = (id: string) => byId.get(id)?.name ?? '';
   // every active family (0 meals too, so an imported register never looks empty); inactive ones only when they ate in the period; `sm=1` = only with meals
   const onlyMeals = sp.sm === '1';
-  const rows = S.rows.filter((r) => (onlyMeals ? r.meals > 0 : r.meals > 0 || byId.get(r.id)?.active)).sort((a, b) => (byId.get(a.id)?.no ?? 1e9) - (byId.get(b.id)?.no ?? 1e9) || name(a.id).localeCompare(name(b.id), 'mk'));
+  const rows = S.rows.filter((r) => (onlyMeals ? r.meals > 0 : r.meals > 0 || (byId.get(r.id) && benefOnDay(byId.get(r.id)!, P.from)))).sort((a, b) => (byId.get(a.id)?.no ?? 1e9) - (byId.get(b.id)?.no ?? 1e9) || name(a.id).localeCompare(name(b.id), 'mk'));
   const RS = registerSummary(all.filter((b) => b.active));
   const exp = M.filter((x) => x.account.startsWith('4')), inc = M.filter((x) => x.account.startsWith('7'));
   const expTot = exp.reduce((s, x) => s + x.debit - x.credit, 0), incTot = inc.reduce((s, x) => s + x.credit - x.debit, 0);

@@ -75,6 +75,10 @@ export function parseRegister(rows: readonly (readonly unknown[])[]): { list: Be
   return { list, skipped };
 }
 
+/** On the list of a day: active, or inactive only from a later day (`inactiveFrom` = the first day they no longer come). */
+export const benefOnDay = (b: { active: boolean; inactiveFrom?: string | null }, day: string): boolean =>
+  b.inactiveFrom ? b.inactiveFrom > day : b.active;
+
 /** Same person twice? (ЕМБГ when both have one, else the name without case / extra spaces). */
 export const sameBeneficiary = (a: Pick<BeneficiaryInput, 'name' | 'embg'>, b: Pick<BeneficiaryInput, 'name' | 'embg'>): boolean =>
   a.embg && b.embg ? a.embg === b.embg : clean(a.name).toLowerCase() === clean(b.name).toLowerCase();

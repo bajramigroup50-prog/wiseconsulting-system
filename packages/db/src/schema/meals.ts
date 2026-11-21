@@ -26,6 +26,8 @@ export const mealBeneficiaries = pgTable('meal_beneficiaries', {
   /** Situation / description (Përshkrimi / Gjendja). */
   note: text('note'),
   active: boolean('active').notNull().default(true),
+  /** Inactive since this day (stops coming); on the daily list up to the day before. */
+  inactiveFrom: date('inactive_from'),
   /** Signed consent for processing personal data (ЗЗЛП – special category: health / social data); null = без согласност. */
   consentDate: date('consent_date'),
   createdAt: ts('created_at').notNull().defaultNow(),

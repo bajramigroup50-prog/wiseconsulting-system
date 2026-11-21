@@ -1,0 +1,1 @@
+ALTER TABLE "meal_beneficiaries" ADD COLUMN "inactive_from" date;
