@@ -18,6 +18,7 @@ import { needsPartner } from '@wise/core';
 import { KontoInput, type NewKonto } from './konto-field';
 import { PartnerPicker, type PickerPartner } from './partner-picker';
 import { PartnerWindow } from './partner-window';
+import { KontoWindow } from './konto-window';
 
 export interface FastLine {
   konto: string; content: string; partnerId: string;
@@ -136,7 +137,7 @@ const HX_CSS = `
 .hx input[type=date]{width:110px}
 .hx .hx-y{}
 .hx .hx-n{text-align:right}
-.hx .hx-konto{width:150px;flex:none}.hx .hx-konto input{width:100%}.hx .hx-konto .row{flex-wrap:nowrap;gap:2px!important}.hx .hx-konto button{font-size:0;padding:0 3px;min-width:0;border:1px solid var(--line);border-radius:0;height:24px;background:var(--bg)}.hx .hx-konto button::before{content:'📋';font-size:12px}
+.hx .hx-konto{width:150px;flex:none}.hx .hx-konto input{width:100%}.hx .hx-konto .row{flex-wrap:nowrap;gap:2px!important}.hx .hx-konto{position:relative}.hx .hx-konto > .row > button{font-size:0;padding:0 3px;min-width:0;border:1px solid var(--line);border-radius:4px;height:24px;background:var(--bg)}.hx .hx-konto > .row > button::before{content:'📋';font-size:12px}.hx .hx-konto .card{position:absolute;left:0;top:28px;z-index:60;width:min(620px,92vw);max-height:360px;overflow:auto;background:var(--panel);box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:12.5px}.hx .hx-konto .card input,.hx .hx-konto .card button{height:auto;font-size:12px}.hx .hx-konto .card table td{padding:2px 6px;white-space:nowrap}.hx .hx-konto > small{position:absolute;left:0;top:28px;z-index:55;width:min(520px,90vw);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px;box-shadow:0 6px 18px rgba(0,0,0,.14)}.hx .hx-konto > small button{height:auto;font-size:12px;margin:1px}.hx .hx-konto > small:not(:has(button)){display:none}
 .hx .hx-name{flex:1;height:24px;border:1px solid var(--line);background:var(--panel);padding:1px 4px;overflow:hidden;white-space:nowrap}
 .hx .hx-partner{flex:1;min-width:0;max-width:100%}.hx .hx-partner input{width:100%!important;min-width:0!important}.hx .hx-partner > *{max-width:100%}
 .hx .hx-hint{font-size:11px;margin-left:62px;line-height:1.2}
@@ -172,6 +173,8 @@ export function FastEntry(p: FastEntryProps) {
   const [added, setAdded] = useState<PickerPartner[]>([]);
   const partners = useMemo(() => (added.length ? [...p.partners, ...added] : p.partners), [p.partners, added]);
   const [pw, setPw] = useState(false);
+  /** „Избор на конто“ (📋) – the whole chart in its own window. */
+  const [kw, setKw] = useState(false);
   const [pk, setPk] = useState(0);
   const C = useMemo(() => chart.map(([code, name]) => ({ code, name })), [chart]);
   const codes = useMemo(() => new Set(chart.map(([c]) => c)), [chart]);
@@ -298,7 +301,7 @@ export function FastEntry(p: FastEntryProps) {
           <div className="hx-body fe-f">
             <div className="hx-left">
               <div className="hx-row"><span className="hx-l"><b>Конто</b></span>
-                <span className="hx-konto"><KontoInput key={'k' + gen} chart={C} value={l.konto} onChange={(v) => set({ konto: v })} nk={l.newKonto} onNk={(n) => set({ newKonto: n })} list="feKonto" inputRef={kontoRef} /></span>
+                <span className="hx-konto"><KontoInput key={'k' + gen} chart={C} value={l.konto} onChange={(v) => set({ konto: v })} nk={l.newKonto} onNk={(n) => set({ newKonto: n })} list="feKonto" inputRef={kontoRef} onBrowse={() => setKw(true)} /></span>
                 <span className="hx-name">{k && names.get(k) ? names.get(k) : ''}</span>
               </div>
               <div className="hx-row"><span className="hx-l">Содржина<br />(/Фактура број)</span>
@@ -308,6 +311,10 @@ export function FastEntry(p: FastEntryProps) {
                 <span className="hx-partner"><PartnerPicker key={'p' + gen + '.' + pk} partners={partners} value={l.partnerId} onChange={(id) => set({ partnerId: id })} invalid={needsPartner(k)} /></span>
               </div>
               <div className="hx-hint">F5- Претходна содржина<br />F2- Затворање по документ</div>
+              {kw && (
+                <KontoWindow chart={C} value={k} onClose={() => { setKw(false); setTimeout(() => kontoRef.current?.focus(), 0); }}
+                  onPick={(code) => { set({ konto: code }); setKw(false); setTimeout(() => { if (kontoRef.current) next(kontoRef.current); }, 0); }} />
+              )}
               {pw && (
                 <PartnerWindow partners={partners} value={l.partnerId}
                   onClose={() => { setPw(false); setTimeout(() => box.current?.querySelector<HTMLInputElement>('.hx-partner input')?.focus(), 0); }}

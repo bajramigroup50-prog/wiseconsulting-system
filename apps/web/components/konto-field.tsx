@@ -66,9 +66,11 @@ export interface NewKonto { mk: boolean; name: string }
  * Controlled konto input with the same hints as `KontoField` (name, synthetic → analytics, „+ Ново конто“) — used by
  * the fast-entry dialog („Нова ставка“), which keeps the value in its own state.
  */
-export function KontoInput({ chart, value, onChange, nk, onNk, list, inputRef, id, onKeyDown }: {
+export function KontoInput({ chart, value, onChange, nk, onNk, list, inputRef, id, onKeyDown, onBrowse }: {
   chart: { code: string; name: string }[]; value: string; onChange: (v: string) => void; nk: NewKonto; onNk: (n: NewKonto) => void;
   list?: string; inputRef?: React.Ref<HTMLInputElement>; id?: string; onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+  /** „📋 Контен план“ opens the caller's own window („Избор на конто“) instead of the small list under the field. */
+  onBrowse?: () => void;
 }) {
   const code = value.trim().split(/\s/)[0] ?? '';
   const h = useMemo(() => kontoHint(chart, code), [chart, code]);
@@ -77,7 +79,7 @@ export function KontoInput({ chart, value, onChange, nk, onNk, list, inputRef, i
     <>
       <span className="row" style={{ gap: 4, alignItems: 'center' }}>
         <input id={id} ref={inputRef} list={list} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Конто" autoComplete="off" data-fe="konto" onKeyDown={onKeyDown} />
-        <button type="button" className="btn sm ghost" title="Целиот контен план" onClick={() => setBrowse((x) => !x)}>📋 Контен план</button>
+        <button type="button" className="btn sm ghost" title="Целиот контен план" onClick={() => (onBrowse ? onBrowse() : setBrowse((x) => !x))}>📋 Контен план</button>
       </span>
       {browse && <ChartBrowser chart={chart} onPick={onChange} onClose={() => setBrowse(false)} />}
       {h.kind === 'new' ? (
