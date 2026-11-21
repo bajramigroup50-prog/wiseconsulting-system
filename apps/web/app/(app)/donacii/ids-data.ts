@@ -1,7 +1,7 @@
 import 'server-only';
 /** Data of the УЈП-ИДС/ПР print: the receipts of the donated goods, the meals of the period (proof of use), the decision on the public interest. */
 import { inArray } from 'drizzle-orm';
-import { monthSummary } from '@wise/core/meals';
+import { mealKindsOf, monthSummary } from '@wise/core/meals';
 import { idsFulfilled } from '@wise/core/npo';
 import { items, listBeneficiaries, listDonationReceipts, mealLogsBetween, type Donation, type Firm } from '@wise/db';
 import { db } from '@/lib/db';
@@ -14,7 +14,8 @@ export async function idsData(firm: Firm, d: Donation) {
   const B = await listBeneficiaries(db(), firm.id, true);
   let meals: IdsMeals = null;
   if (B.length && from <= to) {
-    const L = await mealLogsBetween(db(), firm.id, from, to);
+    const kinds = mealKindsOf(firm.settings);
+    const L = (await mealLogsBetween(db(), firm.id, from, to)).filter((x) => kinds.includes(x.meal as never));
     const S = monthSummary(B.map((b) => ({ id: b.id, members: b.members })), L);
     if (S.tot.meals) meals = { from, to, families: S.tot.served, meals: S.tot.meals, portions: S.tot.portions, days: new Set(L.map((x) => x.date)).size };
   }

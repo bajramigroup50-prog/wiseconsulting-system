@@ -15,6 +15,7 @@ import { r2, r4 } from '@wise/core/stock/num';
 import {
   cleanNorms, consumptionChanged, idsDue, mealConsumption, membersDue, nextReceiptNo, portionsByDay, type MealStockSettings, type MemberInput,
 } from '@wise/core/npo';
+import { mealKindsOf } from '@wise/core/meals';
 import { audit, type Tx } from './audit';
 import { assertOpenPeriod } from './posting';
 import { IndustryError, loadIndustryFirm, type IndActor } from './industry/context';
@@ -49,6 +50,17 @@ export async function setConsent(tx: Tx, a: IndActor, beneficiaryId: string, dat
   const F = fileIds.length ? await tx.select({ id: files.id }).from(files).where(and(eq(files.firmId, a.firmId), inArray(files.id, [...fileIds]))) : [];
   for (const x of F) await tx.insert(fileLinks).values({ fileId: x.id, entityType: MEAL_CONSENT_FILE_ENTITY, entityId: beneficiaryId, role: 'signed' }).onConflictDoNothing();
   await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'mealConsent', entityType: 'meal_beneficiary', entityId: beneficiaryId, data: { date, files: F.length } });
+}
+
+/** Confirm (or clear) the consent of many beneficiaries at once (only the firm's own; one audit row each). Returns how many. */
+export async function setConsentMany(tx: Tx, a: IndActor, ids: readonly string[], date: string | null): Promise<number> {
+  await loadIndustryFirm(tx, a.firmId, 'meals', a);
+  if (date && !isIso(date)) fail('Невалиден датум на согласноста.');
+  if (!ids.length) return 0;
+  const R = await tx.update(mealBeneficiaries).set({ consentDate: date, updatedAt: new Date() })
+    .where(and(eq(mealBeneficiaries.firmId, a.firmId), inArray(mealBeneficiaries.id, [...ids]))).returning({ id: mealBeneficiaries.id, name: mealBeneficiaries.name });
+  for (const r of R) await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'mealConsent', entityType: 'meal_beneficiary', entityId: r.id, data: { date, name: r.name, bulk: true } });
+  return R.length;
 }
 
 /** Scanned consents per beneficiary id. */
@@ -182,7 +194,7 @@ export async function npoRegDue(tx: Tx, firmIds: readonly string[]): Promise<Map
 
 export const mealStockSettings = (f: { settings: unknown }): MealStockSettings => {
   const m = (settingsOf(f).meals ?? {}) as MealStockSettings;
-  return { wh: m.wh || null, konto: m.konto || null, norm: cleanNorms(m.norm) };
+  return { wh: m.wh || null, konto: m.konto || null, norm: cleanNorms(m.norm), kinds: mealKindsOf(settingsOf(f)) };
 };
 
 export async function saveMealStockSettings(tx: Tx, a: IndActor, x: MealStockSettings): Promise<void> {
@@ -191,11 +203,15 @@ export async function saveMealStockSettings(tx: Tx, a: IndActor, x: MealStockSet
   if (k && !/^\d{3,10}$/.test(k)) fail('Неважечко конто.');
   const L = await loadStockContext(tx, a.firmId);
   const wh = x.wh ? requireLocation(L, x.wh) : null;
-  const norm = cleanNorms(x.norm);
+  const old = mealStockSettings(f);
+  const kinds = x.kinds ? mealKindsOf({ meals: { kinds: x.kinds } }) : old.kinds!;
+  // the normatives of the kinds not served now are kept (they come back when the kind is switched on again)
+  const typed = cleanNorms(x.norm);
+  const norm = { ...old.norm, ...Object.fromEntries(kinds.map((k) => [k, typed[k] ?? []])) };
   for (const n of Object.values(norm).flat()) requireTracked(L, n.itemId);
-  const v: MealStockSettings = { ...mealStockSettings(f), wh, konto: k || null, norm };
+  const v: MealStockSettings = { ...old, wh, konto: k || null, norm, kinds };
   await patchSettings(tx, a.firmId, 'meals', v);
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'mealNorm', entityType: 'firm', entityId: a.firmId, data: { wh, konto: v.konto, items: Object.values(norm).flat().length } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: 'mealNorm', entityType: 'firm', entityId: a.firmId, data: { wh, konto: v.konto, kinds, items: Object.values(norm).flat().length } });
 }
 
 export const MEAL_ISSUE = 'meal_issue';
@@ -223,7 +239,9 @@ export async function issueMealDays(tx: Tx, a: IndActor, from: string, to: strin
   if (Date.parse(to) - Date.parse(from) > 370 * 864e5) fail('Најмногу една година одеднаш.');
   const S = mealStockSettings(f);
   const res: IssueResult = { issued: [], removed: [], same: 0, short: [], locked: [], noNorm: !Object.values(S.norm ?? {}).some((x) => x?.length) };
-  const [B, L, old] = await Promise.all([listBeneficiaries(tx, a.firmId, true), mealLogsBetween(tx, a.firmId, from, to), mealIssues(tx, a.firmId, from, to)]);
+  const [B, L0, old] = await Promise.all([listBeneficiaries(tx, a.firmId, true), mealLogsBetween(tx, a.firmId, from, to), mealIssues(tx, a.firmId, from, to)]);
+  // only the meal kinds the firm serves (ticks of the others stay hidden)
+  const L = L0.filter((x) => (S.kinds ?? []).includes(x.meal as never));
   const P = portionsByDay(B, L);
   const days = [...new Set([...P.keys(), ...old.keys()])].sort();
   const konto = S.konto || '4000';

@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { listBeneficiaries, saveBeneficiary, setMeal } from './meals';
 import {
   consentFiles, deleteDonationReceipt, donIdsDeadlineRows, importMembers, issueMealDays, listMembers, markMembersReviewed, mealIssues, membersLastUpdate,
-  reissueIfIssued, saveDonationReceipt, saveMealStockSettings, saveMember, setConsent, setDonationIds,
+  reissueIfIssued, saveDonationReceipt, saveMealStockSettings, saveMember, setConsent, setConsentMany, setDonationIds,
 } from './npo';
 import { loadRokFirms } from './rokovi';
 import * as schema from './schema/index';
@@ -48,6 +48,28 @@ describe('НПО: consent', () => {
     [b] = await listBeneficiaries(db, firmId);
     expect(b!.consentDate).toBeNull();
     await expect(db.transaction((tx) => setConsent(tx, A(), '00000000-0000-4000-8000-000000000000', '2026-11-20'))).rejects.toThrow('не постои');
+  });
+});
+
+describe('НПО: consent from the edit form and in bulk', () => {
+  it('saving the beneficiary with a consent date sets it, omitted keeps it, empty clears it', async () => {
+    const id = await db.transaction((tx) => saveBeneficiary(tx, A(), { name: 'Zia Iseni', members: 3, consentDate: '2026-11-21' }));
+    const get = async () => (await listBeneficiaries(db, firmId, true)).find((b) => b.id === id)!.consentDate;
+    expect(await get()).toBe('2026-11-21');
+    await db.transaction((tx) => saveBeneficiary(tx, A(), { id, name: 'Zia Iseni', members: 4 }));
+    expect(await get()).toBe('2026-11-21');
+    await db.transaction((tx) => saveBeneficiary(tx, A(), { id, name: 'Zia Iseni', members: 4, consentDate: null }));
+    expect(await get()).toBeNull();
+  });
+
+  it('confirms many at once (own firm only), one audit row each', async () => {
+    const ids = (await listBeneficiaries(db, firmId, true)).map((b) => b.id);
+    const n = await db.transaction((tx) => setConsentMany(tx, A(), [...ids, '00000000-0000-4000-8000-000000000000'], '2026-11-21'));
+    expect(n).toBe(ids.length);
+    expect((await listBeneficiaries(db, firmId, true)).every((b) => b.consentDate === '2026-11-21')).toBe(true);
+    const au = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.firmId, firmId), eq(schema.auditLog.action, 'mealConsent')));
+    expect(au.filter((x) => (x.data as { bulk?: boolean }).bulk)).toHaveLength(ids.length);
+    await db.transaction((tx) => setConsentMany(tx, A(), ids, null));
   });
 });
 
@@ -127,6 +149,20 @@ describe('НПО: kitchen stock', () => {
     r = await db.transaction((tx) => issueMealDays(tx, A(), '2026-11-20', '2026-11-20'));
     expect(r.removed).toEqual(['2026-11-20']);
     expect((await mealIssues(db, firmId, '2026-11-20', '2026-11-20')).size).toBe(0);
+  });
+
+  it('uses only the meal kinds the firm serves (others stay in the db, hidden)', async () => {
+    const [b] = await listBeneficiaries(db, firmId);
+    await db.update(schema.mealBeneficiaries).set({ members: 1 }).where(eq(schema.mealBeneficiaries.id, b!.id));
+    await db.transaction(async (tx) => { await setMeal(tx, A(), b!.id, '2026-11-25', 'b', true); await setMeal(tx, A(), b!.id, '2026-11-25', 'l', true); });
+    await db.transaction((tx) => saveMealStockSettings(tx, A(), { konto: '4000', kinds: ['l'], norm: { l: [{ itemId: bread, qty: 0.3 }] } }));
+    const [f] = await db.select().from(schema.firms).where(eq(schema.firms.id, firmId));
+    const m = (f!.settings as { meals: { kinds: string[]; norm: Record<string, unknown[]> } }).meals;
+    expect(m.kinds).toEqual(['l']);
+    expect(m.norm.b).toHaveLength(2); // the breakfast normative is kept for later
+    await db.transaction((tx) => issueMealDays(tx, A(), '2026-11-25', '2026-11-25'));
+    expect((await mealIssues(db, firmId, '2026-11-25', '2026-11-25')).get('2026-11-25')).toEqual([{ itemId: bread, qty: 0.3, value: 15 }]);
+    await db.transaction((tx) => saveMealStockSettings(tx, A(), { kinds: ['b', 'l', 'd'], norm: m.norm as never }));
   });
 
   it('respects the locked period and the module for client users', async () => {

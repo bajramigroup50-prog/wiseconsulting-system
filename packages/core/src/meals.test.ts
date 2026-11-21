@@ -67,3 +67,13 @@ describe('registerSummary', () => {
     expect(S.byNat[0]).toEqual({ name: 'Shqiptar', n: 2, members: 6 });
   });
 });
+
+describe('mealKindsOf', () => {
+  it('reads the firm kinds in the fixed order, default all three', async () => {
+    const { mealKindsOf } = await import('./meals');
+    expect(mealKindsOf({})).toEqual(['b', 'l', 'd']);
+    expect(mealKindsOf({ meals: { kinds: ['l'] } })).toEqual(['l']);
+    expect(mealKindsOf({ meals: { kinds: ['d', 'b', 'x'] } })).toEqual(['b', 'd']);
+    expect(mealKindsOf({ meals: { kinds: [] } })).toEqual(['b', 'l', 'd']);
+  });
+});

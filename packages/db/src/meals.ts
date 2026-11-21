@@ -27,18 +27,23 @@ export async function mealLogsBetween(tx: Tx, firmId: string, from: string, to: 
     .where(and(eq(mealLogs.firmId, firmId), between(mealLogs.date, from, to)));
 }
 
-export async function saveBeneficiary(tx: Tx, a: IndActor, x: BeneficiaryInput & { id?: string | null; active?: boolean }): Promise<string> {
+/** `consentDate`: a date sets the signed consent, `null` clears it, omitted keeps it. */
+export async function saveBeneficiary(tx: Tx, a: IndActor, x: BeneficiaryInput & { id?: string | null; active?: boolean; consentDate?: string | null }): Promise<string> {
   await loadIndustryFirm(tx, a.firmId, 'meals', a);
   const name = (x.name ?? '').replace(/\s+/g, ' ').trim();
   if (!name) fail('Внесете име и презиме.');
   const members = Math.max(1, Math.min(50, Math.round(Number(x.members) || 1)));
   const embg = (x.embg ?? '').replace(/\D/g, '') || null;
   if (embg && embg.length !== 13) fail('ЕМБГ има 13 цифри.');
-  const v = { no: x.no ?? null, name, members, nationality: t(x.nationality), embg, place: t(x.place), phone: t(x.phone), note: t(x.note), active: x.active ?? true, updatedAt: new Date() };
+  if (x.consentDate && !/^\d{4}-\d{2}-\d{2}$/.test(x.consentDate)) fail('Невалиден датум на согласноста.');
+  const v = {
+    no: x.no ?? null, name, members, nationality: t(x.nationality), embg, place: t(x.place), phone: t(x.phone), note: t(x.note), active: x.active ?? true, updatedAt: new Date(),
+    ...(x.consentDate !== undefined ? { consentDate: x.consentDate || null } : {}),
+  };
   let id = x.id ?? '';
   if (id) { await ownBenef(tx, a.firmId, id); await tx.update(mealBeneficiaries).set(v).where(eq(mealBeneficiaries.id, id)); }
   else id = (await tx.insert(mealBeneficiaries).values({ ...v, firmId: a.firmId }).returning({ id: mealBeneficiaries.id }))[0]!.id;
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: x.id ? 'mealBenSave' : 'mealBenNew', entityType: 'meal_beneficiary', entityId: id, data: { name, members, active: v.active } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: x.id ? 'mealBenSave' : 'mealBenNew', entityType: 'meal_beneficiary', entityId: id, data: { name, members, active: v.active, ...(x.consentDate !== undefined ? { consent: x.consentDate || null } : {}) } });
   return id;
 }
 
