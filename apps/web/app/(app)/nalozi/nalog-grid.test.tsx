@@ -229,6 +229,34 @@ describe('bank nalog', () => {
   });
 });
 
+describe('nalog grid – Helix columns and header filters', () => {
+  it('Прекн/Непрекн., Поч.сос., Одобрен документ, О.ед.; the Комитент / Конто filters and Сортирање', () => {
+    const R = [
+      row({ key: 'l1', account: '1200', debit: 1180, partnerId: 'k', pcode: '0339', pname: 'КОМИТЕНТ ДООЕЛ', meta: { opening: true, openingYear: '2025', approvedDoc: 'Д-7', oe: '01' } }),
+      row({ key: 'l2', account: '7600', credit: 1000 }),
+      row({ key: 'l3', account: '2300', credit: 180 }),
+    ];
+    grid(R, [{ ...docJ('manual')[0]!, prek: false } as ReturnType<typeof docJ>[number]]);
+    const head = [...box!.querySelectorAll('thead th')].map((t) => t.textContent);
+    expect(head).toEqual(expect.arrayContaining(['Прекн/Непрекн.', 'Поч.сос.', 'Одобрен документ', 'О.ед.']));
+    const first = box!.querySelector('tbody tr')!.textContent!;
+    expect(first).toContain('Непрекн.');
+    expect(first).toContain('Да 2025');
+    expect(first).toContain('Д-7');
+    const inp = (l: string) => box!.querySelector(`input[aria-label="${l}"]`) as HTMLInputElement;
+    const type = (el: HTMLInputElement, v: string) => act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    type(inp('Филтер конто'), '7600');
+    expect([...box!.querySelectorAll('tbody tr')].map((t) => t.getAttribute('data-i'))).toEqual(['1']);
+    type(inp('Филтер конто'), '');
+    type(inp('Филтер комитент'), 'комит');
+    expect([...box!.querySelectorAll('tbody tr')].map((t) => t.getAttribute('data-i'))).toEqual(['0']);
+    type(inp('Филтер комитент'), '');
+    const sel = box!.querySelector('select[aria-label="Сортирање"]') as HTMLSelectElement;
+    act(() => { sel.value = 'konto'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect([...box!.querySelectorAll('tbody tr')].map((t) => t.getAttribute('data-i'))).toEqual(['0', '2', '1']);
+  });
+});
+
 describe('nalog list keys', () => {
   it('↑ ↓ / Enter open / Ins = „Податоци за налог“ / + selection sums / the panel buttons', async () => {
     mount(createElement('div', null,

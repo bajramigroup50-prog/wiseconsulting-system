@@ -312,8 +312,11 @@ WARNING: a first read returned the issuer "${f.name}" (ЕДБ ${f.edb}) as the b
     const n = await db.transaction(async (tx) => {
       const drafts = kind === 'sale' ? await saleDrafts(tx, f, res, { userId: doc.createdBy, vatRule: (doc.options as { vatRule?: SaleVatRule }).vatRule ?? null }) : await purchaseDrafts(tx, f, res, { ...opts, docId }, { userId: doc.createdBy });
       const up = await tx.update(aiDocuments).set({ status: 'done', kind, result: res, drafts, model, options: kind !== doc.kind
-        // the other kind: the box's nalog and „во готово“ belong to the kind it was dropped as
-        ? sql`(${aiDocuments.options} - 'nalogNo' - 'cash') || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb`
+        // the other kind: the box's nalog and „во готово“ belong to the kind it was dropped as – except „🤖 Препознај сам“
+        // inside a nalog (`auto`), where both kinds go into that nalog
+        ? (doc.options as { auto?: boolean }).auto
+          ? sql`(${aiDocuments.options} - 'cash') || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb`
+          : sql`(${aiDocuments.options} - 'nalogNo' - 'cash') || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb`
         : sql`${aiDocuments.options} || ${JSON.stringify({ rulesV: SCAN_RULES_V })}::jsonb` }).where(and(eq(aiDocuments.id, docId), eq(aiDocuments.status, 'reading'))).returning({ id: aiDocuments.id });
       if (!up.length) tx.rollback();
       return drafts.length;

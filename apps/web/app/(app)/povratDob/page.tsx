@@ -1,4 +1,5 @@
 /** Legacy `VIEWS.povratDob` 8777 → 16233 — Повратници и одобренија од добавувачи. */
+import { decodeHeader, headerLocation, headerNote } from '@/lib/kalk-header';
 import Link from 'next/link';
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { schemeValue } from '@wise/core';
@@ -18,7 +19,7 @@ import { ScrScan } from '@/components/sales/scr-scan';
 import { loadAiResult } from '@/lib/ai';
 import { scrDraftFromScan, type ScrScanResult } from '@wise/core/sales';
 
-type SP = { nov?: string; edit?: string; saved?: string; w?: string; ai?: string; scan?: string };
+type SP = { hx?: string; nov?: string; edit?: string; saved?: string; w?: string; ai?: string; scan?: string };
 
 export default async function PovratDobPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -29,6 +30,9 @@ export default async function PovratDobPage({ searchParams }: { searchParams: Pr
 
   if (write && (sp.nov !== undefined || sp.edit)) {
     let init: EdScr = { id: null, kind: 'ret', number: '', date: today.startsWith(String(year)) ? today : `${year}-12-31`, supNo: '', partnerId: '', refPurchaseId: '', warehouseId: '', note: '', rows: [] };
+    // „Податоци за малопродажна калкулација“ (Helix) → Тип „Повратница“: the header filled in
+    const hx = !sp.edit ? decodeHeader(sp.hx) : null;
+    if (hx) { const loc = headerLocation(hx); init = { ...init, date: hx.date, supNo: hx.doc, partnerId: hx.partnerId, warehouseId: loc === 'main' ? '' : loc, note: headerNote(hx) }; }
     if (sp.edit) {
       const [d] = await db().select().from(supplierCredits).where(and(eq(supplierCredits.id, sp.edit), eq(supplierCredits.firmId, firm.id))).limit(1);
       if (!d) return <NoFirm t="Документот не постои" />;

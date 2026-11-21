@@ -139,6 +139,13 @@ export function FastEntry(p: FastEntryProps) {
   const kontoRef = useRef<HTMLInputElement>(null);
   const set = (x: Partial<FastLine>) => setL((o) => ({ ...o, ...x }));
   const setM = (x: Partial<FastMeta>) => setL((o) => ({ ...o, meta: { ...o.meta, ...x } }));
+  /** The old program's layout (label left of the field, four columns) for the manual nalog's line. */
+  const helix = !!p.extra && !p.bank;
+  const cell = (label: React.ReactNode, el: React.ReactNode, span?: string) => (
+    <label className="fe-hc" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', gap: 6, alignItems: 'center', margin: 0, ...(span ? { gridColumn: span } : {}) }}>
+      <span className="mini" style={{ whiteSpace: 'nowrap' }}>{label}</span>{el}
+    </label>
+  );
   const k = l.konto.trim().split(/\s/)[0] ?? '';
   const d = amt(l.debit) || 0, c = amt(l.credit) || 0;
   const saldo = typeof p.saldo === 'function' ? p.saldo(l) : p.saldo;
@@ -226,7 +233,7 @@ export function FastEntry(p: FastEntryProps) {
   return (
     <div className="fe-back" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.28)', zIndex: 60, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 12px', overflowY: 'auto' }}>
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} className="card fe" onKeyDown={onKey}
-        style={{ width: p.extra ? 'min(900px, 100%)' : 'min(760px, 100%)', margin: 0, boxShadow: '0 10px 40px rgba(0,0,0,.25)' }}>
+        style={{ width: p.extra ? 'min(1000px, 100%)' : 'min(760px, 100%)', margin: 0, boxShadow: '0 10px 40px rgba(0,0,0,.25)' }}>
         <div className="hd" style={{ marginBottom: 6 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
           <span className="row" style={{ gap: 10, alignItems: 'center' }}>
@@ -236,7 +243,50 @@ export function FastEntry(p: FastEntryProps) {
         </div>
         {err && <div className="callout bad" role="alert" style={{ margin: '4px 0' }}>{err}</div>}
         {ok && !err && <div className="callout good" role="status" style={{ margin: '4px 0' }}>{ok}</div>}
-        <div className="form fe-f" style={{ gap: '6px 12px' }}>
+        {helix ? (
+          <div className="fe-f fe-helix" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.8fr) minmax(0,1.1fr) minmax(0,1.7fr) minmax(0,1.1fr)', gap: '5px 14px', alignItems: 'center' }}>
+            {cell('Конто', <KontoInput key={'k' + gen} chart={C} value={l.konto} onChange={(v) => set({ konto: v })} nk={l.newKonto} onNk={(n) => set({ newKonto: n })} list="feKonto" inputRef={kontoRef} />)}
+            <span className="mini" style={{ gridColumn: 'span 2', alignSelf: 'center' }}>{k && names.get(k) ? <b>{names.get(k)}</b> : ''}</span>
+            <span className="row mini" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>Поч. состојба
+              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.opening} onChange={() => setM({ opening: false })} style={{ width: 'auto' }} /> Не</label>
+              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.opening} onChange={() => setM({ opening: true })} style={{ width: 'auto' }} /> Да</label>
+              {l.meta.opening && <input inputMode="numeric" maxLength={4} value={l.meta.openingYear ?? ''} onChange={(e) => setM({ openingYear: e.target.value.replace(/\D/g, '') })} aria-label="Година на почетната состојба" placeholder="година" style={{ width: 64 }} />}
+            </span>
+            {cell(<>Содржина <small className="mut">(F5, F2)</small></>, <input value={l.content} onChange={(e) => set({ content: e.target.value })} aria-label="Содржина" maxLength={500} />, 'span 2')}
+            {cell(<>Комитент <small className="mut">(F8)</small></>, <PartnerPicker key={'p' + gen} partners={partners} value={l.partnerId} onChange={(id) => set({ partnerId: id })} invalid={needsPartner(k)} />, 'span 2')}
+            {docsOpen && (
+              <div role="listbox" aria-label="Отворени документи" style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 6, padding: 4, maxHeight: 200, overflowY: 'auto' }}>
+                {pDocs.length ? pDocs.slice(0, 50).map((x) => (
+                  <button key={x.id} type="button" role="option" aria-selected={l.docRef === x.id} className="btn sm ghost" style={{ display: 'block', width: '100%', textAlign: 'left' }} onClick={() => pickDoc(x)}>{x.label}</button>
+                )) : <span className="mut">Нема отворени документи{l.partnerId ? ' за овој комитент' : ''}.</span>}
+              </div>
+            )}
+            {cell('Во денари Должи', <input inputMode="decimal" value={l.debit} onChange={(e) => set({ debit: e.target.value })} style={{ textAlign: 'right', background: 'var(--warn-bg, #fffbe0)' }} aria-label="Должи" />)}
+            {cell('Побарува', <input inputMode="decimal" value={l.credit} onChange={(e) => set({ credit: e.target.value })} style={{ textAlign: 'right', background: 'var(--warn-bg, #fffbe0)' }} aria-label="Побарува" />)}
+            {cell('Датум на книжење', <input type="date" value={l.date} disabled={p.dateLocked} onChange={(e) => set({ date: e.target.value })} aria-label="Датум на книжење" />)}
+            {cell('ОЕ', <input value={l.meta.oe ?? ''} onChange={(e) => setM({ oe: e.target.value })} aria-label="ОЕ" maxLength={40} />)}
+            {cell('Во девизи Должи', <input inputMode="decimal" value={l.debitCur} disabled={p.fxLocked} onChange={(e) => set({ debitCur: e.target.value })} style={{ textAlign: 'right' }} aria-label="Девизи должи" />)}
+            {cell('Побарува', <input inputMode="decimal" value={l.creditCur} disabled={p.fxLocked} onChange={(e) => set({ creditCur: e.target.value })} style={{ textAlign: 'right' }} aria-label="Девизи побарува" />)}
+            {cell('Датум на документот', <input type="date" value={l.meta.docDate ?? ''} onChange={(e) => setM({ docDate: e.target.value })} aria-label="Датум на документот" />)}
+            {cell('Продавница', <input value={l.meta.store ?? ''} onChange={(e) => setM({ store: e.target.value })} aria-label="Продавница" maxLength={40} />)}
+            {cell('Курс', <input inputMode="decimal" value={l.rate} disabled={p.fxLocked} onChange={(e) => set({ rate: e.target.value })} style={{ textAlign: 'right' }} aria-label="Курс" />)}
+            {cell('Валута', <input value={l.cur} disabled={p.fxLocked} onChange={(e) => set({ cur: e.target.value.toUpperCase().slice(0, 3) })} aria-label="Валута" placeholder="EUR" />)}
+            {cell('Валута (рок)', <input type="date" value={l.meta.due ?? ''} onChange={(e) => setM({ due: e.target.value })} aria-label="Валута рок" />)}
+            {cell('Магацин', <input value={l.meta.warehouse ?? ''} onChange={(e) => setM({ warehouse: e.target.value })} aria-label="Магацин" maxLength={40} />)}
+            {p.showStNo ? cell('Извод број', <input value={l.stNo} onChange={(e) => set({ stNo: e.target.value })} aria-label="Извод број" />) : <span />}
+            <span className="row mini" style={{ gap: 8, alignItems: 'center' }}>Аванс
+              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.advance} onChange={() => setM({ advance: false })} style={{ width: 'auto' }} /> Не</label>
+              <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.advance} onChange={() => setM({ advance: true })} style={{ width: 'auto' }} /> Да</label>
+            </span>
+            {cell('Одобрено по документ', <input value={l.meta.approvedDoc ?? ''} onChange={(e) => setM({ approvedDoc: e.target.value })} aria-label="Одобрено по документ" maxLength={60} />)}
+            {cell('Г1', <input value={l.meta.g1 ?? ''} onChange={(e) => setM({ g1: e.target.value })} aria-label="Г1" maxLength={40} />)}
+            {cell('Документ (калк. бр.)', <input value={l.doc} onChange={(e) => set({ doc: e.target.value })} aria-label="Документ" maxLength={100} />, 'span 2')}
+            {cell('Тип на трошок', <input value={l.meta.costType ?? ''} onChange={(e) => setM({ costType: e.target.value })} aria-label="Тип на трошок" maxLength={60} />)}
+            {cell('Г2', <input value={l.meta.g2 ?? ''} onChange={(e) => setM({ g2: e.target.value })} aria-label="Г2" maxLength={40} />)}
+            {cell('Забелешка / Опис', <input value={l.meta.remark ?? ''} onChange={(e) => setM({ remark: e.target.value })} aria-label="Забелешка" maxLength={200} />, '1 / -1')}
+          </div>
+        ) : (
+          <div className="form fe-f" style={{ gap: '6px 12px' }}>
           {bank && st.length > 0 && (
             <label className="f wide">Извод
               <select value={stKey} onChange={(e) => { const s = st.find((x) => x.key === e.target.value); if (s) set({ acct: s.acct, date: s.date, stNo: s.no }); }}>
@@ -281,35 +331,8 @@ export function FastEntry(p: FastEntryProps) {
           )}
           <label className="f">Датум на книжење<input type="date" value={l.date} disabled={p.dateLocked} onChange={(e) => set({ date: e.target.value })} aria-label="Датум на книжење" /></label>
           <label className="f">Документ (калк. / ф-ра бр.)<input value={l.doc} onChange={(e) => set({ doc: e.target.value })} aria-label="Документ" maxLength={100} /></label>
-          {p.extra && !bank && (
-            <fieldset className="f wide fe-extra" style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', margin: '4px 0 0', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '6px 12px' }}>
-              <legend className="mini">Дополнително</legend>
-              <label className="f">Датум на документот<input type="date" value={l.meta.docDate ?? ''} onChange={(e) => setM({ docDate: e.target.value })} aria-label="Датум на документот" /></label>
-              <label className="f">Валута (рок)<input type="date" value={l.meta.due ?? ''} onChange={(e) => setM({ due: e.target.value })} aria-label="Валута" /></label>
-              <label className="f">Аванс
-                <span className="row" style={{ gap: 10 }}>
-                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.advance} onChange={() => setM({ advance: false })} style={{ width: 'auto' }} /> Не</label>
-                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.advance} onChange={() => setM({ advance: true })} style={{ width: 'auto' }} /> Да</label>
-                </span>
-              </label>
-              <label className="f">Почетна состојба
-                <span className="row" style={{ gap: 10 }}>
-                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!l.meta.opening} onChange={() => setM({ opening: false })} style={{ width: 'auto' }} /> Не</label>
-                  <label className="row" style={{ gap: 3, margin: 0 }}><input type="radio" checked={!!l.meta.opening} onChange={() => setM({ opening: true })} style={{ width: 'auto' }} /> Да</label>
-                </span>
-              </label>
-              {l.meta.opening && <label className="f">година<input inputMode="numeric" maxLength={4} value={l.meta.openingYear ?? ''} onChange={(e) => setM({ openingYear: e.target.value.replace(/\D/g, '') })} aria-label="Година на почетната состојба" /></label>}
-              <label className="f">ОЕ<input value={l.meta.oe ?? ''} onChange={(e) => setM({ oe: e.target.value })} aria-label="ОЕ" maxLength={40} /></label>
-              <label className="f">Продавница<input value={l.meta.store ?? ''} onChange={(e) => setM({ store: e.target.value })} aria-label="Продавница" maxLength={40} /></label>
-              <label className="f">Магацин<input value={l.meta.warehouse ?? ''} onChange={(e) => setM({ warehouse: e.target.value })} aria-label="Магацин" maxLength={40} /></label>
-              <label className="f">Одобрено по документ<input value={l.meta.approvedDoc ?? ''} onChange={(e) => setM({ approvedDoc: e.target.value })} aria-label="Одобрено по документ" maxLength={60} /></label>
-              <label className="f">Г1<input value={l.meta.g1 ?? ''} onChange={(e) => setM({ g1: e.target.value })} aria-label="Г1" maxLength={40} /></label>
-              <label className="f">Г2<input value={l.meta.g2 ?? ''} onChange={(e) => setM({ g2: e.target.value })} aria-label="Г2" maxLength={40} /></label>
-              <label className="f">Тип на трошок<input value={l.meta.costType ?? ''} onChange={(e) => setM({ costType: e.target.value })} aria-label="Тип на трошок" maxLength={60} /></label>
-              <label className="f" style={{ gridColumn: '1 / -1' }}>Забелешка / Опис<textarea rows={2} value={l.meta.remark ?? ''} onChange={(e) => setM({ remark: e.target.value })} aria-label="Забелешка" maxLength={200} /></label>
-            </fieldset>
-          )}
         </div>
+        )}
         <datalist id="feKonto">{chart.map(([code, n]) => <option key={code} value={code}>{n}</option>)}</datalist>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
           <span className="mini" data-testid="fe-hint">
