@@ -32,6 +32,7 @@ import { RepostCallout } from '@/components/repost-callout';
 import { ScanUpload } from './scan-upload';
 import { ScanPartnerNote } from './scan-partner-note';
 import { InvoiceListKeys, type InvHead } from './invoice-list-keys';
+import { DocListKeys } from './doc-list-keys';
 import { HELIX_CSS } from '@/components/helix/helix-shell';
 
 /** Legacy `payPill` (3723). */
@@ -262,8 +263,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const shown = sp.all === '1' || list.length <= LIST_MAX ? list : list.slice(-LIST_MAX);
   const listIds = list.map((r) => r.i.id);
   // the documents the listed rows point to (credit note → invoice, invoice ← proforma / dispatch), of any year
-  const refIds = kind === 'credit' || kind === 'invoice'
-    ? [...new Set(list.flatMap(({ i }) => [i.refInvoiceId, i.fromDocId, i.invoicedId]).filter((x): x is string => !!x))] : [];
+  const refIds = [...new Set(list.flatMap(({ i }) => [i.refInvoiceId, i.fromDocId, i.invoicedId]).filter((x): x is string => !!x))];
   const inv = kind === 'invoice' || kind === 'credit';
   // Наплатено / Останува (legacy docList: invoices and services). FX invoices: converted back to the invoice currency.
   const payCols = kind === 'invoice';
@@ -321,7 +321,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const [hxNal, hxSch, hxP] = hx && write ? await Promise.all([listInvoiceNalozi(db(), firm.id, year), schemeChoice(firm), partnerOptions(firm.id)]) : [[], { schemes: [] }, []];
   const hxNext = hx && write ? nextDocNumber((await db().select({ n: invoices.number }).from(invoices)
     .where(and(eq(invoices.firmId, firm.id), eq(invoices.kind, 'invoice'), sql`${invoices.date} between ${year + '-01-01'} and ${year + '-12-31'}`))).map((x) => x.n), year) : '';
-  const hxLocs = hx ? await locationOptions(firm.id) : [];
+  const hxLocs = await locationOptions(firm.id);
   const hxLoc = new Map(hxLocs.map((l) => [l.id, l]));
   const D = (i: Invoice) => (i.data ?? {}) as InvoiceData & Record<string, unknown>;
   const ds = (i: Invoice, k: string) => { const v = D(i)[k]; return typeof v === 'string' ? v : ''; };
@@ -442,20 +442,89 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
       </InvoiceListKeys>
     </div>
   ) : null;
+  // Одобренија / Профактури / Испратници in the same Helix layout (menu, compact table, panel, keys)
+  const HDC: [string, number, string?, string?][] = [
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['', 20], ['Број', 70], ...(kind === 'credit' ? [['Налог', 44] as [string, number]] : []), ['По документ', 62], ['Комитент', 200], ['Во маг.', 36, 'Магацин'],
+    ['Датум', 72], [kind === 'proforma' ? 'Важи до' : 'Валута', 72], [kind === 'credit' ? 'Кон фактура' : 'Фактура', 70, kind === 'credit' ? 'Фактурата на која се однесува' : 'Фактурирана со фактура бр.'],
+    ['Основица', 82, undefined, 'n'], ['ДДВ', 72, undefined, 'n'], ['Износ', 82, undefined, 'n'], ['Ком. шиф.', 38, 'Шифра на комитентот'], ['Статус', 150], ['', 100],
+  ];
+  const hdFirst = kind === 'credit' ? 10 : 9;
+  const hdView = !hx ? (
+    <div className="hx-list">
+      <style>{HELIX_CSS}</style>
+      <DocListKeys kind={kind as 'credit' | 'proforma' | 'dispatch'} view={view} tableId="inv-list" canWrite={write} filterId="inv-q"
+        wh={{ value: whSel, options: [{ v: '', label: 'Сите магацини' }, { v: 'main', label: '01 Главен магацин' }, ...hxLocs.map((l) => ({ v: l.id, label: `${l.code ?? ''} ${l.name}${l.kind === 'store' ? ' (продавница)' : ''}` }))] }}
+        head={<div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', margin: '0 0 2px' }} data-testid="inv-firm">
+          <span className="hx-firm">{firm.name}</span><span className="mini muted">{DT[dt].list} · {year} · {list.length} од {all.length}</span></div>}
+        filterOpen={!!(sp.q || mo || sp.sort)}
+        filter={<form className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <input name="q" id="inv-q" defaultValue={sp.q ?? ''} placeholder="🔍 Број, комитент или шифра…" style={{ width: 240 }} />
+          <select name="m" defaultValue={mo} style={{ width: 'auto' }}><option value="">Сите месеци</option>{['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((x) => <option key={x} value={x}>{x}/{year}</option>)}</select>
+          {whSel && <input type="hidden" name="wh" value={whSel} />}{sp.sort && <input type="hidden" name="sort" value={sp.sort} />}
+          <button className="btn sm">Филтрирај</button>{(sp.q || mo) && <Link className="btn sm ghost" href={view}>✕</Link>}<span className="note">{list.length} од {all.length} документи</span>
+        </form>}
+        menuExtra={{
+          'Специјални опции': <p className="mini" style={{ margin: 0, maxWidth: 420 }}>{INTRO[dt]}</p>,
+          'Печатење': <DownloadCsv name={`${DT[dt].view}_${year}.csv`} label="Excel (листата)" rows={[['Број', 'Налог', 'Датум', 'Валута', 'Комитент', 'Шифра', 'Основица', 'ДДВ', 'Износ', 'Валута/курс'],
+            ...list.map(({ i, p }) => [i.number, J.get(i.id) ?? '', dmy(i.date), dmy(i.due), p?.name ?? '', p?.code ?? '', Number(i.base), Number(i.vat), Number(i.total), i.currency === 'MKD' ? '' : `${i.currency} ${i.fx}`])]} />,
+          ...(list.length ? { 'Останато': <>
+            <span className="mini">Штиклираните (☑) документи:</span>
+            <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
+Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
+Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={[{ label: '🖨 Печати ги избраните ({n})', href: '/print/docs?ids={ids}' }]} />
+            {vatSel && <details><summary className="mini" style={{ cursor: 'pointer' }}>ДДВ основ на штиклираните (32-а / чл. 24 / чл. 23)…</summary><VatMarkBar action={markInvoicesVatAction} /></details>}
+          </> } : {}),
+        }}>
+        {list.length ? (
+          <div className="tw"><table id="inv-list" className="dense hx-t">
+            <colgroup>{HDC.map((c, k) => <col key={k} style={c[1] ? { width: c[1] } : undefined} />)}</colgroup>
+            <thead><tr>{HDC.map(([t, , ti, cl], k) => <th key={k} title={ti ?? t} className={cl}>{k === 1 ? <SelAll /> : t}</th>)}</tr></thead>
+            <tbody>{shown.map(({ i, p }) => {
+              const toInv = write && (kind === 'proforma' || kind === 'dispatch') && !i.invoicedId;
+              const linked = kind === 'credit' ? i.refInvoiceId : i.invoicedId;
+              return (
+                <tr key={i.id} data-id={i.id} data-no={i.number} data-pname={p?.name ?? ''} data-pid={i.partnerId ?? ''} data-sum={sg * Number(i.total)}>
+                  <td className="hx-mk" />
+                  <td><SelBox id={i.id} /></td>
+                  <td className="num" title={i.number}><b>{i.number}</b></td>
+                  {kind === 'credit' && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
+                  <td title={ds(i, 'refDoc')}>{ds(i, 'refDoc')}</td>
+                  <td title={p?.name ?? ''}>{p && i.partnerId ? <Link href={`/akart?k=12&pid=${i.partnerId}`} title="Финансиска картица на комитентот">{p.name}</Link> : p?.name}</td>
+                  <td>{i.warehouseId ? hxLoc.get(i.warehouseId)?.code ?? '' : '01'}</td>
+                  <td className="hx-d">{dmy(i.date)}</td><td className="hx-d">{dmy(i.due)}</td>
+                  <td className="num">{linked ? <Link href={`/izlez?edit=${linked}`} data-ref title={kind === 'credit' ? 'Отвори ја фактурата' : 'Отвори ја фактурата'}>{refNo.get(linked)?.n ?? '→'}</Link> : ''}</td>
+                  <td className="n">{fmt(sg * Number(i.base))}</td><td className="n">{fmt(sg * Number(i.vat))}</td><td className="n"><b>{fmt(sg * Number(i.total))}</b>{i.currency !== 'MKD' && <small className="mini"> {i.currency}</small>}</td>
+                  <td className="num">{p?.code}</td>
+                  <td title={i.number}>{st(i)}{i.art32 && <span className="pill info"> 32-а</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
+                  <td className="hx-a">
+                    <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Види го документот / PDF / печатење" data-print>👁</Link>
+                    {kind === 'credit' && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)" data-mail>✉</Link>}
+                    {toInv && <Link className="btn sm" href={`/izlez?from=${i.id}`} title="Во фактура" data-toinv>→ Ф</Link>}
+                    {(IATT.get(i.id) ?? []).slice(0, 1).map((f) => <a key={f.id} className="btn sm" href={`/api/files/${f.id}`} target="_blank" rel="noreferrer" title={`Прилог: ${f.name}`} data-att>📎</a>)}
+                    <details className="hx-act"><summary className="btn sm" title="Други акции">⋯</summary><div>
+                      {write ? <Link className="btn sm" href={`${view}?edit=${i.id}`} data-open>✎ Содржина / измени</Link> : <Link href={`/print/doc/${i.id}`} target="_blank" data-open hidden>👁</Link>}
+                      <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank">👁 Види / PDF / печатење</Link>
+                      {kind === 'credit' && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank">✉ Испрати по е-пошта</Link>}
+                      {toInv && <Link className="btn sm" href={`/izlez?from=${i.id}`}>Во фактура</Link>}
+                      {kind === 'dispatch' && <Link className="btn sm" href={`/print/doc/${i.id}?k=waybill`} target="_blank" data-waybill>Товарен лист</Link>}
+                      {kind === 'credit' && <Link className="btn sm" href={`/api/ubl/${i.id}`} title="UBL е-фактура (XML)" data-ubl>XML (е-фактура)</Link>}
+                      {(IATT.get(i.id) ?? []).map((f) => <a key={f.id} className="btn sm" href={`/api/files/${f.id}`} target="_blank" rel="noreferrer">📎 {f.name.slice(0, 28)}</a>)}
+                      {approve && i.status === 'pending' && <span data-approve><RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Одобри" confirm={`Да се одобри и прокнижи ${i.number}?`} /></span>}
+                      {del && <span data-del><RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑 Избриши" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} /></span>}
+                    </div></details>
+                  </td>
+                </tr>);
+            })}</tbody>
+            <tfoot><tr><td colSpan={hdFirst}>Вкупно ({list.length})</td><td className="n">{fmt(sg * T.b)}</td><td className="n">{fmt(sg * T.v)}</td><td className="n">{fmt(sg * T.t)}</td><td colSpan={3} /></tr></tfoot>
+          </table></div>
+        ) : <div className="card empty">{all.length ? 'Нема документи за овој филтер.' : `Сè уште нема ${DT[dt].list.toLowerCase()} за ${year}.`} Нов документ: „Нов (Ins)“.</div>}
+      </DocListKeys>
+    </div>
+  ) : null;
 
   return (
     <>
-      <div className={hx ? 'hx-hd' : undefined}><Hd t={DT[dt].list} sub={String(year)}>
-        {!hx && dt === 'invoice' && write && <Link className="btn" href="/skan?k=sale" title="PDF или слики од фактури што клиентот сам ги издал – програмот ги чита и ги внесува">📷 Скенирај фактури (PDF)</Link>}
-        {!hx && dt === 'invoice' && write && <Link className="btn" href="/uvoz?t=invoices&back=izlez">Увоз од Excel</Link>}
-        {!hx && dt === 'invoice' && settingsOk && <Link className="btn" href={sp.style !== undefined ? view : view + '?style'}>Изглед на фактура…</Link>}
-        {!hx && <DownloadCsv name={`${DT[dt].view}_${year}.csv`} label="Excel" rows={[['Број', 'Налог', 'Датум', 'Валута', 'Комитент', 'Шифра', 'Основица', 'ДДВ', 'Износ', 'Валута/курс'],
-          ...list.map(({ i, p }) => [i.number, J.get(i.id) ?? '', dmy(i.date), dmy(i.due), p?.name ?? '', p?.code ?? '', Number(i.base), Number(i.vat), Number(i.total), i.currency === 'MKD' ? '' : `${i.currency} ${i.fx}`])]} />}
-        {!hx && write && dt === 'invoice' && <Link className="btn" href="/izlez?nov&prod=1" title="Нарачка по мерка: главен производ, калкулација на производство, налог за производство">🏭 Нова фактура од производство</Link>}
-        {!hx && write && <Link className="btn pri" href={view + '?nov'}>+ {DT[dt].nova}</Link>}
-      </Hd></div>
-      {dt === 'invoice' && write && !hx && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
-        label={<><b>Прочитај излезна фактура од PDF</b> — повлечете ја фактурата (PDF, JPG, PNG) тука или кликнете. Програмот ги чита купувачот, бројот, датумите и ставките и ја отвора фактурата за проверка.</>} />}
+      <div className="hx-hd"><Hd t={DT[dt].list} sub={String(year)} /></div>
       {sp.saved && <div className="callout good">Документот е зачуван. <Link href={`/print/doc/${sp.saved}`} target="_blank">👁 Преглед / печатење</Link>
         {((list.find((r) => r.i.id === sp.saved)?.i.data ?? {}) as InvoiceData).prodRun?.lines?.length ? <> · <Link href={`/print/prodKalk/${sp.saved}`} target="_blank">🖨 Калкулација на производство</Link></> : null}{sp.w && <><br />{sp.w.split(' | ').map((w, k) => <span key={k}>⚠ {w}<br /></span>)}</>}</div>}
       {settingsOk && sp.style !== undefined && (
@@ -492,69 +561,21 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
 ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${fuel.names.length > 8 ? String.fromCharCode(10) + '…' : ''}
 
 Важи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />}{see('zakoni') && <Link className="btn sm" href="/zakoni">⚖️ Извор</Link>}</span></div>}
-      {!hx && <p className="note">{INTRO[dt]}</p>}
       <RepostCallout u={u} firmId={firm.id} year={year} />
-      {kind === 'credit' && <form action={saveCrMode} className="card row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px' }}>
+      {kind === 'credit' && <details className="noprint" style={{ margin: '0 0 4px' }}><summary className="mini" style={{ cursor: 'pointer' }}>⚙ Книжење на одобренија и повратници ({crMode === 'flip' ? 'на обратната страна' : 'со минус на истата страна'})</summary><form action={saveCrMode} className="card row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px' }}>
         <b style={{ fontSize: 13 }}>Книжење на одобренија и повратници:</b>
         <label className="chk"><input type="radio" name="crMode" value="minus" defaultChecked={crMode !== 'flip'} disabled={!settingsOk} /> со минус на истата страна (црвено сторно)</label>
         <label className="chk"><input type="radio" name="crMode" value="flip" defaultChecked={crMode === 'flip'} disabled={!settingsOk} /> на обратната страна</label>
         {settingsOk && <button className="btn sm">Зачувај</button>}
-        <span className="mini">важи за целата фирма · салдата се исти, се менуваат само прометите</span></form>}
+        <span className="mini">важи за целата фирма · салдата се исти, се менуваат само прометите</span></form></details>}
       {OP.length > 0 && <div className="callout warn" id="opHint">⏰ <b>{OP.reduce((a, g) => a + g.rows.filter((r) => r.days > 0).length, 0)}</b> фактури кај <b>{OP.length}</b> купувачи се неплатени по рокот – вкупно <b>{fmt(OP.reduce((a, g) => a + g.over, 0) / 100)}</b> ден. <OpGoSel /></div>}
-      {!hx && <form className="row" style={{ gap: 8, margin: '0 0 8px', flexWrap: 'wrap' }}>
-        <input name="q" id="inv-q" defaultValue={sp.q ?? ''} placeholder="🔍 Број, комитент или шифра…" style={{ width: 260 }} />
-        <select name="m" defaultValue={mo} style={{ width: 'auto' }}><option value="">Сите месеци</option>{['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((x) => <option key={x} value={x}>{x}/{year}</option>)}</select>
-        <button className="btn">Филтрирај</button><span className="note">{list.length} од {all.length} документи</span>
-      </form>}
       {shown.length < list.length && (
         <div className="callout info" role="status">
           Прикажани се последните <b>{shown.length}</b> од <b>{list.length}</b> документи (вкупните износи долу се за сите). Изберете месец или барајте по број / комитент, или{' '}
           <Link href={`${view}?${new URLSearchParams({ ...(sp.q ? { q: sp.q } : {}), ...(mo ? { m: mo } : {}), all: '1' })}`}>прикажи ги сите {list.length}</Link> (побавно).
         </div>
       )}
-      {hx ? hxView : list.length ? (<>
-        {sel && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
-Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
-Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={[{ label: '🖨 Печати ги избраните ({n})', href: '/print/docs?ids={ids}' }, ...(opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : [])]} />}
-        {/* the ДДВ основ is chosen inside the invoice („ДДВ основ“); here only for many ticked invoices at once */}
-        {vatSel && <details className="noprint" style={{ margin: '4px 0' }}><summary className="mini" style={{ cursor: 'pointer' }}>Масовно: ДДВ основ на штиклираните фактури (32-а / чл. 24 / чл. 23)…</summary><VatMarkBar action={markInvoicesVatAction} /></details>}
-        <div className="tw"><table className="dense" style={{ fontSize: 12.5 }}>
-          <thead><tr>{sel && <th style={{ width: 30 }}><SelAll /></th>}<th>Број</th>{inv && <th>Налог</th>}<th>Датум</th><th>Валута</th><th>Комитент</th><th>Шифра</th><th className="n">Основица</th><th className="n">ДДВ</th><th className="n">Износ</th>{payCols && <><th className="n">Наплатено</th><th className="n">Останува</th></>}<th>Статус</th><th></th></tr></thead>
-          <tbody>{shown.map(({ i, p }) => (
-            <tr key={i.id}>
-              {sel && <td><SelBox id={i.id} /></td>}
-              <td className="num"><b>{i.number}</b></td>{inv && <td className="num">{J.get(i.id) ? <Link href={`/nalozi?n=${encodeURIComponent(J.get(i.id)!)}`}>{J.get(i.id)}</Link> : ''}</td>}
-              <td>{dmy(i.date)}</td><td style={i.due && i.due < addDays(todayIso(), 0) ? { color: 'var(--bad)' } : undefined}>{dmy(i.due)}</td>
-              <td style={{ maxWidth: 240, whiteSpace: 'normal' }}>{p && i.partnerId ? <Link href={`/akart?k=12&pid=${i.partnerId}`} title="Финансиска картица на комитентот">{p.name}</Link> : p?.name}</td><td className="num">{p?.code}</td>
-              <td className="n">{fmt(i.base)}</td><td className="n">{fmt(i.vat)}</td><td className="n"><b>{fmt(i.total)}</b>{i.currency !== 'MKD' && <small className="mini"> {i.currency}</small>}</td>
-              {payCols && (() => { const pm = payOf(i); return <><td className="n">{fmt(pm.paid)}</td><td className="n" style={pm.rest > 0.009 && i.due && i.due < today ? { color: 'var(--bad)', fontWeight: 600 } : undefined}>{fmt(pm.rest)}</td></>; })()}
-              <td>{st(i)}{((i.data ?? {}) as InvoiceData).prodRun?.orders?.map((o) => <Link key={o.id} className="pill info" href={JP.get(o.id) ? `/nalozi?n=${encodeURIComponent(JP.get(o.id)!)}` : '/prod'} title={`Налог за производство бр. ${o.number}${JP.get(o.id) ? ' · налог за книжење ' + JP.get(o.id) : ''}`}> 🏭 {o.number}</Link>)}{i.art32 && <span className="pill info"> 32-а</span>}{i.advance && <span className="pill warn"> авансна</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
-              <td style={{ whiteSpace: 'nowrap' }}>
-                <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Преглед и печатење">👁</Link>
-                {kind === 'invoice' && ((i.data ?? {}) as InvoiceData).prodRun?.lines?.length ? <Link className="btn sm" href={`/print/prodKalk/${i.id}`} target="_blank" title="Калкулација на производство (печатење / PDF)">🏭</Link> : null}
-                {inv && write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉</Link>}
-                {write && <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Измени">✎</Link>}
-                {write && kind === 'invoice' && !i.advance && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница (купувачот враќа стока) кон оваа фактура">↩</Link>}
-                {write && (kind === 'proforma' || kind === 'dispatch') && !i.invoicedId && <Link className="btn sm" href={`/izlez?from=${i.id}`}>Во фактура</Link>}
-                {/* rare prints / exports in a „⋯“ menu, so the row (and the table) fits the screen */}
-                {(kind === 'invoice' || kind === 'dispatch' || inv) && (
-                  <details style={{ display: 'inline-block', position: 'relative' }}>
-                    <summary className="btn sm" style={{ listStyle: 'none', cursor: 'pointer' }} title="Повеќе">⋯</summary>
-                    <div style={{ position: 'absolute', right: 0, zIndex: 20, background: 'var(--surface, #fff)', border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 6, display: 'grid', gap: 4, minWidth: 150 }}>
-                      {kind === 'invoice' && <Link className="btn sm" href={`/print/doc/${i.id}?k=dispatch`} target="_blank">Испратница</Link>}
-                      {(kind === 'invoice' || kind === 'dispatch') && <Link className="btn sm" href={`/print/doc/${i.id}?k=waybill`} target="_blank">Товарен лист</Link>}
-                      {inv && <Link className="btn sm" href={`/api/ubl/${i.id}`} title="UBL е-фактура (XML)">XML (е-фактура)</Link>}
-                    </div>
-                  </details>
-                )}
-                {approve && isDraft(i) && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Прокнижи" confirm={`Да се прокнижи нацртот ${i.number}?${isDraftNo(i.number) ? ' Фактурата го добива следниот број од серијата.' : ''}`} />}
-                {approve && i.status === 'pending' && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Одобри" confirm={`Да се одобри и прокнижи ${i.number}?`} />}
-                {del && <RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} />}
-              </td>
-            </tr>))}</tbody>
-          <tfoot><tr>{sel && <td />}<td colSpan={inv ? 6 : 5}>Вкупно ({list.length})</td><td className="n">{fmt(sg * T.b)}</td><td className="n">{fmt(sg * T.v)}</td><td className="n">{fmt(sg * T.t)}</td>{payCols && <><td className="n">{fmt(T.pd)}</td><td className="n">{fmt(T.r)}</td></>}<td colSpan={2} /></tr></tfoot>
-        </table></div></>
-      ) : <div className="card empty">{all.length ? 'Нема документи за овој филтер.' : `Сè уште нема ${DT[dt].list.toLowerCase()} за ${year}.`}</div>}
+      {hx ? hxView : hdView}
     </>
   );
 }

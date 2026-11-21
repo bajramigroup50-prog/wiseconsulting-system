@@ -192,3 +192,17 @@ describe('Влез – Helix controls', () => {
     expect(c.groups[1]!.items.find((b) => b.key === 'F2')!.act).toEqual({ href: '/ddvKnigi?t=in' });
   });
 });
+
+describe('Одобренија / Профактури / Испратници – Helix controls', () => {
+  it('panel with Содржина / Нов / Промена / Бришење and the own actions of each kind', async () => {
+    const { docHelix } = await import('./doc-list-keys');
+    const lbl = (k: 'credit' | 'proforma' | 'dispatch') => docHelix(k, '/x', true, false).groups.flatMap((g) => g.items.map((b) => b.label));
+    expect(lbl('proforma').slice(0, 7)).toEqual(['Смени магацин', 'Содржина', 'Нов', 'Промена', 'Бришење', '👁 Види / PDF', 'Во фактура']);
+    expect(lbl('dispatch')).toEqual(expect.arrayContaining(['Во фактура', 'Товарен лист']));
+    expect(lbl('credit')).toEqual(expect.arrayContaining(['✉ Испрати по е-пошта', 'Испрати е-Фактура', 'Кон фактура', 'Книга на фактури']));
+    const c = docHelix('proforma', '/profakturi', true, false);
+    expect(c.groups[0]!.items.find((b) => b.key === 'Insert')!.act).toEqual({ href: '/profakturi?nov' });
+    expect(c.groups[1]!.items.find((b) => b.key === 'F8')!.act).toEqual({ row: 'a[data-toinv]' });
+    expect(docHelix('proforma', '/profakturi', false, false).groups[1]!.items.find((b) => b.key === 'F8')!.act).toHaveProperty('off');
+  });
+});
