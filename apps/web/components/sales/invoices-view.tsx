@@ -371,7 +371,12 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         <td className="hx-a">
           <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Види ја фактурата / PDF / печатење" data-print>👁</Link>
           {write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)" data-mail>✉</Link>}
+          {write && i.status !== 'posted' && <span className="btn sm" style={{ opacity: .4, cursor: 'help' }} title="Е-пошта: прво прокнижете ја фактурата (✓)">✉</span>}
+          {write && <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Содржина (ставки) / измени">✎</Link>}
           {(IATT.get(i.id) ?? []).slice(0, 1).map((f) => <a key={f.id} className="btn sm" href={`/api/files/${f.id}`} target="_blank" rel="noreferrer" title={`Скенираниот документ: ${f.name}`} data-att>📎</a>)}
+          {write && !i.advance && i.status === 'posted' && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница кон оваа фактура">↩</Link>}
+          {approve && isDraft(i) && <RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓" title="Прокнижи" confirm={`Да се прокнижи нацртот ${i.number}?${isDraftNo(i.number) ? ' Фактурата го добива следниот број од серијата.' : ''}`} />}
+          {del && <RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} />}
           <details className="hx-act"><summary className="btn sm" title="Други акции на фактурата">⋯</summary><div>
           {write ? <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Содржина (ставки) / измени" data-open>✎ Содржина / измени</Link> : <Link href={`/print/doc/${i.id}`} target="_blank" data-open hidden>👁</Link>}
           <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank">👁 Види / PDF / печатење</Link>
@@ -396,11 +401,11 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   // to the panel without side scrolling; numbers, dates and amounts are never cut (the columns Helix has but WISE keeps
   // no data for – Терк 3, Валидност до, Аларм за гр.план, Испеч. факт., Фискална… – are left out)
   const HXC: [string, number, string?, string?][] = [
-    ['*', 14, 'Тековен ред ▸ / означени *'], ['', 20], ['Број', 70], ['Налог', 44], ['По документ', 62], ['Комитент', 200], ['Прод. ав.', 44, 'Продажно место'], ['Во маг.', 36, 'Магацин'],
+    ['*', 14, 'Тековен ред ▸ / означени *'], ['', 20], ['Број', 70], ['Налог', 44], ['По документ', 62], ['Комитент', 150], ['Прод. ав.', 44, 'Продажно место'], ['Во маг.', 36, 'Магацин'],
     ['Датум', 72], ['Валута', 72], ['Терк', 36, 'Терк (шема) за книжење'], ['Износ од ставки', 82, undefined, 'n'], ['Нап. со аванс', 60, 'Наплатено со аванс', 'n'],
     ['За наплата', 82, undefined, 'n'], ['Наплатено', 78, undefined, 'n'], ['Ком. шиф.', 38, 'Шифра на комитентот'], ['е-Ф.', 34, 'Извезено за е-фактура (UBL)'], ['З', 16, 'Затворена: Н / Д'],
     ['Рег.', 34, 'Регистрација'], ['Тип калк.', 46, 'Тип калкулација (завршна / авансна)'], ['Ал.', 28, 'Аларм: неплатена по рокот'], ['Тип', 30, 'Тип калк.: стока / услуги'], ['Пр.', 28, 'Приоритет'],
-    ['Статус', 54], ['', 100],
+    ['Статус', 54], ['', 196],
   ];
   const hxView = hx ? (
     <div className="hx-list">
