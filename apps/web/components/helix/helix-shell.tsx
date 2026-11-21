@@ -30,7 +30,8 @@ export const HELIX_CSS = `
 .hx-list table.hx-t{table-layout:fixed;width:100%;font-size:12px}
 .hx-list table.hx-t th,.hx-list table.hx-t td,.hx-list table.hx-t.dense td,.hx-list table.hx-t.dense th{font-size:11.5px;padding:2px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hx-list table.hx-t thead th,.hx-list table.hx-t.dense thead th{white-space:normal;line-height:1.15;vertical-align:bottom;font-size:10.5px;text-transform:none;letter-spacing:0;word-break:normal;overflow-wrap:normal;hyphens:manual;text-overflow:clip}
-.hx-list table.hx-t td.hx-a{overflow:visible}
+.hx-list table.hx-t td.hx-a{overflow:visible;white-space:nowrap}
+.hx-list table.hx-t td.hx-a>.btn{margin-right:2px}
 .hx-list table.hx-t td .pill{font-size:10.5px;padding:0 4px}
 .hx-list table.hx-t td .btn.sm{padding:1px 5px;font-size:11px}
 .hx-list .hx-act{position:relative;display:inline-block}

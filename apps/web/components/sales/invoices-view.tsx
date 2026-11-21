@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { addDays, DT, INV_NOTE0, isDraftNo, isServiceInvoice, nextDocNumber, type DocKind, type DtKey, type ScanSaleDraft } from '@wise/core/sales';
 import {
-  aiDocuments, boms, codes, employees, firmPostingContext, listInvoiceNalozi, proposeNalogNumber, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, productionOrders, stockMoves, type DocPayment, type Invoice,
+  aiDocuments, boms, codes, employees, fileLinks, files, firmPostingContext, listInvoiceNalozi, proposeNalogNumber, type InvoiceData, invoiceAdvances, invoiceLines, invoices, journals, partners, productionOrders, stockMoves, type DocPayment, type Invoice,
 } from '@wise/db';
 import { nextYearNumber, schemeValue } from '@wise/core';
 import { calcInvoiceDraft } from '@wise/db';
@@ -277,6 +277,10 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     payCols ? listPayments(firm.id, { invoiceIds: listIds }) : Promise.resolve(new Map<string, DocPayment>()),
   ]);
   const J = new Map(JR.map((x) => [x.s, x.n]));
+  // the scanned / uploaded originals of the listed documents (📎 on the row)
+  const IATT = new Map<string, { id: string; name: string }[]>();
+  if (listIds.length) for (const f of await db().select({ e: fileLinks.entityId, id: files.id, name: files.name }).from(fileLinks).innerJoin(files, eq(files.id, fileLinks.fileId))
+    .where(and(eq(fileLinks.entityType, 'invoice'), inArray(fileLinks.entityId, listIds)))) (IATT.get(f.e) ?? IATT.set(f.e, []).get(f.e)!).push({ id: f.id, name: f.name });
   const JP = new Map(JPR.map((x) => [x.s, x.n]));
   const refNo = new Map(refR.map((x) => [x.id, x]));
   const payOf = (i: Invoice) => {
@@ -364,17 +368,25 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
         <td>{i.svc ? 'Услуги' : 'Стока'}</td>
         <td>{ds(i, 'prio')}</td>
         <td>{st(i)}{i.art32 && <span className="pill info"> 32-а</span>}{i.scanned && <span className="pill good"> скенирана</span>}</td>
-        <td className="hx-a"><details className="hx-act"><summary className="btn sm" title="Акции на фактурата">⋯</summary><div>
-          <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Преглед и печатење" data-print>👁 Преглед / печатење</Link>
-          {prodR?.lines?.length ? <Link className="btn sm" href={`/print/prodKalk/${i.id}`} target="_blank" title="Калкулација на производство (печатење / PDF)">🏭 Калкулација</Link> : null}
-          {write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)">✉ Е-пошта</Link>}
+        <td className="hx-a">
+          <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank" title="Види ја фактурата / PDF / печатење" data-print>👁</Link>
+          {write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank" title="Испрати по е-пошта (PDF во прилог)" data-mail>✉</Link>}
+          {(IATT.get(i.id) ?? []).slice(0, 1).map((f) => <a key={f.id} className="btn sm" href={`/api/files/${f.id}`} target="_blank" rel="noreferrer" title={`Скенираниот документ: ${f.name}`} data-att>📎</a>)}
+          <details className="hx-act"><summary className="btn sm" title="Други акции на фактурата">⋯</summary><div>
           {write ? <Link className="btn sm" href={`${view}?edit=${i.id}`} title="Содржина (ставки) / измени" data-open>✎ Содржина / измени</Link> : <Link href={`/print/doc/${i.id}`} target="_blank" data-open hidden>👁</Link>}
+          <Link className="btn sm" href={`/print/doc/${i.id}`} target="_blank">👁 Види / PDF / печатење</Link>
+          {write && i.status === 'posted' && <Link className="btn sm" href={`/print/doc/${i.id}?mail=1`} target="_blank">✉ Испрати по е-пошта</Link>}
+          {(IATT.get(i.id) ?? []).map((f) => <a key={f.id} className="btn sm" href={`/api/files/${f.id}`} target="_blank" rel="noreferrer">📎 {f.name.slice(0, 28)}</a>)}
+          {prodR?.lines?.length ? <Link className="btn sm" href={`/print/prodKalk/${i.id}`} target="_blank" title="Калкулација на производство (печатење / PDF)">🏭 Калкулација</Link> : null}
+          <Link className="btn sm" href={`/print/doc/${i.id}?k=dispatch`} target="_blank">Испратница</Link>
+          <Link className="btn sm" href={`/print/doc/${i.id}?k=waybill`} target="_blank">Товарен лист</Link>
+          <Link className="btn sm" href={`/api/ubl/${i.id}`} title="UBL е-фактура (XML)" data-ubl>XML (е-фактура)</Link>
           {write && !i.advance && <Link className="btn sm" href={`/odobrenija?cr=${i.id}`} title="Одобрение или повратница кон оваа фактура" data-cr>↩ Одобрение</Link>}
-          <Link href={`/api/ubl/${i.id}`} data-ubl hidden>XML</Link>
           {approve && isDraft(i) && <span data-approve><RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Прокнижи" confirm={`Да се прокнижи нацртот ${i.number}?${isDraftNo(i.number) ? ' Фактурата го добива следниот број од серијата.' : ''}`} /></span>}
           {approve && i.status === 'pending' && <span data-approve><RowAction className="btn sm pri" action={approveInvoiceAction.bind(null, i.id)} label="✓ Одобри" confirm={`Да се одобри и прокнижи ${i.number}?`} /></span>}
           {del && <span data-del><RowAction action={deleteInvoiceAction.bind(null, i.id)} label="🗑 Избриши" title="Избриши" confirm={`Да се избрише ${DT[dt].n.toLowerCase()} ${i.number}? Се бришат и налогот и движењето на залихата.`} style={{ color: 'var(--bad)' }} /></span>}
-        </div></details></td>
+          </div></details>
+        </td>
       </tr>
     );
   };
@@ -388,7 +400,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
     ['Датум', 72], ['Валута', 72], ['Терк', 36, 'Терк (шема) за книжење'], ['Износ од ставки', 82, undefined, 'n'], ['Нап. со аванс', 60, 'Наплатено со аванс', 'n'],
     ['За наплата', 82, undefined, 'n'], ['Наплатено', 78, undefined, 'n'], ['Ком. шиф.', 38, 'Шифра на комитентот'], ['е-Ф.', 34, 'Извезено за е-фактура (UBL)'], ['З', 16, 'Затворена: Н / Д'],
     ['Рег.', 34, 'Регистрација'], ['Тип калк.', 46, 'Тип калкулација (завршна / авансна)'], ['Ал.', 28, 'Аларм: неплатена по рокот'], ['Тип', 30, 'Тип калк.: стока / услуги'], ['Пр.', 28, 'Приоритет'],
-    ['Статус', 54], ['', 28],
+    ['Статус', 54], ['', 100],
   ];
   const hxView = hx ? (
     <div className="hx-list">

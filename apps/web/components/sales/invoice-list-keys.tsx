@@ -59,7 +59,11 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
         { label: 'Промена', key: 'Enter', act: { ev: 'change' }, title: 'Податоци (заглавје) на избраната фактура' },
         { label: 'Бришење', key: 'Delete', act: { row: '[data-del] button' }, cls: 'danger', title: 'Избриши ја избраната фактура' },
       ] },
-      { items: [{ label: 'Испрати е-Фактура', act: { row: 'a[data-ubl]' }, title: 'UBL е-фактура (XML) на избраната фактура – за Е-ФАКТУРА (WISE не ја праќа сам до УЈП)' }] },
+      { items: [
+        { label: 'Испрати е-Фактура', act: { row: 'a[data-ubl]' }, title: 'UBL е-фактура (XML) на избраната фактура – за Е-ФАКТУРА (WISE не ја праќа сам до УЈП)' },
+        { label: '👁 Види фактура / PDF', act: { row: 'a[data-print]' }, title: 'Преглед, печатење и PDF на избраната фактура' },
+        { label: '✉ Испрати по е-пошта', act: { row: 'a[data-mail]' }, title: 'PDF на избраната фактура по е-пошта (само прокнижена)' },
+      ] },
       { title: 'Комерцијално', items: [
         { label: 'Наплати', key: 'F4', act: { ev: 'pay' }, title: 'Наплата на избраната фактура: извод, каса, компензација, картица' },
         { label: 'Масовна наплата', act: { href: '/banka' }, title: 'Изводи: приливите автоматски се поврзуваат со фактурите' },
@@ -76,6 +80,7 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
     ],
     menu: [
       { label: 'Специјални опции', items: [
+        { label: '✉ Испрати ја избраната по е-пошта', act: { row: 'a[data-mail]' } },
         { label: '+ Нова фактура (цел екран)', act: canWrite ? { href: view + '?nov' } : { off: ro } },
         { label: '📷 Прочитај / скенирај фактури (PDF)', act: { href: '/skan?k=sale' } },
         { label: 'Увоз од Excel', act: { href: `/uvoz?t=invoices&back=${view.slice(1)}` } },
@@ -107,7 +112,8 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
       ] },
       { label: 'Копирање', items: [], off: COPY_OFF },
       { label: 'Печатење', items: [
-        { label: 'Преглед / печатење на избраната', act: { row: 'a[data-print]' } },
+        { label: '👁 Види / PDF / печатење на избраната', act: { row: 'a[data-print]' } },
+        { label: '📎 Скениран документ на избраната', act: { row: 'a[data-att]' } },
         { label: 'Печати ја листата', act: { fn: 'print' } },
       ] },
       { label: 'Останато', items: [
