@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { npoCompute } from './yearend/npo';
+import { yeBalanceSet } from './yearend/balances';
 import { donAssetKonto, donChart, donEntries, donKonto, donKontoKind, donMovesFromBank, donTotals, nextDonNo } from './donations';
 
 describe('donations & sponsorships', () => {
@@ -61,5 +63,17 @@ describe('donations & sponsorships', () => {
       { id: '4', kind: 'donation', role: 'received', partnerId: 'p2', partnerName: 'B', date: '2026-04-05', amount: 500 },
     ]);
     expect(T.map((t) => [t.year, t.name, t.n, t.amount, t.realized])).toEqual([['2026', 'B', 1, 500, 0], ['2026', 'A', 2, 150, 100], ['2025', 'A', 1, 70, 0]]);
+  });
+  it('an NPO on the company chart: donations 7673 and sponsorships 7694 are AOP 244, not 247, and not economic activity', () => {
+    const B = yeBalanceSet([
+      { account: '1000', debit: 1500, credit: 0 },
+      { account: '7673', debit: 0, credit: 1000 },
+      { account: '7694', debit: 0, credit: 400 },
+      { account: '7699', debit: 0, credit: 100 },
+    ]);
+    const R = npoCompute({ pre: B.pre, all: B.all, closed: false, chart: 'co' });
+    expect(R.V['244']).toBe(1400);
+    expect(R.V['247']).toBe(100);
+    expect(R.econ).toBe(0);
   });
 });
