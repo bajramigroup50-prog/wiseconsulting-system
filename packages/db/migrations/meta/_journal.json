@@ -351,6 +351,13 @@
       "when": 1795265243283,
       "tag": "0049_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795267328081,
+      "tag": "0050_meals",
+      "breakpoints": true
     }
   ]
 }
