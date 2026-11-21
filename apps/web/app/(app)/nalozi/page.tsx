@@ -317,7 +317,8 @@ export default async function NaloziPage({ searchParams }: { searchParams: Promi
         {/* „Импорт“ menu of the opened nalog: incoming / outgoing invoices (scan, PDF, photo), cash receipts (благајна),
             bank statements – read, approved and booked INTO this nalog */}
         {write && !g.journals.some(locked) && (() => {
-          const cashNal = /^10[2-5]\d*$/.test(g.no.split('/')[0] ?? '');
+          // „1020/7-9“ is a cash nalog; a counter number like „1041“ never is
+          const cashNal = g.no.includes('/') && /^10[2-5]\d*$/.test(g.no.split('/')[0] ?? '');
           const base = `/nalozi?n=${encodeURIComponent(g.no)}`;
           const tab = (k: string, label: string) => imp === k
             ? <Link key={k} className="btn sm pri" href={base} aria-pressed="true">{label}</Link>
