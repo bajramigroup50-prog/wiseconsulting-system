@@ -5,6 +5,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { todaySkopje } from '@wise/core/office';
+import { monthDeadlines, rokoviCaption, rokoviCardHtml } from '@wise/core/social/rokovi';
 import { CARD_H, CARD_W, caption, cardHtml, socialPage, webAsNews, webCaption, webNewsItems, type SocialNews, type SocialPage, type SocialSettings, type WebNews } from '@wise/core/social/post';
 import { claimSocialPost, claimWebPost, getSocialSettings, nextSocialNews, nextWebNews, openSecret, patchSocialSettings, recordSocialPost, recordWebPost, seedWebNews, socialNewsById, socialPostsToday, type DB } from '@wise/db';
 import { defineJob } from '../job';
@@ -56,12 +57,12 @@ export async function runSocialPost(db: DB, data: { lawId?: string } | null, log
 }
 
 /** The card (PNG) + caption → the page's Facebook and (when linked) Instagram. */
-async function publishCard(s: SocialSettings, page: SocialPage, token: string, n: SocialNews, text: string, deps: SocialDeps) {
+async function publishCard(s: SocialSettings, page: SocialPage, token: string, n: SocialNews, text: string, deps: SocialDeps, html?: string) {
   const today = todaySkopje();
   let fbId: string | null = null, ig: { id: string; link: string | null } | null = null;
   const errs: string[] = [];
   try {
-    const png = await (deps.png ?? ((h) => htmlToPng(h, { width: CARD_W, height: CARD_H })))(cardHtml(n, { logo: s.logo, today }));
+    const png = await (deps.png ?? ((h) => htmlToPng(h, { width: CARD_W, height: CARD_H })))(html ?? cardHtml(n, { logo: s.logo, today }));
     const f = deps.fetch ?? fetch;
     try { fbId = await fbPhotoPost(f, { pageId: page.id, token, png, caption: text }); } catch (e) { errs.push('Facebook: ' + (e as Error).message); }
     if (page.igId) {
@@ -136,6 +137,36 @@ export const newsSq = defineJob({
   cron: '20 6-20/2 * * *',
   queue: { retryLimit: 1 },
   async run(_data, ctx) { await runNewsSq(ctx.log); },
+});
+
+/**
+ * 📅 `social.rokovi`: on the 1st of the month (09:05 Skopje) the month's tax deadlines → one card (Macedonian +
+ * Albanian) to the page's Facebook and Instagram. Goes out only when the website news are posted automatically
+ * („web“ on) and only once a month (key `rokovi:YYYY-MM` in `social_posts`).
+ */
+export async function runSocialRokovi(db: DB, log: (m: string) => void, deps: SocialDeps & { today?: string } = {}): Promise<string> {
+  const s = await getSocialSettings(db);
+  const page = socialPage(s);
+  const token = page ? openSecret(page.token) : null;
+  if (!page || !token) return 'not connected';
+  if (!s.web) return 'web off';
+  const today = deps.today ?? todaySkopje();
+  const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+  const key = `rokovi:${today.slice(0, 7)}`;
+  const items = monthDeadlines(y, m);
+  const w: WebNews = { inst: 'Даночни рокови', title: `Даночни рокови ${today.slice(5, 7)}.${y}`, url: key, date: `${today.slice(0, 7)}-01` };
+  if (!(await claimWebPost(db, w))) return 'already posted';
+  const r = await publishCard(s, page, token, webAsNews(w), rokoviCaption(y, m), deps, rokoviCardHtml(y, m, { logo: s.logo }));
+  await recordWebPost(db, key, r);
+  log(`social.rokovi: ${r.status} ${key} (${items.length} рокови)${r.error ? ' – ' + r.error : ''}`);
+  return r.status;
+}
+
+export const socialRokovi = defineJob({
+  name: 'social.rokovi',
+  cron: '5 9 1 * *',
+  queue: { retryLimit: 0 },
+  async run(_data, ctx) { await runSocialRokovi(ctx.db, ctx.log); },
 });
 
 export const socialWeb = defineJob({

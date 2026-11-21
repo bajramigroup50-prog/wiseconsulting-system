@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { patchSocialSettings, schema, sealSecret, socialPostList, type DB } from '@wise/db';
 import { webCaption } from '@wise/core/social/post';
-import { runNewsSq, runSocialPost, runSocialWeb } from './social';
+import { runNewsSq, runSocialPost, runSocialRokovi, runSocialWeb } from './social';
+import { monthDeadlines } from '@wise/core/social/rokovi';
 
 process.env.S3_SECRET_KEY ||= 'test-secret';
 const pg = drizzle(new PGlite(), { schema });
@@ -145,5 +146,28 @@ describe('social.web in two languages', () => {
     expect(await runSocialWeb(db, () => {}, { ...d, webNews: news, sqTitles: async () => ({}), translate: async () => { throw new Error('AI down'); } })).toBe('posted');
     expect(html).toContain('Втора вест');
     expect(html).not.toContain('Afat i ri');
+  });
+});
+
+describe('social.rokovi (the month\'s tax deadlines)', () => {
+  it('moves a deadline on a weekend / holiday to the next working day and adds the annual returns in March', () => {
+    expect(monthDeadlines(2026, 12)).toEqual([{ key: 'mpin', date: '2026-12-10' }, { key: 'pay', date: '2026-12-15' }, { key: 'ddv', date: '2026-12-25' }]);
+    // 10.01.2027 is a Sunday → Monday the 11th
+    expect(monthDeadlines(2027, 1)[0]).toEqual({ key: 'mpin', date: '2027-01-11' });
+    expect(monthDeadlines(2027, 3).map((r) => r.key)).toEqual(['mpin', 'pay', 'year', 'ddv']);
+  });
+
+  it('posts one bilingual card once a month, only with the website news on', async () => {
+    const m = meta();
+    let html = '';
+    const d = { ...deps(m.f), png: async (h: string) => { html = h; return new Uint8Array([1]); }, today: '2026-12-01' };
+    await patchSocialSettings(db, { web: false }, null);
+    expect(await runSocialRokovi(db, () => {}, d)).toBe('web off');
+    await patchSocialSettings(db, { web: true }, null);
+    expect(await runSocialRokovi(db, () => {}, d)).toBe('posted');
+    expect(html).toContain('Декември 2026');
+    expect(html).toContain('Dhjetor 2026');
+    expect(html).toContain('Deklarimi dhe pagesa e TVSH-së');
+    expect(await runSocialRokovi(db, () => {}, d)).toBe('already posted');
   });
 });
