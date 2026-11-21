@@ -1,8 +1,8 @@
 'use client';
 /**
- * A document list in the layout of the old desktop program (Helix): the firm in big blue letters and the line
- * „Магацин [..]“, the menu bar on top (Специјални опции, Безбедност, Сортирање…), the blue table header with cream
- * rows, the ▸ marker of the current row, the vertical panel of buttons on the right (with their keys), and the bottom
+ * A document list in the layout of the old desktop program (Helix): the firm in big letters and the line
+ * „Магацин [..]“, the menu bar on top (Специјални опции, Безбедност, Сортирање…), the table in WISE's own colours,
+ * the ▸ marker of the current row, the vertical panel of buttons on the right (with their keys), and the bottom
  * bar („Селекција: * + - F“, Прекнижување (F5), Главна книга (F7), Филтер, „F1 - Освежување на податоците“,
  * Излез (Esc)).
  *
@@ -24,19 +24,13 @@ const nf = new Intl.NumberFormat('mk-MK', { minimumFractionDigits: 2, maximumFra
 const isOff = (a: HxAct): a is { off: string } => 'off' in a;
 const keyName = (k?: string) => (k ? ` (${k === 'Insert' ? 'Ins' : k === 'Enter' ? 'Ent' : k === 'Delete' ? 'Del' : k === 'Escape' ? 'Esc' : k})` : '');
 
+// layout only (WISE keeps its own colours and theme): the firm line, the current row, the menu, panel and bottom bar
 export const HELIX_CSS = `
-.hx-list .hx-firm{color:#1f3a7a;font-weight:800;font-size:20px;letter-spacing:.2px}
-.hx-list table.hx-t thead th{background:#4a73b5;color:#fff;border-color:#3d63a3;white-space:nowrap}
-.hx-list table.hx-t thead th a{color:#fff}
-.hx-list table.hx-t tbody tr{background:#fffbe6;color:#1f3f8f}
-.hx-list table.hx-t tbody tr:nth-child(even){background:#fff6d6}
-.hx-list table.hx-t tbody tr[aria-selected=true]{background:#dfe8fb}
-.hx-list table.hx-t tbody tr.hx-marked{background:#ffe9a8}
-.hx-list table.hx-t tbody td{color:#1f3f8f}
-.hx-list table.hx-t tbody td a{color:#1f3f8f}
-.hx-list table.hx-t tbody td.hx-d{color:#c0392b}
-.hx-list table.hx-t tbody td.n{color:#1d3fa6}
-.hx-list table.hx-t td.hx-mk{width:16px;color:#1f3a7a;font-weight:700;text-align:center}
+.hx-list .hx-firm{font-weight:800;font-size:20px;letter-spacing:.2px}
+.hx-list table.hx-t thead th{white-space:nowrap}
+.hx-list table.hx-t tbody tr[aria-selected=true]{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft,rgba(31,94,255,.08))}
+.hx-list table.hx-t tbody tr.hx-marked{background:var(--warn-bg,#fff7e0)}
+.hx-list table.hx-t td.hx-mk{width:16px;font-weight:700;text-align:center;color:var(--accent)}
 .hx-list .hx-menu{display:flex;flex-wrap:wrap;gap:2px;margin:0 0 6px;border-bottom:1px solid var(--line,#ddd)}
 .hx-list .hx-menu details{position:relative}
 .hx-list .hx-menu summary{list-style:none;cursor:pointer;padding:4px 10px;font-size:13px;border-radius:4px}

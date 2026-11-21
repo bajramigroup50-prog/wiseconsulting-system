@@ -69,7 +69,10 @@ export async function saveJournal(_prev: ActionState, form: FormData): Promise<A
     const R = v.rows.filter((r) => r.account || Number(r.debit) || Number(r.credit));
     // An opened nalog without amounts is allowed (legacy refused it); its konto rows are kept in `meta.rows` until amounts come.
     const empty = !R.some((r) => Number(r.debit) || Number(r.credit));
-    if (empty && !R.some((r) => r.account)) return { error: 'Внесете барем едно конто или износи во колоните Должи / Побарува.' };
+    // every line removed (Бришење of the last ones): an existing manual nalog stays, empty (like an opened one);
+    // a new nalog still needs at least one konto
+    const cleared = !R.length && !!v.id;
+    if (empty && !R.some((r) => r.account) && !cleared) return { error: 'Внесете барем едно конто или износи во колоните Должи / Побарува.' };
     if (R.some((r) => (Number(r.debit) || Number(r.credit)) && !r.account)) return { error: 'Изберете конто во секој ред со износ.' };
 
     const existing = v.id

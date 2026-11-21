@@ -389,10 +389,6 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
   const hxView = hx ? (
     <div className="hx-list">
       <style>{HELIX_CSS}</style>
-      {sel && list.length > 0 && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
-Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
-Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={[{ label: '🖨 Печати ги избраните ({n})', href: '/print/docs?ids={ids}' }, ...(opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : [])]} />}
-      {vatSel && list.length > 0 && <details className="noprint" style={{ margin: '4px 0' }}><summary className="mini" style={{ cursor: 'pointer' }}>Масовно: ДДВ основ на штиклираните фактури (32-а / чл. 24 / чл. 23)…</summary><VatMarkBar action={markInvoicesVatAction} /></details>}
       <InvoiceListKeys tableId="inv-list" canWrite={write} today={dflt} svc={dt === 'service'} view={view} firmName={firm.name} filterId="inv-q"
         partners={hxP.map((x) => ({ id: x.id, code: x.code, name: x.name, edb: x.edb }))} nalozi={hxNal.map((n) => ({ number: n.number, description: n.description }))}
         schemes={hxSch.schemes} nextNumber={hxNext}
@@ -410,21 +406,25 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
           </table></div>
         ) : <div className="card empty">{all.length ? 'Нема документи за овој филтер.' : `Сè уште нема ${DT[dt].list.toLowerCase()} за ${year}.`} Нова фактура: „Нова (Ins)“.</div>}
       </InvoiceListKeys>
+      {sel && list.length > 0 && <BulkBar {...(bulkDel ? { label: `🗑 Избриши ги избраните ({n})`, confirm: `Да се избришат {n} избрани ставки?
+Секоја се брише со истите проверки како поединечно (заклучен период, поврзани документи…).
+Ова не може да се врати.`, action: deleteInvoicesAction } : {})} extra={[{ label: '🖨 Печати ги избраните ({n})', href: '/print/docs?ids={ids}' }, ...(opSel ? [{ label: '⏰ Опомени за избраните ({n})', href: '/opomeni?ids={ids}' }] : [])]} />}
+      {vatSel && list.length > 0 && <details className="noprint" style={{ margin: '4px 0' }}><summary className="mini" style={{ cursor: 'pointer' }}>Масовно: ДДВ основ на штиклираните фактури (32-а / чл. 24 / чл. 23)…</summary><VatMarkBar action={markInvoicesVatAction} /></details>}
     </div>
   ) : null;
 
   return (
     <>
       <Hd t={DT[dt].list} sub={String(year)}>
-        {dt === 'invoice' && write && <Link className="btn" href="/skan?k=sale" title="PDF или слики од фактури што клиентот сам ги издал – програмот ги чита и ги внесува">📷 Скенирај фактури (PDF)</Link>}
-        {dt === 'invoice' && write && <Link className="btn" href="/uvoz?t=invoices&back=izlez">Увоз од Excel</Link>}
-        {dt === 'invoice' && settingsOk && <Link className="btn" href={sp.style !== undefined ? view : view + '?style'}>Изглед на фактура…</Link>}
+        {!hx && dt === 'invoice' && write && <Link className="btn" href="/skan?k=sale" title="PDF или слики од фактури што клиентот сам ги издал – програмот ги чита и ги внесува">📷 Скенирај фактури (PDF)</Link>}
+        {!hx && dt === 'invoice' && write && <Link className="btn" href="/uvoz?t=invoices&back=izlez">Увоз од Excel</Link>}
+        {!hx && dt === 'invoice' && settingsOk && <Link className="btn" href={sp.style !== undefined ? view : view + '?style'}>Изглед на фактура…</Link>}
         <DownloadCsv name={`${DT[dt].view}_${year}.csv`} label="Excel" rows={[['Број', 'Налог', 'Датум', 'Валута', 'Комитент', 'Шифра', 'Основица', 'ДДВ', 'Износ', 'Валута/курс'],
           ...list.map(({ i, p }) => [i.number, J.get(i.id) ?? '', dmy(i.date), dmy(i.due), p?.name ?? '', p?.code ?? '', Number(i.base), Number(i.vat), Number(i.total), i.currency === 'MKD' ? '' : `${i.currency} ${i.fx}`])]} />
-        {write && dt === 'invoice' && <Link className="btn" href="/izlez?nov&prod=1" title="Нарачка по мерка: главен производ, калкулација на производство, налог за производство">🏭 Нова фактура од производство</Link>}
-        {write && <Link className="btn pri" href={view + '?nov'}>+ {DT[dt].nova}</Link>}
+        {!hx && write && dt === 'invoice' && <Link className="btn" href="/izlez?nov&prod=1" title="Нарачка по мерка: главен производ, калкулација на производство, налог за производство">🏭 Нова фактура од производство</Link>}
+        {!hx && write && <Link className="btn pri" href={view + '?nov'}>+ {DT[dt].nova}</Link>}
       </Hd>
-      {dt === 'invoice' && write && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
+      {dt === 'invoice' && write && !hx && <ScanUpload firmId={firm.id} opts={{ kind: 'sale', batchId: null }} small autoOpen={{ back: view }}
         label={<><b>Прочитај излезна фактура од PDF</b> — повлечете ја фактурата (PDF, JPG, PNG) тука или кликнете. Програмот ги чита купувачот, бројот, датумите и ставките и ја отвора фактурата за проверка.</>} />}
       {sp.saved && <div className="callout good">Документот е зачуван. <Link href={`/print/doc/${sp.saved}`} target="_blank">👁 Преглед / печатење</Link>
         {((list.find((r) => r.i.id === sp.saved)?.i.data ?? {}) as InvoiceData).prodRun?.lines?.length ? <> · <Link href={`/print/prodKalk/${sp.saved}`} target="_blank">🖨 Калкулација на производство</Link></> : null}{sp.w && <><br />{sp.w.split(' | ').map((w, k) => <span key={k}>⚠ {w}<br /></span>)}</>}</div>}
@@ -462,7 +462,7 @@ export async function InvoicesView({ dt, sp }: { dt: DtKey; sp: SP }) {
 ${fuel.names.slice(0, 8).map((x) => '• ' + x).join(String.fromCharCode(10))}${fuel.names.length > 8 ? String.fromCharCode(10) + '…' : ''}
 
 Важи за новите фактури/продажби. Фискалниот апарат прилагодете го посебно.`} />}{see('zakoni') && <Link className="btn sm" href="/zakoni">⚖️ Извор</Link>}</span></div>}
-      <p className="note">{INTRO[dt]}</p>
+      {!hx && <p className="note">{INTRO[dt]}</p>}
       <RepostCallout u={u} firmId={firm.id} year={year} />
       {kind === 'credit' && <form action={saveCrMode} className="card row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px' }}>
         <b style={{ fontSize: 13 }}>Книжење на одобренија и повратници:</b>
