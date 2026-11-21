@@ -78,4 +78,23 @@ describe('„Нов (Ins)“ → „Податоци за налог“', () => 
     expect(L[1]!.meta).toBeNull();
     expect(L.map((l) => Number(l.debit) - Number(l.credit))).toEqual([500, -500]);
   });
+
+  it('every line deleted: the opened nalog stays, empty, with nothing in the ledger – the same for any firm', async () => {
+    const [f2] = await pg.insert(schema.firms).values({ name: 'Друга Фирма ДОО' }).returning();
+    for (const fid of [firmId, f2!.id]) {
+      useFirm(fid);
+      const r = await A.openNalogAction({}, form({ number: '', date: '2026-11-21', description: 'бришење', prek: 'da' }));
+      expect(r.no).toBeTruthy();
+      const j = (await pg.select().from(schema.journals).where(and(eq(schema.journals.firmId, fid), eq(schema.journals.number, r.no!))))[0]!;
+      const pay = (R: unknown[]) => form({ payload: JSON.stringify({ id: j.id, number: r.no, date: '2026-11-21', description: 'бришење', periodFrom: '', periodTo: '', rows: R }), stay: '1' });
+      expect(await act(A.saveJournal({}, pay(rows)))).not.toHaveProperty('error');
+      expect(await ledger(j.id)).toHaveLength(2);
+      expect(await act(A.saveJournal({}, pay([])))).not.toHaveProperty('error');
+      expect(await ledger(j.id)).toHaveLength(0);
+      const after = (await pg.select().from(schema.journals).where(eq(schema.journals.id, j.id)))[0]!;
+      expect(after.number).toBe(r.no);
+      expect((after.meta as { rows?: unknown[] }).rows ?? []).toHaveLength(0);
+    }
+    useFirm(firmId);
+  });
 });

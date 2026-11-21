@@ -183,6 +183,22 @@ describe('„Промена на ставка“', () => {
     expect(p.rows.map((r: { debit: string; credit: string }) => [r.debit, r.credit])).toEqual([['120', ''], ['', '120']]);
   });
 
+  it('Бришење of both lines of a manual nalog saves it empty (the lines do not come back)', async () => {
+    const M = [row({ key: 'm1', account: '4400', debit: 100 }), row({ key: 'm2', account: '1000', credit: 100 })];
+    grid(M, docJ('manual'));
+    (window as { confirm: unknown }).confirm = () => true;
+    key(window, 'Delete');
+    await flush();
+    expect(saveJournal).not.toHaveBeenCalled();
+    expect(box!.textContent).toContain('НЕ е зачувано');
+    key(window, 'Delete');
+    await flush();
+    expect(saveJournal).toHaveBeenCalledTimes(1);
+    const p = JSON.parse(String(saveJournal.mock.calls[0]![1].get('payload')));
+    expect(p.id).toBe('j1');
+    expect(p.rows).toEqual([]);
+  });
+
   it('a locked nalog is read-only', () => {
     grid(DOC_ROWS, docJ('none'));
     key(window, 'Enter');
