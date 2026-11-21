@@ -5,11 +5,13 @@
  */
 import { useMemo, useState, useTransition } from 'react';
 import { bulkMealAction, toggleMealAction } from './actions';
+import { tr, type Lang } from '@/lib/npo-i18n';
 
 type Row = { id: string; no: number | null; name: string; members: number; place: string | null };
 const ALL = [['b', 'Појадок'], ['l', 'Ручек'], ['d', 'Вечера']] as const;
 
-export function DayList({ rows, date, taken, write, kinds = ['b', 'l', 'd'] }: { rows: Row[]; date: string; taken: string[]; write: boolean; kinds?: string[] }) {
+export function DayList({ rows, date, taken, write, kinds = ['b', 'l', 'd'], lang = 'mk' }: { rows: Row[]; date: string; taken: string[]; write: boolean; kinds?: string[]; lang?: Lang }) {
+  const t = tr(lang);
   // only the meal kinds the firm serves
   const MEALS = ALL.filter(([k]) => kinds.includes(k));
   const [on, setOn] = useState(() => new Set(taken));
@@ -38,7 +40,7 @@ export function DayList({ rows, date, taken, write, kinds = ['b', 'l', 'd'] }: {
   }
   function all(m: string) {
     const ids = L.map((r) => r.id);
-    if (!ids.length || !window.confirm(`Да се означи ${MEALS.find((x) => x[0] === m)![1].toLowerCase()} за сите ${ids.length} прикажани?`)) return;
+    if (!ids.length || !window.confirm(`${t(MEALS.find((x) => x[0] === m)![1])} – ${t('да се означи за сите прикажани?')} (${ids.length})`)) return;
     start(async () => {
       const r = await bulkMealAction(ids, date, m);
       if (r.error) setErr(r.error);
@@ -49,19 +51,19 @@ export function DayList({ rows, date, taken, write, kinds = ['b', 'l', 'd'] }: {
   return (
     <>
       <div className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0' }}>
-        <input type="search" placeholder="Барај по име, место или број…" value={q} onChange={(e) => setQ(e.target.value)} style={{ minWidth: 260 }} />
-        {MEALS.map(([m, n]) => <span key={m} className="pill">{n}: <b>{count(m)}</b> ({portions(m)} порции)</span>)}
-        {busy && <span className="mk">се зачувува…</span>}
+        <input type="search" placeholder={t('Барај по име, место или број…')} value={q} onChange={(e) => setQ(e.target.value)} style={{ minWidth: 260 }} />
+        {MEALS.map(([m, n]) => <span key={m} className="pill">{t(n)}: <b>{count(m)}</b> ({portions(m)} {t('порции)')}</span>)}
+        {busy && <span className="mk">{t('се зачувува…')}</span>}
       </div>
       {err && <div className="callout bad" role="alert">{err}</div>}
       <table className="tbl">
         <thead>
           <tr>
-            <th style={{ width: 50 }}>Бр.</th><th>Корисник (семејство)</th><th style={{ width: 70 }}>Членови</th><th>Место</th>
+            <th style={{ width: 50 }}>{t('Бр.')}</th><th>{t('Корисник (семејство)')}</th><th style={{ width: 70 }}>{t('Членови')}</th><th>{t('Место')}</th>
             {MEALS.map(([m, n]) => (
               <th key={m} style={{ width: 110, textAlign: 'center' }}>
-                {n}
-                {write && <><br /><button type="button" className="btn sm" onClick={() => all(m)} disabled={busy}>✓ сите</button></>}
+                {t(n)}
+                {write && <><br /><button type="button" className="btn sm" onClick={() => all(m)} disabled={busy}>{t('✓ сите')}</button></>}
               </th>
             ))}
           </tr>
@@ -72,13 +74,13 @@ export function DayList({ rows, date, taken, write, kinds = ['b', 'l', 'd'] }: {
               <td>{r.no ?? ''}</td><td>{r.name}</td><td style={{ textAlign: 'center' }}>{r.members}</td><td>{r.place ?? ''}</td>
               {MEALS.map(([m, n]) => (
                 <td key={m} style={{ textAlign: 'center' }}>
-                  <input type="checkbox" aria-label={`${n} – ${r.name}`} checked={on.has(key(r.id, m))} disabled={!write}
+                  <input type="checkbox" aria-label={`${t(n)} – ${r.name}`} checked={on.has(key(r.id, m))} disabled={!write}
                     onChange={() => flip(r.id, m)} style={{ width: 22, height: 22 }} />
                 </td>
               ))}
             </tr>
           ))}
-          {!L.length && <tr><td colSpan={4 + MEALS.length} className="mk">Нема корисници{q ? ' за пребарувањето' : ' – додајте ги во „Корисници“ или увезете го Excel регистарот'}.</td></tr>}
+          {!L.length && <tr><td colSpan={4 + MEALS.length} className="mk">{t('Нема корисници')}{q ? t(' за пребарувањето') : t(' – додајте ги во „Корисници“ или увезете го Excel регистарот')}.</td></tr>}
         </tbody>
       </table>
     </>

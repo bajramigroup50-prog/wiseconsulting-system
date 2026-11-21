@@ -365,6 +365,13 @@
       "when": 1795268874896,
       "tag": "0051_npo",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1795273400475,
+      "tag": "0052_meal_inactive",
+      "breakpoints": true
     }
   ]
 }

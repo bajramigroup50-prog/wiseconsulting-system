@@ -77,3 +77,13 @@ describe('mealKindsOf', () => {
     expect(mealKindsOf({ meals: { kinds: [] } })).toEqual(['b', 'l', 'd']);
   });
 });
+
+describe('benefOnDay', () => {
+  it('keeps a person on the daily list until the day before „неактивен од“', async () => {
+    const { benefOnDay } = await import('./meals');
+    expect(benefOnDay({ active: true }, '2026-11-21')).toBe(true);
+    expect(benefOnDay({ active: false }, '2026-11-21')).toBe(false);
+    expect(benefOnDay({ active: false, inactiveFrom: '2026-11-22' }, '2026-11-21')).toBe(true);
+    expect(benefOnDay({ active: false, inactiveFrom: '2026-11-21' }, '2026-11-21')).toBe(false);
+  });
+});

@@ -28,7 +28,7 @@ export async function mealLogsBetween(tx: Tx, firmId: string, from: string, to: 
 }
 
 /** `consentDate`: a date sets the signed consent, `null` clears it, omitted keeps it. */
-export async function saveBeneficiary(tx: Tx, a: IndActor, x: BeneficiaryInput & { id?: string | null; active?: boolean; consentDate?: string | null }): Promise<string> {
+export async function saveBeneficiary(tx: Tx, a: IndActor, x: BeneficiaryInput & { id?: string | null; active?: boolean; consentDate?: string | null; inactiveFrom?: string | null; today?: string }): Promise<string> {
   await loadIndustryFirm(tx, a.firmId, 'meals', a);
   const name = (x.name ?? '').replace(/\s+/g, ' ').trim();
   if (!name) fail('Внесете име и презиме.');
@@ -36,14 +36,18 @@ export async function saveBeneficiary(tx: Tx, a: IndActor, x: BeneficiaryInput &
   const embg = (x.embg ?? '').replace(/\D/g, '') || null;
   if (embg && embg.length !== 13) fail('ЕМБГ има 13 цифри.');
   if (x.consentDate && !/^\d{4}-\d{2}-\d{2}$/.test(x.consentDate)) fail('Невалиден датум на согласноста.');
+  if (x.inactiveFrom && !/^\d{4}-\d{2}-\d{2}$/.test(x.inactiveFrom)) fail('Невалиден датум „неактивен од“.');
+  // a date „неактивен од“ makes the person inactive from that day; inactive without a date = from today; active clears it
+  const active = x.inactiveFrom ? false : x.active ?? true;
+  const inactiveFrom = active ? null : x.inactiveFrom || x.today || new Date().toISOString().slice(0, 10);
   const v = {
-    no: x.no ?? null, name, members, nationality: t(x.nationality), embg, place: t(x.place), phone: t(x.phone), note: t(x.note), active: x.active ?? true, updatedAt: new Date(),
+    no: x.no ?? null, name, members, nationality: t(x.nationality), embg, place: t(x.place), phone: t(x.phone), note: t(x.note), active, inactiveFrom, updatedAt: new Date(),
     ...(x.consentDate !== undefined ? { consentDate: x.consentDate || null } : {}),
   };
   let id = x.id ?? '';
   if (id) { await ownBenef(tx, a.firmId, id); await tx.update(mealBeneficiaries).set(v).where(eq(mealBeneficiaries.id, id)); }
   else id = (await tx.insert(mealBeneficiaries).values({ ...v, firmId: a.firmId }).returning({ id: mealBeneficiaries.id }))[0]!.id;
-  await audit(tx, { userId: a.userId, firmId: a.firmId, action: x.id ? 'mealBenSave' : 'mealBenNew', entityType: 'meal_beneficiary', entityId: id, data: { name, members, active: v.active, ...(x.consentDate !== undefined ? { consent: x.consentDate || null } : {}) } });
+  await audit(tx, { userId: a.userId, firmId: a.firmId, action: x.id ? 'mealBenSave' : 'mealBenNew', entityType: 'meal_beneficiary', entityId: id, data: { name, members, active: v.active, inactiveFrom, ...(x.consentDate !== undefined ? { consent: x.consentDate || null } : {}) } });
   return id;
 }
 

@@ -62,6 +62,16 @@ describe('НПО: consent from the edit form and in bulk', () => {
     expect(await get()).toBeNull();
   });
 
+  it('„неактивен од“: a date makes the person inactive from that day, active clears it, inactive without a date = today', async () => {
+    const id = await db.transaction((tx) => saveBeneficiary(tx, A(), { name: 'Bislim Bakiu', members: 2, inactiveFrom: '2026-12-01' }));
+    const get = async () => (await listBeneficiaries(db, firmId, true)).find((b) => b.id === id)!;
+    expect(await get()).toMatchObject({ active: false, inactiveFrom: '2026-12-01' });
+    await db.transaction((tx) => saveBeneficiary(tx, A(), { id, name: 'Bislim Bakiu', members: 2, active: true }));
+    expect(await get()).toMatchObject({ active: true, inactiveFrom: null });
+    await db.transaction((tx) => saveBeneficiary(tx, A(), { id, name: 'Bislim Bakiu', members: 2, active: false, today: '2026-11-21' }));
+    expect(await get()).toMatchObject({ active: false, inactiveFrom: '2026-11-21' });
+  });
+
   it('confirms many at once (own firm only), one audit row each', async () => {
     const ids = (await listBeneficiaries(db, firmId, true)).map((b) => b.id);
     const n = await db.transaction((tx) => setConsentMany(tx, A(), [...ids, '00000000-0000-4000-8000-000000000000'], '2026-11-21'));

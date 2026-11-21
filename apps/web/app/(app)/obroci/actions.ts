@@ -6,7 +6,8 @@ import { isMealKind, parseRegister } from '@wise/core/meals';
 import { StockDocError, setConsentMany, deleteDonationReceipt, importBeneficiaries, issueMealDays, reissueIfIssued, saveBeneficiary, saveDonationReceipt, saveMealStockSettings, setConsent, setMeal, setMealsBulk, type IssueResult } from '@wise/db';
 import { MEALS } from '@wise/core/meals';
 import { dmy } from '@/lib/fmt';
-import { indRun, num, str } from '@/lib/industry';
+import { actT } from '@/lib/npo-lang-action';
+import { indRun, num, str, today } from '@/lib/industry';
 import type { FormState } from '@/components/bank-form';
 
 const P = ['/obroci'];
@@ -22,10 +23,10 @@ export async function saveBenefAction(_p: FormState, f: FormData): Promise<FormS
     await saveBeneficiary(tx, a, {
       id: str(f.get('id')) || null, no: num(f.get('no')), name: str(f.get('name')), members: num(f.get('members')) ?? 1,
       nationality: str(f.get('nationality')), embg: str(f.get('embg')), place: str(f.get('place')), phone: str(f.get('phone')),
-      note: str(f.get('note')), active: f.get('active') !== 'off',
+      note: str(f.get('note')), active: f.get('active') !== 'off', inactiveFrom: f.get('active') === 'off' ? iso(str(f.get('inactiveFrom'))) || null : null, today: today(),
       ...(f.has('consentDate') ? { consentDate: iso(str(f.get('consentDate'))) || null } : {}),
     });
-    return 'Корисникот е зачуван.';
+    return (await actT())('Корисникот е зачуван.');
   });
 }
 
@@ -36,7 +37,8 @@ export async function toggleMealAction(id: string, date: string, meal: string, o
     await setMeal(tx, a, id, date, meal, on);
     // the day already has a kitchen issue → it follows the ticks (one document per day)
     const r = await reissueIfIssued(tx, a, date);
-    return (on ? 'Означено.' : 'Тргнато.') + (r?.short.length ? ' ⚠ Издатницата не е сменета – нема доволно залиха.' : '');
+    const t = await actT();
+    return t(on ? 'Означено.' : 'Тргнато.') + (r?.short.length ? t(' ⚠ Издатницата не е сменета – нема доволно залиха.') : '');
   }, []);
 }
 
@@ -45,7 +47,7 @@ export async function bulkMealAction(ids: string[], date: string, meal: string):
   return stockRun('mealBulk', async ({ tx, a }) => {
     const n = await setMealsBulk(tx, a, ids, date, meal);
     await reissueIfIssued(tx, a, date);
-    return `Означени ${n} корисници.`;
+    return `${(await actT())('Означени корисници:')} ${n}`;
   });
 }
 
@@ -66,7 +68,8 @@ export async function importBenefAction(_p: FormState, f: FormData): Promise<For
   if (!parsed.list.length) return { error: 'Не е најдена колона со име (Emri dhe Mbiemri / Име и презиме).' };
   return indRun('mealImport', P, async ({ tx, a }) => {
     const r = await importBeneficiaries(tx, a, parsed.list);
-    return `Увезено: ${r.added} нови, ${r.updated} ажурирани${parsed.skipped ? `, ${parsed.skipped} редови без име прескокнати` : ''}.`;
+    const t = await actT();
+    return `${t('Увезено:')} ${r.added} ${t('нови')}, ${r.updated} ${t('ажурирани')}${parsed.skipped ? `, ${parsed.skipped} ${t('редови без име прескокнати')}` : ''}.`;
   });
 }
 
@@ -77,7 +80,7 @@ export async function consentAction(_p: FormState, f: FormData): Promise<FormSta
   const files = f.getAll('fileIds').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
   return indRun('mealConsent', P, async ({ tx, a }) => {
     await setConsent(tx, a, str(f.get('id')), d || null, files);
-    return d ? 'Согласноста е евидентирана.' : 'Согласноста е тргната (без согласност).';
+    return (await actT())(d ? 'Согласноста е евидентирана.' : 'Согласноста е тргната (без согласност).');
   });
 }
 
@@ -95,7 +98,7 @@ export async function mealNormAction(_p: FormState, f: FormData): Promise<FormSt
     const kinds = MEALS.map(([k]) => k).filter((k) => f.get(`kind_${k}`) === '1');
     if (!kinds.length) throw new StockDocError('Изберете барем еден оброк што се дава.');
     await saveMealStockSettings(tx, a, { wh: str(f.get('wh')) || null, konto: str(f.get('konto')) || null, norm, kinds });
-    return 'Нормативите се зачувани.';
+    return (await actT())('Нормативите се зачувани.');
   });
 }
 
@@ -127,7 +130,7 @@ export async function donReceiptAction(_p: FormState, f: FormData): Promise<Form
       id: str(f.get('id')) || null, donationId: str(f.get('donationId')) || null, date: str(f.get('date')), wh: str(f.get('wh')) || null,
       account: str(f.get('account')) || null, note: str(f.get('note')) || null, lines,
     });
-    return `Приемницата ${r.number} е зачувана.`;
+    return `${(await actT())('Приемницата е зачувана:')} ${r.number}`;
   });
   // back to the list (a second click on the open editor would make a second receipt)
   if (st.ok) redirect('/obroci?t=z');
@@ -135,13 +138,13 @@ export async function donReceiptAction(_p: FormState, f: FormData): Promise<Form
 }
 
 export async function deleteDonReceiptAction(id: string): Promise<FormState> {
-  return stockRun('donRecDel', async ({ tx, a }) => { await deleteDonationReceipt(tx, a, id); return 'Приемницата е избришана.'; });
+  return stockRun('donRecDel', async ({ tx, a }) => { await deleteDonationReceipt(tx, a, id); return (await actT())('Приемницата е избришана.'); });
 }
 
 /** One click on the pill of the register: set / change (`date`) or remove (`null`) the consent. */
 export async function quickConsentAction(id: string, date: string | null): Promise<FormState> {
   if (date && !iso(date)) return { error: 'Невалиден датум.' };
-  return indRun('mealConsent', P, async ({ tx, a }) => { await setConsentMany(tx, a, [id], date); return date ? 'Согласноста е потврдена.' : 'Согласноста е тргната.'; });
+  return indRun('mealConsent', P, async ({ tx, a }) => { await setConsentMany(tx, a, [id], date); return (await actT())(date ? 'Согласноста е потврдена.' : 'Согласноста е тргната.'); });
 }
 
 /** „✓ Потврди согласност за избраните“: the ticked rows of the register (`sel`) get the date. */
@@ -150,5 +153,5 @@ export async function bulkConsentAction(_p: FormState, f: FormData): Promise<For
   if (!date) return { error: 'Внесете датум.' };
   const ids = f.getAll('sel').map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
   if (!ids.length) return { error: 'Означете ги корисниците (кутичките лево).' };
-  return indRun('mealConsent', P, async ({ tx, a }) => `Согласност потврдена за ${await setConsentMany(tx, a, ids, date)} корисници (${dmy(date)}).`);
+  return indRun('mealConsent', P, async ({ tx, a }) => `${(await actT())('Согласност потврдена, корисници:')} ${await setConsentMany(tx, a, ids, date)} (${dmy(date)}).`);
 }

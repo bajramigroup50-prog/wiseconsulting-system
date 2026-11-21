@@ -5,6 +5,7 @@ import { parseMembers } from '@wise/core/npo';
 import { deleteMember, importMembers, markMembersReviewed, saveMember } from '@wise/db';
 import { indRun, str, today } from '@/lib/industry';
 import type { FormState } from '@/components/bank-form';
+import { actT } from '@/lib/npo-lang-action';
 
 const P = ['/clenovi', '/rokovi'];
 
@@ -14,16 +15,16 @@ export async function saveMemberAction(_p: FormState, f: FormData): Promise<Form
       id: str(f.get('id')) || null, name: str(f.get('name')), embg: str(f.get('embg')), address: str(f.get('address')), phone: str(f.get('phone')),
       email: str(f.get('email')), joined: str(f.get('joined')) || null, left: str(f.get('left')) || null, organ: str(f.get('organ')), role: str(f.get('role')), note: str(f.get('note')),
     });
-    return 'Членот е зачуван.';
+    return (await actT())('Членот е зачуван.');
   });
 }
 
 export async function deleteMemberAction(id: string): Promise<FormState> {
-  return indRun('npoMemDel', P, async ({ tx, a }) => { await deleteMember(tx, a, id); return 'Членот е избришан.'; });
+  return indRun('npoMemDel', P, async ({ tx, a }) => { await deleteMember(tx, a, id); return (await actT())('Членот е избришан.'); });
 }
 
 export async function reviewMembersAction(_p: FormState, _f: FormData): Promise<FormState> {
-  return indRun('npoMemReview', P, async ({ tx, a }) => { await markMembersReviewed(tx, a, today()); return 'Регистарот е означен како прегледан и ажуриран денес.'; });
+  return indRun('npoMemReview', P, async ({ tx, a }) => { await markMembersReviewed(tx, a, today()); return (await actT())('Регистарот е означен како прегледан и ажуриран денес.'); });
 }
 
 export async function importMembersAction(_p: FormState, f: FormData): Promise<FormState> {
@@ -41,6 +42,7 @@ export async function importMembersAction(_p: FormState, f: FormData): Promise<F
   if (!parsed.list.length) return { error: 'Не е најдена колона „Име и презиме“.' };
   return indRun('npoMemImport', P, async ({ tx, a }) => {
     const r = await importMembers(tx, a, parsed.list);
-    return `Увезено: ${r.added} нови, ${r.updated} ажурирани${parsed.skipped ? `, ${parsed.skipped} редови без име прескокнати` : ''}.`;
+    const t = await actT();
+    return `${t('Увезено:')} ${r.added} ${t('нови')}, ${r.updated} ${t('ажурирани')}${parsed.skipped ? `, ${parsed.skipped} ${t('редови без име прескокнати')}` : ''}.`;
   });
 }

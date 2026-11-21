@@ -6,7 +6,7 @@
  * screen when the office switches on the section „Корисници и оброци“.
  */
 import Link from 'next/link';
-import { costPerPortion, MEALS, mealKindsOf, monthSummary, registerSummary } from '@wise/core/meals';
+import { benefOnDay, costPerPortion, MEALS, mealKindsOf, monthSummary, registerSummary } from '@wise/core/meals';
 import { withoutConsent } from '@wise/core/npo';
 import { consentFiles, listBeneficiaries, listMembers, mealLogsBetween, npoMovements } from '@wise/db';
 import { db } from '@/lib/db';
@@ -23,20 +23,23 @@ import { DayList } from './day-list';
 import { FitDoc } from '@/components/fit-doc';
 import { ConsentDoc, ProcessingRecords } from './docs';
 import { KitchenReport, KitchenTab } from './kitchen';
+import { LangSwitch } from '@/components/lang-switch';
+import { npoLang } from '@/lib/npo-lang';
+import { tr, type Lang } from '@/lib/npo-i18n';
 
-const T = 'Корисници и оброци';
+const T_MK = 'Корисници и оброци';
 const isIso = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 /** Period of the report: `p=m` month (`m=YYYY-MM`), `p=q` quarter (`q=YYYY-Qn`), `p=r` from / to. */
-function period(sp: { p?: string; m?: string; q?: string; od?: string; do?: string }, d: string) {
+function period(sp: { p?: string; m?: string; q?: string; od?: string; do?: string }, d: string, lang: Lang = 'mk') {
   const [y, mo] = d.split('-').map(Number) as [number, number];
   if (sp.p === 'r' && isIso(sp.od) && isIso(sp.do) && sp.od! <= sp.do!) return { from: sp.od!, to: sp.do!, label: `${dmy(sp.od!)} – ${dmy(sp.do!)}` };
   if (sp.p === 'q') {
     const m = /^(\d{4})-Q([1-4])$/.exec(sp.q ?? '');
     const qy = m ? Number(m[1]) : y, q = m ? Number(m[2]) : Math.ceil(mo / 3);
     const m1 = (q - 1) * 3 + 1, m3 = m1 + 2;
-    return { from: `${qy}-${String(m1).padStart(2, '0')}-01`, to: `${qy}-${String(m3).padStart(2, '0')}-${lastDay(qy, m3)}`, label: `${q}. квартал ${qy}` };
+    return { from: `${qy}-${String(m1).padStart(2, '0')}-01`, to: `${qy}-${String(m3).padStart(2, '0')}-${lastDay(qy, m3)}`, label: lang === 'sq' ? `tremujori ${q}, ${qy}` : `${q}. квартал ${qy}` };
   }
   const mm = /^(\d{4})-(\d{2})$/.exec(sp.m ?? '');
   const my = mm ? Number(mm[1]) : y, mn = mm ? Number(mm[2]) : mo;
@@ -45,23 +48,29 @@ function period(sp: { p?: string; m?: string; q?: string; od?: string; do?: stri
 
 export default async function Obroci({ searchParams }: { searchParams: Promise<{ t?: string; d?: string; id?: string; nov?: string; p?: string; m?: string; q?: string; od?: string; do?: string; all?: string; sm?: string; nc?: string; sog?: string; pr?: string; nd?: string }> }) {
   const sp = await searchParams;
-  const g = await industryPage('obroci', T);
+  const g = await industryPage('obroci', T_MK);
   if (g.blocked) return g.blocked;
   const { firm, write } = g;
+  const lang = await npoLang(firm, g.u.role);
+  const t = tr(lang);
+  const T = t(T_MK);
   // the meal kinds the firm serves (settings in 🥫 Кујна); ticks of the others stay hidden
   const kinds = mealKindsOf(firm.settings);
   const KM = MEALS.filter(([k]) => kinds.includes(k));
   const tab = sp.t === 'k' || sp.t === 'i' || sp.t === 'z' || sp.t === 'e' ? sp.t : 'd';
   const D = isIso(sp.d) ? sp.d! : today();
-  const B = await listBeneficiaries(db(), firm.id, tab === 'k' && sp.all === '1');
+  const B0 = await listBeneficiaries(db(), firm.id, tab === 'd' || (tab === 'k' && sp.all === '1'));
+  // the daily list keeps a person until the day before „неактивен од“
+  const B = tab === 'd' ? B0.filter((b) => benefOnDay(b, D)) : B0;
   const Tabs = (
     <div className="row" style={{ gap: 6, margin: '6px 0 10px' }}>
-      <Link className={'btn' + (tab === 'd' ? ' pri' : '')} href={`/obroci?d=${D}`}>📋 Дневна листа</Link>
-      <Link className={'btn' + (tab === 'k' ? ' pri' : '')} href="/obroci?t=k">👪 Корисници ({B.filter((b) => b.active).length})</Link>
-      <Link className={'btn' + (tab === 'i' ? ' pri' : '')} href="/obroci?t=i">📊 Извештаи</Link>
-      <Link className={'btn' + (tab === 'z' ? ' pri' : '')} href="/obroci?t=z">🥫 Кујна – залиха</Link>
-      <Link className={'btn' + (tab === 'e' ? ' pri' : '')} href="/obroci?t=e">🔒 Лични податоци</Link>
-      <Link className="btn" href="/clenovi">🧑‍🤝‍🧑 Регистар на членови</Link>
+      <Link className={'btn' + (tab === 'd' ? ' pri' : '')} href={`/obroci?d=${D}`}>{t('📋 Дневна листа')}</Link>
+      <Link className={'btn' + (tab === 'k' ? ' pri' : '')} href="/obroci?t=k">{t('👪 Корисници (')}{B.filter((b) => b.active).length})</Link>
+      <Link className={'btn' + (tab === 'i' ? ' pri' : '')} href="/obroci?t=i">{t('📊 Извештаи')}</Link>
+      <Link className={'btn' + (tab === 'z' ? ' pri' : '')} href="/obroci?t=z">{t('🥫 Кујна – залиха')}</Link>
+      <Link className={'btn' + (tab === 'e' ? ' pri' : '')} href="/obroci?t=e">{t('🔒 Лични податоци')}</Link>
+      <LangSwitch lang={lang} />
+      <Link className="btn" href="/clenovi">{t('🧑‍🤝‍🧑 Регистар на членови')}</Link>
     </div>
   );
 
@@ -71,18 +80,18 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
     const prev = new Date(Date.parse(D) - 864e5).toISOString().slice(0, 10), next = new Date(Date.parse(D) + 864e5).toISOString().slice(0, 10);
     return (
       <>
-        <Hd t={'🍲 ' + T} sub={`дневна листа · ${dmy(D)}`} />
+        <Hd t={'🍲 ' + T} sub={`${t('дневна листа')} · ${dmy(D)}`} />
         {Tabs}
         <form className="row" style={{ gap: 8, alignItems: 'end' }}>
           <Link className="btn sm" href={`/obroci?d=${prev}`}>◀</Link>
-          <label className="f">Датум<input type="date" name="d" defaultValue={D} /></label>
-          <button className="btn">Прикажи</button>
+          <label className="f">{t('Датум')}<input type="date" name="d" defaultValue={D} /></label>
+          <button className="btn">{t('Прикажи')}</button>
           <Link className="btn sm" href={`/obroci?d=${next}`}>▶</Link>
-          {D !== today() && <Link className="btn sm" href="/obroci">Денес</Link>}
+          {D !== today() && <Link className="btn sm" href="/obroci">{t('Денес')}</Link>}
         </form>
-        <DayList key={D} date={D} write={write} kinds={kinds} taken={L.filter((x) => kinds.includes(x.meal as never)).map((x) => `${x.beneficiaryId}:${x.meal}`)}
+        <DayList key={D} lang={lang} date={D} write={write} kinds={kinds} taken={L.filter((x) => kinds.includes(x.meal as never)).map((x) => `${x.beneficiaryId}:${x.meal}`)}
           rows={B.map((b) => ({ id: b.id, no: b.no, name: b.name, members: b.members, place: b.place }))} />
-        <p className="note">Секој клик се зачувува веднаш. „Порции“ = оброци × членови на семејството.</p>
+        <p className="note">{t('Секој клик се зачувува веднаш. „Порции“ = оброци × членови на семејството.')}</p>
       </>
     );
   }
@@ -95,9 +104,9 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
     const F = one ? await consentFiles(db(), [one.id]) : new Map<string, string[]>();
     return (
       <>
-        <Hd t={'🍲 ' + T} sub={one ? `согласност за лични податоци · ${one.name}` : `согласности за ${list.length} корисници без согласност`} exp={false} excel={false}>
-          <PdfButton selector="#consentDocs" title={one ? `Согласност ${one.name}` : 'Согласности'} />
-          <Link className="btn" href="/obroci?t=k">← Регистар</Link>
+        <Hd t={'🍲 ' + T} sub={one ? `${t('согласност за лични податоци')} · ${one.name}` : `${t('согласности за корисници без согласност')}: ${list.length}`} exp={false} excel={false}>
+          <PdfButton selector="#consentDocs" title={one ? `${t('Согласност')} ${one.name}` : t('Согласности')} />
+          <Link className="btn" href="/obroci?t=k">{t('← Регистар')}</Link>
         </Hd>
         {Tabs}
         {one && write && (
@@ -105,19 +114,19 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
             <BankForm action={consentAction}>
               <input type="hidden" name="id" value={one.id} />
               <div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
-                <label className="f">Датум на потпишаната согласност<input type="date" name="consentDate" defaultValue={one.consentDate ?? ''} /></label>
-                <UploadField firmId={firm.id} label="📎 Скенирана потпишана согласност" accept="application/pdf,image/*" />
-                <button className="btn pri">Зачувај</button>
+                <label className="f">{t('Датум на потпишаната согласност')}<input type="date" name="consentDate" defaultValue={one.consentDate ?? ''} /></label>
+                <UploadField firmId={firm.id} label={t('📎 Скенирана потпишана согласност')} accept="application/pdf,image/*" />
+                <button className="btn pri">{t('Зачувај')}</button>
                 {(F.get(one.id) ?? []).map((f, i) => <a key={f} className="btn sm" href={`/api/files/${f}`} target="_blank" rel="noopener">📎 {i + 1}</a>)}
               </div>
-              <p className="mini">Испечатете ја, корисникот ја потпишува, внесете го датумот и прикачете ја скенираната. Празен датум = без согласност.</p>
+              <p className="mini">{t('Испечатете ја, корисникот ја потпишува, внесете го датумот и прикачете ја скенираната. Празен датум = без согласност.')}</p>
             </BankForm>
           </div>
         )}
         <div className="pdfwrap">
           {list.length ? <FitDoc width="190mm"><div id="consentDocs">
             {list.map((b, i) => <div key={b.id} className="pdfdoc" style={{ margin: '0 0 8mm', ...(i ? { breakBefore: 'page' as const } : {}) }}><ConsentDoc b={b} firm={firm} /></div>)}
-          </div></FitDoc> : <p className="muted">Сите активни корисници имаат согласност.</p>}
+          </div></FitDoc> : <p className="muted">{t('Сите активни корисници имаат согласност.')}</p>}
         </div>
       </>
     );
@@ -128,31 +137,31 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
     const act = all.filter((b) => b.active), no = withoutConsent(all);
     return (
       <>
-        <Hd t={'🍲 ' + T} sub="лични податоци (ЗЗЛП) · согласности и евиденција на активности за обработка" exp={false} excel={false}>
-          <PdfButton selector="#zzlpRec" title={`Евиденција на активности за обработка – ${firm.name}`} landscape />
+        <Hd t={'🍲 ' + T} sub={t('лични податоци (ЗЗЛП) · согласности и евиденција на активности за обработка')} exp={false} excel={false}>
+          <PdfButton selector="#zzlpRec" title={`${t('Евиденција на активности за обработка')} – ${firm.name}`} landscape />
         </Hd>
         {Tabs}
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
-          <span className="pill">Активни корисници: <b>{act.length}</b></span>
-          <span className="pill good">Со согласност: <b>{act.length - no.length}</b></span>
-          <Link className={'pill' + (no.length ? ' bad' : '')} href="/obroci?t=k&nc=1">Без согласност: <b>{no.length}</b></Link>
-          {no.length > 0 && <Link className="btn sm" href="/obroci?t=k&sog=all">🖨 Согласности за сите без согласност</Link>}
+          <span className="pill">{t('Активни корисници:')} <b>{act.length}</b></span>
+          <span className="pill good">{t('Со согласност:')} <b>{act.length - no.length}</b></span>
+          <Link className={'pill' + (no.length ? ' bad' : '')} href="/obroci?t=k&nc=1">{t('Без согласност:')} <b>{no.length}</b></Link>
+          {no.length > 0 && <Link className="btn sm" href="/obroci?t=k&sog=all">{t('🖨 Согласности за сите без согласност')}</Link>}
         </div>
-        <p className="note">Податоците за социјалната и здравствената состојба се посебна категорија лични податоци – се обработуваат само со изречна писмена согласност. Евиденцијата подолу е пополнета со податоците на здружението; проверете ја и потпишете ја.</p>
+        <p className="note">{t('Податоците за социјалната и здравствената состојба се посебна категорија лични податоци – се обработуваат само со изречна писмена согласност. Евиденцијата подолу е пополнета со податоците на здружението; проверете ја и потпишете ја.')}</p>
         <div className="card"><div className="pdfwrap"><FitDoc width="277mm"><div id="zzlpRec" className="pdfdoc land">
-          <ProcessingRecords firm={firm} today={today()} counts={{ benef: act.length, members: M.filter((m) => !m.left).length }} />
+          <ProcessingRecords lang={lang} firm={firm} today={today()} counts={{ benef: act.length, members: M.filter((m) => !m.left).length }} />
         </div></FitDoc></div></div>
       </>
     );
   }
 
   if (tab === 'z') {
-    const P = period({ ...sp, p: sp.od && sp.do ? 'r' : sp.p }, D);
+    const P = period({ ...sp, p: sp.od && sp.do ? 'r' : sp.p }, D, lang);
     return (
       <>
-        <Hd t={'🍲 ' + T} sub="кујна – залиха, норматив, издатници и приемници на донации" exp={false} excel={false} />
+        <Hd t={'🍲 ' + T} sub={t('кујна – залиха, норматив, издатници и приемници на донации')} exp={false} excel={false} />
         {Tabs}
-        <KitchenTab firm={firm} write={write} from={P.from} to={P.to} pr={sp.pr} nd={sp.nd} />
+        <KitchenTab lang={lang} firm={firm} write={write} from={P.from} to={P.to} pr={sp.pr} nd={sp.nd} />
       </>
     );
   }
@@ -166,70 +175,72 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
     const showForm = write && (!!E || sp.nov === '1');
     return (
       <>
-        <Hd t={'🍲 ' + T} sub="регистар на семејства / лица">
-          {write && <Link className="btn pri" href="/obroci?t=k&nov=1">+ Нов корисник</Link>}
-          {sp.all === '1' ? <Link className="btn" href="/obroci?t=k">Само активни</Link> : <Link className="btn" href="/obroci?t=k&all=1">Прикажи и неактивни</Link>}
-          {sp.nc === '1' ? <Link className="btn" href="/obroci?t=k">Сите</Link> : <Link className="btn" href="/obroci?t=k&nc=1">Без согласност ({noC})</Link>}
-          {noC > 0 && <Link className="btn" href="/obroci?t=k&sog=all">🖨 Согласности (празни)</Link>}
+        <Hd t={'🍲 ' + T} sub={t('регистар на семејства / лица')}>
+          {write && <Link className="btn pri" href="/obroci?t=k&nov=1">{t('+ Нов корисник')}</Link>}
+          {sp.all === '1' ? <Link className="btn" href="/obroci?t=k">{t('Само активни')}</Link> : <Link className="btn" href="/obroci?t=k&all=1">{t('Прикажи и неактивни')}</Link>}
+          {sp.nc === '1' ? <Link className="btn" href="/obroci?t=k">{t('Сите')}</Link> : <Link className="btn" href="/obroci?t=k&nc=1">{t('Без согласност (')}{noC})</Link>}
+          {noC > 0 && <Link className="btn" href="/obroci?t=k&sog=all">{t('🖨 Согласности (празни)')}</Link>}
         </Hd>
         {Tabs}
         {showForm && (
           <div className="card">
-            <h2 style={{ margin: '0 0 6px' }}>{E ? `✎ ${E.name}` : '+ Нов корисник'}</h2>
+            <h2 style={{ margin: '0 0 6px' }}>{E ? `✎ ${E.name}` : t('+ Нов корисник')}</h2>
             <BankForm action={saveBenefAction}>
               <input type="hidden" name="id" value={E?.id ?? ''} />
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                <label className="f" style={{ width: 70 }}>Бр.<input name="no" defaultValue={E?.no ?? ''} inputMode="numeric" /></label>
-                <label className="f" style={{ minWidth: 240 }}>Име и презиме (носител)<input name="name" required defaultValue={E?.name ?? ''} /></label>
-                <label className="f" style={{ width: 90 }}>Членови<input name="members" type="number" min={1} max={50} defaultValue={E?.members ?? 1} /></label>
-                <label className="f">Националност<input name="nationality" defaultValue={E?.nationality ?? ''} /></label>
-                <label className="f">ЕМБГ<input name="embg" defaultValue={E?.embg ?? ''} inputMode="numeric" maxLength={13} /></label>
-                <label className="f">Место / населба<input name="place" defaultValue={E?.place ?? ''} /></label>
-                <label className="f">Телефон<input name="phone" defaultValue={E?.phone ?? ''} /></label>
-                <label className="f" title="Датум на потпишаната согласност за лични податоци; празно = без согласност">Согласност (датум)<input type="date" name="consentDate" defaultValue={E ? E.consentDate ?? '' : ''} /></label>
-                {E && <label className="f">Статус<select name="active" defaultValue={E.active ? 'on' : 'off'}><option value="on">активен</option><option value="off">неактивен (не доаѓа повеќе)</option></select></label>}
+                <label className="f" style={{ width: 70 }}>{t('Бр.')}<input name="no" defaultValue={E?.no ?? ''} inputMode="numeric" /></label>
+                <label className="f" style={{ minWidth: 240 }}>{t('Име и презиме (носител)')}<input name="name" required defaultValue={E?.name ?? ''} /></label>
+                <label className="f" style={{ width: 90 }}>{t('Членови')}<input name="members" type="number" min={1} max={50} defaultValue={E?.members ?? 1} /></label>
+                <label className="f">{t('Националност')}<input name="nationality" defaultValue={E?.nationality ?? ''} /></label>
+                <label className="f">{t('ЕМБГ')}<input name="embg" defaultValue={E?.embg ?? ''} inputMode="numeric" maxLength={13} /></label>
+                <label className="f">{t('Место / населба')}<input name="place" defaultValue={E?.place ?? ''} /></label>
+                <label className="f">{t('Телефон')}<input name="phone" defaultValue={E?.phone ?? ''} /></label>
+                <label className="f" title={t('Датум на потпишаната согласност за лични податоци; празно = без согласност')}>{t('Согласност (датум)')}<input type="date" name="consentDate" defaultValue={E ? E.consentDate ?? '' : ''} /></label>
+                {E && <label className="f">{t('Статус')}<select name="active" defaultValue={E.active ? 'on' : 'off'}><option value="on">{t('активен')}</option><option value="off">{t('неактивен (не доаѓа повеќе)')}</option></select></label>}
+                {E && <label className="f" title={t('Првиот ден кога веќе не доаѓа (до претходниот ден е во дневната листа); празно = од денес. Важи само за статус „неактивен“.')}>{t('Неактивен од')}<input type="date" name="inactiveFrom" defaultValue={E.inactiveFrom ?? ''} /></label>}
               </div>
-              <label className="f" style={{ display: 'block', marginTop: 6 }}>Опис / состојба<textarea name="note" rows={2} defaultValue={E?.note ?? ''} style={{ width: '100%' }} /></label>
-              <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn pri">Зачувај</button><Link className="btn" href="/obroci?t=k">Откажи</Link></div>
+              <label className="f" style={{ display: 'block', marginTop: 6 }}>{t('Опис / состојба')}<textarea name="note" rows={2} defaultValue={E?.note ?? ''} style={{ width: '100%' }} /></label>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn pri">{t('Зачувај')}</button><Link className="btn" href="/obroci?t=k">{t('Откажи')}</Link></div>
             </BankForm>
           </div>
         )}
         {write && (
           <details className="card" open={!B.length}>
-            <summary>⬆ Увоз од Excel (регистарот на здружението)</summary>
-            <p className="mini">Колони: Nr. · Emri dhe Mbiemri · Anëtarë · Nacionaliteti · Përshkrimi / Gjendja · Numri Amë · Vendbanimi · Kontakt (или на македонски). Постоечките (ист ЕМБГ, или исто име) се ажурираат, новите се додаваат.</p>
+            <summary>{t('⬆ Увоз од Excel (регистарот на здружението)')}</summary>
+            <p className="mini">{t('Колони: Nr. · Emri dhe Mbiemri · Anëtarë · Nacionaliteti · Përshkrimi / Gjendja · Numri Amë · Vendbanimi · Kontakt (или на македонски). Постоечките (ист ЕМБГ, или исто име) се ажурираат, новите се додаваат.')}</p>
             <BankForm action={importBenefAction}>
               <div className="row" style={{ gap: 8, alignItems: 'end' }}>
                 <input type="file" name="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" required />
-                <button className="btn pri">Увези</button>
+                <button className="btn pri">{t('Увези')}</button>
               </div>
             </BankForm>
           </details>
         )}
         {write && BB.length > 0 && (
           <BankForm action={bulkConsentAction} id="consentBulk" className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap', margin: '6px 0' }}>
-            <label className="f">Датум на согласноста<input type="date" name="date" defaultValue={today()} required /></label>
-            <button className="btn pri">✓ Потврди согласност за избраните</button>
-            <span className="mini">Означете ги кутичките лево (или горната – за сите, па тргнете ги оние на кои им недостасува нешто). Скенот се прикачува преку 📎.</span>
+            <label className="f">{t('Датум на согласноста')}<input type="date" name="date" defaultValue={today()} required /></label>
+            <button className="btn pri">{t('✓ Потврди согласност за избраните')}</button>
+            <span className="mini">{t('Означете ги кутичките лево (или горната – за сите, па тргнете ги оние на кои им недостасува нешто). Скенот се прикачува преку 📎.')}</span>
           </BankForm>
         )}
-        {dupNo.size > 0 && <div className="callout warn">⚠ Двоен број во регистарот: {[...dupNo].sort((a, b) => a - b).join(', ')} – проверете ги и сменете го бројот преку ✎ (не се менува автоматски).</div>}
+        {dupNo.size > 0 && <div className="callout warn">{t('⚠ Двоен број во регистарот:')} {[...dupNo].sort((a, b) => a - b).join(', ')} {t('– проверете ги и сменете го бројот преку ✎ (не се менува автоматски).')}</div>}
         <div id="obrociReg">
           <table className="dense">
-            <thead><tr>{write && <th className="noprint"><SelAll form="consentBulk" /></th>}<th>Бр.</th><th>Име и презиме</th><th className="n">Чл.</th><th>Нац.</th><th>ЕМБГ</th><th>Место</th><th>Телефон</th><th>Опис / состојба</th><th>Согласност</th>{write && <th />}</tr></thead>
+            <thead><tr>{write && <th className="noprint"><SelAll lang={lang} form="consentBulk" /></th>}<th>{t('Бр.')}</th><th>{t('Име и презиме')}</th><th className="n">{t('Чл.')}</th><th>{t('Нац.')}</th><th>{t('ЕМБГ')}</th><th>{t('Место')}</th><th>{t('Телефон')}</th><th>{t('Опис / состојба')}</th><th>{t('Неактивен од')}</th><th>{t('Согласност')}</th>{write && <th />}</tr></thead>
             <tbody>
               {BB.map((b) => (
                 <tr key={b.id} style={b.active ? undefined : { opacity: 0.55 }}>
                   {write && <td className="noprint"><input type="checkbox" name="sel" value={b.id} form="consentBulk" aria-label={b.name} /></td>}
-                  <td>{b.no ?? ''}{b.no != null && dupNo.has(b.no) && <span className="pill warn" title="Истиот број го има и друг корисник"> двоен број</span>}</td><td>{b.name}{!b.active && ' (неактивен)'}</td><td className="n">{b.members}</td><td>{b.nationality ?? ''}</td>
+                  <td>{b.no ?? ''}{b.no != null && dupNo.has(b.no) && <span className="pill warn" title={t('Истиот број го има и друг корисник')}> {t('двоен број')}</span>}</td><td>{b.name}{!b.active && t(' (неактивен)')}</td><td className="n">{b.members}</td><td>{b.nationality ?? ''}</td>
                   <td>{b.embg ?? ''}</td><td>{b.place ?? ''}</td><td>{b.phone ?? ''}</td><td className="mini">{b.note ?? ''}</td>
-                  <td><ConsentPill id={b.id} date={b.consentDate} write={write} /></td>
+                  <td>{b.inactiveFrom ? dmy(b.inactiveFrom) : ''}</td>
+                  <td><ConsentPill lang={lang} id={b.id} date={b.consentDate} write={write} /></td>
                   {write && <td><Link className="btn sm" href={`/obroci?t=k&id=${b.id}${sp.all === '1' ? '&all=1' : ''}`}>✎</Link></td>}
                 </tr>
               ))}
-              {!BB.length && <tr><td colSpan={11} className="muted">Нема корисници – додајте ги или увезете го Excel регистарот.</td></tr>}
+              {!BB.length && <tr><td colSpan={12} className="muted">{t('Нема корисници – додајте ги или увезете го Excel регистарот.')}</td></tr>}
             </tbody>
-            <tfoot><tr className="tot">{write && <td className="noprint" />}<td /><td>Вкупно {BB.length} семејства / лица</td><td className="n">{BB.reduce((s, b) => s + b.members, 0)}</td><td colSpan={write ? 7 : 6} /></tr></tfoot>
+            <tfoot><tr className="tot">{write && <td className="noprint" />}<td /><td>{t('Вкупно')} {BB.length} {t('семејства / лица')}</td><td className="n">{BB.reduce((s, b) => s + b.members, 0)}</td><td colSpan={write ? 8 : 7} /></tr></tfoot>
           </table>
         </div>
       </>
@@ -237,7 +248,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   }
 
   // ---- reports
-  const P = period(sp, D);
+  const P = period(sp, D, lang);
   const all = await listBeneficiaries(db(), firm.id, true);
   const [L0, M] = await Promise.all([mealLogsBetween(db(), firm.id, P.from, P.to), npoMovements(db(), firm.id, P.from, P.to)]);
   const L = L0.filter((x) => kinds.includes(x.meal as never));
@@ -246,7 +257,7 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   const name = (id: string) => byId.get(id)?.name ?? '';
   // every active family (0 meals too, so an imported register never looks empty); inactive ones only when they ate in the period; `sm=1` = only with meals
   const onlyMeals = sp.sm === '1';
-  const rows = S.rows.filter((r) => (onlyMeals ? r.meals > 0 : r.meals > 0 || byId.get(r.id)?.active)).sort((a, b) => (byId.get(a.id)?.no ?? 1e9) - (byId.get(b.id)?.no ?? 1e9) || name(a.id).localeCompare(name(b.id), 'mk'));
+  const rows = S.rows.filter((r) => (onlyMeals ? r.meals > 0 : r.meals > 0 || (byId.get(r.id) && benefOnDay(byId.get(r.id)!, P.from)))).sort((a, b) => (byId.get(a.id)?.no ?? 1e9) - (byId.get(b.id)?.no ?? 1e9) || name(a.id).localeCompare(name(b.id), 'mk'));
   const RS = registerSummary(all.filter((b) => b.active));
   const exp = M.filter((x) => x.account.startsWith('4')), inc = M.filter((x) => x.account.startsWith('7'));
   const expTot = exp.reduce((s, x) => s + x.debit - x.credit, 0), incTot = inc.reduce((s, x) => s + x.credit - x.debit, 0);
@@ -255,84 +266,84 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
   const ym = sp.m ?? `${y}-${String(mo).padStart(2, '0')}`, yq = sp.q ?? `${y}-Q${Math.ceil(mo / 3)}`;
   return (
     <>
-      <Hd t={'🍲 ' + T} sub={`извештај · ${P.label}`} exp={false} excel={false}>
-        <PdfButton selector="#obrociRep" title={`Корисници и оброци ${P.label}`} landscape />
+      <Hd t={'🍲 ' + T} sub={`${t('извештај')} · ${P.label}`} exp={false} excel={false}>
+        <PdfButton selector="#obrociRep" title={`${T} ${P.label}`} landscape />
         <XlsxButton name={`obroci-${P.from}-${P.to}`} sheets={[
-          { name: 'Оброци', rows: [['Бр.', 'Корисник', 'Членови', 'Денови', ...KM.map(([, n]) => n), ...(KM.length > 1 ? ['Оброци'] : []), 'Порции'], ...rows.map((r) => [byId.get(r.id)?.no ?? '', name(r.id), byId.get(r.id)?.members ?? 1, r.days, ...KM.map(([k]) => r[k]), ...(KM.length > 1 ? [r.meals] : []), r.portions])] },
-          { name: 'Движења', rows: [['Конто', 'Назив', 'Должи', 'Побарува', 'Салдо'], ...M.map((x) => [x.account, x.name, x.debit, x.credit, x.debit - x.credit])] },
+          { name: t('Оброци'), rows: [[t('Бр.'), t('Корисник'), t('Членови'), t('Денови'), ...KM.map(([, n]) => t(n)), ...(KM.length > 1 ? [t('Оброци')] : []), t('Порции')], ...rows.map((r) => [byId.get(r.id)?.no ?? '', name(r.id), byId.get(r.id)?.members ?? 1, r.days, ...KM.map(([k]) => r[k]), ...(KM.length > 1 ? [r.meals] : []), r.portions])] },
+          { name: t('Движења'), rows: [[t('Конто'), t('Назив'), t('Должи'), t('Побарува'), t('Салдо')], ...M.map((x) => [x.account, x.name, x.debit, x.credit, x.debit - x.credit])] },
         ]} />
       </Hd>
       {Tabs}
       <form className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
         <input type="hidden" name="t" value="i" />
-        <label className="f">Период<select name="p" defaultValue={sp.p ?? 'm'}><option value="m">Месец</option><option value="q">Квартал (3 месеци)</option><option value="r">Од – до</option></select></label>
-        <label className="f">Месец<input type="month" name="m" defaultValue={ym} /></label>
-        <label className="f">Квартал<select name="q" defaultValue={yq}>{[y - 1, y].flatMap((yy) => [1, 2, 3, 4].map((q) => `${yy}-Q${q}`)).map((v) => <option key={v} value={v}>{v.replace('-Q', ' – ')}. кв.</option>)}</select></label>
-        <label className="f">Од<input type="date" name="od" defaultValue={sp.od ?? P.from} /></label>
-        <label className="f">До<input type="date" name="do" defaultValue={sp.do ?? P.to} /></label>
-        <label className="chk"><input type="checkbox" name="sm" value="1" defaultChecked={onlyMeals} /> само со оброци</label>
-        <button className="btn pri">Прикажи</button>
+        <label className="f">{t('Период')}<select name="p" defaultValue={sp.p ?? 'm'}><option value="m">{t('Месец')}</option><option value="q">{t('Квартал (3 месеци)')}</option><option value="r">{t('Од – до')}</option></select></label>
+        <label className="f">{t('Месец')}<input type="month" name="m" defaultValue={ym} /></label>
+        <label className="f">{t('Квартал')}<select name="q" defaultValue={yq}>{[y - 1, y].flatMap((yy) => [1, 2, 3, 4].map((q) => `${yy}-Q${q}`)).map((v) => <option key={v} value={v}>{v.replace('-Q', ' – ')}{t('. кв.')}</option>)}</select></label>
+        <label className="f">{t('Од')}<input type="date" name="od" defaultValue={sp.od ?? P.from} /></label>
+        <label className="f">{t('До')}<input type="date" name="do" defaultValue={sp.do ?? P.to} /></label>
+        <label className="chk"><input type="checkbox" name="sm" value="1" defaultChecked={onlyMeals} /> {t('само со оброци')}</label>
+        <button className="btn pri">{t('Прикажи')}</button>
       </form>
-      {!L.length && <div className="callout warn" style={{ marginTop: 8 }}>Нема означени оброци во периодот – означете ги во <Link href="/obroci">📋 Дневна листа</Link>.</div>}
+      {!L.length && <div className="callout warn" style={{ marginTop: 8 }}>{t('Нема означени оброци во периодот – означете ги во')} <Link href="/obroci">{t('📋 Дневна листа')}</Link>.</div>}
       <div id="obrociRep">
-        <h2 style={{ margin: '10px 0 4px' }}>{firm.name} – корисници и оброци, {P.label}</h2>
+        <h2 style={{ margin: '10px 0 4px' }}>{firm.name} – {t('корисници и оброци')}, {P.label}</h2>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
-          <span className="pill">Семејства / лица: <b>{S.tot.served}</b></span>
-          <span className="pill">Денови со оброци: <b>{days}</b></span>
-          {KM.map(([k, n]) => <span key={k} className="pill">{n}: <b>{S.tot[k]}</b></span>)}
-          {KM.length > 1 && <span className="pill">Оброци: <b>{S.tot.meals}</b></span>}
-          <span className="pill good">Порции: <b>{S.tot.portions}</b></span>
-          <span className="pill warn">Расходи: <b>{fmt(expTot)}</b> ден.</span>
-          <span className="pill">Трошок по порција: <b>{fmt(costPerPortion(expTot, S.tot.portions))}</b> ден.</span>
+          <span className="pill">{t('Семејства / лица:')} <b>{S.tot.served}</b></span>
+          <span className="pill">{t('Денови со оброци:')} <b>{days}</b></span>
+          {KM.map(([k, n]) => <span key={k} className="pill">{t(n)}: <b>{S.tot[k]}</b></span>)}
+          {KM.length > 1 && <span className="pill">{t('Оброци:')} <b>{S.tot.meals}</b></span>}
+          <span className="pill good">{t('Порции:')} <b>{S.tot.portions}</b></span>
+          <span className="pill warn">{t('Расходи:')} <b>{fmt(expTot)}</b> {t('ден.')}</span>
+          <span className="pill">{t('Трошок по порција:')} <b>{fmt(costPerPortion(expTot, S.tot.portions))}</b> {t('ден.')}</span>
         </div>
 
-        <h3>Регистар на корисници (активни)</h3>
+        <h3>{t('Регистар на корисници (активни)')}</h3>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
-          <span className="pill">Семејства / лица: <b>{RS.families}</b></span>
-          <span className="pill">Вкупно членови: <b>{RS.members}</b></span>
-          <span className="pill">Со телефон: <b>{RS.phone}</b></span>
-          <span className="pill">Со ЕМБГ: <b>{RS.embg}</b></span>
-          <Link className={'pill' + (RS.consent < RS.families ? ' warn' : ' good')} href="/obroci?t=k&nc=1">Со согласност: <b>{RS.consent}</b> / {RS.families}</Link>
+          <span className="pill">{t('Семејства / лица:')} <b>{RS.families}</b></span>
+          <span className="pill">{t('Вкупно членови:')} <b>{RS.members}</b></span>
+          <span className="pill">{t('Со телефон:')} <b>{RS.phone}</b></span>
+          <span className="pill">{t('Со ЕМБГ:')} <b>{RS.embg}</b></span>
+          <Link className={'pill' + (RS.consent < RS.families ? ' warn' : ' good')} href="/obroci?t=k&nc=1">{t('Со согласност:')} <b>{RS.consent}</b> / {RS.families}</Link>
         </div>
         <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {([['Место / населба', RS.byPlace], ['Националност', RS.byNat]] as const).map(([t, G]) => (
-            <table key={t} className="dense" style={{ minWidth: 300 }}>
-              <thead><tr><th>{t}</th><th className="n">Семејства</th><th className="n">Членови</th></tr></thead>
+          {([[t('Место / населба'), RS.byPlace], [t('Националност'), RS.byNat]] as const).map(([hd, G]) => (
+            <table key={hd} className="dense" style={{ minWidth: 300 }}>
+              <thead><tr><th>{hd}</th><th className="n">{t('Семејства')}</th><th className="n">{t('Членови')}</th></tr></thead>
               <tbody>{G.map((g) => <tr key={g.name}><td>{g.name}</td><td className="n">{g.n}</td><td className="n">{g.members}</td></tr>)}
-                {!G.length && <tr><td colSpan={3} className="muted">Регистарот е празен – увезете го во 👪 Корисници.</td></tr>}</tbody>
+                {!G.length && <tr><td colSpan={3} className="muted">{t('Регистарот е празен – увезете го во 👪 Корисници.')}</td></tr>}</tbody>
             </table>
           ))}
         </div>
 
-        <h3>Оброци по корисник</h3>
+        <h3>{t('Оброци по корисник')}</h3>
         <table className="dense">
-          <thead><tr><th>Бр.</th><th>Корисник</th><th className="n">Чл.</th><th className="n">Денови</th>{KM.map(([k, n]) => <th key={k} className="n">{n}</th>)}{KM.length > 1 && <th className="n">Оброци</th>}<th className="n">Порции</th><th>Потпис</th></tr></thead>
+          <thead><tr><th>{t('Бр.')}</th><th>{t('Корисник')}</th><th className="n">{t('Чл.')}</th><th className="n">{t('Денови')}</th>{KM.map(([k, n]) => <th key={k} className="n">{t(n)}</th>)}{KM.length > 1 && <th className="n">{t('Оброци')}</th>}<th className="n">{t('Порции')}</th><th>{t('Потпис')}</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}><td>{byId.get(r.id)?.no ?? ''}</td><td>{name(r.id)}</td><td className="n">{byId.get(r.id)?.members ?? 1}</td><td className="n">{r.days}</td>{KM.map(([k]) => <td key={k} className="n">{r[k]}</td>)}{KM.length > 1 && <td className="n">{r.meals}</td>}<td className="n">{r.portions}</td><td style={{ minWidth: 110 }} /></tr>
             ))}
-            {!rows.length && <tr><td colSpan={6 + KM.length} className="muted">{onlyMeals ? 'Нема евидентирани оброци во периодот.' : 'Нема активни корисници.'}</td></tr>}
+            {!rows.length && <tr><td colSpan={6 + KM.length} className="muted">{onlyMeals ? t('Нема евидентирани оброци во периодот.') : t('Нема активни корисници.')}</td></tr>}
           </tbody>
-          <tfoot><tr className="tot"><td /><td>Вкупно</td><td /><td className="n">{days}</td>{KM.map(([k]) => <td key={k} className="n">{S.tot[k]}</td>)}{KM.length > 1 && <td className="n">{S.tot.meals}</td>}<td className="n">{S.tot.portions}</td><td /></tr></tfoot>
+          <tfoot><tr className="tot"><td /><td>{t('Вкупно')}</td><td /><td className="n">{days}</td>{KM.map(([k]) => <td key={k} className="n">{S.tot[k]}</td>)}{KM.length > 1 && <td className="n">{S.tot.meals}</td>}<td className="n">{S.tot.portions}</td><td /></tr></tfoot>
         </table>
 
-        <h3>Движења во книгите (расходи и приходи)</h3>
+        <h3>{t('Движења во книгите (расходи и приходи)')}</h3>
         <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <table className="dense" style={{ minWidth: 340 }}>
-            <thead><tr><th>Конто</th><th>Расходи</th><th className="n">Износ</th></tr></thead>
+            <thead><tr><th>{t('Конто')}</th><th>{t('Расходи')}</th><th className="n">{t('Износ')}</th></tr></thead>
             <tbody>{exp.map((x) => <tr key={x.account}><td>{x.account}</td><td>{x.name}</td><td className="n">{fmt(x.debit - x.credit)}</td></tr>)}
-              {!exp.length && <tr><td colSpan={3} className="muted">Нема прокнижени расходи во периодот.</td></tr>}</tbody>
-            <tfoot><tr className="tot"><td /><td>Вкупно расходи</td><td className="n">{fmt(expTot)}</td></tr></tfoot>
+              {!exp.length && <tr><td colSpan={3} className="muted">{t('Нема прокнижени расходи во периодот.')}</td></tr>}</tbody>
+            <tfoot><tr className="tot"><td /><td>{t('Вкупно расходи')}</td><td className="n">{fmt(expTot)}</td></tr></tfoot>
           </table>
           <table className="dense" style={{ minWidth: 340 }}>
-            <thead><tr><th>Конто</th><th>Приходи (донации, членарини…)</th><th className="n">Износ</th></tr></thead>
+            <thead><tr><th>{t('Конто')}</th><th>{t('Приходи (донации, членарини…)')}</th><th className="n">{t('Износ')}</th></tr></thead>
             <tbody>{inc.map((x) => <tr key={x.account}><td>{x.account}</td><td>{x.name}</td><td className="n">{fmt(x.credit - x.debit)}</td></tr>)}
-              {!inc.length && <tr><td colSpan={3} className="muted">Нема прокнижени приходи во периодот.</td></tr>}</tbody>
-            <tfoot><tr className="tot"><td /><td>Вкупно приходи</td><td className="n">{fmt(incTot)}</td></tr></tfoot>
+              {!inc.length && <tr><td colSpan={3} className="muted">{t('Нема прокнижени приходи во периодот.')}</td></tr>}</tbody>
+            <tfoot><tr className="tot"><td /><td>{t('Вкупно приходи')}</td><td className="n">{fmt(incTot)}</td></tr></tfoot>
           </table>
         </div>
-        <KitchenReport firm={firm} from={P.from} to={P.to} portions={S.tot.portions} />
-        <p className="note">Разлика приходи – расходи: <b>{fmt(incTot - expTot)}</b> ден. Износите се од прокнижените налози (без почетна состојба и затворање). Трошок по порција = вкупни расходи ÷ порции.</p>
+        <KitchenReport lang={lang} firm={firm} from={P.from} to={P.to} portions={S.tot.portions} />
+        <p className="note">{t('Разлика приходи – расходи:')} <b>{fmt(incTot - expTot)}</b> {t('ден.')} {t('Износите се од прокнижените налози (без почетна состојба и затворање). Трошок по порција = вкупни расходи ÷ порции.')}</p>
       </div>
     </>
   );
