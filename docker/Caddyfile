@@ -148,6 +148,23 @@ files.{$DOMAIN} {
 		}
 		respond 405
 	}
+	# 💬 WhatsApp Cloud API webhook (Meta's servers): GET = the verify-token handshake, POST = messages / statuses,
+	# signed with the app secret (X-Hub-Signature-256, checked by the app before anything is read). Only this one path
+	# reaches the app, on the public website host: the app host itself stays office-only / device-certificate only.
+	# Callback URL to enter in Meta: https://wiseconsulting.com.mk/api/whatsapp
+	handle /api/whatsapp {
+		@wa method GET POST
+		handle @wa {
+			request_header -X-Wise-Client-Fp
+			request_header -X-Wise-Client-Serial
+			request_body {
+				max_size 1MB
+			}
+			rewrite * /api/whatsapp/webhook?{query}
+			reverse_proxy app:3000
+		}
+		respond 405
+	}
 	# news.json written by cron (website/tools/fetch_news.py) into SITE_DATA_DIR on the host
 	handle_path /data/* {
 		root * /srv/site-data

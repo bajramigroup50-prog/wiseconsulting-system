@@ -5,6 +5,7 @@
  * the PDF downloads and WhatsApp Web / the e-mail program opens with a short message — attach the downloaded file.
  */
 import { useState } from 'react';
+import { WaSendBox, pdfFileId, useWaApi } from './wa-send';
 
 async function renderPdf(selector: string, title: string): Promise<File> {
   const el = document.querySelector(selector) as HTMLElement | null;
@@ -38,6 +39,9 @@ function download(f: File) {
 export function SharePdf({ selector = '#printArea', title }: { selector?: string; title?: string }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  // 💬 WhatsApp Cloud API on: the PDF goes straight from WISE (phone + message below), else the old wa.me way
+  const api = useWaApi();
+  const [waBox, setWaBox] = useState(false);
   const go = async (via: 'share' | 'mail' | 'wa') => {
     setBusy(true); setMsg('');
     try {
@@ -61,8 +65,9 @@ export function SharePdf({ selector = '#printArea', title }: { selector?: string
     <>
       <button type="button" className="btn" disabled={busy} onClick={() => void go('share')} title="WhatsApp, Viber, е-пошта… (PDF како прилог)">{busy ? 'Се подготвува…' : '📤 Испрати'}</button>
       <button type="button" className="btn" disabled={busy} onClick={() => void go('mail')}>✉ Е-пошта</button>
-      <button type="button" className="btn" disabled={busy} onClick={() => void go('wa')} style={{ borderColor: '#25D366' }}>💬 WhatsApp</button>
+      <button type="button" className="btn" disabled={busy} onClick={() => (api ? setWaBox(!waBox) : void go('wa'))} style={{ borderColor: '#25D366' }}>💬 WhatsApp</button>
       {msg && <span className="mini" style={{ alignSelf: 'center' }}>{msg}</span>}
+      {api && waBox && <div style={{ flexBasis: '100%' }}><WaSendBox text={`${title || document.title} – во прилог (PDF).`} purpose="dokument" vars={{ opis: title || document.title }} files={async () => [await pdfFileId(selector, title || document.title)]} /></div>}
     </>
   );
 }

@@ -28,6 +28,8 @@ export function publicPath(p: string): boolean {
     || p === '/api/version'
     // 🌐 the public website's offer request → a CRM lead (the route guards itself: honeypot, rate limit, caps)
     || p === '/api/crm/lead'
+    // 💬 WhatsApp Cloud API webhook (Meta; the route checks the signature / verify token itself)
+    || p === '/api/whatsapp/webhook'
     // 🎭 the demo link (`app/demo/[token]`): signs in as the demo user only (token checked and rate-limited there)
     || p.startsWith('/demo/')
     // public/forms assets and root-level static files only (a dotted segment deeper down is not a free pass)
@@ -125,7 +127,7 @@ export const DEMO_BOOK_VIEWS: readonly string[] = [
   // industries
   'hotel', 'hotelSoby', 'hotelKniga', 'servis', 'vozila', 'delovi', 'potsetnici', 'rent', 'flota', 'rentIzv', 'gradba', 'gradbaIzv', 'tura', 'turaIzv',
   'frTuri', 'frFak', 'frDnev', 'frGor', 'frDok', 'termini', 'kartoni', 'periodicni', 'porachki', 'nabavki', 'dopolnuvanje', 'pnalozi', 'pnGorivo',
-  'lojalnost', 'restoran', 'kujna',
+  'lojalnost', 'restoran', 'kujna', 'obroci',
   // analyses, fixed assets, interest
   'klDash', 'analizi', 'paricenTek', 'izvestai', 'os', 'kamati', 'rekniz',
   // codebooks of the firm (office-wide rows are read-only for demo, `sifrarnik/actions.ts`)

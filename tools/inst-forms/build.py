@@ -99,6 +99,8 @@ def src_of(label, sec):
     l = label.lower()
     if sec == 'skip':
         return ''
+    if re.search(r'прием|број на прием|датум и број', l):
+        return ''
     if re.search(r'датум на (пополн|поднес)|^датум$|место и датум', l):
         return 'today'
     if 'датум' in l:
@@ -190,19 +192,21 @@ def acro_fields(pdf, pages):
     return F
 
 EXTRA = [
+    (r'единствен даночен број|даночен број за ддв|^единствен$', 'f.edb'), (r'скратен назив', 'f.nameaddr'),
     (r'даночен идентификационен број|^едб', 'f.edb'), (r'улица и број', 'f.address'), (r'населено место|^место$|^град$', 'f.city'),
     (r'^држава$', 'Република Северна Македонија'),
 ]
 
 def section_of(text, cur):
     if UJP_SEC.search(text): return 'skip'
+    if re.search(r'примател|купувач|осигуреник', text, re.I): return 'skip'
     if OFFICE_SEC.search(text): return 'office'
     if SIGNER_SEC.search(text): return 'signer'
     if re.search(r'обврзник|подносител на барањето|работодавач|податоци за правното лице|барател', text, re.I): return 'firm'
     return cur
 
 # in a form without fields a label must START with the keyword („За пред банка“ is a choice, not the bank)
-START = re.compile(r'^(назив|име и презиме|фирма|едб|ембс|матичен|седиште|адреса|телефон|тел\.|е-?пошта|e-?mail|трансакциска|жиро|банка$|дејност|шифра на дејност|датум|место и датум)', re.I)
+START = re.compile(r'^(единствен даночен|скратен назив|назив|име и презиме|фирма|едб|ембс|матичен|седиште|адреса|телефон|тел\.|е-?пошта|e-?mail|трансакциска|жиро|банка$|дејност|шифра на дејност|датум|место и датум)', re.I)
 
 def text_fields(pdf, pages):
     """Forms without AcroForm fields: a recognised label → the empty printed box right of it (or the line after it)."""
@@ -232,7 +236,7 @@ def text_fields(pdf, pages):
             else: src = src or (src_of(lab, sec) if START.match(lab) else '')
             if not src or (src, sec, pi) in done and src != 'today': continue
             mid = (w['top'] + w['bottom']) / 2
-            box = sorted([r for r in rects if r['x0'] >= w['x1'] - 3 and r['top'] - 2 <= mid <= r['bottom'] + 2 and r['height'] <= 34 and empty(r)], key=lambda r: (round(r['x0']), r['width']))
+            box = sorted([r for r in rects if r['x0'] >= w['x1'] - 3 and r['top'] - 2 <= (mid if src != 'f.edb' else max(mid, w['bottom'] + 2)) <= r['bottom'] + 8 and r['height'] <= 34 and r['width'] > 40 and empty(r)], key=lambda r: (round(r['x0']), r['width']))
             if box:
                 m = box[0]['x0']
                 r = sorted([b for b in box if b['x0'] - m < 6], key=lambda b: b['width'])[0]; x0, x1, top, bot = r['x0'] + 2, r['x1'] - 2, r['top'] + 1, r['bottom'] - 1
@@ -241,6 +245,10 @@ def text_fields(pdf, pages):
                 x0 = w['x1'] + 4; x1 = min([v['x0'] for v in same] + [pw - 30]) - 3
                 top, bot = w['top'] - 3, w['bottom'] + 3
                 if x1 - x0 < 40: continue
+            if src == 'f.addr' and any(f['src'] == 'f.nameaddr' and f['p'] == pi for f in F): continue  # the address is already in „назив и адреса“
+            # never into the institution's box on the right („Датум и број на прием“)
+            ujp = [v for v in words if UJP_SEC.search(v['text']) or re.search(r'број на\s*прием|^прием$', v['text'], re.I)]
+            if ujp and top < max(v['bottom'] for v in ujp) + 120: x1 = min(x1, min(v['x0'] for v in ujp) - 30)
             F.append({'k': f'p{pi}_{slug(src)}_{len(F)}', 'l': t[:60], 'x': round(x0 * sc), 'y': round(top * sc), 'w': round((x1 - x0) * sc), 'h': round(max(bot - top, 12) * sc), 'p': pi, 't': 't', 'src': src})
             done.add((src, sec, pi))
     return F
@@ -347,8 +355,8 @@ def blank_fields(pdf, pages):
             m = re.match(r'^\s*(\d{1,2})\.\s*(.*)', text)
             if m:
                 item = m.group(2).lower()
-                sec = ('signer' if re.search(r'овластено лице|одговорно|застапување|управител', item)
-                       else 'skip' if re.search(r'регистерск|суд|заверка', item)
+                sec = ('skip' if re.search(r'регистерск|суд|заверка|од осигуреникот|осигуреник', item) and 'овластено' not in item
+                       else 'signer' if re.search(r'овластено лице|одговорно|застапување|управител|занаетчијата', item)
                        else 'firm')
             # runs of underscores on the line
             runs, cur = [], []
@@ -363,7 +371,7 @@ def blank_fields(pdf, pages):
                 if x1 - x0 < 25: continue
                 full = ''.join(c['text'] for c in L if c['x1'] <= x0 + 0.5 and c['text'] != '_').strip()
                 before = re.split(r'[,;]', full)[-1].strip() if full else ''
-                cands = [before, full] if full else [prev_text]
+                cands = [before, full, (prev_text + ' ' + full).strip()] if full else [prev_text]
                 src = ''
                 for lab in cands:
                     lab = re.sub(r'^\d{1,2}\.\s*', '', lab.strip().lower().rstrip(':').strip())
@@ -378,6 +386,14 @@ def blank_fields(pdf, pages):
                 bot = max(c['bottom'] for c in r)
                 F.append({'k': f'p{pi}_{slug(src)}_{len(F)}', 'l': (before or prev_text)[:60] or src, 'x': round(x0 * sc), 'y': round((bot - 13) * sc), 'w': round((x1 - x0) * sc), 'h': round(12 * sc), 'p': pi, 't': 't', 'src': src})
             stripped = text.replace('_', '').strip()
+            if not runs and re.match(r'^\s*назив на фирмата\s*$', stripped, re.I) and ('f.name', item, pi) not in used:
+                y0, y1 = min(c['top'] for c in L), max(c['bottom'] for c in L)
+                xr = max(c['x1'] for c in L)
+                box = sorted([r for r in pg.rects if r['x0'] >= xr - 3 and r['top'] - 3 <= (y0 + y1) / 2 <= r['bottom'] + 3 and r['width'] > 60], key=lambda r: r['x0'])
+                if box:
+                    b = box[0]
+                    F.append({'k': f'p{pi}_name_{len(F)}', 'l': 'Назив на фирмата', 'x': round((b['x0'] + 3) * sc), 'y': round((b['top'] + 1) * sc), 'w': round((b['width'] - 6) * sc), 'h': round((b['height'] - 2) * sc), 'p': pi, 't': 't', 'src': 'f.name'})
+                    used.add(('f.name', item, pi))
             if stripped: prev_text = re.split(r'[,;]', stripped)[-1]
     # one value per firm source per item is enough when a label repeats on continuation lines
     return F
@@ -396,6 +412,7 @@ def main():
         while fid in seen: fid += '_2'
         seen.add(fid)
         if fid in {m['id'] for m in MANUAL}: continue  # placed by hand below
+        personal = (x['code'] or x['name']).startswith('ДЛД-ГДП')  # an individual's return: nothing of the firm to fill
         entry = {'inst': INST_ID[x['grp']], 'code': x['code'], 'name': x['name'], 'url': x['url'], 'kind': x['kind'], 'form': None}
         pdf = os.path.join(SRC, f"{fid}.pdf")
         if x['kind'] == 'PDF' and not os.path.exists(pdf):
@@ -403,7 +420,7 @@ def main():
                 req = urllib.request.Request(x['url'], headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
                 open(pdf, 'wb').write(urllib.request.urlopen(req, timeout=60).read())
             except Exception as e: print('  ! download', x['url'], e)
-        if x['kind'] == 'PDF' and os.path.exists(pdf):
+        if x['kind'] == 'PDF' and os.path.exists(pdf) and not personal:
             try:
                 r = pypdf.PdfReader(pdf)
                 pages = min(len(r.pages), 4)

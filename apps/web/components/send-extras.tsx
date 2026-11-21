@@ -6,6 +6,7 @@
  * recipient's phone for WhatsApp, and „Врати го стандардниот текст“. Reads the surrounding form when clicked.
  */
 import { useRef, useState } from 'react';
+import { WaSendBox, useWaApi } from './wa-send';
 
 export function SendExtras({ files, selName, defaultBody, zipHref, attachHref }: {
   /** checkbox value → its files */
@@ -21,6 +22,7 @@ export function SendExtras({ files, selName, defaultBody, zipHref, attachHref }:
   const ref = useRef<HTMLDivElement>(null);
   const [phone, setPhone] = useState('');
   const [msg, setMsg] = useState('');
+  const api = useWaApi();
   const form = () => ref.current?.closest('form') ?? null;
   const val = (n: string) => String((form()?.elements.namedItem(n) as HTMLInputElement | null)?.value ?? '');
   const picked = () => {
@@ -83,6 +85,12 @@ export function SendExtras({ files, selName, defaultBody, zipHref, attachHref }:
       <label className="f" style={{ margin: 0 }}>Телефон на примачот (на пр. 070123456)<input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" style={{ width: 170 }} /></label>
       <button type="button" className="btn" onClick={wa}>💬 WhatsApp</button>
       {msg && <span className="note">{msg}</span>}
+      {/* 💬 Cloud API on: the ticked documents as PDFs straight from WISE to the phone above */}
+      {api && <div style={{ flexBasis: '100%' }}>
+        <WaSendBox phone={phone} hidePhone getText={text} hideText purpose="dokument" vars={{ opis: val('subject') || 'документи' }}
+          files={() => { const F = pickedFiles(); if (!F.length) throw new Error('Штиклирајте барем еден документ.'); return F.map((x) => x.id); }}
+          label="💬 Испрати ги документите од WISE (WhatsApp)" />
+      </div>}
     </div>
   );
 }

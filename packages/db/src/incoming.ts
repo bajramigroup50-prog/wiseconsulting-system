@@ -21,6 +21,7 @@ import { fileAlreadyUsed } from './sales/purchases';
 import { OfficeError } from './office';
 import { MAILIN_SOURCE, mailInLearn } from './mail-in';
 import { instFromFile, startInstReads } from './institutions';
+import { waLearn } from './whatsapp-learn';
 
 const IncomingError = OfficeError;
 
@@ -196,5 +197,8 @@ export async function assignIncomingFirm(tx: Tx, a: { id: string; from: string |
   // ✉ a mail of the office mailbox given to a firm: mails from this sender go to it from now on (`mail-in.ts`)
   const mf = (r.detect as { mail?: { from?: string } }).mail?.from;
   if (r.source === MAILIN_SOURCE && mf) await mailInLearn(tx, mf, a.to, a.userId);
+  // 💬 a WhatsApp file given to a firm: that phone's messages go to it from now on (`whatsapp.ts`)
+  const wf = (r.detect as { wa?: { from?: string } }).wa?.from;
+  if (r.source === 'whatsapp' && wf) await waLearn(tx, wf, a.to, a.userId);
   await audit(tx, { userId: a.userId, firmId: a.to, action: 'inFirm', entityType: 'incoming_doc', entityId: a.id, data: { from: a.from } });
 }

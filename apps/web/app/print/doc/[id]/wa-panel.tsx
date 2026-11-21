@@ -7,8 +7,11 @@
 import { useMemo, useState } from 'react';
 import { qrDataUrl } from '@wise/core/sales';
 import { serverPdf } from '@/lib/print-pdf';
+import type { WaVar } from '@wise/core/whatsapp/wa';
+import { WaSendBox, pdfFileId, useWaApi } from '@/components/wa-send';
 
-export function WaPanel({ phone, text, pdfName }: { phone: string; text: string; pdfName: string }) {
+export function WaPanel({ phone, text, pdfName, firmId, vars }: { phone: string; text: string; pdfName: string; firmId?: string; vars?: Partial<Record<WaVar, string>> }) {
+  const api = useWaApi();
   const [ph, setPh] = useState(phone);
   const [tx, setTx] = useState(text);
   const [msg, setMsg] = useState('');
@@ -29,6 +32,10 @@ export function WaPanel({ phone, text, pdfName }: { phone: string; text: string;
         <div style={{ flex: 1, minWidth: 280 }}>
           <label className="f">Телефон на купувачот (со 389)<input value={ph} onChange={(e) => setPh(e.target.value)} placeholder="38970123456" /></label>
           <label className="f">Порака<textarea rows={5} value={tx} onChange={(e) => setTx(e.target.value)} /></label>
+          {api && <div className="callout good" style={{ margin: '0 0 8px' }}>
+            <b>💬 Директно од WISE (WhatsApp Business):</b> пораката и фактурата (PDF) одат во разговорот – без преземање и 📎.
+            <WaSendBox phone={ph} hidePhone getText={() => tx} hideText firmId={firmId} purpose="faktura" vars={vars} files={async () => [await pdfFileId('#printArea .pdfdoc', pdfName)]} label="💬 Испрати фактура + порака од WISE" />
+          </div>}
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
             <a className="btn pri" href={wa} target="_blank" rel="noopener noreferrer">Отвори WhatsApp (на компјутер)</a>
             <a className="btn" href={'viber://forward?text=' + encodeURIComponent(tx)}>Отвори Viber</a>

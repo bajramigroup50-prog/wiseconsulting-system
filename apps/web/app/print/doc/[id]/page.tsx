@@ -58,7 +58,8 @@ export default async function PrintDoc({ params, searchParams }: { params: Promi
     mail = <>
       <h2 className="noprint" style={{ textAlign: 'center', margin: '4px 0 8px' }}>{DT[doc.kind as 'invoice']?.n ?? ''} {doc.number}</h2>
       <InvoiceMailForm invoiceId={doc.id} to={partner?.email ?? ''} subject={t.subject} body={t.body} open={sp.mail === '1'} />
-      <WaPanel phone={String(partner?.phone ?? '').replace(/\D/g, '').replace(/^0/, '389')} text={wa} pdfName={invoicePdfName(input.kind, doc.number)} />
+      <WaPanel phone={String(partner?.phone ?? '').replace(/\D/g, '').replace(/^0/, '389')} text={wa} pdfName={invoicePdfName(input.kind, doc.number)}
+        firmId={doc.firmId} vars={{ firma: firm.name, ime: partner?.name ?? '', broj: doc.number, iznos: fm(Number(doc.total)) + ' ден.', rok: doc.due ? dmy(doc.due) : '', kancelarija: firm.name }} />
     </>;
   }
   // 🌐 the invoice in English / German: fixed labels from the dictionary, item names and notes through DeepL (no payment slip)
