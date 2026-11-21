@@ -6,7 +6,7 @@
  */
 import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
-import { DON_AREAS, DON_KIND_LBL, DON_LIMIT, donEntries, donKonto, donTotals, nextDonNo, type DonKind, type DonRole } from '@wise/core/donations';
+import { DON_AREAS, DON_KIND_LBL, DON_LIMIT, donAssetKonto, donEntries, donKonto, donTotals, nextDonNo, type DonKind, type DonRole } from '@wise/core/donations';
 import { partners, type Donation } from '@wise/db';
 import { booksPage, canDo } from '@/lib/books';
 import { db } from '@/lib/db';
@@ -58,8 +58,8 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
     const partner = E.partnerId ? pm.get(E.partnerId) : undefined;
     const pdf = (doc: string) => `/print/fin/${doc}?id=${ex?.id}`;
     const konto = E.konto || donKonto(E.kind, E.role, D.chartMode, E.inKind);
-    const assetDef = E.role === 'received' ? '3100' : '6600';
-    const prop = donEntries({ kind: E.kind, role: E.role, amount: Number(E.confAmount ?? E.amount) || 0, inKind: E.inKind, konto, bankKonto: D.bankKonto, assetKonto: assetDef });
+    const assetDef = donAssetKonto(E.role, D.chartMode);
+    const prop = donEntries({ kind: E.kind, role: E.role, amount: Number(E.confAmount ?? E.amount) || 0, inKind: E.inKind, konto, bankKonto: D.bankKonto, assetKonto: assetDef, chart: D.chartMode });
     return (
       <>
         <Hd t={(ex ? DON_KIND_LBL[E.kind] + ' – договор ' : 'Нов договор – ' + DON_KIND_LBL[E.kind].toLowerCase() + ' ') + (E.number ?? '')} sub={E.role === 'received' ? '📥 фирмата е примател' : '📤 фирмата е донатор / спонзор'}>
@@ -80,7 +80,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
             <label className="f">Износ / вредност (ден.)<input name="amount" type="number" step="0.01" defaultValue={E.amount} required /></label>
             <label className="f">Рок за уплата / предавање<input name="termDate" type="date" defaultValue={E.termDate ?? ''} /></label>
             <label className="f">Област од јавен интерес<input name="area" list="donAreas" defaultValue={E.area ?? ''} placeholder="спорт, култура…" /></label>
-            <label className="f">Конто за книжење<input name="konto" defaultValue={E.konto ?? ''} title="примател: 7673 донации во пари, 7672 во добра, 7694 спонзорства (НПО план: 731); донатор: 4433 донации, 4430 спонзорства" /></label>
+            <label className="f">Конто за книжење<input name="konto" defaultValue={E.konto ?? ''} title="примател: 7673 донации во пари, 7672 во добра, 7694 спонзорства (НПО план: 731); донатор: 4433 донации, 4430 спонзорства (НПО план: 450 правни лица, 451 физички лица)" /></label>
             <label className="f" style={{ gridColumn: '1/-1' }}>Намена<input name="purpose" defaultValue={E.purpose ?? ''} placeholder="на пр. за набавка на спортска опрема за младинската школа" /></label>
             <label className="f" style={{ gridColumn: '1/-1' }}>Добра / услуги (ако донацијата е во добра)<input name="inKindDesc" defaultValue={E.inKindDesc ?? ''} placeholder="на пр. 20 комплети дресови, 10 топки" /></label>
             <label className="f" style={{ gridColumn: '1/-1' }}>Противуслуга (само спонзорство)<input name="counter" defaultValue={E.counter ?? ''} placeholder="на пр. логото на спонзорот на дресовите и на банер на теренот во сезоната 2026/27" /></label>
@@ -138,7 +138,7 @@ export default async function DonaciiPage({ searchParams }: { searchParams: Prom
                   <ActionForm action={bookDonationAction} reset={false}>
                     <input type="hidden" name="id" value={ex.id} />
                     <div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
-                      <label className="f">Спротивно конто за добрата<input name="assetKonto" defaultValue={assetDef} title={E.role === 'received' ? 'на пр. 3100 материјали, 0230 опрема, 4xx директен трошок' : 'на пр. 6600 стоки, 3100 материјали'} /></label>
+                      <label className="f">Спротивно конто за добрата<input name="assetKonto" defaultValue={assetDef} title={D.chartMode === 'npo' ? 'на пр. 310 материјали, 02x опрема, 4xx директен трошок' : E.role === 'received' ? 'на пр. 3100 материјали, 0230 опрема, 4xx директен трошок' : 'на пр. 6600 стоки, 3100 материјали'} /></label>
                       <button className="btn pri">📒 Прокнижи (налог)</button>
                     </div>
                   </ActionForm>
