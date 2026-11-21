@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { asc, eq } from 'drizzle-orm';
 import { can } from '@wise/core';
 import { FORMS0, INST, INST_FORMS, TPL0, askFields, type ReqFirm, type ReqForm, type ReqTpl } from '@wise/core/firms/requests';
+import { INST_LETTERS } from '@wise/core/firms/inst-letters';
 import { requestTemplates, type Firm } from '@wise/db';
 import { db } from '@/lib/db';
 import { allowedFirms, officePage, today } from '@/lib/office';
@@ -31,7 +32,7 @@ export default async function BaranjaPage({ searchParams }: { searchParams: Prom
   const U = await db().select().from(requestTemplates).orderBy(asc(requestTemplates.name));
   const own = U.map((x): ReqTpl & { dbId: string; baseId: string | null } => ({ id: x.id, dbId: x.id, baseId: x.baseId, inst: x.inst, name: x.name, to: x.to ?? undefined, title: x.title, body: x.body }));
   const overridden = new Set(own.map((x) => x.baseId).filter(Boolean));
-  const T: (ReqTpl | ReqForm)[] = [...FORMS0, ...INST_FORMS, ...TPL0.filter((b) => !overridden.has(b.id)), ...own];
+  const T: (ReqTpl | ReqForm)[] = [...FORMS0, ...INST_FORMS, ...[...TPL0, ...INST_LETTERS].filter((b) => !overridden.has(b.id)), ...own];
   const office = can(u.principal, 'office');
   const F = await allowedFirms(u);
   const src = F.find((x) => x.id === sp.src) ?? firm ?? F[0];

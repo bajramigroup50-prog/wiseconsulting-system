@@ -39,3 +39,24 @@ describe('official forms of the institutions (wiseconsulting.com.mk › Обра
     expect(fSrcVal('Управител', firm, '2026-11-20')).toBe('Управител');
   });
 });
+
+describe('letters to the inspectorates (ДПИ, ДИТ, АХВ…)', () => {
+  it('every institution has the usual replies, filled with the firm; nothing left as a raw firm placeholder', async () => {
+    const { INST_LETTERS } = await import('./inst-letters');
+    const { fillTpl } = await import('./requests');
+    for (const i of ['ДПИ', 'ДИТ', 'АХВ', 'МЕ']) expect(INST_LETTERS.filter((l) => l.inst === i).length).toBeGreaterThanOrEqual(5);
+    const t = INST_LETTERS.find((l) => l.id === 'l_dpi_otstr')!;
+    const out = fillTpl(t.body, firm, { 'Број на актот': '12-34' }, '2026-11-21');
+    expect(out).toContain('АЛФА ДООЕЛ, со седиште на ул. 1, Скопје, ЕДБ 4030000000012');
+    expect(out).toContain('бр. 12-34');
+    expect(out).not.toMatch(/\{[^?]/);
+    expect(new Set(INST_LETTERS.map((l) => l.id)).size).toBe(INST_LETTERS.length);
+  });
+  it('ДИТ „работа во недела“ is a fillable official form', () => {
+    const f = INST_FORMS.find((x) => x.id === 'i_dit_nedela')!;
+    const V = formVals(f, firm, {}, '2026-11-21');
+    expect(V.naziv).toBe('АЛФА ДООЕЛ');
+    expect(V.embs).toBe('7654321');
+    expect(V.odg).toBe('Петар Петров');
+  });
+});

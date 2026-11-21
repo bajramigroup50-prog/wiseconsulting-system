@@ -454,5 +454,13 @@
   "url": "https://www.piom.com.mk/informacii/formulari/",
   "kind": "WEB",
   "form": null
+ },
+ {
+  "inst": "dit",
+  "code": "",
+  "name": "Известување за вршење на работа во недела (Сл. весник 299/2021)",
+  "url": "https://localeconomy.gazibaba.gov.mk/wp-content/uploads/2023/12/pravilnik-izvestuvanje-nedela-299-21.pdf",
+  "kind": "PDF",
+  "form": "i_dit_nedela"
  }
 ]

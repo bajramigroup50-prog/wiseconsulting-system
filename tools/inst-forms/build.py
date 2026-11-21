@@ -211,6 +211,42 @@ def text_fields(pdf, pages):
             done.add((src, sec, pi))
     return F
 
+
+# Forms placed by hand (a scanned form in the Official Gazette, no text to anchor on): coordinates in px of the
+# 745-wide page image. ДИТ „Известување за вршење на работа во недела“ (Правилник, Сл. весник 299/2021, Прилог).
+MANUAL = [
+    {'id': 'i_dit_nedela', 'grp': 'dit', 'inst': 'ДИТ', 'code': '', 'name': 'Известување за вршење на работа во недела (Сл. весник 299/2021)',
+     'url': 'https://localeconomy.gazibaba.gov.mk/wp-content/uploads/2023/12/pravilnik-izvestuvanje-nedela-299-21.pdf', 'pages': [1, 2, 3],
+     'fields': [
+        {'k': 'naziv', 'l': 'Назив на работодавач', 'x': 294, 'y': 216, 'w': 349, 'h': 27, 'p': 0, 't': 't', 'src': 'f.name'},
+        {'k': 'sediste', 'l': 'Седиште на работодавач', 'x': 294, 'y': 248, 'w': 349, 'h': 27, 'p': 0, 't': 't', 'src': 'f.addr'},
+        {'k': 'edb', 'l': 'Даночен број', 'x': 294, 'y': 280, 'w': 349, 'h': 27, 'p': 0, 't': 't', 'src': 'f.edb'},
+        {'k': 'embs', 'l': 'ЕМБС', 'x': 294, 'y': 312, 'w': 349, 'h': 27, 'p': 0, 't': 't', 'src': 'f.embs'},
+        {'k': 'dejnost', 'l': 'Дејност (главна приходна шифра)', 'x': 294, 'y': 345, 'w': 349, 'h': 50, 'p': 0, 't': 'm', 'src': 'f.activity'},
+        {'k': 'odg', 'l': 'Одговорно лице – име и презиме', 'x': 397, 'y': 434, 'w': 248, 'h': 26, 'p': 0, 't': 't', 'src': 'f.signer'},
+        {'k': 'odg_adr', 'l': 'Одговорно лице – адреса на живеење', 'x': 397, 'y': 465, 'w': 248, 'h': 31, 'p': 0, 't': 'm', 'src': ''},
+        {'k': 'mesto', 'l': 'Место на вршење на работниот процес', 'x': 392, 'y': 539, 'w': 253, 'h': 29, 'p': 0, 't': 't', 'src': 'f.addr'},
+        {'k': 'opis', 'l': 'Опис на работниот процес', 'x': 101, 'y': 593, 'w': 545, 'h': 123, 'p': 0, 't': 'm', 'src': ''},
+        {'k': 'dogovor', 'l': 'Ал. 42 – број и датум на договор за техничка соработка', 'x': 90, 'y': 154, 'w': 271, 'h': 600, 'p': 1, 't': 'm', 'src': ''},
+        {'k': 'mesta', 'l': 'Ал. 43 – работни места и број на извршители', 'x': 366, 'y': 135, 'w': 289, 'h': 231, 'p': 1, 't': 'm', 'src': ''},
+        {'k': 'raboti', 'l': 'Ал. 43 – опис на работите и образложение', 'x': 366, 'y': 443, 'w': 289, 'h': 145, 'p': 1, 't': 'm', 'src': ''},
+        {'k': 'vreme', 'l': 'Ал. 43 – работно време', 'x': 366, 'y': 636, 'w': 289, 'h': 279, 'p': 1, 't': 'm', 'src': ''},
+        {'k': 'datum', 'l': 'Место и датум', 'x': 85, 'y': 860, 'w': 250, 'h': 22, 'p': 2, 't': 't', 'src': 'today'},
+     ]},
+]
+
+def render_pages(pdf, fid, pages):
+    doc = pypdfium2.PdfDocument(pdf)
+    dims = []
+    for n, i in enumerate(pages):
+        pg = doc[i]
+        w, h = pg.get_size()
+        sc = W / w
+        img = pg.render(scale=sc * 1.4).to_pil().convert('RGB')
+        img.save(os.path.join(ROOT, 'apps', 'web', 'public', 'forms', f'{fid}_{n}.jpg'), quality=60, optimize=True, progressive=True)
+        dims.append({'W': W, 'H': round(h * sc)})
+    return dims
+
 def main():
     L = links()
     forms, catalog = [], []
@@ -243,6 +279,14 @@ def main():
                 print('  !', pdf, e)
         catalog.append(entry)
         print(f"{fid:28} {x['kind']:4} {'FORM ' + str(len(forms[-1]['fields'])) + ' fields, ' + str(sum(1 for f in forms[-1]['fields'] if f['src'])) + ' from the firm' if entry['form'] else 'link'}")
+    for m in MANUAL:
+        pdf = os.path.join(SRC, f"{m['id']}.pdf")
+        if not os.path.exists(pdf):
+            req = urllib.request.Request(m['url'], headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            open(pdf, 'wb').write(urllib.request.urlopen(req, timeout=60).read())
+        forms.append({'id': m['id'], 'inst': m['inst'], 'name': m['name'], 'form': True, 'pages': render_pages(pdf, m['id'], m['pages']), 'fields': m['fields'], 'url': m['url']})
+        catalog.append({'inst': m['grp'], 'code': m['code'], 'name': m['name'], 'url': m['url'], 'kind': 'PDF', 'form': m['id']})
+        print(f"{m['id']:28} MANUAL {len(m['fields'])} fields")
     data = os.path.join(ROOT, 'packages', 'core', 'src', 'data')
     for f in forms:
         for x in f['fields']: x.pop('sec', None)
