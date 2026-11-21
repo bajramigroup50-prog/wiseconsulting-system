@@ -79,6 +79,7 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
         { label: 'Парагон', act: { href: '/m_izlez' }, title: 'Излез од продавница (парагон блок)' },
         { label: 'Промет', act: { href: '/g_trgv' }, title: 'Евиденција во трговијата на големо (ЕТ)' },
         { label: 'Прегл. по налози', act: { href: '/nalozi' }, title: 'Налози за книжење' },
+        { label: '🔁 Месечни фактури', act: { href: '/periodicni' }, title: 'Периодични фактури – сите одеднаш (закупнина, услуги…)' },
       ] },
     ],
     menu: [
@@ -110,7 +111,8 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
         { label: 'Креирај производна калкулација за период', act: canWrite ? { href: '/izlez?nov&prod=1' } : { off: ro } },
         { label: 'Референтни документи за калкулација', act: { row: 'a[data-att]' } },
         { label: 'Префрлање во трговска книга материјално (селектирани)', act: { href: '/g_trgv' } },
-        { label: '✉ Испрати ја избраната по е-пошта', act: { row: 'a[data-mail]' }, cls: 'hx-sep' },
+        { label: '🔁 Периодични (месечни) фактури – сите одеднаш', act: { href: '/periodicni' }, cls: 'hx-sep', title: 'Месечните фактури (закупнина, услуги…) за сите комитенти одеднаш' },
+        { label: '✉ Испрати ја избраната по е-пошта', act: { row: 'a[data-mail]' } },
         { label: '📷 Прочитај / скенирај фактури (PDF)', act: { href: '/skan?k=sale' } },
         { label: 'Изглед на фактура…', act: { href: view + '?style' } },
       ] },
