@@ -5,7 +5,7 @@
   "name": "ДДВ-04 Даночна пријава на данокот на додадена вредност",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0967/sl.79_DDV-04_30.03.2022.pdf",
   "kind": "PDF",
-  "form": "i_ujp_ddv_04_danocna_prijava_n"
+  "form": "i_ujp_ddv_04_danocna_prijava_na_dano"
  },
  {
   "inst": "ujp",
@@ -13,7 +13,7 @@
   "name": "ДДВ-01 Пријава за регистрација за данокот на додадена вредност",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0962/DDV-01_Prijava_279_19_04.01.2020_1_web.pdf",
   "kind": "PDF",
-  "form": "i_ujp_ddv_01_prijava_za_regist"
+  "form": "i_ujp_ddv_01_prijava_za_registracija"
  },
  {
   "inst": "ujp",
@@ -21,7 +21,7 @@
   "name": "ДДВ-01Б Пријава за отповикување на регистрација за данокот на додадена вредност",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0096/DDV-01B_2025.pdf",
   "kind": "PDF",
-  "form": "i_ujp_ddv_01b_prijava_za_otpov"
+  "form": "i_ujp_ddv_01b_prijava_za_otpovikuvan"
  },
  {
   "inst": "ujp",
@@ -29,7 +29,7 @@
   "name": "ДДВ-ИПДО Извештај за извршени промети на добра и услуги за кои даночен должник е даночниот обврзник кон кого е извршен прометот",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0625/DDV-IPDO_Izvestaj_315-20_31.12.2020.pdf",
   "kind": "PDF",
-  "form": "i_ujp_ddv_ipdo_izvestaj_za_izv"
+  "form": "i_ujp_ddv_ipdo_izvestaj_za_izvrseni_"
  },
  {
   "inst": "ujp",
@@ -37,7 +37,7 @@
   "name": "ДБ Даночен биланс за оданочување на добивка",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0121/DB_Bilans_6-2020_11.01.2020_web.pdf",
   "kind": "PDF",
-  "form": "i_ujp_db_danocen_bilans_za_oda"
+  "form": "i_ujp_db_danocen_bilans_za_odanocuva"
  },
  {
   "inst": "ujp",
@@ -45,7 +45,7 @@
   "name": "ДБ-ВП Даночен биланс на вкупен приход",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0127/DB-VP_Bilans_174-14_01.01.2015.pdf",
   "kind": "PDF",
-  "form": "i_ujp_db_vp_danocen_bilans_na_"
+  "form": "i_ujp_db_vp_danocen_bilans_na_vkupen"
  },
  {
   "inst": "ujp",
@@ -53,7 +53,7 @@
   "name": "ДД-ИД Пресметка на данок на исплатена дивиденда и друга распределба од добивката",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/0302/DD-ID_Presmetka.pdf",
   "kind": "PDF",
-  "form": "i_ujp_dd_id_presmetka_na_danok"
+  "form": "i_ujp_dd_id_presmetka_na_danok_na_is"
  },
  {
   "inst": "ujp",
@@ -69,7 +69,7 @@
   "name": "ДЛД-ГДП Годишна даночна пријава за утврдување на данокот на личен доход",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/1264/Prijava_DLD-GDP_101-2020_15.04.2020.pdf",
   "kind": "PDF",
-  "form": "i_ujp_dld_gdp_godisna_danocna_"
+  "form": "i_ujp_dld_gdp_godisna_danocna_prijav"
  },
  {
   "inst": "ujp",
@@ -77,7 +77,7 @@
   "name": "ДЛД-ДБ Годишен даночен биланс за утврдување на данокот на доход од вршење на самостојна дејност",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/1221/DLD-DB_271_19_27.12.2019.pdf",
   "kind": "PDF",
-  "form": "i_ujp_dld_db_godisen_danocen_b"
+  "form": "i_ujp_dld_db_godisen_danocen_bilans_"
  },
  {
   "inst": "ujp",
@@ -93,7 +93,7 @@
   "name": "Б/УПД Барање за издавање на уверение на даноци, придонеси и други јавни давачки",
   "url": "https://www.ujp.gov.mk/files/attachment/0000/1398/B-UPD.pdf",
   "kind": "PDF",
-  "form": "i_ujp_b_upd_baranje_za_izdavan"
+  "form": "i_ujp_b_upd_baranje_za_izdavanje_na_"
  },
  {
   "inst": "ujp",
@@ -293,7 +293,7 @@
   "name": "Н1 Барање за надоместок на плата поради болест/нега",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.10.-obrazec-n1-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_n1_baranje_za_nadomestok_na_pl"
  },
  {
   "inst": "fzo",
@@ -301,7 +301,7 @@
   "name": "Н2 Барање за надоместок на плата поради бременост и раѓање",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.11.-obrazec-n2-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_n2_baranje_za_nadomestok_na_pl"
  },
  {
   "inst": "fzo",
@@ -309,7 +309,7 @@
   "name": "Н3 Барање за надоместок на плата поради повреда на работа/професионална болест",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.12.-obrazec-n3-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_n3_baranje_za_nadomestok_na_pl"
  },
  {
   "inst": "fzo",
@@ -317,7 +317,7 @@
   "name": "Н4 Барање за надоместок на плата поради бременост и раѓање во висина од 50% од утврдениот надоместок поради враќање на работа",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.13.-obrazec-n4-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_n4_baranje_za_nadomestok_na_pl"
  },
  {
   "inst": "fzo",
@@ -325,7 +325,7 @@
   "name": "Н5 Барање за надоместок на плата поради отсуство од работа за родителство на таткото/посвоителот на детето",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.14.-obrazec-n5-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_n5_baranje_za_nadomestok_na_pl"
  },
  {
   "inst": "fzo",
@@ -333,7 +333,7 @@
   "name": "БП Барање за издавање на потврда од евиденциите за задолжително здравствено осигурување",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/9.15.-obrazec-bp-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_bp_baranje_za_izdavanje_na_pot"
  },
  {
   "inst": "fzo",
@@ -341,7 +341,7 @@
   "name": "Д1 Барање за издавање на двојазичен образец за работници упатени на привремена работа во држава со која РМ има склучено (преземено) Договор за социјално осигурување",
   "url": "https://fzo.org.mk/sites/default/files/fzo/osigurenici/obrasci/nemedicinski/mk/10.10-obrazec-d1-mkd.pdf",
   "kind": "PDF",
-  "form": null
+  "form": "i_fzom_d1_baranje_za_izdavanje_na_dvo"
  },
  {
   "inst": "fzo",
@@ -381,7 +381,7 @@
   "name": "Барање за својство на осигуреник",
   "url": "https://www.piom.com.mk/wp-content/uploads/2016/01/Baranje-za-svojstvo-na-osigurenik.pdf",
   "kind": "PDF",
-  "form": "i_piom_baranje_za_svojstvo_na_o"
+  "form": null
  },
  {
   "inst": "fpiom",
@@ -444,6 +444,206 @@
   "code": "",
   "name": "Сите обрасци на официјалната страница",
   "url": "https://www.piom.com.mk/informacii/formulari/",
+  "kind": "WEB",
+  "form": null
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – занаетчиска дејност",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-JVJe.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_zanaetciska_dejnost"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – занаетчиска  АL (МК / АЛ)",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-ox5Q.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_zanaetciska_al_mk_al"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – трговија",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-AopC.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_trgovija"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – трговија  AL",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-cZvb.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_trgovija_al"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – туристичка дејност",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-jD2u.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_turisticka_dejnost"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – туристичка дејност  AL",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-eldb.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_turisticka_dejnost_al"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – угостителска дејност",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-r9Rm.pdf",
+  "kind": "PDF",
+  "form": "i_dpi_mtu_ugostitelska_dejnost"
+ },
+ {
+  "inst": "dpi",
+  "code": "МТУ",
+  "name": "Пријава за минимални технички услови – угостителска  AL",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-EhZM.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Уплатница за административна такса",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-sZ7Q.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за овластување на тело за заштита на колективни интереси и права на потрошувачите",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-3swP.doc",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за издавање на решенија за категоризација на угостителски објекти - ресторани",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-Gitp.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за донесување на решение за издавање на лиценца за вршење угостителска дејност во кабаре, ноќен бар, дискоклуб и дискоклуб на отворен простор",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-rGEF.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Известување за туристички дејности",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-oNyG.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за донесување на решение за издавање на лиценца за вршење туристичка дејност",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-jem4.pdf",
+  "kind": "PDF",
+  "form": "i_me_baranje_za_donesuvanje_na_rese_2"
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за издавање на решение за категоризација на угостителски објекти за сместување",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-Hx6j.pdf",
+  "kind": "PDF",
+  "form": "i_me_baranje_za_izdavanje_na_reseni_2"
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за добивање на ознака за рурална средина",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-PFD2.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање за добивање на право за користење на ознаката национален ресторан - меана",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-I1t1.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Барање (стручен испит за идентификација)",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-Sa3g.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Изјава (стручен испит за идентификација)",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-EltZ.docx",
+  "kind": "DOC",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Пријава за полагање на стручен испот за индентификација",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-4FRN.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Б а р а њ е за донесување на решение за овластување на правното лице за вршење на работи на техничка служба",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-SRhr.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Б а р а њ е на правното лице за вршење на технички преглед за добивање на решение за овластување за вршење на работите во постапката за идентификација и оцена на техничката состојба на возилата",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-l8rL.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Б а р а њ е за донесување на решение на правното лице за овластување за исполнетсост на условите за вршење на технички прегледи и периодични испитувања",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-RsZ9.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Б а р а њ е за донесување на решение за овластување на правното лице за вршење на оцена на сообразност",
+  "url": "https://portal.mdt.gov.mk/post-body-files/formulari-file-W78w.pdf",
+  "kind": "PDF",
+  "form": null
+ },
+ {
+  "inst": "me",
+  "code": "",
+  "name": "Сите обрасци на официјалната страница",
+  "url": "https://www.economy.gov.mk/mk-MK/dokumenti/formulari",
   "kind": "WEB",
   "form": null
  },
