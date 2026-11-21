@@ -41,13 +41,17 @@ export function JournalEditor({ initial, title = '', chart: chart0, partners, nu
     const k = (e: KeyboardEvent) => {
       if (fe || e.defaultPrevented) return; // the dialog has its own keys (F9 / Esc)
       if (e.key === 'F4') { e.preventDefault(); formRef.current?.requestSubmit(); }
-      else if (e.key === 'Escape') { e.preventDefault(); router.push(cancelHref); }
+      else if (e.key === 'Escape') { e.preventDefault(); if (leaveOk()) router.push(cancelHref); }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [router, cancelHref, fe]);
   const [st, action, pending] = useActionState<ActionState, FormData>(saveJournal, {});
   const [j, setJ] = useState(initial);
+  const jRef = useRef(initial); jRef.current = j;
+  /** Leaving with changes (a line removed with ✕, an amount changed) that are not saved: they would come back – ask first. */
+  const leaveOk = () => JSON.stringify(jRef.current) === JSON.stringify(initial)
+    || window.confirm('Промените (избришани / изменети ставки) НЕ се зачувани – ќе се вратат. Да се излезе без зачувување? „Откажи“ = остани и зачувај со „Зачувај (F4)“.');
   const names = new Map(chart);
   const set = (p: Partial<EditorJournal>) => setJ((x) => ({ ...x, ...p }));
   const setRow = (i: number, p: Partial<EditorRow>) => setJ((x) => ({ ...x, rows: x.rows.map((r, k) => (k === i ? { ...r, ...p } : r)) }));
@@ -75,7 +79,7 @@ export function JournalEditor({ initial, title = '', chart: chart0, partners, nu
       <div className="hd">
         <h1>{j.id ? (initial.rows.length ? 'Корекција на налог ' : 'Книжење – налог ') + j.number : 'Рачен налог за книжење'}{title && <span className="mk">{title}</span>}</h1>
         <div className="row">
-          <Link className="btn" href={cancelHref}>Откажи (Esc)</Link>
+          <Link className="btn" href={cancelHref} onClick={(e) => { if (!leaveOk()) e.preventDefault(); }}>Откажи (Esc)</Link>
           <button className="btn pri" disabled={pending}>Зачувај (F4)</button>
         </div>
       </div>
