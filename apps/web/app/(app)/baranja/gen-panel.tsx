@@ -8,11 +8,25 @@ import { saveFirmFromForm } from './actions';
 const memKey = (id: string) => 'frm_' + id;
 const readMem = (id: string): Record<string, string> => { try { return JSON.parse(localStorage.getItem(memKey(id)) || '{}') as Record<string, string>; } catch { return {}; } };
 
+/**
+ * Print / PDF through a hidden frame of this page (no pop-up window): it works after the await of „save the typed
+ * firm data“, when the browser no longer counts the click and blocks `window.open` („Дозволете скокачки прозорци“).
+ */
 function printHtml(title: string, html: string) {
-  const w = window.open('', '_blank');
-  if (!w) { window.alert('Дозволете скокачки прозорци за печатење.'); return; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title.replace(/[<>&]/g, '')}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;margin:0}</style></head><body>${html}<script>window.onload=()=>setTimeout(()=>print(),300)</script></body></html>`);
-  w.document.close();
+  document.getElementById('req-print-frame')?.remove();
+  const f = document.createElement('iframe');
+  f.id = 'req-print-frame';
+  f.title = title;
+  f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  f.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>${title.replace(/[<>&]/g, '')}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;margin:0}</style></head><body>${html}</body></html>`;
+  f.onload = () => {
+    const w = f.contentWindow;
+    if (!w) return;
+    // the form's page images must be loaded before printing
+    const imgs = [...w.document.images];
+    Promise.all(imgs.map((i) => (i.complete ? null : new Promise((r) => { i.onload = r; i.onerror = r; })))).then(() => setTimeout(() => { w.focus(); w.print(); }, 150));
+  };
+  document.body.appendChild(f);
 }
 
 export function GenPanel({ tp, firm, firmId, firms, today }: { tp: ReqTpl | ReqForm; firm: ReqFirm; firmId: string; firms: { id: string; name: string }[]; today: string }) {
