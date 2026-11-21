@@ -19,7 +19,8 @@ import { XlsxButton } from '@/components/vp-tools';
 import { UploadField } from '@/components/upload-field';
 import { consentAction, importBenefAction, saveBenefAction } from './actions';
 import { DayList } from './day-list';
-import { ConsentDoc, NPO_DOC_CSS, ProcessingRecords } from './docs';
+import { FitDoc } from '@/components/fit-doc';
+import { ConsentDoc, ProcessingRecords } from './docs';
 import { KitchenReport, KitchenTab } from './kitchen';
 
 const T = 'Корисници и оброци';
@@ -109,11 +110,11 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
             </BankForm>
           </div>
         )}
-        <style>{NPO_DOC_CSS}</style>
-        <div className="pdfwrap"><div id="consentDocs">
-          {list.map((b, i) => <div key={b.id} className="pdfdoc npoDoc" style={{ margin: '0 auto 8mm', width: '100%', maxWidth: '190mm', ...(i ? { breakBefore: 'page' as const } : {}) }}><ConsentDoc b={b} firm={firm} /></div>)}
-          {!list.length && <p className="muted">Сите активни корисници имаат согласност.</p>}
-        </div></div>
+        <div className="pdfwrap">
+          {list.length ? <FitDoc width="190mm"><div id="consentDocs">
+            {list.map((b, i) => <div key={b.id} className="pdfdoc" style={{ margin: '0 0 8mm', ...(i ? { breakBefore: 'page' as const } : {}) }}><ConsentDoc b={b} firm={firm} /></div>)}
+          </div></FitDoc> : <p className="muted">Сите активни корисници имаат согласност.</p>}
+        </div>
       </>
     );
   }
@@ -134,10 +135,9 @@ export default async function Obroci({ searchParams }: { searchParams: Promise<{
           {no.length > 0 && <Link className="btn sm" href="/obroci?t=k&sog=all">🖨 Согласности за сите без согласност</Link>}
         </div>
         <p className="note">Податоците за социјалната и здравствената состојба се посебна категорија лични податоци – се обработуваат само со изречна писмена согласност. Евиденцијата подолу е пополнета со податоците на здружението; проверете ја и потпишете ја.</p>
-        <style>{NPO_DOC_CSS}</style>
-        <div className="card"><div className="pdfwrap"><div id="zzlpRec" className="pdfdoc land npoDoc" style={{ margin: '0 auto', width: '100%', maxWidth: '277mm' }}>
+        <div className="card"><div className="pdfwrap"><FitDoc width="277mm"><div id="zzlpRec" className="pdfdoc land">
           <ProcessingRecords firm={firm} today={today()} counts={{ benef: act.length, members: M.filter((m) => !m.left).length }} />
-        </div></div></div>
+        </div></FitDoc></div></div>
       </>
     );
   }
