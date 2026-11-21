@@ -75,7 +75,8 @@ export function izlezHelix(view: string, canWrite: boolean, hasWh: boolean): { g
     ],
     menu: [
       { label: 'Специјални опции', items: [
-        { label: '📷 Скенирај фактури (PDF)', act: { href: '/skan?k=sale' } },
+        { label: '+ Нова фактура (цел екран)', act: canWrite ? { href: view + '?nov' } : { off: ro } },
+        { label: '📷 Прочитај / скенирај фактури (PDF)', act: { href: '/skan?k=sale' } },
         { label: 'Увоз од Excel', act: { href: `/uvoz?t=invoices&back=${view.slice(1)}` } },
         { label: '🏭 Нова фактура од производство', act: canWrite ? { href: '/izlez?nov&prod=1' } : { off: ro } },
         { label: 'Периодични фактури', act: { href: '/periodicni' } },
